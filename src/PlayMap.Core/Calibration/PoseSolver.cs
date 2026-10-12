@@ -312,11 +312,26 @@ public static class PoseSolver
         }
     }
 
-    /// <summary>Reprojection residuals over the chosen pairs.</summary>
+    /// <summary>Reprojection residuals over the chosen pairs, with the analytic Jacobian. Residuals are
+    /// multiplied by <see cref="Scale"/>, chosen so the largest diagonal of JᵀJ is one at the start: the
+    /// solver's first damping is then the intended small fraction of each diagonal whatever the units.</summary>
     private sealed class Problem(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start) : ILeastSquaresProblem
     {
         public int ParameterCount => layout.Count;
         public int ResidualCount => use.Length * 2;
+        public double Scale { get; private set; } = 1;
+
+        public void Normalise(double[] p0)
+        {
+            var j = new DenseMatrix(ResidualCount, ParameterCount);
+            Scale = 1;
+            Jacobian(p0, j);
+            var n = j.NormalMatrix();
+            var max = 0.0;
+            for (var i = 0; i < ParameterCount; i++)
+                max = Math.Max(max, n[i, i]);
+            Scale = max > 1e-300 && double.IsFinite(max) ? 1 / Math.Sqrt(max) : 1;
+        }
 
         public void Residuals(ReadOnlySpan<double> parameters, Span<double> residuals)
         {
@@ -326,27 +341,111 @@ public static class PoseSolver
                 var i = use[k];
                 if (m.Project(world[i]) is { } p)
                 {
-                    residuals[2 * k] = p.X - pixels[i].X;
-                    residuals[2 * k + 1] = p.Y - pixels[i].Y;
+                    residuals[2 * k] = (p.X - pixels[i].X) * Scale;
+                    residuals[2 * k + 1] = (p.Y - pixels[i].Y) * Scale;
                 }
                 else
                 {
                     // Behind the device: a cost no descent step accepts.
-                    residuals[2 * k] = 1e4;
-                    residuals[2 * k + 1] = 1e4;
+                    residuals[2 * k] = 1e4 * Scale;
+                    residuals[2 * k + 1] = 1e4 * Scale;
                 }
             }
         }
 
-        public bool Jacobian(ReadOnlySpan<double> parameters, DenseMatrix jacobian) => false;
+        public bool Jacobian(ReadOnlySpan<double> parameters, DenseMatrix jacobian)
+        {
+            var m = layout.Unpack(parameters, start);
+            var jl = LeftJacobian(new Vec3d(parameters[0], parameters[1], parameters[2]));
+            var jlt = jl.Transposed();
+            var rt = m.WorldToCamera.Transposed();
+            Array.Clear(jacobian.Data);
+            var cols = ParameterCount;
+            for (var k = 0; k < use.Length; k++)
+            {
+                var xc = m.WorldToCamera * (world[use[k]] - m.Centre);
+                if (!Projection.ProjectCamera(xc, m.Fx, m.Fy, m.Cx, m.Cy, m.Lens, out _, out var du, out var dv))
+                    continue;
+                var ru = jacobian.RowSpan(2 * k);
+                var rv = jacobian.RowSpan(2 * k + 1);
+                // Rotation increment: ∂Xc/∂ω = −[Xc]×·J_l(ω), so the row is J_lᵀ·(Xc × ∂u/∂Xc).
+                Put(ru, 0, jlt * Vec3d.Cross(xc, du));
+                Put(rv, 0, jlt * Vec3d.Cross(xc, dv));
+                // Centre: ∂Xc/∂C = −R.
+                Put(ru, 3, rt * du * -1);
+                Put(rv, 3, rt * dv * -1);
+                var c = 6;
+                var n = new Vec2d(xc.X / xc.Z, xc.Y / xc.Z);
+                if (layout.Focal)
+                {
+                    var d = CameraModel.Distort(n, m.Lens);
+                    if (layout.FreeAspect)
+                    {
+                        ru[c] = d.X;
+                        rv[c + 1] = d.Y;
+                        c += 2;
+                    }
+                    else
+                    {
+                        ru[c] = d.X;
+                        rv[c] = d.Y * layout.Aspect;
+                        c++;
+                    }
+                }
+                if (layout.Shift)
+                {
+                    ru[c] = 1;
+                    rv[c + 1] = 1;
+                    c += 2;
+                }
+                if (layout.Distortion)
+                {
+                    var r2 = n.LengthSquared;
+                    ru[c] = m.Fx * n.X * r2;
+                    rv[c] = m.Fy * n.Y * r2;
+                    ru[c + 1] = m.Fx * n.X * r2 * r2;
+                    rv[c + 1] = m.Fy * n.Y * r2 * r2;
+                }
+                if (Scale != 1)
+                {
+                    for (var a = 0; a < cols; a++)
+                    {
+                        ru[a] *= Scale;
+                        rv[a] *= Scale;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private static void Put(Span<double> row, int at, Vec3d v)
+        {
+            row[at] = v.X;
+            row[at + 1] = v.Y;
+            row[at + 2] = v.Z;
+        }
+    }
+
+    /// <summary>The left Jacobian of SO(3) at ω: exp(ω + δ) ≈ exp(J_l(ω)·δ)·exp(ω).</summary>
+    internal static Mat3d LeftJacobian(Vec3d w)
+    {
+        var theta = w.Length;
+        var k = Mat3d.Skew(w);
+        if (theta < 1e-8)
+            return Mat3d.Identity + k * 0.5;
+        var t2 = theta * theta;
+        return Mat3d.Identity + k * ((1 - Math.Cos(theta)) / t2) + k * k * ((theta - Math.Sin(theta)) / (t2 * theta));
     }
 
     private static (Model Model, double Cost) Refine(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start)
     {
         var problem = new Problem(world, pixels, use, layout, start);
-        var result = LevenbergMarquardt.Solve(problem, layout.Pack(start), maxIterations: 100, tolerance: 1e-12);
+        var p0 = layout.Pack(start);
+        problem.Normalise(p0);
+        var result = LevenbergMarquardt.Solve(problem, p0, maxIterations: 100, tolerance: 1e-12);
         var model = layout.Unpack(result.Parameters, start);
-        var cost = result.FinalRms * result.FinalRms * problem.ResidualCount;
+        var rms = result.FinalRms / problem.Scale;
+        var cost = rms * rms * problem.ResidualCount;
         return (model with { WorldToCamera = model.WorldToCamera.NearestRotation() }, cost);
     }
 
