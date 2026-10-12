@@ -20,6 +20,14 @@
     <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
   </ItemGroup>
 
+  <!-- Inter (SIL Open Font License, Assets/Inter-LICENSE-OFL.txt), embedded so the test patterns' type is
+       the same on every machine, stripped-down render nodes included. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Inter-Regular.ttf" LogicalName="PlayMap.Render.Assets.Inter-Regular.ttf" />
+    <EmbeddedResource Include="Assets\Inter-SemiBold.ttf" LogicalName="PlayMap.Render.Assets.Inter-SemiBold.ttf" />
+    <None Include="Assets\Inter-LICENSE-OFL.txt" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="PlayMap.Render.Tests" />
   </ItemGroup>
