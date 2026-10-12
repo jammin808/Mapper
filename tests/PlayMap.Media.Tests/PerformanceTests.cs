@@ -1,0 +1,97 @@
+using System.Diagnostics;
+using PlayMap.Core.Time;
+using PlayMap.Media.Sources;
+using Xunit.Abstractions;
+
+namespace PlayMap.Media.Tests;
+
+/// <summary>The frame path's costs, measured: no managed allocation per frame once warm (decode thread and
+/// consumer), and the software decode rate of a 1080p H.264 clip through the whole source (demux, decode,
+/// copy into the pool, queue, acquire), reported beside FFmpeg's own decode-only rate on this machine.</summary>
+public class PerformanceTests(ITestOutputHelper output)
+{
+    [Fact]
+    public async Task PlayingAllocatesNothingPerFrameOnceWarm()
+    {
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));
+        Assert.True(await source.Opened);
+        var rate = FrameRate.Fps25;
+        // Three windows of 120 frames: the first warms what is made once (lazily bound entry points, a wait
+        // handle's first block); the last must cost nothing on either side.
+        var decodeAt = new long[4];
+        var consumer = new long[3];
+        for (var n = 0; n < 480; n++)
+        {
+            var t = rate.TimeOf(n) + 1;
+            Assert.True(source.WaitUntilReady(t, TimeSpan.FromSeconds(10)));
+            if (n % 120 == 0)
+                decodeAt[n / 120] = source.DecodeThreadAllocatedBytes;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            source.Prepare(t, true, 1);
+            var lease = source.Acquire(t);
+            lease?.Dispose();
+            var after = GC.GetAllocatedBytesForCurrentThread();
+            if (n >= 120)
+                consumer[n / 120 - 1] += after - before;
+            Assert.NotNull(lease);
+        }
+        var windows = new[] { decodeAt[2] - decodeAt[1], decodeAt[3] - decodeAt[2] };
+        output.WriteLine($"decode thread per 120 frames: {windows[0]} B, {windows[1]} B; consumer: {consumer[0]} B, {consumer[1]} B, {consumer[2]} B");
+        Assert.Equal(0, windows[1]);
+        Assert.Equal(0, consumer[1] + consumer[2]);
+    }
+
+    [Fact]
+    public async Task A1080pH264DecodesFasterThanRealTimeInSoftware()
+    {
+        var clip = TestMedia.Clip("h264_1080.mp4");
+        using var source = new FfmpegVideoSource(clip, new VideoSourceOptions { Decoder = new Ffmpeg.DecoderOptions { AllowHardware = false } });
+        Assert.True(await source.Opened, source.Health.Status);
+        var rate = FrameRate.Fps25;
+        var frames = (int)rate.FrameAt(source.Info.DurationNs - 1) + 1;
+        var clock = Stopwatch.StartNew();
+        for (var n = 0; n < frames; n++)
+        {
+            var t = rate.TimeOf(n);
+            source.Prepare(t, true, 1);
+            Assert.True(source.WaitUntilReady(t, TimeSpan.FromSeconds(20)), source.Health.Status);
+            using var lease = source.Acquire(t);
+            Assert.NotNull(lease);
+        }
+        var fps = frames / clock.Elapsed.TotalSeconds;
+
+        // FFmpeg's own decode-only rate of the same file, for scale.
+        var tool = Stopwatch.StartNew();
+        TestMedia.Run("-threads", "0", "-i", clip, "-f", "null", "-");
+        var toolFps = frames / tool.Elapsed.TotalSeconds;
+        var health = source.Health;
+        output.WriteLine($"1080p H.264, {frames} frames, {Environment.ProcessorCount} cores: source {fps:0.0} fps " +
+            $"(decode p95 {health.DecodeMsP95:0.00} ms/frame, {health.Decoder}); ffmpeg decode-only {toolFps:0.0} fps");
+        Assert.True(fps > 25, $"{fps:0.0} fps is slower than real time");
+    }
+
+    [Fact]
+    public async Task EverySeekLandsOnItsFrame()
+    {
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));
+        Assert.True(await source.Opened);
+        var rate = FrameRate.Fps25;
+        // A fixed scatter of targets over the 500 frames (a seeded walk, so a failure reproduces).
+        var rng = new Core.Numerics.Pcg32(42);
+        var exact = 0;
+        var clock = Stopwatch.StartNew();
+        const int seeks = 60;
+        for (var i = 0; i < seeks; i++)
+        {
+            var n = rng.NextInt(500);
+            var t = rate.TimeOf(n) + rng.NextInt((int)rate.FrameDurationNs);
+            source.Prepare(t, false, 1);
+            Assert.True(source.WaitUntilReady(t, TimeSpan.FromSeconds(10)));
+            using var lease = source.Acquire(t)!;
+            if (TestMedia.ReadIndex(lease) == n)
+                exact++;
+        }
+        output.WriteLine($"{exact}/{seeks} random seeks frame-exact, {clock.Elapsed.TotalMilliseconds / seeks:0.0} ms per seek (320x240, GOP 50)");
+        Assert.Equal(seeks, exact);
+    }
+}
