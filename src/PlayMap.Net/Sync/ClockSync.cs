@@ -183,7 +183,9 @@ public enum SyncQuality
     Lost,
 }
 
-/// <summary>Where the follower's clock stands against its leader.</summary>
+/// <summary>Where the follower's clock stands against its leader: the offset of the exchange with the smallest round
+/// trip (what was measured — the clock itself also applies the drift between exchanges), its round trip (the offset
+/// is exact only for a symmetric path: the error is at most half of it), the drift, the quality.</summary>
 public sealed record SyncSnapshot(string Leader, double OffsetNs, long RoundTripNs, double DriftPpm, int Samples, SyncQuality Quality)
 {
     public static readonly SyncSnapshot None = new("", 0, 0, 0, 0, SyncQuality.None);
@@ -376,7 +378,7 @@ public sealed class ClockSyncClient : IAsyncDisposable
                 : rtt <= Durations.NsPerMs ? SyncQuality.Fine
                 : rtt <= 5 * Durations.NsPerMs ? SyncQuality.Fair
                 : SyncQuality.Poor;
-            _snapshot = new SyncSnapshot(_leader.ToString(), estimator.OffsetAt(t4), rtt, estimator.Drift * 1e6, estimator.Samples, quality);
+            _snapshot = new SyncSnapshot(_leader.ToString(), estimator.Offset, rtt, estimator.Drift * 1e6, estimator.Samples, quality);
             return true;
         }
     }

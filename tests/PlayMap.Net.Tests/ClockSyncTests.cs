@@ -34,12 +34,13 @@ public class ClockSyncTests
         {
             Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
             var s = follower.Snapshot;
-            Assert.InRange(s.OffsetMs, -2, 2);
+            var bound = 1 + s.RoundTripMs / 2;   // an exchange's offset is exact to within half its round trip
+            Assert.InRange(s.OffsetMs, -bound, bound);
             Assert.InRange(s.RoundTripMs, 0, 20);
             Assert.NotEqual(SyncQuality.None, s.Quality);
             Assert.NotEqual(SyncQuality.Acquiring, s.Quality);
             Assert.True(follower.Clock.IsFollowing);
-            Assert.InRange(Math.Abs(follower.Clock.NowNs - MonoClock.Instance.NowNs) / 1e6, 0, 3);
+            Assert.InRange(Math.Abs(follower.Clock.NowNs - MonoClock.Instance.NowNs) / 1e6, 0, 3 + s.RoundTripMs);
         }
     }
 
@@ -52,9 +53,11 @@ public class ClockSyncTests
         await using (follower)
         {
             Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
-            Assert.InRange(follower.Snapshot.OffsetNs, ahead - 2e6, ahead + 2e6);
+            var s = follower.Snapshot;
+            var bound = 1e6 + s.RoundTripNs / 2.0;
+            Assert.InRange(s.OffsetNs, ahead - bound, ahead + bound);
             var leaderNow = MonoClock.Instance.NowNs + ahead;
-            Assert.InRange((follower.Clock.NowNs - leaderNow) / 1e6, -3, 3);
+            Assert.InRange((follower.Clock.NowNs - leaderNow) / 1e6, -3 - s.RoundTripMs, 3 + s.RoundTripMs);
             Assert.True(leader.Answered >= 8);
             await follower.StopAsync();
             Assert.False(follower.Clock.IsFollowing);
