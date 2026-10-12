@@ -40,7 +40,7 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     {
         _session = session;
         Inspector = new InspectorHost(session);
-        Pen.Closed += path => _ = CommitPenAsync(path);
+        Pen.Closed += path => LastPenCommit = CommitPenAsync(path);
         SelectTool = new RelayCommand(() => Tool = MapTool.Select);
         PinTool = new RelayCommand(() => Tool = MapTool.Pin);
         WarpTool = new RelayCommand(() => Tool = MapTool.Warp);
@@ -69,6 +69,9 @@ public sealed class MapViewModel : ObservableObject, IDisposable
 
     public InspectorHost Inspector { get; }
 
+    /// <summary>The send a closed pen path started (awaitable by whoever needs to know it landed).</summary>
+    public Task LastPenCommit { get; private set; } = Task.CompletedTask;
+
     public ObservableCollection<OutlinerGroup> Outliner { get; } = [];
 
     public SceneCache Scene { get; } = new();
@@ -78,6 +81,9 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     public PenTool Pen { get; } = new();
 
     public Project? Project => _project;
+
+    /// <summary>The node the desk is on (its preview rings are named after it).</summary>
+    public string NodeId => _session.NodeId;
 
     /// <summary>The session the outliner's actions send through.</summary>
     internal DeskSession SessionForNodes => _session;
@@ -178,7 +184,7 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         {
             if (Set(ref _isProjectorView, value))
             {
-                Raise(nameof(Is3DView), nameof(ToolHint), nameof(ViewTitle));
+                Raise(nameof(Is3DView), nameof(ToolHint), nameof(ViewTitle), nameof(ViewId));
                 SceneChanged?.Invoke();
             }
         }
@@ -266,7 +272,7 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         if (_selectedId is not null && !Outliner.Any(g => g.Nodes.Any(n => n.Id == _selectedId)))
             Select("", null);
         Inspector.Refresh(p, _session.State);
-        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint));
+        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint), nameof(NodeId), nameof(ViewId));
         SceneChanged?.Invoke();
     }
 

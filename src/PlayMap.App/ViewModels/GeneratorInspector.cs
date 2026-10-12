@@ -114,10 +114,27 @@ public abstract class ParamEditor : ObservableObject
     public ParamSpec Spec { get; }
 
     /// <summary>"Cell size in pixels" — the catalogue's words.</summary>
-    public string Words => Spec.Words;
+    public string Hint => Spec.Words;
 
-    /// <summary>"cell" → "Cell".</summary>
-    public string Label => Spec.Name.Length == 0 ? "" : char.ToUpperInvariant(Spec.Name[0]) + Spec.Name[1..];
+    /// <summary>"cell" → "Cell", "sizeMin" → "Size min", "pxPerFrame" → "Px per frame".</summary>
+    public string Label => Words(Spec.Name);
+
+    public static string Words(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var sb = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (i == 0)
+                sb.Append(char.ToUpperInvariant(c));
+            else if (char.IsUpper(c))
+                sb.Append(' ').Append(char.ToLowerInvariant(c));
+            else
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
 
     public static ParamEditor For(GeneratorInspector owner, GeneratorKind kind, ParamSpec spec)
     {

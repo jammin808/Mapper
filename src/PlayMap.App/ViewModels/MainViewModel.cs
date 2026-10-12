@@ -37,6 +37,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private bool _aiAttention;
     private string _vtChip = "";
     private string _focusedName = "";
+    private readonly Dictionary<string, string> _views = new(StringComparer.Ordinal);
 
     public MainViewModel(DeskSession session)
     {
@@ -75,6 +76,11 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         Network = new NetworkDrawerViewModel(session, _connections);
         Connect = new ConnectViewModel(_connections);
         Shortcuts = ShortcutMap.Build(this);
+        Map.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView))
+                UpdateViews();
+        };
         session.StateUpdated += OnState;
         session.ProjectUpdated += OnProject;
         session.StatusUpdated += OnStatus;
@@ -132,7 +138,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         set
         {
             if (Set(ref _workspace, value))
+            {
                 Raise(nameof(IsPlay), nameof(IsMap), nameof(IsScan));
+                UpdateViews();
+            }
         }
     }
 
@@ -362,6 +371,48 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         Scan.OnState(s);
         Outputs.OnState(s);
         Network.OnState(s);
+        UpdateViews();
+    }
+
+    /// <summary>Asks the engine for the preview views the current workspace shows and lets go of the rest
+    /// (VIEW &lt;view&gt; SHOW &lt;what&gt; &lt;w&gt;x&lt;h&gt; / VIEW &lt;view&gt; HIDE), quietly: a node without
+    /// previews still plays, and the views draw their own stand-in.</summary>
+    private void UpdateViews()
+    {
+        if (!Session.IsLive)
+            return;
+        var want = new Dictionary<string, string>(StringComparer.Ordinal);
+        switch (_workspace)
+        {
+            case Workspace.Play:
+                foreach (var p in Play.Previews)
+                    want[p.ViewId] = $"output:{p.Id} 480x270";
+                break;
+            case Workspace.Map when Map.IsProjectorView && Map.ViewProjector is { } pj:
+                want[Map.ViewId] = $"projector:{pj.Id} {pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture)}x{pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture)}";
+                break;
+            case Workspace.Map:
+                want["editor"] = "editor 1280x720";
+                break;
+            case Workspace.Scan:
+                if (Scan.Camera is { } cam)
+                    want["scan-camera"] = $"camera:{cam.Id} 960x540";
+                if (Scan.ScanId is { } id && Scan.IsDone)
+                    want[Scan.ReviewViewId] = $"scan:{id}:{(Scan.ShowConfidence ? "confidence" : "smart")} 1280x720";
+                break;
+        }
+        foreach (var view in _views.Keys.Where(v => !want.ContainsKey(v)).ToList())
+        {
+            _views.Remove(view);
+            _ = Session.SendQuietAsync($"VIEW {view} HIDE");
+        }
+        foreach (var (view, what) in want)
+        {
+            if (_views.TryGetValue(view, out var had) && had == what)
+                continue;
+            _views[view] = what;
+            _ = Session.SendQuietAsync($"VIEW {view} SHOW {what}");
+        }
     }
 
     private void UpdateNetworkPill(StateSnapshot s)

@@ -171,6 +171,40 @@ public sealed class OutputsDrawerViewModel : ObservableObject
         }
     }
 
+    /// <summary>The number boxes' view of the grid (they speak decimal).</summary>
+    public decimal? GridColumnsValue
+    {
+        get => _gridColumns;
+        set
+        {
+            if (value is { } v)
+                GridColumns = (int)v;
+            Raise();
+        }
+    }
+
+    public decimal? GridRowsValue
+    {
+        get => _gridRows;
+        set
+        {
+            if (value is { } v)
+                GridRows = (int)v;
+            Raise();
+        }
+    }
+
+    public decimal? GridOverlapValue
+    {
+        get => (decimal)_gridOverlap;
+        set
+        {
+            if (value is { } v)
+                GridOverlap = (double)v;
+            Raise();
+        }
+    }
+
     public string GridSentence => string.Create(CultureInfo.InvariantCulture,
         $"The first {_gridColumns * _gridRows} canvas output(s) become a {_gridColumns}×{_gridRows} grid over the main canvas, overlapping {_gridOverlap:0} px with soft edges.");
 

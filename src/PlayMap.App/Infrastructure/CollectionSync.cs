@@ -4,7 +4,8 @@ namespace PlayMap.App.Infrastructure;
 
 /// <summary>Brings an observable list of view models in line with a model list by id: an existing view model
 /// is updated in place (so selection, focus and scroll survive a push), a new id gets a new one, a gone id
-/// is removed, and the order follows the model. A push that changes nothing touches nothing.</summary>
+/// is removed, and the order follows the model. A new view model is made, then updated like any other, so
+/// one update path fills every field. A push that changes nothing touches nothing.</summary>
 public static class CollectionSync
 {
     public static void SyncById<TVm, TModel>(
@@ -40,7 +41,9 @@ public static class CollectionSync
             }
             if (at < 0)
             {
-                target.Insert(i, create(m));
+                var made = create(m);
+                target.Insert(i, made);
+                update(made, m);
                 continue;
             }
             if (at != i)

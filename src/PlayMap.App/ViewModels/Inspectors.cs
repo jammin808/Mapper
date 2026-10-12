@@ -82,8 +82,15 @@ public abstract class InspectorViewModel : ObservableObject
     public IReadOnlyList<DeskAction> Actions
     {
         get => _actions;
-        protected set => Set(ref _actions, value);
+        protected set
+        {
+            if (Set(ref _actions, value))
+                Raise(nameof(Toolbar));
+        }
     }
+
+    /// <summary>The actions the inspector's bar shows (the menu holds them all).</summary>
+    public IReadOnlyList<DeskAction> Toolbar => _actions.Toolbar();
 
     /// <summary>True while fields are being loaded from the mirror (a load never sends).</summary>
     protected bool Loading { get; private set; }
@@ -340,6 +347,9 @@ public sealed class PlaylistItemInspector : InspectorViewModel
     }
 }
 
+/// <summary>One line of facts in an inspector.</summary>
+public sealed record Fact(string Key, string Value);
+
 /// <summary>A choice in a picker: an id and the words shown.</summary>
 public sealed record ItemChoice(string Id, string Name)
 {
@@ -398,6 +408,10 @@ public sealed class PlaylistInspector : InspectorViewModel
         private set => Set(ref _facts, value);
     }
 
+    public RelayCommand CommitSyncCommand => _commitSync ??= new RelayCommand(CommitSync);
+
+    private RelayCommand? _commitSync;
+
     public void CommitSync()
     {
         var g = _syncGroup.Trim();
@@ -427,7 +441,7 @@ public sealed class MediaInspector : InspectorViewModel
 {
     private readonly PlayViewModel _play;
     private string _name = "";
-    private IReadOnlyList<KeyValuePair<string, string>> _facts = [];
+    private IReadOnlyList<Fact> _facts = [];
 
     public MediaInspector(DeskSession session, string id, PlayViewModel play) : base(session, id) => _play = play;
 
@@ -443,7 +457,7 @@ public sealed class MediaInspector : InspectorViewModel
         }
     }
 
-    public IReadOnlyList<KeyValuePair<string, string>> Facts
+    public IReadOnlyList<Fact> Facts
     {
         get => _facts;
         private set => Set(ref _facts, value);
@@ -462,11 +476,11 @@ public sealed class MediaInspector : InspectorViewModel
         if (vm is not null)
             Actions = vm.Actions;
         var i = m.Info;
-        var facts = new List<KeyValuePair<string, string>>();
+        var facts = new List<Fact>();
         void F(string k, string v)
         {
             if (v.Length > 0)
-                facts.Add(new(k, v));
+                facts.Add(new Fact(k, v));
         }
         F("Availability", vm?.AvailabilityTip ?? "");
         F("Length", i.DurationNs > 0 ? VerbText.Clock(i.DurationNs / 1_000_000) : "");

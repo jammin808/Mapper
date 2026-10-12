@@ -1,0 +1,120 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             xmlns:ui="using:PlayMap.App.Controls"
+             xmlns:views="using:PlayMap.App.Views"
+             x:Class="PlayMap.App.Views.MapView"
+             x:DataType="vm:MapViewModel">
+  <Grid ColumnDefinitions="290,*,360" Margin="10" ColumnSpacing="10">
+
+    <!-- The scene outliner: every object with its visibility and lock, and its right-click menu. -->
+    <Border Grid.Column="0" Classes="panel" Padding="8">
+      <ScrollViewer>
+        <ItemsControl x:Name="Outliner" ItemsSource="{Binding Outliner}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:OutlinerGroup">
+              <StackPanel Margin="0,0,0,10">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6" Margin="4,2">
+                  <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="13" Height="13" Foreground="{StaticResource DeskTextFaintBrush}" />
+                  <TextBlock Grid.Column="1" Classes="h2" Text="{Binding Title}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Classes="faint" Text="{Binding Count}" VerticalAlignment="Center" />
+                  <Button Grid.Column="3" Classes="tool small" IsVisible="{Binding CanAdd}" ToolTip.Tip="Add…" Click="OnAddClick">
+                    <PathIcon Data="{StaticResource Icon.plus}" Width="13" Height="13" />
+                  </Button>
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Nodes}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:OutlinerNode">
+                      <Border Classes="row" Classes.selected="{Binding IsSelected}" ui:DeskMenu.Actions="{Binding Actions}">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                          <Button Classes="row" Command="{Binding SelectCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                              <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+                              <StackPanel Grid.Column="1">
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Classes="faint" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                              </StackPanel>
+                            </Grid>
+                          </Button>
+                          <Button Grid.Column="1" Classes="tool small" IsVisible="{Binding HasEye}" Command="{Binding EyeAction.Command, FallbackValue={x:Null}}"
+                                  ToolTip.Tip="{Binding EyeAction.Tip, FallbackValue=''}">
+                            <Panel>
+                              <PathIcon Data="{StaticResource Icon.eye}" Width="14" Height="14" IsVisible="{Binding Visible}" />
+                              <PathIcon Data="{StaticResource Icon.eyeoff}" Width="14" Height="14" IsVisible="{Binding !Visible}" Foreground="{StaticResource DeskTextFaintBrush}" />
+                            </Panel>
+                          </Button>
+                          <Button Grid.Column="2" Classes="tool small" IsVisible="{Binding HasLock}" Command="{Binding LockAction.Command, FallbackValue={x:Null}}"
+                                  ToolTip.Tip="{Binding LockAction.Tip, FallbackValue=''}">
+                            <Panel>
+                              <PathIcon Data="{StaticResource Icon.lock}" Width="13" Height="13" IsVisible="{Binding Locked}" Foreground="{StaticResource LightAmberBrush}" />
+                              <PathIcon Data="{StaticResource Icon.unlock}" Width="13" Height="13" IsVisible="{Binding !Locked}" Foreground="{StaticResource DeskTextFaintBrush}" />
+                            </Panel>
+                          </Button>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <!-- The editor: tools, the 3D view or the projector view, the pen's options. -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+      <Border Classes="panel" Padding="6">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+          <StackPanel Orientation="Horizontal" Spacing="2">
+            <RadioButton GroupName="tool" x:Name="SelectToolButton" Classes="tool" IsChecked="{Binding IsSelectTool}" ToolTip.Tip="Select  (Q)">
+              <PathIcon Data="{StaticResource Icon.select}" />
+            </RadioButton>
+            <RadioButton GroupName="tool" x:Name="PinToolButton" Classes="tool" IsChecked="{Binding IsPinTool}" ToolTip.Tip="Pins  (P) — 3D point ↔ projector pixel">
+              <PathIcon Data="{StaticResource Icon.pin}" />
+            </RadioButton>
+            <RadioButton GroupName="tool" x:Name="WarpToolButton" Classes="tool" IsChecked="{Binding IsWarpTool}" ToolTip.Tip="Warp  (W) — corner pin and lattice">
+              <PathIcon Data="{StaticResource Icon.warp}" />
+            </RadioButton>
+            <RadioButton GroupName="tool" x:Name="PenToolButton" Classes="tool" IsChecked="{Binding IsPenTool}" ToolTip.Tip="Pen  (B) — Bézier masks">
+              <PathIcon Data="{StaticResource Icon.pen}" />
+            </RadioButton>
+            <Button x:Name="PatternButton" Classes="tool" ToolTip.Tip="Test pattern  (T)" Click="OnPatternClick">
+              <PathIcon Data="{StaticResource Icon.pattern}" />
+            </Button>
+          </StackPanel>
+          <Border Grid.Column="1" Classes="chip" Padding="3" Margin="12,0">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <RadioButton GroupName="view" Classes="seg" Content="3D" IsChecked="{Binding Is3DView}" ToolTip.Tip="The stage from the orbit camera  (Tab)" />
+              <RadioButton GroupName="view" x:Name="ProjectorViewButton" Classes="seg" Content="Projector" IsChecked="{Binding IsProjectorView}" ToolTip.Tip="What the projector sees  (Tab)" />
+            </StackPanel>
+          </Border>
+          <TextBlock Grid.Column="2" Classes="dim" Text="{Binding ToolHint}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Margin="4,0" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="panel" ClipToBounds="True">
+        <Panel>
+          <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="editor" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
+          <ui:ProjectorCanvas x:Name="ProjectorView" Map="{Binding}" ViewId="{Binding ViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding IsProjectorView}" Margin="12" />
+        </Panel>
+      </Border>
+
+      <Border Grid.Row="2" Classes="panel" Padding="10,6" IsVisible="{Binding IsPenTool}">
+        <Grid ColumnDefinitions="Auto,160,Auto,140,*,Auto" ColumnSpacing="10">
+          <TextBlock Classes="dim" Text="Feather" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" Minimum="0" Maximum="0.1" Value="{Binding Pen.Feather}" />
+          <TextBlock Grid.Column="2" Classes="dim" Text="Mode" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="3" ItemsSource="{Binding Pen.Modes}" SelectedItem="{Binding Pen.Mode}" />
+          <TextBlock Grid.Column="4" Classes="faint" VerticalAlignment="Center" TextWrapping="Wrap"
+                     Text="Click: corner · drag: smooth · Alt-click: toggle · first node or Enter: close · Esc: cancel" />
+          <Button Grid.Column="5" Classes="primary" Content="Close path" Command="{Binding Pen.CloseCommand}" ToolTip.Tip="ADD mask {…}  (Enter)" />
+        </Grid>
+      </Border>
+    </Grid>
+
+    <Border Grid.Column="2" Classes="panel" Padding="0">
+      <views:InspectorView DataContext="{Binding Inspector}" />
+    </Border>
+  </Grid>
+</UserControl>

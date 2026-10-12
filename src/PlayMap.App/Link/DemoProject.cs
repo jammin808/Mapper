@@ -116,14 +116,15 @@ public static class DemoProject
         new(id, name, Intrinsics.FromThrowRatio(1920, 1080, 1.35, 0, -0.1), LensDistortion.None, Pose.LookAt(eye, target, Vec3d.UnitY),
             6500, color, false, [], SolveLocks.None, 0);
 
-    /// <summary>Eight pins on the wall's and the cube's corners, placed where the projector's current pose
-    /// puts them plus a deliberate miss on two, so the pin table shows good, fair and poor residuals.</summary>
+    /// <summary>Eight pins on features the left projector lights (the wall, the cube's top, the column),
+    /// placed where its current pose puts them plus a deliberate miss on two, so the pin table shows good,
+    /// fair and poor residuals.</summary>
     private static ImmutableArray<CalibrationPin> DemoPins(Projector pj)
     {
         Vec3d[] world =
         [
-            new(-2, 0, 0), new(2, 0, 0), new(2, 2.5, 0), new(-2, 2.5, 0),
-            new(-0.6, 2.5, 0), new(-1.3, 0.8, 1.2), new(-0.5, 0.8, 0.6), new(0.4, 1.4, 0),
+            new(-1.9, 0.2, 0), new(1.0, 0.25, 0), new(1.4, 1.75, 0), new(-1.7, 1.9, 0),
+            new(-0.3, 1.6, 0), new(-1.3, 0.8, 1.2), new(-0.5, 0.8, 0.6), new(0.9, 1.4, 0.68),
         ];
         Vec2d[] miss = [new(0.2, -0.1), new(-0.3, 0.2), new(0.1, 0.4), new(0.9, -1.1), new(-0.2, 0.1), new(3.1, 2.2), new(0.4, -0.2), new(-0.1, -0.3)];
         var pins = ImmutableArray.CreateBuilder<CalibrationPin>();

@@ -133,6 +133,9 @@ public sealed class ScanWizardViewModel : ObservableObject
 
     public IReadOnlyList<ScanStep> Steps { get; }
 
+    /// <summary>The node the desk is on (its preview rings are named after it).</summary>
+    public string NodeId => _session.NodeId;
+
     public RelayCommand Next { get; }
 
     public RelayCommand Back { get; }
@@ -402,6 +405,7 @@ public sealed class ScanWizardViewModel : ObservableObject
             };
             return pick;
         }, (_, _) => { });
+        Raise(nameof(NodeId));
         Changed();
     }
 

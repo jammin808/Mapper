@@ -17,6 +17,9 @@ public sealed class ShortcutMap
 
     public IEnumerable<IGrouping<string, Shortcut>> Groups => Entries.GroupBy(e => e.Scope);
 
+    /// <summary>A table of the given shortcuts (the desk builds its own with <see cref="Build"/>).</summary>
+    public static ShortcutMap For(IReadOnlyList<Shortcut> entries) => new(entries);
+
     public static ShortcutMap Build(MainViewModel vm)
     {
         ArgumentNullException.ThrowIfNull(vm);

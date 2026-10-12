@@ -1,0 +1,424 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.InspectorView"
+             x:DataType="vm:InspectorHost">
+  <!-- The inspector: one template per kind of object; every field is a verb (SET, or the object's own). -->
+  <UserControl.DataTemplates>
+
+    <DataTemplate DataType="vm:PlaylistItemInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Label" />
+        <TextBox Text="{Binding Label}" />
+        <TextBlock Classes="label" Text="Source" />
+        <TextBlock Text="{Binding Source}" TextWrapping="Wrap" Classes="dim" />
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="In (s)" />
+            <TextBox Text="{Binding InText}" PlaceholderText="0" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Out (s)" />
+            <TextBox Text="{Binding OutText}" PlaceholderText="end" />
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Classes="label" Text="Duration (s)" />
+            <TextBox Text="{Binding DurationText}" PlaceholderText="source" />
+          </StackPanel>
+        </Grid>
+        <TextBlock Classes="label" Text="At the end" />
+        <ComboBox ItemsSource="{Binding EndChoices}" SelectedItem="{Binding End}" />
+        <StackPanel IsVisible="{Binding IsGoto}">
+          <TextBlock Classes="label" Text="Go to" />
+          <ComboBox ItemsSource="{Binding GotoChoices}" SelectedItem="{Binding Goto}" />
+        </StackPanel>
+        <Grid ColumnDefinitions="*,90" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Transition in" />
+            <ComboBox ItemsSource="{Binding TransitionChoices}" SelectedItem="{Binding Transition}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Seconds" />
+            <TextBox Text="{Binding TransitionText}" />
+          </StackPanel>
+        </Grid>
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="label" Text="Rate" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding RateText}" />
+        </Grid>
+        <Slider Minimum="0.05" Maximum="4" Value="{Binding Rate}" />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="label" Text="Volume" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding VolumeText}" />
+        </Grid>
+        <Slider Minimum="0" Maximum="1" Value="{Binding Volume}" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:PlaylistInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <CheckBox Content="Loop the list (wrap to the top)" IsChecked="{Binding Loop}" Margin="0,10,0,0" />
+        <TextBlock Classes="label" Text="Sync group (followers start with the leader)" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+          <TextBox Text="{Binding SyncGroup}" PlaceholderText="none" />
+          <Button Grid.Column="1" Classes="secondary" Content="Apply" Command="{Binding CommitSyncCommand}" ToolTip.Tip="PLAYLIST SYNC &lt;playlist&gt; &lt;group&gt;|OFF" />
+        </Grid>
+        <TextBlock Classes="faint" Text="{Binding Facts}" Margin="0,10,0,0" TextWrapping="Wrap" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:MediaInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <ItemsControl ItemsSource="{Binding Facts}" Margin="0,8,0,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:Fact">
+              <Grid ColumnDefinitions="100,*" Margin="0,3">
+                <TextBlock Classes="faint" Text="{Binding Key}" />
+                <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:GeneratorInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <TextBlock Classes="faint" Text="{Binding Words}" TextWrapping="Wrap" Margin="0,6,0,4" />
+        <ItemsControl x:Name="Editors" ItemsSource="{Binding Editors}">
+          <ItemsControl.DataTemplates>
+            <DataTemplate DataType="vm:NumberParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <Grid ColumnDefinitions="*,80">
+                  <TextBlock Classes="label" Text="{Binding Label}" />
+                  <TextBox Grid.Column="1" Text="{Binding Text}" MinHeight="28" Padding="6,2" Margin="0,4,0,0" HorizontalContentAlignment="Right" />
+                </Grid>
+                <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Value="{Binding Slider}" />
+              </StackPanel>
+            </DataTemplate>
+            <DataTemplate DataType="vm:BoolParamEditor">
+              <CheckBox Content="{Binding Label}" IsChecked="{Binding Value}" ToolTip.Tip="{Binding Hint}" Margin="0,6,0,0" />
+            </DataTemplate>
+            <DataTemplate DataType="vm:ChoiceParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <TextBlock Classes="label" Text="{Binding Label}" />
+                <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Value}" />
+              </StackPanel>
+            </DataTemplate>
+            <DataTemplate DataType="vm:ColorParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <TextBlock Classes="label" Text="{Binding Label}" />
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                  <Border Width="34" Height="30" CornerRadius="6" Background="{Binding Brush}" BorderBrush="{StaticResource DeskBorderStrongBrush}" BorderThickness="1" />
+                  <TextBox Grid.Column="1" Text="{Binding Hex}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Choices}" ItemsPanel="{StaticResource Wrap}" Margin="0,4,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <Button Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0" Margin="0,0,4,4" CornerRadius="11"
+                              Background="{Binding Converter={StaticResource LightBrush}}" ToolTip.Tip="{Binding}"
+                              Command="{Binding $parent[ItemsControl].((vm:ColorParamEditor)DataContext).Pick}" CommandParameter="{Binding}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+            <DataTemplate DataType="vm:ColorsParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <TextBlock Classes="label" Text="{Binding Label}" />
+                <ItemsControl ItemsSource="{Binding Brushes}" ItemsPanel="{StaticResource Row}" Margin="0,0,0,4">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="IBrush">
+                      <Border Width="30" Height="14" CornerRadius="3" Background="{Binding}" Margin="0,0,3,0" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBox Text="{Binding Text}" />
+              </StackPanel>
+            </DataTemplate>
+            <DataTemplate DataType="vm:PresetParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <TextBlock Classes="label" Text="{Binding Label}" />
+                <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding Value}" PlaceholderText="Pick a look" />
+              </StackPanel>
+            </DataTemplate>
+            <DataTemplate DataType="vm:TextParamEditor">
+              <StackPanel ToolTip.Tip="{Binding Hint}">
+                <TextBlock Classes="label" Text="{Binding Label}" />
+                <TextBox Text="{Binding Value}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:SurfaceInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <TextBlock Classes="label" Text="Content" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding ContentKind}" />
+          <ComboBox Grid.Column="1" ItemsSource="{Binding ContentItems}" SelectedItem="{Binding ContentItem}" IsVisible="{Binding HasContentItems}" />
+          <TextBox Grid.Column="1" Text="{Binding ColorHex}" IsVisible="{Binding IsColorContent}" />
+        </Grid>
+        <TextBlock Classes="label" Text="Mapping" />
+        <ComboBox ItemsSource="{Binding MappingChoices}" SelectedItem="{Binding Mapping}" />
+        <StackPanel IsVisible="{Binding IsProjection}">
+          <TextBlock Classes="label" Text="Projected from" />
+          <ComboBox ItemsSource="{Binding Viewpoints}" SelectedItem="{Binding Viewpoint}" PlaceholderText="Pick a viewpoint" />
+        </StackPanel>
+        <TextBlock Classes="label" Text="{Binding RegionHint, StringFormat='Region — {0}'}" />
+        <TextBox Text="{Binding Region}" />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="label" Text="Opacity" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding OpacityText}" />
+        </Grid>
+        <Slider Minimum="0" Maximum="1" Value="{Binding Opacity}" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Editor colour" />
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+              <Border Width="26" Height="26" CornerRadius="5" Background="{Binding ColorBrush}" />
+              <TextBox Grid.Column="1" Text="{Binding Color}" />
+            </Grid>
+          </StackPanel>
+          <CheckBox Grid.Column="1" Content="Locked" IsChecked="{Binding Locked}" VerticalAlignment="Bottom" />
+        </Grid>
+        <TextBlock Classes="label" Text="Position (m) — x, y, z" />
+        <TextBox Text="{Binding PositionText}" />
+        <Grid ColumnDefinitions="*,Auto" Margin="0,12,0,4">
+          <TextBlock Classes="h2" Text="MASKS" VerticalAlignment="Center" />
+          <ContentControl Grid.Column="1" Content="{Binding AddMask}" ContentTemplate="{StaticResource ActionSmall}" />
+        </Grid>
+        <ItemsControl ItemsSource="{Binding Masks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MaskRow">
+              <Border Classes="card" Padding="8" Margin="0,0,0,6" ui:DeskMenu.Actions="{Binding Remove, Converter={x:Static vm:ActionLists.One}}">
+                <StackPanel Spacing="4">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Classes="faint" Text="{Binding NodesText}" />
+                    </StackPanel>
+                    <ContentControl Grid.Column="1" Content="{Binding Remove}" ContentTemplate="{StaticResource ActionSmall}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" />
+                    <CheckBox Grid.Column="1" Content="Invert" IsChecked="{Binding Invert}" />
+                    <CheckBox Grid.Column="2" Content="On" IsChecked="{Binding Enabled}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="faint" Text="Feather" />
+                    <TextBlock Grid.Column="1" Classes="faint" Text="{Binding FeatherText}" />
+                  </Grid>
+                  <Slider Minimum="0" Maximum="0.25" Value="{Binding Feather}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:ProjectorInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <Grid ColumnDefinitions="*,Auto,90" ColumnSpacing="6">
+          <TextBox Text="{Binding Name}" />
+          <Border Grid.Column="1" Width="26" Height="26" CornerRadius="5" Background="{Binding ColorBrush}" />
+          <TextBox Grid.Column="2" Text="{Binding Color}" />
+        </Grid>
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Raster" />
+            <TextBlock Text="{Binding Resolution}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Lumens" />
+            <TextBox Text="{Binding LumensText}" />
+          </StackPanel>
+        </Grid>
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="label" Text="Throw ratio" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding ThrowText}" />
+        </Grid>
+        <Slider Minimum="0.3" Maximum="5" Value="{Binding ThrowRatio}" />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="label" Text="Lens shift" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding ShiftText}" />
+        </Grid>
+        <Slider Minimum="-1" Maximum="1" Value="{Binding ShiftX}" ToolTip.Tip="Horizontal shift (fraction of the width)" />
+        <Slider Minimum="-1" Maximum="1" Value="{Binding ShiftY}" ToolTip.Tip="Vertical shift (fraction of the height, + up)" />
+        <TextBlock Classes="faint" Text="{Binding OpticsHint}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="The solve keeps" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <CheckBox Content="Shift" IsChecked="{Binding LockShift}" ToolTip.Tip="Lock the measured lens shift" />
+          <CheckBox Content="Zoom" IsChecked="{Binding LockFocal}" ToolTip.Tip="Lock the focal length (throw ratio)" />
+          <CheckBox Content="Lens" IsChecked="{Binding LockDistortion}" ToolTip.Tip="Lock the lens distortion" />
+        </StackPanel>
+        <TextBlock Classes="faint" Text="{Binding PoseText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+
+        <Grid ColumnDefinitions="*,Auto" Margin="0,14,0,4">
+          <StackPanel>
+            <TextBlock Classes="h2" Text="PINS" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Ellipse Classes="light" Fill="{Binding ResidualLevel, Converter={StaticResource LightBrush}}" />
+              <TextBlock Classes="faint" Text="{Binding SolveText}" />
+            </StackPanel>
+          </StackPanel>
+          <Button Grid.Column="1" x:Name="SolveButton" Classes="primary" Command="{Binding Solve.Command}" ToolTip.Tip="{Binding Solve.Tip}" Content="Solve" />
+        </Grid>
+        <Grid ColumnDefinitions="28,*,90,64,Auto" Margin="4,2">
+          <TextBlock Classes="faint" Text="#" />
+          <TextBlock Grid.Column="1" Classes="faint" Text="World (m)" />
+          <TextBlock Grid.Column="2" Classes="faint" Text="Pixel" />
+          <TextBlock Grid.Column="3" Classes="faint" Text="Error" />
+        </Grid>
+        <ItemsControl x:Name="PinTable" ItemsSource="{Binding Pins}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PinRow">
+              <Grid ColumnDefinitions="28,*,90,64,Auto" Margin="4,1" Background="Transparent" ui:DeskMenu.Actions="{Binding Remove, Converter={x:Static vm:ActionLists.One}}">
+                <CheckBox IsChecked="{Binding Enabled}" MinWidth="0" Padding="0" ToolTip.Tip="Use this pin in the solve" />
+                <TextBlock Grid.Column="1" Text="{Binding World}" VerticalAlignment="Center" FontSize="12" />
+                <TextBlock Grid.Column="2" Text="{Binding Pixel}" VerticalAlignment="Center" FontSize="12" />
+                <Border Grid.Column="3" x:Name="Residual" CornerRadius="4" Padding="5,1" Background="{Binding Brush}" VerticalAlignment="Center" HorizontalAlignment="Left">
+                  <TextBlock Text="{Binding ResidualText}" Foreground="#0B0D0F" FontSize="11.5" FontWeight="SemiBold" />
+                </Border>
+                <ContentControl Grid.Column="4" Content="{Binding Remove}" ContentTemplate="{StaticResource ActionSmall}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="faint" TextWrapping="Wrap" Margin="0,4,0,0"
+                   Text="Pin tool (P) in the projector view: click a feature on a surface, then drag the cross onto the real one. Green under 1 px, amber under 3." />
+
+        <StackPanel IsVisible="{Binding HasOutput}" Margin="0,14,0,0">
+          <TextBlock Classes="h2" Text="BLEND AND COLOUR (ITS OUTPUT)" />
+          <ContentControl Content="{Binding Output}" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:OutputInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <TextBlock Classes="faint" Text="{Binding Facts}" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Shows" />
+            <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Display" />
+            <TextBox Text="{Binding Display}" PlaceholderText="first free" />
+          </StackPanel>
+        </Grid>
+        <StackPanel IsVisible="{Binding IsProjectorMode}">
+          <TextBlock Classes="label" Text="Projector" />
+          <ComboBox ItemsSource="{Binding Projectors}" SelectedItem="{Binding Projector}" PlaceholderText="Pick the projector it drives" />
+        </StackPanel>
+        <StackPanel IsVisible="{Binding IsCanvasMode}">
+          <TextBlock Classes="label" Text="Canvas" />
+          <ComboBox ItemsSource="{Binding Canvases}" SelectedItem="{Binding Canvas}" />
+          <TextBlock Classes="label" Text="Region of the canvas — x, y, w, h (px)" />
+          <TextBox Text="{Binding SourceRect}" />
+        </StackPanel>
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Rotation" />
+            <ComboBox ItemsSource="{Binding Rotations}" SelectedItem="{Binding Rotation}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Warp lattice" />
+            <ComboBox ItemsSource="{Binding LatticeSizes}" SelectedItem="{Binding LatticeText}" PlaceholderText="none" />
+          </StackPanel>
+        </Grid>
+        <CheckBox Content="Warp on" IsChecked="{Binding WarpEnabled}" Margin="0,6,0,0" />
+        <TextBlock Classes="h2" Text="BLEND" Margin="0,12,0,0" />
+        <CheckBox Content="Automatic 3D blend (from the projectors' coverage)" IsChecked="{Binding Auto3D}" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Curve" />
+            <ComboBox ItemsSource="{Binding Curves}" SelectedItem="{Binding Curve}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="label" Text="Soft edges L, T, R, B (px)" />
+            <TextBox Text="{Binding Edges}" />
+          </StackPanel>
+        </Grid>
+        <TextBlock Classes="label" Text="{Binding Gamma, StringFormat='Blend gamma {0:0.00}'}" />
+        <Slider Minimum="1" Maximum="3" Value="{Binding Gamma}" />
+        <TextBlock Classes="label" Text="{Binding BlackLevel, StringFormat='Black level {0:0.000}'}" />
+        <Slider Minimum="0" Maximum="0.25" Value="{Binding BlackLevel}" />
+        <TextBlock Classes="h2" Text="COLOUR TRIM" Margin="0,12,0,0" />
+        <TextBlock Classes="label" Text="{Binding Brightness, StringFormat='Brightness {0:0.00}'}" />
+        <Slider Minimum="0" Maximum="2" Value="{Binding Brightness}" />
+        <TextBlock Classes="label" Text="{Binding Contrast, StringFormat='Contrast {0:0.00}'}" />
+        <Slider Minimum="0" Maximum="2" Value="{Binding Contrast}" />
+        <TextBlock Classes="label" Text="{Binding ColorGamma, StringFormat='Gamma {0:0.00}'}" />
+        <Slider Minimum="0.2" Maximum="2" Value="{Binding ColorGamma}" />
+        <TextBlock Classes="label" Text="Gain R, G, B" />
+        <Slider Minimum="0" Maximum="2" Value="{Binding GainR}" Foreground="#E57373" />
+        <Slider Minimum="0" Maximum="2" Value="{Binding GainG}" Foreground="#81C784" />
+        <Slider Minimum="0" Maximum="2" Value="{Binding GainB}" Foreground="#64B5F6" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:MeshInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <TextBlock Classes="faint" Text="{Binding Facts}" TextWrapping="Wrap" Margin="0,6" />
+        <ItemsControl ItemsSource="{Binding Params}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MeshParamRow">
+              <Grid ColumnDefinitions="100,*" Margin="0,3">
+                <TextBlock Classes="dim" Text="{Binding Name}" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Text="{Binding Value}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:StageItemInspector">
+      <StackPanel Spacing="2">
+        <TextBlock Classes="label" Text="Name" />
+        <TextBox Text="{Binding Name}" />
+        <TextBlock Text="{Binding Facts}" TextWrapping="Wrap" Classes="dim" Margin="0,8,0,0" />
+      </StackPanel>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Grid RowDefinitions="Auto,*">
+    <Border Padding="14,12" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,0,0,1" Background="Transparent"
+            ui:DeskMenu.Actions="{Binding Current.Actions, FallbackValue={x:Null}}">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+        <Border Width="34" Height="34" CornerRadius="8" Background="{StaticResource DeskRaised2Brush}" IsVisible="{Binding !IsEmpty}">
+          <PathIcon Data="{Binding Current.Icon, Converter={StaticResource Icon}, FallbackValue={x:Null}}" Width="16" Height="16" />
+        </Border>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Classes="h1" Text="{Binding Current.Title, FallbackValue='Inspector'}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="faint" Text="{Binding Current.Subtitle, FallbackValue='Select something to see what it is and change it.'}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Grid>
+    </Border>
+    <ScrollViewer Grid.Row="1" Padding="14,6,14,14">
+      <StackPanel Spacing="6">
+        <ItemsControl x:Name="InspectorActions" ItemsSource="{Binding Current.Toolbar, FallbackValue={x:Null}}" ItemTemplate="{StaticResource ActionIcon}" ItemsPanel="{StaticResource Wrap}" />
+        <ContentControl Content="{Binding Current}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

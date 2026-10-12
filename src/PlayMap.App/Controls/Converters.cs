@@ -50,3 +50,13 @@ public sealed class LightBrushConverter : IValueConverter
         }
     }
 }
+
+/// <summary>Small converters the views share.</summary>
+public static class Conv
+{
+    public static readonly IValueConverter BoldIf = new FuncValueConverter<bool, FontWeight>(b => b ? FontWeight.SemiBold : FontWeight.Normal);
+
+    public static readonly IValueConverter Percent = new FuncValueConverter<double, string>(v => string.Create(CultureInfo.InvariantCulture, $"{v * 100:0} %"));
+
+    public static readonly IValueConverter Number2 = new FuncValueConverter<double, string>(v => v.ToString("0.00", CultureInfo.InvariantCulture));
+}

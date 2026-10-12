@@ -19,6 +19,7 @@ public sealed class PlaylistViewModel : ObservableObject
     private string? _syncGroup;
     private bool _isFocused;
     private string _summary = "";
+    private PlaylistItemViewModel? _selectedItem;
 
     public PlaylistViewModel(DeskSession session, Playlist list, Project? project, PlayViewModel play)
     {
@@ -59,6 +60,24 @@ public sealed class PlaylistViewModel : ObservableObject
     public IReadOnlyList<DeskAction> Toolbar => Actions.Toolbar();
 
     public ObservableCollection<PlaylistItemViewModel> Items { get; } = [];
+
+    /// <summary>The card's selected item (the inspector shows it).</summary>
+    public PlaylistItemViewModel? SelectedItem
+    {
+        get => _selectedItem;
+        set
+        {
+            if (!Set(ref _selectedItem, value))
+                return;
+            if (value is not null)
+                _play.Selected = value;
+        }
+    }
+
+    /// <summary>Shows the playlist itself in the inspector.</summary>
+    public RelayCommand Inspect => _inspect ??= new RelayCommand(() => _play.Selected = this);
+
+    private RelayCommand? _inspect;
 
     public string Name
     {

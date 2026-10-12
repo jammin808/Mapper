@@ -16,9 +16,6 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public event Action<string>? Note;
 
-    /// <summary>The demo engine, when that is what the desk is on (its pairing token is shown in Network).</summary>
-    public FakeEngineLink? Demo { get; private set; }
-
     /// <summary>Reads this machine's node token from its settings (the integrator's; null when unknown).</summary>
     public Func<string?>? LocalTokenReader { get; set; }
 
@@ -26,7 +23,6 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         var link = new FakeEngineLink(autoTick: true);
         await AttachAsync(link, link, "Demo node");
-        Demo = link;
     }
 
     /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and
@@ -99,7 +95,6 @@ public sealed class ConnectionManager : IAsyncDisposable
     private async Task ReleaseAsync()
     {
         _session.Detach();
-        Demo = null;
         if (_owned is { } old)
         {
             _owned = null;
@@ -108,7 +103,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>The pairing token of the node the desk is on, read where it lives (never from a line).</summary>
-    public string? ReadToken() => Demo?.PairingToken ?? LocalTokenReader?.Invoke();
+    public string? ReadToken() => (_session.Link as FakeEngineLink)?.PairingToken ?? LocalTokenReader?.Invoke();
 
     public async ValueTask DisposeAsync()
     {

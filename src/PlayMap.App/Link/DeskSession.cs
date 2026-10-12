@@ -15,9 +15,14 @@ public enum ToastKind
 }
 
 /// <summary>One line on the status strip: what happened, in plain words, and the verb that caused it.</summary>
-public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id)
+public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id, long At)
 {
     public bool IsRefusal => Kind is ToastKind.Refused or ToastKind.Fault;
+
+    /// <summary>"refused", "fault", "done", "info" — the strip's colour key.</summary>
+    public string KindWord => Kind.ToString().ToLowerInvariant();
+
+    public bool HasVerb => Verb.Length > 0;
 }
 
 /// <summary>The desk's side of one engine: the link, the mirrored project and STATE (latest wins, rebuilt on
@@ -100,7 +105,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         link.StateChanged += OnState;
         link.ProjectChanged += OnProject;
         _status = link.Status;
-        Raise(nameof(Link), nameof(Status), nameof(IsLive));
+        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(NodeId));
         // Read what the link already holds at once, so a window opened on a live link is never empty.
         ApplyProject();
         ApplyState();
@@ -160,7 +165,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     /// <summary>Puts a line on the status strip (and keeps the last few as toasts).</summary>
     public void Notify(ToastKind kind, string text, string verb = "")
     {
-        var toast = new Toast(kind, text, verb, Interlocked.Increment(ref _toastIds));
+        var toast = new Toast(kind, text, verb, Interlocked.Increment(ref _toastIds), System.Diagnostics.Stopwatch.GetTimestamp());
         LastToast = toast;
         Toasts.Add(toast);
         while (Toasts.Count > 4)
@@ -168,6 +173,20 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     }
 
     public void Dismiss(Toast toast) => Toasts.Remove(toast);
+
+    /// <summary>Takes away toasts older than the given age (the window's tick); refusals stay twice as long.</summary>
+    public void Expire(TimeSpan age)
+    {
+        for (var i = Toasts.Count - 1; i >= 0; i--)
+        {
+            var t = Toasts[i];
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(t.At) > (t.IsRefusal ? age * 2 : age))
+                Toasts.RemoveAt(i);
+        }
+    }
+
+    /// <summary>The node the desk is on (its preview rings are named after it).</summary>
+    public string NodeId => _link?.NodeId ?? "";
 
     /// <summary>An engine refusal in plain words: the reason without the grammar's prefix, capitalised.</summary>
     public static string Plain(string reason)

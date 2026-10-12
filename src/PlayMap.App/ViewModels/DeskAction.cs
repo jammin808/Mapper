@@ -159,3 +159,10 @@ public static class DeskActions
     /// <summary>The actions a toolbar shows (menu-only ones left out).</summary>
     public static IReadOnlyList<DeskAction> Toolbar(this IEnumerable<DeskAction> actions) => actions.Where(a => !a.MenuOnly).ToList();
 }
+
+/// <summary>Converters that turn one action into a list (a row's menu of one item).</summary>
+public static class ActionLists
+{
+    public static readonly Avalonia.Data.Converters.IValueConverter One =
+        new Avalonia.Data.Converters.FuncValueConverter<DeskAction?, IEnumerable<DeskAction>?>(a => a is null ? null : [a]);
+}

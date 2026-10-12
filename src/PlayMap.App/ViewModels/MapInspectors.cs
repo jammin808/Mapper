@@ -27,9 +27,7 @@ public sealed class SurfaceInspector : InspectorViewModel
     private string _region = "";
     private IReadOnlyList<ItemChoice> _viewpoints = [];
     private ItemChoice? _viewpoint;
-    private double _x;
-    private double _y;
-    private double _z;
+    private string _position = "";
     private Project? _project;
 
     public SurfaceInspector(DeskSession session, string id) : base(session, id)
@@ -233,37 +231,22 @@ public sealed class SurfaceInspector : InspectorViewModel
         }
     }
 
-    public double X
+    /// <summary>"x, y, z" in metres; sent when it reads as three numbers.</summary>
+    public string PositionText
     {
-        get => _x;
+        get => _position;
         set
         {
-            if (Set(ref _x, value))
-                SendPosition();
+            if (!Set(ref _position, value))
+                return;
+            var parts = value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 3 && parts.All(x => double.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out _)))
+            {
+                var v = parts.Select(x => double.Parse(x, NumberStyles.Float, CultureInfo.InvariantCulture)).ToArray();
+                Edit("transform.position", VerbText.Json(new Vec3d(v[0], v[1], v[2])), throttle: true);
+            }
         }
     }
-
-    public double Y
-    {
-        get => _y;
-        set
-        {
-            if (Set(ref _y, value))
-                SendPosition();
-        }
-    }
-
-    public double Z
-    {
-        get => _z;
-        set
-        {
-            if (Set(ref _z, value))
-                SendPosition();
-        }
-    }
-
-    private void SendPosition() => Edit("transform.position", VerbText.Json(new Vec3d(_x, _y, _z)), throttle: true);
 
     private IReadOnlyList<ItemChoice> ItemsFor(SourceKind kind) => _project is not { } p ? [] : kind switch
     {
@@ -304,11 +287,7 @@ public sealed class SurfaceInspector : InspectorViewModel
         _visible = sf.Visible;
         Locked = sf.Locked;
         if (Settled("transform.position"))
-        {
-            X = Math.Round(sf.Transform.Position.X, 3);
-            Y = Math.Round(sf.Transform.Position.Y, 3);
-            Z = Math.Round(sf.Transform.Position.Z, 3);
-        }
+            PositionText = string.Create(CultureInfo.InvariantCulture, $"{sf.Transform.Position.X:0.###}, {sf.Transform.Position.Y:0.###}, {sf.Transform.Position.Z:0.###}");
         Masks.SyncById(sf.Masks.Select((m, i) => (m, i)).ToList(), x => x.m.Id, r => r.Id, x => new MaskRow(Session, Id, x.m, x.i), (r, x) => r.Update(x.m, x.i));
         return true;
     }
@@ -449,7 +428,7 @@ public sealed class ProjectorInspector : InspectorViewModel
     private bool _lockShift;
     private bool _lockFocal;
     private bool _lockDistortion;
-    private double _lumens;
+    private string _lumens = "";
     private string _poseText = "";
     private string _solveText = "";
     private string _residualLevel = "grey";
@@ -459,7 +438,7 @@ public sealed class ProjectorInspector : InspectorViewModel
     {
         _map = map;
         Solve = DeskAction.Send(session, "solve", "Solve", () => "PROJECTOR SOLVE " + Id, isEnabled: () => Pins.Count(p => p.Enabled) >= 6).Look("solve");
-        var solveWith = DeskAction.Local("solveWith", "Solve with…", () => { }).Look("solve");
+        var solveWith = DeskAction.Local("solveWith", "Solve with…", () => { }).Look("more", menuOnly: true);
         solveWith.Children.Add(DeskAction.Send(session, "solve.shift", "Shift locked", () => $"PROJECTOR SOLVE {Id} LOCK SHIFT"));
         solveWith.Children.Add(DeskAction.Send(session, "solve.focal", "Zoom locked", () => $"PROJECTOR SOLVE {Id} LOCK FOCAL"));
         solveWith.Children.Add(DeskAction.Send(session, "solve.none", "Nothing locked", () => $"PROJECTOR SOLVE {Id} LOCK NONE"));
@@ -598,13 +577,14 @@ public sealed class ProjectorInspector : InspectorViewModel
         }
     }
 
-    public double Lumens
+    /// <summary>ANSI lumens as typed (0 = unknown).</summary>
+    public string LumensText
     {
         get => _lumens;
         set
         {
-            if (Set(ref _lumens, Math.Round(Math.Max(0, value))))
-                Edit("lumens", VerbText.Num(_lumens), throttle: true);
+            if (Set(ref _lumens, value) && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var l) && l >= 0)
+                Edit("lumens", VerbText.Num(Math.Round(l)), throttle: true);
         }
     }
 
@@ -666,7 +646,7 @@ public sealed class ProjectorInspector : InspectorViewModel
         LockFocal = pj.Locks.HasFlag(SolveLocks.Focal);
         LockDistortion = pj.Locks.HasFlag(SolveLocks.Distortion);
         if (Settled("lumens"))
-            Lumens = pj.Lumens;
+            LumensText = pj.Lumens.ToString("0", CultureInfo.InvariantCulture);
         var pos = pj.Pose.Position;
         var fwd = pj.Pose.Forward;
         PoseText = string.Create(CultureInfo.InvariantCulture, $"At ({pos.X:0.00}, {pos.Y:0.00}, {pos.Z:0.00}) m, looking ({fwd.X:0.00}, {fwd.Y:0.00}, {fwd.Z:0.00})");

@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             xmlns:ui="using:PlayMap.App.Controls"
+             xmlns:views="using:PlayMap.App.Views"
+             x:Class="PlayMap.App.Views.OutputsDrawer"
+             x:DataType="vm:OutputsDrawerViewModel">
+  <Grid RowDefinitions="Auto,260,Auto,*" Margin="14" RowSpacing="10">
+    <Grid ColumnDefinitions="*,Auto">
+      <StackPanel>
+        <TextBlock Classes="h1" Text="Outputs" />
+        <TextBlock Classes="faint" Text="Drag outputs where they sit; select one to set what it shows, its warp, blend and colour." />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+        <ContentControl Content="{Binding Add}" ContentTemplate="{StaticResource ActionIcon}" />
+        <ContentControl Content="{Binding IdentifyAll}" ContentTemplate="{StaticResource ActionIcon}" />
+        <ContentControl Content="{Binding PatternsOff}" ContentTemplate="{StaticResource ActionIcon}" />
+        <Button Classes="tool" x:Name="PatternButton" ToolTip.Tip="Test pattern on the selected output" Click="OnPatternClick">
+          <PathIcon Data="{StaticResource Icon.pattern}" />
+        </Button>
+      </StackPanel>
+    </Grid>
+
+    <ui:PlanCanvas Grid.Row="1" x:Name="Plan" Drawer="{Binding}" />
+
+    <Border Grid.Row="2" Classes="card">
+      <Grid ColumnDefinitions="Auto,60,Auto,60,Auto,90,*,Auto" ColumnSpacing="8">
+        <TextBlock Text="Blend grid" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <NumericUpDown Grid.Column="1" Value="{Binding GridColumnsValue}" Minimum="1" Maximum="8" FormatString="0" ShowButtonSpinner="False" />
+        <TextBlock Grid.Column="2" Text="×" VerticalAlignment="Center" />
+        <NumericUpDown Grid.Column="3" Value="{Binding GridRowsValue}" Minimum="1" Maximum="6" FormatString="0" ShowButtonSpinner="False" />
+        <TextBlock Grid.Column="4" Classes="dim" Text="overlap px" VerticalAlignment="Center" />
+        <NumericUpDown Grid.Column="5" Value="{Binding GridOverlapValue}" Minimum="0" Maximum="1000" Increment="10" FormatString="0" ShowButtonSpinner="False" />
+        <TextBlock Grid.Column="6" Classes="faint" Text="{Binding GridSentence}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <ContentControl Grid.Column="7" Content="{Binding ApplyGrid}" ContentTemplate="{StaticResource ActionIcon}" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="3" Classes="panel" Padding="0">
+      <views:InspectorView DataContext="{Binding Inspector}" />
+    </Border>
+  </Grid>
+</UserControl>

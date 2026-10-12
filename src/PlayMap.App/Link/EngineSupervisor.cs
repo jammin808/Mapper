@@ -5,11 +5,13 @@ namespace PlayMap.App.Link;
 /// <summary>How long to wait before restarting an engine that stopped: 0.5 s, then doubling to a 10 s
 /// ceiling; an engine that ran for a healthy while (30 s) starts the ladder again, so one crash an hour
 /// restarts in half a second and a crash loop does not spin the machine.</summary>
-public sealed class RestartBackoff
+public sealed class RestartBackoff(TimeSpan? first = null, TimeSpan? ceiling = null, TimeSpan? healthy = null)
 {
-    public static readonly TimeSpan First = TimeSpan.FromMilliseconds(500);
-    public static readonly TimeSpan Ceiling = TimeSpan.FromSeconds(10);
-    public static readonly TimeSpan Healthy = TimeSpan.FromSeconds(30);
+    public TimeSpan First { get; } = first ?? TimeSpan.FromMilliseconds(500);
+
+    public TimeSpan Ceiling { get; } = ceiling ?? TimeSpan.FromSeconds(10);
+
+    public TimeSpan Healthy { get; } = healthy ?? TimeSpan.FromSeconds(30);
 
     private int _failures;
 
@@ -44,15 +46,19 @@ public sealed class EngineSupervisor : IAsyncDisposable
 {
     private readonly Func<IEngineProcess?> _start;
     private readonly TimeProvider _time;
-    private readonly RestartBackoff _backoff = new();
+    private readonly RestartBackoff _backoff;
     private readonly CancellationTokenSource _stop = new();
     private Task _loop = Task.CompletedTask;
 
-    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null)
+    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null, RestartBackoff? backoff = null)
     {
         _start = start ?? StartOwnEngine;
         _time = time ?? TimeProvider.System;
+        _backoff = backoff ?? new RestartBackoff();
     }
+
+    /// <summary>The watch loop (it ends when the engine stops on request or the desk stops watching).</summary>
+    public Task Watching => _loop;
 
     /// <summary>What the supervisor did, in words for the status line ("engine restarted after 1 s").</summary>
     public event Action<string>? Note;

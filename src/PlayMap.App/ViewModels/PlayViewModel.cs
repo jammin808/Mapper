@@ -64,7 +64,59 @@ public sealed class PlayViewModel : ObservableObject
     public int BinTab
     {
         get => _binTab;
-        set => Set(ref _binTab, value);
+        set
+        {
+            if (Set(ref _binTab, value))
+                Raise(nameof(IsFilesTab), nameof(IsGeneratorsTab));
+        }
+    }
+
+    public bool IsFilesTab
+    {
+        get => _binTab == 0;
+        set
+        {
+            if (value)
+                BinTab = 0;
+            else
+                Raise();
+        }
+    }
+
+    public bool IsGeneratorsTab
+    {
+        get => _binTab == 1;
+        set
+        {
+            if (value)
+                BinTab = 1;
+            else
+                Raise();
+        }
+    }
+
+    /// <summary>The node the desk is on (preview rings are named after it).</summary>
+    public string NodeId => _session.NodeId;
+
+    /// <summary>The bin's selection (selecting here clears the other lists' selection).</summary>
+    public MediaItemViewModel? SelectedMedia
+    {
+        get => _selected as MediaItemViewModel;
+        set
+        {
+            if (value is not null || _selected is MediaItemViewModel)
+                Selected = value;
+        }
+    }
+
+    public GeneratorItemViewModel? SelectedGenerator
+    {
+        get => _selected as GeneratorItemViewModel;
+        set
+        {
+            if (value is not null || _selected is GeneratorItemViewModel)
+                Selected = value;
+        }
     }
 
     /// <summary>What the inspector shows (a media item, a generator, a playlist or one of its items).</summary>
@@ -75,6 +127,9 @@ public sealed class PlayViewModel : ObservableObject
         {
             if (!Set(ref _selected, value))
                 return;
+            Raise(nameof(SelectedMedia), nameof(SelectedGenerator));
+            foreach (var pl in Playlists)
+                pl.SelectedItem = value as PlaylistItemViewModel;
             switch (value)
             {
                 case MediaItemViewModel m:
@@ -116,7 +171,8 @@ public sealed class PlayViewModel : ObservableObject
         Media.SyncById(p.Media, m => m.Id, vm => vm.Id, m => new MediaItemViewModel(_session, m, this), (vm, m) => vm.Update(m));
         Generators.SyncById(p.Generators, g => g.Id, vm => vm.Id, g => new GeneratorItemViewModel(_session, g, this), (vm, g) => vm.Update(g));
         Playlists.SyncById(p.Playlists, l => l.Id, vm => vm.Id, l => new PlaylistViewModel(_session, l, p, this), (vm, l) => vm.Update(l, p));
-        Previews.SyncById(p.Outputs, o => o.Id, vm => vm.Id, o => new OutputPreviewViewModel(o), (vm, o) => vm.Update(o));
+        Previews.SyncById(p.Outputs, o => o.Id, vm => vm.Id, o => new OutputPreviewViewModel(_session, o), (vm, o) => vm.Update(o));
+        Raise(nameof(NodeId));
         foreach (var m in Media)
             m.UpdatePlaylists(p.Playlists);
         foreach (var g in Generators)
@@ -185,6 +241,9 @@ public sealed class PlayViewModel : ObservableObject
             // An engine that answers MEDIA LIST in another shape leaves the dots grey (unknown stays unknown).
         }
     }
+
+    /// <summary>Puts a line on the status strip (a view's own failure, never an engine refusal).</summary>
+    public void Report(string text) => _session.Notify(ToastKind.Fault, text);
 
     /// <summary>Files dropped on the bin: one MEDIA IMPORT each.</summary>
     public async Task ImportFilesAsync(IEnumerable<string> paths, CancellationToken ct = default)
@@ -392,11 +451,24 @@ public sealed class OutputPreviewViewModel : ObservableObject
     private bool _enabled;
     private string? _pattern;
 
-    public OutputPreviewViewModel(Output o)
+    public OutputPreviewViewModel(DeskSession session, Output o)
     {
         Id = o.Id;
+        var patterns = DeskAction.Local("pattern", "Test pattern", () => { }).Look("pattern");
+        patterns.Children.Add(DeskAction.Send(session, "p.off", "Off", () => $"PATTERN OFF ON {Id}"));
+        foreach (var k in GeneratorCatalog.All.Where(k => k.Family == "pattern"))
+            patterns.Children.Add(DeskAction.Send(session, "p." + k.Id, k.Name, () => $"PATTERN {k.Id[8..]} ON {Id}"));
+        Actions =
+        [
+            DeskAction.Send(session, "enable", "Open", () => $"OUTPUT ENABLE {Id} {(_enabled ? "OFF" : "ON")}", () => _enabled ? "Close output" : "Open output",
+                isChecked: () => _enabled).Look("eye", danger: true),
+            DeskAction.Send(session, "identify", "Identify", () => "OUTPUT IDENTIFY " + Id).Look("identify"),
+            patterns,
+        ];
         Update(o);
     }
+
+    public IReadOnlyList<DeskAction> Actions { get; }
 
     public string Id { get; }
 
@@ -439,6 +511,7 @@ public sealed class OutputPreviewViewModel : ObservableObject
     {
         Name = o.Name;
         Enabled = o.Enabled;
+        Actions.RefreshAll();
         Aspect = o.Height > 0 ? o.Width / (double)o.Height : 16 / 9.0;
         Detail = string.Create(CultureInfo.InvariantCulture, $"{o.Width}×{o.Height} · {o.Mode.ToString().ToLowerInvariant()}");
     }

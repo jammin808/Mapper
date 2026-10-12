@@ -7,6 +7,7 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://PlayMap/Theme/Tokens.axaml" />
+        <ResourceInclude Source="avares://PlayMap/Theme/Templates.axaml" />
       </ResourceDictionary.MergedDictionaries>
       <ui:IconConverter x:Key="Icon" />
       <ui:LightBrushConverter x:Key="LightBrush" />
