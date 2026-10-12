@@ -148,10 +148,16 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
         }
     }
 
-    public async Task<SegmentationResult> SegmentAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
+    /// <summary>Runs off the caller's thread from the start: hashing and fitting the picture are pixel work too.</summary>
+    public Task<SegmentationResult> SegmentAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(prompt);
+        return Task.Run(() => SegmentCoreAsync(frame, prompt, cancellationToken), cancellationToken);
+    }
+
+    private async Task<SegmentationResult> SegmentCoreAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
+    {
         if (prompt.PositivePoints.IsEmpty && !prompt.HasBox)
             return SegmentationResult.Refused(prompt.HasText
                 ? Id + " cannot read a phrase; click on the surface, or install a text-prompt model"

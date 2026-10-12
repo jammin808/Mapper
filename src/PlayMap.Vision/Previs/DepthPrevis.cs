@@ -32,10 +32,16 @@ public sealed record PrevisResult(MeshData Mesh, Intrinsics Intrinsics, Pose Cam
 /// fails. For previs only: calibration comes from structured light.</summary>
 public static class DepthPrevis
 {
-    public static async Task<PrevisResult> BuildAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions? options, CancellationToken cancellationToken)
+    /// <summary>Builds the previs mesh off the caller's thread.</summary>
+    public static Task<PrevisResult> BuildAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions? options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(photo);
-        options ??= PrevisOptions.Default;
+        var o = options ?? PrevisOptions.Default;
+        return Task.Run(() => BuildCoreAsync(photo, estimator, o, cancellationToken), cancellationToken);
+    }
+
+    private static async Task<PrevisResult> BuildCoreAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions options, CancellationToken cancellationToken)
+    {
         if (estimator is null)
             return Flat(photo, options, string.Create(CultureInfo.InvariantCulture, $"no depth model installed: a flat plane at {options.DistanceMetres:0.##} m"));
         DepthEstimate depth;
