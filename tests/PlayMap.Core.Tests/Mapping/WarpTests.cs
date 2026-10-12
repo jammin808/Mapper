@@ -256,6 +256,9 @@ public class WarpTests
         Assert.Equal(12, WarpMeshBuilder.NearestNode(warp, new Vec2d(0.52 + 5.0 / 1920, 0.51), 8, 1920, 1080));
         Assert.Equal(-1, WarpMeshBuilder.NearestNode(warp, new Vec2d(0.52 + 20.0 / 1920, 0.51), 8, 1920, 1080));
         Assert.Equal(0, WarpMeshBuilder.NearestNode(warp, new Vec2d(0.001, 0.001), 8, 1920, 1080));
+        // A bypassed warp's lattice is shown where it would take effect: under its corner pin.
+        var bypassed = new OutputWarp(false, Keystone, lattice);
+        AssertNear(QuadHomography.Corners(Keystone).TopLeft, WarpMeshBuilder.NodePositions(bypassed)[0], 1e-12);
     }
 
     [Fact]

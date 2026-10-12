@@ -104,14 +104,14 @@ public static class WarpMeshBuilder
     public static Vec2d? Invert(OutputWarp warp, double x, double y, PinWarp? pins = null) =>
         new WarpField(warp, pins).Invert(x, y);
 
-    /// <summary>Where each lattice node shows on the output (normalised units), row-major; empty without a
-    /// lattice. A disabled warp shows its nodes at rest.</summary>
+    /// <summary>Where each lattice node lands on the output (normalised units), row-major, with the warp on —
+    /// the editor shows a bypassed warp's lattice where it would take effect; empty without a lattice.</summary>
     public static Vec2d[] NodePositions(OutputWarp warp, PinWarp? pins = null)
     {
         ArgumentNullException.ThrowIfNull(warp);
         if (warp.Lattice is not { } lattice)
             return [];
-        var field = new WarpField(warp, pins);
+        var field = new WarpField(warp with { Enabled = true }, pins);
         var surface = field.Lattice ?? new LatticeSurface(lattice);
         var nodes = new Vec2d[surface.Nodes.Count];
         for (var k = 0; k < nodes.Length; k++)
