@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Local vision models, offline: click/type-to-surface segmentation, monocular depth for previs, pin
+       suggestions and drift watch, through ONNX Runtime (CUDA/DirectML/CPU). Models are downloaded on
+       demand with their licences shown; mapping works without them (the classical path stands alone). -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Vision</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Vision.Tests" />
+  </ItemGroup>
+
+</Project>

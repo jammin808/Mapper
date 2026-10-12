@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The assistant: plain words in, PlayMap verbs out, through the same command path every peer uses.
+       Claude through the official SDK, or a local model on an OpenAI-compatible endpoint. Every verb an
+       assistant proposes carries the verb's risk; high-risk verbs wait for a human (here or on the Show
+       Bus approval desk). -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Assistant</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.55.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Assistant.Tests" />
+  </ItemGroup>
+
+</Project>
