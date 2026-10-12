@@ -23,6 +23,22 @@ internal sealed class BoxScene
 
     public VisionFrame Frame => new(Image, Points);
 
+    /// <summary>The scene lit so each face has its own grey (floor dark, top bright, sides between), black where
+    /// nothing was hit, with ±noise: what a camera sees of a box under one light.</summary>
+    public ImageGray8 Shaded(int noise = 2, ulong seed = 11)
+    {
+        byte[] shade = [70, 225, 150, 120, 185, 100];
+        var w = Image.Width;
+        var img = ImageGray8.Create(w, Image.Height);
+        var rng = new Pcg32(seed);
+        for (var i = 0; i < Face.Length; i++)
+        {
+            var v = Face[i] < 0 ? 10 : shade[Face[i]];
+            img.Data[i] = (byte)Math.Clamp(v + rng.NextInt(2 * noise + 1) - noise, 0, 255);
+        }
+        return img;
+    }
+
     public bool[] FaceMask(int face) => Face.Select(f => f == face).ToArray();
 
     public Vec2d Project(Vec3d world) => CameraModel.Project(world, Intrinsics, LensDistortion.None, Pose)!.Value;
