@@ -1,0 +1,84 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The desk's palette: dark neutral greys, one accent, status lights, and red kept for what touches the
+       air (blackout, high-risk verbs). Projector colours come from the model, never from here. -->
+  <Color x:Key="DeskBg">#121417</Color>
+  <Color x:Key="DeskPanel">#191C20</Color>
+  <Color x:Key="DeskRaised">#22262B</Color>
+  <Color x:Key="DeskRaised2">#2B3036</Color>
+  <Color x:Key="DeskBorder">#2D3339</Color>
+  <Color x:Key="DeskBorderStrong">#3C434B</Color>
+  <Color x:Key="DeskText">#E7E9EC</Color>
+  <Color x:Key="DeskTextDim">#A2A9B2</Color>
+  <Color x:Key="DeskTextFaint">#6F7882</Color>
+  <Color x:Key="DeskAccent">#3D9BFF</Color>
+  <Color x:Key="DeskAccentSoft">#1D3A5C</Color>
+  <Color x:Key="DeskDanger">#E5484D</Color>
+  <Color x:Key="DeskDangerSoft">#3D1618</Color>
+  <Color x:Key="LightGreen">#3FB950</Color>
+  <Color x:Key="LightAmber">#D29922</Color>
+  <Color x:Key="LightRed">#E5484D</Color>
+  <Color x:Key="LightGrey">#6F7882</Color>
+
+  <SolidColorBrush x:Key="DeskBgBrush" Color="{StaticResource DeskBg}" />
+  <SolidColorBrush x:Key="DeskPanelBrush" Color="{StaticResource DeskPanel}" />
+  <SolidColorBrush x:Key="DeskRaisedBrush" Color="{StaticResource DeskRaised}" />
+  <SolidColorBrush x:Key="DeskRaised2Brush" Color="{StaticResource DeskRaised2}" />
+  <SolidColorBrush x:Key="DeskBorderBrush" Color="{StaticResource DeskBorder}" />
+  <SolidColorBrush x:Key="DeskBorderStrongBrush" Color="{StaticResource DeskBorderStrong}" />
+  <SolidColorBrush x:Key="DeskTextBrush" Color="{StaticResource DeskText}" />
+  <SolidColorBrush x:Key="DeskTextDimBrush" Color="{StaticResource DeskTextDim}" />
+  <SolidColorBrush x:Key="DeskTextFaintBrush" Color="{StaticResource DeskTextFaint}" />
+  <SolidColorBrush x:Key="DeskAccentBrush" Color="{StaticResource DeskAccent}" />
+  <SolidColorBrush x:Key="DeskAccentSoftBrush" Color="{StaticResource DeskAccentSoft}" />
+  <SolidColorBrush x:Key="DeskDangerBrush" Color="{StaticResource DeskDanger}" />
+  <SolidColorBrush x:Key="DeskDangerSoftBrush" Color="{StaticResource DeskDangerSoft}" />
+  <SolidColorBrush x:Key="LightGreenBrush" Color="{StaticResource LightGreen}" />
+  <SolidColorBrush x:Key="LightAmberBrush" Color="{StaticResource LightAmber}" />
+  <SolidColorBrush x:Key="LightRedBrush" Color="{StaticResource LightRed}" />
+  <SolidColorBrush x:Key="LightGreyBrush" Color="{StaticResource LightGrey}" />
+
+  <!-- Icons on a 24-unit grid, drawn as fills. -->
+  <StreamGeometry x:Key="Icon.play">M8,5 L19,12 L8,19 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.pause">M7,5 H10 V19 H7 Z M14,5 H17 V19 H14 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.stop">M6,6 H18 V18 H6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.prev">M6,5 H8.5 V19 H6 Z M19,5 V19 L9.5,12 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.next">M15.5,5 H18 V19 H15.5 Z M5,5 V19 L14.5,12 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.loop">M7,7 H15 V4.5 L19.5,8.5 L15,12.5 V10 H8 V13 H5 V9 C5,7.9 5.9,7 7,7 Z M17,17 H9 V19.5 L4.5,15.5 L9,11.5 V14 H16 V11 H19 V15 C19,16.1 18.1,17 17,17 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.plus">M11,5 H13 V11 H19 V13 H13 V19 H11 V13 H5 V11 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.trash">M9,4 H15 V5.5 H19.5 V7.5 H4.5 V5.5 H9 Z M6,9 H18 L17,20 H7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.eye">M12,6 C17,6 20.5,10 21.5,12 C20.5,14 17,18 12,18 C7,18 3.5,14 2.5,12 C3.5,10 7,6 12,6 Z M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.eyeoff">M4,4.5 L5.4,3.1 L20.9,18.6 L19.5,20 L16.6,17.1 C15.2,17.7 13.7,18 12,18 C7,18 3.5,14 2.5,12 C3.1,10.8 4.4,9 6.3,7.6 Z M12,6 C17,6 20.5,10 21.5,12 C21,13 19.9,14.6 18.4,15.9 L15,12.5 C15,12.3 15,12.2 15,12 A3,3 0 0 0 12,9 C11.8,9 11.7,9 11.5,9 L8.9,6.4 C9.9,6.1 10.9,6 12,6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.lock">M7,10 V8 A5,5 0 0 1 17,8 V10 H18.5 V20 H5.5 V10 Z M9.5,10 H14.5 V8 A2.5,2.5 0 0 0 9.5,8 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.unlock">M7,10 V8 A5,5 0 0 1 16.6,6 L14.3,7 A2.5,2.5 0 0 0 9.5,8 V10 H18.5 V20 H5.5 V10 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.undo">M9,6 V3 L3,8.5 L9,14 V10.5 H14 A3.5,3.5 0 0 1 14,17.5 H8 V20 H14 A6,6 0 0 0 14,8 H9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.redo">M15,6 V3 L21,8.5 L15,14 V10.5 H10 A3.5,3.5 0 0 0 10,17.5 H16 V20 H10 A6,6 0 0 1 10,8 H15 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.save">M5,4 H16 L20,8 V20 H4 V4 Z M7,6 V10 H15 V6 Z M12,13 A2.5,2.5 0 1 0 12,18 A2.5,2.5 0 1 0 12,13 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.blackout">M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M12,5.5 A6.5,6.5 0 0 1 17.1,16 L8,6.9 A6.4,6.4 0 0 1 12,5.5 Z M6.9,8 L16,17.1 A6.5,6.5 0 0 1 6.9,8 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.help">M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M11,16 H13 V18 H11 Z M12,6 A3.5,3.5 0 0 1 13.5,12.7 C13,13 13,13.3 13,14 H11 C11,12.6 11.4,11.9 12.4,11.2 A1.5,1.5 0 1 0 10.5,9.5 H8.5 A3.5,3.5 0 0 1 12,6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.select">M5,3 L19,13 L12.5,14 L16,20.5 L13.5,21.5 L10,15 L5,19 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.pin">M12,2 A6,6 0 0 1 18,8 C18,12.5 12,21 12,21 C12,21 6,12.5 6,8 A6,6 0 0 1 12,2 Z M12,5.5 A2.5,2.5 0 1 0 12,10.5 A2.5,2.5 0 1 0 12,5.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.warp">M3,3 H8 V8 H3 Z M16,3 H21 V8 H16 Z M3,16 H8 V21 H3 Z M16,16 H21 V21 H16 Z M9.5,5 C11,4.2 13,4.2 14.5,5 V6.5 C13,5.8 11,5.8 9.5,6.5 Z M9.5,17.5 C11,18.2 13,18.2 14.5,17.5 V19 C13,19.8 11,19.8 9.5,19 Z M5,9.5 H6.5 V14.5 H5 Z M17.5,9.5 H19 V14.5 H17.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.pen">M15,3 L21,9 L11,19 L4,21 L6,14 Z M8,15 L7,18 L10,17 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.pattern">M3,3 H11 V11 H3 Z M13,13 H21 V21 H13 Z M13,3 H21 V11 H13 Z M3,13 H11 V21 H3 Z M5,5 V9 H9 V5 Z M15,15 V19 H19 V15 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.network">M11,3 H13 V9 H11 Z M4,15 H8 V21 H2 V15 Z M10,15 H14 V21 H10 Z M16,15 H22 V21 H16 Z M5,11 H19 V15 H17 V13 H13 V15 H11 V13 H7 V15 H5 Z M9,7 H15 V11 H9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.outputs">M2,5 H11 V12 H2 Z M13,5 H22 V12 H13 Z M7,14 H17 V20 H7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.surface">M3,7 L12,3 L21,7 L12,11 Z M3,9.5 L11,13 V21 L3,17 Z M21,9.5 L13,13 V21 L21,17 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.projector">M2,8 H17 V17 H2 Z M9.5,10 A2.5,2.5 0 1 0 9.5,15 A2.5,2.5 0 1 0 9.5,10 Z M17,10 L22,7 V18 L17,15 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.camera">M3,7 H7 L9,4.5 H15 L17,7 H21 V19 H3 Z M12,9 A4,4 0 1 0 12,17 A4,4 0 1 0 12,9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.scan">M3,3 H9 V5 H5 V9 H3 Z M15,3 H21 V9 H19 V5 H15 Z M3,15 H5 V19 H9 V21 H3 Z M19,15 H21 V21 H15 V19 H19 Z M6,11 H18 V13 H6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.media">M3,5 H21 V19 H3 Z M10,8.5 V15.5 L15.5,12 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.image">M3,4 H21 V20 H3 Z M5,6 V15.5 L9,11 L13,15 L15.5,12.5 L19,16 V6 Z M15.5,7.5 A1.5,1.5 0 1 0 15.5,10.5 A1.5,1.5 0 1 0 15.5,7.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.audio">M10,4 L20,2 V16 A3,3 0 1 1 18,13.2 V6.5 L12,7.7 V18 A3,3 0 1 1 10,15.2 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.generator">M12,2 L14.2,8.6 L21,9 L15.7,13.2 L17.6,20 L12,16.2 L6.4,20 L8.3,13.2 L3,9 L9.8,8.6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.mesh">M12,2 L21,7 V17 L12,22 L3,17 V7 Z M12,4.3 L5,8.2 V15.8 L12,19.7 L19,15.8 V8.2 Z M11,8 H13 V16 H11 Z M7,11 H17 V13 H7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.viewpoint">M2,12 C5,6.5 19,6.5 22,12 C19,17.5 5,17.5 2,12 Z M12,8.5 A3.5,3.5 0 1 0 12,15.5 A3.5,3.5 0 1 0 12,8.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.more">M5,10 A2,2 0 1 0 5,14 A2,2 0 1 0 5,10 Z M12,10 A2,2 0 1 0 12,14 A2,2 0 1 0 12,10 Z M19,10 A2,2 0 1 0 19,14 A2,2 0 1 0 19,10 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.close">M6.4,5 L12,10.6 L17.6,5 L19,6.4 L13.4,12 L19,17.6 L17.6,19 L12,13.4 L6.4,19 L5,17.6 L10.6,12 L5,6.4 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.identify">M4,4 H20 V16 H13 L9,20 V16 H4 Z M11,7 H13 V13 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.cue">M5,5 H8 V19 H5 Z M10,5 L20,12 L10,19 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.solve">M10,3 A7,7 0 1 0 14.5,15.6 L19.4,20.5 L20.8,19.1 L15.9,14.2 A7,7 0 0 0 10,3 Z M10,5.5 A4.5,4.5 0 1 1 10,14.5 A4.5,4.5 0 1 1 10,5.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.info">M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M11,10 H13 V17 H11 Z M11,6.5 H13 V8.5 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.fetch">M11,3 H13 V13 L16.5,9.5 L18,11 L12,17 L6,11 L7.5,9.5 L11,13 Z M4,18 H20 V21 H4 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.sync">M12,4 A8,8 0 0 1 19.4,9 H22 L18.5,13 L15,9 H17.2 A6,6 0 0 0 6.3,10 L4.5,9 A8,8 0 0 1 12,4 Z M12,20 A8,8 0 0 1 4.6,15 H2 L5.5,11 L9,15 H6.8 A6,6 0 0 0 17.7,14 L19.5,15 A8,8 0 0 1 12,20 Z</StreamGeometry>
+</ResourceDictionary>

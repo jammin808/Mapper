@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             x:Class="PlayMap.App.Views.ConnectOverlay"
+             x:DataType="vm:ConnectViewModel">
+  <!-- Connect: this machine's engine, a node on the network, or the demo. -->
+  <Border Background="#E00A0C0E">
+    <Border Classes="panel" Width="760" Padding="26" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Spacing="14">
+        <TextBlock Classes="h1" Text="Connect the desk" FontSize="22" />
+        <TextBlock Classes="sentence" Text="The desk drives an engine — the node that plays and projects. A desk that closes never blanks a projector." />
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+          <RadioButton GroupName="connect" Classes="choice" IsChecked="{Binding IsOwn}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top">
+            <StackPanel Spacing="6">
+              <PathIcon Data="{StaticResource Icon.projector}" HorizontalAlignment="Left" />
+              <TextBlock Text="This machine" FontWeight="SemiBold" FontSize="15" />
+              <TextBlock Classes="faint" Text="Start and watch this machine's engine." TextWrapping="Wrap" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton GroupName="connect" Grid.Column="1" Classes="choice" IsChecked="{Binding IsNetwork}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top">
+            <StackPanel Spacing="6">
+              <PathIcon Data="{StaticResource Icon.network}" HorizontalAlignment="Left" />
+              <TextBlock Text="A node on the network" FontWeight="SemiBold" FontSize="15" />
+              <TextBlock Classes="faint" Text="Operate a rack render node from here." TextWrapping="Wrap" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton GroupName="connect" Grid.Column="2" x:Name="DemoChoice" Classes="choice" IsChecked="{Binding IsDemo}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top">
+            <StackPanel Spacing="6">
+              <PathIcon Data="{StaticResource Icon.play}" HorizontalAlignment="Left" />
+              <TextBlock Text="Demo" FontWeight="SemiBold" FontSize="15" />
+              <TextBlock Classes="faint" Text="A show inside the desk; nothing reaches a projector." TextWrapping="Wrap" />
+            </StackPanel>
+          </RadioButton>
+        </Grid>
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding IsNetwork}">
+          <TextBox Text="{Binding Host}" PlaceholderText="host[:port] — 9941 by default" />
+          <TextBox Grid.Column="1" Text="{Binding Token}" PlaceholderText="its pairing token" PasswordChar="•" />
+        </Grid>
+        <TextBlock Classes="sentence" Text="{Binding Sentence}" />
+        <TextBlock Text="This build has no link to a real engine yet; the demo is ready." Foreground="{StaticResource LightAmberBrush}" IsVisible="{Binding !RealLinkAvailable}" />
+        <TextBlock Text="{Binding Error}" Foreground="{StaticResource LightAmberBrush}" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+          <Button Classes="secondary" Content="Not now" Command="{Binding Close}" />
+          <Button x:Name="ConnectButton" Classes="primary" Content="Connect" Command="{Binding ConnectCommand}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Border>
+</UserControl>

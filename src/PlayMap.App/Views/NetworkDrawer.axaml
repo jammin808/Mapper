@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             x:Class="PlayMap.App.Views.NetworkDrawer"
+             x:DataType="vm:NetworkDrawerViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="8">
+      <TextBlock Classes="h1" Text="Network" />
+      <TextBlock Classes="faint" Text="This node on the Show Bus: who it hears, whom it follows, how close its clock is." TextWrapping="Wrap" />
+
+      <TextBlock Classes="h2" Text="PEERS" Margin="0,10,0,0" />
+      <ItemsControl ItemsSource="{Binding Peers}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:PeerRow">
+            <Border Classes="card" Margin="0,0,0,6" Padding="10,8">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
+                <StackPanel Grid.Column="1">
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                  <TextBlock Classes="faint" Text="{Binding Headline}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <Border Grid.Column="2" Classes="chip">
+                  <TextBlock Text="{Binding Kind}" FontSize="11" />
+                </Border>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <TextBlock Classes="h2" Text="PATTERNS" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="dim" Text="{Binding PatternsState}" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+            <TextBox Text="{Binding PatternsHost}" PlaceholderText="host[:port]" />
+            <TextBox Grid.Column="1" Text="{Binding PatternsToken}" PlaceholderText="its pairing token" PasswordChar="•" />
+          </Grid>
+          <CheckBox Content="Follow Patterns' blackout" IsChecked="{Binding FollowBlackout}" ToolTip.Tip="{Binding FollowBlackoutAction.Verb}" />
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <ContentControl Content="{Binding LinkPatterns}" ContentTemplate="{StaticResource ActionText}" />
+            <ContentControl Content="{Binding UnlinkPatterns}" ContentTemplate="{StaticResource ActionText}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <TextBlock Classes="h2" Text="STAGEWATCH" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="dim" Text="{Binding StagewatchState}" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+            <TextBox Text="{Binding StagewatchHost}" PlaceholderText="host[:port] (blank: the first heard)" />
+            <TextBox Grid.Column="1" Text="{Binding StagewatchKey}" PlaceholderText="its swk_ key" PasswordChar="•" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <ContentControl Content="{Binding LinkStagewatch}" ContentTemplate="{StaticResource ActionText}" />
+            <ContentControl Content="{Binding UnlinkStagewatch}" ContentTemplate="{StaticResource ActionText}" />
+          </StackPanel>
+          <Border CornerRadius="8" Padding="12,8" Background="{StaticResource DeskBgBrush}" IsVisible="{Binding HasTimer}">
+            <StackPanel>
+              <TextBlock Classes="faint" Text="{Binding Timer.Title, FallbackValue=''}" />
+              <TextBlock Classes="big" Text="{Binding Timer.Text, FallbackValue=''}" Foreground="{Binding Timer.Color, Converter={StaticResource LightBrush}, FallbackValue={x:Null}}" />
+              <TextBlock Classes="faint" Text="{Binding Timer.Phase, FallbackValue=''}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <TextBlock Classes="h2" Text="SYNC" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <TextBlock Text="{Binding SyncText}" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox Text="{Binding SyncGroup}" PlaceholderText="group" />
+            <ContentControl Grid.Column="1" Content="{Binding Lead}" ContentTemplate="{StaticResource ActionText}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <TextBlock Classes="h2" Text="MEDIA TRANSFERS" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <ItemsControl ItemsSource="{Binding Transfers}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TransferRow">
+                <StackPanel Margin="0,0,0,6">
+                  <TextBlock Text="{Binding Text}" />
+                  <ProgressBar Value="{Binding Progress}" Maximum="1" Height="4" MinHeight="4" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <ContentControl Content="{Binding FetchAll}" ContentTemplate="{StaticResource ActionText}" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock Classes="h2" Text="ASSISTANT" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <TextBlock Text="{Binding AiText}" TextWrapping="Wrap" />
+      </Border>
+
+      <TextBlock Classes="h2" Text="PAIRING" Margin="0,10,0,0" />
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="faint" TextWrapping="Wrap" Text="A peer pairs with this token (it proves it knows it; the token itself never crosses the wire)." />
+          <TextBlock Text="{Binding TokenText}" FontSize="20" FontWeight="SemiBold" LetterSpacing="2" Classes="mono" />
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Button Classes="secondary" Content="Show / hide" Command="{Binding ShowToken}" />
+            <ContentControl Content="{Binding Regenerate}" ContentTemplate="{StaticResource ActionText}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             x:Class="PlayMap.App.Views.HelpOverlay"
+             x:DataType="vm:MainViewModel">
+  <!-- F1: the shortcut table itself (the same one that handles the keys), and the desk's three ideas. -->
+  <Border Background="#C0080A0C">
+    <Border Classes="panel" Width="860" MaxHeight="760" Padding="22" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="h1" Text="Shortcuts" FontSize="20" />
+          <Button Grid.Column="1" Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Close  (F1 or Esc)">
+            <PathIcon Data="{StaticResource Icon.close}" />
+          </Button>
+        </Grid>
+        <TextBlock Grid.Row="1" Classes="sentence"
+                   Text="Every object has a right-click menu with the same actions as its buttons; every tooltip names the verb it sends — the words Patterns, Stagewatch and an assistant use too." />
+        <ScrollViewer Grid.Row="2">
+          <ItemsControl x:Name="ShortcutList" ItemsSource="{Binding Shortcuts.Entries}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:Shortcut">
+                <Grid ColumnDefinitions="150,90,*" Margin="0,4">
+                  <Border Classes="chip" HorizontalAlignment="Left">
+                    <TextBlock Text="{Binding Keys}" FontWeight="SemiBold" Classes="mono" />
+                  </Border>
+                  <TextBlock Grid.Column="1" Classes="faint" Text="{Binding Scope}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Text="{Binding Words}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+        <TextBlock Grid.Row="3" Classes="faint" Text="While you type in a field, only F1, Esc, Ctrl+S and the workspace and drawer keys act; every other key is the field's." />
+      </Grid>
+    </Border>
+  </Border>
+</UserControl>
