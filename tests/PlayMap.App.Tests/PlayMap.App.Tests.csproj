@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- The desk's tests. Avalonia.Headless.XUnit 12 is built on xUnit v3 (it depends on
+       xunit.v3.extensibility.core 3.2.2), so this project runs on xUnit v3 — a v3 test project is an
+       executable — while the other test projects stay on v2. -->
   <PropertyGroup>
     <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <RootNamespace>PlayMap.App.Tests</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -9,8 +13,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -19,6 +23,7 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="PlayMap.App.Tests.TestCt" Static="true" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,25 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.DeskApp"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://PlayMap/Theme/Tokens.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+      <ui:IconConverter x:Key="Icon" />
+      <ui:LightBrushConverter x:Key="LightBrush" />
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Dark" Accent="#3D9BFF" RegionColor="#121417" AltHigh="#121417" BaseHigh="#E7E9EC"
+                               ChromeMediumLow="#22262B" ChromeMedium="#2B3036" ChromeLow="#191C20" ChromeHigh="#3C434B"
+                               ListLow="#22262B" ListMedium="#2B3036" ErrorText="#E5484D" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+    <StyleInclude Source="avares://PlayMap/Theme/DeskStyles.axaml" />
+  </Application.Styles>
+</Application>

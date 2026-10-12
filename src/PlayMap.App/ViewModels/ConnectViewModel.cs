@@ -1,0 +1,285 @@
+using PlayMap.App.Infrastructure;
+using PlayMap.App.Link;
+using PlayMap.Core.Wire;
+
+namespace PlayMap.App.ViewModels;
+
+/// <summary>Owns what the desk is connected to: the link (and its disposal), the engine supervisor for this
+/// machine's own engine, and the three ways in — own engine, a node on the network, the demo.</summary>
+public sealed class ConnectionManager : IAsyncDisposable
+{
+    private readonly DeskSession _session;
+    private IAsyncDisposable? _owned;
+    private EngineSupervisor? _supervisor;
+
+    public ConnectionManager(DeskSession session) => _session = session;
+
+    public event Action<string>? Note;
+
+    /// <summary>The demo engine, when that is what the desk is on (its pairing token is shown in Network).</summary>
+    public FakeEngineLink? Demo { get; private set; }
+
+    /// <summary>Reads this machine's node token from its settings (the integrator's; null when unknown).</summary>
+    public Func<string?>? LocalTokenReader { get; set; }
+
+    public async Task ConnectDemoAsync()
+    {
+        var link = new FakeEngineLink(autoTick: true);
+        await AttachAsync(link, link, "Demo node");
+        Demo = link;
+    }
+
+    /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and
+    /// attach when it answers.</summary>
+    public async Task<bool> ConnectOwnAsync(CancellationToken ct)
+    {
+        var link = EngineLinks.Create(EngineEndpoint.Loopback);
+        if (link is null)
+        {
+            Note?.Invoke("This build has no link to a real engine yet — the demo engine is ready instead.");
+            return false;
+        }
+        await AttachAsync(link, link, "This machine");
+        if (await WaitLiveAsync(link, TimeSpan.FromSeconds(1.5), ct))
+            return true;
+        _supervisor ??= new EngineSupervisor();
+        _supervisor.Note += text => Note?.Invoke(text);
+        _supervisor.Start();
+        Note?.Invoke("Starting this machine's engine…");
+        return await WaitLiveAsync(link, TimeSpan.FromSeconds(15), ct);
+    }
+
+    public async Task<bool> ConnectNetworkAsync(EngineEndpoint endpoint, CancellationToken ct)
+    {
+        var link = EngineLinks.Create(endpoint);
+        if (link is null)
+        {
+            Note?.Invoke("This build has no network link yet — the demo engine is ready instead.");
+            return false;
+        }
+        await AttachAsync(link, link, endpoint.ToString());
+        return await WaitLiveAsync(link, TimeSpan.FromSeconds(5), ct);
+    }
+
+    private static async Task<bool> WaitLiveAsync(IEngineLink link, TimeSpan within, CancellationToken ct)
+    {
+        if (link.Status == LinkStatus.Live)
+            return true;
+        var live = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnStatus(LinkStatus s)
+        {
+            if (s == LinkStatus.Live)
+                live.TrySetResult();
+        }
+        link.StatusChanged += OnStatus;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(within);
+            await live.Task.WaitAsync(timeout.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return link.Status == LinkStatus.Live;
+        }
+        finally
+        {
+            link.StatusChanged -= OnStatus;
+        }
+    }
+
+    private async Task AttachAsync(IEngineLink link, IAsyncDisposable owner, string label)
+    {
+        await ReleaseAsync();
+        _owned = owner;
+        _session.Attach(link, label);
+    }
+
+    private async Task ReleaseAsync()
+    {
+        _session.Detach();
+        Demo = null;
+        if (_owned is { } old)
+        {
+            _owned = null;
+            await old.DisposeAsync();
+        }
+    }
+
+    /// <summary>The pairing token of the node the desk is on, read where it lives (never from a line).</summary>
+    public string? ReadToken() => Demo?.PairingToken ?? LocalTokenReader?.Invoke();
+
+    public async ValueTask DisposeAsync()
+    {
+        await ReleaseAsync();
+        if (_supervisor is { } s)
+            await s.DisposeAsync();
+    }
+}
+
+/// <summary>The Connect choice: this machine's engine, a node on the network (host:port and token), or the
+/// demo engine inside the desk.</summary>
+public sealed class ConnectViewModel : ObservableObject
+{
+    private readonly ConnectionManager _connections;
+    private ConnectChoice _choice = ConnectChoice.Demo;
+    private string _host = "";
+    private string _token = "";
+    private string _error = "";
+    private bool _isOpen;
+    private bool _isBusy;
+
+    public ConnectViewModel(ConnectionManager connections)
+    {
+        _connections = connections;
+        if (EngineLinks.Available)
+            _choice = ConnectChoice.OwnEngine;
+        ConnectCommand = new AsyncCommand(ConnectAsync, () => !IsBusy);
+        Open = new RelayCommand(() => IsOpen = true);
+        Close = new RelayCommand(() => IsOpen = false);
+        PickOwn = new RelayCommand(() => Choice = ConnectChoice.OwnEngine);
+        PickNetwork = new RelayCommand(() => Choice = ConnectChoice.Network);
+        PickDemo = new RelayCommand(() => Choice = ConnectChoice.Demo);
+    }
+
+    public AsyncCommand ConnectCommand { get; }
+
+    public RelayCommand Open { get; }
+
+    public RelayCommand Close { get; }
+
+    public RelayCommand PickOwn { get; }
+
+    public RelayCommand PickNetwork { get; }
+
+    public RelayCommand PickDemo { get; }
+
+    /// <summary>Whether this build carries a real link (else only the demo connects).</summary>
+    public bool RealLinkAvailable => EngineLinks.Available;
+
+    public ConnectChoice Choice
+    {
+        get => _choice;
+        set
+        {
+            if (Set(ref _choice, value))
+                Raise(nameof(IsOwn), nameof(IsNetwork), nameof(IsDemo), nameof(Sentence));
+        }
+    }
+
+    public bool IsOwn
+    {
+        get => _choice == ConnectChoice.OwnEngine;
+        set
+        {
+            if (value)
+                Choice = ConnectChoice.OwnEngine;
+        }
+    }
+
+    public bool IsNetwork
+    {
+        get => _choice == ConnectChoice.Network;
+        set
+        {
+            if (value)
+                Choice = ConnectChoice.Network;
+        }
+    }
+
+    public bool IsDemo
+    {
+        get => _choice == ConnectChoice.Demo;
+        set
+        {
+            if (value)
+                Choice = ConnectChoice.Demo;
+        }
+    }
+
+    /// <summary>What pressing Connect is about to do, in one sentence.</summary>
+    public string Sentence => _choice switch
+    {
+        ConnectChoice.OwnEngine => "Attach to this machine's engine on loopback, starting it (and restarting it if it stops) when it is not running.",
+        ConnectChoice.Network => "Operate a node across the network: its host, and its pairing token (shown on that node's Network drawer).",
+        _ => "Open the demo show inside the desk: every panel works, nothing reaches a projector.",
+    };
+
+    public string Host
+    {
+        get => _host;
+        set => Set(ref _host, value);
+    }
+
+    public string Token
+    {
+        get => _token;
+        set => Set(ref _token, value);
+    }
+
+    public string Error
+    {
+        get => _error;
+        private set => Set(ref _error, value);
+    }
+
+    public bool IsOpen
+    {
+        get => _isOpen;
+        set => Set(ref _isOpen, value);
+    }
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set
+        {
+            if (Set(ref _isBusy, value))
+                ConnectCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task ConnectAsync(CancellationToken ct)
+    {
+        IsBusy = true;
+        Error = "";
+        try
+        {
+            switch (_choice)
+            {
+                case ConnectChoice.Demo:
+                    await _connections.ConnectDemoAsync();
+                    IsOpen = false;
+                    break;
+                case ConnectChoice.OwnEngine:
+                    if (await _connections.ConnectOwnAsync(ct))
+                        IsOpen = false;
+                    else
+                        Fail("This machine's engine did not answer.");
+                    break;
+                case ConnectChoice.Network:
+                    if (!EngineEndpoint.TryParse(_host, _token, out var endpoint))
+                    {
+                        Fail("A host is a name or an address, with an optional :port (9941 by default).");
+                        break;
+                    }
+                    if (await _connections.ConnectNetworkAsync(endpoint, ct))
+                        IsOpen = false;
+                    else
+                        Fail($"{endpoint} did not answer.");
+                    break;
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void Fail(string why)
+    {
+        Error = why;
+        IsOpen = true;
+    }
+}

@@ -1,0 +1,8 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PlayMap.App.ViewModels"
+        x:Class="PlayMap.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="PlayMap" Width="1600" Height="960">
+  <TextBlock Text="{Binding ProjectName}" />
+</Window>
