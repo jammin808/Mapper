@@ -100,6 +100,8 @@ public static class ContextBuilder
         if (s.Scan.Current is { } scan && scan.State is not ("done" or "failed" or "cancelled"))
             items.Add(new ContextItem("scan", "scan", "Scan", Light.Amber, scan.Words));
 
+        engine.AddOpsContext(items, links);
+
         var outputsWords = green > 0 ? $"{green} output{(green == 1 ? "" : "s")} green" : !p.Outputs.Any(o => o.Enabled) ? "no outputs on" : "outputs not measured";
         var headline = air.EffectiveBlackout ? "BLACKOUT · " + outputsWords
             : playing is not null ? $"{playing} · {outputsWords}"

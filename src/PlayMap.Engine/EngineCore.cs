@@ -153,6 +153,8 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         if (ct.IsCancellationRequested)
             return ValueTask.FromResult(CommandReply.Fail("cancelled"));
+        if (TryOps(line, session, ct, out var ops))
+            return new ValueTask<CommandReply>(ops);
         return new ValueTask<CommandReply>(HandleOnLaneAsync(line, session, ct));
     }
 

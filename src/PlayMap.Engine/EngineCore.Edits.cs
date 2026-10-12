@@ -44,6 +44,7 @@ public sealed partial class EngineCore
             ?? Top("camera", p.Stage.Cameras, (pp, v) => pp.WithStage(s => s with { Cameras = v }))
             ?? Top("viewpoint", p.Stage.Viewpoints, (pp, v) => pp.WithStage(s => s with { Viewpoints = v }))
             ?? Top("scan", p.Stage.Scans, (pp, v) => pp.WithStage(s => s with { Scans = v }))
+            ?? Top("device", p.Stage.Devices, (pp, v) => pp.WithStage(s => s with { Devices = v }))
             ?? Nested(p, id);
     }
 
@@ -60,6 +61,7 @@ public sealed partial class EngineCore
         var t when t == typeof(CameraRig) => (ImmutableArray<T>)(object)p.Stage.Cameras,
         var t when t == typeof(Viewpoint) => (ImmutableArray<T>)(object)p.Stage.Viewpoints,
         var t when t == typeof(ScanRecord) => (ImmutableArray<T>)(object)p.Stage.Scans,
+        var t when t == typeof(DeviceLink) => (ImmutableArray<T>)(object)p.Stage.Devices,
         _ => null,
     };
 
@@ -179,10 +181,11 @@ public sealed partial class EngineCore
                 "projector" => AddTop<Projector>(p, json, Ids.Projector, (pp, e) => pp.WithStage(s => s with { Projectors = s.Projectors.Add(e) })),
                 "camera" => AddTop<CameraRig>(p, json, Ids.Camera, (pp, e) => pp.WithStage(s => s with { Cameras = s.Cameras.Add(e) })),
                 "viewpoint" => AddTop<Viewpoint>(p, json, "vp", (pp, e) => pp.WithStage(s => s with { Viewpoints = s.Viewpoints.Add(e) })),
+                "device" => AddDevice(p, json),
                 "layer" => AddLayer(p, owner!, json),
                 "pin" => AddPin(p, owner!, json),
                 "mask" => AddMask(p, owner!, json),
-                _ => throw new EditRefusedException($"ADD takes media, playlist, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output or mask — not {kind}"),
+                _ => throw new EditRefusedException($"ADD takes media, playlist, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output, mask or device — not {kind}"),
             };
             newId = result.id;
             return result.next;
@@ -248,6 +251,7 @@ public sealed partial class EngineCore
             var t when t == typeof(Viewpoint) => new Viewpoint("", "Viewpoint", Intrinsics.FromFieldOfView(1920, 1080, 60), Pose.Identity),
             var t when t == typeof(CalibrationPin) => new CalibrationPin("", Vec3d.Zero, Vec2d.Zero, true),
             var t when t == typeof(Mask) => new Mask("", "Mask", BezierPath.Empty, MaskMode.Add, 0, false, true),
+            var t when t == typeof(DeviceLink) => new DeviceLink("", "Projector", DeviceLink.DefaultProtocol, "", 0, "", "", "", 0, false),
             _ => throw new EditRefusedException($"cannot add a {typeof(T).Name}"),
         };
         if (string.IsNullOrWhiteSpace(json))
@@ -329,6 +333,9 @@ public sealed partial class EngineCore
                 if (c.Width is < 16 or > 16384 || c.Height is < 16 or > 16384)
                     throw new EditRefusedException("a canvas is 16 to 16384 pixels each way");
                 break;
+            case DeviceLink d:
+                ValidateDevice(p, d);
+                break;
         }
     }
 
@@ -366,6 +373,9 @@ public sealed partial class EngineCore
         foreach (var s in p.Stage.Surfaces)
             if (s.Content.Source.Id == id || s.MeshId == id || s.Content.ViewpointId == id)
                 users.Add(s.Name);
+        foreach (var d in p.Stage.Devices)
+            if (d.ProjectorId == id || d.OutputId == id)
+                users.Add(d.Name);
         return users;
     }
 
@@ -395,6 +405,7 @@ public sealed partial class EngineCore
         Viewpoint v => v.Name,
         ScanRecord s => s.Name,
         Mask m => m.Name,
+        DeviceLink d => d.Name,
         IEntity e => e.Id,
         _ => "?",
     };

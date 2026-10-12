@@ -131,6 +131,8 @@ public static class StateWriter
         w.WriteBoolean("dirty", e.Dirty);
         w.WriteEndObject();
 
+        e.WriteOpsState(w);
+
         w.WriteEndObject();
     }
 
