@@ -26,7 +26,7 @@ public sealed record Proposal(
     string Verb,
     VerbRisk Risk,
     string Reason,
-    /// <summary>Who proposed: "assistant (claude-opus-5-5)".</summary>
+    /// <summary>Who proposed: "assistant (" and the model the provider asked for ")".</summary>
     string From,
     string SessionId,
     /// <summary>The proposals made by one call share a batch and run in its order.</summary>
