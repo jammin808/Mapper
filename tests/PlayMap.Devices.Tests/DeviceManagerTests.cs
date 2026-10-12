@@ -243,6 +243,8 @@ internal sealed class FakeDriver : IProjectorDriver
 
     public IReadOnlyList<string> TestPatternNames => [];
 
+    public bool CanIdentify => false;
+
     public string Caveat(ProjectorCapabilities capability) => "";
 
     private async Task<T> Track<T>(Func<T> result)

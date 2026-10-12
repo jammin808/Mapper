@@ -58,6 +58,8 @@ public abstract class ProjectorDriverBase : IProjectorDriver
 
     public virtual IReadOnlyList<string> TestPatternNames => [];
 
+    public virtual bool CanIdentify => (Capabilities & ProjectorCapabilities.TestPatterns) != 0;
+
     protected DriverTimings Timings { get; }
 
     protected string Label => ProjectorProtocols.Label(Protocol);

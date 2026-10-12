@@ -119,6 +119,9 @@ public sealed class EpsonDriver(ProjectorLink link, ICredentialStore credentials
 
     protected override string InputExample => "30 (Epson's two-digit source code, hex)";
 
+    /// <summary>Only "off" is a confirmed pattern word, so there is no pattern to identify with.</summary>
+    public override bool CanIdentify => false;
+
     protected override Task<CommandResult> ConnectCoreAsync(CancellationToken ct) =>
         SessionAsync("connect", async (ch, c) =>
         {

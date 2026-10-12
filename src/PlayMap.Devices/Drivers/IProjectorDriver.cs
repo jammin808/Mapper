@@ -50,6 +50,9 @@ public interface IProjectorDriver : IAsyncDisposable
     /// <summary>The pattern names <see cref="ShowTestPatternAsync"/> takes (besides "off" and "identify").</summary>
     IReadOnlyList<string> TestPatternNames { get; }
 
+    /// <summary>The driver can show a built-in pattern to identify the projector ("identify").</summary>
+    bool CanIdentify { get; }
+
     /// <summary>Opens a connection and completes the handshake (authentication included) without changing anything.</summary>
     Task<CommandResult> ConnectAsync(CancellationToken ct);
 
