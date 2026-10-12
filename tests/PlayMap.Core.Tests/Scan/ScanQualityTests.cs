@@ -34,7 +34,7 @@ public class ScanQualityTests(ITestOutputHelper output)
     [Fact]
     public void AClippedScanIsToldToLowerItsExposure()
     {
-        var report = ScanQuality.Assess(ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Fast }, new SimOptions { Exposure = 2.2 }).Map);
+        var report = ScanQuality.Assess(ScanTestKit.Clipped.Map);
         output.WriteLine(report.Words);
         Assert.True(report.SaturationShare > 0.05);
         Assert.Contains(report.Advice, a => a.Contains("lower the camera's exposure", StringComparison.Ordinal));

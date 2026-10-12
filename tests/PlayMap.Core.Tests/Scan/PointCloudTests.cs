@@ -203,9 +203,10 @@ public class PointCloudTests(ITestOutputHelper output)
     [Fact]
     public void AClickOnTheCylinderIsFreeformAndStopsAtTheWall()
     {
-        var scene = SimScenes.WallAndCylinder();
+        var geometry = ScanTestKit.Cylinder;
+        var scene = geometry.Scene;
         var plan = ScanPlan.Create(scene.Projector.Intrinsics.Width, scene.Projector.Intrinsics.Height, new ScanPlanOptions { Mode = ScanMode.Fast });
-        var sim = new ScanSimulator(scene, plan);
+        var sim = new ScanSimulator(geometry, plan);
         var cloud = PointCloudOps.EstimateNormals(sim.Truth.Cloud(0.0005), scene.Camera.Pose.Position);
         var cam = scene.Camera;
         var p = CameraModel.Project(new Vec3d(0.1, 0.6, 0.75), cam.Intrinsics, cam.Lens, cam.Pose)!.Value;

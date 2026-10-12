@@ -83,8 +83,8 @@ public class DecoderTests(ITestOutputHelper output)
     [InlineData("stepped facade")]
     public void OtherScenesDecodeToAQuarterPixelToo(string name)
     {
-        var scene = name == "stepped facade" ? SimScenes.SteppedFacade() : SimScenes.WallAndCylinder();
-        var scan = ScanTestKit.Run(new SimGeometry(scene), new ScanPlanOptions { Mode = ScanMode.Robust }, new SimOptions { NoiseSigma = 1.5, Seed = 2 });
+        var geometry = name == "stepped facade" ? new SimGeometry(SimScenes.SteppedFacade()) : ScanTestKit.Cylinder;
+        var scan = ScanTestKit.Run(geometry, new ScanPlanOptions { Mode = ScanMode.Robust }, new SimOptions { NoiseSigma = 1.5, Seed = 2 });
         var lit = scan.LitPixels();
         var (rms, decoded) = scan.Rms(lit);
         var shadowed = scan.Truth.Shadowed.Count(s => s);
@@ -201,7 +201,7 @@ public class DecoderTests(ITestOutputHelper output)
     [Fact]
     public void ClippedWhitePixelsAreRefusedAndCounted()
     {
-        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Fast }, new SimOptions { Exposure = 2.2 });
+        var scan = ScanTestKit.Clipped;
         var stats = scan.Map.Stats;
         output.WriteLine(stats.ToString());
         Assert.True(stats.Saturated > 1000, $"{stats.Saturated} saturated");

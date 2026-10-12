@@ -125,23 +125,25 @@ public sealed class ProjectorView
     /// within the spread.</summary>
     private void Splat(CorrespondenceMap map, ProjectorViewOptions options)
     {
+        // Single precision is ample for means of a few dozen camera coordinates; five arrays of the projector's
+        // size are the whole working set, the pass-one mean living in CameraX/CameraY until pass three.
         var n = Width * Height;
-        var sumW = new double[n];
-        var sumBilinear = new double[n];
-        var sumX = new double[n];
-        var sumY = new double[n];
-        var spread = new double[n];
-        var meanX = new double[n];
-        var meanY = new double[n];
+        var sumW = new float[n];
+        var sumBilinear = new float[n];
+        var sumX = new float[n];
+        var sumY = new float[n];
+        var radius2 = new float[n];
+        var meanX = CameraX;
+        var meanY = CameraY;
         Span<int> targets = stackalloc int[4];
         Span<double> weights = stackalloc double[4];
 
         // Pass 1: the plain weighted mean.
         ForEachSample(map, options, targets, weights, (t, w, cx, cy, _) =>
         {
-            sumW[t] += w;
-            sumX[t] += w * cx;
-            sumY[t] += w * cy;
+            sumW[t] += (float)w;
+            sumX[t] += (float)(w * cx);
+            sumY[t] += (float)(w * cy);
         });
         for (var t = 0; t < n; t++)
         {
@@ -152,23 +154,23 @@ public sealed class ProjectorView
             }
         }
 
-        // Pass 2: the weighted spread about it.
+        // Pass 2: the weighted spread about it, turned into the radius that keeps a sample.
         ForEachSample(map, options, targets, weights, (t, w, cx, cy, _) =>
         {
             var dx = cx - meanX[t];
             var dy = cy - meanY[t];
-            spread[t] += w * (dx * dx + dy * dy);
+            radius2[t] += (float)(w * (dx * dx + dy * dy));
         });
         for (var t = 0; t < n; t++)
         {
             if (sumW[t] > 0)
             {
-                var radius = Math.Max(options.MinOutlierRadius, options.OutlierSigma * Math.Sqrt(spread[t] / sumW[t]));
-                spread[t] = radius * radius;
+                var radius = Math.Max(options.MinOutlierRadius, options.OutlierSigma * Math.Sqrt(radius2[t] / sumW[t]));
+                radius2[t] = (float)(radius * radius);
             }
         }
 
-        // Pass 3: the mean of the samples within the spread.
+        // Pass 3: the mean of the samples within that radius.
         Array.Clear(sumW);
         Array.Clear(sumX);
         Array.Clear(sumY);
@@ -176,21 +178,25 @@ public sealed class ProjectorView
         {
             var dx = cx - meanX[t];
             var dy = cy - meanY[t];
-            if (dx * dx + dy * dy > spread[t])
+            if (dx * dx + dy * dy > radius2[t])
                 return;
-            sumW[t] += w;
-            sumBilinear[t] += bilinear;
-            sumX[t] += w * cx;
-            sumY[t] += w * cy;
+            sumW[t] += (float)w;
+            sumBilinear[t] += (float)bilinear;
+            sumX[t] += (float)(w * cx);
+            sumY[t] += (float)(w * cy);
         });
         for (var t = 0; t < n; t++)
         {
             // A pixel needs a quarter of a sample's worth of support, or its mean leans on one side's samples.
-            if (sumBilinear[t] < 0.25 || sumW[t] <= 0)
+            if (sumBilinear[t] < 0.25f || sumW[t] <= 0)
+            {
+                CameraX[t] = float.NaN;
+                CameraY[t] = float.NaN;
                 continue;
-            CameraX[t] = (float)(sumX[t] / sumW[t]);
-            CameraY[t] = (float)(sumY[t] / sumW[t]);
-            Confidence[t] = (float)Math.Min(1, sumW[t] / sumBilinear[t]);
+            }
+            CameraX[t] = sumX[t] / sumW[t];
+            CameraY[t] = sumY[t] / sumW[t];
+            Confidence[t] = Math.Min(1f, sumW[t] / sumBilinear[t]);
             Coverage[t] = ProjectorCoverage.Measured;
         }
     }

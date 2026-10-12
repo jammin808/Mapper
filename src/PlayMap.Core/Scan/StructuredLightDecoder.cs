@@ -37,7 +37,8 @@ public sealed record DecodeOptions
     public int MaxUncertainBits { get; init; } = 2;
 
     /// <summary>The camera's read noise (standard deviation, levels). Null measures it from the sinusoids' residual
-    /// (an even step count leaves Σ(−1)ⁿIₙ free of the signal). A bit is uncertain below 2√2 noise as well.</summary>
+    /// (an even step count leaves Σ(−1)ⁿIₙ free of the signal). A bit is uncertain below 2√2 noise as well (but
+    /// never for want of more than a quarter of the pixel's contrast).</summary>
     public double? NoiseSigma { get; init; }
 
     /// <summary>In an XOR-coded scan, a pixel within this many projector pixels of an edge of the XOR base is a
@@ -57,7 +58,10 @@ public sealed record DecodeOptions
 /// code names a cell; with sinusoids, the N-step phase (atan2) places the pixel inside a period, unwrapped
 /// by rounding against the Gray cell's centre — with the complementary level the cells are half a period
 /// wide, so the rounding always has a quarter period of slack and edge pixels never jump; finer periods are
-/// unwrapped by the coarser result. Rows run in parallel; nothing allocates per pixel.
+/// unwrapped by the coarser result. "Too close" allows for the camera's noise, measured from the sinusoids.
+/// A suspect — more close calls than a stripe edge explains, Gray code and phase at odds, or a pixel on an
+/// XOR base's edge — is then checked against its trusted neighbours. Rows run in parallel; nothing allocates
+/// per pixel.
 /// </summary>
 public sealed class StructuredLightDecoder
 {
@@ -203,7 +207,9 @@ public sealed class StructuredLightDecoder
                 map.Flags[k] = flags | DecodeStatus.Saturated;
                 continue;
             }
-            var tau = (float)Math.Max(Math.Max(o.BitThreshold, o.BitThresholdRelative * contrast), noiseFloor);
+            // A mis-measured noise (a projector gamma left in the sinusoids reads as noise) never makes more than
+            // a quarter of the contrast too close to call.
+            var tau = (float)Math.Max(Math.Max(o.BitThreshold, o.BitThresholdRelative * contrast), Math.Min(noiseFloor, 0.25 * contrast));
             var excess = 0;
             var modulation = double.PositiveInfinity;
             var inconsistent = false;

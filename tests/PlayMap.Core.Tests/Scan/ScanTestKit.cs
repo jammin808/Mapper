@@ -14,9 +14,17 @@ internal static class ScanTestKit
     private static readonly Lazy<SimGeometry> FloorTrace = new(() => new SimGeometry(SimScenes.FloorAndBox()));
     private static readonly Lazy<SimulatedScan> FastFloor = new(() => Run(Floor, new ScanPlanOptions { Mode = ScanMode.Fast }));
     private static readonly Lazy<SimulatedScan> RobustFloor = new(() => Run(Floor, new ScanPlanOptions { Mode = ScanMode.Robust }));
+    private static readonly Lazy<SimulatedScan> ClippedFloor = new(() => Run(Floor, new ScanPlanOptions { Mode = ScanMode.Fast }, new SimOptions { Exposure = 2.2 }));
+    private static readonly Lazy<SimGeometry> CylinderTrace = new(() => new SimGeometry(SimScenes.WallAndCylinder()));
 
     /// <summary>The floor-and-box scene at the default resolutions, traced once for every test.</summary>
     public static SimGeometry Floor => FloorTrace.Value;
+
+    /// <summary>The wall-and-cylinder scene at the default resolutions, traced once.</summary>
+    public static SimGeometry Cylinder => CylinderTrace.Value;
+
+    /// <summary>The floor-and-box scene scanned in Fast mode with the camera's exposure 2.2 times too long.</summary>
+    public static SimulatedScan Clipped => ClippedFloor.Value;
 
     /// <summary>The floor-and-box scene scanned in Fast mode with the default camera.</summary>
     public static SimulatedScan Fast => FastFloor.Value;
