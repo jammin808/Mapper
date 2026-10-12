@@ -55,6 +55,7 @@ public sealed record Project(
     public Surface? FindSurface(string? id) => Stage.Surfaces.Find(id);
     public Projector? FindProjector(string? id) => Stage.Projectors.Find(id);
     public MeshAsset? FindMesh(string? id) => Stage.Meshes.Find(id);
+    public DeviceLink? FindDevice(string? id) => Stage.Devices.Find(id);
 
     /// <summary>Every id in the project, for uniqueness checks.</summary>
     public IEnumerable<string> AllIds()
@@ -77,6 +78,7 @@ public sealed record Project(
         foreach (var c in Stage.Cameras) yield return c.Id;
         foreach (var v in Stage.Viewpoints) yield return v.Id;
         foreach (var s in Stage.Scans) yield return s.Id;
+        foreach (var d in Stage.Devices) yield return d.Id;
         foreach (var o in Outputs) yield return o.Id;
     }
 

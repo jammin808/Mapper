@@ -193,6 +193,9 @@ public enum CameraSourceKind
     Folder,
     Ndi,
     Stream,
+    /// <summary>The scan simulator: Source names the scene ("floor-and-box", "wall-and-cylinder",
+    /// "stepped-facade") — demo mode and the tests scan with no hardware.</summary>
+    Simulated,
 }
 
 /// <summary>A camera used to scan: where it is, how it sees, whether its optics are measured.</summary>
@@ -244,4 +247,8 @@ public sealed record Stage(
     ImmutableArray<ScanRecord> Scans)
 {
     public static readonly Stage Empty = new([], [], [], [], [], []);
+
+    /// <summary>The control links to the projector boxes that light this stage (an older file without the list
+    /// reads it as empty).</summary>
+    public ImmutableArray<DeviceLink> Devices { get; init; } = [];
 }

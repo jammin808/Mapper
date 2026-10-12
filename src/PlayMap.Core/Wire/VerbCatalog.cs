@@ -23,6 +23,8 @@ public enum VerbCategory
     Scan,
     Project,
     Network,
+    Device,
+    Assistant,
 }
 
 /// <summary>One verb of PlayMap's vocabulary. The same table feeds the wire's parser and HELP, the HTTP
@@ -146,6 +148,35 @@ public static class VerbCatalog
         V("SYNC FOLLOW", "SYNC FOLLOW <group> <node>", "This node follows a sync group's leader", VerbCategory.Network, VerbRisk.Review, true),
         V("LINK PATTERNS", "LINK PATTERNS <host[:port]>|OFF [<token>]", "Follows a Patterns desk (its clip clock, its blackout)", VerbCategory.Network, VerbRisk.Review, true),
         V("LINK STAGEWATCH", "LINK STAGEWATCH <host[:port]>|OFF [<key>]", "Follows a Stagewatch (its timer as a source)", VerbCategory.Network, VerbRisk.Review, true),
+
+        // Projector control (docs/PROJECTORS.md): the boxes behind the outputs. Anything that changes what leaves a
+        // lens is high; every answer is the projector's own (refused, unreached, sent, rejected, accepted, observed).
+        V("DEVICE LIST", "DEVICE LIST", "Every projector link with what its projector reports: power, shutter, input, hours, faults", VerbCategory.Device, VerbRisk.Low, false),
+        V("DEVICE GET", "DEVICE GET <device>", "One link: what its projector reports, what its protocol can do and the plan PREPARE would run", VerbCategory.Device, VerbRisk.Low, false),
+        V("DEVICE ADD", "DEVICE ADD <name> <protocol> <host[:port]> [PROJECTOR <projector>] [OUTPUT <output>]", "Links a projector box (pjlink, christie, panasonic, barco-pulse, sony-adcp, epson, nec); answers its id", VerbCategory.Device, VerbRisk.Review, true),
+        V("DEVICE REMOVE", "DEVICE REMOVE <device>", "Forgets a projector link (the projector is left as it is)", VerbCategory.Device, VerbRisk.Review, true),
+        V("DEVICE POWER", "DEVICE POWER <device> ON|OFF", "Powers a projector on, or to standby", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE SHUTTER", "DEVICE SHUTTER <device> OPEN|CLOSE", "Opens or closes a projector's shutter (AV mute)", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE INPUT", "DEVICE INPUT <device> <input>", "Switches a projector's input, in its protocol's own words (31, HD1…)", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE FREEZE", "DEVICE FREEZE <device> ON|OFF", "Holds a projector's picture", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE PATTERN", "DEVICE PATTERN <device> <pattern>|OFF", "Shows one of the projector's own test patterns, or none", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE LENS", "DEVICE LENS <device> SHIFTH|SHIFTV|ZOOM|FOCUS|MEMORY [TO|BY] <n>", "Drives a lens motor to a raw position or by steps, or recalls a lens memory", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE RAW", "DEVICE RAW <device> <line>", "Sends one line in the projector's own protocol (framing and authentication added)", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE DISCOVER", "DEVICE DISCOVER [SWEEP <address>]", "Searches the network for projectors (the PJLink search; SWEEP also knocks on a /24)", VerbCategory.Device, VerbRisk.Low, true),
+        V("DEVICE PREPARE", "DEVICE PREPARE <device>", "Readies a projector for a scan: shutter open, freeze and patterns off, its own geometry off, lens recorded", VerbCategory.Device, VerbRisk.High, true),
+        V("DEVICE IDENTIFY", "DEVICE IDENTIFY <device> [<seconds>]", "Shows the projector's own identify pattern for a while", VerbCategory.Device, VerbRisk.Review, true),
+        // A secret rides in this line, so — like AUTH — it is never journalled, it is taken from this machine only and
+        // never from an assistant, and no answer repeats it.
+        V("CREDENTIAL SET", "CREDENTIAL SET <ref> [<user>] <secret>", "Keeps a secret in this node's credential store (a projector link's password, the assistant's key); this machine only", VerbCategory.Device, VerbRisk.High, false),
+        V("CREDENTIAL CLEAR", "CREDENTIAL CLEAR <ref>", "Forgets a secret from this node's credential store; this machine only", VerbCategory.Device, VerbRisk.High, false),
+        V("CREDENTIAL LIST", "CREDENTIAL LIST", "Which references hold a secret on this node (never the secrets)", VerbCategory.Device, VerbRisk.Low, false),
+
+        // The node's own assistant (Show Bus §6/§11): it reads freely, runs low-risk lines on its word and queues the
+        // rest for a person. Approving and rejecting are a person's words, never an assistant's.
+        V("ASK", "ASK <words>", "Asks the node's assistant; answers its words and every line it ran or queued", VerbCategory.Assistant, VerbRisk.Review, true),
+        V("PROPOSALS", "PROPOSALS [ALL]", "The assistant's lines waiting for a person (ALL: every proposal and how it ended)", VerbCategory.Assistant, VerbRisk.Low, false),
+        V("APPROVE", "APPROVE <proposal>", "A person approves a proposal: its line runs through the node's own checks", VerbCategory.Assistant, VerbRisk.High, true),
+        V("REJECT", "REJECT <proposal> [<why>]", "A person rejects a proposal: it never runs", VerbCategory.Assistant, VerbRisk.Review, true),
     ];
 
     private static readonly FrozenDictionary<string, VerbSpec> ByName = BuildIndex();

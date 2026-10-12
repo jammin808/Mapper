@@ -45,6 +45,27 @@ public class ModelTests
     }
 
     [Fact]
+    public void ProjectorLinksRoundTripWithTheirIdsAndAnOlderFileHasNone()
+    {
+        var link = new DeviceLink("dv0a1b2c3d", "Left box", "panasonic", "10.0.0.21", 0, "dv0a1b2c3d", "pj1", "op_1", 0, false);
+        var p = Project.CreateDefault("Show") with { Stage = Stage.Empty with { Devices = [link] } };
+        var json = ProjectJson.Serialize(p);
+        Assert.Contains("\"devices\": [", json, StringComparison.Ordinal);
+        var back = ProjectJson.Deserialize(json);
+        Assert.Equal(link, Assert.Single(back.Stage.Devices));
+        Assert.Contains("dv0a1b2c3d", back.AllIds());
+        Assert.Same(back.Stage.Devices[0], back.FindDevice("dv0a1b2c3d"));
+        Assert.StartsWith(Ids.Device, p.NewId(Ids.Device), StringComparison.Ordinal);
+        Assert.Equal(ProjectJson.Serialize(p), ProjectJson.Serialize(back));
+
+        var node = System.Text.Json.Nodes.JsonNode.Parse(ProjectJson.Serialize(Project.CreateDefault()))!;
+        Assert.True(node["stage"]!.AsObject().Remove("devices"));
+        var older = ProjectJson.Deserialize(node.ToJsonString());
+        Assert.False(older.Stage.Devices.IsDefault);
+        Assert.Empty(older.Stage.Devices);
+    }
+
+    [Fact]
     public void AFileWithAListMissingReadsItAsEmpty()
     {
         var json = ProjectJson.Serialize(Project.CreateDefault()).Replace("\"media\": [],", "", StringComparison.Ordinal);
