@@ -106,6 +106,10 @@ public sealed class ArrayLease : VideoFrameLease
     public override ColorMatrix Matrix { get; }
     public override ColorRange Range { get; }
 
+    public TransferFunction TransferOverride { get; init; } = TransferFunction.Sdr;
+
+    public override TransferFunction Transfer => TransferOverride;
+
     public int Releases { get; private set; }
 
     protected override void Release()
