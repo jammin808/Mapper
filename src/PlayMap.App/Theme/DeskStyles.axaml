@@ -1,0 +1,295 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The desk's look: calm dark panels, big touch-friendly targets (40 px and up), one accent for
+       selection and focus, red only for what touches the air. -->
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource DeskBgBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextBrush}" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style Selector="TextBlock.h1">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.h2">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextFaintBrush}" />
+  </Style>
+  <Style Selector="TextBlock.dim">
+    <Setter Property="Foreground" Value="{StaticResource DeskTextDimBrush}" />
+  </Style>
+  <Style Selector="TextBlock.faint">
+    <Setter Property="Foreground" Value="{StaticResource DeskTextFaintBrush}" />
+    <Setter Property="FontSize" Value="11" />
+  </Style>
+  <Style Selector="TextBlock.big">
+    <Setter Property="FontSize" Value="22" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.counter">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontFeatures" Value="+tnum" />
+  </Style>
+  <Style Selector="TextBlock.sentence">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextDimBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{StaticResource DeskPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style Selector="Border.panel.focused">
+    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
+  </Style>
+  <Style Selector="Border.row">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.row.selected">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+  </Style>
+  <Style Selector="Button.row">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="6,4" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="CornerRadius" Value="6" />
+  </Style>
+  <Style Selector="Button.row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource DeskRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10" />
+  </Style>
+  <Style Selector="Border.card.selected">
+    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
+  </Style>
+  <Style Selector="Border.toast">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskBorderStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="BoxShadow" Value="0 6 18 0 #70000000" />
+  </Style>
+  <Style Selector="Border.toast.refused">
+    <Setter Property="BorderBrush" Value="{StaticResource LightAmberBrush}" />
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, DejaVu Sans Mono, monospace" />
+  </Style>
+  <Style Selector="Button.pill.attention">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+  </Style>
+  <Style Selector="Border.chip">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="8,3" />
+  </Style>
+  <Style Selector="Border.drawer">
+    <Setter Property="Background" Value="{StaticResource DeskPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskBorderStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1,0,0,0" />
+    <Setter Property="BoxShadow" Value="-8 0 24 0 #80000000" />
+  </Style>
+
+  <Style Selector="PathIcon">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+  </Style>
+
+  <!-- A radio group drawn as toggle buttons (segmented switches, tool pickers): a press on the lit one keeps it lit. -->
+  <Style Selector="RadioButton.seg, RadioButton.tool, RadioButton.choice">
+    <Setter Property="Theme" Value="{StaticResource {x:Type ToggleButton}}" />
+  </Style>
+
+  <!-- Toolbar buttons: icon (and sometimes a word), 40 px square at least. -->
+  <Style Selector="Button.tool, ToggleButton.tool, RadioButton.tool">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="9" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.tool:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.tool:pointerover /template/ ContentPresenter#PART_ContentPresenter, RadioButton.tool:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+  </Style>
+  <Style Selector="Button.tool:disabled /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.tool:disabled /template/ ContentPresenter#PART_ContentPresenter, RadioButton.tool:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextFaintBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.tool:checked /template/ ContentPresenter#PART_ContentPresenter, RadioButton.tool:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextBrush}" />
+  </Style>
+  <Style Selector="Button.tool.checked /template/ ContentPresenter#PART_ContentPresenter, Button.secondary.checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+  </Style>
+  <Style Selector="Button.tool.danger">
+    <Setter Property="Foreground" Value="{StaticResource DeskDangerBrush}" />
+  </Style>
+  <Style Selector="Button.small, ToggleButton.small">
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="6" />
+  </Style>
+
+  <!-- The workspace switch: one segmented control. -->
+  <Style Selector="ToggleButton.seg, RadioButton.seg">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="MinWidth" Value="72" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextDimBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.seg:checked /template/ ContentPresenter#PART_ContentPresenter, RadioButton.seg:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextBrush}" />
+  </Style>
+
+  <!-- BLACKOUT: neutral until it is on; red while the air is black (the "on" class follows STATE, never the press). -->
+  <Style Selector="Button.blackout">
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="LetterSpacing" Value="1" />
+    <Setter Property="Background" Value="{StaticResource DeskRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskDangerBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.blackout.on /template/ ContentPresenter#PART_ContentPresenter, Button.blackout.on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskDangerBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+
+  <Style Selector="Button.pill">
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Padding" Value="12,4" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Background" Value="{StaticResource DeskRaisedBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource DeskAccentBrush}" />
+    <Setter Property="Foreground" Value="#0A1626" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#62AEFF" />
+    <Setter Property="Foreground" Value="#0A1626" />
+  </Style>
+  <Style Selector="Button.secondary">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.big">
+    <Setter Property="MinHeight" Value="64" />
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="Padding" Value="28,0" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="{StaticResource DeskDangerBrush}" />
+  </Style>
+
+  <!-- The scan wizard's steps. -->
+  <Style Selector="Button.step">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="CornerRadius" Value="20" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextFaintBrush}" />
+  </Style>
+  <Style Selector="Button.step Border.stepdot">
+    <Setter Property="Background" Value="{StaticResource DeskRaised2Brush}" />
+  </Style>
+  <Style Selector="Button.step.done">
+    <Setter Property="Foreground" Value="{StaticResource DeskTextDimBrush}" />
+  </Style>
+  <Style Selector="Button.step.done Border.stepdot">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+  </Style>
+  <Style Selector="Button.step.current">
+    <Setter Property="Foreground" Value="{StaticResource DeskTextBrush}" />
+  </Style>
+  <Style Selector="Button.step.current Border.stepdot">
+    <Setter Property="Background" Value="{StaticResource DeskAccentBrush}" />
+  </Style>
+
+  <Style Selector="ToggleButton.choice, RadioButton.choice">
+    <Setter Property="Background" Value="{StaticResource DeskRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="14" />
+    <Setter Property="MinHeight" Value="120" />
+  </Style>
+  <Style Selector="ToggleButton.choice:checked /template/ ContentPresenter#PART_ContentPresenter, RadioButton.choice:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeskTextBrush}" />
+  </Style>
+
+  <Style Selector="MenuItem.danger">
+    <Setter Property="Foreground" Value="{StaticResource DeskDangerBrush}" />
+  </Style>
+
+  <Style Selector="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="CornerRadius" Value="6" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskAccentSoftBrush}" />
+  </Style>
+
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+
+  <Style Selector="Ellipse.light">
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- The inspector's rows: a caption over its editor. -->
+  <Style Selector="TextBlock.label">
+    <Setter Property="Foreground" Value="{StaticResource DeskTextDimBrush}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Margin" Value="0,8,0,3" />
+  </Style>
+</Styles>

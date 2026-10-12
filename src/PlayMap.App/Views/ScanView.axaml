@@ -1,0 +1,153 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             xmlns:st="using:PlayMap.App.State"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.ScanView"
+             x:DataType="vm:ScanWizardViewModel">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="10" RowSpacing="10">
+
+    <!-- The steps: where you are, what each one does. -->
+    <ItemsControl x:Name="StepStrip" ItemsSource="{Binding Steps}" ItemsPanel="{StaticResource Row}" HorizontalAlignment="Center">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ScanStep">
+          <Button Classes="step" Classes.current="{Binding IsCurrent}" Classes.done="{Binding IsDone}" Margin="4,0"
+                  Command="{Binding $parent[UserControl].((vm:ScanWizardViewModel)DataContext).GoTo}" CommandParameter="{Binding}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Border Width="24" Height="24" CornerRadius="12" Classes="stepdot">
+                <TextBlock Text="{Binding Number}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="12" />
+              </Border>
+              <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <TextBlock Grid.Row="1" x:Name="Sentence" Classes="sentence" Text="{Binding Sentence}" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="900" />
+
+    <Border Grid.Row="2" Classes="panel" Padding="16">
+      <Panel>
+        <!-- 1 · Camera -->
+        <Grid ColumnDefinitions="*,380" ColumnSpacing="16" IsVisible="{Binding IsStep1}">
+          <ui:PreviewSurface ViewId="scan-camera" NodeId="{Binding NodeId}" Label="The camera's live view appears here" Aspect="1.7777" />
+          <StackPanel Grid.Column="1" Spacing="4">
+            <TextBlock Classes="h2" Text="WATCH THROUGH" />
+            <ComboBox ItemsSource="{Binding Cameras}" SelectedItem="{Binding Camera}" PlaceholderText="No camera yet — add one below" />
+            <CheckBox Content="Lock exposure, white balance and focus first" IsChecked="{Binding LockExposure}" Margin="0,8,0,0" />
+            <TextBlock Classes="h2" Text="OR ADD A CAMERA" Margin="0,18,0,0" />
+            <ComboBox ItemsSource="{Binding CameraKinds}" SelectedItem="{Binding NewCameraKind}" />
+            <TextBox Text="{Binding NewCameraSource}" Margin="0,6,0,0" />
+            <TextBlock Classes="faint" Text="{Binding NewCameraHint}" TextWrapping="Wrap" />
+            <ContentControl Content="{Binding AddCamera}" ContentTemplate="{StaticResource ActionText}" Margin="0,6,0,0" />
+          </StackPanel>
+        </Grid>
+
+        <!-- 2 · Projectors -->
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="24" IsVisible="{Binding IsStep2}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="h2" Text="SCAN WITH" />
+            <ItemsControl ItemsSource="{Binding Projectors}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ProjectorPick">
+                  <Border Classes="card" Margin="0,0,0,6">
+                    <CheckBox IsChecked="{Binding IsPicked}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse Width="12" Height="12" Fill="{Binding Color, Converter={StaticResource LightBrush}}" />
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      </StackPanel>
+                    </CheckBox>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Spacing="6">
+            <TextBlock Classes="h2" Text="MODE" />
+            <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" />
+            <TextBlock Classes="faint" TextWrapping="Wrap" Text="Fast for matte objects in the dark; Robust most of the time; Difficult for shiny, dark or inter-reflecting materials (more patterns, slower)." />
+            <TextBlock Classes="h2" Text="AREA" Margin="0,12,0,0" />
+            <ComboBox ItemsSource="{Binding Areas}" SelectedItem="{Binding Area}" />
+          </StackPanel>
+        </Grid>
+
+        <!-- 3 · Scan -->
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="14" IsVisible="{Binding IsStep3}" HorizontalAlignment="Center" Width="640">
+          <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+            <Button x:Name="ScanButton" Classes="primary big" Command="{Binding Start.Command}" ToolTip.Tip="{Binding Start.Tip}">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <PathIcon Data="{StaticResource Icon.scan}" Width="22" Height="22" />
+                <TextBlock Text="Scan" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <Button Classes="secondary big" Command="{Binding Cancel.Command}" ToolTip.Tip="{Binding Cancel.Tip}" Content="Cancel" IsVisible="{Binding IsRunning}" />
+          </StackPanel>
+          <StackPanel Grid.Row="1" Spacing="6">
+            <ProgressBar Value="{Binding Progress}" Maximum="1" Height="10" MinHeight="10" CornerRadius="5" />
+            <TextBlock Text="{Binding ProgressText}" HorizontalAlignment="Center" Classes="dim" />
+          </StackPanel>
+          <StackPanel Grid.Row="2" Spacing="6">
+            <ItemsControl ItemsSource="{Binding Projectors}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ProjectorPick">
+                  <Grid ColumnDefinitions="140,*,90" ColumnSpacing="10" Margin="0,3" IsVisible="{Binding IsPicked}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource LightBrush}}" />
+                      <TextBlock Text="{Binding Name}" />
+                    </StackPanel>
+                    <ProgressBar Grid.Column="1" Value="{Binding Progress}" Maximum="1" Height="6" MinHeight="6" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Classes="faint" Text="{Binding State}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Classes="card" IsVisible="{Binding IsDone}" HorizontalAlignment="Center" Margin="0,10,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Classes="big" Text="{Binding Quality, Converter={x:Static ui:Conv.Percent}}" Foreground="{StaticResource LightGreenBrush}" />
+                <TextBlock Text="{Binding QualityText}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Grid>
+
+        <!-- 4 · Review -->
+        <Grid ColumnDefinitions="*,320" ColumnSpacing="16" IsVisible="{Binding IsStep4}">
+          <ui:ScanReviewCanvas x:Name="Review" Wizard="{Binding}" NodeId="{Binding NodeId}" ViewId="{Binding ReviewViewId}" Aspect="1.7777" Label="The smart scan appears here" />
+          <StackPanel Grid.Column="1" Spacing="6">
+            <Border Classes="chip" Padding="3">
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="2">
+                <RadioButton GroupName="review" Classes="seg" Content="Smart scan" IsChecked="{Binding !ShowConfidence}" HorizontalAlignment="Stretch" />
+                <RadioButton GroupName="review" Grid.Column="1" Classes="seg" Content="Confidence" IsChecked="{Binding ShowConfidence}" HorizontalAlignment="Stretch" />
+              </Grid>
+            </Border>
+            <TextBlock Classes="h2" Text="FOUND" Margin="0,8,0,0" />
+            <ListBox ItemsSource="{Binding Regions}" SelectedItem="{Binding SelectedRegion}" MaxHeight="360">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="st:ScanRegion">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Label}" />
+                    <TextBlock Grid.Column="1" Classes="faint" Text="{Binding Confidence, Converter={x:Static ui:Conv.Percent}}" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <ContentControl Content="{Binding MakeSurface}" ContentTemplate="{StaticResource ActionText}" />
+          </StackPanel>
+        </Grid>
+
+        <!-- 5 · Apply -->
+        <StackPanel IsVisible="{Binding IsStep5}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" Width="560">
+          <TextBlock Classes="sentence" TextAlignment="Center"
+                     Text="The scan's mesh joins the stage, the projectors take the poses it found, and the surfaces you made from it keep their masks and content when you scan again." />
+          <Button x:Name="ApplyButton" Classes="primary big" HorizontalAlignment="Center" Command="{Binding Apply.Command}" ToolTip.Tip="{Binding Apply.Tip}" Content="Apply scan" />
+          <TextBlock Text="{Binding Applied}" HorizontalAlignment="Center" Foreground="{StaticResource LightGreenBrush}" />
+        </StackPanel>
+      </Panel>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto">
+      <Button x:Name="BackButton" Classes="secondary" Content="Back" Command="{Binding Back}" MinWidth="120" />
+      <Button Grid.Column="2" x:Name="NextButton" Classes="primary" Content="Next" Command="{Binding Next}" MinWidth="120" />
+    </Grid>
+  </Grid>
+</UserControl>

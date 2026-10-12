@@ -1,0 +1,38 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:PlayMap.App.ViewModels"
+                    xmlns:ui="using:PlayMap.App.Controls">
+  <!-- A DeskAction as a toolbar button: its icon, its tooltip (label, shortcut, the verb it sends). The same
+       action is the object's right-click menu item, so the two never disagree. -->
+  <DataTemplate x:Key="ActionIcon" x:DataType="vm:DeskAction">
+    <Button Classes="tool" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" AutomationProperties.Name="{Binding Label}">
+      <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" />
+    </Button>
+  </DataTemplate>
+
+  <DataTemplate x:Key="ActionSmall" x:DataType="vm:DeskAction">
+    <Button Classes="tool small" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" AutomationProperties.Name="{Binding Label}">
+      <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15" />
+    </Button>
+  </DataTemplate>
+
+  <DataTemplate x:Key="ActionText" x:DataType="vm:DeskAction">
+    <Button Classes="secondary" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15"
+                  IsVisible="{Binding Icon, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+      </StackPanel>
+    </Button>
+  </DataTemplate>
+
+  <ItemsPanelTemplate x:Key="Row">
+    <StackPanel Orientation="Horizontal" Spacing="2" />
+  </ItemsPanelTemplate>
+  <ItemsPanelTemplate x:Key="Wrap">
+    <WrapPanel Orientation="Horizontal" />
+  </ItemsPanelTemplate>
+</ResourceDictionary>
