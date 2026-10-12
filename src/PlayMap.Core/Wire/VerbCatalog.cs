@@ -59,7 +59,7 @@ public static class VerbCatalog
         V("CONTEXT", "CONTEXT", "Show Bus §6 context: light, headline, items, commands, peers", VerbCategory.Session, VerbRisk.Low, false),
         V("HELP", "HELP [<verb>]", "The vocabulary, or one verb's syntax", VerbCategory.Session, VerbRisk.Low, false),
         V("VERBS", "VERBS", "The vocabulary as JSON (name, syntax, words, risk, mutates)", VerbCategory.Session, VerbRisk.Low, false),
-        V("SUBSCRIBE", "SUBSCRIBE STATE|CONTEXT|OFF", "Pushes STATE (or CONTEXT) lines on change, latest wins", VerbCategory.Session, VerbRisk.Low, false),
+        V("SUBSCRIBE", "SUBSCRIBE STATE|CONTEXT|PROJECT|OFF", "Pushes STATE (and CONTEXT or PROJECT) lines on change, latest wins", VerbCategory.Session, VerbRisk.Low, false),
 
         // Transport — Patterns' clip verbs, on the focused playlist (or ON <playlist>).
         V("VIDEO PLAY", "VIDEO PLAY [ON <playlist>] [AT +<ms>|<unix ms>]", "Plays on from where the clip holds", VerbCategory.Transport, VerbRisk.High, true, "VIDEO RESUME"),

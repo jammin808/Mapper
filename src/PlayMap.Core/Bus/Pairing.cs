@@ -109,6 +109,9 @@ public sealed record NodeSettings(
     /// <summary>The pairing token ("" = open: this node asks for no token).</summary>
     string Token,
     bool TrustLoopback,
+    /// <summary>Addresses whose lines count as paired without a proof — a Patterns desk driving this node as
+    /// an Interactive "Lines" device cannot answer a NONCE (Patterns' OSC ALLOW list, the same idea).</summary>
+    System.Collections.Immutable.ImmutableArray<string> TrustedAddresses,
     bool RequireHttps,
     bool Announce,
     /// <summary>Patterns to follow (host[:port]) and its token; empty = none.</summary>
@@ -122,5 +125,5 @@ public sealed record NodeSettings(
     public static NodeSettings CreateDefault(string name) => new(
         Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4)), name, "",
         ShowBusConstants.PlayMapHttpPort, ShowBusConstants.PlayMapWirePort, ShowBusConstants.PlayMapSyncPort,
-        Pairing.NewToken(), true, false, true, "", "", "", "", false);
+        Pairing.NewToken(), true, [], false, true, "", "", "", "", false);
 }
