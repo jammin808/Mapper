@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The network edge: the Show Bus hello, the line wire (Patterns' grammar), HTTP/WebSocket/HTTPS on one
+       port (Kestrel), the MCP endpoint, pairing and TLS pinning, the fine clock sync, media transfer
+       between nodes, and the links that follow Patterns and Stagewatch. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Net</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Net.Tests" />
+  </ItemGroup>
+
+</Project>

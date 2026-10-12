@@ -1,0 +1,29 @@
+<Project>
+  <PropertyGroup>
+    <!-- One runtime for every project: .NET 10 (LTS). -->
+    <PlayMapTfm Condition="'$(PlayMapTfm)' == ''">net10.0</PlayMapTfm>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Version>0.1.0</Version>
+    <Authors>jammin808</Authors>
+    <Product>PlayMap</Product>
+    <Copyright>© 2026 jammin808 — MIT License</Copyright>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+    <!-- The hot paths (frames, meshes, scans) are written to allocate nothing per frame; the
+         tiered compiler's dynamic PGO is on by default in .NET 10 and is left on. -->
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <!-- The analyzers are fences (inherited from Patterns' round 70): the SDK's rules, Sonar's, the
+       threading analyzers and a banned-API list run in every build; .editorconfig names each rule
+       that fails the build and why, BannedSymbols.txt the APIs PlayMap never calls. -->
+  <ItemGroup>
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Link="BannedSymbols.txt" Visible="false" Condition="!$(MSBuildProjectName.EndsWith('.Tests'))" />
+  </ItemGroup>
+</Project>

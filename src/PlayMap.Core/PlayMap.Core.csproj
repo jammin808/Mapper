@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The core: the model, the maths, the clock, the vocabulary and the protocols. No package
+       references — everything here runs headless, on any OS, and is proven by PlayMap.Core.Tests. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Core</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Core.Tests" />
+  </ItemGroup>
+
+</Project>

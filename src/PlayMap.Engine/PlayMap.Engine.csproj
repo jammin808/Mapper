@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The node: the composition root that owns the project (the single writer), the playback lanes, the
+       outputs and their windows, the network, the scan runner and the journal. It runs in its own process
+       (PlayMap.exe engine) so a desk that closes or faults never blanks a projector; headless it is a pure
+       render node that Patterns drives. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Engine</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+    <ProjectReference Include="..\PlayMap.Render\PlayMap.Render.csproj" />
+    <ProjectReference Include="..\PlayMap.Media\PlayMap.Media.csproj" />
+    <ProjectReference Include="..\PlayMap.Net\PlayMap.Net.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
+  </ItemGroup>
+
+</Project>

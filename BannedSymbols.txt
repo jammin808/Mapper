@@ -1,0 +1,21 @@
+# The APIs PlayMap never calls, with the reason each (inherited from Patterns round 70). The build fails on a
+# use (RS0030); an exception is named beside the code that needs it with a #pragma and a reason.
+P:System.Environment.TickCount; wraps to negative after 24.9 days — a show machine runs for weeks; use Environment.TickCount64 or the show clock
+M:System.Threading.Thread.Sleep(System.Int32); a blocking sleep stalls the thread it is on — wait on a signal, a timer or a delay
+M:System.Threading.Thread.Sleep(System.TimeSpan); a blocking sleep stalls the thread it is on — wait on a signal, a timer or a delay
+M:System.GC.Collect(); the collector is governed by the show GC mode — a forced collection is a pause on the show
+M:System.GC.Collect(System.Int32); the collector is governed by the show GC mode — a forced collection is a pause on the show
+M:System.GC.Collect(System.Int32,System.GCCollectionMode); the collector is governed by the show GC mode — a forced collection is a pause on the show
+M:System.GC.Collect(System.Int32,System.GCCollectionMode,System.Boolean); the collector is governed by the show GC mode — a forced collection is a pause on the show
+M:System.GC.Collect(System.Int32,System.GCCollectionMode,System.Boolean,System.Boolean); the collector is governed by the show GC mode — a forced collection is a pause on the show
+M:System.Console.WriteLine(System.String); the desk has no console — the journal is the log
+M:System.Console.WriteLine(); the desk has no console — the journal is the log
+M:System.Console.Write(System.String); the desk has no console — the journal is the log
+M:System.Threading.Tasks.Task.Wait(); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker
+M:System.Threading.Tasks.Task.Wait(System.Int32); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker
+M:System.Threading.Tasks.Task.Wait(System.Threading.CancellationToken); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[]); a blocking wait on the UI thread is a hang — await Task.WhenAll
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[]); a blocking wait on the UI thread is a hang — await Task.WhenAny
+P:System.DateTime.Now; the wall clock jumps with NTP and daylight saving — the show clock (MonoClock) measures, DateTime.UtcNow stamps
+M:System.Random.#ctor; randomness in a picture is seeded and deterministic (Pcg32) so two nodes draw the same particles
+M:System.Random.#ctor(System.Int32); randomness in a picture is seeded and deterministic (Pcg32) so two nodes draw the same particles

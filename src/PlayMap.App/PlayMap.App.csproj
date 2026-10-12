@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The desk and the one exe. "PlayMap" opens the desk, which starts and watches its engine
+       ("PlayMap engine", the same exe in its own process) or attaches to a node on the network;
+       "PlayMap engine headless" is a render node with no desk at all. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.App</RootNamespace>
+    <AssemblyName>PlayMap</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+    <ProjectReference Include="..\PlayMap.Engine\PlayMap.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.App.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The GPU edge: the render graph, the shaders, the generators (test patterns, fractals, particles,
+       effects), video upload and the projector, warp, blend and colour passes. OpenGL 3.3 core through
+       Silk.NET; SkiaSharp draws the text-heavy test patterns into textures. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Render</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Windowing" Version="2.23.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Render.Tests" />
+  </ItemGroup>
+
+</Project>
