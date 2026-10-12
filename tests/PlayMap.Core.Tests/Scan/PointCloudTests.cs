@@ -259,5 +259,9 @@ public class PointCloudTests(ITestOutputHelper output)
             Assert.Equal((k % cloud.GridWidth + 0.5) / cloud.GridWidth, uv.X, 5);
             Assert.Equal((k / cloud.GridWidth + 0.5) / cloud.GridHeight, uv.Y, 5);
         }
+        // Top-left origin, v down: the vertex highest in the camera's picture has the smallest v.
+        var topVertex = Enumerable.Range(0, mesh.VertexCount).MinBy(v => grid.VertexCells[v] / cloud.GridWidth);
+        Assert.True(mesh.Uv(topVertex).Y < 0.5);
+        Assert.Equal(Enumerable.Range(0, mesh.VertexCount).Min(v => mesh.Uv(v).Y), mesh.Uv(topVertex).Y, 6);
     }
 }

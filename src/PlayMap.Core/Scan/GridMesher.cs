@@ -23,8 +23,9 @@ public sealed record GridMesh(MeshData Mesh, int[] VertexCells, int DroppedTrian
 /// cell by cell — two triangles per 2 × 2 block of valid points, split along the shorter diagonal, wound
 /// counter-clockwise as the sensor sees them (so their front faces it). A triangle with an edge longer than a
 /// few local grid steps spans a depth jump (an occluding edge, not a surface) and is dropped. UVs are the grid
-/// coordinates normalised, at the cells' centres: on a projector-grid mesh they are the projector's own
-/// pixels, so content in projector space maps straight on.
+/// coordinates normalised, at the cells' centres, in PlayMap's one UV convention — origin at the texture's
+/// top-left, v growing down: grid row 0 is v ≈ 0, u = (column + 0.5)/width, v = (row + 0.5)/height. On a
+/// projector-grid mesh they are the projector's own pixels, so content in projector space maps straight on.
 /// </summary>
 public static class GridMesher
 {
