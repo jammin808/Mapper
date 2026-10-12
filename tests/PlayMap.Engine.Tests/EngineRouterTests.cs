@@ -287,4 +287,44 @@ public sealed class EngineRouterTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task AFollowerShowsTheLeadersFrameFromTheLeadersAnchor()
+    {
+        await using var leader = new Rig();
+        await using var follower = new Rig();
+        var (list, _, b) = await leader.TwoItems();
+        await leader.Ok($"PLAYLIST SYNC {list} show");
+        string? anchor = null;
+        leader.Engine.AnchorPublished += (_, json) => anchor = json;
+        await leader.Ok($"PLAYLIST GO {list} #2 AT +100");
+        Assert.NotNull(anchor);
+        // The follower holds the same project (as a synced node would) and joins the same group.
+        await follower.Engine.Lane.RunAsync(() => follower.Engine.Store.Replace(leader.Engine.Store.Project, "same show"));
+        await follower.Ok($"PLAYLIST ANCHOR {list} {anchor}");
+        var t = leader.Engine.LeaderNowNs + 3_000_000_000;
+        var l = leader.Engine.Snapshot.Playback.Playlists[list].At(t);
+        var f = follower.Engine.Snapshot.Playback.Playlists[list].At(t);
+        Assert.Equal(b, f.ItemId);
+        Assert.Equal(l.Clip.PositionAt(t), f.Clip.PositionAt(t));
+        Assert.False((await follower.Run($"PLAYLIST ANCHOR {list} {anchor}")).Ok, "the same anchor changes nothing");
+    }
+
+    [Fact]
+    public async Task ARestartedNodeSeeksToWhereTheShowIsNow()
+    {
+        await using var before = new Rig();
+        var (list, a, _) = await before.TwoItems();
+        await before.Ok($"PLAYLIST GO {list}");
+        before.Clock.AdvanceMs(2000);
+        var record = RecoveryRecord.Capture(before.Engine);
+        await using var after = new Rig();
+        // Away for three seconds.
+        after.Clock.NowNs = before.Clock.NowNs + 3_000_000_000;
+        var words = await after.Engine.RestoreAsync(record with { WrittenUnixMs = after.Engine.Services.Wall.UnixMs - 3000 });
+        Assert.StartsWith("recovered", words, StringComparison.Ordinal);
+        var lane = after.Engine.Snapshot.Playback.Playlists[list];
+        Assert.Equal(a, lane.ItemId);
+        Assert.Equal(5_000_000_000, lane.Clip.PositionAt(after.Engine.LeaderNowNs));
+    }
 }

@@ -98,7 +98,14 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         Playback.Reconcile(Store.Project);
         _snapshot = new EngineSnapshot(Store.Current, Playback.Snapshot, _air);
         Store.Changed += OnProjectChanged;
-        Playback.Changed += _ => Republish();
+        var lastPlayback = Playback.Snapshot;
+        Playback.Changed += snap =>
+        {
+            var before = lastPlayback;
+            lastPlayback = snap;
+            Republish();
+            PublishAnchors(before, snap);
+        };
         _lane.Faulted += ex => Journal.Add("fault", Journal.Describe(ex), ok: false);
         _ticker = new Timer(_ => _lane.Post(Tick), null, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10));
     }

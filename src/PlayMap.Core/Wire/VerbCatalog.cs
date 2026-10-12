@@ -85,6 +85,7 @@ public static class VerbCatalog
         V("PLAYLIST LOOP", "PLAYLIST LOOP <playlist> ON|OFF", "Whether the list wraps to the top", VerbCategory.Playlist, VerbRisk.Low, true),
         V("PLAYLIST SYNC", "PLAYLIST SYNC <playlist> <group>|OFF", "Joins a sync group: the transport follows the group's leader", VerbCategory.Playlist, VerbRisk.Review, true),
         V("PLAYLIST FOCUS", "PLAYLIST FOCUS <playlist>", "The playlist the VIDEO verbs act on", VerbCategory.Playlist, VerbRisk.Low, true),
+        V("PLAYLIST ANCHOR", "PLAYLIST ANCHOR <playlist> <json>", "A sync group leader's transport, taken exactly (leader to followers)", VerbCategory.Playlist, VerbRisk.High, true),
 
         // Media.
         V("MEDIA LIST", "MEDIA LIST", "The library with each item's availability", VerbCategory.Media, VerbRisk.Low, false),

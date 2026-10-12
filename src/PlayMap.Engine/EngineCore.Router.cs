@@ -55,6 +55,7 @@ public sealed partial class EngineCore
             "PLAYLIST LOOP" => PlaylistLoop(args),
             "PLAYLIST SYNC" => PlaylistSync(args),
             "PLAYLIST FOCUS" => PlaylistFocus(args),
+            "PLAYLIST ANCHOR" => PlaylistAnchor(args, line),
 
             "MEDIA LIST" => CommandReply.Success(MediaListJson()),
             "MEDIA GET" => EntityGet(args),

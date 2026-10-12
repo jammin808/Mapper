@@ -166,6 +166,23 @@ public sealed class PlaybackLanes
         return (true, r.Words);
     }
 
+    /// <summary>Takes a sync-group leader's transport for an item exactly as sent: the same anchor gives the
+    /// same frame for the same leader instant on every node. The follower schedules the next item itself
+    /// from the same anchor, so the switch lands on the same frame too.</summary>
+    public (bool Ok, string Words) Adopt(Playlist list, int index, ClipTransport clip, long nowLeaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(clip);
+        if (index < 0 || index >= list.Items.Length)
+            return (false, $"{list.Name} has no item {index + 1}");
+        if (Lane(list.Id) is { } current && current.Index == index && current.Clip == clip)
+            return (false, "already at that anchor");
+        var loaded = Load(list, index, clip.Seq);
+        _lanes[list.Id] = Schedule(list, loaded with { Clip = clip }, nowLeaderNs);
+        Publish();
+        return (true, $"{list.Name}: following {Label(list, index)}");
+    }
+
     /// <summary>Advances every lane to a leader instant: commits a switch that has come, ends or loops clips.
     /// Called by the control lane every few milliseconds; idempotent.</summary>
     public void Tick(Project project, long nowLeaderNs)
