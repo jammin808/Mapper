@@ -13,7 +13,7 @@ public static partial class MeshIO
 
     /// <summary>Reads glTF 2.0 — a .gltf JSON or a binary .glb — into one mesh: every triangle primitive of
     /// every mesh node in the default scene, placed by its node's world transform (matrix or TRS), with
-    /// POSITION, NORMAL, TEXCOORD_0 (V flipped to the bottom-left origin) and indices. Buffers come from the
+    /// POSITION, NORMAL, TEXCOORD_0 (top-left origin, as PlayMap keeps it) and indices. Buffers come from the
     /// GLB's binary chunk, base64 data URIs, or <paramref name="resolveUri"/> for external files.</summary>
     public static GeometryFile ReadGltf(Stream stream, Func<string, byte[]>? resolveUri = null)
     {
@@ -159,7 +159,7 @@ public static partial class MeshIO
                         ? Vector3.Normalize(Vector3.TransformNormal(new Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]), normalMatrix))
                         : Vector3.Zero;
                     _nor.AddRange([n.X, n.Y, n.Z]);
-                    _uv.AddRange(uvs is not null ? [uvs[i * 2], 1 - uvs[i * 2 + 1]] : [0f, 0f]);
+                    _uv.AddRange(uvs is not null ? [uvs[i * 2], uvs[i * 2 + 1]] : [0f, 0f]);
                 }
                 _anyNormal |= normals is not null;
                 _anyUv |= uvs is not null;
@@ -286,7 +286,7 @@ public static partial class MeshIO
             for (var i = 0; i < mesh.Uvs.Length; i += 2)
             {
                 w.Write(mesh.Uvs[i]);
-                w.Write(1 - mesh.Uvs[i + 1]);
+                w.Write(mesh.Uvs[i + 1]);
             }
             foreach (var i in mesh.Indices)
                 w.Write(i);

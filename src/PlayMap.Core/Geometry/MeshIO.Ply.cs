@@ -164,7 +164,7 @@ public static partial class MeshIO
                                 rgb[roles[k] - 6] = ColourByte(v, p.Type);
                                 break;
                             case 9 or 10 when uv.Length > 0:
-                                uv[i * 2 + roles[k] - 9] = (float)v;
+                                uv[i * 2 + roles[k] - 9] = roles[k] == 10 ? (float)(1 - v) : (float)v;
                                 break;
                             default:
                                 break;
@@ -319,7 +319,7 @@ public static partial class MeshIO
         WritePlyCore(stream, n, mesh.TriangleCount, binary, mesh.HasNormals, mesh.HasUvs, colors is { Length: > 0 },
             i => (mesh.Positions[i * 3], mesh.Positions[i * 3 + 1], mesh.Positions[i * 3 + 2]),
             i => (mesh.Normals[i * 3], mesh.Normals[i * 3 + 1], mesh.Normals[i * 3 + 2]),
-            i => (mesh.Uvs[i * 2], mesh.Uvs[i * 2 + 1]),
+            i => (mesh.Uvs[i * 2], 1 - mesh.Uvs[i * 2 + 1]),
             i => colors![i],
             t => (mesh.Indices[t * 3], mesh.Indices[t * 3 + 1], mesh.Indices[t * 3 + 2]));
     }

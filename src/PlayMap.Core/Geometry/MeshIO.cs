@@ -30,8 +30,9 @@ public sealed record GeometryFile(MeshData? Mesh, PointCloud? Cloud, int[] MeshC
 
 /// <summary>Mesh and point-cloud files in and out: OBJ (read, write), PLY (ASCII and binary read; binary or
 /// ASCII write), XYZ/PTS text and LAS 1.0–1.4 points (read), glTF 2.0 / GLB (read). Coordinates are kept as
-/// stored (LAS is usually Z-up — <see cref="ZUpToYUp(PointCloud)"/> turns it to the stage's Y-up). UVs follow
-/// OBJ and PLY: origin at the texture's bottom-left, v up; glTF's top-left UVs are flipped into that.
+/// stored (LAS is usually Z-up — <see cref="ZUpToYUp(PointCloud)"/> turns it to the stage's Y-up). UVs inside
+/// PlayMap have their origin at the texture's top-left with v down (as glTF, images and the primitives do);
+/// OBJ and PLY store v up from the bottom-left, so their v is flipped on the way in and out.
 /// Every number is read and written culture-invariantly.</summary>
 public static partial class MeshIO
 {

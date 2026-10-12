@@ -97,7 +97,8 @@ public class MeshIOTests
         Assert.True(m.HasUvs && m.HasNormals);
         // The quad fans from its first corner: (1,2,3) and (1,3,4).
         Assert.Equal(new Vec3d(1, 1, 0), m.Position((int)m.Indices[2]));
-        Assert.Equal(new Vec2d(1, 1), m.Uv((int)m.Indices[2]));
+        // OBJ's v runs up from the bottom; PlayMap's runs down from the top.
+        Assert.Equal(new Vec2d(1, 0), m.Uv((int)m.Indices[2]));
         // The pentagon's negative indices resolve against the nine vertices read by then.
         Assert.Equal(new Vec3d(2, 0, 0), m.Position((int)m.Indices[6]));
         Assert.Equal(new Vec3d(2, 1, 0), m.Position((int)m.Indices[14]));

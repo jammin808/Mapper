@@ -79,7 +79,7 @@ public static partial class MeshIO
                 if (anyUv)
                 {
                     var t = c.T >= 0 ? tex[c.T] : Vec2d.Zero;
-                    outUv.AddRange([(float)t.X, (float)t.Y]);
+                    outUv.AddRange([(float)t.X, (float)(1 - t.Y)]);
                 }
                 if (anyNormal)
                 {
@@ -130,7 +130,7 @@ public static partial class MeshIO
             writer.WriteLine($"v {F(p[i * 3])} {F(p[i * 3 + 1])} {F(p[i * 3 + 2])}");
         if (mesh.HasUvs)
             for (var i = 0; i < mesh.VertexCount; i++)
-                writer.WriteLine($"vt {F(mesh.Uvs[i * 2])} {F(mesh.Uvs[i * 2 + 1])}");
+                writer.WriteLine($"vt {F(mesh.Uvs[i * 2])} {F(1 - mesh.Uvs[i * 2 + 1])}");
         if (mesh.HasNormals)
             for (var i = 0; i < mesh.VertexCount; i++)
                 writer.WriteLine($"vn {F(mesh.Normals[i * 3])} {F(mesh.Normals[i * 3 + 1])} {F(mesh.Normals[i * 3 + 2])}");
