@@ -117,7 +117,8 @@ public sealed class CorrespondenceMap
     public float[] Contrast { get; }
     public DecodeStatus[] Flags { get; }
 
-    /// <summary>The camera's white frame as captured (gray8), when the decode was given bytes.</summary>
+    /// <summary>The camera's white frame (gray8): the caller's own array when the decode was given bytes (shared,
+    /// not copied), or the float white frame converted.</summary>
     public byte[]? White { get; init; }
 
     /// <summary>The camera's white frame in colour (packed 0xRRGGBB), when the caller had one.</summary>
