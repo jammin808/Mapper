@@ -204,6 +204,27 @@ public sealed class EngineRouterTests
     }
 
     [Fact]
+    public async Task AnOwnedEntityNamesItsOwnerAsParentInsideItsJson()
+    {
+        await using var rig = new Rig();
+        var pj = await rig.Ok("ADD projector {\"name\":\"Stage left\"}");
+        var pin = await rig.Ok($"ADD pin {{\"parent\":\"{pj}\",\"world\":{{\"x\":1,\"y\":2,\"z\":3}},\"pixel\":{{\"x\":100,\"y\":200}}}}");
+        Assert.Equal(pin, Assert.Single(rig.Engine.Store.Project.FindProjector(pj)!.Pins).Id);
+        Assert.DoesNotContain("parent", await rig.Ok($"GET {pin}"), StringComparison.OrdinalIgnoreCase);
+
+        var list = await rig.Ok("ADD playlist {\"name\":\"Loop\"}");
+        var gen = rig.Engine.Store.Project.Generators[0].Id;
+        var item = await rig.Ok($"ADD item {{\"parent\":\"{list}\",\"source\":{{\"kind\":\"generator\",\"id\":\"{gen}\"}},\"label\":\"Card\"}}");
+        Assert.Equal("Card", Assert.Single(rig.Engine.Store.Project.FindPlaylist(list)!.Items).Label);
+        Assert.StartsWith(Ids.PlaylistItem, item, StringComparison.Ordinal);
+
+        var orphan = await rig.Run("ADD layer {\"name\":\"orphan\"}");
+        Assert.False(orphan.Ok);
+        Assert.Contains("parent", orphan.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.False((await rig.Run($"ADD item {{\"parent\":\"{list}\"}}")).Ok);
+    }
+
+    [Fact]
     public async Task RemovingSomethingInUseIsRefusedWithWhoUsesIt()
     {
         await using var rig = new Rig();

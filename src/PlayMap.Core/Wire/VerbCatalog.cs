@@ -131,7 +131,7 @@ public static class VerbCatalog
         // Generic project edits — what the desk itself uses, so nothing the desk can do is closed to Patterns or an AI.
         V("GET", "GET <id>", "Any entity as JSON", VerbCategory.Project, VerbRisk.Low, false),
         V("SET", "SET <id> <field.path> <json>", "Sets one field of an entity", VerbCategory.Project, VerbRisk.Review, true),
-        V("ADD", "ADD <media|playlist|generator|canvas|layer|surface|projector|output|mask|pin|camera|viewpoint> <json>", "Adds an entity; answers its id", VerbCategory.Project, VerbRisk.Review, true),
+        V("ADD", "ADD <media|playlist|item|generator|canvas|layer|surface|mesh|projector|output|mask|pin|camera|viewpoint|device> [<owner>] <json>", "Adds an entity; answers its id (an item, layer, mask or pin names its owner first or as \"parent\" in the JSON)", VerbCategory.Project, VerbRisk.Review, true),
         V("REMOVE", "REMOVE <id>", "Removes an entity", VerbCategory.Project, VerbRisk.Review, true),
         V("MOVE", "MOVE <id> <index>", "Reorders an entity within its list", VerbCategory.Project, VerbRisk.Low, true),
         V("UNDO", "UNDO", "Undoes the last edit", VerbCategory.Project, VerbRisk.Review, true),

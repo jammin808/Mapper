@@ -43,6 +43,11 @@ See `docs/SHOWBUS-NODE.md`. With no change to either app:
 - `docs/WIRE.md` — lines, STATE, pushes, HTTP
 - `docs/SHOWBUS-NODE.md` — the ecosystem
 - `docs/RESEARCH.md` — what the field does and why PlayMap chose what it chose
+- `docs/COMPETITIVE.md` — where PlayMap stands against MadMapper, disguise, Pixera, Watchout and the rest, and what to learn from each
+- `docs/UX.md` — the desk's principles, workflows and time targets
+- `docs/XR.md` — phones, smart glasses and headsets: look at a surface and control it
+- `docs/ROADMAP.md` — the prioritised rounds, from first light on a real projector onwards
+- `docs/PROJECTORS.md` — projector control: PJLink and the makers' own protocols
 - `CLAUDE.md` — the brief for whoever works the tree
 
 ## Build
