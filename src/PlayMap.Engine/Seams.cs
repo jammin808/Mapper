@@ -1,0 +1,100 @@
+using PlayMap.Core.Media;
+using PlayMap.Core.Model;
+
+namespace PlayMap.Engine;
+
+/// <summary>What importing a file or URL found.</summary>
+public sealed record MediaImport(MediaKind Kind, MediaInfo Info, string ContentHash, long SizeBytes, string Name);
+
+/// <summary>Whether a library item can play on this node now.</summary>
+public sealed record MediaReadiness(bool Present, bool Verified, bool Decodable, bool FirstFrameReady, string Words);
+
+/// <summary>The media edge as the engine sees it: import (hash + probe), open sources, check readiness.
+/// PlayMap.Media implements it; tests use a fake.</summary>
+public interface IMediaBackend
+{
+    Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct);
+
+    /// <summary>Opens a picture source for a library item (the caller owns and disposes it).</summary>
+    IVideoSource? Open(MediaItem item);
+
+    MediaReadiness Readiness(MediaItem item);
+
+    /// <summary>The local file holding content with that hash, or null.</summary>
+    string? PathForHash(string contentHash);
+}
+
+/// <summary>A display the platform reports.</summary>
+public sealed record DisplayInfo(string Key, string Name, int X, int Y, int Width, int Height, double RefreshHz, bool Primary);
+
+/// <summary>Per-output health for STATE: what the render loop measured.</summary>
+public sealed record OutputHealth(string OutputId, bool Open, double Fps, long Dropped, double FrameMsP95, string Display);
+
+/// <summary>The output edge: the displays, which outputs are open, their health. PlayMap.Render's output
+/// windows implement it; headless nodes and tests use a fake.</summary>
+public interface IOutputBackend
+{
+    IReadOnlyList<DisplayInfo> Displays();
+
+    IReadOnlyList<OutputHealth> Health();
+
+    string RendererName { get; }
+}
+
+/// <summary>A scan's progress for STATE.scan.</summary>
+public sealed record ScanProgress(string State, string? ProjectorId, int Pattern, int Of, double Quality, string Words);
+
+/// <summary>The scan runner as the engine's verbs see it.</summary>
+public interface IScanBackend
+{
+    ScanProgress? Current { get; }
+
+    Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct);
+
+    bool Cancel();
+}
+
+/// <summary>A Show Bus peer as STATE and the context show it.</summary>
+public sealed record PeerView(string Kind, string Id, string Name, string Light, string Headline, bool Live);
+
+/// <summary>A link to Patterns or Stagewatch as STATE shows it.</summary>
+public sealed record LinkView(string State, string Host, bool Paired, string Detail);
+
+/// <summary>The clock sync as STATE shows it.</summary>
+public sealed record SyncView(string Role, string? Leader, double OffsetMs, double RttMs, double DriftPpm);
+
+/// <summary>What the network edge tells the engine (read-only facts; the engine never reaches into sockets).</summary>
+public interface INetworkView
+{
+    IReadOnlyList<PeerView> Peers();
+
+    LinkView? Patterns();
+
+    LinkView? Stagewatch();
+
+    /// <summary>The Stagewatch timer as a compact JSON object (for STATE.links.stagewatch.timer), or null.</summary>
+    string? StagewatchTimerJson();
+
+    SyncView Sync();
+}
+
+/// <summary>Nothing connected: a headless node with no outputs, no scanner and no network yet.</summary>
+public sealed class NullBackends : IOutputBackend, IScanBackend, INetworkView
+{
+    public static readonly NullBackends Instance = new();
+
+    public string RendererName => "none";
+    public IReadOnlyList<DisplayInfo> Displays() => [];
+    public IReadOnlyList<OutputHealth> Health() => [];
+    public ScanProgress? Current => null;
+
+    public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct) =>
+        Task.FromException<string>(new InvalidOperationException("no scanner on this node"));
+
+    public bool Cancel() => false;
+    public IReadOnlyList<PeerView> Peers() => [];
+    public LinkView? Patterns() => null;
+    public LinkView? Stagewatch() => null;
+    public string? StagewatchTimerJson() => null;
+    public SyncView Sync() => new("solo", null, 0, 0, 0);
+}

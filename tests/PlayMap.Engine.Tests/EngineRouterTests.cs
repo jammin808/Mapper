@@ -1,0 +1,290 @@
+using System.Text.Json;
+using PlayMap.Core.Model;
+using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
+using PlayMap.Engine;
+
+namespace PlayMap.Engine.Tests;
+
+/// <summary>The engine's verbs, run as a peer would send them: what each answers, what it changes, and
+/// what STATE and the context then say.</summary>
+public sealed class EngineRouterTests
+{
+    private static readonly SessionInfo Paired = new("t1", "wire", "10.0.0.9", false, "Test", true);
+    private static readonly SessionInfo Unpaired = Paired with { Paired = false };
+
+    /// <summary>An engine on a hand-moved clock, with the helpers every test uses.</summary>
+    private sealed class Rig : IAsyncDisposable
+    {
+        public readonly ManualClock Clock = new(5_000_000_000);
+        public readonly EngineCore Engine;
+
+        public Rig() => Engine = new EngineCore(EngineServices.ForTests(Clock));
+
+        public async Task<CommandReply> Run(string line, SessionInfo? session = null)
+        {
+            Assert.True(WireGrammar.TryParse(line, out var parsed, out var error), error?.Reason);
+            return await Engine.HandleAsync(parsed, session ?? Paired, CancellationToken.None);
+        }
+
+        public async Task<string> Ok(string line)
+        {
+            var r = await Run(line);
+            Assert.True(r.Ok, $"{line} → {r.Payload}");
+            return r.Payload ?? "";
+        }
+
+        public async Task Tick() => await Engine.Lane.RunAsync(() => Engine.Playback.Tick(Engine.Store.Project, Engine.LeaderNowNs));
+
+        public JsonElement State() => JsonDocument.Parse(Engine.State().Json).RootElement;
+
+        /// <summary>A playlist of two 10 s generator items, focused.</summary>
+        public async Task<(string List, string A, string B)> TwoItems()
+        {
+            var list = await Ok("PLAYLIST NEW Show");
+            var g1 = await Ok("GENERATOR NEW testcard Card");
+            var g2 = await Ok("GENERATOR NEW julia Fractal");
+            var a = await Ok($"PLAYLIST ADD {list} generator:{g1} Opening");
+            var b = await Ok($"PLAYLIST ADD {list} generator:{g2} Main");
+            await Run($"PLAYLIST FOCUS {list}"); // the first playlist is focused already; either answer is fine here
+            return (list, a, b);
+        }
+
+        public ValueTask DisposeAsync() => Engine.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MutatingVerbsAreRefusedUntilPairedAndQueriesStayOpen()
+    {
+        await using var rig = new Rig();
+        var r = await rig.Run("BLACKOUT ON", Unpaired);
+        Assert.False(r.Ok);
+        Assert.StartsWith("not paired", r.Payload, StringComparison.Ordinal);
+        Assert.True((await rig.Run("STATE", Unpaired)).Ok);
+        Assert.True((await rig.Run("CONTEXT", Unpaired)).Ok);
+        Assert.False(rig.Engine.Air.Blackout);
+    }
+
+    [Fact]
+    public async Task UnknownWordsAreRefusedAndNeverDefaulted()
+    {
+        await using var rig = new Rig();
+        var r = await rig.Run("LAUNCH ROCKETS");
+        Assert.False(r.Ok);
+        Assert.Contains("unknown verb", r.Payload, StringComparison.Ordinal);
+        Assert.False((await rig.Run("BLACKOUT MAYBE")).Ok);
+    }
+
+    [Fact]
+    public async Task APatternsFactLineIsTakenInAndNeverAnswered()
+    {
+        await using var rig = new Rig();
+        var r = await rig.Run("BLACKOUT 1");
+        Assert.True(r.Silent);
+        Assert.True(rig.Engine.Air.PatternsBlackout);
+        Assert.True(rig.Engine.Air.EffectiveBlackout);
+        Assert.True((await rig.Run("LIVE 0")).Silent);
+        Assert.True((await rig.Run("DECK 3 12")).Silent);
+        Assert.True(rig.State().GetProperty("air").GetProperty("blackout").GetBoolean());
+        Assert.True((await rig.Run("BLACKOUT 0")).Silent);
+        Assert.False(rig.Engine.Air.EffectiveBlackout);
+    }
+
+    [Fact]
+    public async Task ClipVerbsMeanWhatTheyMeanOnAPatternsDesk()
+    {
+        await using var rig = new Rig();
+        var (list, _, _) = await rig.TwoItems();
+        Assert.False((await rig.Run("VIDEO PLAY")).Ok, "nothing loaded yet");
+        await rig.Ok($"PLAYLIST GO {list}");
+        var again = await rig.Run("VT PLAY");
+        Assert.False(again.Ok);
+        Assert.Equal("already playing", again.Payload);
+        rig.Clock.AdvanceMs(3000);
+        await rig.Ok("VIDEO PAUSE");
+        var video = rig.State().GetProperty("video");
+        Assert.Equal(3000, video.GetProperty("positionMs").GetInt64());
+        Assert.Equal(10000, video.GetProperty("lengthMs").GetInt64());
+        Assert.True(video.GetProperty("paused").GetBoolean());
+        Assert.Equal("Show", video.GetProperty("tag").GetString());
+        await rig.Ok("VIDEO SEEK 0:07");
+        Assert.Equal(7000, rig.State().GetProperty("video").GetProperty("positionMs").GetInt64());
+        await rig.Ok("VIDEO END 2");
+        Assert.Equal(8000, rig.State().GetProperty("video").GetProperty("positionMs").GetInt64());
+        await rig.Ok("VIDEO STOP");
+        Assert.Equal(0, rig.State().GetProperty("video").GetProperty("positionMs").GetInt64());
+        Assert.False((await rig.Run("VIDEO STOP")).Ok);
+        Assert.False((await rig.Run("VIDEO PLAY now")).Ok, "extra words are refused");
+    }
+
+    [Fact]
+    public async Task TheNextItemTakesOverOnTheExactFrameItWasScheduledFor()
+    {
+        await using var rig = new Rig();
+        var (list, a, b) = await rig.TwoItems();
+        await rig.Ok($"PLAYLIST GO {list} AT +500");
+        var lane = rig.Engine.Snapshot.Playback.Playlists[list];
+        var start = rig.Engine.LeaderNowNs + 500_000_000;
+        Assert.Equal(start + 10_000_000_000, lane.SwitchAtLeaderNs);
+        // One nanosecond before the switch the first item shows its last instant; at the switch, the second.
+        Assert.Equal(a, lane.At(lane.SwitchAtLeaderNs - 1).ItemId);
+        var (_, clip, item) = lane.At(lane.SwitchAtLeaderNs);
+        Assert.Equal(b, item);
+        Assert.Equal(0, clip.PositionAt(lane.SwitchAtLeaderNs));
+        rig.Clock.AdvanceMs(10_600);
+        await rig.Tick();
+        var after = rig.Engine.Snapshot.Playback.Playlists[list];
+        Assert.Equal(b, after.ItemId);
+        Assert.Equal(100_000_000, after.Clip.PositionAt(rig.Engine.LeaderNowNs));
+    }
+
+    [Fact]
+    public async Task AScheduledStartHoldsTheFirstFrameUntilItsInstant()
+    {
+        await using var rig = new Rig();
+        var (list, _, _) = await rig.TwoItems();
+        await rig.Ok($"PLAYLIST GO {list} AT +2000");
+        rig.Clock.AdvanceMs(1000);
+        Assert.Equal(0, rig.State().GetProperty("video").GetProperty("positionMs").GetInt64());
+        rig.Clock.AdvanceMs(1500);
+        Assert.Equal(500, rig.State().GetProperty("video").GetProperty("positionMs").GetInt64());
+    }
+
+    [Fact]
+    public async Task NextAndPrevWalkTheListAndStopAtItsEnds()
+    {
+        await using var rig = new Rig();
+        var (list, a, b) = await rig.TwoItems();
+        await rig.Ok($"PLAYLIST GO {list}");
+        await rig.Ok($"PLAYLIST NEXT {list}");
+        Assert.Equal(b, rig.Engine.Snapshot.Playback.Playlists[list].ItemId);
+        Assert.False((await rig.Run($"PLAYLIST NEXT {list}")).Ok);
+        await rig.Ok($"PLAYLIST LOOP {list} ON");
+        await rig.Ok($"PLAYLIST NEXT {list}");
+        Assert.Equal(a, rig.Engine.Snapshot.Playback.Playlists[list].ItemId);
+        await rig.Ok($"PLAYLIST PREV {list}");
+        Assert.Equal(b, rig.Engine.Snapshot.Playback.Playlists[list].ItemId);
+    }
+
+    [Fact]
+    public async Task AFieldIsSetByPathAndUndoTakesItBack()
+    {
+        await using var rig = new Rig();
+        var output = rig.Engine.Store.Project.Outputs[0].Id;
+        await rig.Ok($"SET {output} name \"Projector A\"");
+        Assert.Equal("Projector A", rig.Engine.Store.Project.Outputs[0].Name);
+        await rig.Ok($"SET {output} warp.pin.topLeft {{\"x\":0.02,\"y\":0.01}}");
+        Assert.Equal(0.02, rig.Engine.Store.Project.Outputs[0].Warp.Pin.TopLeft.X);
+        var bad = await rig.Run($"SET {output} rotation 45");
+        Assert.False(bad.Ok);
+        Assert.Contains("rotation", bad.Payload, StringComparison.Ordinal);
+        Assert.False((await rig.Run($"SET {output} id \"x\"")).Ok);
+        await rig.Ok("UNDO");
+        Assert.Equal(0, rig.Engine.Store.Project.Outputs[0].Warp.Pin.TopLeft.X);
+        await rig.Ok("UNDO");
+        Assert.Equal("Output 1", rig.Engine.Store.Project.Outputs[0].Name);
+    }
+
+    [Fact]
+    public async Task AddReadsJsonOverTheKindsDefaultAndGivesAFreshId()
+    {
+        await using var rig = new Rig();
+        var id = await rig.Ok("ADD output {\"name\":\"Left projector\",\"width\":3840,\"height\":2160}");
+        var o = rig.Engine.Store.Project.FindOutput(id)!;
+        Assert.Equal("Left projector", o.Name);
+        Assert.Equal(3840, o.Width);
+        Assert.Equal(60, o.RefreshHz);
+        Assert.StartsWith(Ids.Output, id, StringComparison.Ordinal);
+        Assert.False((await rig.Run("ADD output {\"width\":5}")).Ok);
+        var pj = await rig.Ok("ADD projector {\"name\":\"Stage left\"}");
+        var pin = await rig.Ok($"ADD pin {pj} {{\"world\":{{\"x\":1,\"y\":2,\"z\":3}},\"pixel\":{{\"x\":100,\"y\":200}}}}");
+        Assert.Single(rig.Engine.Store.Project.FindProjector(pj)!.Pins);
+        var got = JsonDocument.Parse(await rig.Ok($"GET {pin}")).RootElement;
+        Assert.Equal(2, got.GetProperty("world").GetProperty("y").GetDouble());
+    }
+
+    [Fact]
+    public async Task RemovingSomethingInUseIsRefusedWithWhoUsesIt()
+    {
+        await using var rig = new Rig();
+        var (list, _, _) = await rig.TwoItems();
+        var gen = rig.Engine.Store.Project.Generators.First(g => g.Name == "Card").Id;
+        var r = await rig.Run($"REMOVE {gen}");
+        Assert.False(r.Ok);
+        Assert.Contains("Show/Opening", r.Payload, StringComparison.Ordinal);
+        await rig.Ok($"PLAYLIST GO {list}");
+        Assert.False((await rig.Run($"REMOVE {list}")).Ok);
+    }
+
+    [Fact]
+    public async Task GeneratorParametersAreValidatedAndNormalised()
+    {
+        await using var rig = new Rig();
+        var g = await rig.Ok("GENERATOR NEW grid");
+        await rig.Ok($"GENERATOR SET {g} cell 99999");
+        Assert.Equal("4096", rig.Engine.Store.Project.FindGenerator(g)!.Params.Get("cell"));
+        Assert.False((await rig.Run($"GENERATOR SET {g} color blue")).Ok);
+        Assert.False((await rig.Run($"GENERATOR SET {g} wobble 3")).Ok);
+        Assert.False((await rig.Run($"GENERATOR SET {g} cell 4096")).Ok, "a value it already has changes nothing");
+    }
+
+    [Fact]
+    public async Task APatternGoesOverTheOutputsAndComesOff()
+    {
+        await using var rig = new Rig();
+        await rig.Ok("PATTERN grid");
+        Assert.Equal("pattern.grid", rig.Engine.Air.PatternKind);
+        Assert.False((await rig.Run("PATTERN grid")).Ok);
+        Assert.False((await rig.Run("PATTERN fractal")).Ok);
+        Assert.Equal("pattern.grid", rig.State().GetProperty("outputs")[0].GetProperty("pattern").GetString());
+        await rig.Ok("PATTERN OFF");
+        Assert.Null(rig.Engine.Air.PatternKind);
+    }
+
+    [Fact]
+    public async Task StateKeepsItsShapeAndTheContextItsContract()
+    {
+        await using var rig = new Rig();
+        await rig.TwoItems();
+        var keys = rig.State().EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(["v", "seq", "id", "t", "name", "version", "at", "light", "headline", "air", "video", "playlists", "outputs",
+            "media", "stage", "scan", "sync", "links", "peers", "machine", "project"], keys);
+        Assert.Equal("playmap", rig.State().GetProperty("t").GetString());
+        var ctx = JsonDocument.Parse(rig.Engine.Context()).RootElement;
+        Assert.Equal("playmap", ctx.GetProperty("node").GetProperty("t").GetString());
+        Assert.Contains("nothing playing", ctx.GetProperty("headline").GetString(), StringComparison.Ordinal);
+        Assert.Contains(ctx.GetProperty("commands").EnumerateArray(), c => c.GetProperty("verb").GetString()!.StartsWith("VIDEO PLAY", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TheJournalRecordsWhatChangedAndWhatWasRefused()
+    {
+        await using var rig = new Rig();
+        await rig.Ok("BLACKOUT ON");
+        await rig.Run("BLACKOUT ON");
+        var recent = rig.Engine.Journal.Recent(10);
+        Assert.Contains(recent, r => r.Ok && r.Text == "every output to black");
+        Assert.Contains(recent, r => !r.Ok && r.Text == "already blacked out");
+    }
+
+    [Fact]
+    public async Task AProjectSavesAndOpensAgain()
+    {
+        await using var rig = new Rig();
+        await rig.TwoItems();
+        var path = Path.Combine(Path.GetTempPath(), $"playmap-{Guid.NewGuid():N}.playmap");
+        try
+        {
+            await rig.Ok($"PROJECT SAVE {path}");
+            Assert.False(rig.Engine.Dirty);
+            await rig.Ok("PROJECT NEW Blank");
+            Assert.Empty(rig.Engine.Store.Project.Playlists);
+            await rig.Ok($"PROJECT OPEN {path}");
+            Assert.Single(rig.Engine.Store.Project.Playlists);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+}
