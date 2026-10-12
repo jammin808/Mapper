@@ -25,22 +25,48 @@ public class ClockSyncTests
         return (leader, follower);
     }
 
+    /// <summary>Converges, then quiets the leader and answers the follower's estimate once it holds still. The estimate
+    /// moves with every exchange (the window's best sample changes), so a bound read at one moment and a clock read at
+    /// another can belong to two different estimates; with no exchange in flight both are the same one.</summary>
+    private static async Task<SyncSnapshot> ConvergeThenQuietAsync(ClockSyncResponder leader, ClockSyncClient follower)
+    {
+        try
+        {
+            Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
+            Assert.True(leader.Answered >= 8);
+        }
+        finally
+        {
+            await leader.DisposeAsync();
+        }
+        var before = follower.Snapshot;
+        for (var i = 0; i < 50; i++)
+        {
+            await Task.Delay(100);
+            var now = follower.Snapshot;
+            if (now.OffsetNs == before.OffsetNs && now.RoundTripNs == before.RoundTripNs)
+                return now;
+            before = now;
+        }
+        throw new TimeoutException("the follower's estimate kept moving after its leader went quiet");
+    }
+
     [Fact]
     public async Task TwoClocksThatAgreeConvergeToNoOffsetAndASmallRoundTrip()
     {
         var (leader, follower) = await PairAsync(0);
-        await using (leader)
         await using (follower)
         {
-            Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
-            var s = follower.Snapshot;
+            var s = await ConvergeThenQuietAsync(leader, follower);
             var bound = 1 + s.RoundTripMs / 2;   // an exchange's offset is exact to within half its round trip
             Assert.InRange(s.OffsetMs, -bound, bound);
             Assert.InRange(s.RoundTripMs, 0, 20);
             Assert.NotEqual(SyncQuality.None, s.Quality);
             Assert.NotEqual(SyncQuality.Acquiring, s.Quality);
             Assert.True(follower.Clock.IsFollowing);
-            Assert.InRange(Math.Abs(follower.Clock.NowNs - MonoClock.Instance.NowNs) / 1e6, 0, 3 + s.RoundTripMs);
+            // One local instant read through the follower's clock: no time passes between the two sides of the comparison.
+            var local = MonoClock.Instance.NowNs;
+            Assert.InRange(Math.Abs(follower.Clock.ToLeader(local) - local) / 1e6, 0, 3 + s.RoundTripMs);
         }
     }
 
@@ -49,16 +75,13 @@ public class ClockSyncTests
     {
         const long ahead = 5_000_000_000;
         var (leader, follower) = await PairAsync(ahead);
-        await using (leader)
         await using (follower)
         {
-            Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
-            var s = follower.Snapshot;
+            var s = await ConvergeThenQuietAsync(leader, follower);
             var bound = 1e6 + s.RoundTripNs / 2.0;
             Assert.InRange(s.OffsetNs, ahead - bound, ahead + bound);
-            var leaderNow = MonoClock.Instance.NowNs + ahead;
-            Assert.InRange((follower.Clock.NowNs - leaderNow) / 1e6, -3 - s.RoundTripMs, 3 + s.RoundTripMs);
-            Assert.True(leader.Answered >= 8);
+            var local = MonoClock.Instance.NowNs;
+            Assert.InRange((follower.Clock.ToLeader(local) - (local + ahead)) / 1e6, -3 - s.RoundTripMs, 3 + s.RoundTripMs);
             await follower.StopAsync();
             Assert.False(follower.Clock.IsFollowing);
             Assert.Equal(SyncQuality.None, follower.Snapshot.Quality);
