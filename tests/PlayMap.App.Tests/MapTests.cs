@@ -200,3 +200,65 @@ public class MapTests
         }
     }
 }
+
+/// <summary>The 3D view: dragging empty space orbits and sends the editor camera (VIEW editor CAMERA); dragging
+/// a gizmo axis moves the selected surface along it (SET transform.position), the last position landing on
+/// release; a locked surface does not move.</summary>
+public class ViewportTests
+{
+    private static Point Lerp(Point a, Point b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
+
+    [AvaloniaFact]
+    public async Task OrbitingSendsTheCameraAndAGizmoDragMovesTheSurface()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        DeskHarness.Pump();
+        var viewport = MainWindowTests.Find<MapViewport>(window, "Viewport");
+        Point W(Point p) => viewport.TranslatePoint(p, window)!.Value;
+
+        var corner = W(new Point(40, viewport.Bounds.Height - 40));
+        var yaw = desk.Main.Map.Camera.Yaw;
+        window.MouseDown(corner, MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(corner + new Point(30, 0), RawInputModifiers.LeftMouseButton);
+        window.MouseMove(corner + new Point(60, 0), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(corner + new Point(60, 0), MouseButton.Left, RawInputModifiers.None);
+        await desk.FlushThrottle();
+        Assert.NotEqual(yaw, desk.Main.Map.Camera.Yaw);
+        Assert.True(desk.Link.Views.TryGetValue("editor", out var camera));
+        var json = System.Text.Json.Nodes.JsonNode.Parse(camera)!;
+        Assert.NotNull(json["pose"]);
+        Assert.Contains("VIEW editor SHOW editor " + desk.Main.Map.EditorSize, desk.Link.SentLines);
+
+        desk.Main.Map.Select("surface", "sf_cube");
+        DeskHarness.Pump();
+        var handle = viewport.GizmoHandle(0)!.Value;
+        var from = W(Lerp(handle.Origin, handle.Tip, 0.8));
+        var along = handle.Tip - handle.Origin;
+        var to = from + along * 1.5;
+        window.MouseDown(from, MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(Lerp(from, to, 0.5), RawInputModifiers.LeftMouseButton);
+        window.MouseMove(to, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(to, MouseButton.Left, RawInputModifiers.None);
+        await desk.FlushThrottle();
+        Assert.Contains(desk.Verbs(), l => l.StartsWith("SET sf_cube transform.position {", StringComparison.Ordinal));
+        var moved = desk.Link.CurrentProject.FindSurface("sf_cube")!.Transform.Position;
+        Assert.True(moved.X > -0.9 + 0.05, $"x moved to {moved.X}");
+        Assert.Equal(0.4, moved.Y, 6);
+        Assert.Equal(1.0, moved.Z, 6);
+
+        // The column is locked: its gizmo does not take a drag (the press orbits instead).
+        desk.Main.Map.Select("surface", "sf_column");
+        DeskHarness.Pump();
+        desk.Link.ClearSent();
+        var lockedHandle = viewport.GizmoHandle(0)!.Value;
+        var press = W(Lerp(lockedHandle.Origin, lockedHandle.Tip, 0.8));
+        window.MouseDown(press, MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(press + new Point(40, 0), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(press + new Point(40, 0), MouseButton.Left, RawInputModifiers.None);
+        await desk.FlushThrottle();
+        Assert.DoesNotContain(desk.Verbs(), l => l.StartsWith("SET sf_column", StringComparison.Ordinal));
+        window.Close();
+    }
+}

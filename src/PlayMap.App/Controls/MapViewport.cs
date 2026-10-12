@@ -116,6 +116,16 @@ public sealed class MapViewport : PreviewSurface
         ctx.DrawEllipse(Brushes.White, new Pen(StageDrawing.Shadow, 2), o, 4, 4);
     }
 
+    /// <summary>Where the selected surface's gizmo axis ends on this control (tests drive the pointer here).</summary>
+    internal (Point Origin, Point Tip)? GizmoHandle(int axis)
+    {
+        var picture = PictureRect();
+        if (View(picture) is not { } v || Map is not { } map || map.Project?.FindSurface(map.SelectedId) is not { } sf)
+            return null;
+        var at = sf.Transform.Position;
+        return v.Project(at) is { } o && v.Project(at + Axes[axis].Axis * GizmoLength(v, at)) is { } tip ? (o, tip) : null;
+    }
+
     /// <summary>A gizmo about a tenth of the view tall wherever the object is.</summary>
     private static double GizmoLength(StageView v, Vec3d at)
     {
