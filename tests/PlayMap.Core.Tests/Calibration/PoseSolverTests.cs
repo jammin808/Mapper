@@ -123,6 +123,44 @@ public class PoseSolverTests
     }
 
     [Fact]
+    public void FourPinsOffOnePlaneSolveACalibratedProjectorThroughThreePointPoses()
+    {
+        var k = Synthetic.Projector(-0.5);
+        var rng = new Pcg32(12);
+        var pins = Synthetic.Pins(k, LensDistortion.None, Synthetic.ProjectorPose, 4, ref rng, 0.3, 2.5, 7);
+        var s = PoseSolver.Solve(pins, k, LensDistortion.None, new PoseSolveOptions { Locks = SolveLocks.Focal | SolveLocks.Shift | SolveLocks.Distortion });
+        Assert.True(s.RmsPx < 0.5, s.Words);
+        Assert.True(Synthetic.AngleDegrees(Synthetic.ProjectorPose, s.Pose) < 0.2, s.Words);
+        Assert.True(Vec3d.Distance(Synthetic.ProjectorPose.Position, s.Pose.Position) < 0.02, $"{s.Pose.Position}");
+    }
+
+    [Fact]
+    public void ThreePointPosesIncludeTheTruthAndTheQuarticSolverFindsEveryRealRoot()
+    {
+        var pose = Synthetic.ProjectorPose;
+        var rwc = pose.CameraToWorld.Transposed();
+        Vec3d[] world = [new(0.3, 0.2, 4.5), new(-0.6, 0.9, 5.2), new(0.8, 0.0, 3.9)];
+        var bearings = world.Select(x => pose.WorldToCamera(x).Normalized()).ToArray();
+        var solutions = P3P.Solve(world[0], world[1], world[2], bearings[0], bearings[1], bearings[2]);
+        Assert.InRange(solutions.Count, 1, 4);
+        Assert.Contains(solutions, s => Synthetic.AngleDegrees(rwc, s.R) < 1e-6 && Vec3d.Distance(s.R.Transposed() * s.T * -1, pose.Position) < 1e-8);
+
+        // (x − 1)(x + 2)(x − 3)(x + 0.5) and a quartic with two real roots and a complex pair.
+        var roots = Polynomial.RealRoots(1, -1.5, -6, 3.5, 3).OrderBy(x => x).ToArray();
+        Assert.Equal(4, roots.Length);
+        Assert.Equal(-2, roots[0], 1e-10);
+        Assert.Equal(-0.5, roots[1], 1e-10);
+        Assert.Equal(1, roots[2], 1e-10);
+        Assert.Equal(3, roots[3], 1e-10);
+        // (x² + 1)(x − 2)(x − 4) = x⁴ − 6x³ + 9x² − 6x + 8.
+        var two = Polynomial.RealRoots(1, -6, 9, -6, 8).OrderBy(x => x).ToArray();
+        Assert.Equal(2, two.Length);
+        Assert.Equal(2, two[0], 1e-10);
+        Assert.Equal(4, two[1], 1e-10);
+        Assert.Equal([-1.5], Polynomial.RealRoots(0, 0, 0, 2, 3));
+    }
+
+    [Fact]
     public void TooFewPinsAreRefusedWithTheReason()
     {
         var rng = new Pcg32(6);

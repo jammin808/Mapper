@@ -55,8 +55,8 @@ public class RegistrationTests
     [Fact]
     public void PointToPlaneIcpConvergesFromFiveDegreesAndFiveCentimetres()
     {
-        var (targetPts, targetNormals) = Synthetic.RoomSamples(20000, 1);
-        var (srcPts, _) = Synthetic.RoomSamples(4000, 2);
+        var (targetPts, targetNormals) = Synthetic.RoomSamples(12000, 1);
+        var (srcPts, _) = Synthetic.RoomSamples(3000, 2);
         // The scan sits off by 5° about a skew axis and 5 cm; ICP starts from identity.
         var truth = new Similarity3(Mat3d.FromRotationVector(new Vec3d(1, 2, -1).Normalized() * (5 * Math.PI / 180)),
             new Vec3d(0.03, -0.03, 0.025), 1);

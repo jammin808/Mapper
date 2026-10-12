@@ -30,6 +30,13 @@ public sealed record SelfCalibrationOptions
     /// outweighed by thousands of residuals.</summary>
     public double FocalPriorSigma { get; init; } = 0.3;
 
+    /// <summary>When principal points are free, a prior holding each near its guess, as a fraction of the
+    /// raster width (≤ 0: none). Two views cannot see lens shift: freeing it trades it for focal length.</summary>
+    public double PrincipalPointPriorSigma { get; init; } = 0.02;
+
+    /// <summary>A focal length known worse than this (relative 1σ from the pairs alone) is called out.</summary>
+    public double FocalWarningSigma { get; init; } = 0.01;
+
     /// <summary>A pair farther than this from its epipolar line or its bundle-adjusted reprojection (pixels)
     /// is an outlier.</summary>
     public double OutlierThresholdPx { get; init; } = 2;
@@ -59,6 +66,8 @@ public sealed record ProjectorCalibration(
     bool Solved,
     /// <summary>True when this projector's scale is tied to the first's through shared camera pixels.</summary>
     bool ScaleLinked,
+    /// <summary>The focal length's relative 1σ from the pairs alone (NaN when locked).</summary>
+    double FocalUncertainty,
     string Words)
 {
     public int InlierCount => Inliers.Count(b => b);
@@ -77,6 +86,8 @@ public sealed record SelfCalibrationResult(
     double Scale,
     bool Metric,
     int Iterations,
+    /// <summary>The camera focal length's relative 1σ from the pairs alone (NaN when locked).</summary>
+    double CameraFocalUncertainty,
     string Words)
 {
     public DeviceView CameraView => new(Camera, CameraLens, Pose.Identity);
@@ -341,15 +352,31 @@ public static class SelfCalibration
             return double.IsFinite(res.X) && double.IsFinite(res.Y);
         }
 
+        /// <summary>Pairs are processed in this many fixed blocks, in parallel, and the blocks' partial results
+        /// are combined in block order — the same sums on any machine and any thread timing.</summary>
+        private const int Blocks = 64;
+
+        private static (int Start, int End) Block(int b, int n) => ((int)((long)n * b / Blocks), (int)((long)n * (b + 1) / Blocks));
+
         private double Cost(State s)
         {
-            double cost = 0;
-            for (var i = 0; i < _pairs.Count; i++)
+            var n = _pairs.Count;
+            var partial = new double[Blocks];
+            Parallel.For(0, Blocks, b =>
             {
-                if (!_active[i])
-                    continue;
-                cost += Residual(_pairs[i], s, s.Rho[i], out var res) ? res.LengthSquared : 2 * Behind * Behind;
-            }
+                var (start, end) = Block(b, n);
+                double sum = 0;
+                for (var i = start; i < end; i++)
+                {
+                    if (!_active[i])
+                        continue;
+                    sum += Residual(_pairs[i], s, s.Rho[i], out var res) ? res.LengthSquared : 2 * Behind * Behind;
+                }
+                partial[b] = sum;
+            });
+            double cost = 0;
+            foreach (var x in partial)
+                cost += x;
             if (_o.FocalPriorSigma <= 0)
                 return cost;
             if (!_o.LockCameraFocal)
@@ -357,6 +384,15 @@ public static class SelfCalibration
             if (!_o.LockProjectorFocal)
                 for (var j = 0; j < _proj.Count; j++)
                     cost += Sq((s.F[j] - _proj[j].Prior.Fx) / (_o.FocalPriorSigma * _proj[j].Prior.Fx));
+            if (_o.LockPrincipalPoints || _o.PrincipalPointPriorSigma <= 0)
+                return cost;
+            var sc = _o.PrincipalPointPriorSigma * _camPrior.Width;
+            cost += Sq((s.Ccx - _camPrior.Cx) / sc) + Sq((s.Ccy - _camPrior.Cy) / sc);
+            for (var j = 0; j < _proj.Count; j++)
+            {
+                var sp = _o.PrincipalPointPriorSigma * _proj[j].Prior.Width;
+                cost += Sq((s.Cx[j] - _proj[j].Prior.Cx) / sp) + Sq((s.Cy[j] - _proj[j].Prior.Cy) / sp);
+            }
             return cost;
         }
 
@@ -377,7 +413,7 @@ public static class SelfCalibration
             var gd = new double[n];
             var u = new DenseMatrix(g, g);
             var gg = new double[g];
-            var jg = new double[2 * q];
+            var jg = new double[n * 2 * q];
             var idx = new int[q];
             // The damping scales each diagonal (Marquardt), so it starts as a plain fraction: units differ by
             // orders of magnitude between focal lengths, rotations and inverse depths.
@@ -388,30 +424,7 @@ public static class SelfCalibration
             while (iter < _o.MaxIterations)
             {
                 iter++;
-                Array.Clear(u.Data);
-                Array.Clear(gg);
-                Array.Clear(w);
-                Array.Clear(v);
-                Array.Clear(gd);
-                for (var i = 0; i < n; i++)
-                {
-                    if (!_active[i] || !Linearise(_pairs[i], _s.Rho[i], jg, q, out var r, out var jd))
-                        continue;
-                    Indices(_pairs[i].Owner, idx);
-                    // U += Jgᵀ·Jg, g += Jgᵀ·r, W = Jgᵀ·Jd, V = Jdᵀ·Jd, gd = Jdᵀ·r.
-                    for (var a = 0; a < q; a++)
-                    {
-                        var ja0 = jg[a];
-                        var ja1 = jg[q + a];
-                        gg[idx[a]] += ja0 * r.X + ja1 * r.Y;
-                        w[i * q + a] = ja0 * jd.X + ja1 * jd.Y;
-                        var row = idx[a] * g;
-                        for (var b = 0; b < q; b++)
-                            u.Data[row + idx[b]] += ja0 * jg[b] + ja1 * jg[q + b];
-                    }
-                    v[i] = jd.LengthSquared;
-                    gd[i] = jd.X * r.X + jd.Y * r.Y;
-                }
+                Accumulate(u, gg, w, v, gd, jg, idx);
                 AddPriors(u, gg);
                 var gmax = 0.0;
                 foreach (var x in gg)
@@ -453,6 +466,111 @@ public static class SelfCalibration
                     break;
             }
             return iter;
+        }
+
+        /// <summary>The normal equations at the current state, data only: U += Jgᵀ·Jg, g += Jgᵀ·r, and per pair
+        /// W = Jgᵀ·Jd, V = Jdᵀ·Jd, gd = Jdᵀ·r. Returns the data cost and the pairs that contributed.</summary>
+        private (double Cost, int Pairs) Accumulate(DenseMatrix u, double[] gg, double[] w, double[] v, double[] gd, double[] jgAll, int[] idx)
+        {
+            var g = gg.Length;
+            var q = idx.Length;
+            var n = _pairs.Count;
+            Array.Clear(u.Data);
+            Array.Clear(gg);
+            Array.Clear(w);
+            Array.Clear(v);
+            Array.Clear(gd);
+            // The per-pair derivatives in parallel (the costly part), then the sums in pair order.
+            var rs = new Vec2d[n];
+            var jds = new Vec2d[n];
+            var ok = new bool[n];
+            Parallel.For(0, Blocks, b =>
+            {
+                var (start, end) = Block(b, n);
+                for (var i = start; i < end; i++)
+                    ok[i] = _active[i] && Linearise(_pairs[i], _s.Rho[i], jgAll.AsSpan(i * 2 * q, 2 * q), q, out rs[i], out jds[i]);
+            });
+            double cost = 0;
+            var used = 0;
+            for (var i = 0; i < n; i++)
+            {
+                if (!ok[i])
+                    continue;
+                var r = rs[i];
+                var jd = jds[i];
+                var jg = jgAll.AsSpan(i * 2 * q, 2 * q);
+                cost += r.LengthSquared;
+                used++;
+                Indices(_pairs[i].Owner, idx);
+                for (var a = 0; a < q; a++)
+                {
+                    var ja0 = jg[a];
+                    var ja1 = jg[q + a];
+                    gg[idx[a]] += ja0 * r.X + ja1 * r.Y;
+                    w[i * q + a] = ja0 * jd.X + ja1 * jd.Y;
+                    var row = idx[a] * g;
+                    for (var b = 0; b < q; b++)
+                        u.Data[row + idx[b]] += ja0 * jg[b] + ja1 * jg[q + b];
+                }
+                v[i] = jd.LengthSquared;
+                gd[i] = jd.X * r.X + jd.Y * r.Y;
+            }
+            return (cost, used);
+        }
+
+        /// <summary>How well the pairs alone fix each free focal length: the relative 1σ from σ²·(S⁻¹)ₖₖ, S the
+        /// reduced system without the priors. Large when the geometry is near the degenerate case where the
+        /// camera's and the projector's optical axes meet. NaN for a locked focal length.</summary>
+        public (double Camera, double[] Projectors) FocalUncertainty()
+        {
+            var n = _pairs.Count;
+            var g = _nc + _proj.Count * ProjectorBlock;
+            var q = _nc + ProjectorBlock;
+            var projectors = Enumerable.Repeat(double.NaN, _proj.Count).ToArray();
+            if (n == 0 || _proj.Count == 0)
+                return (double.NaN, projectors);
+            var w = new double[n * q];
+            var v = new double[n];
+            var gd = new double[n];
+            var u = new DenseMatrix(g, g);
+            var gg = new double[g];
+            var (cost, used) = Accumulate(u, gg, w, v, gd, new double[n * 2 * q], new int[q]);
+            // Two residuals a pair against one depth a pair and the globals.
+            var dof = used - g;
+            if (dof <= 0)
+                return (double.PositiveInfinity, projectors.Select(_ => double.PositiveInfinity).ToArray());
+            var sigma2 = cost / dof;
+            var s = u.Clone();
+            var idx = new int[q];
+            for (var i = 0; i < n; i++)
+            {
+                if (!_active[i] || v[i] <= 0)
+                    continue;
+                Indices(_pairs[i].Owner, idx);
+                for (var a = 0; a < q; a++)
+                {
+                    var wa = w[i * q + a] / v[i];
+                    var row = idx[a] * g;
+                    for (var c = 0; c < q; c++)
+                        s.Data[row + idx[c]] -= wa * w[i * q + c];
+                }
+            }
+            // A ridge relative to each diagonal: the parameters' units differ by orders of magnitude (pixels of
+            // focal length against radians), so one absolute ridge would cap exactly the variances sought.
+            for (var k = 0; k < g; k++)
+                s[k, k] += 1e-10 * Math.Abs(s[k, k]) + 1e-300;
+            double Relative(int k, double f)
+            {
+                var e = new double[g];
+                e[k] = 1;
+                var x = new double[g];
+                return LinearSolve.TryCholesky(s, e, x) && x[k] > 0 ? Math.Sqrt(sigma2 * x[k]) / f : double.PositiveInfinity;
+            }
+            var camera = _o.LockCameraFocal ? double.NaN : Relative(0, _s.Fc);
+            if (!_o.LockProjectorFocal)
+                for (var j = 0; j < _proj.Count; j++)
+                    projectors[j] = Relative(_proj[j].Offset, _s.F[j]);
+            return (camera, projectors);
         }
 
         /// <summary>One damped step: the reduced system (U + λD − Σ W·V⁻¹·Wᵀ)·δg = −g + Σ W·V⁻¹·gd solved by
@@ -521,9 +639,9 @@ public static class SelfCalibration
 
         /// <summary>Residual and Jacobian of a pair at the current state: the global columns [camera block |
         /// projector block] into jg (row-major 2 × q), the inverse-depth column into jd.</summary>
-        private bool Linearise(Pair pr, double rho, double[] jg, int q, out Vec2d r, out Vec2d jd)
+        private bool Linearise(Pair pr, double rho, Span<double> jg, int q, out Vec2d r, out Vec2d jd)
         {
-            Array.Clear(jg);
+            jg.Clear();
             var j = pr.Owner;
             var p = _proj[j];
             var rot = _s.R[j];
@@ -589,6 +707,7 @@ public static class SelfCalibration
 
         private void AddPriors(DenseMatrix u, double[] gg)
         {
+            AddPrincipalPointPriors(u, gg);
             if (_o.FocalPriorSigma <= 0)
                 return;
             if (!_o.LockCameraFocal)
@@ -605,6 +724,31 @@ public static class SelfCalibration
                 var s = _o.FocalPriorSigma * p.Prior.Fx;
                 u[p.Offset, p.Offset] += 1 / (s * s);
                 gg[p.Offset] += (_s.F[j] - p.Prior.Fx) / (s * s);
+            }
+        }
+
+        /// <summary>A free principal point is held near its prior: two views fix seven numbers, and focal lengths
+        /// and pose already take all of them.</summary>
+        private void AddPrincipalPointPriors(DenseMatrix u, double[] gg)
+        {
+            if (_o.LockPrincipalPoints || _o.PrincipalPointPriorSigma <= 0)
+                return;
+            void Pull(int k, double value, double prior, double sigma)
+            {
+                u[k, k] += 1 / (sigma * sigma);
+                gg[k] += (value - prior) / (sigma * sigma);
+            }
+            var cam = _o.LockCameraFocal ? 0 : 1;
+            var sc = _o.PrincipalPointPriorSigma * _camPrior.Width;
+            Pull(cam, _s.Ccx, _camPrior.Cx, sc);
+            Pull(cam + 1, _s.Ccy, _camPrior.Cy, sc);
+            var off = _o.LockProjectorFocal ? 0 : 1;
+            for (var j = 0; j < _proj.Count; j++)
+            {
+                var p = _proj[j];
+                var sp = _o.PrincipalPointPriorSigma * p.Prior.Width;
+                Pull(p.Offset + off, _s.Cx[j], p.Prior.Cx, sp);
+                Pull(p.Offset + off + 1, _s.Cy[j], p.Prior.Cy, sp);
             }
         }
 
@@ -682,12 +826,12 @@ public static class SelfCalibration
         public bool Trim()
         {
             var residuals = new double[_pairs.Count];
-            for (var i = 0; i < _pairs.Count; i++)
+            Parallel.For(0, _pairs.Count, i =>
             {
                 if (!_active[i])
                     _s.Rho[i] = BestDepth(_pairs[i], _s.Rho[i]);
                 residuals[i] = Residual(_pairs[i], _s, _s.Rho[i], out var res) ? res.Length : double.PositiveInfinity;
-            }
+            });
             // Never tighter than three robust sigmas of what the adjustment reached: an adjustment that stopped
             // short must not shed the pairs it was still fitting.
             var activeResiduals = residuals.Where((r, i) => _active[i] && double.IsFinite(r)).ToArray();
@@ -713,6 +857,7 @@ public static class SelfCalibration
         {
             var inv = CultureInfo.InvariantCulture;
             var camera = new Intrinsics(_s.Fc, _s.Fc * _camAspect, _s.Ccx, _s.Ccy, _camPrior.Width, _camPrior.Height);
+            var (cameraSigma, projectorSigma) = FocalUncertainty();
             var outputs = new ProjectorCalibration?[inputs.Count];
             var depthByPixel = new List<Dictionary<long, double>>();
             for (var j = 0; j < _proj.Count; j++)
@@ -763,9 +908,9 @@ public static class SelfCalibration
                 var pose = new Pose(rt * _s.T[j] * -1, rt.ToRotationVector());
                 var name = string.IsNullOrEmpty(obs.Name) ? (p.Index + 1).ToString(inv) : obs.Name;
                 var words = string.Create(inv,
-                    $"projector {name}: {rms:0.00} px RMS over {nIn:N0} of {count:N0} pairs, throw ratio {k2.ThrowRatio:0.000} (guess {obs.Prior.ThrowRatio:0.000})");
+                    $"projector {name}: {rms:0.00} px RMS over {nIn:N0} of {count:N0} pairs, throw ratio {k2.ThrowRatio:0.000}{Plus(projectorSigma[j])} (guess {obs.Prior.ThrowRatio:0.000})");
                 outputs[p.Index] = new ProjectorCalibration(name, k2, p.Lens, pose, obs.CameraPixels, obs.ProjectorPixels,
-                    points, residuals, inliers, rms, true, j == 0, words);
+                    points, residuals, inliers, rms, true, j == 0, projectorSigma[j], words);
             }
             LinkScales(outputs, depthByPixel);
 
@@ -782,15 +927,27 @@ public static class SelfCalibration
                 var count = obs.CameraPixels.Count;
                 list.Add(new ProjectorCalibration(name, obs.Prior, obs.Lens, Pose.Identity, obs.CameraPixels, obs.ProjectorPixels,
                     Enumerable.Repeat(PointCloud.Invalid, count).ToArray(), Enumerable.Repeat(double.PositiveInfinity, count).ToArray(),
-                    new bool[count], double.PositiveInfinity, false, false, $"projector {name}: not solved: {failures[j] ?? "no pairs"}"));
+                    new bool[count], double.PositiveInfinity, false, false, double.NaN, $"projector {name}: not solved: {failures[j] ?? "no pairs"}"));
             }
             var sb = new StringBuilder();
-            sb.Append(string.Create(inv, $"camera {camera.HorizontalFovDegrees:0.0}° horizontal field of view (guess {_camPrior.HorizontalFovDegrees:0.0}°)"));
+            sb.Append(string.Create(inv,
+                $"camera {camera.HorizontalFovDegrees:0.0}° horizontal field of view{Plus(cameraSigma)} (guess {_camPrior.HorizontalFovDegrees:0.0}°)"));
             foreach (var p in list)
                 sb.Append("; ").Append(p.Words);
+            var weak = cameraSigma > _o.FocalWarningSigma || projectorSigma.Any(x => x > _o.FocalWarningSigma);
+            if (weak)
+            {
+                sb.Append(_o.LockCameraFocal
+                    ? "; focal lengths poorly determined by these pairs — add depth to the scene or move the camera"
+                    : "; focal lengths poorly determined: the camera and projector look along nearly crossing axes — lock the camera's focal length or move the camera off the projector's axis");
+            }
             sb.Append("; lengths in baselines — set one known distance for metres");
-            return new SelfCalibrationResult(camera, _camLens, list, 1, false, iterations, sb.ToString());
+            return new SelfCalibrationResult(camera, _camLens, list, 1, false, iterations, cameraSigma, sb.ToString());
         }
+
+        /// <summary>" ±x%" for a relative uncertainty, nothing for a locked value.</summary>
+        private static string Plus(double sigma) => double.IsNaN(sigma) ? ""
+            : double.IsFinite(sigma) ? string.Create(CultureInfo.InvariantCulture, $" ±{sigma * 100:0.0#}%") : " (undetermined)";
 
         /// <summary>Ties each further projector's scale to the first's: the median ratio of the depths both
         /// give the same camera pixels.</summary>

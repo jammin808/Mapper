@@ -5,6 +5,13 @@ using PlayMap.Core.Numerics;
 
 namespace PlayMap.Core.Tests.Calibration;
 
+/// <summary>Tests that assert a solve's wall-clock time run alone, not beside the parallel test classes.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public class TimedSolves
+{
+    public const string Name = "Timed solves";
+}
+
 /// <summary>Synthetic devices and scenes with known truth: pins made by casting a device's own pixel rays
 /// to a depth or a plane (so they project back exactly), and a small room (floor, back wall, side wall, a box)
 /// seen by a camera and a ceiling-hung projector with half-image lens shift.</summary>

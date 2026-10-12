@@ -9,6 +9,7 @@ namespace PlayMap.Core.Tests.Calibration;
 /// <summary>Board-free calibration of a camera and projectors from dense pairs on a synthetic room (floor, back
 /// wall, side wall, a box): the epipolar start, the Schur-complement bundle adjustment's accuracy and speed,
 /// the scale from one known distance, multi-projector scale linking, and triangulation from the result.</summary>
+[Collection(TimedSolves.Name)]
 public class SelfCalibrationTests
 {
     private static readonly MeshRaycaster Room = new(Synthetic.Room());
@@ -73,6 +74,9 @@ public class SelfCalibrationTests
         Assert.True(p.InlierCount > 4800, info);
         Assert.True(clock.ElapsedMilliseconds < 1000, info);
         Assert.False(r.Metric);
+        // The geometry fixes both focal lengths, and the solve says how well.
+        Assert.True(p.FocalUncertainty < 0.005 && r.CameraFocalUncertainty < 0.005, info);
+        Assert.DoesNotContain("poorly determined", r.Words);
 
         // One known distance makes it metric: the points then land within 0.5% of the truth.
         var rc = Synthetic.CameraPose.CameraToWorld.Transposed();
@@ -145,6 +149,37 @@ public class SelfCalibrationTests
         Assert.Equal(t2.Position.Length / t1.Position.Length, ratio, 0.02 * ratio);
         Assert.True(Synthetic.AngleDegrees(t2, r.Projectors[1].Pose) < 0.5, r.Words);
         Assert.Contains("projector Right:", r.Words);
+    }
+
+    [Fact]
+    public void CrossingOpticalAxesAreCalledOutAndALockedCameraFocalResolvesThem()
+    {
+        // The camera aims at the very point the projector's axis passes through: two views then fix only the
+        // product of the focal lengths, and the pairs fit every member of that family equally well.
+        var camK = Synthetic.Camera(62);
+        var projK = Synthetic.Projector(-0.5);
+        var camPose = Pose.LookAt(new Vec3d(1.3, 1.6, 0.2), new Vec3d(0.2, 1.2, 6.0), Vec3d.UnitY);
+        var (cam, proj, _) = Synthetic.RoomPairs(Room, camK, camPose, projK, Synthetic.ProjectorPose, 3000, 8, 0.3);
+        var projPrior = Intrinsics.FromThrowRatio(1920, 1080, 1.38, 0, -0.5);
+        var free = SelfCalibration.Solve(Intrinsics.FromFieldOfView(1280, 720, 68), LensDistortion.None,
+            [new ProjectorObservations(projPrior, LensDistortion.None, cam, proj)]);
+        Assert.True(free.CameraFocalUncertainty > 0.05, free.Words);
+        Assert.True(free.Projectors[0].FocalUncertainty > 0.05, free.Words);
+        Assert.Contains("focal lengths poorly determined", free.Words);
+
+        var locked = SelfCalibration.Solve(camK, LensDistortion.None, [new ProjectorObservations(projPrior, LensDistortion.None, cam, proj)],
+            SelfCalibrationOptions.Default with { LockCameraFocal = true });
+        Assert.Equal(camK.Fx, locked.Camera.Fx);
+        Assert.True(double.IsNaN(locked.CameraFocalUncertainty));
+        Assert.True(Math.Abs(locked.Projectors[0].Intrinsics.Fx / projK.Fx - 1) < 0.005, locked.Words);
+        Assert.True(Synthetic.AngleDegrees(InCameraFrame(camPose, Synthetic.ProjectorPose), locked.Projectors[0].Pose) < 0.1, locked.Words);
+        Assert.DoesNotContain("poorly determined", locked.Words);
+
+        // The parallel sums are combined in a fixed order: the same input gives the same answer to the bit.
+        var again = SelfCalibration.Solve(camK, LensDistortion.None, [new ProjectorObservations(projPrior, LensDistortion.None, cam, proj)],
+            SelfCalibrationOptions.Default with { LockCameraFocal = true });
+        Assert.Equal(locked.Projectors[0].Intrinsics, again.Projectors[0].Intrinsics);
+        Assert.Equal(locked.Projectors[0].Pose, again.Projectors[0].Pose);
     }
 
     [Fact]

@@ -488,6 +488,8 @@ public static class PoseSolver
             if (PlaneStart(w, q, prior, lens, layout) is { } ps)
                 starts.Add(ps);
         }
+        if (use.Length >= 4 && (use.Length < 8 || (!layout.Focal && !layout.Shift)) && P3PStart(w, q, prior, lens, o.Seed) is { } p3)
+            starts.Add(p3);
         if (o.InitialPose is { } init)
             starts.Add(FromPose(init, prior, lens));
 
@@ -504,6 +506,52 @@ public static class PoseSolver
             {
                 bestCost = cost;
                 best = m;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>The start from three-point poses with the prior intrinsics: every triple of a small set (a
+    /// seeded sample of a large one), each of up to four solutions scored by its reprojection over all pairs.
+    /// It needs only four pairs and does not care whether they are on one plane.</summary>
+    private static Model? P3PStart(Vec3d[] w, Vec2d[] q, Intrinsics prior, LensDistortion lens, ulong seed)
+    {
+        var n = w.Length;
+        var kInv = prior.K.Inverse();
+        var bearings = q.Select(p => (kInv * new Vec3d(p.X, p.Y, 1)).Normalized()).ToArray();
+        var triples = new List<(int, int, int)>();
+        if (n <= 8)
+        {
+            for (var a = 0; a < n; a++)
+                for (var b = a + 1; b < n; b++)
+                    for (var c = b + 1; c < n; c++)
+                        triples.Add((a, b, c));
+        }
+        else
+        {
+            var rng = new Pcg32(seed, 0x3b3);
+            Span<int> pick = stackalloc int[3];
+            for (var k = 0; k < 40; k++)
+            {
+                Ransac.Sample(ref rng, n, pick);
+                triples.Add((pick[0], pick[1], pick[2]));
+            }
+        }
+        Model? best = null;
+        var bestError = double.PositiveInfinity;
+        foreach (var (a, b, c) in triples)
+        {
+            foreach (var (r, t) in P3P.Solve(w[a], w[b], w[c], bearings[a], bearings[b], bearings[c]))
+            {
+                var m = new Model(r, r.Transposed() * t * -1, prior.Fx, prior.Fy, prior.Cx, prior.Cy, LensDistortion.None);
+                double e = 0;
+                for (var i = 0; i < n && e < bestError; i++)
+                    e += m.Project(w[i]) is { } p ? Math.Min((p - q[i]).LengthSquared, 1e8) : 1e8;
+                if (e < bestError)
+                {
+                    bestError = e;
+                    best = m with { Lens = lens };
+                }
             }
         }
         return best;
