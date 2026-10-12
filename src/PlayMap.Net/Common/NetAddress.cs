@@ -81,17 +81,21 @@ public static class NetAddress
         Socket? socket = null;
         try
         {
-            if (address is null && Socket.OSSupportsIPv6)
-            {
-                socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp) { DualMode = true };
-                socket.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
-            }
-            else
-            {
-                var a = address ?? IPAddress.Any;
-                socket = new Socket(a.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                socket.Bind(new IPEndPoint(a, port));
-            }
+            var a = address ?? (Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any);
+            socket = new Socket(a.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            if (address is null && a.AddressFamily == AddressFamily.InterNetworkV6)
+                socket.DualMode = true;
+            // A restarted node takes its port back at once (past its old connections' TIME_WAIT) with the raw
+            // SO_REUSEADDR — .NET's ReuseAddress also sets SO_REUSEPORT on Unix, which would let a second process
+            // listen on the same port. On Windows the option would let another process share the port, so there
+            // the socket keeps it to itself instead.
+            if (OperatingSystem.IsWindows())
+                socket.ExclusiveAddressUse = true;
+            else if (OperatingSystem.IsLinux())
+                socket.SetRawSocketOption(1, 2, BitConverter.GetBytes(1));
+            else if (OperatingSystem.IsMacOS())
+                socket.SetRawSocketOption(0xffff, 0x4, BitConverter.GetBytes(1));
+            socket.Bind(new IPEndPoint(a, port));
             socket.Listen(backlog);
             return socket;
         }
