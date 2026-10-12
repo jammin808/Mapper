@@ -101,7 +101,7 @@ public static class PoseSolver
         if (n < 4)
         {
             return Failure(all, prior, priorLens, options, string.Create(CultureInfo.InvariantCulture,
-                $"need at least 6 {noun}s off one plane, or 4 on one plane: have {n}"));
+                $"need at least 4 {noun}s (6 or more off one plane to fit lens shift): have {n}"));
         }
 
         // The closed forms fit ideal pinhole pixels: the observations with the prior lens taken out.

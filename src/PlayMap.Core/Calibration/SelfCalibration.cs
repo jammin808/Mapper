@@ -872,24 +872,26 @@ public static class SelfCalibration
                 Array.Fill(residuals, double.PositiveInfinity);
                 var adjusted = new bool[count];
                 for (var k = 0; k < p.Subset.Length; k++)
+                    adjusted[_pairs[p.First + k].Source] = true;
+                Parallel.For(0, p.Subset.Length, k =>
                 {
                     var i = p.First + k;
-                    adjusted[_pairs[i].Source] = true;
                     Fill(_pairs[i], _s.Rho[i], _active[i], points, residuals, inliers);
-                }
+                });
                 // Pairs outside the adjusted subset get their own best depth at the final state.
                 var rel = new RelativePose(_s.R[j], _s.T[j]);
                 var k2 = ProjectorIntrinsics(j);
-                for (var src = 0; src < count; src++)
+                var owner = j;
+                Parallel.For(0, count, src =>
                 {
                     if (adjusted[src])
-                        continue;
-                    var pr = new Pair(j, src, obs.CameraPixels[src], obs.ProjectorPixels[src]);
+                        return;
+                    var pr = new Pair(owner, src, obs.CameraPixels[src], obs.ProjectorPixels[src]);
                     var m = Ray(pr.Cam, _s);
                     var z = Epipolar.DepthInA(rel, new Vec2d(m.X, m.Y), Normalised(pr.Obs, k2, p.Lens));
                     var rho = BestDepth(pr, z > 0 && double.IsFinite(z) ? 1 / z : 1);
                     Fill(pr, rho, true, points, residuals, inliers);
-                }
+                });
                 double sum = 0;
                 var nIn = 0;
                 var depth = new Dictionary<long, double>();

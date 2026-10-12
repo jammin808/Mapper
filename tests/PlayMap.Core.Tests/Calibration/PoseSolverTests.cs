@@ -167,7 +167,7 @@ public class PoseSolverTests
         var pins = Synthetic.Pins(Synthetic.Projector(), LensDistortion.None, Synthetic.ProjectorPose, 3, ref rng, 0);
         var s = PoseSolver.Solve(pins, Synthetic.Projector(), LensDistortion.None);
         Assert.False(s.IsGood);
-        Assert.StartsWith("not solved: need at least 6 pins", s.Words);
+        Assert.StartsWith("not solved: need at least 4 pins", s.Words);
         Assert.Equal(3, s.ResidualsPx.Count);
     }
 

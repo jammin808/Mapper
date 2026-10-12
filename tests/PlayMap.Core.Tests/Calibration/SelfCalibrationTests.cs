@@ -183,6 +183,26 @@ public class SelfCalibrationTests
     }
 
     [Fact]
+    public void PairsBeyondTheAdjustedSubsetStillGetTheirPointsAndResiduals()
+    {
+        var camK = Synthetic.Camera(62);
+        var projK = Synthetic.Projector(-0.5);
+        var (cam, proj, world) = Synthetic.RoomPairs(Room, camK, Synthetic.CameraPose, projK, Synthetic.ProjectorPose, 3000, 12, 0.3, 0.02);
+        var r = SelfCalibration.Solve(Intrinsics.FromFieldOfView(1280, 720, 66), LensDistortion.None,
+            [new ProjectorObservations(Intrinsics.FromThrowRatio(1920, 1080, 1.4, 0, -0.5), LensDistortion.None, cam, proj)],
+            SelfCalibrationOptions.Default with { MaxPairsPerProjector = 800 });
+        var p = r.Projectors[0];
+        Assert.True(Math.Abs(p.Intrinsics.Fx / projK.Fx - 1) < 0.01, r.Words);
+        Assert.InRange(p.InlierCount, 2850, 2960);
+        Assert.All(Enumerable.Range(0, cam.Count).Where(i => p.Inliers[i]), i => Assert.True(p.ResidualsPx[i] <= 2 && PointCloud.IsValid(p.Points[i])));
+        // Up to scale, every inlier's point lies on the true one's camera ray at a consistent depth.
+        var rc = Synthetic.CameraPose.CameraToWorld.Transposed();
+        var ratios = Enumerable.Range(0, cam.Count).Where(i => p.Inliers[i])
+            .Select(i => p.Points[i].Z / (rc * (world[i] - Synthetic.CameraPose.Position)).Z).OrderBy(x => x).ToArray();
+        Assert.True(ratios[^30] / ratios[30] < 1.01, $"{ratios[30]} .. {ratios[^30]}");
+    }
+
+    [Fact]
     public void AProjectorWithTooFewPairsIsReportedNotSolved()
     {
         var r = SelfCalibration.Solve(Synthetic.Camera(), LensDistortion.None,
