@@ -136,9 +136,12 @@ public sealed class StructuredLightDecoder
         var uncertain = new long[map.Height];
         var decided = new long[map.Height];
         var noise = Options.NoiseSigma ?? EstimateNoise(frames, map.Width, map.Height);
-        Parallel.For(0, map.Height, y => DecodeRow(frames, map, y, noise, uncertain, decided));
+        // Pixels whose decode stands or falls with one near-even call (the XOR base's) must be confirmed by
+        // their neighbours, not merely not contradicted.
+        var mustConfirm = new bool[map.Width * map.Height];
+        Parallel.For(0, map.Height, y => DecodeRow(frames, map, y, noise, uncertain, decided, mustConfirm));
         if (Options.CleanJumps)
-            CleanJumps(map);
+            CleanJumps(map, mustConfirm);
         map.Recount(uncertain.Sum(), decided.Sum(), noise);
     }
 
@@ -173,7 +176,8 @@ public sealed class StructuredLightDecoder
         return 1.4826 * samples[samples.Count / 2] / Math.Sqrt(steps.Length);
     }
 
-    private void DecodeRow<TFrames>(TFrames frames, CorrespondenceMap map, int y, double noise, long[] uncertainPerRow, long[] decidedPerRow)
+    private void DecodeRow<TFrames>(TFrames frames, CorrespondenceMap map, int y, double noise, long[] uncertainPerRow, long[] decidedPerRow,
+        bool[] mustConfirm)
         where TFrames : struct, IFrames
     {
         var o = Options;
@@ -216,6 +220,7 @@ public sealed class StructuredLightDecoder
                 modulation = Math.Min(modulation, a.Modulation);
                 inconsistent |= a.Inconsistent;
                 suspect |= a.NearXorEdge;
+                mustConfirm[k] |= a.BaseUncertain;
                 outOfRange |= !columns.TryPlace(a.Position, out px);
             }
             if (_rows is { } rows)
@@ -227,6 +232,7 @@ public sealed class StructuredLightDecoder
                 modulation = Math.Min(modulation, a.Modulation);
                 inconsistent |= a.Inconsistent;
                 suspect |= a.NearXorEdge;
+                mustConfirm[k] |= a.BaseUncertain;
                 outOfRange |= !rows.TryPlace(a.Position, out py);
             }
             if (excess > 0 || inconsistent || suspect)
@@ -255,8 +261,9 @@ public sealed class StructuredLightDecoder
 
     /// <summary>Every valid suspect pixel is compared with the median of its trusted 5 × 5 neighbours: within
     /// the neighbourhood's own spread it stands; off by whole phase periods it is moved back; otherwise it is
-    /// dropped. Trusted neighbours are valid and not suspect, so a cluster of suspects cannot vote itself in.</summary>
-    private void CleanJumps(CorrespondenceMap map)
+    /// dropped. Trusted neighbours are valid and not suspect, so a cluster of suspects cannot vote itself in.
+    /// With too few trusted neighbours to judge, a suspect stands — unless it must be confirmed.</summary>
+    private void CleanJumps(CorrespondenceMap map, bool[] mustConfirm)
     {
         var w = map.Width;
         var h = map.Height;
@@ -274,8 +281,9 @@ public sealed class StructuredLightDecoder
                 if ((snapFlags[k] & suspect) != suspect)
                     continue;
                 var corrected = false;
-                var ok = _columns is null || Reconcile(snapX, snapFlags, map.ProjectorX, x, y, w, h, _columns, values, spread, ref corrected);
-                ok = ok && (_rows is null || Reconcile(snapY, snapFlags, map.ProjectorY, x, y, w, h, _rows, values, spread, ref corrected));
+                var confirm = mustConfirm[k];
+                var ok = _columns is null || Reconcile(snapX, snapFlags, map.ProjectorX, x, y, w, h, _columns, confirm, values, spread, ref corrected);
+                ok = ok && (_rows is null || Reconcile(snapY, snapFlags, map.ProjectorY, x, y, w, h, _rows, confirm, values, spread, ref corrected));
                 if (!ok)
                 {
                     map.Flags[k] = (snapFlags[k] & ~DecodeStatus.Valid) | DecodeStatus.Rejected;
@@ -292,7 +300,7 @@ public sealed class StructuredLightDecoder
     }
 
     private static bool Reconcile(float[] snap, DecodeStatus[] flags, float[] target, int x, int y, int w, int h, AxisDecoder axis,
-        Span<float> values, Span<float> spread, ref bool corrected)
+        bool mustConfirm, Span<float> values, Span<float> spread, ref bool corrected)
     {
         var n = 0;
         for (var dy = -2; dy <= 2; dy++)
@@ -311,7 +319,7 @@ public sealed class StructuredLightDecoder
             }
         }
         if (n < 6)
-            return true;
+            return !mustConfirm;
         var near = values[..n];
         near.Sort();
         var median = Median(near);
@@ -369,7 +377,7 @@ public sealed class StructuredLightDecoder
         public float Raw(int frame, int pixel) => Images[frame][pixel] * 255f;
     }
 
-    private readonly record struct AxisResult(double Position, int Uncertain, double Modulation, bool Inconsistent, bool NearXorEdge);
+    private readonly record struct AxisResult(double Position, int Uncertain, double Modulation, bool Inconsistent, bool NearXorEdge, bool BaseUncertain);
 
     private sealed record PhaseSet(int Period, int[] Frames, double[] Sin, double[] Cos);
 
@@ -468,15 +476,23 @@ public sealed class StructuredLightDecoder
         public AxisResult Decode<TFrames>(TFrames frames, int k, float tau, float contrast) where TFrames : struct, IFrames
         {
             var baseBit = 0;
+            var baseUncertain = false;
             if (_baseSlot >= 0)
-                baseBit = frames.Linear(_pattern[_baseSlot], k) > frames.Linear(_inverse[_baseSlot], k) ? 1 : 0;
+            {
+                var d = frames.Linear(_pattern[_baseSlot], k) - frames.Linear(_inverse[_baseSlot], k);
+                baseBit = d > 0 ? 1 : 0;
+                baseUncertain = Math.Abs(d) < tau;
+            }
             var gray = 0;
             var uncertain = 0;
             for (var i = 0; i < _pattern.Length; i++)
             {
                 var d = frames.Linear(_pattern[i], k) - frames.Linear(_inverse[i], k);
                 var bit = d > 0 ? 1 : 0;
-                if (Math.Abs(d) < tau)
+                // On an edge of the XOR base every XOR-ed level is as close to call as the base itself: one
+                // uncertainty, not many. A wrong call there flips every coarse level together, which moves the
+                // unwrapped phase by whole periods — the jump cleanup's business, so the pixel is a suspect.
+                if (Math.Abs(d) < tau && !(baseUncertain && _xored[i]))
                     uncertain++;
                 if (_xored[i])
                     bit ^= baseBit;
@@ -516,7 +532,7 @@ public sealed class StructuredLightDecoder
                 }
                 u = unwrapped;
             }
-            return new AxisResult(u, uncertain, modulation, inconsistent, nearXorEdge);
+            return new AxisResult(u, uncertain, modulation, inconsistent, nearXorEdge || baseUncertain, baseUncertain);
         }
 
         /// <summary>The projector coordinate of a coded position; false when it lies outside the region (half a

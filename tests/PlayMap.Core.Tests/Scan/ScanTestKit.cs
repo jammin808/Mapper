@@ -44,8 +44,9 @@ internal sealed record SimulatedScan(ScanPlan Plan, ScanSimulator Simulator, byt
     public SimTruth Truth => Simulator.Truth;
 
     /// <summary>The truly lit camera pixels the camera can tell from black (expected contrast at least
-    /// <paramref name="minContrast"/>) and that are not on a depth or projector edge (all 8 neighbours lit too).</summary>
-    public List<int> LitPixels(float minContrast = 24)
+    /// <paramref name="minContrast"/>) and that are not on a depth or projector edge (all 8 neighbours lit too,
+    /// each at most <paramref name="maxStep"/> projector pixels away).</summary>
+    public List<int> LitPixels(float minContrast = 24, float maxStep = 3)
     {
         var t = Truth;
         var list = new List<int>();
@@ -62,7 +63,7 @@ internal sealed record SimulatedScan(ScanPlan Plan, ScanSimulator Simulator, byt
                     for (var dx = -1; dx <= 1; dx++)
                     {
                         var n = k + dy * t.Width + dx;
-                        if (!t.Lit[n] || Math.Abs(t.ProjectorX[n] - t.ProjectorX[k]) > 3 || Math.Abs(t.ProjectorY[n] - t.ProjectorY[k]) > 3)
+                        if (!t.Lit[n] || Math.Abs(t.ProjectorX[n] - t.ProjectorX[k]) > maxStep || Math.Abs(t.ProjectorY[n] - t.ProjectorY[k]) > maxStep)
                         {
                             interior = false;
                             break;

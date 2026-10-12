@@ -63,6 +63,64 @@ public class DecoderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void AFinePeriodIsUnwrappedByACoarserOne()
+    {
+        // Gray to 32 px cells, the complementary level, then a 32 px sinusoid that a 8 px one is unwrapped by.
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Robust, PhasePeriods = [32, 8] },
+            new SimOptions { NoiseSigma = 2, Seed = 11 });
+        Assert.Equal(2 + 2 * (2 * 4 + 8), scan.Plan.Count);
+        var lit = scan.LitPixels();
+        var (rms, decoded) = scan.Rms(lit);
+        var gross = scan.GrossShare(lit, 2);
+        output.WriteLine($"32/8: RMS {rms:0.0000} px over {decoded}/{lit.Count}, {gross:P3} off by > 2 px; {scan.Map.Stats}");
+        Assert.True(rms <= 0.1, $"RMS {rms:0.000}");
+        Assert.True(gross < 0.001);
+        Assert.True(decoded >= 0.98 * lit.Count);
+    }
+
+    [Theory]
+    [InlineData("wall and cylinder")]
+    [InlineData("stepped facade")]
+    public void OtherScenesDecodeToAQuarterPixelToo(string name)
+    {
+        var scene = name == "stepped facade" ? SimScenes.SteppedFacade() : SimScenes.WallAndCylinder();
+        var scan = ScanTestKit.Run(new SimGeometry(scene), new ScanPlanOptions { Mode = ScanMode.Robust }, new SimOptions { NoiseSigma = 1.5, Seed = 2 });
+        var lit = scan.LitPixels();
+        var (rms, decoded) = scan.Rms(lit);
+        var shadowed = scan.Truth.Shadowed.Count(s => s);
+        output.WriteLine($"{name}: RMS {rms:0.000} px over {decoded}/{lit.Count}, {scan.GrossShare(lit):P3} gross, {shadowed} shadowed; {scan.Map.Stats}");
+        Assert.True(lit.Count > 20000);
+        Assert.True(rms <= 0.25, $"RMS {rms:0.000}");
+        Assert.True(scan.GrossShare(lit) < 0.001);
+        Assert.True(decoded >= 0.97 * lit.Count);
+    }
+
+    [Fact]
+    public void ACameraCoarserThanTheProjectorBlursTheFinestStripesButNotThePhase()
+    {
+        // About three projector pixels to a camera pixel, and the camera integrates over each pixel (2 × 2 rays):
+        // single-pixel Gray stripes blur to grey, a 16 px sinusoid does not.
+        var geometry = new SimGeometry(SimScenes.FloorAndBox(512, 320, 160, 120), supersample: 2);
+        var sim = new SimOptions { NoiseSigma = 1.5, Seed = 4 };
+        var fast = ScanTestKit.Run(geometry, new ScanPlanOptions { Mode = ScanMode.Fast }, sim);
+        var robust = ScanTestKit.Run(geometry, new ScanPlanOptions { Mode = ScanMode.Robust }, sim);
+        var lit = robust.LitPixels(maxStep: 10);
+        var (fastRms, fastDecoded) = fast.Rms(lit);
+        var (robustRms, robustDecoded) = robust.Rms(lit);
+        var fastWithin = fast.ShareWithin(lit, 1.5);
+        var robustWithin = robust.ShareWithin(lit, 1.5);
+        output.WriteLine($"coarse camera: Fast {fastWithin:P1} within 1.5 px, RMS {fastRms:0.000} over {fastDecoded}, {fast.Map.Stats}");
+        output.WriteLine($"coarse camera: Robust {robustWithin:P1} within 1.5 px, RMS {robustRms:0.000} over {robustDecoded}, {robust.Map.Stats}");
+        Assert.True(lit.Count > 5000);
+        Assert.True(robustRms < 0.2, $"Robust RMS {robustRms:0.000}");
+        Assert.True(robustWithin >= 0.99, $"Robust {robustWithin:P1}");
+        Assert.True(robust.GrossShare(lit) < 0.001);
+        // The Gray code still lands within a camera pixel's worth of projector pixels; the phase does far better.
+        Assert.True(fast.Map.Stats.UncertainBitShare > 5 * robust.Map.Stats.UncertainBitShare);
+        Assert.True(fastRms > 2 * robustRms, $"Fast RMS {fastRms:0.000} vs Robust {robustRms:0.000}");
+    }
+
+    [Fact]
     public void ShadowedPixelsAreMarkedInvalid()
     {
         foreach (var scan in new[] { ScanTestKit.Fast, ScanTestKit.Robust })

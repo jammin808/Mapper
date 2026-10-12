@@ -48,18 +48,23 @@ public sealed record SimOptions
 }
 
 /// <summary>
-/// A scene traced once from its camera: per camera pixel (row-major) the world point seen, its normal turned
-/// toward the camera, the triangle, the scene's albedo and colour there, and where the projector's light comes
-/// from — the projector pixel and cos incidence where the point faces the projector inside its raster, and
-/// whether something occludes it. Independent of the plan and the light levels, so one trace serves any
-/// number of simulated scans. Immutable after construction.
+/// A scene traced once from its camera: per camera pixel (row-major) the world point seen through the pixel's
+/// centre, its normal turned toward the camera, the triangle, the scene's albedo and colour there, and where
+/// the projector's light comes from — the projector pixel and cos incidence where the point faces the
+/// projector inside its raster, and whether something occludes it. With <see cref="Supersample"/> s &gt; 1
+/// the light is also traced through s × s points spread over each pixel (<c>Sample…</c>, s² per pixel, pixel
+/// by pixel), so the simulated camera integrates over its pixel's footprint as a real one does: fine stripes
+/// a pixel spans blur into grey. Independent of the plan and the light levels, so one trace serves any number
+/// of simulated scans. Immutable after construction.
 /// </summary>
 public sealed class SimGeometry
 {
-    public SimGeometry(SimScene scene)
+    public SimGeometry(SimScene scene, int supersample = 1)
     {
         ArgumentNullException.ThrowIfNull(scene);
+        ArgumentOutOfRangeException.ThrowIfLessThan(supersample, 1);
         Scene = scene;
+        Supersample = supersample;
         var kc = scene.Camera.Intrinsics;
         Width = kc.Width;
         Height = kc.Height;
@@ -81,13 +86,65 @@ public sealed class SimGeometry
         Parallel.For(0, Height, y =>
         {
             for (var x = 0; x < Width; x++)
-                Trace(caster, x, y);
+            {
+                var k = y * Width + x;
+                var centre = Trace(caster, new Vec2d(x + 0.5, y + 0.5));
+                if (centre.Triangle < 0)
+                    continue;
+                Points[k] = centre.Point;
+                Normals[k] = centre.Normal;
+                Triangles[k] = centre.Triangle;
+                Albedo[k] = centre.Albedo;
+                Colour[k] = Scene.Colour(centre.Point);
+                RasterX[k] = centre.RasterX;
+                RasterY[k] = centre.RasterY;
+                Cos[k] = centre.Cos;
+                Occluded[k] = centre.Occluded;
+            }
+        });
+        if (supersample == 1)
+        {
+            SampleRasterX = RasterX;
+            SampleRasterY = RasterY;
+            SampleCos = Cos;
+            SampleOccluded = Occluded;
+            SampleAlbedo = Albedo;
+            return;
+        }
+        var s2 = supersample * supersample;
+        SampleRasterX = new float[n * s2];
+        SampleRasterY = new float[n * s2];
+        SampleCos = new float[n * s2];
+        SampleOccluded = new bool[n * s2];
+        SampleAlbedo = new float[n * s2];
+        Parallel.For(0, Height, y =>
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                for (var j = 0; j < supersample; j++)
+                {
+                    for (var i = 0; i < supersample; i++)
+                    {
+                        var at = (y * Width + x) * s2 + j * supersample + i;
+                        var sample = Trace(caster, new Vec2d(x + (i + 0.5) / supersample, y + (j + 0.5) / supersample));
+                        SampleRasterX[at] = sample.RasterX;
+                        SampleRasterY[at] = sample.RasterY;
+                        SampleCos[at] = sample.Cos;
+                        SampleOccluded[at] = sample.Occluded;
+                        SampleAlbedo[at] = sample.Albedo;
+                    }
+                }
+            }
         });
     }
 
     public SimScene Scene { get; }
     public int Width { get; }
     public int Height { get; }
+
+    /// <summary>Light samples per pixel along each axis.</summary>
+    public int Supersample { get; }
+
     public Vec3d[] Points { get; }
     public Vec3d[] Normals { get; }
     public int[] Triangles { get; }
@@ -102,42 +159,44 @@ public sealed class SimGeometry
     /// <summary>Cos incidence of the projector's light (0 where <see cref="RasterX"/> is NaN).</summary>
     public float[] Cos { get; }
 
-    /// <summary>Something lies between the seen point and the projector.</summary>
+    /// <summary>Something lies between the seen point and the projector, or the point faces away from it.</summary>
     public bool[] Occluded { get; }
 
-    private void Trace(MeshRaycaster caster, int x, int y)
+    /// <summary>The light samples (Supersample² per pixel): the same as the per-pixel arrays when 1.</summary>
+    public float[] SampleRasterX { get; }
+
+    public float[] SampleRasterY { get; }
+    public float[] SampleCos { get; }
+    public bool[] SampleOccluded { get; }
+
+    /// <summary>The albedo at each light sample (0 where the sample's ray meets nothing).</summary>
+    public float[] SampleAlbedo { get; }
+
+    private readonly record struct Traced(int Triangle, Vec3d Point, Vec3d Normal, float Albedo, float RasterX, float RasterY, float Cos, bool Occluded);
+
+    private Traced Trace(MeshRaycaster caster, Vec2d pixel)
     {
-        var k = y * Width + x;
         var cam = Scene.Camera;
-        var ray = CameraModel.PixelRay(new Vec2d(x + 0.5, y + 0.5), cam.Intrinsics, cam.Lens, cam.Pose);
+        var ray = CameraModel.PixelRay(pixel, cam.Intrinsics, cam.Lens, cam.Pose);
         if (caster.Cast(ray) is not { } hit)
-            return;
+            return new Traced(-1, PointCloud.Invalid, Vec3d.Zero, 0, float.NaN, float.NaN, 0, false);
         var mesh = caster.Mesh;
         var (a, b, c) = mesh.Triangle(hit.Triangle);
         var normal = Vec3d.Cross(mesh.Position(b) - mesh.Position(a), mesh.Position(c) - mesh.Position(a)).Normalized();
         if (Vec3d.Dot(normal, ray.Direction) > 0)
             normal = -normal;
-        Points[k] = hit.Point;
-        Normals[k] = normal;
-        Triangles[k] = hit.Triangle;
-        Albedo[k] = (float)Scene.Albedo(hit.Point);
-        Colour[k] = Scene.Colour(hit.Point);
+        var albedo = (float)Scene.Albedo(hit.Point);
         var proj = Scene.Projector;
         if (CameraModel.Project(hit.Point, proj.Intrinsics, proj.Lens, proj.Pose) is not { } p || !CameraModel.InRaster(p, proj.Intrinsics))
-            return;
+            return new Traced(hit.Triangle, hit.Point, normal, albedo, float.NaN, float.NaN, 0, false);
         var toProjector = proj.Pose.Position - hit.Point;
         var distance = toProjector.Length;
         var direction = toProjector / distance;
         var cos = Vec3d.Dot(normal, direction);
         if (cos <= 0)
-        {
-            Occluded[k] = true;
-            return;
-        }
-        RasterX[k] = (float)p.X;
-        RasterY[k] = (float)p.Y;
-        Cos[k] = (float)cos;
-        Occluded[k] = caster.Occluded(new Ray(hit.Point + direction * 1e-6, direction), distance - 2e-6);
+            return new Traced(hit.Triangle, hit.Point, normal, albedo, float.NaN, float.NaN, 0, true);
+        var occluded = caster.Occluded(new Ray(hit.Point + direction * 1e-6, direction), distance - 2e-6);
+        return new Traced(hit.Triangle, hit.Point, normal, albedo, (float)p.X, (float)p.Y, (float)cos, occluded);
     }
 }
 
@@ -222,6 +281,7 @@ public sealed class ScanSimulator
     private readonly float[] _direct;
     private readonly float[] _ambient;
     private readonly float[] _irradiance;
+    private readonly int _samples;
     private readonly float[] _projectorLut = new float[256];
     private readonly float[] _cameraLut = new float[4097];
 
@@ -244,21 +304,29 @@ public sealed class ScanSimulator
         CameraWidth = geometry.Width;
         CameraHeight = geometry.Height;
         var n = CameraWidth * CameraHeight;
-        _direct = new float[n];
-        _ambient = new float[n];
-        _irradiance = new float[n];
+        _samples = geometry.Supersample * geometry.Supersample;
+        _direct = new float[n * _samples];
+        _ambient = new float[n * _samples];
+        _irradiance = new float[n * _samples];
         for (var i = 0; i < 256; i++)
             _projectorLut[i] = (float)Math.Pow(i / 255.0, _options.ProjectorGamma);
         for (var i = 0; i < _cameraLut.Length; i++)
             _cameraLut[i] = (float)(255 * Math.Pow(i / (double)(_cameraLut.Length - 1), 1 / _options.CameraGamma));
+        for (var at = 0; at < _direct.Length; at++)
+        {
+            var albedo = Math.Clamp(geometry.SampleAlbedo[at] * _options.AlbedoScale, 0, 1);
+            _ambient[at] = (float)(albedo * _options.Ambient);
+            if (float.IsNaN(geometry.SampleRasterX[at]) || (_options.Shadows && geometry.SampleOccluded[at]))
+                continue;
+            _irradiance[at] = (float)(_options.ProjectorGain * geometry.SampleCos[at]);
+            _direct[at] = (float)(albedo * _irradiance[at]);
+        }
         Truth = new SimTruth(geometry);
         var region = plan.Region;
         for (var k = 0; k < n; k++)
         {
             if (geometry.Triangles[k] < 0)
                 continue;
-            var albedo = Math.Clamp(geometry.Albedo[k] * _options.AlbedoScale, 0, 1);
-            _ambient[k] = (float)(albedo * _options.Ambient);
             var u = geometry.RasterX[k];
             if (float.IsNaN(u) || (_options.Shadows && geometry.Occluded[k]))
             {
@@ -266,14 +334,18 @@ public sealed class ScanSimulator
                 continue;
             }
             var v = geometry.RasterY[k];
-            _irradiance[k] = (float)(_options.ProjectorGain * geometry.Cos[k]);
-            _direct[k] = (float)(albedo * _irradiance[k]);
             if (u >= region.X && v >= region.Y && u < region.Right && v < region.Bottom)
             {
                 Truth.Lit[k] = true;
                 Truth.ProjectorX[k] = u;
                 Truth.ProjectorY[k] = v;
-                Truth.ExpectedContrast[k] = Record(_direct[k] + _ambient[k]) - Record(_ambient[k]);
+                double direct = 0, ambient = 0;
+                for (var at = k * _samples; at < (k + 1) * _samples; at++)
+                {
+                    direct += _direct[at];
+                    ambient += _ambient[at];
+                }
+                Truth.ExpectedContrast[k] = Record((direct + ambient) / _samples) - Record(ambient / _samples);
             }
         }
     }
@@ -306,8 +378,9 @@ public sealed class ScanSimulator
         var ph = _plan.ProjectorHeight;
         var seed = _options.Seed * 0x9E3779B97F4A7C15UL + (ulong)index;
         var sigma = (float)_options.NoiseSigma;
-        var u = _geometry.RasterX;
-        var v = _geometry.RasterY;
+        var u = _geometry.SampleRasterX;
+        var v = _geometry.SampleRasterY;
+        var samples = _samples;
         Parallel.For(0, CameraHeight, y =>
         {
             var rng = new Pcg32(seed, (ulong)y);
@@ -315,10 +388,14 @@ public sealed class ScanSimulator
             for (var x = 0; x < CameraWidth; x++)
             {
                 var k = y * CameraWidth + x;
-                double shade = _ambient[k];
-                if (_direct[k] > 0)
-                    shade += _direct[k] * SampleBilinear(light, pw, ph, u[k] - 0.5, v[k] - 0.5);
-                var level = Record(shade);
+                double shade = 0;
+                for (var at = k * samples; at < (k + 1) * samples; at++)
+                {
+                    shade += _ambient[at];
+                    if (_direct[at] > 0)
+                        shade += _direct[at] * SampleBilinear(light, pw, ph, u[at] - 0.5, v[at] - 0.5);
+                }
+                var level = Record(shade / samples);
                 if (sigma > 0)
                 {
                     // Box–Muller gives two independent normals per draw; the second is kept for the next pixel.
@@ -359,7 +436,10 @@ public sealed class ScanSimulator
         {
             if (_geometry.Triangles[k] < 0)
                 continue;
-            var light = (_irradiance[k] + _options.Ambient) * _options.AlbedoScale / 255.0;
+            double irradiance = 0;
+            for (var at = k * _samples; at < (k + 1) * _samples; at++)
+                irradiance += _irradiance[at];
+            var light = (irradiance / _samples + _options.Ambient) * _options.AlbedoScale / 255.0;
             var colour = _geometry.Colour[k];
             var r = Record(((colour >> 16) & 0xFF) * light);
             var g = Record(((colour >> 8) & 0xFF) * light);
