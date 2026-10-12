@@ -11,8 +11,12 @@ internal static class ScanTestKit
     public const int CameraWidth = 320;
     public const int CameraHeight = 240;
 
-    private static readonly Lazy<SimulatedScan> FastFloor = new(() => Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Fast }));
-    private static readonly Lazy<SimulatedScan> RobustFloor = new(() => Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Robust }));
+    private static readonly Lazy<SimGeometry> FloorTrace = new(() => new SimGeometry(SimScenes.FloorAndBox()));
+    private static readonly Lazy<SimulatedScan> FastFloor = new(() => Run(Floor, new ScanPlanOptions { Mode = ScanMode.Fast }));
+    private static readonly Lazy<SimulatedScan> RobustFloor = new(() => Run(Floor, new ScanPlanOptions { Mode = ScanMode.Robust }));
+
+    /// <summary>The floor-and-box scene at the default resolutions, traced once for every test.</summary>
+    public static SimGeometry Floor => FloorTrace.Value;
 
     /// <summary>The floor-and-box scene scanned in Fast mode with the default camera.</summary>
     public static SimulatedScan Fast => FastFloor.Value;
@@ -20,11 +24,12 @@ internal static class ScanTestKit
     /// <summary>The floor-and-box scene scanned in Robust mode with the default camera.</summary>
     public static SimulatedScan Robust => RobustFloor.Value;
 
-    public static SimulatedScan Run(SimScene scene, ScanPlanOptions planOptions, SimOptions? sim = null, DecodeOptions? decode = null,
+    public static SimulatedScan Run(SimGeometry geometry, ScanPlanOptions planOptions, SimOptions? sim = null, DecodeOptions? decode = null,
         Func<byte[][], byte[][]>? alter = null)
     {
-        var plan = ScanPlan.Create(scene.Projector.Intrinsics.Width, scene.Projector.Intrinsics.Height, planOptions);
-        var simulator = new ScanSimulator(scene, plan, sim);
+        var projector = geometry.Scene.Projector.Intrinsics;
+        var plan = ScanPlan.Create(projector.Width, projector.Height, planOptions);
+        var simulator = new ScanSimulator(geometry, plan, sim);
         var frames = simulator.RenderAll();
         if (alter is not null)
             frames = alter(frames);

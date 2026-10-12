@@ -46,7 +46,7 @@ public class DecoderTests(ITestOutputHelper output)
     [InlineData(ScanMode.Difficult)]
     public void DecodingHoldsUpUnderNoiseAndADarkerScene(ScanMode mode)
     {
-        var scan = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = mode },
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = mode },
             new SimOptions { NoiseSigma = 3, AlbedoScale = 0.4, Ambient = 0.06, Seed = 5 });
         var lit = scan.LitPixels(24);
         var within = scan.ShareWithin(lit, 1.0);
@@ -88,7 +88,7 @@ public class DecoderTests(ITestOutputHelper output)
     public void ARegionScanDecodesOnlyInsideTheRegion()
     {
         var region = new PixelRect(64, 40, 120, 80);
-        var scan = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Robust, Region = region });
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Robust, Region = region });
         var t = scan.Truth;
         var map = scan.Map;
         var valid = 0;
@@ -117,7 +117,7 @@ public class DecoderTests(ITestOutputHelper output)
     [Fact]
     public void AGammaCameraIsLinearisedBeforeTheSinusoidsAreRead()
     {
-        var scan = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Robust },
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Robust },
             new SimOptions { CameraGamma = 2.2 }, new DecodeOptions { CameraGamma = 2.2 });
         var (rms, _) = scan.Rms(scan.LitPixels());
         output.WriteLine($"gamma camera: RMS {rms:0.000}");
@@ -143,7 +143,7 @@ public class DecoderTests(ITestOutputHelper output)
     [Fact]
     public void ClippedWhitePixelsAreRefusedAndCounted()
     {
-        var scan = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Fast }, new SimOptions { Exposure = 2.2 });
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Fast }, new SimOptions { Exposure = 2.2 });
         var stats = scan.Map.Stats;
         output.WriteLine(stats.ToString());
         Assert.True(stats.Saturated > 1000, $"{stats.Saturated} saturated");
@@ -202,8 +202,8 @@ public class DecoderTests(ITestOutputHelper output)
             }).ToArray();
         }
         var sim = new SimOptions { ProjectorGain = 0.5, Seed = 3 };
-        var plain = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Robust }, sim, alter: Bounce);
-        var xor = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Difficult }, sim, alter: Bounce);
+        var plain = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Robust }, sim, alter: Bounce);
+        var xor = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Difficult }, sim, alter: Bounce);
         var right = plain.LitPixels().Where(k => k % ScanTestKit.CameraWidth >= ScanTestKit.CameraWidth / 2 + 4).ToList();
         var plainWithin = plain.ShareWithin(right, 1);
         var xorWithin = xor.ShareWithin(right, 1);

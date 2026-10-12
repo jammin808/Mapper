@@ -97,7 +97,7 @@ public class ProjectorViewTests(ITestOutputHelper output)
     public void ACoarseCameraIsInterpolatedAndSmallHolesAreFilled()
     {
         var scene = SimScenes.FloorAndBox(256, 160, 160, 120);
-        var scan = ScanTestKit.Run(scene, new ScanPlanOptions { Mode = ScanMode.Robust });
+        var scan = ScanTestKit.Run(new SimGeometry(scene), new ScanPlanOptions { Mode = ScanMode.Robust });
         var view = ProjectorView.Build(scan.Map);
         var counts = view.Coverage.GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
         output.WriteLine(string.Join(", ", counts.Select(kv => $"{kv.Key} {kv.Value}")));
@@ -145,7 +145,7 @@ public class ProjectorViewTests(ITestOutputHelper output)
     [Fact]
     public void AProjectorViewNeedsBothAxes()
     {
-        var scan = ScanTestKit.Run(SimScenes.FloorAndBox(), new ScanPlanOptions { Mode = ScanMode.Fast, Axes = ScanAxes.Columns });
+        var scan = ScanTestKit.Run(ScanTestKit.Floor, new ScanPlanOptions { Mode = ScanMode.Fast, Axes = ScanAxes.Columns });
         Assert.True(scan.Map.Stats.Valid > 1000);
         Assert.True(scan.Map.ProjectorY.All(float.IsNaN));
         Assert.Throws<ArgumentException>(() => ProjectorView.Build(scan.Map));

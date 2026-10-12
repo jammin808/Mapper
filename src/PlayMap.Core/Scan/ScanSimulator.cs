@@ -47,26 +47,118 @@ public sealed record SimOptions
     public ulong Seed { get; init; } = 1;
 }
 
-/// <summary>What the simulated camera really saw, per camera pixel (row-major).</summary>
-public sealed class SimTruth
+/// <summary>
+/// A scene traced once from its camera: per camera pixel (row-major) the world point seen, its normal turned
+/// toward the camera, the triangle, the scene's albedo and colour there, and where the projector's light comes
+/// from — the projector pixel and cos incidence where the point faces the projector inside its raster, and
+/// whether something occludes it. Independent of the plan and the light levels, so one trace serves any
+/// number of simulated scans. Immutable after construction.
+/// </summary>
+public sealed class SimGeometry
 {
-    internal SimTruth(int width, int height)
+    public SimGeometry(SimScene scene)
     {
-        Width = width;
-        Height = height;
-        var n = width * height;
-        ProjectorX = new float[n];
-        ProjectorY = new float[n];
+        ArgumentNullException.ThrowIfNull(scene);
+        Scene = scene;
+        var kc = scene.Camera.Intrinsics;
+        Width = kc.Width;
+        Height = kc.Height;
+        var n = Width * Height;
         Points = new Vec3d[n];
         Normals = new Vec3d[n];
         Triangles = new int[n];
+        Albedo = new float[n];
+        Colour = new int[n];
+        RasterX = new float[n];
+        RasterY = new float[n];
+        Cos = new float[n];
+        Occluded = new bool[n];
+        Array.Fill(Points, PointCloud.Invalid);
+        Array.Fill(Triangles, -1);
+        Array.Fill(RasterX, float.NaN);
+        Array.Fill(RasterY, float.NaN);
+        var caster = new MeshRaycaster(scene.Mesh);
+        Parallel.For(0, Height, y =>
+        {
+            for (var x = 0; x < Width; x++)
+                Trace(caster, x, y);
+        });
+    }
+
+    public SimScene Scene { get; }
+    public int Width { get; }
+    public int Height { get; }
+    public Vec3d[] Points { get; }
+    public Vec3d[] Normals { get; }
+    public int[] Triangles { get; }
+    public float[] Albedo { get; }
+    public int[] Colour { get; }
+
+    /// <summary>The projector point lighting the seen point, NaN where it faces away or lies outside the raster.</summary>
+    public float[] RasterX { get; }
+
+    public float[] RasterY { get; }
+
+    /// <summary>Cos incidence of the projector's light (0 where <see cref="RasterX"/> is NaN).</summary>
+    public float[] Cos { get; }
+
+    /// <summary>Something lies between the seen point and the projector.</summary>
+    public bool[] Occluded { get; }
+
+    private void Trace(MeshRaycaster caster, int x, int y)
+    {
+        var k = y * Width + x;
+        var cam = Scene.Camera;
+        var ray = CameraModel.PixelRay(new Vec2d(x + 0.5, y + 0.5), cam.Intrinsics, cam.Lens, cam.Pose);
+        if (caster.Cast(ray) is not { } hit)
+            return;
+        var mesh = caster.Mesh;
+        var (a, b, c) = mesh.Triangle(hit.Triangle);
+        var normal = Vec3d.Cross(mesh.Position(b) - mesh.Position(a), mesh.Position(c) - mesh.Position(a)).Normalized();
+        if (Vec3d.Dot(normal, ray.Direction) > 0)
+            normal = -normal;
+        Points[k] = hit.Point;
+        Normals[k] = normal;
+        Triangles[k] = hit.Triangle;
+        Albedo[k] = (float)Scene.Albedo(hit.Point);
+        Colour[k] = Scene.Colour(hit.Point);
+        var proj = Scene.Projector;
+        if (CameraModel.Project(hit.Point, proj.Intrinsics, proj.Lens, proj.Pose) is not { } p || !CameraModel.InRaster(p, proj.Intrinsics))
+            return;
+        var toProjector = proj.Pose.Position - hit.Point;
+        var distance = toProjector.Length;
+        var direction = toProjector / distance;
+        var cos = Vec3d.Dot(normal, direction);
+        if (cos <= 0)
+        {
+            Occluded[k] = true;
+            return;
+        }
+        RasterX[k] = (float)p.X;
+        RasterY[k] = (float)p.Y;
+        Cos[k] = (float)cos;
+        Occluded[k] = caster.Occluded(new Ray(hit.Point + direction * 1e-6, direction), distance - 2e-6);
+    }
+}
+
+/// <summary>What the simulated camera really saw, per camera pixel (row-major).</summary>
+public sealed class SimTruth
+{
+    internal SimTruth(SimGeometry geometry)
+    {
+        Width = geometry.Width;
+        Height = geometry.Height;
+        var n = Width * Height;
+        ProjectorX = new float[n];
+        ProjectorY = new float[n];
+        Points = geometry.Points;
+        Normals = geometry.Normals;
+        Triangles = geometry.Triangles;
         Lit = new bool[n];
         Shadowed = new bool[n];
         ExpectedContrast = new float[n];
         Array.Fill(ProjectorX, float.NaN);
         Array.Fill(ProjectorY, float.NaN);
-        Array.Fill(Points, PointCloud.Invalid);
-        Array.Fill(Triangles, -1);
     }
 
     public int Width { get; }
@@ -114,112 +206,83 @@ public sealed class SimTruth
 }
 
 /// <summary>
-/// A virtual projector and camera around a mesh, for tests and the desk's demo mode. Each camera pixel's ray
-/// is cast once into the scene; the hit is projected into the projector (the model's camera model, lens
-/// distortion included) and tested for occlusion with a shadow ray. Each plan frame is then rendered as the
-/// camera would record it: albedo × (the pattern sampled bilinearly, through the projector's gamma, × gain ×
-/// cos incidence) + albedo × ambient, then exposure, the camera's gamma, read noise (Pcg32, seeded per frame
-/// and row) and 8-bit clipping. Deterministic for a seed; frames render in parallel by row.
+/// A virtual projector and camera around a mesh, for tests and the desk's demo mode. The scene is traced once
+/// (<see cref="SimGeometry"/>: each camera pixel's ray cast into the mesh, the hit projected into the projector
+/// through the model's camera model, lens distortion included, and tested for occlusion with a shadow ray).
+/// Each plan frame is then rendered as the camera would record it: albedo × (the pattern sampled bilinearly,
+/// through the projector's gamma, × gain × cos incidence) + albedo × ambient, then exposure, the camera's
+/// gamma, read noise (Pcg32, seeded per frame and row) and 8-bit clipping. Deterministic for a seed; frames
+/// render in parallel by row.
 /// </summary>
 public sealed class ScanSimulator
 {
     private readonly ScanPlan _plan;
     private readonly SimOptions _options;
-    private readonly float[] _u;
-    private readonly float[] _v;
+    private readonly SimGeometry _geometry;
     private readonly float[] _direct;
     private readonly float[] _ambient;
     private readonly float[] _irradiance;
-    private readonly int[] _colour;
     private readonly float[] _projectorLut = new float[256];
     private readonly float[] _cameraLut = new float[4097];
 
     public ScanSimulator(SimScene scene, ScanPlan plan, SimOptions? options = null)
+        : this(new SimGeometry(scene), plan, options)
     {
-        ArgumentNullException.ThrowIfNull(scene);
+    }
+
+    /// <summary>A simulator on an already traced scene.</summary>
+    public ScanSimulator(SimGeometry geometry, ScanPlan plan, SimOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(plan);
-        var kp = scene.Projector.Intrinsics;
+        var kp = geometry.Scene.Projector.Intrinsics;
         if (kp.Width != plan.ProjectorWidth || kp.Height != plan.ProjectorHeight)
             throw new ArgumentException("The plan is for another projector raster than the scene's projector.", nameof(plan));
-        Scene = scene;
+        _geometry = geometry;
         _plan = plan;
         _options = options ?? new SimOptions();
-        var kc = scene.Camera.Intrinsics;
-        CameraWidth = kc.Width;
-        CameraHeight = kc.Height;
+        CameraWidth = geometry.Width;
+        CameraHeight = geometry.Height;
         var n = CameraWidth * CameraHeight;
-        _u = new float[n];
-        _v = new float[n];
         _direct = new float[n];
         _ambient = new float[n];
         _irradiance = new float[n];
-        _colour = new int[n];
-        Array.Fill(_u, float.NaN);
-        Array.Fill(_v, float.NaN);
         for (var i = 0; i < 256; i++)
             _projectorLut[i] = (float)Math.Pow(i / 255.0, _options.ProjectorGamma);
         for (var i = 0; i < _cameraLut.Length; i++)
             _cameraLut[i] = (float)(255 * Math.Pow(i / (double)(_cameraLut.Length - 1), 1 / _options.CameraGamma));
-        Truth = new SimTruth(CameraWidth, CameraHeight);
-        var caster = new MeshRaycaster(scene.Mesh);
-        Parallel.For(0, CameraHeight, y =>
+        Truth = new SimTruth(geometry);
+        var region = plan.Region;
+        for (var k = 0; k < n; k++)
         {
-            for (var x = 0; x < CameraWidth; x++)
-                Trace(caster, x, y);
-        });
+            if (geometry.Triangles[k] < 0)
+                continue;
+            var albedo = Math.Clamp(geometry.Albedo[k] * _options.AlbedoScale, 0, 1);
+            _ambient[k] = (float)(albedo * _options.Ambient);
+            var u = geometry.RasterX[k];
+            if (float.IsNaN(u) || (_options.Shadows && geometry.Occluded[k]))
+            {
+                Truth.Shadowed[k] = !float.IsNaN(u) || geometry.Occluded[k];
+                continue;
+            }
+            var v = geometry.RasterY[k];
+            _irradiance[k] = (float)(_options.ProjectorGain * geometry.Cos[k]);
+            _direct[k] = (float)(albedo * _irradiance[k]);
+            if (u >= region.X && v >= region.Y && u < region.Right && v < region.Bottom)
+            {
+                Truth.Lit[k] = true;
+                Truth.ProjectorX[k] = u;
+                Truth.ProjectorY[k] = v;
+                Truth.ExpectedContrast[k] = Record(_direct[k] + _ambient[k]) - Record(_ambient[k]);
+            }
+        }
     }
 
-    public SimScene Scene { get; }
+    public SimScene Scene => _geometry.Scene;
+    public SimGeometry Geometry => _geometry;
     public int CameraWidth { get; }
     public int CameraHeight { get; }
     public SimTruth Truth { get; }
-
-    private void Trace(MeshRaycaster caster, int x, int y)
-    {
-        var k = y * CameraWidth + x;
-        var cam = Scene.Camera;
-        var ray = CameraModel.PixelRay(new Vec2d(x + 0.5, y + 0.5), cam.Intrinsics, cam.Lens, cam.Pose);
-        if (caster.Cast(ray) is not { } hit)
-            return;
-        var mesh = caster.Mesh;
-        var (a, b, c) = mesh.Triangle(hit.Triangle);
-        var normal = Vec3d.Cross(mesh.Position(b) - mesh.Position(a), mesh.Position(c) - mesh.Position(a)).Normalized();
-        if (Vec3d.Dot(normal, ray.Direction) > 0)
-            normal = -normal;
-        var albedo = Math.Clamp(Scene.Albedo(hit.Point) * _options.AlbedoScale, 0, 1);
-        Truth.Points[k] = hit.Point;
-        Truth.Normals[k] = normal;
-        Truth.Triangles[k] = hit.Triangle;
-        _ambient[k] = (float)(albedo * _options.Ambient);
-        _colour[k] = Scene.Colour(hit.Point);
-
-        var proj = Scene.Projector;
-        if (CameraModel.Project(hit.Point, proj.Intrinsics, proj.Lens, proj.Pose) is not { } p || !CameraModel.InRaster(p, proj.Intrinsics))
-            return;
-        var toProjector = proj.Pose.Position - hit.Point;
-        var distance = toProjector.Length;
-        var direction = toProjector / distance;
-        var cos = Vec3d.Dot(normal, direction);
-        var lit = cos > 0
-            && !(_options.Shadows && caster.Occluded(new Ray(hit.Point + direction * 1e-6, direction), distance - 2e-6));
-        if (!lit)
-        {
-            Truth.Shadowed[k] = true;
-            return;
-        }
-        _u[k] = (float)p.X;
-        _v[k] = (float)p.Y;
-        _irradiance[k] = (float)(_options.ProjectorGain * cos);
-        _direct[k] = (float)(albedo * _irradiance[k]);
-        var region = _plan.Region;
-        if (p.X >= region.X && p.Y >= region.Y && p.X < region.Right && p.Y < region.Bottom)
-        {
-            Truth.Lit[k] = true;
-            Truth.ProjectorX[k] = (float)p.X;
-            Truth.ProjectorY[k] = (float)p.Y;
-            Truth.ExpectedContrast[k] = Record(_direct[k] + _ambient[k]) - Record(_ambient[k]);
-        }
-    }
 
     /// <summary>The level a linear light records at without noise.</summary>
     private float Record(double light)
@@ -242,18 +305,37 @@ public sealed class ScanSimulator
         var pw = _plan.ProjectorWidth;
         var ph = _plan.ProjectorHeight;
         var seed = _options.Seed * 0x9E3779B97F4A7C15UL + (ulong)index;
+        var sigma = (float)_options.NoiseSigma;
+        var u = _geometry.RasterX;
+        var v = _geometry.RasterY;
         Parallel.For(0, CameraHeight, y =>
         {
             var rng = new Pcg32(seed, (ulong)y);
+            var spare = float.NaN;
             for (var x = 0; x < CameraWidth; x++)
             {
                 var k = y * CameraWidth + x;
                 double shade = _ambient[k];
-                if (!float.IsNaN(_u[k]))
-                    shade += _direct[k] * SampleBilinear(light, pw, ph, _u[k] - 0.5, _v[k] - 0.5);
+                if (_direct[k] > 0)
+                    shade += _direct[k] * SampleBilinear(light, pw, ph, u[k] - 0.5, v[k] - 0.5);
                 var level = Record(shade);
-                if (_options.NoiseSigma > 0)
-                    level += (float)(rng.NextGaussian() * _options.NoiseSigma);
+                if (sigma > 0)
+                {
+                    // Box–Muller gives two independent normals per draw; the second is kept for the next pixel.
+                    if (float.IsNaN(spare))
+                    {
+                        var u1 = Math.Max(rng.NextFloat(), 1e-7f);
+                        var radius = MathF.Sqrt(-2 * MathF.Log(u1));
+                        var angle = 2 * MathF.PI * rng.NextFloat();
+                        level += sigma * radius * MathF.Cos(angle);
+                        spare = radius * MathF.Sin(angle);
+                    }
+                    else
+                    {
+                        level += sigma * spare;
+                        spare = float.NaN;
+                    }
+                }
                 image[k] = (byte)Math.Clamp(MathF.Round(level), 0, 255);
             }
         });
@@ -275,10 +357,10 @@ public sealed class ScanSimulator
         var image = new int[CameraWidth * CameraHeight];
         for (var k = 0; k < image.Length; k++)
         {
-            if (Truth.Triangles[k] < 0)
+            if (_geometry.Triangles[k] < 0)
                 continue;
             var light = (_irradiance[k] + _options.Ambient) * _options.AlbedoScale / 255.0;
-            var colour = _colour[k];
+            var colour = _geometry.Colour[k];
             var r = Record(((colour >> 16) & 0xFF) * light);
             var g = Record(((colour >> 8) & 0xFF) * light);
             var b = Record((colour & 0xFF) * light);
