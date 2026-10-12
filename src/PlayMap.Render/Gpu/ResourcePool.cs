@@ -1,0 +1,133 @@
+namespace PlayMap.Render.Gpu;
+
+/// <summary>Render targets and textures kept for reuse, keyed by size, format and depth: a pass takes one
+/// for a frame and gives it back, so the frame path makes no GL objects once the show is warm. Objects
+/// idle for more than <see cref="IdleFramesBeforeRelease"/> frames are deleted by <see cref="Trim"/>.</summary>
+public sealed class ResourcePool : IDisposable
+{
+    public const int IdleFramesBeforeRelease = 120;
+
+    private readonly record struct Key(int Width, int Height, TextureFormat Format, bool Depth);
+
+    private sealed class Shelf<T>
+    {
+        public readonly Stack<(T Item, long Frame)> Free = new();
+    }
+
+    private readonly GlDevice _device;
+    private readonly Dictionary<Key, Shelf<RenderTarget>> _targets = [];
+    private readonly Dictionary<Key, Shelf<GpuTexture>> _textures = [];
+    private readonly HashSet<RenderTarget> _targetsOut = [];
+    private readonly HashSet<GpuTexture> _texturesOut = [];
+    private long _frame;
+    private bool _disposed;
+
+    public ResourcePool(GlDevice device)
+    {
+        _device = device;
+    }
+
+    /// <summary>Objects lent out now.</summary>
+    public int Lent => _targetsOut.Count + _texturesOut.Count;
+
+    /// <summary>Objects resting on the shelves.</summary>
+    public int Resting
+    {
+        get
+        {
+            var n = 0;
+            foreach (var s in _targets.Values)
+                n += s.Free.Count;
+            foreach (var s in _textures.Values)
+                n += s.Free.Count;
+            return n;
+        }
+    }
+
+    public RenderTarget RentTarget(int width, int height, TextureFormat format, bool depth = false)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var key = new Key(width, height, format, depth);
+        RenderTarget target;
+        if (_targets.TryGetValue(key, out var shelf) && shelf.Free.Count > 0)
+            target = shelf.Free.Pop().Item;
+        else
+            target = _device.CreateRenderTarget(width, height, format, depth);
+        _targetsOut.Add(target);
+        return target;
+    }
+
+    public void Return(RenderTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (_disposed || !_targetsOut.Remove(target))
+            return;
+        var key = new Key(target.Width, target.Height, target.Format, target.HasDepth);
+        if (!_targets.TryGetValue(key, out var shelf))
+            _targets[key] = shelf = new Shelf<RenderTarget>();
+        shelf.Free.Push((target, _frame));
+    }
+
+    public GpuTexture RentTexture(int width, int height, TextureFormat format)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var key = new Key(width, height, format, false);
+        GpuTexture texture;
+        if (_textures.TryGetValue(key, out var shelf) && shelf.Free.Count > 0)
+            texture = shelf.Free.Pop().Item;
+        else
+            texture = _device.CreateTexture(width, height, format);
+        _texturesOut.Add(texture);
+        return texture;
+    }
+
+    public void Return(GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        if (_disposed || !_texturesOut.Remove(texture))
+            return;
+        var key = new Key(texture.Width, texture.Height, texture.Format, false);
+        if (!_textures.TryGetValue(key, out var shelf))
+            _textures[key] = shelf = new Shelf<GpuTexture>();
+        shelf.Free.Push((texture, _frame));
+    }
+
+    /// <summary>Advances the pool's frame and deletes what rested too long.</summary>
+    public void Trim()
+    {
+        _frame++;
+        TrimShelves(_targets);
+        TrimShelves(_textures);
+    }
+
+    private void TrimShelves<T>(Dictionary<Key, Shelf<T>> shelves) where T : IDisposable
+    {
+        foreach (var shelf in shelves.Values)
+        {
+            if (shelf.Free.Count == 0 || _frame - shelf.Free.Peek().Frame <= IdleFramesBeforeRelease)
+                continue;
+            // The stack's top is the most recently returned; when even it is stale, everything is.
+            while (shelf.Free.Count > 0)
+                shelf.Free.Pop().Item.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        foreach (var s in _targets.Values)
+            while (s.Free.Count > 0)
+                s.Free.Pop().Item.Dispose();
+        foreach (var s in _textures.Values)
+            while (s.Free.Count > 0)
+                s.Free.Pop().Item.Dispose();
+        foreach (var t in _targetsOut)
+            t.Dispose();
+        foreach (var t in _texturesOut)
+            t.Dispose();
+        _targetsOut.Clear();
+        _texturesOut.Clear();
+        _disposed = true;
+    }
+}
