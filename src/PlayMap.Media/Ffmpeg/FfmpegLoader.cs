@@ -152,7 +152,7 @@ public static class FfmpegLoader
         {
             foreach (var dir in new[] { candidate, Path.Combine(candidate, "lib"), Path.Combine(candidate, "bin") })
             {
-                var why = Inspect(dir);
+                var why = InspectFolder(dir);
                 if (why is null)
                 {
                     folder = dir;
@@ -222,7 +222,7 @@ public static class FfmpegLoader
 
     /// <summary>Null when the folder holds the required libraries at the binding's majors; otherwise what is
     /// wrong (missing, or present at another major).</summary>
-    private static string? Inspect(string dir)
+    internal static string? InspectFolder(string dir)
     {
         if (!Directory.Exists(dir))
             return "no such folder";

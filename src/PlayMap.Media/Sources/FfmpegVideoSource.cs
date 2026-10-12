@@ -540,6 +540,13 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
                 ShiftPending();
                 continue;
             }
+            if (_hardware && src == frame)
+            {
+                // The device opened but the decoder fell back to software for this stream (an unsupported
+                // profile or size): say what is really decoding.
+                _hardware = false;
+                _decoderName = FfmpegUtil.Text(_decoder.Context->codec->name);
+            }
             var layout = _writer!.LayoutFor(src, out var plan);
             var slot = _pool.TryRent(layout);
             if (slot is null)
