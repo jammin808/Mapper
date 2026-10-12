@@ -66,6 +66,17 @@
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
             <TextBlock Text="{Binding NetworkText}" VerticalAlignment="Center" />
+            <Border Width="1" Height="14" Background="{StaticResource DeskBorderStrongBrush}" />
+            <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Patterns link">
+              <Ellipse Width="6" Height="6" Fill="{Binding PatternsLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+              <TextBlock Text="P" Classes="faint" VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Stagewatch link">
+              <Ellipse Width="6" Height="6" Fill="{Binding StagewatchLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+              <TextBlock Text="S" Classes="faint" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="{Binding SyncText}" Classes="faint" VerticalAlignment="Center" FontFeatures="+tnum"
+                       IsVisible="{Binding SyncText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           </StackPanel>
         </Button>
         <Button Grid.Column="5" Classes="pill" Command="{Binding ToggleOutputs}" ToolTip.Tip="Outputs: the multi-screen plan  (Ctrl+Shift+O)" Margin="4,0" VerticalAlignment="Center">

@@ -291,6 +291,9 @@ public class DeskLogicTests
         Assert.StartsWith("No playlist 'pl_nope'", session.LastToast.Text, StringComparison.Ordinal);
         Assert.Equal("PLAYLIST GO pl_nope", session.LastToast.Verb);
         Assert.Equal("Already playing", DeskSession.Plain("ERR already playing"));
+        // A drag's refusal repeated folds into the toast already up.
+        await session.SendAsync("PLAYLIST GO pl_nope", Ct);
+        Assert.Single(session.Toasts);
         link.SetStatus(PlayMap.Core.Wire.LinkStatus.Down);
         var down = await session.SendAsync("BLACKOUT ON", Ct);
         Assert.False(down.Ok);

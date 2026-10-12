@@ -50,7 +50,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     public DeskSession(Action<Action> post)
     {
         _post = post;
-        Throttle = new ThrottledSender((line, ct) => SendQuietAsync(line, ct));
+        // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
+        // refusal repeated by a drag folds into one toast).
+        Throttle = new ThrottledSender((line, ct) => SendAsync(line, ct));
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
@@ -162,9 +164,20 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         }
     }
 
-    /// <summary>Puts a line on the status strip (and keeps the last few as toasts).</summary>
+    /// <summary>Runs an action on the UI thread later (for notes that arrive from a worker).</summary>
+    public void OnUi(Action action) => _post(action);
+
+    /// <summary>Puts a line on the status strip (and keeps the last few as toasts). The same words again
+    /// within two seconds refresh the toast already up instead of stacking a copy. UI thread only.</summary>
     public void Notify(ToastKind kind, string text, string verb = "")
     {
+        if (Toasts.Count > 0 && Toasts[^1] is { } last && last.Kind == kind && last.Text == text
+            && System.Diagnostics.Stopwatch.GetElapsedTime(last.At) < TimeSpan.FromSeconds(2))
+        {
+            Toasts[^1] = last with { Verb = verb, At = System.Diagnostics.Stopwatch.GetTimestamp() };
+            LastToast = Toasts[^1];
+            return;
+        }
         var toast = new Toast(kind, text, verb, Interlocked.Increment(ref _toastIds), System.Diagnostics.Stopwatch.GetTimestamp());
         LastToast = toast;
         Toasts.Add(toast);

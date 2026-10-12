@@ -44,7 +44,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         Session = session;
         _connections = new ConnectionManager(session);
-        _connections.Note += text => session.Notify(ToastKind.Info, text);
+        // The supervisor speaks from its own worker; the toast goes up on the UI thread.
+        _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));
         Master = new TransportViewModel(session, () => session.State.FocusedPlaylist, master: true);
         Blackout = DeskAction.Send(session, "blackout", "Blackout", () => _isBlackout ? "BLACKOUT OFF" : "BLACKOUT ON",
             () => _isBlackout ? "Back on air" : "Blackout", isChecked: () => _isBlackout, isEnabled: () => session.IsLive)
@@ -250,6 +251,39 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         private set => Set(ref _networkTip, value);
     }
 
+    /// <summary>The Patterns link's light (grey when not linked).</summary>
+    public string PatternsLight
+    {
+        get => _patternsLight;
+        private set => Set(ref _patternsLight, value);
+    }
+
+    /// <summary>The Stagewatch link's light (grey when not linked).</summary>
+    public string StagewatchLight
+    {
+        get => _stagewatchLight;
+        private set => Set(ref _stagewatchLight, value);
+    }
+
+    /// <summary>"0.21 ms" while following a sync leader, "lead" while leading, "" alone.</summary>
+    public string SyncText
+    {
+        get => _syncText;
+        private set => Set(ref _syncText, value);
+    }
+
+    private string _patternsLight = "grey";
+    private string _stagewatchLight = "grey";
+    private string _syncText = "";
+
+    private static string LinkLight(string state) => state switch
+    {
+        "live" => "green",
+        "stale" or "connecting" => "amber",
+        "down" or "failed" => "red",
+        _ => "grey",
+    };
+
     public string AiText
     {
         get => _aiText;
@@ -432,7 +466,15 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             _ => "down",
         };
         NetworkText = Session.Link is null ? "Not connected" : $"{Session.LinkLabel} · {linkWord}";
+        PatternsLight = LinkLight(s.Patterns.State);
+        StagewatchLight = LinkLight(s.Stagewatch.State);
         var sync = s.Sync;
+        SyncText = sync.Role switch
+        {
+            "follower" => string.Create(CultureInfo.InvariantCulture, $"{sync.OffsetMs:0.00} ms"),
+            "leader" => "lead",
+            _ => "",
+        };
         NetworkTip = string.Create(CultureInfo.InvariantCulture,
             $"Engine: {Session.LinkLabel} ({linkWord})\nPatterns: {s.Patterns.State}{(s.Patterns.Host.Length > 0 ? " · " + s.Patterns.Host : "")}\n"
             + $"Stagewatch: {s.Stagewatch.State}{(s.Stagewatch.Host.Length > 0 ? " · " + s.Stagewatch.Host : "")}\n"
