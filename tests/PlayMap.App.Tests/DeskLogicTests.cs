@@ -79,7 +79,7 @@ public class DeskLogicTests
             Assert.Equal("SET sf1 opacity 0.25", VerbText.SetNum("sf1", "opacity", 0.25));
             Assert.Equal("SET sf1 name \"Lobby wall\"", VerbText.SetText("sf1", "name", "Lobby wall"));
             Assert.Equal("SET it1 end \"loop\"", VerbText.SetEnum("it1", "end", EndAction.Loop));
-            Assert.Equal("{\"x\":0.01,\"y\":-0.02}", VerbText.Json(new Vec2d(0.01, -0.02)).Replace(",\"length\"", "|", StringComparison.Ordinal).Split('|')[0] + "}");
+            Assert.Equal("{\"x\":0.01,\"y\":-0.02}", VerbText.Json(new Vec2d(0.01, -0.02)));
             Assert.Equal("\"two words\"", VerbText.Word("two words"));
             Assert.Equal("1:02:03", VerbText.Clock(3_723_000));
             Assert.Equal("0:03", VerbText.Clock(2_001, countdown: true));

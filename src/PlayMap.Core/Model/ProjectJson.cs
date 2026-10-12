@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace PlayMap.Core.Model;
 
@@ -28,10 +29,32 @@ public static class ProjectJson
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
             PropertyNameCaseInsensitive = true,
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { StoredOnly } },
         };
         o.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
-        o.MakeReadOnly(populateMissingResolver: true);
+        o.MakeReadOnly();
         return o;
+    }
+
+    /// <summary>Only what a value is made from is written: a property with no setter and no constructor
+    /// parameter of its name is derived (a vector's length, a rectangle's right edge, a lens's throw ratio)
+    /// and is left out of files and SET lines.</summary>
+    private static void StoredOnly(JsonTypeInfo info)
+    {
+        if (info.Kind != JsonTypeInfoKind.Object)
+            return;
+        var made = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in info.Type.GetConstructors())
+            foreach (var p in c.GetParameters())
+                if (p.Name is not null)
+                    made.Add(p.Name);
+        for (var i = info.Properties.Count - 1; i >= 0; i--)
+        {
+            var p = info.Properties[i];
+            var name = (p.AttributeProvider as MemberInfo)?.Name ?? p.Name;
+            if (p.Set is null && !made.Contains(name))
+                info.Properties.RemoveAt(i);
+        }
     }
 
     public static string Serialize(Project project) => JsonSerializer.Serialize(project, Options);

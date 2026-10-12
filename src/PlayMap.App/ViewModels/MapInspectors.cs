@@ -639,7 +639,7 @@ public sealed class ProjectorInspector : InspectorViewModel
         if (Settled("intrinsics"))
         {
             ThrowRatio = k.ThrowRatio;
-            ShiftX = k.Width > 0 ? (k.Cx - k.Width / 2.0) / k.Width : 0;
+            ShiftX = k.Width > 0 ? (k.Width / 2.0 - k.Cx) / k.Width : 0;
             ShiftY = k.Height > 0 ? (k.Cy - k.Height / 2.0) / k.Height : 0;
         }
         LockShift = pj.Locks.HasFlag(SolveLocks.Shift);

@@ -37,6 +37,9 @@ public class ModelTests
         };
         var json = ProjectJson.Serialize(p);
         Assert.Contains("\"mode\": \"canvas\"", json, StringComparison.Ordinal);
+        // Derived values (a vector's length, a lens's throw ratio) are not stored.
+        Assert.DoesNotContain("\"length", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"throwRatio\"", json, StringComparison.OrdinalIgnoreCase);
         var back = ProjectJson.Deserialize(json);
         Assert.Equal(p.Name, back.Name);
         Assert.Equal(p.Stage.Projectors[0].Pins[0].World, back.Stage.Projectors[0].Pins[0].World);
