@@ -16,9 +16,48 @@ public readonly record struct ColorRgb(float R, float G, float B)
 
     public static ColorRgb FromBytes(byte r, byte g, byte b) => new(r / 255f, g / 255f, b / 255f);
 
-    /// <summary>"#RRGGBB" (or "#RGB"); the fallback when the text is not a colour.</summary>
+    /// <summary>"#RRGGBB" (or "#RGB", with or without the hash); the fallback when the text is not a colour.
+    /// Reads the characters in place, so a frame that parses a colour allocates nothing.</summary>
     public static ColorRgb Parse(string? hex, ColorRgb fallback) =>
-        ColorText.TryParse(hex, out var rgb) ? FromPacked(rgb) : fallback;
+        TryParsePacked(hex, out var rgb) ? FromPacked(rgb) : fallback;
+
+    /// <summary>Packed 0xRRGGBB from "#RRGGBB" or "#RGB" text, without allocating.</summary>
+    public static bool TryParsePacked(ReadOnlySpan<char> text, out int rgb)
+    {
+        rgb = 0;
+        var t = text.Trim();
+        if (t.Length > 0 && t[0] == '#')
+            t = t[1..];
+        if (t.Length == 3)
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                var v = Hex(t[i]);
+                if (v < 0)
+                    return false;
+                rgb = (rgb << 8) | (v << 4) | v;
+            }
+            return true;
+        }
+        if (t.Length != 6)
+            return false;
+        for (var i = 0; i < 6; i++)
+        {
+            var v = Hex(t[i]);
+            if (v < 0)
+                return false;
+            rgb = (rgb << 4) | v;
+        }
+        return true;
+    }
+
+    private static int Hex(char c) => c switch
+    {
+        >= '0' and <= '9' => c - '0',
+        >= 'a' and <= 'f' => c - 'a' + 10,
+        >= 'A' and <= 'F' => c - 'A' + 10,
+        _ => -1,
+    };
 
     /// <summary>A comma-separated list of colours; the entries that are not colours are skipped, and an
     /// empty result is the fallback alone (a palette is never empty).</summary>
@@ -29,7 +68,7 @@ public readonly record struct ColorRgb(float R, float G, float B)
         var parts = csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var list = new List<ColorRgb>(parts.Length);
         foreach (var p in parts)
-            if (ColorText.TryParse(p, out var rgb))
+            if (TryParsePacked(p, out var rgb))
                 list.Add(FromPacked(rgb));
         return list.Count == 0 ? [fallback] : [.. list];
     }

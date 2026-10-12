@@ -111,5 +111,13 @@ public class EffectContentTests
         Assert.NotEqual(c, turned);
         Assert.Equal("#FF8000", c.ToString());
         Assert.Equal(2, ColorRgb.ParseList("#FFFFFF, nope ,#000000", ColorRgb.White).Length);
+        Assert.Equal(ColorRgb.Parse("#FF8800", ColorRgb.Black), ColorRgb.Parse(" f80 ", ColorRgb.Black));
+        Assert.Equal(ColorRgb.Black, ColorRgb.Parse("#12345G", ColorRgb.Black));
+        foreach (var hex in new[] { "#000000", "#3EC1F3", "#FFFFFF", "#0a0B0c" })
+        {
+            Assert.True(ColorText.TryParse(hex, out var expected));
+            Assert.True(ColorRgb.TryParsePacked(hex, out var actual));
+            Assert.Equal(expected, actual);
+        }
     }
 }

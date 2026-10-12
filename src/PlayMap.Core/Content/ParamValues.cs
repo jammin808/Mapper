@@ -16,7 +16,7 @@ public static class ParamValues
             || !double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)
             || !double.IsFinite(d))
             return false;
-        value = kind.Param(name) is { } p && p.Max > p.Min ? Math.Clamp(d, p.Min, p.Max) : d;
+        value = Spec(kind, name) is { } p && p.Max > p.Min ? Math.Clamp(d, p.Min, p.Max) : d;
         return true;
     }
 
@@ -24,7 +24,7 @@ public static class ParamValues
     public static double DefaultNumber(GeneratorKind kind, string name)
     {
         ArgumentNullException.ThrowIfNull(kind);
-        return kind.Param(name) is { } p
+        return Spec(kind, name) is { } p
             && double.TryParse(p.Default, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)
             ? d : 0;
     }
@@ -41,7 +41,7 @@ public static class ParamValues
     {
         ArgumentNullException.ThrowIfNull(set);
         ArgumentNullException.ThrowIfNull(kind);
-        var text = set.Get(name) ?? kind.Param(name)?.Default ?? "false";
+        var text = set.Get(name) ?? Spec(kind, name)?.Default ?? "false";
         return text.Equals("true", StringComparison.OrdinalIgnoreCase) || text.Equals("on", StringComparison.OrdinalIgnoreCase) || text == "1";
     }
 
@@ -50,7 +50,7 @@ public static class ParamValues
     {
         ArgumentNullException.ThrowIfNull(set);
         ArgumentNullException.ThrowIfNull(kind);
-        var spec = kind.Param(name);
+        var spec = Spec(kind, name);
         var text = set.Get(name);
         if (spec is not null && text is not null)
             foreach (var c in spec.Choices)
@@ -64,6 +64,18 @@ public static class ParamValues
     {
         ArgumentNullException.ThrowIfNull(set);
         ArgumentNullException.ThrowIfNull(kind);
-        return set.Get(name) ?? kind.Param(name)?.Default ?? "";
+        return set.Get(name) ?? Spec(kind, name)?.Default ?? "";
+    }
+
+    /// <summary>A parameter's schema by name (case-insensitive) — a plain loop, so a generator that reads its
+    /// parameters every frame allocates nothing doing it.</summary>
+    public static ParamSpec? Spec(GeneratorKind kind, string name)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+        var list = kind.Params;
+        for (var i = 0; i < list.Count; i++)
+            if (list[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return list[i];
+        return null;
     }
 }
