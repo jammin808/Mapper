@@ -12,13 +12,14 @@ public class VideoSourceTests
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
-    private static int IndexAt(FfmpegVideoSource source, long t, bool playing = false)
+    private static int IndexAt(FfmpegVideoSource source, long t, bool playing = false, bool looping = false)
     {
         source.Prepare(t, playing, 1);
         Assert.True(source.WaitUntilReady(t, Wait), $"not ready at {t} ns: {source.Health.Status}");
         using var lease = source.Acquire(t);
         Assert.NotNull(lease);
-        Assert.True(lease.PtsNs <= t, $"frame at {lease.PtsNs} ns answered for {t} ns");
+        // A looping source's times run on across iterations; the wrapped request is behind them.
+        Assert.True(looping || lease.PtsNs <= t, $"frame at {lease.PtsNs} ns answered for {t} ns");
         return TestMedia.ReadIndex(lease);
     }
 
@@ -302,5 +303,38 @@ public class VideoSourceTests
         Assert.True(samples > 100);
         Assert.True(misses.Count == 0, string.Join("; ", misses));
         Assert.True(lastPts > len * 2, "the times did not continue across the loop points");
+    }
+
+    [Fact]
+    public async Task AHardwareDecoderThatCannotOpenFallsBackToSoftware()
+    {
+        // No GPU on this machine: asking for VAAPI or CUDA must still play, in software, and say so.
+        foreach (var device in new[] { "vaapi", "cuda", "no-such-device" })
+        {
+            var options = new VideoSourceOptions { Decoder = new Ffmpeg.DecoderOptions { AllowHardware = true, HardwareDevice = device } };
+            using var source = new FfmpegVideoSource(TestMedia.Clip("h264_25.mp4"), options);
+            Assert.True(await source.Opened, source.Health.Status);
+            Assert.Equal(12, IndexAt(source, FrameRate.Fps25.TimeOf(12)));
+            if (!source.Health.Hardware)
+                Assert.Equal("h264", source.Health.Decoder);
+        }
+    }
+
+    [Fact]
+    public async Task TurningTheLoopOnWhilePlayingKeepsThePictureAndWrapsLater()
+    {
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_25.mp4"));
+        Assert.True(await source.Opened);
+        var rate = FrameRate.Fps25;
+        Assert.Equal(25, IndexAt(source, rate.TimeOf(25) + 1, playing: true));
+        source.SetLoop(true, rate.TimeOf(10), rate.TimeOf(30));
+        // Still on frame 25, then across the out point back to the in point: frames 25…29, 10, 11…
+        var expected = new long[] { 25, 26, 27, 28, 29, 10, 11, 12 };
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var continuous = rate.TimeOf(25 + i) + 1;
+            var wrapped = continuous >= rate.TimeOf(30) ? continuous - rate.TimeOf(20) : continuous;
+            Assert.Equal(expected[i], IndexAt(source, wrapped, playing: true, looping: true));
+        }
     }
 }

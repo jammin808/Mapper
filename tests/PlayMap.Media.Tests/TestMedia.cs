@@ -127,6 +127,10 @@ public static class TestMedia
                 Run("-f", "lavfi", "-i", Src("320x240", "25", "20"), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", "-g", "50", "-bf", "2",
                     "-pix_fmt", "yuv420p", path);
                 break;
+            case "h264_1080.mp4":
+                Run("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25:d=6", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "50",
+                    "-pix_fmt", "yuv420p", path);
+                break;
             case "hevc.mp4":
                 Run("-f", "lavfi", "-i", Src("320x240", "25", "1"), "-c:v", "libx265", "-preset", "ultrafast", "-crf", "12", "-x265-params", "log-level=error",
                     "-pix_fmt", "yuv420p", "-tag:v", "hvc1", path);

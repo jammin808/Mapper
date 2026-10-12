@@ -179,6 +179,11 @@ public sealed unsafe class ImageSequenceSource : IVideoSource
 
     private void Loop()
     {
+        // One real block before the first frame: the event makes its lock object lazily on the first wait that
+        // blocks, and that allocation belongs to the start, not to some frame later in the show. A signal lost
+        // to this reset is harmless — the loop reads the queue's state afresh.
+        _wake.Reset();
+        _wake.Wait(2);
         while (!_stop)
         {
             _wake.Reset();

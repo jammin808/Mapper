@@ -215,20 +215,40 @@ public class AudioTests
     }
 
     [Fact]
-    public async Task TheNullOutputConsumesOnTheClock()
+    public void TheNullOutputConsumesOnTheClock()
     {
         TestMedia.Ensure();
         using var decoder = new FfmpegAudioDecoder(TestMedia.Clip("tone48.wav"));
-        using var output = AudioOut.OpenNull("tests have no sound card");
+        // The null output's thread consumes by the clock it is given: a hand-moved one makes its pace exact
+        // however loaded the machine is.
+        var clock = new ManualClock(5_000_000_000);
+        using var output = AudioOut.OpenNull("tests have no sound card", clock);
         Assert.Equal(AudioOutMode.Null, output.Mode);
-        var start = MonoClock.Instance.NowNs;
-        var anchor = new TimelineAnchor(0, start, 1, true);
-        output.Play(decoder, new AnchorTimeline(() => anchor, MonoClock.Instance));
-        await Task.Delay(400);
-        var timeline = MonoClock.Instance.NowNs - start;
-        Assert.InRange(output.AudioClockNs, timeline - 60_000_000, timeline + 10_000_000);
-        Assert.InRange(output.FramesFed, 48_000 * 0.25, 48_000 * 0.45);
-        Assert.True(Math.Abs(output.LastErrorMs) <= 10, $"error {output.LastErrorMs} ms");
+        var anchor = new TimelineAnchor(0, clock.NowNs, 1, true);
+        output.Play(decoder, new AnchorTimeline(() => anchor, clock));
+        Assert.True(SpinUntil(() => output.AudioClockNs == 0), "the output did not start");
+        for (var i = 1; i <= 40; i++)
+        {
+            clock.Advance(BlockNs);
+            var expected = i * BlockNs;
+            Assert.True(SpinUntil(() => output.AudioClockNs >= expected), $"the null output stalled at {output.AudioClockNs} ns");
+        }
+        Assert.Equal(400_000_000, output.AudioClockNs);
+        Assert.Equal(48_000 * 4 / 10, output.FramesFed);
+        Assert.Equal(19_200, decoder.PositionSamples);
+        Assert.Equal(0, output.Resyncs);
+    }
+
+    private static bool SpinUntil(Func<bool> condition)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (clock.Elapsed > TimeSpan.FromSeconds(5))
+                return false;
+            Thread.Sleep(1);
+        }
+        return true;
     }
 
     [Fact]

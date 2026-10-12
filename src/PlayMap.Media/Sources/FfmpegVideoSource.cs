@@ -92,6 +92,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     private long _generation;
     private long _busyTicks;
     private AVDiscard _skip = AVDiscard.AVDISCARD_DEFAULT;
+    private long _threadAllocated;
 
     public FfmpegVideoSource(string path, VideoSourceOptions? options = null, string? key = null)
     {
@@ -124,6 +125,10 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     public void Prepare(long mediaNs, bool playing, double rate) => _queue.Prepare(mediaNs, playing, rate);
 
     public bool IsReadyAt(long mediaNs) => _queue.IsReadyAt(mediaNs);
+
+    /// <summary>The managed bytes the decode thread had allocated when it published its latest frame (the
+    /// allocation-free frame path is measured by its staying flat).</summary>
+    internal long DecodeThreadAllocatedBytes => Interlocked.Read(ref _threadAllocated);
 
     /// <summary>Waits until the frame for the media time is decoded (preroll), or the timeout. Not for the
     /// render thread.</summary>
@@ -241,6 +246,11 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private void Loop()
     {
+        // One real block before the first frame: the event makes its lock object lazily on the first wait that
+        // blocks, and that allocation belongs to the start, not to some frame later in the show. A signal lost
+        // to this reset is harmless — the loop reads the queue's state afresh.
+        _wake.Reset();
+        _wake.Wait(2);
         while (!_stop)
         {
             _wake.Reset();
@@ -544,6 +554,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
             _busyTicks = 0;
             _queue.Publish(slot);
             ShiftPending();
+            Interlocked.Exchange(ref _threadAllocated, GC.GetAllocatedBytesForCurrentThread());
         }
         return true;
     }

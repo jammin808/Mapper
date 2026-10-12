@@ -4,7 +4,14 @@ namespace PlayMap.Media.Frames;
 
 /// <summary>A lease on a pooled decoded frame. Leases are themselves pooled (no allocation per frame once
 /// warm): dispose a lease exactly once and drop the reference — after disposal the object serves another
-/// frame. Reading a disposed lease throws.</summary>
+/// frame. Reading a disposed lease throws.
+/// <para>Planes, as the uploader reads them (strides 64-byte aligned; <see cref="FramePlane.Width"/> counts
+/// samples): Rgba8/Bgra8 one plane of 4-byte pixels; RgbaHalf one plane of four IEEE halves; Gray8 one plane;
+/// Nv12 Y then interleaved UV (width = UV pairs, half height); P010 the same with 16-bit samples, 10 bits in the
+/// high bits; Yuv420P/Yuv422P/Yuv444P Y, U, V (chroma halved both ways, horizontally, or not at all); Yuv420P10 Y,
+/// U, V of 16-bit little-endian samples with 10 significant low bits. <see cref="VideoFrameLease.Matrix"/>,
+/// <see cref="VideoFrameLease.Range"/> and <see cref="VideoFrameLease.Transfer"/> come from the frame's own tags
+/// (RGBA layouts are full range).</para></summary>
 public sealed class MediaFrameLease : VideoFrameLease
 {
     private readonly LeasePool _home;

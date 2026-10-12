@@ -183,6 +183,8 @@ internal sealed class FrameQueue : IDisposable
     {
         lock (_gate)
         {
+            if (_closed)
+                return;
             var fileTime = _hasConsumer ? FileTime(_consumer) : inNs;
             _loop = loop;
             _loopIn = Math.Max(0, inNs);
