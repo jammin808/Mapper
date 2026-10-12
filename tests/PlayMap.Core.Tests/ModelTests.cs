@@ -181,4 +181,16 @@ public class ModelTests
         Assert.Equal(4, sub.VertexCount);
         Assert.Equal(2, sub.TriangleCount);
     }
+
+    [Fact]
+    public void LensShiftMovesTheImageTheWayTheDatasheetSays()
+    {
+        // A projector straight ahead of a wall: shifting the image right and up lands a wall point that was at
+        // the raster's centre to the left of and below the raster's centre.
+        var pose = Pose.LookAt(new Vec3d(0, 0, -5), Vec3d.Zero, Vec3d.UnitY);
+        var shifted = Intrinsics.FromThrowRatio(1920, 1080, 1.5, 0.1, 0.2);
+        var p = CameraModel.Project(Vec3d.Zero, shifted, LensDistortion.None, pose)!.Value;
+        Assert.True(p.X < 960, "the image moved right, so a fixed wall point sits left of the raster's centre");
+        Assert.True(p.Y > 540, "the image moved up, so a fixed wall point sits below the raster's centre");
+    }
 }

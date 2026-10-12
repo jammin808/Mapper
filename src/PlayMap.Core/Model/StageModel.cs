@@ -8,11 +8,13 @@ namespace PlayMap.Core.Model;
 public sealed record Intrinsics(double Fx, double Fy, double Cx, double Cy, int Width, int Height)
 {
     /// <summary>A projector from its datasheet: throw ratio (distance ÷ image width) and lens shift as a
-    /// fraction of the image (+x right, +y up, the usual datasheet sign; 0 = centred on the axis).</summary>
+    /// fraction of the image (+x right, +y up, the usual datasheet sign; 0 = centred on the axis). Shifting the
+    /// image right puts the optical axis left of the image's centre (cx below w/2); shifting it up puts the axis
+    /// below the centre (cy above h/2, pixel y pointing down).</summary>
     public static Intrinsics FromThrowRatio(int width, int height, double throwRatio, double shiftX = 0, double shiftY = 0)
     {
         var f = throwRatio * width;
-        return new Intrinsics(f, f, width / 2.0 + shiftX * width, height / 2.0 + shiftY * height, width, height);
+        return new Intrinsics(f, f, width / 2.0 - shiftX * width, height / 2.0 + shiftY * height, width, height);
     }
 
     /// <summary>A camera from its horizontal field of view in degrees.</summary>

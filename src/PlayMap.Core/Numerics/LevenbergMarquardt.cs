@@ -52,13 +52,10 @@ public static class LevenbergMarquardt
             var gmax = g.Max(Math.Abs);
             if (gmax < tolerance)
                 return new LmResult(p, initialRms, Math.Sqrt(cost / Math.Max(1, m)), iter, true, "gradient vanished");
+            // Marquardt's scaling already multiplies λ by each diagonal of JᵀJ, so λ itself starts small and
+            // scale-free; the diagonal must not be folded in a second time.
             if (lambda < 0)
-            {
-                var maxDiag = 0.0;
-                for (var i = 0; i < n; i++)
-                    maxDiag = Math.Max(maxDiag, jtj[i, i]);
-                lambda = 1e-3 * Math.Max(maxDiag, 1e-12);
-            }
+                lambda = 1e-3;
 
             var improved = false;
             for (var attempt = 0; attempt < 30 && !improved; attempt++)
