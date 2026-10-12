@@ -62,6 +62,9 @@ jobs:
           dotnet test tests/PlayMap.Core.Tests -c Release --no-build
           dotnet test tests/PlayMap.Engine.Tests -c Release --no-build
           dotnet test tests/PlayMap.Net.Tests -c Release --no-build
+          dotnet test tests/PlayMap.Devices.Tests -c Release --no-build
+          dotnet test tests/PlayMap.Assistant.Tests -c Release --no-build
+          dotnet test tests/PlayMap.Vision.Tests -c Release --no-build
       - name: Publish the portable exe
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
       - name: Upload the exe
