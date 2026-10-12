@@ -119,6 +119,7 @@ public class PjLinkDriverTests
         Assert.Equal(new[] { 1500, 20 }, s.LightHours);
         Assert.Equal("PANASONIC", s.Manufacturer);
         Assert.Equal("PT-RZ120", s.Model);
+        Assert.Equal("sim", s.Info);
         Assert.Equal("Stage Left", s.ProjectorName);
         Assert.Equal("SH1234567", s.Serial);
         Assert.Equal("1.02", s.Firmware);

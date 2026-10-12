@@ -39,6 +39,7 @@ public sealed record DiscoveredProjector(
     int PjLinkClass,
     string? Manufacturer,
     string? Model,
+    string? Info,
     string? Name,
     string? Serial,
     ProjectorProtocol Suggested,
@@ -124,7 +125,7 @@ public sealed class ProjectorDiscovery(ICredentialStore credentials, IDeviceLog 
         bool? open = null;
         if (options.ProbeNativePort && DriverSuggestion.Native(s?.Manufacturer) is { } native)
             open = await PortOpenAsync(host, ProjectorProtocols.DefaultPort(native), options.Timings.Connect, ct).ConfigureAwait(false);
-        return new DiscoveredProjector(host, mac, driver.ProjectorClass, s?.Manufacturer, s?.Model, s?.ProjectorName, s?.Serial,
+        return new DiscoveredProjector(host, mac, driver.ProjectorClass, s?.Manufacturer, s?.Model, s?.Info, s?.ProjectorName, s?.Serial,
             suggested, why, open, reading.Reached ? "" : reading.Result.Words);
     }
 

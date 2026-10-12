@@ -145,6 +145,8 @@ public sealed class PjLinkDriver(ProjectorLink link, ICredentialStore credential
                 state = state with { Manufacturer = inf1 };
             if (await Ask(1, "INF2 ?").ConfigureAwait(false) is { } inf2)
                 state = state with { Model = inf2 };
+            if (await Ask(1, "INFO ?").ConfigureAwait(false) is { Length: > 0 } info)
+                state = state with { Info = info };
             if (_class >= 2)
             {
                 if (await Ask(2, "SNUM ?").ConfigureAwait(false) is { } snum)

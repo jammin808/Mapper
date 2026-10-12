@@ -126,6 +126,9 @@ public sealed record DeviceState
 
     public string? Model { get; init; }
 
+    /// <summary>The manufacturer's other information (PJLink INFO), as the projector words it.</summary>
+    public string? Info { get; init; }
+
     public string? Serial { get; init; }
 
     public string? Firmware { get; init; }
@@ -159,6 +162,7 @@ public sealed record DeviceState
         FaultsRead = reading.FaultsRead || FaultsRead,
         Manufacturer = reading.Manufacturer ?? Manufacturer,
         Model = reading.Model ?? Model,
+        Info = reading.Info ?? Info,
         Serial = reading.Serial ?? Serial,
         Firmware = reading.Firmware ?? Firmware,
         ProjectorName = reading.ProjectorName ?? ProjectorName,
@@ -177,7 +181,7 @@ public sealed record DeviceState
         && Input == other.Input && ShutterClosed == other.ShutterClosed && Frozen == other.Frozen
         && LightHours.SequenceEqual(other.LightHours) && Temperatures.SequenceEqual(other.Temperatures)
         && Faults.SequenceEqual(other.Faults) && FaultsRead == other.FaultsRead && Manufacturer == other.Manufacturer
-        && Model == other.Model && Serial == other.Serial && Firmware == other.Firmware
+        && Model == other.Model && Info == other.Info && Serial == other.Serial && Firmware == other.Firmware
         && ProjectorName == other.ProjectorName && Signal == other.Signal && Lens == other.Lens
         && LastProblem == other.LastProblem;
 

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -239,7 +240,7 @@ public sealed class BarcoPulseDriver(ProjectorLink link, ICredentialStore creden
                 request = "{\"jsonrpc\":\"2.0\",\"method\":" + JsonSerializer.Serialize(method) + ",\"params\":" + json + ",\"id\":" + NextId().ToString(CultureInfo.InvariantCulture) + "}";
             }
             await ch.WriteCommandAsync(request, c).ConfigureAwait(false);
-            var answer = await ReadReplyAsync(ch, c).ConfigureAwait(false);
+            var answer = await ReadReplyAsync(ch, Stopwatch.StartNew(), c).ConfigureAwait(false);
             return answer.IsError
                 ? CommandResult.Rejected("raw", answer.ErrorMessage, answer.ResultJson)
                 : CommandResult.Accepted("raw", "answered", answer.ResultJson);
@@ -271,21 +272,26 @@ public sealed class BarcoPulseDriver(ProjectorLink link, ICredentialStore creden
     {
         var id = NextId();
         await ch.WriteCommandAsync(PulseProtocol.Request(id, method, parameters), ct).ConfigureAwait(false);
+        var clock = Stopwatch.StartNew();
         while (true)
         {
-            // Notifications (no id) and answers to earlier ids are skipped; the reply timeout bounds the wait.
-            var reply = await ReadReplyAsync(ch, ct).ConfigureAwait(false);
+            // Notifications (no id) and answers to earlier ids are skipped, within one reply timeout overall.
+            var reply = await ReadReplyAsync(ch, clock, ct).ConfigureAwait(false);
             if (reply.Id == id)
                 return reply;
         }
     }
 
-    /// <summary>The next JSON-RPC answer, skipping notifications; the reply timeout ends the wait with a DeviceIoException.</summary>
-    private async Task<PulseReply> ReadReplyAsync(TcpChannel ch, CancellationToken ct)
+    /// <summary>The next JSON-RPC answer, skipping notifications; the reply timeout, counted from
+    /// <paramref name="clock"/>'s start, ends the wait with a DeviceIoException however chatty the projector is.</summary>
+    private async Task<PulseReply> ReadReplyAsync(TcpChannel ch, Stopwatch clock, CancellationToken ct)
     {
         while (true)
         {
-            var json = await ch.ReadJsonObjectAsync(Timings.Reply, ct).ConfigureAwait(false);
+            var left = Timings.Reply - clock.Elapsed;
+            if (left <= TimeSpan.Zero)
+                throw new DeviceIoException(DeviceIoKind.Timeout, $"no answer from {ch.Endpoint} within the reply timeout");
+            var json = await ch.ReadJsonObjectAsync(left, ct).ConfigureAwait(false);
             var reply = PulseProtocol.ParseReply(json);
             if (reply is not null)
                 return reply;

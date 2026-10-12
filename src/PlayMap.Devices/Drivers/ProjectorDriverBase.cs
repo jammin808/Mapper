@@ -16,7 +16,7 @@ public sealed record DriverTimings(TimeSpan Connect, TimeSpan Reply, TimeSpan Se
 
     /// <summary>Short waits for loopback simulators.</summary>
     public static readonly DriverTimings Fast = new(
-        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(5));
+        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(5));
 }
 
 /// <summary>

@@ -178,6 +178,7 @@ public class DeviceManagerTests
         Assert.Equal(2, p.PjLinkClass);
         Assert.Equal("PANASONIC", p.Manufacturer);
         Assert.Equal("PT-RZ120", p.Model);
+        Assert.Equal("sim", p.Info);
         Assert.Equal("SH1234567", p.Serial);
         Assert.Equal(ProjectorProtocol.PanasonicNtControl, p.Suggested);
         Assert.Equal("", p.Problem);
