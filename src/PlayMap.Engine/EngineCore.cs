@@ -162,6 +162,11 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         {
             reply = await _lane.RunAsync(() => Route(line, session, ct)).ConfigureAwait(false);
         }
+        catch (EditRefusedException refused)
+        {
+            // A handler refusing a word it cannot take: a refusal like any other, not a fault.
+            reply = CommandReply.Fail(refused.Message);
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, line.Raw, false);

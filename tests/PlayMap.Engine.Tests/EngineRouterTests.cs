@@ -327,4 +327,34 @@ public sealed class EngineRouterTests
         Assert.Equal(a, lane.ItemId);
         Assert.Equal(5_000_000_000, lane.Clip.PositionAt(after.Engine.LeaderNowNs));
     }
+
+    [Fact]
+    public async Task APinnedProjectorSolvesToTheTruthAndSaysHowWell()
+    {
+        await using var rig = new Rig();
+        var truthK = PlayMap.Core.Model.Intrinsics.FromThrowRatio(1920, 1080, 1.3, 0, 0.4);
+        var truthPose = PlayMap.Core.Model.Pose.LookAt(new PlayMap.Core.Numerics.Vec3d(0.4, 1.6, -6), new PlayMap.Core.Numerics.Vec3d(0, 1.2, 0), PlayMap.Core.Numerics.Vec3d.UnitY);
+        var pj = await rig.Ok("ADD projector {\"name\":\"Left\"}");
+        // Pins on a box and a wall: not coplanar, well spread.
+        var world = new[]
+        {
+            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0), (-1.5, 0.0, 1.0), (-1.5, 2.5, 1.0),
+            (1.8, 2.4, 1.0), (1.8, 0.2, 1.0), (0.5, 0.5, -0.5), (0.2, 1.8, 0.6),
+        };
+        foreach (var (x, y, z) in world)
+        {
+            var w = new PlayMap.Core.Numerics.Vec3d(x, y, z);
+            var px = PlayMap.Core.Geometry.CameraModel.Project(w, truthK, PlayMap.Core.Model.LensDistortion.None, truthPose)!.Value;
+            await rig.Ok(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"ADD pin {pj} {{\"world\":{{\"x\":{x},\"y\":{y},\"z\":{z}}},\"pixel\":{{\"x\":{px.X},\"y\":{px.Y}}}}}"));
+        }
+        var reply = JsonDocument.Parse(await rig.Ok($"PROJECTOR SOLVE {pj}")).RootElement;
+        Assert.True(reply.GetProperty("rmsPx").GetDouble() < 0.1);
+        var solved = rig.Engine.Store.Project.FindProjector(pj)!;
+        Assert.Equal(truthK.Fx, solved.Intrinsics.Fx, 0);
+        Assert.True(PlayMap.Core.Numerics.Vec3d.Distance(truthPose.Position, solved.Pose.Position) < 0.01);
+        Assert.True(solved.SolveResidualPx > 0);
+        Assert.Equal("green", JsonDocument.Parse(rig.Engine.Context()).RootElement.GetProperty("items").EnumerateArray()
+            .First(i => i.GetProperty("id").GetString() == "projector:" + pj).GetProperty("light").GetString());
+    }
 }
