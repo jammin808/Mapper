@@ -11,13 +11,11 @@ public sealed class ConnectionManager : IAsyncDisposable
     private readonly DeskSession _session;
     private IAsyncDisposable? _owned;
     private EngineSupervisor? _supervisor;
+    private bool _ownsLocalNode;
 
     public ConnectionManager(DeskSession session) => _session = session;
 
     public event Action<string>? Note;
-
-    /// <summary>Reads this machine's node token from its settings (the integrator's; null when unknown).</summary>
-    public Func<string?>? LocalTokenReader { get; set; }
 
     public async Task ConnectDemoAsync()
     {
@@ -36,10 +34,14 @@ public sealed class ConnectionManager : IAsyncDisposable
             return false;
         }
         await AttachAsync(link, link, "This machine");
+        _ownsLocalNode = true;
         if (await WaitLiveAsync(link, TimeSpan.FromSeconds(1.5), ct))
             return true;
-        _supervisor ??= new EngineSupervisor();
-        _supervisor.Note += text => Note?.Invoke(text);
+        if (_supervisor is null)
+        {
+            _supervisor = new EngineSupervisor();
+            _supervisor.Note += text => Note?.Invoke(text);
+        }
         _supervisor.Start();
         Note?.Invoke("Starting this machine's engine…");
         return await WaitLiveAsync(link, TimeSpan.FromSeconds(15), ct);
@@ -95,6 +97,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     private async Task ReleaseAsync()
     {
         _session.Detach();
+        _ownsLocalNode = false;
         if (_owned is { } old)
         {
             _owned = null;
@@ -103,13 +106,14 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>The pairing token of the node the desk is on, read where it lives (never from a line).</summary>
-    public string? ReadToken() => (_session.Link as FakeEngineLink)?.PairingToken ?? LocalTokenReader?.Invoke();
+    public string? ReadToken() => _session.Link is FakeEngineLink demo ? demo.PairingToken
+        : _ownsLocalNode ? EngineLinks.ReadLocalToken() : null;
 
     public async ValueTask DisposeAsync()
     {
         await ReleaseAsync();
-        if (_supervisor is { } s)
-            await s.DisposeAsync();
+        if (_supervisor is not null)
+            await _supervisor.DisposeAsync();
     }
 }
 

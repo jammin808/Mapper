@@ -71,9 +71,20 @@ public static partial class EngineLinks
         }
     }
 
+    /// <summary>This machine's node pairing token, read from its settings where they live (never from a
+    /// line); null when this build cannot read it.</summary>
+    public static string? ReadLocalToken()
+    {
+        string? token = null;
+        ReadLocalPairingToken(ref token);
+        return token;
+    }
+
     static partial void CreateNetworkLink(EngineEndpoint endpoint, ref IEngineLink? link);
 
     static partial void HasNetworkLink(ref bool available);
+
+    static partial void ReadLocalPairingToken(ref string? token);
 }
 #pragma warning restore S3251
 
