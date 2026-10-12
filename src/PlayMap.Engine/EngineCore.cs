@@ -50,8 +50,9 @@ public interface INetworkControl
 }
 
 /// <summary>The services an engine is built from. Every edge is a seam: a headless node or a test passes
-/// fakes, the real exe passes the modules.</summary>
-public sealed record EngineServices(
+/// fakes, the real exe passes the modules. Partial: a module's later services are init properties in their
+/// own file, so adding one never moves the positional ones.</summary>
+public sealed partial record EngineServices(
     NodeSettings Settings,
     IMonoClock Mono,
     ShowWallClock Wall,

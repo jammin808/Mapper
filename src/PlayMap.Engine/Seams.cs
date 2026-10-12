@@ -41,6 +41,25 @@ public interface IOutputBackend
     string RendererName { get; }
 }
 
+/// <summary>What a scan asks of the outputs: one structured-light frame on one output, everything else the
+/// show keeps, and the instant the frame was really presented so the camera knows which capture to keep.</summary>
+public interface IScanDisplay
+{
+    /// <summary>Shows an 8-bit grey frame at the output's raster size and completes once it has been presented,
+    /// with the monotonic instant of that present (ns). Replaces the previous scan frame on that output.</summary>
+    Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct);
+
+    /// <summary>Hands every output back to the show.</summary>
+    void Release();
+}
+
+/// <summary>The render side as the host owns it: built before the engine (it is the engine's output backend
+/// and the scan's display), started once the engine exists, disposed on the render thread it made.</summary>
+public interface IRenderHost : IOutputBackend, IScanDisplay, IAsyncDisposable
+{
+    void Start(EngineCore engine);
+}
+
 /// <summary>A scan's progress for STATE.scan.</summary>
 public sealed record ScanProgress(string State, string? ProjectorId, int Pattern, int Of, double Quality, string Words);
 
