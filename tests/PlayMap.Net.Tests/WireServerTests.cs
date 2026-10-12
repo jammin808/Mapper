@@ -200,6 +200,19 @@ public class WireServerTests
     }
 
     [Fact]
+    public async Task ASessionVerbThatFaultsIsThatLinesFaultToo()
+    {
+        var endpoint = new FakeEndpoint { ThrowOnState = true };
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        await c.SendAsync("@h HELLO Stagewatch");
+        Assert.Equal("OK @h", await c.ReadAsync());
+        Assert.Equal("ERR @h the node faulted on this line (InvalidOperationException) — fault #1, logged", await c.ReadAsync());
+        endpoint.ThrowOnState = false;
+        Assert.StartsWith("OK @p PONG 3 ", await c.AskAsync("@p PING 3"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PushesAreThrottledLatestWinsAndNeverRepeated()
     {
         var endpoint = new FakeEndpoint();

@@ -39,6 +39,9 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
 
     public bool IsLive { get; set; } = true;
 
+    /// <summary>STATE itself faults (an engine bug the transports must survive).</summary>
+    public bool ThrowOnState { get; set; }
+
     public ConcurrentQueue<(WireLine Line, SessionInfo Session)> Lines { get; } = new();
 
     public event Action<long>? StateChanged;
@@ -56,6 +59,8 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
 
     public (string Json, long Revision) State()
     {
+        if (ThrowOnState)
+            throw new InvalidOperationException("the fake endpoint's STATE faults");
         lock (_gate)
         {
             var json = string.Create(CultureInfo.InvariantCulture,

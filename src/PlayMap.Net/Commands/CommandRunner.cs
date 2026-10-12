@@ -62,10 +62,18 @@ public sealed class CommandRunner(IWireEndpoint endpoint, ShowWallClock wall, IL
         }
         catch (Exception ex)
         {
-            var n = Interlocked.Increment(ref _faults);
-            log.LogError(ex, "The endpoint faulted on a {Transport} line from {Address} (fault #{Fault}).", session.Transport, session.RemoteAddress, n);
-            return CommandReply.Fail(WireWords.Fault(ex.GetType().Name, n));
+            return Fault(ex, session);
         }
+    }
+
+    /// <summary>A fault behind a line, counted and logged (never the line itself), as that line's refusal.</summary>
+    public CommandReply Fault(Exception ex, SessionInfo session)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        ArgumentNullException.ThrowIfNull(session);
+        var n = Interlocked.Increment(ref _faults);
+        log.LogError(ex, "The endpoint faulted on a {Transport} line from {Address} (fault #{Fault}).", session.Transport, session.RemoteAddress, n);
+        return CommandReply.Fail(WireWords.Fault(ex.GetType().Name, n));
     }
 
     /// <summary>"OK PONG t1 t2 t3" (Unix ms on the show clock); a bare PING is answered "OK PONG".</summary>

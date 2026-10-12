@@ -78,12 +78,30 @@ public static class NetAddress
     public static Socket Listen(string? bind, int port, int backlog = 128)
     {
         var address = ParseBind(bind);
+        if (address is not null)
+            return ListenOn(address, port, backlog, dualMode: false);
+        if (Socket.OSSupportsIPv6)
+        {
+            try
+            {
+                return ListenOn(IPAddress.IPv6Any, port, backlog, dualMode: true);
+            }
+            catch (BindRefusedException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.AddressFamilyNotSupported or SocketError.AddressNotAvailable or SocketError.ProtocolNotSupported })
+            {
+                // A machine whose IPv6 is switched off at run time still listens on every IPv4 interface.
+                return ListenOn(IPAddress.Any, port, backlog, dualMode: false);
+            }
+        }
+        return ListenOn(IPAddress.Any, port, backlog, dualMode: false);
+    }
+
+    private static Socket ListenOn(IPAddress a, int port, int backlog, bool dualMode)
+    {
         Socket? socket = null;
         try
         {
-            var a = address ?? (Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any);
             socket = new Socket(a.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            if (address is null && a.AddressFamily == AddressFamily.InterNetworkV6)
+            if (dualMode)
                 socket.DualMode = true;
             // A restarted node takes its port back at once (past its old connections' TIME_WAIT) with the raw
             // SO_REUSEADDR — .NET's ReuseAddress also sets SO_REUSEPORT on Unix, which would let a second process
@@ -102,7 +120,9 @@ public static class NetAddress
         catch (SocketException ex)
         {
             socket?.Dispose();
-            throw new BindRefusedException($"could not listen on {(address is null ? "every interface" : address.ToString())} port {port} ({ex.SocketErrorCode}) — the listener stays closed", ex);
+            var where = a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any) ? "every interface" : a.ToString();
+            throw new BindRefusedException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"could not listen on {where} port {port} ({ex.SocketErrorCode}) — the listener stays closed"), ex);
         }
     }
 

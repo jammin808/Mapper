@@ -145,35 +145,53 @@ internal sealed class WireSession : IAsyncDisposable
             return;
         }
         var id = line.RequestId;
+        try
+        {
+            if (!HandleSession(line, id, readAt))
+            {
+                var reply = await _server.Runner.RunAsync(line, Info(), ct, readAt);
+                if (CommandRunner.WireLineFor(id, reply) is { } text)
+                    Writer.Say(text);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // A session verb that faults (the endpoint's STATE threw under HELLO) is that line's, as any verb's is.
+            Writer.Say(CommandRunner.WireLineFor(id, _server.Runner.Fault(ex, Info()))!);
+        }
+    }
+
+    /// <summary>The verbs the connection answers itself; false for everything the command path runs.</summary>
+    private bool HandleSession(WireLine line, string? id, long readAt)
+    {
         switch (line.Verb)
         {
             case "PING":
                 Ping(line, id, readAt);
-                return;
+                return true;
             case "NONCE":
                 _nonce = Pairing.NewNonce();
                 Writer.Say(WireGrammar.Ok(id, _nonce));
-                return;
+                return true;
             case "HELLO":
                 _helloName = Pairing.HelloName(line.RestAfter(1));
                 _saidHello = true;
                 Writer.Say(WireGrammar.Ok(id));
                 Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
                 _wantsState = true;
-                return;
+                return true;
             case "AUTH-PROOF":
                 Authenticate(line, id, proof: true);
-                return;
+                return true;
             case "AUTH":
                 Authenticate(line, id, proof: false);
-                return;
+                return true;
             case "SUBSCRIBE":
                 Subscribe(line, id);
-                return;
+                return true;
+            default:
+                return false;
         }
-        var reply = await _server.Runner.RunAsync(line, Info(), ct, readAt);
-        if (CommandRunner.WireLineFor(id, reply) is { } text)
-            Writer.Say(text);
     }
 
     private static bool IsPeerReply(string t) =>

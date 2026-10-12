@@ -35,11 +35,16 @@ internal sealed class FakeStagewatch : IAsyncDisposable
 
     public string ApprovedJson { get; set; } = "{\"proposals\":[]}";
 
-    public static async Task<FakeStagewatch> StartAsync()
+    public static async Task<FakeStagewatch> StartAsync(System.Security.Cryptography.X509Certificates.X509Certificate2? certificate = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.ConfigureKestrel(k => k.Listen(System.Net.IPAddress.Loopback, 0));
+        builder.WebHost.UseKestrelHttpsConfiguration();
+        builder.WebHost.ConfigureKestrel(k => k.Listen(System.Net.IPAddress.Loopback, 0, o =>
+        {
+            if (certificate is not null)
+                o.UseHttps(certificate);
+        }));
         var app = builder.Build();
         var fake = new FakeStagewatch(app);
         app.UseWebSockets();
@@ -205,6 +210,44 @@ public class StagewatchLinkTests
         Assert.Equal("approval", session.Transport);
         Assert.Contains(sw.Asked, a => a == "proposals ?target=a1b2c3d4&state=approved");
         Assert.Equal(1, link.ApprovalsRun);
+    }
+
+    [Fact]
+    public async Task OverTlsTheCertificateIsPinnedOnFirstUseAndAChangeWaitsForTheOperator()
+    {
+        var dirA = Directory.CreateTempSubdirectory("playmap-sw-a-");
+        var dirB = Directory.CreateTempSubdirectory("playmap-sw-b-");
+        try
+        {
+            using var a = TlsIdentity.LoadOrCreate(dirA.FullName, "Hall A", DateTimeOffset.UtcNow);
+            using var b = TlsIdentity.LoadOrCreate(dirB.FullName, "Hall A", DateTimeOffset.UtcNow);
+            var pins = new PinStore();
+            await using (var sw = await FakeStagewatch.StartAsync(a.Certificate))
+            {
+                await using var link = new StagewatchLink(Options(sw) with { Tls = true, Fingerprint = a.Fingerprint, PinKey = "node:5a5a5a5a" }, new FakeEndpoint(), TestSettings.Wall(), pins);
+                link.Start();
+                Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live));
+                Assert.True(await Eventually.TrueAsync(() => pins.Get("node:5a5a5a5a") == a.Fingerprint));
+                Assert.Equal(PinVerdict.Pinned, link.Pin);
+            }
+
+            // Another machine answers at the node's address with another certificate: refused until accepted.
+            await using var other = await FakeStagewatch.StartAsync(b.Certificate);
+            await using var second = new StagewatchLink(Options(other) with { Tls = true, Fingerprint = b.Fingerprint, PinKey = "node:5a5a5a5a" }, new FakeEndpoint(), TestSettings.Wall(), pins);
+            second.Start();
+            Assert.True(await Eventually.TrueAsync(() => second.PendingFingerprint == b.Fingerprint));
+            Assert.NotEqual(LinkStatus.Live, second.Status);
+            Assert.StartsWith("CERTIFICATE CHANGED", second.Words, StringComparison.Ordinal);
+            Assert.Empty(other.Asked);
+            Assert.StartsWith("Accepted", second.AcceptPendingCertificate(), StringComparison.Ordinal);
+            Assert.Equal(b.Fingerprint, pins.Get("node:5a5a5a5a"));
+            Assert.True(await Eventually.TrueAsync(() => second.Status == LinkStatus.Live, 10000));
+        }
+        finally
+        {
+            dirA.Delete(recursive: true);
+            dirB.Delete(recursive: true);
+        }
     }
 
     [Fact]

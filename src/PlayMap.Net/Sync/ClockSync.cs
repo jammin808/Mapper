@@ -206,6 +206,12 @@ public sealed class ClockSyncClient : IAsyncDisposable
     private const int Kept = 32;
     private static readonly TimeSpan LostAfter = TimeSpan.FromSeconds(2);
 
+    /// <summary>The span of samples a drift needs before it is applied.</summary>
+    public static readonly TimeSpan DriftSpan = TimeSpan.FromSeconds(2);
+
+    /// <summary>The largest drift taken as real (500 ppm; a PC's crystal is within ±100).</summary>
+    public const double MaxDrift = 500e-6;
+
     private readonly IMonoClock _local;
     private readonly TimeSpan _every;
     private readonly ILogger _log;
@@ -368,19 +374,34 @@ public sealed class ClockSyncClient : IAsyncDisposable
             _samples.Enqueue(sample);
             while (_samples.Count > Kept)
                 _samples.Dequeue();
-            var estimator = new ClockOffsetEstimator(ShowBusConstants.OffsetWindow, Kept);
-            foreach (var s in _samples)
-                estimator.Add(s);
-            Clock.Follow(estimator);
+            var (published, estimator) = Publishable();
+            Clock.Follow(published);
             Interlocked.Exchange(ref _lastHeardNs, t4);
             var rtt = estimator.RoundTrip;
             var quality = estimator.Samples < 4 ? SyncQuality.Acquiring
                 : rtt <= Durations.NsPerMs ? SyncQuality.Fine
                 : rtt <= 5 * Durations.NsPerMs ? SyncQuality.Fair
                 : SyncQuality.Poor;
-            _snapshot = new SyncSnapshot(_leader.ToString(), estimator.Offset, rtt, estimator.Drift * 1e6, estimator.Samples, quality);
+            _snapshot = new SyncSnapshot(_leader.ToString(), estimator.Offset, rtt, published.Drift * 1e6, estimator.Samples, quality);
             return true;
         }
+    }
+
+    /// <summary>A fresh estimator from the recent samples, never written after it is published. Drift is applied
+    /// only when it is a measurement, not noise: the samples span at least <see cref="DriftSpan"/> and the slope is one
+    /// a crystal can have (within <see cref="MaxDrift"/>); otherwise the clock follows the best exchange's offset
+    /// alone — a slope regressed from a fraction of a second would move the clock by milliseconds between exchanges.</summary>
+    private (ClockOffsetEstimator Published, ClockOffsetEstimator Full) Publishable()
+    {
+        var full = new ClockOffsetEstimator(ShowBusConstants.OffsetWindow, Kept);
+        foreach (var s in _samples)
+            full.Add(s);
+        var span = _samples.Count > 1 ? _samples.Last().T4 - _samples.Peek().T1 : 0;
+        if (span >= (long)DriftSpan.TotalMilliseconds * Durations.NsPerMs && Math.Abs(full.Drift) <= MaxDrift)
+            return (full, full);
+        var offsetOnly = new ClockOffsetEstimator(ShowBusConstants.OffsetWindow, Kept);
+        offsetOnly.Add(full.Best);
+        return (offsetOnly, full);
     }
 
     public async ValueTask DisposeAsync() => await StopAsync();

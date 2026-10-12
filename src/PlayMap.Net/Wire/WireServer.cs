@@ -175,6 +175,11 @@ public sealed class WireServer : IAsyncDisposable
             // A connection's end is routine; the ledger and the session table are released below.
             _log.LogDebug(ex, "A line wire connection from {Address} ended.", address);
         }
+        catch (Exception ex)
+        {
+            // Anything else ends this connection only — never the listener — and leaves its trace.
+            _log.LogWarning(ex, "A line wire connection from {Address} faulted and was closed.", address);
+        }
         finally
         {
             if (session is not null)
