@@ -78,7 +78,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         Shortcuts = ShortcutMap.Build(this);
         Map.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView))
+            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView) or nameof(MapViewModel.EditorSize))
                 UpdateViews();
         };
         session.StateUpdated += OnState;
@@ -392,7 +392,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
                 want[Map.ViewId] = $"projector:{pj.Id} {pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture)}x{pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture)}";
                 break;
             case Workspace.Map:
-                want["editor"] = "editor 1280x720";
+                want["editor"] = "editor " + Map.EditorSize;
                 break;
             case Workspace.Scan:
                 if (Scan.Camera is { } cam)

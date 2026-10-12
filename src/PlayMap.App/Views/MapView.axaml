@@ -85,8 +85,8 @@
           </StackPanel>
           <Border Grid.Column="1" Classes="chip" Padding="3" Margin="12,0">
             <StackPanel Orientation="Horizontal" Spacing="2">
-              <RadioButton GroupName="view" Classes="seg" Content="3D" IsChecked="{Binding Is3DView}" ToolTip.Tip="The stage from the orbit camera  (Tab)" />
-              <RadioButton GroupName="view" x:Name="ProjectorViewButton" Classes="seg" Content="Projector" IsChecked="{Binding IsProjectorView}" ToolTip.Tip="What the projector sees  (Tab)" />
+              <RadioButton GroupName="view" Classes="seg" Content="3D" IsChecked="{Binding Is3DView}" ToolTip.Tip="The stage from the orbit camera  (V)" />
+              <RadioButton GroupName="view" x:Name="ProjectorViewButton" Classes="seg" Content="Projector" IsChecked="{Binding IsProjectorView}" ToolTip.Tip="What the projector sees  (V)" />
             </StackPanel>
           </Border>
           <TextBlock Grid.Column="2" Classes="dim" Text="{Binding ToolHint}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Margin="4,0" />

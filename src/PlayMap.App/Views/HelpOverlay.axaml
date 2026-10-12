@@ -30,7 +30,7 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </ScrollViewer>
-        <TextBlock Grid.Row="3" Classes="faint" Text="Single-letter keys wait while you type in a field." />
+        <TextBlock Grid.Row="3" Classes="faint" Text="While you type in a field, only F1, Esc, Ctrl+S and the workspace and drawer keys act; every other key is the field's." />
       </Grid>
     </Border>
   </Border>

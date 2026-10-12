@@ -121,7 +121,7 @@ public sealed class PlaylistViewModel : ObservableObject
         Name = list.Name;
         IsLooping = list.Loop;
         SyncGroup = list.SyncGroup;
-        Items.SyncById(list.Items, i => i.Id, vm => vm.Id, i => new PlaylistItemViewModel(_session, Id, i, project, _play),
+        Items.SyncById(list.Items, i => i.Id, vm => vm.Id, i => new PlaylistItemViewModel(_session, Id, i, project, _play, Sync),
             (vm, i) => vm.Update(i, project));
         long total = 0;
         foreach (var i in list.Items)
@@ -165,7 +165,7 @@ public sealed class PlaylistItemViewModel : ObservableObject
     private string _playState = "";
     private EndAction _end;
 
-    public PlaylistItemViewModel(DeskSession session, string playlistId, PlaylistItem item, Project? project, PlayViewModel play)
+    public PlaylistItemViewModel(DeskSession session, string playlistId, PlaylistItem item, Project? project, PlayViewModel play, DeskAction playlistSync)
     {
         Id = item.Id;
         PlaylistId = playlistId;
@@ -175,6 +175,7 @@ public sealed class PlaylistItemViewModel : ObservableObject
             DeskAction.Send(session, "cue", "Cue", () => $"PLAYLIST CUE {PlaylistId} {Id}").Look("cue"),
             DeskAction.Send(session, "loop", "Loop this item", () => VerbText.SetEnum(Id, "end", _end == EndAction.Loop ? EndAction.Next : EndAction.Loop),
                 isChecked: () => _end == EndAction.Loop).Look("loop"),
+            playlistSync,
             DeskAction.Local("edit", "Edit…", () => play.Selected = this).Look("info", separator: true),
             DeskAction.Send(session, "remove", "Remove from playlist", () => $"PLAYLIST REMOVE {PlaylistId} {Id}").Look("trash", danger: true, separator: true),
         ];

@@ -136,7 +136,7 @@ public sealed class OutputsDrawerViewModel : ObservableObject
                 return;
             foreach (var t in Tiles)
                 t.IsSelected = t == value;
-            Inspector.Show(value is null ? null : new OutputInspector(_session, value.Id));
+            Inspector.Show(value is null ? null : new OutputInspector(_session, value.Id, _displays));
             Patterns.RefreshAll();
         }
     }

@@ -70,7 +70,7 @@ public class MapTests
         DeskHarness.Pump();
         Assert.Equal("SURFACE SHOW sf_cube OFF", desk.Verbs()[^1]);
         Assert.False(cube.Visible);
-        Screens.Save(window, "map-3d");
+        Screens.Save(window, "map-outliner");
         window.Close();
     }
 

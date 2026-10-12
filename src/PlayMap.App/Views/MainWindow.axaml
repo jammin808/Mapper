@@ -47,7 +47,8 @@
               <ProgressBar Value="{Binding Master.Progress}" Maximum="1" Height="3" MinHeight="3" Margin="0,2,0,0" />
             </StackPanel>
             <TextBlock Classes="counter" Text="{Binding Master.RemainingText}" VerticalAlignment="Center" Foreground="{StaticResource DeskTextDimBrush}" MinWidth="64" />
-            <Border Classes="chip" Background="{StaticResource DeskAccentSoftBrush}" VerticalAlignment="Center" ToolTip.Tip="Patterns' VT chip: what Stagewatch's VT link shows">
+            <Border Classes="chip" Background="{StaticResource DeskAccentSoftBrush}" VerticalAlignment="Center" ToolTip.Tip="Patterns' VT chip: what Stagewatch's VT link shows"
+                    IsVisible="{Binding VtChip, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
               <TextBlock Text="{Binding VtChip}" FontWeight="SemiBold" FontFeatures="+tnum" />
             </Border>
           </StackPanel>

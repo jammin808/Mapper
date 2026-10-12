@@ -357,10 +357,27 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             Select("surface", added.Text.Trim());
     }
 
-    /// <summary>The editor camera moved: the engine's editor view follows (throttled, quiet).</summary>
+    /// <summary>The size the engine renders the editor view at: the viewport's own aspect, at most 1920
+    /// wide, in steps of 32 so a window drag does not ask for a new size every pixel.</summary>
+    public string EditorSize
+    {
+        get => _editorSize;
+        private set => Set(ref _editorSize, value);
+    }
+
+    private string _editorSize = "1280x720";
+
+    /// <summary>The editor camera moved (or the viewport changed size): the engine's editor view follows
+    /// (throttled, quiet). The camera's intrinsics are for the size the engine is asked to render.</summary>
     public void CameraMoved(double width, double height)
     {
-        _session.Throttle.Post("view editor", "VIEW editor CAMERA " + Camera.ToJson(width, height));
+        if (width >= 1 && height >= 1)
+        {
+            var w = Math.Min(1920, Math.Max(64, Math.Round(width / 32) * 32));
+            var h = Math.Max(32, Math.Round(w * height / width / 2) * 2);
+            EditorSize = string.Create(CultureInfo.InvariantCulture, $"{w:0}x{h:0}");
+            _session.Throttle.Post("view editor", "VIEW editor CAMERA " + Camera.ToJson(w, h));
+        }
         SceneChanged?.Invoke();
     }
 

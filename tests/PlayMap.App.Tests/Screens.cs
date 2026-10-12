@@ -18,7 +18,7 @@ public static class Screens
         if (frame is null)
             return null;
         var path = Path.Combine(dir, name + ".png");
-        frame.Save(path, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+        frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions { CompressionLevel = System.IO.Compression.CompressionLevel.SmallestSize });
         return path;
     }
 }

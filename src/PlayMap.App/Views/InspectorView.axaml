@@ -320,7 +320,8 @@
           </StackPanel>
           <StackPanel Grid.Column="1">
             <TextBlock Classes="label" Text="Display" />
-            <TextBox Text="{Binding Display}" PlaceholderText="first free" />
+            <ComboBox ItemsSource="{Binding DisplayChoices}" SelectedItem="{Binding Display}" IsVisible="{Binding HasDisplayChoices}" PlaceholderText="first free" />
+            <TextBox Text="{Binding Display}" PlaceholderText="first free" IsVisible="{Binding !HasDisplayChoices}" />
           </StackPanel>
         </Grid>
         <StackPanel IsVisible="{Binding IsProjectorMode}">

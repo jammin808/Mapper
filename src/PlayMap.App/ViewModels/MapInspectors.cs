@@ -788,8 +788,9 @@ public sealed class OutputInspector : InspectorViewModel
     private double _gainB = 1;
     private string _facts = "";
 
-    public OutputInspector(DeskSession session, string id) : base(session, id)
+    public OutputInspector(DeskSession session, string id, IReadOnlyList<DisplayInfo>? displays = null) : base(session, id)
     {
+        DisplayChoices = displays is { Count: > 0 } d ? ["", .. d.Select(x => x.Key)] : [];
         Actions =
         [
             DeskAction.Send(session, "enable", "Open", () => $"OUTPUT ENABLE {Id} {(_enabled ? "OFF" : "ON")}", () => _enabled ? "Close output" : "Open output",
@@ -868,6 +869,11 @@ public sealed class OutputInspector : InspectorViewModel
                 Send($"OUTPUT SOURCE {Id} canvas:{value.Id}");
         }
     }
+
+    /// <summary>The displays this machine sees (from DISPLAYS; "" = the first free one), or none when unknown.</summary>
+    public IReadOnlyList<string> DisplayChoices { get; }
+
+    public bool HasDisplayChoices => DisplayChoices.Count > 0;
 
     /// <summary>Which display ("" = the first free one).</summary>
     public string Display

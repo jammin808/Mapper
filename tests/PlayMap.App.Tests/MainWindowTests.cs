@@ -35,7 +35,7 @@ public class MainWindowTests
         Assert.Equal("SCAN", Find<ToggleButton>(window, "ScanTab").Content);
         Assert.True(Find<PlayView>(window, "PlayView").IsEffectivelyVisible);
         Assert.Equal("Demo show", desk.Main.ProjectName);
-        Screens.Save(window, "play");
+        Screens.Save(window, "play-open");
         window.Close();
     }
 }

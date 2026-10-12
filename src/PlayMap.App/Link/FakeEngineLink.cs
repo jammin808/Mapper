@@ -217,7 +217,17 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
         while (await timer.WaitForNextTickAsync(ct))
-            Tick();
+        {
+            try
+            {
+                Tick();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The demo keeps running through a fault in one tick; the next tick starts from the store's truth.
+                System.Diagnostics.Trace.WriteLine("PlayMap demo engine: a tick failed: " + ex.Message);
+            }
+        }
     }
 
     private static bool IsMutating(string line) =>

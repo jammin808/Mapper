@@ -258,21 +258,25 @@ public class DeskLogicTests
     }
 
     [Fact]
-    public void TheShortcutTableLeavesBareKeysToATextFieldButNotItsModifiedOnes()
+    public void TheShortcutTableLeavesAFieldItsKeysButTheFewMarkedWhileTyping()
     {
         var ran = new List<string>();
         var q = new RelayCommand(() => ran.Add("q"));
-        var z = new RelayCommand(() => ran.Add("z"));
+        var next = new RelayCommand(() => ran.Add("next"));
+        var help = new RelayCommand(() => ran.Add("help"));
         var entries = new List<Shortcut>
         {
             new("Q", "", "MAP", Avalonia.Input.Key.Q, Avalonia.Input.KeyModifiers.None, q),
-            new("Ctrl+Z", "", "Desk", Avalonia.Input.Key.Z, Avalonia.Input.KeyModifiers.Control, z),
+            new("Ctrl+Right", "", "Transport", Avalonia.Input.Key.Right, Avalonia.Input.KeyModifiers.Control, next),
+            new("F1", "", "Desk", Avalonia.Input.Key.F1, Avalonia.Input.KeyModifiers.None, help) { WhileTyping = true },
         };
         var table = ShortcutMap.For(entries);
         Assert.False(table.Handle(Avalonia.Input.Key.Q, Avalonia.Input.KeyModifiers.None, typing: true));
+        Assert.False(table.Handle(Avalonia.Input.Key.Right, Avalonia.Input.KeyModifiers.Control, typing: true));
+        Assert.True(table.Handle(Avalonia.Input.Key.F1, Avalonia.Input.KeyModifiers.None, typing: true));
         Assert.True(table.Handle(Avalonia.Input.Key.Q, Avalonia.Input.KeyModifiers.None, typing: false));
-        Assert.True(table.Handle(Avalonia.Input.Key.Z, Avalonia.Input.KeyModifiers.Control, typing: true));
-        Assert.Equal(["q", "z"], ran);
+        Assert.True(table.Handle(Avalonia.Input.Key.Right, Avalonia.Input.KeyModifiers.Control, typing: false));
+        Assert.Equal(["help", "q", "next"], ran);
     }
 
     [Fact]
