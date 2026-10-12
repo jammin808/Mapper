@@ -204,7 +204,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
             _decoder = StreamDecoder.Open(s, _options.Decoder);
             _decoderName = _decoder.Name;
             _hardware = _decoder.Hardware;
-            _writer = new FrameWriter(still: false);
+            _writer = new FrameWriter(PlanMode.Video);
             _packet = ffmpeg.av_packet_alloc();
             _frame = ffmpeg.av_frame_alloc();
             _candidate = ffmpeg.av_frame_alloc();
@@ -374,7 +374,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
         // the head when the next frame starts after it): the decoder is catching up after a jump or a stall.
         var stale = _discarding
             ? t <= _discardTarget
-            : control.HasConsumer && t + dur <= Math.Max(control.ConsumerNs, control.HasShown ? control.ShownNs : long.MinValue);
+            : control.HasConsumer && t + dur <= control.ConsumerNs;
         if (stale)
         {
             if (_hasCandidate && !_discarding && control.Playing)

@@ -9,7 +9,7 @@ namespace PlayMap.Media.Frames;
 /// written allocates nothing once warm.</summary>
 internal sealed unsafe class FrameWriter : IDisposable
 {
-    private readonly bool _still;
+    private readonly PlanMode _mode;
     private readonly byte*[] _srcData = new byte*[8];
     private readonly int[] _srcStride = new int[8];
     private readonly byte*[] _dstData = new byte*[4];
@@ -23,7 +23,7 @@ internal sealed unsafe class FrameWriter : IDisposable
     private FramePlan _cachedPlan;
     private FrameLayout? _cachedLayout;
 
-    public FrameWriter(bool still) => _still = still;
+    public FrameWriter(PlanMode mode) => _mode = mode;
 
     /// <summary>The layout a frame of this format and size becomes (cached while the format holds).</summary>
     public FrameLayout LayoutFor(AVFrame* frame, out FramePlan plan)
@@ -32,7 +32,7 @@ internal sealed unsafe class FrameWriter : IDisposable
         if (format != _cachedFormat)
         {
             _cachedFormat = format;
-            _cachedPlan = FrameFormats.Plan(format, _still);
+            _cachedPlan = FrameFormats.Plan(format, _mode);
             _cachedLayout = null;
         }
         plan = _cachedPlan;

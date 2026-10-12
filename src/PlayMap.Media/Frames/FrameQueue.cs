@@ -23,8 +23,6 @@ public sealed record QueueSettings
 internal readonly record struct QueueControl(
     long ConsumerNs,
     bool HasConsumer,
-    long ShownNs,
-    bool HasShown,
     bool Playing,
     double Rate,
     bool Loop,
@@ -59,8 +57,6 @@ internal sealed class FrameQueue : IDisposable
     private bool _hasLastRequest;
     private long _consumer;
     private bool _hasConsumer;
-    private long _shown;
-    private bool _hasShown;
     private bool _playing;
     private double _rate = 1;
 
@@ -101,8 +97,6 @@ internal sealed class FrameQueue : IDisposable
             var t = Unwrap(mediaNs, commit: true);
             _consumer = t;
             _hasConsumer = true;
-            _shown = t;
-            _hasShown = true;
             var idx = Find(t);
             if (idx >= 0)
             {
@@ -218,7 +212,7 @@ internal sealed class FrameQueue : IDisposable
     public QueueControl Control()
     {
         lock (_gate)
-            return new QueueControl(_consumer, _hasConsumer, _shown, _hasShown, _playing, _rate, _loop && LoopLength > 0,
+            return new QueueControl(_consumer, _hasConsumer, _playing, _rate, _loop && LoopLength > 0,
                 _loopIn, LoopOut, LoopLength, _loopSerial);
     }
 

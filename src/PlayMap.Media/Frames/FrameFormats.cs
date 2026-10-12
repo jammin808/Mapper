@@ -10,14 +10,23 @@ internal readonly record struct FramePlan(PixelLayout Layout, AVPixelFormat Conv
     public bool PassThrough => Convert == AVPixelFormat.AV_PIX_FMT_NONE && !ToHalf;
 }
 
+/// <summary>Which conversions a source accepts: a clip keeps YUV; a still becomes RGBA once; a sequence keeps
+/// YUV frames (a JPEG run) and makes RGBA of the rest (PNG, EXR, DPX).</summary>
+internal enum PlanMode
+{
+    Video,
+    Still,
+    Sequence,
+}
+
 /// <summary>What the renderer is handed for each FFmpeg pixel format, and the colour metadata words.</summary>
 internal static unsafe class FrameFormats
 {
-    /// <summary>The plan for a decoded format. Video: YUV stays YUV (the GPU converts) — the planar layouts
+    /// <summary>The plan for a decoded format in a mode. Video: YUV stays YUV (the GPU converts) — the planar layouts
     /// pass through, other 8-bit YUV is repacked to the planar layout that keeps its chroma, deeper YUV to
     /// 10-bit 4:2:0; RGB, palette and anything with alpha become RGBA. Stills: everything becomes RGBA, in half
     /// floats when the source is deeper than 8 bits or float (EXR, 16-bit PNG/TIFF/DPX).</summary>
-    public static FramePlan Plan(AVPixelFormat format, bool still)
+    public static FramePlan Plan(AVPixelFormat format, PlanMode mode)
     {
         var desc = ffmpeg.av_pix_fmt_desc_get(format);
         if (desc is null)
@@ -29,6 +38,7 @@ internal static unsafe class FrameFormats
         var pal = (flags & (ulong)ffmpeg.AV_PIX_FMT_FLAG_PAL) != 0;
         var depth = desc->comp[0].depth;
         var gray = desc->nb_components <= 2 && !rgb;
+        var still = mode == PlanMode.Still || (mode == PlanMode.Sequence && (alpha || rgb || pal || isFloat || gray));
 
         if (still)
         {

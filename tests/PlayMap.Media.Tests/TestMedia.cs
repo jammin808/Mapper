@@ -168,10 +168,11 @@ public static class TestMedia
                 Run("-f", "lavfi", "-i", "color=c=0x336699:s=64x48:d=1,format=rgba,geq=r='51':g='102':b='153':a='if(lt(X,32),255,128)'", "-frames:v", "1", path);
                 break;
             case "still16.png":
-                Run("-f", "lavfi", "-i", "color=c=0x808080:s=64x48:d=1,format=rgb48be", "-frames:v", "1", "-pix_fmt", "rgb48be", path);
+                Run("-f", "lavfi", "-i", "color=s=64x48:d=1,format=gbrp16le,geq=r='40000':g='20000':b='65535'", "-frames:v", "1", "-pix_fmt", "rgb48be", path);
                 break;
             case "still.exr":
-                Run("-f", "lavfi", "-i", "color=c=0xffffff:s=64x48:d=1,format=gbrpf32le", "-frames:v", "1", "-c:v", "exr", "-compression", "0", path);
+                // Values above 1 (an HDR still): R 2.5, G 0.25, B 1.
+                Run("-f", "lavfi", "-i", "color=s=64x48:d=1,format=gbrpf32le,geq=r='2.5':g='0.25':b='1'", "-frames:v", "1", "-c:v", "exr", "-compression", "0", path);
                 break;
             case "still.jpg":
                 Run("-f", "lavfi", "-i", "color=c=0x808080:s=64x48:d=1", "-frames:v", "1", "-q:v", "2", path);
