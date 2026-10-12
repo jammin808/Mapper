@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PlayMap.Core.Model;
 using PlayMap.Core.Vision;
 
@@ -71,6 +72,7 @@ public static class Resampler
     /// mapped v ↦ v · <paramref name="gain"/>[c] + <paramref name="bias"/>[c] with c the tensor's plane
     /// (normalisation folded in; planes are R G B, or B G R when <paramref name="swapRedBlue"/>). Tensor pixels
     /// outside the rectangle are left as they are.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void RgbToPlanar(
         ImageRgb8 src, RectD region, Span<float> chw, int planeWidth, int planeHeight,
         int dstX, int dstY, int dstWidth, int dstHeight,
@@ -141,6 +143,7 @@ public static class Resampler
     /// <paramref name="srcWidth"/> × <paramref name="srcHeight"/>) to fill <paramref name="dst"/>
     /// (<paramref name="dstWidth"/> × <paramref name="dstHeight"/>). NaN sources are skipped and the remaining
     /// weights renormalised; a destination with no finite source is NaN.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Channel(
         ReadOnlySpan<float> src, int srcWidth, int srcHeight, RectD region,
         Span<float> dst, int dstWidth, int dstHeight)
