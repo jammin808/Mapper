@@ -59,7 +59,7 @@ public sealed record DecodeStats(
     public double UncertainBitShare => DecidedBits > 0 ? (double)UncertainBits / DecidedBits : 0;
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture,
-        $"{DecodedFraction:P1} of {Lit} lit pixels decoded, mean confidence {MeanConfidence:0.00}, {UncertainBitShare:P2} bits uncertain, {SaturationShare:P1} saturated, noise {NoiseSigma:0.0}");
+        $"{DecodedFraction * 100:0.0}% of {Lit} lit pixels decoded, mean confidence {MeanConfidence:0.00}, {UncertainBitShare * 100:0.00}% bits uncertain, {SaturationShare * 100:0.0}% saturated, noise {NoiseSigma:0.0}");
 }
 
 /// <summary>A camera pixel and the projector point that lights it — a dense correspondence for calibration.
