@@ -17,6 +17,7 @@
     <ProjectReference Include="..\PlayMap.Net\PlayMap.Net.csproj" />
     <ProjectReference Include="..\PlayMap.Vision\PlayMap.Vision.csproj" />
     <ProjectReference Include="..\PlayMap.Assistant\PlayMap.Assistant.csproj" />
+    <ProjectReference Include="..\PlayMap.Devices\PlayMap.Devices.csproj" />
   </ItemGroup>
 
   <ItemGroup>

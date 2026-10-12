@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Projectors and other room devices: PJLink (class 1 and 2, with discovery) and the manufacturers' own
+       control protocols — power, input, shutter, lens motors and lens memory, built-in test patterns,
+       internal geometry/blend/black level, colour, and health (hours, temperatures, errors). Every command
+       comes from published documentation; anything that could not be verified says so in its driver. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Devices</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Devices.Tests" />
+  </ItemGroup>
+
+</Project>
