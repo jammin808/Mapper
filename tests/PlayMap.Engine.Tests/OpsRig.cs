@@ -27,12 +27,13 @@ internal sealed class OpsRig : IAsyncDisposable
     private readonly IAsyncDisposable _ops;
     private int _disposed;
 
-    public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null)
+    public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null,
+        ScanRunnerOptions? scan = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
-        Scanner = new ScanRunner(null);
+        Scanner = new ScanRunner(null, scan);
         Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,

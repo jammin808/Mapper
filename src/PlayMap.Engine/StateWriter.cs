@@ -167,6 +167,9 @@ public static class StateWriter
         w.WritePropertyName("solve");
         e.WriteSolveState(w);
 
+        w.WritePropertyName("cameras");
+        e.WriteCamerasState(w);
+
         w.WriteEndObject();
     }
 

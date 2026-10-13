@@ -140,6 +140,10 @@ as raw substrings):
   done, `outputs` has each output's `covered`, `overlap` and `shadow` fractions, `maxOverlap`, `overlapsWith`, the map's
   size and words. `BLEND SOLVE` answers at once — `OK {"stage":"accepted","effect":"…","solve":"bs1"}` — and solves on a
   worker, one at a time (a second is refused while one runs); the outcome lands in the journal and here.
+- `cameras` lists the cameras shown on views now, and any that could not give a picture: `{"id":"cm…","name":"Webcam",
+  "state":"failed","views":1,"problem":"Webcam did not open: /dev/video9: No such file or directory"}`. `state` is
+  live, opening, scanning (a scan holds it), simulated or failed; a failed camera's views carry a card with the same
+  words, and showing a view again tries the camera again. A camera with no view left drops off the list.
 - `devices` is one row per projector link in the project's order: the link, then what its projector reports
   (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
   `credential` says whether a secret is kept for it — never the secret.

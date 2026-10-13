@@ -36,6 +36,67 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
         });
     }
 
+    /// <summary>A capture camera that will not open, as a missing device answers.</summary>
+    private sealed class AbsentCamera(string problem) : IScanCamera
+    {
+        public string Problem => problem;
+
+        public Task<bool> OpenAsync(CancellationToken ct) => Task.FromResult(false);
+
+        public Task<CameraFrame?> NextAsync(long afterGeneration, TimeSpan timeout, CancellationToken ct) => Task.FromResult<CameraFrame?>(null);
+
+        public void Dispose()
+        {
+            // Nothing was opened.
+        }
+    }
+
+    [Fact]
+    public async Task ACameraThatCannotOpenSaysWhyOnItsViewAndInState()
+    {
+        var opens = 0;
+        var project = Project.CreateDefault("Cam") with
+        {
+            Stage = Stage.Empty with
+            {
+                Cameras = [new CameraRig("cm00000001", "Webcam", CameraSourceKind.Device, "/dev/video9", Intrinsics.FromThrowRatio(640, 480, 1.2), LensDistortion.None, Pose.Identity, false)],
+            },
+        };
+        var rig = new OpsRig(project: project, scan: new ScanRunnerOptions
+        {
+            OpenCamera = _ =>
+            {
+                Interlocked.Increment(ref opens);
+                return new AbsentCamera("/dev/video9: No such file or directory");
+            },
+        });
+        try
+        {
+            Assert.True((await rig.Run("VIEW scan-camera SHOW camera:cm00000001 640x480")).Ok);
+
+            // The view is not left blank: it carries a card with the reason, and STATE names it.
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("scan-camera") is not null), "the view stayed blank");
+            JsonElement Row() => rig.State().GetProperty("cameras").EnumerateArray().Single();
+            Assert.True(await OpsRig.Eventually(() => Row().GetProperty("state").GetString() == "failed"));
+            Assert.Equal("cm00000001", Row().GetProperty("id").GetString());
+            Assert.Equal(1, Row().GetProperty("views").GetInt32());
+            Assert.Equal("Webcam did not open: /dev/video9: No such file or directory", Row().GetProperty("problem").GetString());
+
+            // Shown again, it is tried again; once its last view goes, its problem is no longer news.
+            Assert.True((await rig.Run("VIEW scan-camera-2 SHOW camera:cm00000001 320x240")).Ok);
+            Assert.True(await OpsRig.Eventually(() => Volatile.Read(ref opens) >= 2));
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("scan-camera-2") is not null));
+            await rig.Ok("VIEW scan-camera HIDE");
+            await rig.Ok("VIEW scan-camera-2 HIDE");
+            Assert.True(await OpsRig.Eventually(() => rig.State().GetProperty("cameras").GetArrayLength() == 0));
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
     [Fact]
     public async Task ASimulatedScanRunsThroughTheVerbsAndAppliesWithinToleranceOfTheTruth()
     {

@@ -104,6 +104,18 @@ public sealed partial class EngineCore
         w.WriteEndArray();
     }
 
+    /// <summary>STATE.cameras: the scan runner's camera views (none for another scan backend).</summary>
+    internal void WriteCamerasState(Utf8JsonWriter w)
+    {
+        if (Services.Scan is Scanning.ScanRunner runner)
+        {
+            runner.WriteCameras(w);
+            return;
+        }
+        w.WriteStartArray();
+        w.WriteEndArray();
+    }
+
     /// <summary>STATE.scan (and SCAN STATUS): the scan runner's own row — id from the start, state and stage, progress,
     /// each projector, the suggested regions — or the seam's summary for another scan backend.</summary>
     internal void WriteScanState(Utf8JsonWriter w)

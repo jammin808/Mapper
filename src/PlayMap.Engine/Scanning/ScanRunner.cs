@@ -562,6 +562,19 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             return _views;
     }
 
+    /// <summary>STATE.cameras: the cameras the node shows on views, and why one gives no picture.</summary>
+    public void WriteCameras(Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        if (ViewsOf() is { } views)
+        {
+            views.WriteCameras(w);
+            return;
+        }
+        w.WriteStartArray();
+        w.WriteEndArray();
+    }
+
     /// <summary>The scan takes its camera from the camera's views (they show the scan's frames meanwhile).</summary>
     private Task HoldCameraAsync(Setup setup) => ViewsOf()?.HoldAsync(setup.CameraId) ?? Task.CompletedTask;
 
