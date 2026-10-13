@@ -158,20 +158,26 @@ public sealed class CommandRunner(IWireEndpoint endpoint, ShowWallClock wall, IL
     }
 }
 
-/// <summary>The vocabulary as JSON — VERBS on the wire, <c>GET /api/verbs</c>, the MCP list_verbs tool: one table.</summary>
+/// <summary>The vocabulary as JSON — VERBS on the wire, <c>GET /api/verbs</c>, the MCP list_verbs tool: one table. Node-to-node
+/// verbs are left out; "available" says whether this node answers the row now.</summary>
 public static class VerbJson
 {
-    public static readonly string All = Build();
+    public static readonly string All = Build(VerbAvailability.RoundOne);
 
-    private static string Build() => JsonText.Write(w =>
+    public static string Build(IVerbAvailability availability)
     {
-        w.WriteStartArray();
-        foreach (var v in VerbCatalog.All)
-            Write(w, v);
-        w.WriteEndArray();
-    });
+        ArgumentNullException.ThrowIfNull(availability);
+        return JsonText.Write(w =>
+        {
+            w.WriteStartArray();
+            foreach (var v in VerbCatalog.All)
+                if (!v.Internal)
+                    Write(w, v, availability.IsAvailable(v));
+            w.WriteEndArray();
+        });
+    }
 
-    public static void Write(Utf8JsonWriter w, VerbSpec v)
+    public static void Write(Utf8JsonWriter w, VerbSpec v, bool available)
     {
         ArgumentNullException.ThrowIfNull(w);
         ArgumentNullException.ThrowIfNull(v);
@@ -186,6 +192,25 @@ public static class VerbJson
         foreach (var a in v.Aliases)
             w.WriteStringValue(a);
         w.WriteEndArray();
+        w.WriteString("show", JsonNamingPolicy.CamelCase.ConvertName(v.Show.ToString()));
+        w.WriteStartArray("riskWhen");
+        foreach (var r in v.RiskWhen)
+        {
+            w.WriteStartObject();
+            w.WriteNumber("arg", r.Arg);
+            w.WriteString("word", r.Word);
+            w.WriteString("risk", ShowContext.RiskWord(r.Risk));
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteBoolean("ephemeral", v.Ephemeral);
+        w.WriteBoolean("gesture", v.Gesture);
+        w.WriteBoolean("pairedOnly", v.PairedOnly);
+        w.WriteStartArray("forms");
+        foreach (var f in VerbSyntax.Alternatives(v))
+            w.WriteStringValue(f);
+        w.WriteEndArray();
+        w.WriteBoolean("available", available);
         w.WriteEndObject();
     }
 }
