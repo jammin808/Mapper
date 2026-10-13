@@ -63,6 +63,35 @@ public sealed class RenderHostTests(ITestOutputHelper log)
     }
 
     [Fact]
+    public async Task APlaylistSwitchesToItsNextItemOnTheFirstFrameAfterTheSwitch()
+    {
+        // The same one-second clip twice: the first item ends into the second, which is prepared ahead, so the
+        // first frame after the switch is the second item's frame 0, not the first item's last frame held.
+        var clip = Clips.Counted(1);
+        var media = new MediaItem("md_clip", "Counted", MediaKind.Video, clip, "", new FileInfo(clip).Length,
+            MediaInfo.Unknown with { DurationNs = 1_000_000_000, Width = 64, Height = 48, FrameRate = "25" }, []);
+        var first = PlaylistItem.For("it_a", SourceRef.Media("md_clip"), "A");
+        var second = PlaylistItem.For("it_b", SourceRef.Media("md_clip"), "B") with { End = EndAction.Hold };
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Playlist("pl_show"), 64, 48)) with
+        {
+            Media = [media],
+            Playlists = [new Playlist("pl_show", "Show", [first, second], false, null)],
+        };
+        var files = new MediaFiles();
+        await using var rig = HostRig.Start(project, files);
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Clock.NowNs = 5_000_000_000 + 950_000_000;
+        await rig.ReadUntil("op_1", p => Clips.IndexIn(p, 64) == 23);
+        Assert.Equal(2, files.Opened);
+        await rig.Host.FramesAsync(20).WaitAsync(HostRig.Patience);
+
+        rig.Clock.NowNs = 5_000_000_000 + 1_020_000_000;
+        Assert.Equal(0, Clips.IndexIn(await rig.Read("op_1"), 64));
+        rig.Clock.NowNs = 5_000_000_000 + 1_500_000_000;
+        await rig.ReadUntil("op_1", p => Clips.IndexIn(p, 64) == 12);
+    }
+
+    [Fact]
     public async Task BlackoutWinsAndAPatternCoversOnlyTheOutputItNames()
     {
         var project = HostRig.WithOutputs(HostRig.Screen("op_a", SourceRef.Solid("#0000FF"), 64, 36), HostRig.Screen("op_b", SourceRef.Solid("#00FF00"), 64, 36));
