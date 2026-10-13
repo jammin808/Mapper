@@ -8,8 +8,10 @@ using PlayMap.Engine.Rendering;
 namespace PlayMap.Engine.Tests.Rendering;
 
 /// <summary>BLEND SOLVE through the router, with no GPU: two projectors on a wall share its middle, so each
-/// lands wholly on the stage, about half of each is shared and nothing is in shadow; the maps go out on the
-/// engine's event; an unmoved stage is refused; and outputs that cannot take part say why.</summary>
+/// lands wholly on the stage, about half of each is shared and nothing is in shadow; the verb answers at once and
+/// the solve runs on a worker, one at a time, its progress and outcome in STATE.solve and the journal; the maps go
+/// out on the engine's event once the lane applies them, or are dropped when the stage moved meanwhile; an unmoved
+/// stage is refused; and outputs that cannot take part say why.</summary>
 public sealed class BlendSolveTests
 {
     private static readonly SessionInfo Paired = new("t1", "wire", "10.0.0.9", false, "Test", true);
@@ -41,6 +43,18 @@ public sealed class BlendSolveTests
         return await engine.HandleAsync(parsed, Paired, CancellationToken.None);
     }
 
+    /// <summary>BLEND SOLVE's receipt: accepted, with the solve's id.</summary>
+    private static string Accepted(CommandReply reply)
+    {
+        Assert.True(reply.Ok, reply.Payload);
+        Assert.False(reply.Applied);
+        var receipt = JsonDocument.Parse(reply.Payload!).RootElement;
+        Assert.Equal("accepted", receipt.GetProperty("stage").GetString());
+        return receipt.GetProperty("solve").GetString()!;
+    }
+
+    private static JsonElement SolveRow(EngineCore engine) => JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("solve").Clone();
+
     [Fact]
     public async Task TwoOverlappingProjectorsOnAPlaneGiveSensibleFractions()
     {
@@ -49,11 +63,16 @@ public sealed class BlendSolveTests
         engine.BlendSolved += r => published = r;
 
         var reply = await Run(engine, "BLEND SOLVE");
+        var id = Accepted(reply);
+        Assert.Equal("solving the blend for 2 outputs", reply.Effect);
+        var end = await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.True(reply.Ok, reply.Payload);
-        Assert.Equal("blend solved for 2 outputs", reply.Effect);
-        var root = JsonDocument.Parse(reply.Payload!).RootElement;
-        var outputs = root.GetProperty("outputs").EnumerateArray().ToList();
+        Assert.Equal(("done", id), (end!.State, end.Id));
+        var row = SolveRow(engine);
+        Assert.Equal("blend", row.GetProperty("kind").GetString());
+        Assert.Equal("done", row.GetProperty("state").GetString());
+        Assert.Equal(1, row.GetProperty("progress").GetDouble());
+        var outputs = row.GetProperty("outputs").EnumerateArray().ToList();
         Assert.Equal(2, outputs.Count);
         foreach (var o in outputs)
         {
@@ -68,8 +87,9 @@ public sealed class BlendSolveTests
             Assert.Equal(480, o.GetProperty("mapWidth").GetInt32());
             Assert.False(string.IsNullOrWhiteSpace(o.GetProperty("words").GetString()));
         }
-        Assert.Empty(root.GetProperty("problems").EnumerateArray());
-        Assert.Contains("2 projectors blended in 3D", root.GetProperty("words").GetString(), StringComparison.Ordinal);
+        Assert.Empty(row.GetProperty("problems").EnumerateArray());
+        Assert.Contains("2 projectors blended in 3D", row.GetProperty("words").GetString(), StringComparison.Ordinal);
+        Assert.Contains(engine.Journal.Recent(10), r => r.Ok && r.Text.StartsWith("blend solved for 2 outputs", StringComparison.Ordinal));
 
         Assert.NotNull(published);
         Assert.Same(published, engine.LastBlendSolve);
@@ -84,19 +104,80 @@ public sealed class BlendSolveTests
     public async Task AnUnmovedStageIsRefusedAndAMovedOneSolvesAgain()
     {
         await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), TwoProjectorsOnAWall());
-        Assert.True((await Run(engine, "BLEND SOLVE ALL")).Ok);
+        Accepted(await Run(engine, "BLEND SOLVE ALL"));
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30)))!.State);
         var again = await Run(engine, "BLEND SOLVE");
         Assert.False(again.Ok);
         Assert.StartsWith("the blend is already solved for this stage", again.Payload, StringComparison.Ordinal);
 
-        // A projector changed is a new stage: the solve runs again, and naming one output answers for it alone.
+        // A projector changed is a new stage: the solve runs again; naming one output checks it takes part.
         var set = await Run(engine, "SET pj_right lumens 6000");
         Assert.True(set.Ok, set.Payload);
         var one = await Run(engine, "BLEND SOLVE Right");
-        Assert.True(one.Ok, one.Payload);
-        var outputs = JsonDocument.Parse(one.Payload!).RootElement.GetProperty("outputs").EnumerateArray().ToList();
-        Assert.Equal("op_right", Assert.Single(outputs).GetProperty("id").GetString());
+        Accepted(one);
         Assert.Contains("Right among them", one.Effect, StringComparison.Ordinal);
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30)))!.State);
+        Assert.True(engine.LastBlendSolve!.Inputs.Equals(BlendInputs.Of(engine.Store.Project)));
+    }
+
+    [Fact]
+    public async Task ASolveLeavesTheLaneFreeRunsOneAtATimeAndShowsItsProgress()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), TwoProjectorsOnAWall());
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.BlendSolver = async (inputs, progress, ct) =>
+        {
+            progress.Report(0.5);
+            await release.Task.WaitAsync(ct);
+            return inputs.Solve(engine.Meshes, progress, ct);
+        };
+
+        var id = Accepted(await Run(engine, "BLEND SOLVE"));
+        // The lane answers other verbs while the solve is held open on its worker.
+        Assert.True((await Run(engine, "BLACKOUT ON")).Ok);
+        Assert.True(await OpsRig.Eventually(() => SolveRow(engine).GetProperty("progress").GetDouble() == 0.5));
+        var row = SolveRow(engine);
+        Assert.Equal((id, "running"), (row.GetProperty("id").GetString(), row.GetProperty("state").GetString()));
+        var second = await Run(engine, "BLEND SOLVE");
+        Assert.False(second.Ok);
+        Assert.Contains("already running", second.Payload, StringComparison.Ordinal);
+        Assert.Null(engine.LastBlendSolve);
+
+        release.SetResult();
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30)))!.State);
+        Assert.NotNull(engine.LastBlendSolve);
+    }
+
+    [Fact]
+    public async Task AResultForAStageThatMovedMeanwhileIsDroppedAndSaysSo()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), TwoProjectorsOnAWall());
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var published = 0;
+        engine.BlendSolved += _ => published++;
+        engine.BlendSolver = async (inputs, progress, ct) =>
+        {
+            await release.Task.WaitAsync(ct);
+            return inputs.Solve(engine.Meshes, progress, ct);
+        };
+
+        Accepted(await Run(engine, "BLEND SOLVE"));
+        Assert.True((await Run(engine, "SET pj_right lumens 6000")).Ok);
+        release.SetResult();
+        var end = await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("stale", end!.State);
+        Assert.Contains("the result was dropped", end.Words, StringComparison.Ordinal);
+        Assert.Equal("stale", SolveRow(engine).GetProperty("state").GetString());
+        Assert.Null(engine.LastBlendSolve);
+        Assert.Equal(0, published);
+        Assert.Contains(engine.Journal.Recent(10), r => !r.Ok && r.Text.Contains("the stage changed while the blend was solved", StringComparison.Ordinal));
+
+        // The stage as it is now solves.
+        engine.BlendSolver = null;
+        Accepted(await Run(engine, "BLEND SOLVE"));
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(30)))!.State);
+        Assert.Equal(1, published);
     }
 
     [Fact]

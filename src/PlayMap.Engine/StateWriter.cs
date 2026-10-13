@@ -164,6 +164,9 @@ public static class StateWriter
 
         e.WriteOpsState(w);
 
+        w.WritePropertyName("solve");
+        e.WriteSolveState(w);
+
         w.WriteEndObject();
     }
 

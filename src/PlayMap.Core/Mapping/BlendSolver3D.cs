@@ -100,18 +100,19 @@ public static class BlendSolver3D
     /// <summary>The most projectors one solve weighs together (a pixel's set is a 64-bit mask).</summary>
     public const int MaxProjectors = 64;
 
-    /// <summary>Solves every enabled output in Projector mode against the stage's visible surfaces.</summary>
+    /// <summary>Solves every enabled output in Projector mode against the stage's visible surfaces. Progress (0..1)
+    /// is reported after each projector's pass of each step, on the solving thread.</summary>
     public static BlendSolution Solve(Stage stage, IReadOnlyList<Output> outputs, Func<string, MeshData?> meshes,
-        BlendSolveOptions? options = null, CancellationToken cancellationToken = default)
+        BlendSolveOptions? options = null, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stage);
         var scene = StageScene.Build(stage, meshes);
-        return Solve(scene, stage, outputs, options, cancellationToken);
+        return Solve(scene, stage, outputs, options, progress, cancellationToken);
     }
 
     /// <summary>Solves against a scene already built (the planner keeps one while the stage is unchanged).</summary>
     public static BlendSolution Solve(StageScene scene, Stage stage, IReadOnlyList<Output> outputs,
-        BlendSolveOptions? options = null, CancellationToken cancellationToken = default)
+        BlendSolveOptions? options = null, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(stage);
@@ -147,12 +148,26 @@ public static class BlendSolver3D
             v.Lumens = options.UseLumens ? (v.Projector.Lumens > 0 ? v.Projector.Lumens : meanLumens) / meanLumens : 1;
 
         var po = new ParallelOptions { CancellationToken = cancellationToken };
+        // Three passes over every projector, then the finish: each pass of each projector is one step.
+        var steps = 3 * views.Count + 1;
+        var done = 0;
+        void Step() => progress?.Report(Math.Min(1.0, ++done / (double)steps));
         foreach (var v in views)
+        {
             CastPrimary(v, scene, po);
+            Step();
+        }
         foreach (var v in views)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             BuildEdgeDistance(v, options);
+            Step();
+        }
         foreach (var v in views)
+        {
             Weigh(v, views, scene, options, po);
+            Step();
+        }
 
         // Groups of projectors that overlap anywhere (directly or through a chain) share one black floor and
         // one compensation target.
@@ -194,6 +209,7 @@ public static class BlendSolver3D
         var results = new List<OutputBlend>(views.Count);
         foreach (var v in views)
             results.Add(Finish(v, views, floorTarget[Find(v.Index)], target[Find(v.Index)], brightest[Find(v.Index)], options));
+        Step();
         return new BlendSolution(results, problems, Summary(results, views, problems, options));
     }
 

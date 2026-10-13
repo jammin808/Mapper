@@ -98,7 +98,8 @@ as raw substrings):
  "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
    "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
    "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
-   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}]}
+   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}],
+ "solve":null}
 ```
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
@@ -126,6 +127,12 @@ as raw substrings):
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
   first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
   (`VIEW <view> SHOW scan:<id>:smart|confidence`, `VIEW <view> SHOW camera:<id>`; see Previews).
+- `solve` is the running or last `BLEND SOLVE` (null before the first): `{"id":"bs1","kind":"blend","state":"running",
+  "progress":0.42,"words":"solving the blend for 2 outputs","outputs":[],"problems":[]}`. `state` is running, done,
+  stale (the stage changed while it solved: the result was dropped, nothing installed), failed or cancelled; once
+  done, `outputs` has each output's `covered`, `overlap` and `shadow` fractions, `maxOverlap`, `overlapsWith`, the map's
+  size and words. `BLEND SOLVE` answers at once — `OK {"stage":"accepted","effect":"…","solve":"bs1"}` — and solves on a
+  worker, one at a time (a second is refused while one runs); the outcome lands in the journal and here.
 - `devices` is one row per projector link in the project's order: the link, then what its projector reports
   (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
   `credential` says whether a secret is kept for it — never the secret.

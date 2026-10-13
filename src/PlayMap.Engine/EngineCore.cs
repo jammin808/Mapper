@@ -250,6 +250,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        StopSolving();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
         await Journal.DisposeAsync().ConfigureAwait(false);
