@@ -31,7 +31,7 @@ public sealed record ConversationView(string Id, string Client, bool Busy, strin
 /// service passes a redactor that knows the node's secrets. Built before the engine; the queue exists from the
 /// start (its lines reach the engine once attached), so the host can hand it to its approvals before then.
 /// </summary>
-public sealed class AssistantService : IAsyncDisposable
+public sealed class AssistantService : IAsyncDisposable, IProposalCount
 {
     private readonly ICredentialStore _credentials;
     private readonly AssistantServiceOptions _options;
@@ -66,8 +66,8 @@ public sealed class AssistantService : IAsyncDisposable
     /// <summary>The node's approval list (one per node).</summary>
     public ProposalQueue Queue { get; }
 
-    /// <summary>The queue as Net's approvals take it (<c>HttpHostOptions.Approvals = new SwitchApprovalPolicy(() =>
-    /// aiMayAct, assistant.Approvals)</c>): an MCP assistant's high-risk line waits on this node's list.</summary>
+    /// <summary>The queue as Net's approvals take it (the host's <c>ExtensionSetup.Approvals.Use(assistant.Approvals)</c>):
+    /// an MCP assistant's high-risk line waits on this node's list.</summary>
     public PlayMap.Net.IProposalSink Approvals { get; }
 
     /// <summary>The bus approval desk proposals go to, while one is used.</summary>
@@ -292,13 +292,16 @@ public sealed class AssistantService : IAsyncDisposable
     };
 
     /// <summary>MCP's high-risk lines onto the node's list: the line passes the assistant's gate first (so an unknown
-    /// verb, a connection word or a key in a line is never queued) and waits for a person.</summary>
+    /// verb, a connection word or a key in a line is never queued) and waits for a person. A person's own verbs —
+    /// approving, rejecting, asking the assistant, handing the node a secret — are never an assistant's proposal: they
+    /// are refused, not queued.</summary>
     private sealed class QueueApprovals(AssistantService service) : PlayMap.Net.IProposalSink
     {
         public async ValueTask<string?> ProposeAsync(string line, string reason, VerbRisk risk, CancellationToken ct)
         {
             var check = CommandGate.Check(line, service._engine?.Store.Project);
-            if (!check.Ok || check.Spec is null)
+            if (!check.Ok || check.Spec is null || check.Spec.Category == VerbCategory.Assistant
+                || check.Spec.Name.StartsWith("CREDENTIAL ", StringComparison.Ordinal))
                 return null;
             var batch = "mcp/" + Interlocked.Increment(ref service._mcpBatches).ToString(CultureInfo.InvariantCulture);
             var proposal = await service.Queue.EnqueueAsync(

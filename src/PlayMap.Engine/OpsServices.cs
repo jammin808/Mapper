@@ -5,8 +5,9 @@ namespace PlayMap.Engine;
 /// <summary>
 /// Attaches the operations services an engine was built with — the scan runner (<see cref="EngineServices.Scan"/>
 /// when it is a <see cref="ScanRunner"/>), projector control (<see cref="EngineServices.Devices"/>) and the
-/// assistant (<see cref="EngineServices.Assistant"/>) — to the engine, once it exists. The host's extension hook
-/// is this one call; the value it returns owns them: disposing it detaches each and disposes it.
+/// assistant (<see cref="EngineServices.Assistant"/>) — to an engine built without the host (tests, a bare core);
+/// the host attaches them through <see cref="OpsParts"/>. The value it returns owns them: disposing it detaches
+/// each and disposes it.
 /// </summary>
 public static class OpsServices
 {

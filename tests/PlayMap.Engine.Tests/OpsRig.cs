@@ -55,7 +55,7 @@ internal sealed class OpsRig : IAsyncDisposable
             ProjectFolder = Folder,
             JournalPath = Path.Combine(Folder, "journal.jsonl"),
         };
-        Engine = new EngineCore(services with { Devices = Devices, Assistant = Assistant }, project);
+        Engine = new EngineCore(services with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
         _ops = OpsServices.Attach(Engine);
     }
 
