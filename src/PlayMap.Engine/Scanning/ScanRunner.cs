@@ -232,11 +232,12 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         _view = view;
         _current = new ScanProgress(view.State, view.ProjectorId, view.Pattern, view.Patterns, Math.Round(view.Quality * 100, 1),
             view.Message.Length > 0 ? view.Message : view.Stage);
-        Progressed?.Invoke(view);
+        // The node's facts move first, so whoever hears of this step and reads STATE reads this step.
         EngineCore? engine;
         lock (_gate)
             engine = _engine;
         engine?.FactsChanged();
+        Progressed?.Invoke(view);
     }
 
     /// <summary>One projector of a scan: the model's projector, the output it is scanned through (none when

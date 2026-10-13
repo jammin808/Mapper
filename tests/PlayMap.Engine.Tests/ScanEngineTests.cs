@@ -119,6 +119,43 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task EveryScanStepIsAlreadyInStateWhenItIsHeard()
+    {
+        var rig = new OpsRig(project: TwoProjectors());
+        try
+        {
+            var heard = 0;
+            var stale = new List<string>();
+            // A pushing transport recomputes STATE the moment the node says it changed, as the wire and the web do.
+            rig.Engine.StateChanged += _ => rig.Engine.State();
+            rig.Scanner.Progressed += v =>
+            {
+                // A listener that reads STATE on hearing a step must read that step, never the one before it.
+                var row = rig.State().GetProperty("scan");
+                lock (stale)
+                {
+                    heard++;
+                    if (row.ValueKind != JsonValueKind.Object || row.GetProperty("stage").GetString() != v.Stage
+                        || row.GetProperty("pattern").GetInt32() != v.Pattern || row.GetProperty("progress").GetDouble() != v.Progress)
+                        stale.Add($"{v.Stage} {v.Pattern}/{v.Patterns} heard, STATE said {row}");
+                }
+            };
+            Assert.True((await rig.Run("SCAN START sim MODE FAST")).Ok);
+            Assert.True(await OpsRig.Eventually(() => rig.Scanner.Current?.State is "done" or "failed" or "cancelled", 120_000), "the scan never ended");
+            lock (stale)
+            {
+                Assert.True(heard > 10, $"{heard} steps heard");
+                Assert.Empty(stale);
+            }
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
     public async Task ASimulatedScanRunsThroughTheVerbsAndAppliesWithinToleranceOfTheTruth()
     {
         var rig = new OpsRig(project: TwoProjectors());
