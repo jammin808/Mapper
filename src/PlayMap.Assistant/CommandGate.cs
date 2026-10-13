@@ -60,7 +60,7 @@ public static class CommandGate
             return LineCheck.Refused(normalised, why);
         if (project is not null && FirstUnknownId(project, parsed, verbWords) is { } unknown)
             return LineCheck.Refused(normalised, $"no entity '{unknown}' in the project — look ids up (get_project, get_entity) rather than writing them");
-        return new LineCheck(true, normalised, parsed, spec, spec.Risk, "", VerbCatalog.HoldsSecret(parsed));
+        return new LineCheck(true, normalised, parsed, spec, VerbCatalog.RiskOf(parsed), "", VerbCatalog.HoldsSecret(parsed));
     }
 
     /// <summary>The words the verb's syntax requires (those before its first optional part) are present, and

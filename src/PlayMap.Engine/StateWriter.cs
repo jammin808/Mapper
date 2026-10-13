@@ -160,6 +160,16 @@ public static class StateWriter
         w.WriteBoolean("mcp", s.Ai?.Mcp ?? false);
         w.WriteNumber("clients", s.Ai?.Clients ?? 0);
         w.WriteNumber("proposals", s.Proposals?.Waiting ?? 0);
+        // The assistant's settings in force and whether its key is set (never the key); null on a node without one.
+        if (s.Assistant is { } assistant)
+        {
+            w.WritePropertyName("assistant");
+            EngineCore.WriteAssistantStatus(w, assistant);
+        }
+        else
+        {
+            w.WriteNull("assistant");
+        }
         w.WriteEndObject();
 
         e.WriteOpsState(w);

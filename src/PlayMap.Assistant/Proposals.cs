@@ -145,8 +145,10 @@ public sealed class ProposalQueue
         lock (_gate)
         {
             _next++;
+            // The line's own risk: some words make a verb's line high (ASSISTANT SET enabled).
+            var risk = WireGrammar.TryParse(draft.Line, out var parsed, out _) ? VerbCatalog.RiskOf(parsed) : draft.Spec.Risk;
             proposal = new Proposal("ap" + _next.ToString(System.Globalization.CultureInfo.InvariantCulture), draft.Line, draft.Spec.Name,
-                draft.Spec.Risk, draft.Reason, draft.From, draft.SessionId, draft.Batch, draft.Order, Now(), ProposalState.Pending);
+                risk, draft.Reason, draft.From, draft.SessionId, draft.Batch, draft.Order, Now(), ProposalState.Pending);
             _items.Add(proposal);
         }
         Raise(proposal);

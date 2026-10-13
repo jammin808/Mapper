@@ -94,7 +94,8 @@ as raw substrings):
  "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","cpuPct":12,"memMb":840,"gcPauseMsMax":0.4},
  "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false},
  "faults":[],
- "ai":{"mcp":true,"clients":1,"proposals":0},
+ "ai":{"mcp":true,"clients":1,"proposals":0,"assistant":{"enabled":true,"provider":"claude","model":"…","effort":"medium",
+   "baseUrl":"","runLowWithoutAsking":true,"runReviewWithoutAsking":false,"keySet":true,"kept":true}},
  "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
    "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
    "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
@@ -125,7 +126,8 @@ as raw substrings):
   recovery record. Each is also a red item in the context. A node starts while at least one of the wire and the web
   port listens.
 - `ai` is the assistant's door: `mcp` (served at `/mcp`), `clients` (MCP clients heard in the last minute and open
-  WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant).
+  WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant), and `assistant` — its settings
+  in force as `ASSISTANT STATUS` answers them (null on a node without one).
 
 - `scan` is the running or last scan (null before the first): its id from SCAN START's receipt on
   (`OK {"stage":"accepted","effect":"…","scan":"sc…"}`), `state` starting / running / done / failed / cancelled,
@@ -176,6 +178,12 @@ as raw substrings):
   journalled and never repeated in a reply.
 - The assistant's settings are the node's own, in `playmap.assistant.json` beside its settings (provider, model,
   effort, the low- and review-risk switches); with no file the assistant is off. Its key is never in that file.
+  `ASSISTANT STATUS` answers them with `keySet` (whether a key is kept — never the key) and `kept` (whether a change
+  is written to the file). `ASSISTANT SET enabled|provider|model|effort|baseUrl|runLowWithoutAsking|runReviewWithoutAsking
+  <value>` changes one: high risk for `enabled` and `provider`, review for the rest; from this machine or its paired
+  desk only, never from an assistant, MCP or an approval; written to the file first, then in force at once (the
+  provider is made again and conversations start over). A value that changes nothing is refused. The key goes only
+  through `CREDENTIAL SET assistant …`.
 - `ASK <words>` runs one request of the client's conversation with the node's assistant and answers with its words
   and every line it ran or queued (`{"conversation","outcome","text","status","lines":[…],"queued":["ap1"]}`).
   `PROPOSALS [ALL]` lists what waits; `APPROVE <proposal>` runs the line through the node's own path and answers

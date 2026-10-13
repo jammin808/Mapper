@@ -24,6 +24,10 @@ public sealed partial class EngineCore
                 return await ApproveAsync(assistant, args, session, ct).ConfigureAwait(false);
             case "REJECT":
                 return Reject(assistant, args, session);
+            case "ASSISTANT STATUS":
+                return CommandReply.Success(AssistantStatusJson(assistant));
+            case "ASSISTANT SET":
+                return SetAssistant(assistant, args, session);
             default:
                 return CommandReply.Fail($"{spec.Name} is not available on this node yet");
         }
@@ -128,6 +132,116 @@ public sealed partial class EngineCore
         {
             return CommandReply.Fail(ex.Message);
         }
+    }
+
+    /// <summary>ASSISTANT STATUS (and STATE.ai.assistant): the settings in force and whether a key is set — never the key.</summary>
+    private static string AssistantStatusJson(AssistantService assistant) => JsonOut(w => WriteAssistantStatus(w, assistant));
+
+    internal static void WriteAssistantStatus(Utf8JsonWriter w, AssistantService assistant)
+    {
+        var s = assistant.Settings;
+        w.WriteStartObject();
+        w.WriteBoolean("enabled", s.Enabled);
+        w.WriteString("provider", JsonNamingPolicy.CamelCase.ConvertName(s.Provider.ToString()));
+        w.WriteString("model", s.Model);
+        w.WriteString("effort", s.Effort.ToString().ToLowerInvariant());
+        w.WriteString("baseUrl", s.BaseUrl);
+        w.WriteBoolean("runLowWithoutAsking", s.RunLowWithoutAsking);
+        w.WriteBoolean("runReviewWithoutAsking", s.RunReviewWithoutAsking);
+        w.WriteBoolean("keySet", assistant.KeySet);
+        w.WriteBoolean("kept", assistant.Persists);
+        w.WriteEndObject();
+    }
+
+    /// <summary>ASSISTANT SET &lt;field&gt; &lt;value&gt;: one setting, from a person on this machine or the node's paired desk
+    /// — never an assistant, an MCP client or an approval of one (an assistant does not set its own leash). A value
+    /// that changes nothing is refused; the setting is kept before it is put in force.</summary>
+    private static CommandReply SetAssistant(AssistantService assistant, List<string> args, SessionInfo session)
+    {
+        const string Syntax = "ASSISTANT SET enabled|provider|model|effort|baseUrl|runLowWithoutAsking|runReviewWithoutAsking <value>";
+        if (IsAssistantTransport(session))
+            return CommandReply.Fail("an assistant never changes its own settings — a person does, at the node or its paired desk");
+        if (!session.IsLoopback && session.Transport != "desk")
+            return CommandReply.Fail("the assistant's settings are set from this machine or its paired desk only");
+        if (args.Count != 2)
+            return CommandReply.Fail(Syntax);
+        var s = assistant.Settings;
+        var value = args[1];
+        AssistantSettings next;
+        string words;
+        switch (args[0].ToUpperInvariant())
+        {
+            case "ENABLED":
+                if (!TrySwitch(value, out var on))
+                    return CommandReply.Fail("enabled takes on or off");
+                next = s with { Enabled = on };
+                words = on ? "the assistant is on" : "the assistant is off";
+                break;
+            case "PROVIDER":
+                AssistantProviderKind? kind = value.ToUpperInvariant() switch
+                {
+                    "CLAUDE" => AssistantProviderKind.Claude,
+                    "OPENAICOMPATIBLE" or "LOCAL" => AssistantProviderKind.OpenAiCompatible,
+                    "NONE" => AssistantProviderKind.None,
+                    _ => null,
+                };
+                if (kind is not { } k)
+                    return CommandReply.Fail("provider is claude, openAiCompatible (a local model) or none");
+                // A provider's model names are its own: the default model goes with Claude, a local one is named next.
+                next = s with { Provider = k, Model = k == AssistantProviderKind.Claude && s.Provider != k ? AssistantSettings.DefaultClaudeModel : s.Model };
+                words = $"the assistant's provider is {JsonNamingPolicy.CamelCase.ConvertName(k.ToString())}";
+                break;
+            case "MODEL":
+                if (value.Length is 0 or > 200)
+                    return CommandReply.Fail("model is the model's name as its provider knows it (1 to 200 characters)");
+                next = s with { Model = value };
+                words = $"the assistant's model is {value}";
+                break;
+            case "EFFORT":
+                if (!Enum.TryParse<AssistantEffort>(value, ignoreCase: true, out var effort) || !Enum.IsDefined(effort) || int.TryParse(value, out _))
+                    return CommandReply.Fail("effort is low, medium, high, xhigh or max");
+                next = s with { Effort = effort };
+                words = $"the assistant's effort is {effort.ToString().ToLowerInvariant()}";
+                break;
+            case "BASEURL":
+                var url = value.Length == 0 || value == "-" ? "" : value;
+                if (url.Length > 0 && (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")))
+                    return CommandReply.Fail("baseUrl is an http(s) address, or \"\" for the provider's own");
+                next = s with { BaseUrl = url };
+                words = url.Length > 0 ? $"the assistant's endpoint is {url}" : "the assistant uses its provider's own endpoint";
+                break;
+            case "RUNLOWWITHOUTASKING":
+                if (!TrySwitch(value, out var low))
+                    return CommandReply.Fail("runLowWithoutAsking takes on or off");
+                next = s with { RunLowWithoutAsking = low };
+                words = low ? "low-risk lines run on the assistant's word" : "low-risk lines wait for a person";
+                break;
+            case "RUNREVIEWWITHOUTASKING":
+                if (!TrySwitch(value, out var review))
+                    return CommandReply.Fail("runReviewWithoutAsking takes on or off");
+                next = s with { RunReviewWithoutAsking = review };
+                words = review ? "review lines run on the assistant's word" : "review lines wait for a person";
+                break;
+            default:
+                return CommandReply.Fail(Syntax);
+        }
+        if (next.Normalised() == s)
+            return CommandReply.Fail($"already so — {words}");
+        try
+        {
+            assistant.ApplySettings(next);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return CommandReply.Fail($"the setting could not be kept ({ex.Message}) — nothing changed");
+        }
+        return CommandReply.Success(AssistantStatusJson(assistant), assistant.Persists ? words : words + " (until the node stops: it keeps no settings file)");
+    }
+
+    private static bool TrySwitch(string word, out bool on)
+    {
+        on = word.ToUpperInvariant() is "ON" or "TRUE" or "1" or "YES";
+        return on || word.ToUpperInvariant() is "OFF" or "FALSE" or "0" or "NO";
     }
 
     private static string Who(SessionInfo session) =>

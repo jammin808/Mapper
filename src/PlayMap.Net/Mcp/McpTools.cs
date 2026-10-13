@@ -105,7 +105,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         var verb = VerbCatalog.Match(line)?.Spec;
         // A line carrying its verb's secret words is decided like a high-risk one: an assistant's token never
         // runs on its own word while "AI may act" is off.
-        if ((verb?.Risk ?? VerbRisk.High) == VerbRisk.High || VerbCatalog.HoldsSecret(line))
+        if (VerbCatalog.RiskOf(line) == VerbRisk.High || VerbCatalog.HoldsSecret(line))
         {
             var verdict = await policy.DecideAsync(verb, line.Raw, reason, ct);
             switch (verdict.Decision)

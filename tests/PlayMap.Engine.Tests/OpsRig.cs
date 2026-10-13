@@ -40,8 +40,11 @@ internal sealed class OpsRig : IAsyncDisposable
             Timings = DriverTimings.Fast,
             Manager = new DeviceManagerOptions { TickMs = 50 },
         });
+        Home = new NodeHome(Folder);
+        var home = Home;
         Assistant = new AssistantService(Credentials, assistant ?? new AssistantSettings { Enabled = true }, new AssistantServiceOptions
         {
+            Save = s => AssistantSettingsFile.Save(home, s),
             Providers = (_, key) =>
             {
                 Model.KeySeen = key;
@@ -63,6 +66,9 @@ internal sealed class OpsRig : IAsyncDisposable
     }
 
     public string Folder { get; }
+
+    /// <summary>The node's folder as the host has it: the assistant's settings file is kept here.</summary>
+    public NodeHome Home { get; }
 
     public NodeCredentialStore Credentials { get; }
 

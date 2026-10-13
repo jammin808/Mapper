@@ -44,6 +44,10 @@ public sealed record VerbSpec(
     /// <summary>The word index from which a line of this verb carries a secret (a token, a key, a password),
     /// or null. Everything from there on is kept out of journals, logs and records.</summary>
     public int? SecretFrom { get; init; }
+
+    /// <summary>First words after the verb that make a line of it high risk whatever <see cref="Risk"/> says (an
+    /// ASSISTANT SET of "enabled" or "provider"); compared upper-cased. Empty: the verb's risk is every line's.</summary>
+    public IReadOnlyList<string> HighFor { get; init; } = [];
 }
 
 /// <summary>The vocabulary. Patterns' clip verbs (VIDEO, with VT and CLIP as aliases) mean exactly what they
@@ -186,6 +190,10 @@ public static class VerbCatalog
         V("PROPOSALS", "PROPOSALS [ALL]", "The assistant's lines waiting for a person (ALL: every proposal and how it ended)", VerbCategory.Assistant, VerbRisk.Low, false),
         V("APPROVE", "APPROVE <proposal>", "A person approves a proposal: its line runs through the node's own checks", VerbCategory.Assistant, VerbRisk.High, true),
         V("REJECT", "REJECT <proposal> [<why>]", "A person rejects a proposal: it never runs", VerbCategory.Assistant, VerbRisk.Review, true),
+        V("ASSISTANT STATUS", "ASSISTANT STATUS", "The assistant's settings: on or off, provider, model, effort, endpoint, what runs without asking, and whether a key is set (never the key)", VerbCategory.Assistant, VerbRisk.Low, false),
+        V("ASSISTANT SET", "ASSISTANT SET enabled|provider|model|effort|baseUrl|runLowWithoutAsking|runReviewWithoutAsking <value>",
+            "Changes one of the assistant's settings, kept in the node's playmap.assistant.json and applied at once; from this machine or its paired desk only, never by an assistant. The key goes through CREDENTIAL SET assistant",
+            VerbCategory.Assistant, VerbRisk.Review, true) with { HighFor = ["ENABLED", "PROVIDER"] },
     ];
 
     private static readonly FrozenDictionary<string, VerbSpec> ByName = BuildIndex();
@@ -221,6 +229,20 @@ public static class VerbCatalog
     /// line names no verb, so it has no secret words, and is shown as it came.</summary>
     public static string Redacted(string text) =>
         WireGrammar.TryParse(text ?? "", out var line, out _) ? Redacted(line) : text ?? "";
+
+    /// <summary>A line's risk: its verb's, raised to high by the words that make it so (<see cref="VerbSpec.HighFor"/>);
+    /// high for a line no verb names.</summary>
+    public static VerbRisk RiskOf(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (Match(line) is not { } m)
+            return VerbRisk.High;
+        var first = line.WordUpper(m.Words);
+        foreach (var high in m.Spec.HighFor)
+            if (string.Equals(high, first, StringComparison.Ordinal))
+                return VerbRisk.High;
+        return m.Spec.Risk;
+    }
 
     /// <summary>True when a line carries a verb's secret words (a token, a key, a password).</summary>
     public static bool HoldsSecret(WireLine line)
