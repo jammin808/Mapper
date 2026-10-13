@@ -24,4 +24,11 @@
     <ProjectReference Include="..\..\src\PlayMap.Engine\PlayMap.Engine.csproj" />
   </ItemGroup>
 
+  <!-- The Devices module's PJLink projector simulator, shared rather than copied: the DEVICE verbs are tested against
+       the same simulated projector the drivers are. -->
+  <ItemGroup>
+    <Compile Include="..\PlayMap.Devices.Tests\Simulators\FakeTcpServer.cs" Link="Simulators\FakeTcpServer.cs" />
+    <Compile Include="..\PlayMap.Devices.Tests\Simulators\PjLinkSimulator.cs" Link="Simulators\PjLinkSimulator.cs" />
+  </ItemGroup>
+
 </Project>
