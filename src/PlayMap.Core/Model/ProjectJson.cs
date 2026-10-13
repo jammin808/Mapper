@@ -61,31 +61,65 @@ public static class ProjectJson
     public static string Serialize(Project project) => JsonSerializer.Serialize(project, Options);
 
     public static Project Deserialize(string json) =>
-        Sanitize(Read<Project>(JsonNode.Parse(json, NodeOptions, DocumentOptions)) ?? throw new JsonException("The file holds no project."));
+        Sanitize(Read<Project>(ParseTree(json), refuseNulls: false) ?? throw new JsonException("The file holds no project."));
 
     public static string SerializeEntity<T>(T entity, bool indented = false) =>
         JsonSerializer.Serialize(entity, indented ? Options : Compact);
 
     public static T DeserializeEntity<T>(string json) =>
-        Sanitize(Read<T>(JsonNode.Parse(json, NodeOptions, DocumentOptions)) ?? throw new JsonException("No value."));
+        Sanitize(Read<T>(ParseTree(json), refuseNulls: false) ?? throw new JsonException("No value."));
 
     private static readonly JsonNodeOptions NodeOptions = new() { PropertyNameCaseInsensitive = true };
 
     private static readonly JsonDocumentOptions DocumentOptions = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
+    /// <summary>A JSON text as a tree, read as the model reader reads text: comments and trailing commas are allowed, keys match
+    /// in any case, and a key given twice keeps its last value. A malformed text throws <see cref="JsonException"/>.</summary>
+    public static JsonNode? ParseTree(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        return Copy(JsonElement.Parse(json, DocumentOptions));
+    }
+
+    private static JsonNode? Copy(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var obj = new JsonObject(NodeOptions);
+                foreach (var prop in element.EnumerateObject())
+                {
+                    obj.Remove(prop.Name);
+                    obj[prop.Name] = Copy(prop.Value);
+                }
+                return obj;
+            case JsonValueKind.Array:
+                var list = new JsonArray(NodeOptions);
+                foreach (var item in element.EnumerateArray())
+                    list.Add(Copy(item));
+                return list;
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+                return null;
+            default:
+                return JsonValue.Create(element, NodeOptions);
+        }
+    }
+
     /// <summary>The model read from a JSON tree, after <see cref="DropNullScalars"/>.</summary>
-    private static T? Read<T>(JsonNode? node)
+    private static T? Read<T>(JsonNode? node, bool refuseNulls)
     {
         if (node is null)
             return default;
-        DropNullScalars(node, Options.GetTypeInfo(typeof(T)));
+        DropNullScalars(node, Options.GetTypeInfo(typeof(T)), refuseNulls);
         return node.Deserialize<T>(Options);
     }
 
     /// <summary>A null for a property set after construction whose type cannot hold one (a number, a flag, an enum, a
-    /// non-nullable string) is dropped from the tree, so the property keeps its declared default; a null for a constructor
-    /// parameter is left for the reader to refuse.</summary>
-    private static void DropNullScalars(JsonNode node, JsonTypeInfo info)
+    /// non-nullable string) is dropped from the tree, so the property keeps its declared default — or, for an edit
+    /// (<paramref name="refuseNulls"/>), refused with the field's name; a null for a constructor parameter is left for the
+    /// reader to refuse.</summary>
+    private static void DropNullScalars(JsonNode node, JsonTypeInfo info, bool refuseNulls)
     {
         switch (info.Kind)
         {
@@ -95,22 +129,26 @@ public static class ProjectJson
                     if (!obj.TryGetPropertyValue(prop.Name, out var value))
                         continue;
                     if (value is not null)
-                        DropNullScalars(value, Options.GetTypeInfo(prop.PropertyType));
+                        DropNullScalars(value, Options.GetTypeInfo(prop.PropertyType), refuseNulls);
                     else if (prop.AssociatedParameter is null && CannotHoldNull(prop))
+                    {
+                        if (refuseNulls)
+                            throw new EditRefusedException($"'{prop.Name}' does not take null");
                         obj.Remove(prop.Name);
+                    }
                 }
                 break;
             case JsonTypeInfoKind.Enumerable when node is JsonArray list && info.ElementType is { } elementType:
                 var element = Options.GetTypeInfo(elementType);
                 foreach (var item in list)
                     if (item is not null)
-                        DropNullScalars(item, element);
+                        DropNullScalars(item, element, refuseNulls);
                 break;
             case JsonTypeInfoKind.Dictionary when node is JsonObject map && info.ElementType is { } valueType:
                 var entry = Options.GetTypeInfo(valueType);
                 foreach (var (_, item) in map)
                     if (item is not null)
-                        DropNullScalars(item, entry);
+                        DropNullScalars(item, entry, refuseNulls);
                 break;
         }
     }
@@ -128,7 +166,7 @@ public static class ProjectJson
         JsonNode? value;
         try
         {
-            value = JsonNode.Parse(jsonValue);
+            value = ParseTree(jsonValue);
         }
         catch (JsonException)
         {
@@ -155,7 +193,7 @@ public static class ProjectJson
         }
         try
         {
-            return Sanitize(Read<T>(root) ?? throw new EditRefusedException("The value made nothing."));
+            return Sanitize(Read<T>(root, refuseNulls: true) ?? throw new EditRefusedException("The value made nothing."));
         }
         catch (JsonException ex)
         {

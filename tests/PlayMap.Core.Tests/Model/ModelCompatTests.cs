@@ -86,6 +86,39 @@ public sealed class ModelCompatTests
     }
 
     [Fact]
+    public void AKeyGivenTwiceOrInAnotherCaseKeepsItsLastValue()
+    {
+        var text = ProjectJson.Serialize(Project.CreateDefault("A"));
+        var twice = text.Replace("\"name\": \"A\"", "\"name\": \"A\", \"name\": \"B\"", StringComparison.Ordinal);
+        var cased = text.Replace("\"name\": \"A\"", "\"name\": \"A\", \"Name\": \"C\"", StringComparison.Ordinal);
+        Assert.NotEqual(text, twice);
+
+        Assert.Equal("B", ProjectJson.Deserialize(twice).Name);
+        Assert.Equal("C", ProjectJson.Deserialize(cased).Name);
+        Assert.Equal(2, ProjectJson.DeserializeEntity<ShowRules>("{\"minGoMsArmed\":1, /* the later wins */ \"MinGoMsArmed\":2,}").MinGoMsArmed);
+        var output = Project.CreateDefault().Outputs[0];
+        Assert.Equal(7, ProjectJson.SetPath(output, "plan", "{\"x\":1,\"y\":0,\"w\":10,\"h\":10,\"X\":7}").Plan.X);
+    }
+
+    [Fact]
+    public void ASetOfNullIsRefusedForAFieldThatCannotHoldIt()
+    {
+        var slot = new FxSlot("fx0a0b0c01", "fx.blur", "Soft", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0);
+        var output = Project.CreateDefault().Outputs[0] with { LatencyMs = 40, CalibrationId = "cs0a0b0c01", Fx = new FxChain([slot]) };
+        var chain = "{\"slots\":[" + ProjectJson.SerializeEntity(slot).Replace("\"bindings\":[]", "\"bindings\":null", StringComparison.Ordinal) + "]}";
+
+        var latency = Assert.Throws<EditRefusedException>(() => ProjectJson.SetPath(output, "latencyMs", "null"));
+        var nested = Assert.Throws<EditRefusedException>(() => ProjectJson.SetPath(output, "fx", chain));
+
+        Assert.Equal("'latencyMs' does not take null", latency.Message);
+        Assert.Equal("'bindings' does not take null", nested.Message);
+        Assert.Null(ProjectJson.SetPath(output, "calibrationId", "null").CalibrationId);
+        Assert.Same(FxChain.Empty, ProjectJson.SetPath(output, "fx", "null").Fx);
+        // A file reads the same null as the field's own default.
+        Assert.Equal(0, ProjectJson.DeserializeEntity<Output>(ProjectJson.SerializeEntity(output).Replace("\"latencyMs\":40", "\"latencyMs\":null", StringComparison.Ordinal)).LatencyMs);
+    }
+
+    [Fact]
     public void EveryNewEntityKindRoundTripsThroughTheFile()
     {
         var p = RoundTwoSample.Build();
