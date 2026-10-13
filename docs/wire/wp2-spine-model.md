@@ -13,9 +13,10 @@ owns it routes it, and no STATE key is written.
   outputs). `schema` stays 1.
 - A file written before round 2 loads unchanged and re-saves with every new key (`tests/fixtures/projects/round1.playmap.json`
   is such a file, written by the first round's own code).
-- A `null` read where a nested record belongs reads as that record's `Default`, `Empty`, `None` or `Auto`; a `null` for a number,
-  a flag, an enum or a non-nullable string that is set after construction reads as its declared default. A field declared
-  nullable keeps its `null`.
+- A `null` read where a nested record belongs reads as that record's `Default`, `Empty`, `None` or `Auto`; a `null` in a file for
+  a number, a flag, an enum or a non-nullable string that is set after construction reads as its declared default, while `SET`
+  refuses it ("'latencyMs' does not take null"). A field declared nullable keeps its `null`. A key given twice, or in another
+  case, keeps its last value, in a file, a `SET` value and an `ADD`'s JSON alike.
 - A projector's solve priors name the throw ratio `throw` and its uncertainty `throwSigmaPct` (`throwRatio` is a lens's derived
   value and is never stored).
 - New id prefixes: `ct` `bd` `tc` `sd` `fx` `fa` `gp` `ln` `lf` `lt` `mv` `cp` `sv` `sk` `al` `cs` `fm`; node-local runtime ids
@@ -30,16 +31,19 @@ the verb: `fxasset` "use FX IMPORT", `generatorpreset` "use GENERATOR SAVE", `su
 `calibration` "calibration results are made by solves", `version` "use MEDIA OPTIMISE", `fleetmember` "use FLEET BACKUP on the
 backup". A calibration result takes `SET` of `name` and `pinned` only ("a calibration result is never edited — CALIBRATION
 RECALL makes a new one"). `REMOVE` refuses an entity something still names (a ledger result, a played version, a stack's
-projector, an LED type or node, a chased timecode source, a surveyed control point). A new send and a new LED node start off.
+projector, a quad's projector, an align group's camera, canvas or outputs, an LED fixture's type, node, space or viewpoint, a send's
+tap, a generator's input, a live input's fallback, a panic plan's safe look, a chased timecode source, a surveyed control point). A new send and a new LED node start off.
 
 ## The verb table
 
-- Every row has a show class (`VERBS` field `show`), the round it belongs to, and the flags `ephemeral`, `gesture`,
-  `pairedOnly` and `internal`. Internal (node-to-node) rows are left out of `VERBS`, HELP and the context's commands.
+- Every row has a show class (`VERBS` field `show`), per-word risk rules (`riskWhen`), the round it belongs to (read through
+  `available`), and the flags `ephemeral`, `gesture`, `pairedOnly` and `internal`. Internal (node-to-node) rows are left out of
+  `VERBS`, HELP's list and the context's commands.
 - A row's syntax is one or more forms separated by a top-level ` | `; each form starts with the verb's name (`VERBS` field
   `forms`). The assistant's gate passes a line that fits any form and, when none fits, says what the closest form lacks.
 - A line's risk: its row's, set by the first matching per-word rule (`riskWhen`), raised to high by `HighFor`, and at least the
-  risk of a line the verb carries (`BIND ADD … TO <line>`, `BIND LEARN [FROM x] <line>`, or a JSON `"target"`). A per-word rule
+  risk of every line the verb could be read to carry (the words after each `TO` of `BIND ADD … TO <line>`, `BIND LEARN [FROM x]
+  <line>`, every JSON `"target"` in any case; a JSON argument no reader takes is high). A per-word rule
   never lowers a line of class air, transport, panic or device power, and every air or panic row is high. A line no verb names
   is high.
 - `available` is true for the first round's rows; a round-2 row becomes available when its owner routes it.
