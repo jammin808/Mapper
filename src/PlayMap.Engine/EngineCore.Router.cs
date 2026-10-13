@@ -151,7 +151,7 @@ public sealed partial class EngineCore
         if (args.Count == 0)
         {
             var sb = new StringBuilder();
-            foreach (var group in VerbCatalog.All.GroupBy(v => v.Category))
+            foreach (var group in VerbCatalog.All.Where(v => !v.Internal).GroupBy(v => v.Category))
                 sb.Append(group.Key).Append(": ").Append(string.Join(", ", group.Select(v => v.Name))).Append(". ");
             return CommandReply.Success(sb.ToString().Trim());
         }
@@ -161,26 +161,7 @@ public sealed partial class EngineCore
             : CommandReply.Success($"{spec.Syntax} — {spec.Words} (risk {spec.Risk.ToString().ToLowerInvariant()})");
     }
 
-    private static string VerbsJson() => JsonOut(w =>
-    {
-        w.WriteStartArray();
-        foreach (var v in VerbCatalog.All)
-        {
-            w.WriteStartObject();
-            w.WriteString("name", v.Name);
-            w.WriteString("syntax", v.Syntax);
-            w.WriteString("words", v.Words);
-            w.WriteString("category", v.Category.ToString().ToLowerInvariant());
-            w.WriteString("risk", v.Risk.ToString().ToLowerInvariant());
-            w.WriteBoolean("mutates", v.Mutates);
-            w.WriteStartArray("aliases");
-            foreach (var a in v.Aliases)
-                w.WriteStringValue(a);
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        w.WriteEndArray();
-    });
+    private static string VerbsJson() => Net.Commands.VerbJson.All;
 
     private CommandReply NetworkAction(List<string> args, int needed, string syntax, Func<INetworkControl, List<string>, Task<string>> action)
     {

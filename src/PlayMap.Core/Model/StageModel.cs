@@ -147,11 +147,25 @@ public sealed record Surface(
     /// <summary>The colour the surface is drawn in the editor (#RRGGBB).</summary>
     string Color,
     /// <summary>Labels from recognition ("wall", "door", "column") and the operator.</summary>
-    ImmutableArray<string> Tags) : IEntity;
+    ImmutableArray<string> Tags) : IEntity
+{
+    /// <summary>Effects on the surface's picture (wp2-fx).</summary>
+    public FxChain Fx { get; init; } = FxChain.Empty;
+
+    /// <summary>Modulation of opacity (wp2-audio).</summary>
+    public ImmutableArray<ParamBinding> Bindings { get; init; } = [];
+
+    /// <summary>Set: a quad drawn in one projector's raster (MeshId "", Transform and Faces unused) (wp2-wall).</summary>
+    public PixelQuad? Pixel { get; init; }
+}
 
 /// <summary>A calibration pin: a point of the world (picked on a mesh) and the projector pixel that must
 /// light it (dragged onto the real feature). Six or more spread, non-coplanar pins solve a projector.</summary>
-public sealed record CalibrationPin(string Id, Vec3d World, Vec2d Pixel, bool Enabled) : IEntity;
+public sealed record CalibrationPin(string Id, Vec3d World, Vec2d Pixel, bool Enabled) : IEntity
+{
+    /// <summary>The surveyed control point this pin's world point comes from; "" = picked on a mesh (wp2-facade).</summary>
+    public string ControlId { get; init; } = "";
+}
 
 /// <summary>What a pose solve may not change: measured lens shift and zoom are locked, as the field
 /// advises, because spec-sheet values ruin solves and a solver that fits them chases noise.</summary>
@@ -181,7 +195,23 @@ public sealed record Projector(
     ImmutableArray<CalibrationPin> Pins,
     SolveLocks Locks,
     /// <summary>The last solve's reprojection RMS in pixels (0 = never solved).</summary>
-    double SolveResidualPx) : IEntity;
+    double SolveResidualPx) : IEntity
+{
+    /// <summary>What a solve may assume about the lens and the position (wp2-facade).</summary>
+    public SolvePriors Priors { get; init; } = SolvePriors.None;
+
+    /// <summary>The last solve's uncertainty on the wall and along the axis (wp2-facade); null before a solve.</summary>
+    public SolveUncertainty? Uncertainty { get; init; }
+
+    /// <summary>The calibration ledger's current result for this projector (wp2-wall).</summary>
+    public string? CalibrationId { get; init; }
+
+    /// <summary>The ledger's fallback result: what CALIBRATION FALLBACK returns to (wp2-wall).</summary>
+    public string? FallbackId { get; init; }
+
+    /// <summary>The ledger's staged result, waiting to be accepted (wp2-wall).</summary>
+    public string? StagedId { get; init; }
+}
 
 public enum CameraSourceKind
 {
@@ -207,7 +237,14 @@ public sealed record CameraRig(
     Intrinsics Intrinsics,
     LensDistortion Lens,
     Pose Pose,
-    bool Calibrated) : IEntity;
+    bool Calibrated) : IEntity
+{
+    /// <summary>What the phone behind a Phone rig is (null for other kinds) (wp2-phonescan).</summary>
+    public PhoneProfile? Phone { get; init; }
+
+    /// <summary>How a Folder rig takes its pictures (null for other kinds) (wp2-phonescan).</summary>
+    public FolderCapture? Folder { get; init; }
+}
 
 /// <summary>A viewpoint content can be projected from (<see cref="SurfaceMapping.Projection"/>).</summary>
 public sealed record Viewpoint(string Id, string Name, Intrinsics Intrinsics, Pose Pose) : IEntity;
@@ -251,4 +288,22 @@ public sealed record Stage(
     /// <summary>The control links to the projector boxes that light this stage (an older file without the list
     /// reads it as empty).</summary>
     public ImmutableArray<DeviceLink> Devices { get; init; } = [];
+
+    /// <summary>The site frame: the stage in a surveyed coordinate system (wp2-facade).</summary>
+    public SiteFrame Site { get; init; } = SiteFrame.None;
+
+    /// <summary>Surveyed control points (wp2-facade).</summary>
+    public ImmutableArray<ControlPoint> Controls { get; init; } = [];
+
+    /// <summary>Imported surveys (wp2-facade).</summary>
+    public ImmutableArray<SurveySource> Surveys { get; init; } = [];
+
+    /// <summary>Projectors stacked on one picture (wp2-facade).</summary>
+    public ImmutableArray<StackGroup> Stacks { get; init; } = [];
+
+    /// <summary>Outputs aligned through a camera (wp2-align).</summary>
+    public ImmutableArray<AlignGroup> Aligns { get; init; } = [];
+
+    /// <summary>The calibration ledger: every projector's and output's results (wp2-wall).</summary>
+    public ImmutableArray<CalibrationSnapshot> Calibrations { get; init; } = [];
 }

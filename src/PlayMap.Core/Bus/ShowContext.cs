@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Wire;
@@ -18,6 +19,16 @@ public enum Light
 public sealed record ContextItem(string Id, string Kind, string Label, Light Light, string State);
 
 public sealed record ContextLink(string From, string To, string Kind, Light Light);
+
+/// <summary>The only link kinds Patterns' Eye draws (it drops any other silently).</summary>
+public static class ContextLinkKinds
+{
+    public const string Feeds = "feeds", Shows = "shows", Drives = "drives", Carries = "carries", Controls = "controls",
+        Mirrors = "mirrors", Follows = "follows", Hears = "hears", Routes = "routes", Serves = "serves", Sends = "sends";
+    public static readonly FrozenSet<string> All = new[] { Feeds, Shows, Drives, Carries, Controls, Mirrors, Follows, Hears, Routes,
+        Serves, Sends }.ToFrozenSet(StringComparer.Ordinal);
+    public static bool IsEyeVerb(string kind) => All.Contains(kind);
+}
 
 public sealed record ContextRecent(long AtUnixMs, string Text);
 
@@ -65,9 +76,19 @@ public sealed record ShowContext(
         _ => "high",
     };
 
-    /// <summary>The commands an assistant may propose: every mutating verb with its risk.</summary>
+    /// <summary>The commands an assistant may propose: every mutating verb with its risk, node-to-node verbs left out; the ones
+    /// that move a panic, the air, a transport or Show Mode first (the Eye keeps the first 64), the rest in catalogue order.</summary>
     public static IReadOnlyList<ContextCommand> CommandsFromCatalog() =>
-        VerbCatalog.All.Where(v => v.Mutates).Select(v => new ContextCommand(v.Syntax, v.Risk, v.Words)).ToList();
+        VerbCatalog.All.Where(v => v.Mutates && !v.Internal)
+            .OrderBy(v => v.Show switch
+            {
+                ShowClass.Panic => 0,
+                ShowClass.Air => 1,
+                ShowClass.Transport => 2,
+                ShowClass.Show => 3,
+                _ => 4,
+            })
+            .Select(v => new ContextCommand(v.Syntax, v.Risk, v.Words)).ToList();
 
     public string ToJson()
     {

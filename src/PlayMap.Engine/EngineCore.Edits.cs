@@ -45,6 +45,21 @@ public sealed partial class EngineCore
             ?? Top("viewpoint", p.Stage.Viewpoints, (pp, v) => pp.WithStage(s => s with { Viewpoints = v }))
             ?? Top("scan", p.Stage.Scans, (pp, v) => pp.WithStage(s => s with { Scans = v }))
             ?? Top("device", p.Stage.Devices, (pp, v) => pp.WithStage(s => s with { Devices = v }))
+            ?? Top("send", p.Sends, (pp, v) => pp with { Sends = v })
+            ?? Top("controlsurface", p.Control.Surfaces, (pp, v) => pp with { Control = pp.Control with { Surfaces = v } })
+            ?? Top("binding", p.Control.Bindings, (pp, v) => pp with { Control = pp.Control with { Bindings = v } })
+            ?? Top("timecodesource", p.Timecode.Sources, (pp, v) => pp with { Timecode = pp.Timecode with { Sources = v } })
+            ?? Top("fxasset", p.FxAssets, (pp, v) => pp with { FxAssets = v })
+            ?? Top("generatorpreset", p.GeneratorPresets, (pp, v) => pp with { GeneratorPresets = v })
+            ?? Top("lednode", p.Leds.Nodes, (pp, v) => pp with { Leds = pp.Leds with { Nodes = v } })
+            ?? Top("fixturetype", p.Leds.Types, (pp, v) => pp with { Leds = pp.Leds with { Types = v } })
+            ?? Top("fixture", p.Leds.Fixtures, (pp, v) => pp with { Leds = pp.Leds with { Fixtures = v } })
+            ?? Top("controlpoint", p.Stage.Controls, (pp, v) => pp.WithStage(s => s with { Controls = v }))
+            ?? Top("survey", p.Stage.Surveys, (pp, v) => pp.WithStage(s => s with { Surveys = v }))
+            ?? Top("stack", p.Stage.Stacks, (pp, v) => pp.WithStage(s => s with { Stacks = v }))
+            ?? Top("align", p.Stage.Aligns, (pp, v) => pp.WithStage(s => s with { Aligns = v }))
+            ?? Top("calibration", p.Stage.Calibrations, (pp, v) => pp.WithStage(s => s with { Calibrations = v }))
+            ?? Top("fleetmember", p.Fleet.Members, (pp, v) => pp with { Fleet = pp.Fleet with { Members = v } })
             ?? Nested(p, id);
     }
 
@@ -62,12 +77,43 @@ public sealed partial class EngineCore
         var t when t == typeof(Viewpoint) => (ImmutableArray<T>)(object)p.Stage.Viewpoints,
         var t when t == typeof(ScanRecord) => (ImmutableArray<T>)(object)p.Stage.Scans,
         var t when t == typeof(DeviceLink) => (ImmutableArray<T>)(object)p.Stage.Devices,
+        var t when t == typeof(VideoSend) => (ImmutableArray<T>)(object)p.Sends,
+        var t when t == typeof(ControlSurface) => (ImmutableArray<T>)(object)p.Control.Surfaces,
+        var t when t == typeof(ControlBinding) => (ImmutableArray<T>)(object)p.Control.Bindings,
+        var t when t == typeof(TimecodeSource) => (ImmutableArray<T>)(object)p.Timecode.Sources,
+        var t when t == typeof(FxAsset) => (ImmutableArray<T>)(object)p.FxAssets,
+        var t when t == typeof(GeneratorPreset) => (ImmutableArray<T>)(object)p.GeneratorPresets,
+        var t when t == typeof(LedNode) => (ImmutableArray<T>)(object)p.Leds.Nodes,
+        var t when t == typeof(LedFixtureType) => (ImmutableArray<T>)(object)p.Leds.Types,
+        var t when t == typeof(LedFixture) => (ImmutableArray<T>)(object)p.Leds.Fixtures,
+        var t when t == typeof(ControlPoint) => (ImmutableArray<T>)(object)p.Stage.Controls,
+        var t when t == typeof(SurveySource) => (ImmutableArray<T>)(object)p.Stage.Surveys,
+        var t when t == typeof(StackGroup) => (ImmutableArray<T>)(object)p.Stage.Stacks,
+        var t when t == typeof(AlignGroup) => (ImmutableArray<T>)(object)p.Stage.Aligns,
+        var t when t == typeof(CalibrationSnapshot) => (ImmutableArray<T>)(object)p.Stage.Calibrations,
+        var t when t == typeof(FleetMember) => (ImmutableArray<T>)(object)p.Fleet.Members,
         _ => null,
     };
 
-    /// <summary>Entities that live inside another: playlist items, layers, pins, masks.</summary>
+    /// <summary>Entities that live inside another: playlist items, layers, pins, masks, effect slots, media versions.</summary>
     private static Located? Nested(Project p, string id)
     {
+        if (p.FindFx(id) is { } fx)
+        {
+            var owner = fx.OwnerId;
+            return new Located("fx", fx.Slot, typeof(FxSlot),
+                (pp, v) => WithChain(pp, owner, c => c with { Slots = c.Slots.Update(id, _ => (FxSlot)v) }),
+                pp => WithChain(pp, owner, c => c with { Slots = c.Slots.RemoveId(id) }),
+                (pp, i) => WithChain(pp, owner, c => c with { Slots = c.Slots.Move(id, i) }));
+        }
+        foreach (var m in p.Media)
+        {
+            if (m.Versions.Find(id) is { } version)
+                return new Located("version", version, typeof(MediaVersion),
+                    (pp, v) => pp with { Media = pp.Media.Update(m.Id, x => x with { Versions = x.Versions.Update(id, _ => (MediaVersion)v) }) },
+                    pp => pp with { Media = pp.Media.Update(m.Id, x => x with { Versions = x.Versions.RemoveId(id) }) },
+                    (pp, i) => pp with { Media = pp.Media.Update(m.Id, x => x with { Versions = x.Versions.Move(id, i) }) });
+        }
         foreach (var list in p.Playlists)
         {
             if (list.Items.Find(id) is { } item)
@@ -111,6 +157,25 @@ public sealed partial class EngineCore
         return null;
     }
 
+    /// <summary>The project with the effect chain of the entity <paramref name="ownerId"/> (a playlist item, canvas, layer,
+    /// surface or output) edited.</summary>
+    private static Project WithChain(Project p, string ownerId, Func<FxChain, FxChain> edit)
+    {
+        foreach (var list in p.Playlists)
+            if (list.Items.IndexOfId(ownerId) >= 0)
+                return p with { Playlists = p.Playlists.Update(list.Id, l => l with { Items = l.Items.Update(ownerId, it => it with { Fx = edit(it.Fx) }) }) };
+        if (p.FindCanvas(ownerId) is not null)
+            return p with { Canvases = p.Canvases.Update(ownerId, c => c with { Fx = edit(c.Fx) }) };
+        foreach (var canvas in p.Canvases)
+            if (canvas.Layers.IndexOfId(ownerId) >= 0)
+                return p with { Canvases = p.Canvases.Update(canvas.Id, c => c with { Layers = c.Layers.Update(ownerId, l => l with { Fx = edit(l.Fx) }) }) };
+        if (p.FindSurface(ownerId) is not null)
+            return p.WithStage(s => s with { Surfaces = s.Surfaces.Update(ownerId, x => x with { Fx = edit(x.Fx) }) });
+        if (p.FindOutput(ownerId) is not null)
+            return p with { Outputs = p.Outputs.Update(ownerId, o => o with { Fx = edit(o.Fx) }) };
+        throw new EditRefusedException($"effects belong to a playlist item, canvas, layer, surface or output — {ownerId} is none of them");
+    }
+
     private CommandReply EntityGet(List<string> args)
     {
         if (args.Count < 1)
@@ -133,6 +198,8 @@ public sealed partial class EngineCore
         var located = Locate(Store.Project, id);
         if (located is null)
             return CommandReply.Fail($"nothing has the id {id}");
+        if (located.Kind == "calibration" && !(path.Equals("name", StringComparison.OrdinalIgnoreCase) || path.Equals("pinned", StringComparison.OrdinalIgnoreCase)))
+            return CommandReply.Fail("a calibration result is never edited — CALIBRATION RECALL makes a new one");
         // Drags coalesce: the same field of the same entity within the window is one undo step.
         return FromEdit(Store.Apply($"set {located.Kind} {Label(located.Entity)} {path}", p =>
         {
@@ -161,7 +228,7 @@ public sealed partial class EngineCore
         if (args.Count < 2)
             return CommandReply.Fail("ADD <kind> [<owner>] <json>");
         var kind = args[0].ToLowerInvariant();
-        var owned = kind is "layer" or "pin" or "mask" or "item";
+        var owned = kind is "layer" or "pin" or "mask" or "item" or "fx";
         // An owned entity names its owner as a word before the JSON, or as "parent" inside it.
         var ownerWord = owned && args.Count >= 3 && !args[1].StartsWith('{');
         var owner = ownerWord ? args[1] : null;
@@ -193,13 +260,30 @@ public sealed partial class EngineCore
                 "mesh" => AddTop<MeshAsset>(p, json, Ids.Mesh, (pp, e) => pp.WithStage(s => s with { Meshes = s.Meshes.Add(e) })),
                 "projector" => AddTop<Projector>(p, json, Ids.Projector, (pp, e) => pp.WithStage(s => s with { Projectors = s.Projectors.Add(e) })),
                 "camera" => AddTop<CameraRig>(p, json, Ids.Camera, (pp, e) => pp.WithStage(s => s with { Cameras = s.Cameras.Add(e) })),
-                "viewpoint" => AddTop<Viewpoint>(p, json, "vp", (pp, e) => pp.WithStage(s => s with { Viewpoints = s.Viewpoints.Add(e) })),
+                "viewpoint" => AddTop<Viewpoint>(p, json, Ids.Viewpoint, (pp, e) => pp.WithStage(s => s with { Viewpoints = s.Viewpoints.Add(e) })),
                 "device" => AddDevice(p, json),
                 "layer" => AddLayer(p, owner!, json),
                 "pin" => AddPin(p, owner!, json),
                 "mask" => AddMask(p, owner!, json),
                 "item" => AddItem(p, owner!, json),
-                _ => throw new EditRefusedException($"ADD takes media, playlist, item, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output, mask or device — not {kind}"),
+                "binding" => AddTop<ControlBinding>(p, json, Ids.ControlBinding, (pp, e) => pp with { Control = pp.Control with { Bindings = pp.Control.Bindings.Add(e) } }),
+                "controlsurface" => AddTop<ControlSurface>(p, json, Ids.ControlSurface, (pp, e) => pp with { Control = pp.Control with { Surfaces = pp.Control.Surfaces.Add(e) } }),
+                "timecodesource" => AddTop<TimecodeSource>(p, json, Ids.TimecodeSource, (pp, e) => pp with { Timecode = pp.Timecode with { Sources = pp.Timecode.Sources.Add(e) } }),
+                "send" => AddTop<VideoSend>(p, json, Ids.Send, (pp, e) => pp with { Sends = pp.Sends.Add(e) }),
+                "lednode" => AddTop<LedNode>(p, json, Ids.LedNode, (pp, e) => pp with { Leds = pp.Leds with { Nodes = pp.Leds.Nodes.Add(e) } }),
+                "fixturetype" => AddTop<LedFixtureType>(p, json, Ids.LedType, (pp, e) => pp with { Leds = pp.Leds with { Types = pp.Leds.Types.Add(e) } }),
+                "fixture" => AddTop<LedFixture>(p, json, Ids.LedFixture, (pp, e) => pp with { Leds = pp.Leds with { Fixtures = pp.Leds.Fixtures.Add(e) } }),
+                "controlpoint" => AddTop<ControlPoint>(p, json, Ids.ControlPoint, (pp, e) => pp.WithStage(s => s with { Controls = s.Controls.Add(e) })),
+                "stack" => AddTop<StackGroup>(p, json, Ids.Stack, (pp, e) => pp.WithStage(s => s with { Stacks = s.Stacks.Add(e) })),
+                "fx" => AddFx(p, owner!, json),
+                "fxasset" => throw new EditRefusedException("use FX IMPORT"),
+                "generatorpreset" => throw new EditRefusedException("use GENERATOR SAVE"),
+                "survey" => throw new EditRefusedException("use SURVEY IMPORT"),
+                "align" => throw new EditRefusedException("use ALIGN NEW"),
+                "calibration" => throw new EditRefusedException("calibration results are made by solves"),
+                "version" => throw new EditRefusedException("use MEDIA OPTIMISE"),
+                "fleetmember" => throw new EditRefusedException("use FLEET BACKUP on the backup"),
+                _ => throw new EditRefusedException($"ADD takes media, playlist, item, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output, mask, device, binding, controlsurface, timecodesource, send, fx, lednode, fixturetype, fixture, controlpoint or stack — not {kind}"),
             };
             newId = result.id;
             return result.next;
@@ -226,10 +310,17 @@ public sealed partial class EngineCore
         return (p with { Canvases = p.Canvases.Update(canvas.Id, c => c with { Layers = c.Layers.Add(layer) }) }, layer.Id);
     }
 
+    private (Project, string) AddFx(Project p, string ownerId, string json)
+    {
+        var slot = WithId(ReadOverDefault<FxSlot>(p, json), p.NewId(Ids.Fx));
+        Validate(p, slot);
+        return (WithChain(p, ownerId, c => c with { Slots = c.Slots.Add(slot) }), slot.Id);
+    }
+
     private (Project, string) AddPin(Project p, string projectorId, string json)
     {
         var pj = p.FindProjector(projectorId) ?? throw new EditRefusedException($"no projector {projectorId}");
-        var pin = WithId(ReadOverDefault<CalibrationPin>(p, json), p.NewId("pn"));
+        var pin = WithId(ReadOverDefault<CalibrationPin>(p, json), p.NewId(Ids.Pin));
         return (p.WithStage(s => s with { Projectors = s.Projectors.Update(pj.Id, x => x with { Pins = x.Pins.Add(pin) }) }), pin.Id);
     }
 
@@ -239,7 +330,7 @@ public sealed partial class EngineCore
         System.Text.Json.Nodes.JsonObject obj;
         try
         {
-            obj = System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject
+            obj = ProjectFile.ParseTree(json) as System.Text.Json.Nodes.JsonObject
                 ?? throw new EditRefusedException("ADD takes a JSON object");
         }
         catch (JsonException ex)
@@ -303,6 +394,20 @@ public sealed partial class EngineCore
                 Transition = p.Settings.DefaultTransition,
                 TransitionNs = p.Settings.DefaultTransitionNs,
             },
+            var t when t == typeof(ControlBinding) => new ControlBinding("", "Binding", "", "", ControlShape.Default, ControlFeedback.Default, true),
+            var t when t == typeof(ControlSurface) => new ControlSurface("", "Surface", "osc", "", "", "", true),
+            var t when t == typeof(TimecodeSource) => new TimecodeSource("", "Timecode", TimecodeKind.Internal),
+            // A send and an LED node start off: adding one never puts a picture on the network.
+            var t when t == typeof(VideoSend) => new VideoSend("", "Send", SendProtocol.Omt, "", 0, 0, 0, SendFormat.Auto, false),
+            var t when t == typeof(LedNode) => new LedNode("", "LED node", LedProtocol.ArtNet, "", 0, false, 0, 0, LedSync.None, 510, "#FF8800"),
+            var t when t == typeof(LedFixtureType) => new LedFixtureType("", "Fixture type", [],
+                [new LedChannelSlot(LedChannel.R, 8, 0), new LedChannelSlot(LedChannel.G, 8, 0), new LedChannelSlot(LedChannel.B, 8, 0)], [], 0, "", ""),
+            var t when t == typeof(LedFixture) => new LedFixture("", "Fixture", "builtin:rgb", LedSpace.Canvas, "", Transform3.Identity,
+                new LedLayout(LedShape.Line, 10, 1, new Vec3d(1, 0, 0), LedStart.TopLeft, false, false, []), null, LedSampling.Point, 1,
+                LedColor.Neutral, true, false, false, "#FF8800", []),
+            var t when t == typeof(ControlPoint) => new ControlPoint("", "Point", Vec3d.Zero, 0.01, "", true),
+            var t when t == typeof(StackGroup) => new StackGroup("", "Stack", [], "", StackFailover.Hold),
+            var t when t == typeof(FxSlot) => new FxSlot("", "", "Effect", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0),
             _ => throw new EditRefusedException($"cannot add a {typeof(T).Name}"),
         };
         if (string.IsNullOrWhiteSpace(json))
@@ -310,7 +415,7 @@ public sealed partial class EngineCore
         try
         {
             var baseNode = JsonSerializer.SerializeToNode(def, typeof(T), ProjectFile.Compact)!.AsObject();
-            var overlay = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject()
+            var overlay = ProjectFile.ParseTree(json)?.AsObject()
                 ?? throw new EditRefusedException("ADD takes a JSON object");
             foreach (var (key, value) in overlay.ToList())
             {
@@ -398,6 +503,17 @@ public sealed partial class EngineCore
             case DeviceLink d:
                 ValidateDevice(p, d);
                 break;
+            case FxSlot fx:
+                if (fx.Kind.Length == 0)
+                    throw new EditRefusedException("an effect needs a kind — FX KINDS lists them");
+                if (fx.Mix is < 0 or > 1 || fx.Scale is < 0.25 or > 1)
+                    throw new EditRefusedException("an effect's mix is 0 to 1 and its scale 0.25 to 1");
+                break;
+            case StackGroup sk:
+                foreach (var pj in sk.ProjectorIds.Append(sk.MasterId).Where(x => x.Length > 0))
+                    if (p.FindProjector(pj) is null)
+                        throw new EditRefusedException($"no projector {pj}");
+                break;
         }
     }
 
@@ -438,6 +554,50 @@ public sealed partial class EngineCore
         foreach (var d in p.Stage.Devices)
             if (d.ProjectorId == id || d.OutputId == id)
                 users.Add(d.Name);
+        foreach (var pj in p.Stage.Projectors)
+        {
+            if (pj.CalibrationId == id || pj.FallbackId == id || pj.StagedId == id || pj.Priors.ControlId == id)
+                users.Add(pj.Name);
+            foreach (var pin in pj.Pins)
+                if (pin.ControlId == id)
+                    users.Add($"{pj.Name}/pin {pin.Id}");
+        }
+        foreach (var o in p.Outputs)
+            if (o.CalibrationId == id || o.FallbackId == id || o.StagedId == id)
+                users.Add(o.Name);
+        foreach (var m in p.Media)
+            if (m.Use == id)
+                users.Add(m.Name);
+        foreach (var sk in p.Stage.Stacks)
+            if (sk.MasterId == id || sk.ProjectorIds.Contains(id, StringComparer.Ordinal))
+                users.Add(sk.Name);
+        foreach (var f in p.Leds.Fixtures)
+            if (f.TypeId == id || f.Patch?.NodeId == id)
+                users.Add(f.Name);
+        foreach (var l in p.Playlists)
+            if (l.Chase?.Sources.Contains(id, StringComparer.Ordinal) == true)
+                users.Add(l.Name);
+        foreach (var s in p.Stage.Surfaces)
+            if (s.Pixel?.ProjectorId == id)
+                users.Add(s.Name);
+        foreach (var g in p.Generators)
+            if (g.Inputs.Values.Any(x => x.Id == id))
+                users.Add(g.Name);
+        foreach (var m in p.Media)
+            if (m.Live is { } live && SourceRef.TryParse(live.Fallback, out var fallback) && fallback.Id == id)
+                users.Add(m.Name);
+        foreach (var a in p.Stage.Aligns)
+            if (a.CameraId == id || a.CanvasId == id || a.OutputIds.Contains(id, StringComparer.Ordinal))
+                users.Add(a.Name);
+        foreach (var f in p.Leds.Fixtures)
+            if (f.SpaceId == id || f.ViewpointId == id)
+                users.Add(f.Name);
+        foreach (var x in p.Sends)
+            if (x.Tap.EndsWith(":" + id, StringComparison.Ordinal))
+                users.Add(x.Name);
+        foreach (var plan in p.Show.Panic)
+            if (plan.SafeLook?.Id == id)
+                users.Add("the safe look of " + plan.OutputId);
         return users;
     }
 
@@ -468,6 +628,23 @@ public sealed partial class EngineCore
         ScanRecord s => s.Name,
         Mask m => m.Name,
         DeviceLink d => d.Name,
+        VideoSend x => x.Name,
+        ControlSurface x => x.Name,
+        ControlBinding x => x.Name,
+        TimecodeSource x => x.Name,
+        FxSlot x => x.Name,
+        FxAsset x => x.Name,
+        GeneratorPreset x => x.Name,
+        LedNode x => x.Name,
+        LedFixtureType x => x.Name,
+        LedFixture x => x.Name,
+        ControlPoint x => x.Name,
+        SurveySource x => x.Name,
+        StackGroup x => x.Name,
+        AlignGroup x => x.Name,
+        CalibrationSnapshot x => x.Name,
+        FleetMember x => x.Name,
+        MediaVersion x => x.To,
         IEntity e => e.Id,
         _ => "?",
     };

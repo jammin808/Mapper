@@ -96,7 +96,21 @@ public sealed record ParamSet(ImmutableSortedDictionary<string, string> Values)
 
 /// <summary>A generator instance: a kind from the catalogue (<see cref="PlayMap.Core.Content.GeneratorCatalog"/>)
 /// with its parameters — "pattern.testcard", "fractal.julia", "particles.snow".</summary>
-public sealed record Generator(string Id, string Name, string Kind, ParamSet Params) : IEntity;
+public sealed record Generator(string Id, string Name, string Kind, ParamSet Params) : IEntity
+{
+    /// <summary>Leader ns its own time counts from; 0 = the leader epoch (files before round 2) (wp2-content).</summary>
+    public long OriginNs { get; init; }
+
+    /// <summary>Modulation of its parameters (wp2-audio's verbs; wp2-content's renderers read them).</summary>
+    public ImmutableArray<ParamBinding> Bindings { get; init; } = [];
+
+    /// <summary>A look crossfade in progress, inert once over (wp2-content).</summary>
+    public ParamMorph? Morph { get; init; }
+
+    /// <summary>Pictures it reads: "source" (an emitter or fill), "flow", "matte" (wp2-content).</summary>
+    public ImmutableSortedDictionary<string, SourceRef> Inputs { get; init; } =
+        ImmutableSortedDictionary.Create<string, SourceRef>(StringComparer.Ordinal);
+}
 
 public enum LayerBlend
 {
@@ -129,8 +143,19 @@ public readonly record struct RectD(double X, double Y, double W, double H)
 }
 
 /// <summary>One layer of a canvas: a source placed in a rectangle with an opacity and a blend.</summary>
-public sealed record Layer(string Id, string Name, SourceRef Source, RectD Rect, double Opacity, LayerBlend Blend, bool Visible) : IEntity;
+public sealed record Layer(string Id, string Name, SourceRef Source, RectD Rect, double Opacity, LayerBlend Blend, bool Visible) : IEntity
+{
+    /// <summary>Effects on the layer's picture (wp2-fx).</summary>
+    public FxChain Fx { get; init; } = FxChain.Empty;
+
+    /// <summary>Modulation of opacity and rect.* (wp2-audio).</summary>
+    public ImmutableArray<ParamBinding> Bindings { get; init; } = [];
+}
 
 /// <summary>A 2D composition space. Surfaces and plain screens take regions of it; the multi-screen plan
 /// lays outputs over it. Layers draw bottom to top.</summary>
-public sealed record Canvas(string Id, string Name, int Width, int Height, string Background, ImmutableArray<Layer> Layers) : IEntity;
+public sealed record Canvas(string Id, string Name, int Width, int Height, string Background, ImmutableArray<Layer> Layers) : IEntity
+{
+    /// <summary>Effects on the composed canvas (wp2-fx).</summary>
+    public FxChain Fx { get; init; } = FxChain.Empty;
+}

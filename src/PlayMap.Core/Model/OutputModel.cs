@@ -168,4 +168,23 @@ public sealed record Output(
     RectD Plan,
     /// <summary>0, 90, 180 or 270 degrees clockwise.</summary>
     int Rotation,
-    bool Enabled) : IEntity;
+    bool Enabled) : IEntity
+{
+    /// <summary>The display's input lag, ms (light leaves the lens this long after the vblank), 0–500; 0 = unknown (wp2-output).</summary>
+    public double LatencyMs { get; init; }
+
+    /// <summary>Effects on the output's picture before its warp (wp2-fx).</summary>
+    public FxChain Fx { get; init; } = FxChain.Empty;
+
+    /// <summary>A camera-measured correction drawn under the operator's warp (wp2-align, wp2-facade).</summary>
+    public MeasuredCorrection? Measured { get; init; }
+
+    /// <summary>The calibration ledger's current result for this output (wp2-wall).</summary>
+    public string? CalibrationId { get; init; }
+
+    /// <summary>The ledger's fallback result: what CALIBRATION FALLBACK returns to (wp2-wall).</summary>
+    public string? FallbackId { get; init; }
+
+    /// <summary>The ledger's staged result, waiting to be accepted (wp2-wall).</summary>
+    public string? StagedId { get; init; }
+}

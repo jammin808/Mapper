@@ -63,66 +63,19 @@ public static class CommandGate
         return new LineCheck(true, normalised, parsed, spec, VerbCatalog.RiskOf(parsed), "", VerbCatalog.HoldsSecret(parsed));
     }
 
-    /// <summary>The words the verb's syntax requires (those before its first optional part) are present, and
-    /// a fixed choice ("ON|OFF") is one of its choices.</summary>
+    /// <summary>The words one of the verb's forms requires (those before its first optional part) are present, and a fixed
+    /// choice ("ON|OFF") is one of its choices (<see cref="VerbSyntax.Fits(VerbSpec, WireLine, int, out string?)"/>).</summary>
     private static bool CheckRequiredWords(VerbSpec spec, WireLine parsed, int verbWords, out string why)
     {
-        why = "";
-        var required = RequiredTokens(spec);
-        for (var i = 0; i < required.Count; i++)
-        {
-            var at = verbWords + i;
-            if (at >= parsed.Count)
-            {
-                why = $"{spec.Name} needs {required[i]} — {spec.Syntax}";
-                return false;
-            }
-            var token = required[i];
-            if (token.Contains('<', StringComparison.Ordinal) || token.Contains('…', StringComparison.Ordinal))
-                continue;
-            var choices = token.Split('|', StringSplitOptions.RemoveEmptyEntries);
-            var word = parsed.Word(at);
-            if (!choices.Any(c => c.Equals(word, StringComparison.OrdinalIgnoreCase)))
-            {
-                why = $"{spec.Name} takes {token} there, not '{word}' — {spec.Syntax}";
-                return false;
-            }
-        }
-        return true;
+        var fits = VerbSyntax.Fits(spec, parsed, verbWords, out var reason);
+        why = reason ?? "";
+        return fits;
     }
 
-    /// <summary>The syntax's tokens after the verb up to its first optional part: "SURFACE SOURCE &lt;surface&gt;
+    /// <summary>The first form's tokens after the verb up to its first optional part: "SURFACE SOURCE &lt;surface&gt;
     /// &lt;source&gt;" requires two; "VIDEO PLAY [ON …]" none. Brackets inside a &lt;…&gt; belong to it.</summary>
-    internal static IReadOnlyList<string> RequiredTokens(VerbSpec spec)
-    {
-        // Every syntax in the catalogue starts with its verb's name.
-        var rest = spec.Syntax.StartsWith(spec.Name, StringComparison.Ordinal) ? spec.Syntax[spec.Name.Length..] : "";
-        var tokens = new List<string>();
-        var sb = new StringBuilder();
-        var angle = 0;
-        var square = 0;
-        foreach (var c in rest)
-        {
-            if (c == ' ' && angle == 0 && square == 0)
-            {
-                if (sb.Length > 0)
-                {
-                    if (sb[0] == '[')
-                        return tokens;
-                    tokens.Add(sb.ToString());
-                    sb.Clear();
-                }
-                continue;
-            }
-            angle += c == '<' ? 1 : c == '>' ? -1 : 0;
-            if (angle == 0)
-                square += c == '[' ? 1 : c == ']' ? -1 : 0;
-            sb.Append(c);
-        }
-        if (sb.Length > 0 && sb[0] != '[')
-            tokens.Add(sb.ToString());
-        return tokens;
-    }
+    internal static IReadOnlyList<string> RequiredTokens(VerbSpec spec) =>
+        VerbSyntax.RequiredTokens(spec, VerbSyntax.Alternatives(spec)[0]);
 
     /// <summary>The first word after the verb that looks like a generated id ("sf1a2b3c4d", or the id in
     /// "generator:gn1a2b3c4d") and is not in the project; null when every such word names something.</summary>

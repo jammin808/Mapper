@@ -1,0 +1,802 @@
+{
+  "id": "pr0a0b0c01",
+  "name": "Round one show",
+  "schema": 1,
+  "media": [
+    {
+      "id": "md0a0b0c01",
+      "name": "Opening",
+      "kind": "video",
+      "location": "media/opening.mov",
+      "contentHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sizeBytes": 123456789,
+      "info": {
+        "durationNs": 30000000000,
+        "width": 1920,
+        "height": 1080,
+        "frameRate": "50",
+        "videoCodec": "prores",
+        "pixelFormat": "yuv422p10le",
+        "audioCodec": "pcm_s24le",
+        "audioChannels": 2,
+        "audioRate": 48000,
+        "hasAlpha": false,
+        "container": "mov"
+      },
+      "tags": [
+        "intro",
+        "act1"
+      ]
+    },
+    {
+      "id": "md0a0b0c02",
+      "name": "Logo",
+      "kind": "image",
+      "location": "media/logo.png",
+      "contentHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sizeBytes": 4096,
+      "info": {
+        "durationNs": 0,
+        "width": 1024,
+        "height": 512,
+        "frameRate": "",
+        "videoCodec": "png",
+        "pixelFormat": "rgba",
+        "audioCodec": "",
+        "audioChannels": 0,
+        "audioRate": 0,
+        "hasAlpha": true,
+        "container": "png"
+      },
+      "tags": []
+    }
+  ],
+  "playlists": [
+    {
+      "id": "pl0a0b0c01",
+      "name": "Show",
+      "items": [
+        {
+          "id": "it0a0b0c01",
+          "source": {
+            "kind": "media",
+            "id": "md0a0b0c01"
+          },
+          "label": "Opening",
+          "inNs": 1000000000,
+          "outNs": 29000000000,
+          "durationNs": 0,
+          "end": "next",
+          "gotoItemId": null,
+          "transition": "fade",
+          "transitionNs": 500000000,
+          "rate": 1,
+          "volume": 0.8
+        },
+        {
+          "id": "it0a0b0c02",
+          "source": {
+            "kind": "generator",
+            "id": "gn0a0b0c01"
+          },
+          "label": "Fractal",
+          "inNs": 0,
+          "outNs": 0,
+          "durationNs": 10000000000,
+          "end": "goto",
+          "gotoItemId": "it0a0b0c01",
+          "transition": "cut",
+          "transitionNs": 0,
+          "rate": 1.25,
+          "volume": 1
+        }
+      ],
+      "loop": true,
+      "syncGroup": "main"
+    }
+  ],
+  "generators": [
+    {
+      "id": "gn_testcard",
+      "name": "Test card",
+      "kind": "pattern.testcard",
+      "params": {
+        "values": {}
+      }
+    },
+    {
+      "id": "gn0a0b0c01",
+      "name": "Julia",
+      "kind": "fractal.julia",
+      "params": {
+        "values": {
+          "speed": "0.5",
+          "zoom": "2"
+        }
+      }
+    }
+  ],
+  "canvases": [
+    {
+      "id": "cv_main",
+      "name": "Main canvas",
+      "width": 1920,
+      "height": 1080,
+      "background": "#101010",
+      "layers": [
+        {
+          "id": "ly_base",
+          "name": "Card",
+          "source": {
+            "kind": "generator",
+            "id": "gn_testcard"
+          },
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "visible": true
+        },
+        {
+          "id": "ly0a0b0c01",
+          "name": "Logo",
+          "source": {
+            "kind": "media",
+            "id": "md0a0b0c02"
+          },
+          "rect": {
+            "x": 100,
+            "y": 50,
+            "w": 400,
+            "h": 200
+          },
+          "opacity": 0.75,
+          "blend": "screen",
+          "visible": true
+        }
+      ]
+    }
+  ],
+  "stage": {
+    "surfaces": [
+      {
+        "id": "sf0a0b0c01",
+        "name": "Front",
+        "meshId": "ms0a0b0c01",
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 1.5,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "faces": [
+          0,
+          1
+        ],
+        "content": {
+          "mode": "canvasRegion",
+          "source": {
+            "kind": "canvas",
+            "id": "cv_main"
+          },
+          "region": {
+            "x": 0,
+            "y": 0,
+            "w": 0.5,
+            "h": 1
+          },
+          "viewpointId": null
+        },
+        "opacity": 0.9,
+        "masks": [
+          {
+            "id": "mk0a0b0c01",
+            "name": "Door",
+            "path": {
+              "nodes": [
+                {
+                  "point": {
+                    "x": 0.1,
+                    "y": 0.1
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.4,
+                    "y": 0.1
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.4,
+                    "y": 0.6
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.1,
+                    "y": 0.6
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                }
+              ],
+              "closed": true
+            },
+            "mode": "subtract",
+            "feather": 0.02,
+            "invert": false,
+            "enabled": true
+          }
+        ],
+        "visible": true,
+        "locked": false,
+        "color": "#3AA0FF",
+        "tags": [
+          "front"
+        ]
+      }
+    ],
+    "meshes": [
+      {
+        "id": "ms0a0b0c01",
+        "name": "Wall",
+        "origin": "primitive",
+        "path": "",
+        "contentHash": "",
+        "primitive": "plane",
+        "primitiveParams": {
+          "values": {
+            "height": "3",
+            "width": "4"
+          }
+        },
+        "vertices": 4,
+        "triangles": 2
+      }
+    ],
+    "projectors": [
+      {
+        "id": "pj0a0b0c01",
+        "name": "Left",
+        "intrinsics": {
+          "fx": 2880,
+          "fy": 2880,
+          "cx": 960,
+          "cy": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "lens": {
+          "k1": 0.01,
+          "k2": -0.002,
+          "p1": 0,
+          "p2": 0,
+          "k3": 0
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 1.5,
+            "z": -6
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 3.141592653589793
+          }
+        },
+        "lumens": 12000,
+        "color": "#FF8800",
+        "locked": false,
+        "pins": [
+          {
+            "id": "pn0a0b0c01",
+            "world": {
+              "x": 1,
+              "y": 2,
+              "z": 0
+            },
+            "pixel": {
+              "x": 0.25,
+              "y": 0.75
+            },
+            "enabled": true
+          }
+        ],
+        "locks": "shift",
+        "solveResidualPx": 0.4
+      }
+    ],
+    "cameras": [
+      {
+        "id": "cm0a0b0c01",
+        "name": "Scan cam",
+        "sourceKind": "device",
+        "source": "/dev/video0",
+        "intrinsics": {
+          "fx": 1371.0220864724301,
+          "fy": 1371.0220864724301,
+          "cx": 960,
+          "cy": 540,
+          "width": 1920,
+          "height": 1080
+        },
+        "lens": {
+          "k1": 0,
+          "k2": 0,
+          "p1": 0,
+          "p2": 0,
+          "k3": 0
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          }
+        },
+        "calibrated": true
+      }
+    ],
+    "viewpoints": [
+      {
+        "id": "vp0a0b0c01",
+        "name": "Audience",
+        "intrinsics": {
+          "fx": 1662.7687752661222,
+          "fy": 1662.7687752661222,
+          "cx": 960,
+          "cy": 540,
+          "width": 1920,
+          "height": 1080
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 1.7,
+            "z": -10
+          },
+          "rotation": {
+            "x": 0,
+            "y": -0.2641942447871007,
+            "z": 3.1304641512259375
+          }
+        }
+      }
+    ],
+    "scans": [
+      {
+        "id": "sc0a0b0c01",
+        "name": "Scan 1",
+        "kind": "structuredLight",
+        "createdUnixMs": 1760000000000,
+        "cameraId": "cm0a0b0c01",
+        "projectorIds": [
+          "pj0a0b0c01"
+        ],
+        "dataPath": "scans/sc0a0b0c01",
+        "meshId": "ms0a0b0c01",
+        "residual": 0.35,
+        "points": 120000,
+        "notes": "first light"
+      }
+    ],
+    "devices": [
+      {
+        "id": "dv0a0b0c01",
+        "name": "Left box",
+        "protocol": "panasonic",
+        "host": "10.0.0.21",
+        "port": 0,
+        "credentialRef": "dv0a0b0c01",
+        "projectorId": "pj0a0b0c01",
+        "outputId": "op_1",
+        "pollIntervalMs": 0,
+        "allowUnverified": false
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "id": "op_1",
+      "name": "Output 1",
+      "kind": "display",
+      "displayKey": "DP-1",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "mode": "projector",
+      "projectorId": "pj0a0b0c01",
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": true,
+        "pin": {
+          "topLeft": {
+            "x": 0.01,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": {
+          "columns": 3,
+          "rows": 3,
+          "offsets": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.01,
+              "y": -0.02
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "interpolation": "catmullRom",
+          "handlesU": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "handlesV": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        }
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0.15,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 2.2,
+        "blackLevel": 0.02,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 0.95,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [
+        {
+          "id": "mk0a0b0c02",
+          "name": "Door",
+          "path": {
+            "nodes": [
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              }
+            ],
+            "closed": true
+          },
+          "mode": "subtract",
+          "feather": 0.02,
+          "invert": false,
+          "enabled": true
+        }
+      ],
+      "plan": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "rotation": 0,
+      "enabled": true
+    },
+    {
+      "id": "op0a0b0c02",
+      "name": "Monitor",
+      "kind": "window",
+      "displayKey": "",
+      "width": 1280,
+      "height": 720,
+      "refreshHz": 60,
+      "mode": "canvas",
+      "projectorId": null,
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": false,
+        "pin": {
+          "topLeft": {
+            "x": 0,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": null
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 2.2,
+        "blackLevel": 0,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 1,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [],
+      "plan": {
+        "x": 1920,
+        "y": 0,
+        "w": 1280,
+        "h": 720
+      },
+      "rotation": 0,
+      "enabled": false
+    }
+  ],
+  "settings": {
+    "frameRate": "50",
+    "defaultTransition": "fade",
+    "defaultTransitionNs": 250000000,
+    "flashGuard": true
+  }
+}

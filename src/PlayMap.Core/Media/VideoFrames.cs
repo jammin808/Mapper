@@ -23,6 +23,26 @@ public enum PixelLayout
     Gray8,
     /// <summary>RGBA, 16-bit float per channel.</summary>
     RgbaHalf,
+    /// <summary>Block-compressed (HAP): a plane's Width/Height count 4×4 blocks; Stride = blocks × block bytes.</summary>
+    Bc1,
+    Bc3,
+    Bc3YCoCg,
+    Bc3YCoCgBc4,
+    Bc4,
+    Bc7,
+    Bc6hUfloat,
+    Bc6hSfloat,
+    /// <summary>4:2:2 from network senders (NDI, OMT), by plane (stride in bytes for width w):
+    /// Uyvy — one packed plane, 2·w; Uyva — the UYVY plane (2·w) then an 8-bit alpha plane (w);
+    /// P216 — semi-planar: a 16-bit Y plane (2·w) then an interleaved 16-bit CbCr plane (2·w, full height: 4:2:2 halves only
+    /// the horizontal);
+    /// Pa16 — P216's two planes then a 16-bit alpha plane (2·w). LiveFramePool sizes slots and VideoTextureSet uploads by these.</summary>
+    Uyvy,
+    Uyva,
+    P216,
+    Pa16,
+    /// <summary>RGBA, 16-bit unsigned normalised (a CPU texture-share path).</summary>
+    Rgba16,
 }
 
 public enum ColorMatrix
@@ -81,6 +101,18 @@ public abstract class VideoFrameLease : IDisposable
     /// <summary>Whether the picture carries alpha (RGBA layouts with a real alpha channel).</summary>
     public virtual bool HasAlpha => false;
 
+    /// <summary>The picture on the GPU, or null for a CPU picture (Planes). A lease with a surface may have no planes.</summary>
+    public virtual GpuSurface? Surface => null;
+
+    /// <summary>Where the planes live when written into the renderer's upload arena (empty otherwise); disposed only after the GPU read it.</summary>
+    public virtual UploadBlock Staged => default;
+
+    /// <summary>The monotonic instant the frame arrived (ns; 0 = unknown).</summary>
+    public virtual long ArrivalNs => 0;
+
+    /// <summary>The sender's own timestamp, ns (long.MinValue = none).</summary>
+    public virtual long SenderTimestampNs => long.MinValue;
+
     /// <summary>Returns the buffers to the source's pool. Runs once.</summary>
     protected abstract void Release();
 
@@ -106,7 +138,32 @@ public sealed record SourceHealth(
     long FramesLate,
     double DecodeMsP95,
     string Decoder,
-    bool Hardware);
+    bool Hardware)
+{
+    /// <summary>How frames reach the renderer.</summary>
+    public DecodePath Path { get; init; } = DecodePath.Software;
+
+    /// <summary>The picture never passes through system memory on its way to the renderer.</summary>
+    public bool ZeroCopy => Path is DecodePath.HwDirect or DecodePath.HwGpuCopy or DecodePath.HapGpu or DecodePath.GpuShare;
+
+    public int GpuCopies { get; init; }
+
+    /// <summary>"vaapi", "d3d11va", "cuda", "".</summary>
+    public string Device { get; init; } = "";
+
+    /// <summary>Why not a better path, in words.</summary>
+    public string Why { get; init; } = "";
+
+    public long BusBytesPerFrame { get; init; }
+    public long VramBytes { get; init; }
+    public int Surfaces { get; init; }
+    public double ImportMsP95 { get; init; }
+    public HapFacts? Hap { get; init; }
+}
+
+/// <summary>What a HAP source measured (STATE.decode.sources[].hap).</summary>
+public sealed record HapFacts(string Codec, string Texture, int Chunks, double RawShare, string SecondStage, double StageMsP95,
+    long UploadBytes, string Staging, long Corrupt, string LastRefusal, string Hdr);
 
 /// <summary>A picture source the renderer draws from: a decoded clip, a still, a capture device, a web page.
 /// The renderer asks for the frame to show at a media time (from the timeline anchor at the predicted
