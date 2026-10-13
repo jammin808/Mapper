@@ -644,6 +644,19 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         }
     }
 
+    /// <summary>How long after each present a capture waits for its frame: the measured latency, never below zero — a
+    /// frame that arrived before its pattern was presented cannot show it. The estimate itself never goes below zero, so
+    /// one that does (or a fallback set below it) means the camera's stamps and the display's disagree: it is taken as
+    /// zero and journalled, so the disagreement is seen rather than hidden.</summary>
+    internal long CaptureLatencyNs(double latencyMs, string projector)
+    {
+        if (latencyMs >= 0 && double.IsFinite(latencyMs))
+            return (long)(latencyMs * 1e6);
+        Volatile.Read(ref _engine)?.Journal.Add("scan", string.Create(CultureInfo.InvariantCulture,
+            $"{projector}: the camera's latency came out at {latencyMs:0.0} ms — below zero, so the camera's stamps and the display's disagree; taken as 0"), ok: false);
+        return 0;
+    }
+
     private static IScanCamera? DefaultCamera(CameraRig rig) =>
         CaptureCamera.OptionsFor(rig) is { } options ? new CaptureCamera(options) : null;
 
@@ -717,9 +730,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         SettleDetector? settle = null;
         int w = 0, h = 0, unsettled = 0;
         var generation = 0L;
-        // Never below zero: a frame that arrived before its pattern was presented cannot show it (a negative
-        // estimate is the two clocks' stamps disagreeing by less than a frame, not light arriving early).
-        var latencyNs = (long)(Math.Max(0, latencyMs) * 1e6);
+        var latencyNs = CaptureLatencyNs(latencyMs, part.Projector.Name);
         for (var i = 0; i < plan.Count; i++)
         {
             ct.ThrowIfCancellationRequested();

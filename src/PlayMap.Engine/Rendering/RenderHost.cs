@@ -470,21 +470,22 @@ public sealed partial class RenderHost : IRenderHost
         renderer.Render(in inputs);
         if (windows.Pacer is { } pacer && windows.WindowOf(pacer) is { } paced)
             _vblank.OnPresented(paced.LastSwapNs);
-        var finished = MonoClock.Instance.NowNs;
+        // The frame's present is stamped once, at the same point of every frame: its outputs drawn (a scan frame on an
+        // output with no window finished on the GPU first), before the previews and before any reader runs between
+        // frames — so what previews cost never moves it, and no readback of the frame can come before it.
+        _finishNs = -1;
+        if (_scan.AnyHanded)
+            _scan.AfterFrame(_presentOf);
+        var finished = _finishNs >= 0 ? _finishNs : MonoClock.Instance.NowNs;
         _loopPacer.OnPresented(finished);
         _headless.OnPresented(finished);
         RenderPreviews(renderer, project, monoNow);
-        if (_scan.AnyHanded)
-        {
-            _finishNs = -1;
-            _scan.AfterFrame(_presentOf);
-        }
         if (UpdateHealth(renderer, windows))
             WindowsChanged(engine);
     }
 
     /// <summary>When a scan frame was presented on an output: its window's swap, else (no window) the instant
-    /// the GPU finished the frame.</summary>
+    /// the GPU finished the frame's outputs — taken once a frame, before its previews are drawn.</summary>
     private long PresentOf(string outputId)
     {
         if (_windows!.WindowOf(outputId) is { } window)

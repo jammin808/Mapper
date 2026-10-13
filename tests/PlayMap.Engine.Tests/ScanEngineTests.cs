@@ -52,6 +52,27 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ALatencyBelowZeroIsTakenAsZeroAndJournalled()
+    {
+        var rig = new OpsRig();
+        try
+        {
+            Assert.Equal(12_500_000, rig.Scanner.CaptureLatencyNs(12.5, "Left"));
+            Assert.DoesNotContain(rig.Engine.Journal.Recent(20), r => r.Text.Contains("below zero", StringComparison.Ordinal));
+            Assert.Equal(0, rig.Scanner.CaptureLatencyNs(-3.5, "Left"));
+            Assert.Equal(0, rig.Scanner.CaptureLatencyNs(double.NaN, "Left"));
+            var rows = rig.Engine.Journal.Recent(20).Where(r => r.Text.Contains("below zero", StringComparison.Ordinal)).ToList();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(rows, r => !r.Ok && r.Text.StartsWith("Left: the camera's latency came out at -3.5 ms", StringComparison.Ordinal));
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
     public async Task ACameraThatCannotOpenSaysWhyOnItsViewAndInState()
     {
         var opens = 0;
