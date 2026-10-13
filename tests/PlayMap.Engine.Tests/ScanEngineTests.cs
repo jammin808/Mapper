@@ -53,6 +53,9 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
                         running.Add(rig.State().GetProperty("scan"));
                 }
             };
+            // The desk's camera view: the simulated camera's scene before the scan, the scan's own frames during it.
+            await rig.Ok("VIEW scan-camera SHOW camera:sim 960x540");
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("scan-camera") is { Sequence: 1 }), "the camera's still never came");
             var started = await rig.Run("SCAN START sim MODE ROBUST");
             Assert.True(started.Ok, started.Payload);
             Assert.False(started.Applied);
@@ -103,11 +106,17 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
             });
             Assert.Equal(state.ToString(), JsonDocument.Parse((await rig.Run("SCAN STATUS")).Payload!).RootElement.ToString());
 
-            var pictures = rig.Previews.Views;
-            Assert.Equal(state.GetProperty("patterns").GetInt32(), pictures[ScanPictures.CameraView].Count);
-            Assert.Equal((320, 240, 1), (pictures[ScanPictures.CameraView].Width, pictures[ScanPictures.CameraView].Height, pictures[ScanPictures.CameraView].Channels));
-            Assert.Equal((256, 160, 4), (pictures[ScanPictures.SmartView(scanId)].Width, pictures[ScanPictures.SmartView(scanId)].Height, pictures[ScanPictures.SmartView(scanId)].Channels));
-            Assert.True(pictures.ContainsKey(ScanPictures.ConfidenceView(scanId)));
+            // Scan frames reached the camera view (thinned in time), and the still came back after; the smart scan and
+            // the confidence are drawn at the projector's raster when the desk asks.
+            var seen = rig.Picture("scan-camera")!.Value;
+            Assert.True(seen.Sequence > 2, $"{seen.Sequence} camera pictures");
+            Assert.Equal((320, 240), (seen.Width, seen.Height));
+            await rig.Ok($"VIEW review SHOW scan:{scanId}:smart 1280x720");
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("review") is { Width: 256, Height: 160 }), "the smart scan never came");
+            await rig.Ok($"VIEW review SHOW scan:{scanId}:confidence 1280x720");
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("review") is { Sequence: 2 }), "the confidence never came");
+            Assert.False((await rig.Run("VIEW nope SHOW scan:sc99999999:smart")).Ok);
+            Assert.False((await rig.Run("VIEW nope SHOW camera:cm99999999")).Ok);
 
             // A click on the largest region of the smart scan makes a surface of it (and puts the scan's mesh on the
             // stage); a click off the picture is refused.

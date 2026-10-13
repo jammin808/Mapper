@@ -10,7 +10,7 @@ using PlayMap.Vision.Segmentation;
 
 namespace PlayMap.Engine.Scanning;
 
-/// <summary>How the scan runner paces a real capture, and where its pictures go.</summary>
+/// <summary>How the scan runner paces a real capture and opens its cameras.</summary>
 public sealed record ScanRunnerOptions
 {
     /// <summary>White flashes (each followed by black) that measure the camera's latency.</summary>
@@ -34,14 +34,12 @@ public sealed record ScanRunnerOptions
 
     public int SimulatedCameraHeight { get; init; } = 240;
 
-    /// <summary>Opens a real camera for a rig (null: Media's capture device). Tests hand in their own.</summary>
+    /// <summary>Opens a real camera for a rig, for a scan and for its camera views (null: Media's capture device).
+    /// Tests hand in their own.</summary>
     public Func<CameraRig, IScanCamera?>? OpenCamera { get; init; }
 
     /// <summary>The settle detector's thresholds.</summary>
     public SettleOptions Settle { get; init; } = new();
-
-    /// <summary>Where the camera, smart-scan and confidence pictures go (null: the node's preview rings, once bound).</summary>
-    public IScanPreviews? Previews { get; init; }
 
     /// <summary>The segmenter click-to-surface uses (null: Vision's router with the classical segmenter, which needs
     /// no model).</summary>
@@ -97,8 +95,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     private readonly Queue<string> _order = new();
     private readonly ISegmenter _segmenter;
     private EngineCore? _engine;
-    private IScanPreviews? _previews;
-    private PreviewRingPublisher? _ownPreviews;
+    private ScanViews? _views;
     private CancellationTokenSource? _running;
     private Task? _task;
     private volatile ScanView? _view;
@@ -108,7 +105,6 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         _display = display;
         _options = options ?? new ScanRunnerOptions();
-        _previews = _options.Previews;
         _segmenter = _options.Segmenter ?? new SegmenterRouter([], new ClassicalSegmenter(), null);
     }
 
@@ -126,20 +122,23 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     /// <summary>Raised (on the scan's thread) whenever the scan moves on.</summary>
     public event Action<ScanView>? Progressed;
 
-    /// <summary>Gives the runner the node it scans for: the project it reads, the lane it stores the record on, and —
-    /// unless a seam was given — the node's preview rings for its pictures.</summary>
+    /// <summary>Gives the runner the node it scans for: the project it reads, the lane it stores the record on, and
+    /// the node's preview views, where it feeds the camera and scan views (<see cref="ScanViews"/>). Once.</summary>
     public void Bind(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
+        ScanViews views;
         lock (_gate)
         {
+            if (_engine is not null)
+                throw new InvalidOperationException("the scan runner is bound to an engine already");
             _engine = engine;
-            if (_previews is null)
-            {
-                _ownPreviews = new PreviewRingPublisher(engine.Services.Settings.NodeId);
-                _previews = _ownPreviews;
-            }
+            views = new ScanViews(this, engine, _options.OpenCamera ?? DefaultCamera, _options.OpenCamera is not null,
+                _options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
+            _views = views;
         }
+        engine.Previews.Register("camera", views.Cameras);
+        engine.Previews.Register("scan", views.Scans);
     }
 
     /// <summary>A finished scan this node still holds in memory (the most recent few), or null.</summary>
@@ -253,6 +252,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     private sealed record Setup(string Id, CameraRig? Rig, ScanCameraView Camera, List<Part> Parts, Project Project, string? Folder, bool Simulated)
     {
         public string Names => string.Join(", ", Parts.Select(p => p.Projector.Name));
+
+        /// <summary>The camera's id as its views name it ("sim" for the bare simulator).</summary>
+        public string CameraId => Rig?.Id ?? SimulatedRig.CameraId;
     }
 
     /// <summary>The scan's progress as it moves: each step published as a new <see cref="ScanView"/>.</summary>
@@ -386,7 +388,16 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             rig = new SimulatedRig(SimulatedRig.SceneOf(setup.Rig), setup.Camera.Intrinsics.Width, setup.Camera.Intrinsics.Height,
                 setup.Parts.Select(p => p.Projector.Intrinsics).ToList());
             await PrepareDevicesAsync(engine, setup, track, null, notes, ct).ConfigureAwait(false);
-            captures = CaptureSimulated(rig, setup, track, views, out var truth, ct);
+            SimTruth truth;
+            await HoldCameraAsync(setup).ConfigureAwait(false);
+            try
+            {
+                captures = CaptureSimulated(rig, setup, track, views, out truth, ct);
+            }
+            finally
+            {
+                ReleaseCamera(setup);
+            }
             known = rig.KnownDistance(truth);
         }
         else
@@ -428,7 +439,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             notes.Add("the project is not saved yet: the scan is kept in memory until the node stops");
         }
         Keep(outcome);
-        PublishPictures(outcome);
+        ViewsOf()?.Finished(outcome);
         var record = new ScanRecord(setup.Id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
             [.. setup.Parts.Select(p => p.Projector.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
             string.Join(" ", new[] { solution.Words }.Concat(notes)));
@@ -523,7 +534,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 ct.ThrowIfCancellationRequested();
                 frames[i] = sim.Render(i);
-                _previews?.Publish(ScanPictures.CameraView, frames[i], sim.CameraWidth, sim.CameraHeight, 1, Core.Time.MonoClock.Instance.NowNs);
+                ViewsOf()?.CameraFrame(setup.CameraId, frames[i], sim.CameraWidth, sim.CameraHeight, Core.Time.MonoClock.Instance.NowNs);
                 track.Pattern(j, i, string.Create(CultureInfo.InvariantCulture,
                     $"{part.Projector.Name}: pattern {i + 1} of {part.Plan.Count} ({part.Plan.Frames[i].Name}), simulated {rig.SceneName}"));
             }
@@ -545,16 +556,17 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return new ProjectorCapture(part.Projector, part.Width, part.Height, map, quality);
     }
 
-    /// <summary>The first projector's smart scan and confidence to their preview views.</summary>
-    private void PublishPictures(ScanOutcome outcome)
+    private ScanViews? ViewsOf()
     {
-        if (_previews is null || outcome.Views.Count == 0)
-            return;
-        var (_, view) = outcome.Views[0];
-        var now = Core.Time.MonoClock.Instance.NowNs;
-        _previews.Publish(ScanPictures.SmartView(outcome.Id), ScanPictures.Smart(view), view.Width, view.Height, 4, now);
-        _previews.Publish(ScanPictures.ConfidenceView(outcome.Id), ScanPictures.Confidence(view), view.Width, view.Height, 4, now);
+        lock (_gate)
+            return _views;
     }
+
+    /// <summary>The scan takes its camera from the camera's views (they show the scan's frames meanwhile).</summary>
+    private Task HoldCameraAsync(Setup setup) => ViewsOf()?.HoldAsync(setup.CameraId) ?? Task.CompletedTask;
+
+    /// <summary>The scan has closed its camera: the views show the camera again.</summary>
+    private void ReleaseCamera(Setup setup) => ViewsOf()?.Release(setup.CameraId);
 
     /// <summary>Each projector with a device link is readied for the scan (shutter open, its own geometry off, lens
     /// recorded) and gives a shutter-closed black frame; what its protocol cannot do is said in the notes.</summary>
@@ -588,10 +600,12 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         var display = _display ?? throw new InvalidOperationException("this node has no outputs to show the patterns on");
         var rig = setup.Rig!;
-        var camera = (_options.OpenCamera ?? DefaultCamera)(rig)
-            ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot scan through yet");
+        await HoldCameraAsync(setup).ConfigureAwait(false);
+        IScanCamera? camera = null;
         try
         {
+            camera = (_options.OpenCamera ?? DefaultCamera)(rig)
+                ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot scan through yet");
             if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                 throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
             await PrepareDevicesAsync(engine, setup, track, camera, notes, ct).ConfigureAwait(false);
@@ -600,9 +614,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 var part = setup.Parts[j];
                 track.Step("running", "latency", $"{part.Projector.Name}: measuring the camera's latency with white flashes", j, "latency");
-                var latency = await MeasureLatencyAsync(display, camera, part.Output!, ct).ConfigureAwait(false);
+                var latency = await MeasureLatencyAsync(display, camera, setup.CameraId, part.Output!, ct).ConfigureAwait(false);
                 notes.Add($"{part.Projector.Name}: {latency.Words}.");
-                var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, j, part, latency.LatencyMs, track, ct).ConfigureAwait(false);
+                var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, setup.CameraId, j, part, latency.LatencyMs, track, ct).ConfigureAwait(false);
                 if (unsettled > 0)
                     notes.Add(string.Create(CultureInfo.InvariantCulture, $"{part.Projector.Name}: {unsettled} of {part.Plan.Count} patterns were taken without the camera settling."));
                 captures.Add(Decode(j, part, w, h, frames, null, views, track));
@@ -612,7 +626,8 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         finally
         {
             display.Release();
-            camera.Dispose();
+            camera?.Dispose();
+            ReleaseCamera(setup);
         }
     }
 
@@ -621,8 +636,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 
     /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present;
     /// every frame's mean brightness collected meanwhile.</summary>
-    private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, Output output, CancellationToken ct)
+    private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, string cameraId, Output output, CancellationToken ct)
     {
+        var views = ViewsOf();
         var estimator = new LatencyEstimator();
         var gate = new Lock();
         var white = new byte[output.Width * output.Height];
@@ -646,7 +662,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                 if (f is null)
                     continue;
                 generation = f.Generation;
-                _previews?.Publish(ScanPictures.CameraView, f.Gray, f.Width, f.Height, 1, f.ArrivalNs);
+                views?.CameraFrame(cameraId, f.Gray, f.Width, f.Height, f.ArrivalNs);
                 var mean = LatencyEstimator.MeanBrightness(f.Gray);
                 lock (gate)
                     estimator.AddFrame(f.ArrivalNs / 1e6, mean);
@@ -678,8 +694,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     /// <summary>Every pattern on the glass in turn; for each, the first frame that arrived at or after the present
     /// plus the latency and that the settle detector accepts (or, after enough late frames, the last one).</summary>
     private async Task<(byte[][] Frames, int Width, int Height, int Unsettled)> ShowAndCaptureAsync(IScanDisplay display, IScanCamera camera,
-        int j, Part part, double latencyMs, Track track, CancellationToken ct)
+        string cameraId, int j, Part part, double latencyMs, Track track, CancellationToken ct)
     {
+        var views = ViewsOf();
         var plan = part.Plan;
         var output = part.Output!;
         var frames = new byte[plan.Count][];
@@ -702,7 +719,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                     ?? throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
                         $"the camera sent no picture for {_options.FrameTimeout.TotalSeconds:0.#} s ({camera.Problem})"));
                 generation = f.Generation;
-                _previews?.Publish(ScanPictures.CameraView, f.Gray, f.Width, f.Height, 1, f.ArrivalNs);
+                views?.CameraFrame(cameraId, f.Gray, f.Width, f.Height, f.ArrivalNs);
                 if (f.ArrivalNs < earliest)
                     continue;
                 if (settle is null)
@@ -818,7 +835,10 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return (Core.Numerics.Vec3d.Distance(a.Position, b.Position), angle);
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Stops the scan running now, if any, and waits until it has ended (its outputs are back on the show and
+    /// its words published), then takes its feeds off the node's views and lets every camera go. The node calls this
+    /// before the parts a scan uses go (the projectors' links, the engine).</summary>
+    public async Task StopAsync()
     {
         Task? task;
         CancellationTokenSource? running;
@@ -849,10 +869,16 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                 // A scan stopped by the node's end ends here, whatever stopped it; Finish published its words.
             }
         }
+        if (ViewsOf() is { } views)
+            await views.StopAsync().ConfigureAwait(false);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync().ConfigureAwait(false);
         lock (_gate)
         {
             _running?.Dispose();
-            _ownPreviews?.Dispose();
         }
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using PlayMap.Assistant;
+using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
@@ -30,7 +31,7 @@ internal sealed class OpsRig : IAsyncDisposable
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
-        Scanner = new ScanRunner(null, new ScanRunnerOptions { Previews = Previews });
+        Scanner = new ScanRunner(null);
         Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,
@@ -45,8 +46,11 @@ internal sealed class OpsRig : IAsyncDisposable
                 return Model;
             },
         });
-        var services = EngineServices.ForTests(MonoClock.Instance) with
+        var services = EngineServices.ForTests(MonoClock.Instance);
+        services = services with
         {
+            // A node id of its own: the preview rings are files every process of this user shares.
+            Settings = services.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8] },
             Scan = Scanner,
             ProjectFolder = Folder,
             JournalPath = Path.Combine(Folder, "journal.jsonl"),
@@ -62,8 +66,6 @@ internal sealed class OpsRig : IAsyncDisposable
     public ScriptedModel Model { get; }
 
     public ScanRunner Scanner { get; }
-
-    public RecordingPreviews Previews { get; } = new();
 
     public DeviceService Devices { get; }
 
@@ -101,6 +103,18 @@ internal sealed class OpsRig : IAsyncDisposable
         return condition();
     }
 
+    /// <summary>The newest picture on a view's ring: its size and how many pictures the ring has had (null before
+    /// the first).</summary>
+    public PreviewFrameInfo? Picture(string viewId)
+    {
+        var path = Engine.Previews.RingPath(viewId);
+        if (!File.Exists(path))
+            return null;
+        using var reader = new PreviewRingReader(path);
+        var pixels = new byte[reader.MaxWidth * reader.MaxHeight * 4];
+        return reader.TryRead(pixels, 0, out var info) ? info : null;
+    }
+
     /// <summary>Everything the journal kept, the file included (read after the engine is gone).</summary>
     public string JournalText()
     {
@@ -127,30 +141,6 @@ internal sealed class OpsRig : IAsyncDisposable
         {
             // A file still held by a closing writer: the temp folder is left for the OS to clear.
         }
-    }
-}
-
-/// <summary>The scan's pictures as the desk would get them: per view, the last picture's size and channels and how
-/// many were published.</summary>
-internal sealed class RecordingPreviews : IScanPreviews
-{
-    private readonly Lock _gate = new();
-    private readonly Dictionary<string, (int Width, int Height, int Channels, int Count)> _views = new(StringComparer.Ordinal);
-
-    public IReadOnlyDictionary<string, (int Width, int Height, int Channels, int Count)> Views
-    {
-        get
-        {
-            lock (_gate)
-                return new Dictionary<string, (int, int, int, int)>(_views, StringComparer.Ordinal);
-        }
-    }
-
-    public void Publish(string viewId, ReadOnlySpan<byte> pixels, int width, int height, int channels, long stampNs)
-    {
-        Assert.True(pixels.Length >= width * height * channels);
-        lock (_gate)
-            _views[viewId] = (width, height, channels, _views.GetValueOrDefault(viewId).Count + 1);
     }
 }
 
