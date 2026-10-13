@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace PlayMap.Core.Wire;
@@ -8,7 +8,8 @@ namespace PlayMap.Core.Wire;
 /// each form starts with the verb's name.</summary>
 public static class VerbSyntax
 {
-    private static readonly ConcurrentDictionary<VerbSpec, IReadOnlyList<string>> FormsOf = new(ReferenceEqualityComparer.Instance);
+    /// <summary>Each row's forms, read once per row object and released with it.</summary>
+    private static readonly ConditionalWeakTable<VerbSpec, IReadOnlyList<string>> FormsOf = new();
 
     /// <summary>The row's forms: its syntax split at every top-level " | " (outside &lt;…&gt; and […]), each form starting
     /// with the verb's name ("GENERATOR SET g p v | GENERATOR SET g p BY d" → two forms; "UNLOCK x | UNLOCK AREA a |
@@ -16,7 +17,7 @@ public static class VerbSyntax
     public static IReadOnlyList<string> Alternatives(VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        return FormsOf.GetOrAdd(spec, static s => Split(s));
+        return FormsOf.GetValue(spec, static s => Split(s));
     }
 
     private static string[] Split(VerbSpec spec)
