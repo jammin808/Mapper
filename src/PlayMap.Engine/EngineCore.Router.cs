@@ -72,6 +72,7 @@ public sealed partial class EngineCore
 
             "OUTPUT LIST" => CommandReply.Success(OutputsJson()),
             "DISPLAYS" => CommandReply.Success(DisplaysJson()),
+            "VIEW" => View(args, session),
             "OUTPUT ENABLE" => OutputEnable(args),
             "OUTPUT SOURCE" => OutputSource(args),
             "OUTPUT IDENTIFY" => Identify(args),
