@@ -213,6 +213,11 @@ testing on the model. Both families speak PJLink, which `DriverSuggestion` keeps
   true` by an operator; it is never a default.
 - **Scans**: a projector with a link is readied by `PrepareForScan` before its patterns and gives a `BlackFrame`
   (the room with the shutter closed); the scan's notes say what the protocol could not do.
+- **In the node**, `DeviceService` is the host extension "devices" (`OpsParts`): one credential store per node, in
+  its keys folder, shared with the assistant; the service attaches before the node's doors open and its links
+  close after a running scan has stopped. The PJLink UDP port (4352) is bound once; when another program holds it,
+  notifications and discovery answers are missed and the journal says why, while commands and polling still go
+  over TCP.
 
 ## 8. Not done, and why
 

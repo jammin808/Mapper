@@ -110,7 +110,10 @@ Windows (roadmap, docs/ROADMAP.md).
   camera is calibrated); a calibrated camera keeps its focal length, because a camera and projectors aimed at one
   object have nearly meeting optical axes and two views cannot then tell focal length from depth. SCAN APPLY puts
   the scan on the stage as one undoable edit; SCAN SURFACE makes a surface of a click on the smart scan. The camera
-  "sim" runs the same pipeline on the scan simulator — demo mode and the tests scan with no hardware.
+  "sim" runs the same pipeline on the scan simulator — demo mode and the tests scan with no hardware. The node
+  composes it through the host's hooks (`EngineParts.Ops.cs` → `OpsParts`): the runner is the scan backend over the
+  render host's display, and projector control, the assistant (its queue the host's MCP approvals) and the runner's
+  binding are extensions; the runner feeds the camera and scan preview views on the render host's `PreviewViews`.
 - **LiDAR / model import**: OBJ, PLY (mesh and points), XYZ/PTS, LAS; register by three picked points
   (Umeyama) then point-to-plane ICP; or bridge with structured light: decoded camera pixels ray-cast into the
   model give thousands of 2D↔3D pairs per projector → `PoseSolver`.

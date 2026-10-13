@@ -125,7 +125,7 @@ as raw substrings):
   `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
   first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
-  `scan-<id>-smart`, `scan-<id>-confidence` and `scan-camera`.
+  (`VIEW <view> SHOW scan:<id>:smart|confidence`, `VIEW <view> SHOW camera:<id>`; see Previews).
 - `devices` is one row per projector link in the project's order: the link, then what its projector reports
   (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
   `credential` says whether a secret is kept for it — never the secret.
@@ -156,11 +156,15 @@ as raw substrings):
   own id; the assistant's key is `assistant`), `CREDENTIAL CLEAR <ref>` forgets one, `CREDENTIAL LIST` names the
   references. Like `AUTH`, a credential line is taken from this machine only, never from an assistant, never
   journalled and never repeated in a reply.
+- The assistant's settings are the node's own, in `playmap.assistant.json` beside its settings (provider, model,
+  effort, the low- and review-risk switches); with no file the assistant is off. Its key is never in that file.
 - `ASK <words>` runs one request of the client's conversation with the node's assistant and answers with its words
   and every line it ran or queued (`{"conversation","outcome","text","status","lines":[…],"queued":["ap1"]}`).
   `PROPOSALS [ALL]` lists what waits; `APPROVE <proposal>` runs the line through the node's own path and answers
   the node's reply; `REJECT <proposal> [<why>]` drops it. Only a person approves or rejects: a line from an
-  assistant, from MCP or from an approval of either is refused.
+  assistant, from MCP or from an approval of either is refused. An MCP assistant's high-risk line (while "AI may
+  act" is off) waits on the same list — `run_command` answers `{"stage":"queued","proposal":"ap…"}` — except a
+  person's own verbs (`APPROVE`, `REJECT`, `ASK`, `CREDENTIAL …`), which are refused, not queued.
 - `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 
@@ -184,3 +188,11 @@ at most 30. A view keeps its ring while it lives (a reader opens it once). View 
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
 stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
+
+The scan side feeds the camera and scan views. A camera view (`camera:<id>`, or `camera:sim` for the bare
+simulator) shows the frames a running scan takes through that camera; between scans, a capture camera is opened
+for its views (a scan takes it over and gives it back; it closes with its last view) and the simulated camera shows
+its scene under white light — at most 25 pictures a second. A scan view draws the first projector's smart scan or
+its confidence (red unsure, green sure) at the projector's raster when shown, or when the scan running now
+finishes; a scan's pictures are kept in memory until the node stops, so a scan from before a restart is refused
+with the reason.
