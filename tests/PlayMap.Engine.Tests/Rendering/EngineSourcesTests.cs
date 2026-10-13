@@ -55,6 +55,7 @@ public sealed class EngineSourcesTests
     private sealed class FakeMedia : IMediaBackend
     {
         public List<FakeSource> Made { get; } = [];
+        public List<int> OpenedOn { get; } = [];
         public int Refusals { get; set; }
 
         public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) => throw new NotSupportedException();
@@ -63,6 +64,7 @@ public sealed class EngineSourcesTests
         {
             lock (Made)
             {
+                OpenedOn.Add(Environment.CurrentManagedThreadId);
                 if (Refusals > 0)
                 {
                     Refusals--;
@@ -106,15 +108,35 @@ public sealed class EngineSourcesTests
         var snap = Snapshot(project);
         using var sources = new EngineSources(media);
         long frame = 0;
-        sources.BeginFrame(snap, ++frame);
-        Assert.Null(sources.Acquire(SourceRef.Media("md_a"), 7_000_000_000));
-
-        using var a = Until(sources, snap, SourceRef.Media("md_a"), ref frame);
-        using var b = Until(sources, snap, SourceRef.Media("md_b"), ref frame);
-        Assert.NotEqual(a.Generation, b.Generation);
-        Assert.Equal(1, a.Generation & 0xFFFF_FFFF);
+        VideoFrameLease? a = null, b = null;
+        var waited = Stopwatch.StartNew();
+        while (a is null || b is null)
+        {
+            // Both are asked every frame, as the renderer would: a source no frame asks for is let go.
+            sources.BeginFrame(snap, ++frame);
+            var nextA = sources.Acquire(SourceRef.Media("md_a"), 7_000_000_000);
+            var nextB = sources.Acquire(SourceRef.Media("md_b"), 7_000_000_000);
+            if (a is null)
+                a = nextA;
+            else
+                nextA?.Dispose();
+            if (b is null)
+                b = nextB;
+            else
+                nextB?.Dispose();
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), "the sources never opened");
+            Thread.Yield();
+        }
+        using (a)
+        using (b)
+        {
+            Assert.NotEqual(a.Generation, b.Generation);
+            Assert.Equal(1, a.Generation & 0xFFFF_FFFF);
+        }
+        // Opened on a worker, never on the thread that asks for frames.
+        Assert.DoesNotContain(Environment.CurrentManagedThreadId, media.OpenedOn);
         // 7 s on the leader's clock into a 2 s clip is 1 s into it.
-        Assert.Equal(1_000_000_000, media.Made[0].LastAsked);
+        Assert.Equal(1_000_000_000, media.Made.Single(m => m.Key == "md_a").LastAsked);
         Assert.Equal(2, sources.OpenSources);
     }
 

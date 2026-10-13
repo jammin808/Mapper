@@ -101,14 +101,17 @@ internal sealed class HostRig : IAsyncDisposable
 /// <summary>The media edge for tests: library items open through PlayMap.Media as the node's own adapter would.</summary>
 internal sealed class MediaFiles : IMediaBackend
 {
-    public int Opened { get; private set; }
+    private int _opened;
+
+    /// <summary>Sources opened (on the provider's workers, two at once when an item prerolls the next).</summary>
+    public int Opened => Volatile.Read(ref _opened);
 
     public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) =>
         throw new NotSupportedException("tests import nothing");
 
     public IVideoSource? Open(MediaItem item)
     {
-        Opened++;
+        Interlocked.Increment(ref _opened);
         return MediaSources.Open(item);
     }
 
