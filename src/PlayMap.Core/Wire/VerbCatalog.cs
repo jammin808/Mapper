@@ -202,20 +202,49 @@ public static class VerbCatalog
         return d.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
-    /// <summary>The verb a line names: the longest match of its first one or two words (upper-cased), with
-    /// how many words it took. VT and CLIP are VIDEO (Patterns' aliases), whatever follows. Null when
-    /// nothing matches.</summary>
-    /// <summary>The line as it may be written down: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
-    /// are replaced by one marker, so a journal row or a log never holds a token, a key or a password.</summary>
+    /// <summary>What stands in a shown line for a verb's secret words.</summary>
+    public const string SecretMarker = "‹secret›";
+
+    /// <summary>The line as it may be written down or shown: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
+    /// are replaced by one marker, so a journal row, a log, a proposal on a desk or a reply never holds a token, a
+    /// key or a password. Only the line itself, kept where it runs, carries them.</summary>
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
         if (Match(line) is not { Spec.SecretFrom: int from } || line.Count <= from)
             return line.Raw;
         var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
-        return string.Join(' ', kept) + " ‹secret›";
+        return string.Join(' ', kept) + " " + SecretMarker;
     }
 
+    /// <summary>A line's text as it may be shown (<see cref="Redacted(WireLine)"/>); a text that does not read as a
+    /// line names no verb, so it has no secret words, and is shown as it came.</summary>
+    public static string Redacted(string text) =>
+        WireGrammar.TryParse(text ?? "", out var line, out _) ? Redacted(line) : text ?? "";
+
+    /// <summary>True when a line carries a verb's secret words (a token, a key, a password).</summary>
+    public static bool HoldsSecret(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return Match(line) is { Spec.SecretFrom: int from } && line.Count > from;
+    }
+
+    /// <summary>True when a line's secret words are the marker a shown copy carries: a copy taken from a desk or a
+    /// log, which must never run in place of the line it stands for.</summary>
+    public static bool IsShownCopy(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (Match(line) is not { Spec.SecretFrom: int from })
+            return false;
+        for (var i = from; i < line.Count; i++)
+            if (string.Equals(line.Word(i), SecretMarker, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
+    /// <summary>The verb a line names: the longest match of its first one or two words (upper-cased), with
+    /// how many words it took. VT and CLIP are VIDEO (Patterns' aliases), whatever follows. Null when
+    /// nothing matches.</summary>
     public static (VerbSpec Spec, int Words)? Match(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);

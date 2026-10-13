@@ -165,6 +165,12 @@ as raw substrings):
   assistant, from MCP or from an approval of either is refused. An MCP assistant's high-risk line (while "AI may
   act" is off) waits on the same list — `run_command` answers `{"stage":"queued","proposal":"ap…"}` — except a
   person's own verbs (`APPROVE`, `REJECT`, `ASK`, `CREDENTIAL …`), which are refused, not queued.
+- A proposal is shown without its verb's secret words (`LINK PATTERNS 10.0.0.5 ‹secret›`): in `PROPOSALS`, the
+  replies, the journal, the queued receipt MCP answers and the copy a Stagewatch approval desk is offered. The node
+  keeps the line whole and an approval runs that (a proposal approved on the desk runs from the node's own record,
+  never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
+  its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
+  refused wherever it arrives.
 - `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 

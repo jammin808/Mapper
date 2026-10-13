@@ -35,7 +35,6 @@ public class GateTests
     [Theory]
     [InlineData("AUTH 0badc0de0badc0de", "the connection's own verb")]
     [InlineData("HELLO me", "the connection's own verb")]
-    [InlineData("LINK PATTERNS 10.0.0.5:9697 0badc0de0badc0de", "never rides in an assistant's line")]
     [InlineData("BLACKOUT MAYBE", "takes ON|OFF|TOGGLE there")]
     [InlineData("OUTPUT ENABLE op00000001", "needs ON|OFF")]
     [InlineData("SURFACE SOURCE sf00000001", "needs <source>")]
@@ -48,6 +47,16 @@ public class GateTests
 
         Assert.False(check.Ok);
         Assert.Contains(reason, check.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALineWithItsVerbsSecretWordsPassesMarkedAndOneWithoutThemDoesNot()
+    {
+        var link = CommandGate.Check("LINK PATTERNS 10.0.0.5:9697 0badc0de0badc0de");
+        Assert.True(link.Ok, link.Reason);
+        Assert.True(link.HoldsSecret);
+        Assert.False(CommandGate.Check("LINK PATTERNS 10.0.0.5:9697").HoldsSecret);
+        Assert.False(CommandGate.Check("BLACKOUT ON").HoldsSecret);
     }
 
     [Fact]

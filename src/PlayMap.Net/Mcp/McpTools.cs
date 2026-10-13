@@ -103,7 +103,9 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         if (line.Verb is "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "SUBSCRIBE")
             return Text(WireWords.WireOnly, error: true);
         var verb = VerbCatalog.Match(line)?.Spec;
-        if ((verb?.Risk ?? VerbRisk.High) == VerbRisk.High)
+        // A line carrying its verb's secret words is decided like a high-risk one: an assistant's token never
+        // runs on its own word while "AI may act" is off.
+        if ((verb?.Risk ?? VerbRisk.High) == VerbRisk.High || VerbCatalog.HoldsSecret(line))
         {
             var verdict = await policy.DecideAsync(verb, line.Raw, reason, ct);
             switch (verdict.Decision)
@@ -118,6 +120,8 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
                         w.WriteString("stage", "queued");
                         w.WriteString("effect", "not run: " + verdict.Words);
                         w.WriteString("proposal", verdict.ProposalId);
+                        // What waits, as a person sees it: the verb's secret words never ride back out.
+                        w.WriteString("line", VerbCatalog.Redacted(line));
                         w.WriteEndObject();
                     }), error: false);
                 case ApprovalDecision.Refused:

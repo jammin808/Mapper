@@ -6,17 +6,18 @@ namespace PlayMap.Assistant;
 
 /// <summary>What the gate made of one proposed line. <see cref="Ok"/> false means it must not run and
 /// <see cref="Reason"/> says why in words the model (or the operator) can act on. A refused line's risk is
-/// high: unknown stays unknown.</summary>
-public sealed record LineCheck(bool Ok, string Line, WireLine? Parsed, VerbSpec? Spec, VerbRisk Risk, string Reason)
+/// high: unknown stays unknown. <see cref="HoldsSecret"/>: the line carries its verb's secret words, so it never runs
+/// on an assistant's word — it waits for a person, who sees it without them.</summary>
+public sealed record LineCheck(bool Ok, string Line, WireLine? Parsed, VerbSpec? Spec, VerbRisk Risk, string Reason, bool HoldsSecret = false)
 {
     public static LineCheck Refused(string line, string reason) => new(false, line, null, null, VerbRisk.High, reason);
 }
 
 /// <summary>The fence every line an assistant proposes passes before anything runs or queues: the wire's own
 /// grammar, the vocabulary, the verb's required words and fixed choices, and — given the project — that an id
-/// it names exists. The connection's own verbs (HELLO, AUTH…) and a key or token in a line are refused: an
-/// assistant never handles a secret. Risk comes from the verb's entry in the catalogue; anything not in it
-/// is high.</summary>
+/// it names exists. The connection's own verbs (HELLO, AUTH…) are refused. A line carrying its verb's secret words (a
+/// link's token) passes marked: it is only ever queued for a person, shown without them, and an approval runs it
+/// whole. Risk comes from the verb's entry in the catalogue; anything not in it is high.</summary>
 public static class CommandGate
 {
     /// <summary>Verbs that belong to a connection, not to the show.</summary>
@@ -55,13 +56,11 @@ public static class CommandGate
         var (spec, verbWords) = match.Value;
         if (ConnectionVerbs.Contains(spec.Name))
             return LineCheck.Refused(normalised, $"{spec.Name} is the connection's own verb, not a show verb");
-        if (spec.Name.StartsWith("LINK ", StringComparison.Ordinal) && parsed.Count > verbWords + 1)
-            return LineCheck.Refused(normalised, "a key or token never rides in an assistant's line — the operator links with its key by hand");
         if (!CheckRequiredWords(spec, parsed, verbWords, out var why))
             return LineCheck.Refused(normalised, why);
         if (project is not null && FirstUnknownId(project, parsed, verbWords) is { } unknown)
             return LineCheck.Refused(normalised, $"no entity '{unknown}' in the project — look ids up (get_project, get_entity) rather than writing them");
-        return new LineCheck(true, normalised, parsed, spec, spec.Risk, "");
+        return new LineCheck(true, normalised, parsed, spec, spec.Risk, "", VerbCatalog.HoldsSecret(parsed));
     }
 
     /// <summary>The words the verb's syntax requires (those before its first optional part) are present, and

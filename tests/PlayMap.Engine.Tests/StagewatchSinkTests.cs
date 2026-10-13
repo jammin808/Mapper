@@ -226,6 +226,47 @@ public sealed class StagewatchSinkTests
     }
 
     [Fact]
+    public async Task TheDeskSeesALinkWithoutItsTokenAndTheNodeRunsItsOwnRecordOnce()
+    {
+        await using var desk = await FakeApprovalDesk.StartAsync();
+        var links = new LinkSpy();
+        var rig = new OpsRig(network: links);
+        try
+        {
+            var self = rig.Engine.Services.Settings.NodeId;
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri($"http://127.0.0.1:{desk.Port}/"),
+                Key = Key,
+                SelfId = self,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+            });
+            var proposal = await rig.Assistant.Queue.EnqueueAsync(new ProposalDraft("LINK PATTERNS host secret-token", PlayMap.Core.Wire.VerbCatalog.Find("LINK PATTERNS")!,
+                "follow the desk", "an assistant over MCP", "mcp", "mcp/1", 0), CancellationToken.None);
+            Assert.Equal(ProposalState.Forwarded, proposal.State);
+            var offered = JsonDocument.Parse(Assert.Single(desk.Bodies)).RootElement;
+            Assert.Equal("LINK PATTERNS host " + PlayMap.Core.Wire.VerbCatalog.SecretMarker, offered.GetProperty("line").GetString());
+
+            desk.Decide(proposal.RemoteId, "approved", "Caller");
+            Assert.True(await OpsRig.Eventually(() => rig.Assistant.Queue.Find(proposal.Id)!.State == ProposalState.Done), rig.Assistant.Queue.Find(proposal.Id)!.Summary);
+            Assert.True(await OpsRig.Eventually(() => !links.Patterns.IsEmpty));
+            Assert.Equal(("host", "secret-token"), Assert.Single(links.Patterns));
+
+            // Another app's copy of a shown line, approved for this node, is refused: only a record holding the words runs.
+            var copy = desk.AddApproved(self, "LINK PATTERNS host " + PlayMap.Core.Wire.VerbCatalog.SecretMarker);
+            Assert.True(await OpsRig.Eventually(() => desk.Answers.Any(a => a.Id == copy)));
+            Assert.False(JsonDocument.Parse(desk.Answers.Single(a => a.Id == copy).Body).RootElement.GetProperty("ok").GetBoolean());
+            Assert.Single(links.Patterns);
+            Assert.All(desk.Bodies.Concat(desk.Answers.Select(a => a.Body)), b => Assert.DoesNotContain("secret-token", b, StringComparison.Ordinal));
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
     public async Task ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList()
     {
         var model = new ScriptedModel()

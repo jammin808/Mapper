@@ -37,6 +37,14 @@ public class WireAndBusTests
         // A line without its secret, and every other verb, is written as it came.
         Assert.Equal("LINK PATTERNS 10.0.0.5", Shown("LINK PATTERNS 10.0.0.5"));
         Assert.Equal("BLACKOUT ON", Shown("BLACKOUT ON"));
+        Assert.Equal("LINK PATTERNS 10.0.0.5 \u2039secret\u203a", VerbCatalog.Redacted("LINK PATTERNS 10.0.0.5 s3cr3t-token"));
+
+        // A line holding its secret is told apart from the copy shown in its place, which must never run.
+        Assert.True(WireGrammar.TryParse("LINK PATTERNS 10.0.0.5 s3cr3t-token", out var whole, out _));
+        Assert.True(WireGrammar.TryParse(Shown("LINK PATTERNS 10.0.0.5 s3cr3t-token"), out var copy, out _));
+        Assert.True(VerbCatalog.HoldsSecret(whole));
+        Assert.False(VerbCatalog.IsShownCopy(whole));
+        Assert.True(VerbCatalog.IsShownCopy(copy));
     }
 
     [Fact]

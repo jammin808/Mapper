@@ -203,7 +203,7 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
         ArgumentNullException.ThrowIfNull(redactor);
         w.WriteStartObject();
         w.WriteString("id", p.Id);
-        w.WriteString("line", redactor.Redact(p.Line));
+        w.WriteString("line", redactor.Redact(p.Shown));
         w.WriteString("verb", p.Verb);
         w.WriteString("risk", p.RiskWord);
         w.WriteString("reason", redactor.Redact(p.Reason));

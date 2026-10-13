@@ -101,6 +101,29 @@ public class AssistantSessionTests
     }
 
     [Fact]
+    public async Task ALinkWithATokenAlwaysWaitsShownWithoutItAndItsApprovalRunsItWhole()
+    {
+        var provider = new ScriptedProvider()
+            .Then(ScriptedProvider.Call(ScriptedProvider.Propose("c1", "Follow the desk", "LINK PATTERNS host secret-token")))
+            .Then(ScriptedProvider.Say("The link waits for you."));
+        // Review risk the settings would run on the model's word: a secret never does.
+        var (session, node, queue) = Make(provider, On with { RunLowWithoutAsking = true, RunReviewWithoutAsking = true });
+        var logged = new List<string>();
+        session.Logged += logged.Add;
+
+        await session.AskAsync("link the desk");
+
+        Assert.Empty(node.Handled);
+        var proposal = Assert.Single(queue.Pending);
+        Assert.Equal("LINK PATTERNS host " + VerbCatalog.SecretMarker, proposal.Shown);
+        Assert.DoesNotContain("secret-token", proposal.Summary, StringComparison.Ordinal);
+        Assert.All(logged, l => Assert.DoesNotContain("secret-token", l, StringComparison.Ordinal));
+
+        await queue.ApproveAsync(proposal.Id, "Sam", CancellationToken.None);
+        Assert.Equal("LINK PATTERNS host secret-token", Assert.Single(node.Handled).Line);
+    }
+
+    [Fact]
     public async Task AnUnknownVerbIsRefusedAndTheReasonGoesBackToTheModelWithNothingRun()
     {
         var provider = new ScriptedProvider()

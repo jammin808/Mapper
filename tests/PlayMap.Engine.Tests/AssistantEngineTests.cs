@@ -13,6 +13,52 @@ namespace PlayMap.Engine.Tests;
 public sealed class AssistantEngineTests
 {
     [Fact]
+    public async Task AProposedLinkNeverShowsItsTokenYetItsApprovalRunsItWithTheToken()
+    {
+        var links = new LinkSpy();
+        var rig = new OpsRig(network: links);
+        try
+        {
+            // The words a person sees are the verb's own redaction, not a guess at a key's shape: a short key is hidden too.
+            var patterns = await rig.Assistant.Queue.EnqueueAsync(new ProposalDraft("LINK PATTERNS host secret-token", VerbCatalog.Find("LINK PATTERNS")!,
+                "follow the desk", "an assistant over MCP", "mcp", "mcp/1", 0), CancellationToken.None);
+            var stagewatch = await rig.Assistant.Queue.EnqueueAsync(new ProposalDraft("LINK STAGEWATCH host k3y-9q", VerbCatalog.Find("LINK STAGEWATCH")!,
+                "follow the timer", "an assistant over MCP", "mcp", "mcp/2", 0), CancellationToken.None);
+            var listed = JsonDocument.Parse(await rig.Ok("PROPOSALS")).RootElement;
+            Assert.Equal("LINK PATTERNS host " + VerbCatalog.SecretMarker, listed[0].GetProperty("line").GetString());
+            Assert.Equal("LINK STAGEWATCH host " + VerbCatalog.SecretMarker, listed[1].GetProperty("line").GetString());
+            Assert.Equal(2, rig.State().GetProperty("ai").GetProperty("proposals").GetInt32());
+
+            var approved = await rig.Run("APPROVE " + patterns.Id);
+            Assert.True(approved.Ok, approved.Payload);
+            await rig.Ok("APPROVE " + stagewatch.Id);
+            Assert.True(await OpsRig.Eventually(() => links.Patterns.Count == 1 && links.Stagewatch.Count == 1), approved.Payload);
+            Assert.Equal(("host", "secret-token"), Assert.Single(links.Patterns));
+            Assert.Equal(("host", "k3y-9q"), Assert.Single(links.Stagewatch));
+            Assert.Equal(ProposalState.Done, rig.Assistant.Queue.Find(patterns.Id)!.State);
+
+            // A shown copy never runs in place of the line it stands for.
+            var copy = await rig.Run("LINK PATTERNS host " + VerbCatalog.SecretMarker);
+            Assert.False(copy.Ok);
+            Assert.Contains("shown copy", copy.Payload, StringComparison.Ordinal);
+            Assert.Single(links.Patterns);
+
+            var seen = string.Join("\n", await rig.Ok("PROPOSALS ALL"), approved.Payload, approved.Effect, rig.Engine.State().Json, rig.Engine.Context(),
+                string.Join("\n", rig.Engine.Journal.Recent(200).Select(r => r.Text + " " + r.Line)));
+            await rig.DisposeAsync();
+            seen += rig.JournalText();
+            Assert.Contains(VerbCatalog.SecretMarker, seen, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret-token", seen, StringComparison.Ordinal);
+            Assert.DoesNotContain("k3y-9q", seen, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
     public async Task AnAskedHighRiskLineWaitsApproveRunsItAndRejectLeavesTheNodeAsItWas()
     {
         var model = new ScriptedModel()

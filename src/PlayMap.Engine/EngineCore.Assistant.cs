@@ -51,7 +51,7 @@ public sealed partial class EngineCore
             foreach (var l in result.Lines)
             {
                 w.WriteStartObject();
-                w.WriteString("line", redactor.Redact(l.Line));
+                w.WriteString("line", redactor.Redact(VerbCatalog.Redacted(l.Line)));
                 w.WriteString("verb", l.Verb);
                 w.WriteString("risk", Core.Bus.ShowContext.RiskWord(l.Risk));
                 w.WriteString("status", l.StatusWord);
@@ -109,7 +109,7 @@ public sealed partial class EngineCore
             false => "the node refused it: " + redactor.Redact(decided.ResultWords),
             _ => redactor.Redact(decided.ResultWords),
         };
-        return CommandReply.Success(payload, $"approved {decided.Id} ({redactor.Redact(decided.Line)}) — {ran}");
+        return CommandReply.Success(payload, $"approved {decided.Id} ({redactor.Redact(decided.Shown)}) — {ran}");
     }
 
     private static CommandReply Reject(AssistantService assistant, List<string> args, SessionInfo session)
@@ -122,7 +122,7 @@ public sealed partial class EngineCore
         {
             var p = assistant.Queue.Reject(args[0], Who(session), args.Count > 1 ? string.Join(' ', args.Skip(1)) : null);
             var redactor = assistant.Redactor();
-            return CommandReply.Success(JsonOut(w => AssistantService.WriteProposal(w, p, redactor)), $"rejected {p.Id} ({redactor.Redact(p.Line)}) — it did not run");
+            return CommandReply.Success(JsonOut(w => AssistantService.WriteProposal(w, p, redactor)), $"rejected {p.Id} ({redactor.Redact(p.Shown)}) — it did not run");
         }
         catch (InvalidOperationException ex)
         {

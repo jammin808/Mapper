@@ -333,8 +333,8 @@ internal sealed class AssistantToolbox
                 continue;
             }
             // A query changes nothing, so it runs wherever it stands; a change runs on the model's word only
-            // while no earlier line of the call has had to wait for a person.
-            if (!spec.Mutates || (!gated && _settings.RunsWithoutAsking(c.Risk)))
+            // while no earlier line of the call has had to wait for a person, and never when it carries a secret.
+            if (!spec.Mutates || (!gated && !c.HoldsSecret && _settings.RunsWithoutAsking(c.Risk)))
             {
                 var outcome = await RunLineAsync(c, ct);
                 outcomes.Add(outcome);

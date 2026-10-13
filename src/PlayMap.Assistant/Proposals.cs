@@ -48,16 +48,20 @@ public sealed record Proposal(
 
     public bool IsOpen => State is ProposalState.Pending or ProposalState.Forwarded or ProposalState.Running;
 
+    /// <summary>The line as a person, a desk, a log or a reply sees it: the verb's secret words replaced by a
+    /// marker (<see cref="VerbCatalog.Redacted(string)"/>). Only an approval runs <see cref="Line"/> itself.</summary>
+    public string Shown => VerbCatalog.Redacted(Line);
+
     /// <summary>One line for the model and the desk: "ap3 PLAYLIST GO pl… (high) — done: OK".</summary>
     public string Summary => State switch
     {
-        ProposalState.Pending => $"{Id} {Line} ({RiskWord}) — waiting for a person to approve; it has not run",
-        ProposalState.Forwarded => $"{Id} {Line} ({RiskWord}) — waiting on the approval desk {RemoteDesk}; it has not run",
-        ProposalState.Running => $"{Id} {Line} ({RiskWord}) — approved by {DecidedBy}, running",
-        ProposalState.Done => $"{Id} {Line} ({RiskWord}) — approved by {DecidedBy}, ran: {ResultWords}",
-        ProposalState.Failed => $"{Id} {Line} ({RiskWord}) — approved by {DecidedBy}, refused by the node: {ResultWords}",
-        ProposalState.Rejected => $"{Id} {Line} ({RiskWord}) — rejected by {DecidedBy}{(ResultWords.Length > 0 ? ": " + ResultWords : "")}; it did not run",
-        _ => $"{Id} {Line} ({RiskWord}) — expired before anyone decided; it did not run",
+        ProposalState.Pending => $"{Id} {Shown} ({RiskWord}) — waiting for a person to approve; it has not run",
+        ProposalState.Forwarded => $"{Id} {Shown} ({RiskWord}) — waiting on the approval desk {RemoteDesk}; it has not run",
+        ProposalState.Running => $"{Id} {Shown} ({RiskWord}) — approved by {DecidedBy}, running",
+        ProposalState.Done => $"{Id} {Shown} ({RiskWord}) — approved by {DecidedBy}, ran: {ResultWords}",
+        ProposalState.Failed => $"{Id} {Shown} ({RiskWord}) — approved by {DecidedBy}, refused by the node: {ResultWords}",
+        ProposalState.Rejected => $"{Id} {Shown} ({RiskWord}) — rejected by {DecidedBy}{(ResultWords.Length > 0 ? ": " + ResultWords : "")}; it did not run",
+        _ => $"{Id} {Shown} ({RiskWord}) — expired before anyone decided; it did not run",
     };
 }
 
