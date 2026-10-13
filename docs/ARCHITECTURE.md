@@ -102,6 +102,15 @@ Windows (roadmap, docs/ROADMAP.md).
 - **Calibrate**: self-calibration from dense correspondences (no checkerboard): essential matrix → relative
   pose → bundle adjustment of focal lengths and poses; scale from one known distance or a LiDAR model.
   Triangulate → organised point cloud → projector-grid mesh.
+- **In the engine** (`ScanRunner`, behind SCAN START): per projector, its device link readies it (shutter open, its
+  own geometry off) and takes a shutter-closed black frame; the patterns go up through the render host's scan
+  display, and each pattern keeps the first camera frame that arrived at or after its present plus the measured
+  latency and that the settle detector accepts. All projectors are then solved at once in the camera's frame and
+  carried into the world by the camera rig's pose (bridged into the stage's model instead when it has one and the
+  camera is calibrated); a calibrated camera keeps its focal length, because a camera and projectors aimed at one
+  object have nearly meeting optical axes and two views cannot then tell focal length from depth. SCAN APPLY puts
+  the scan on the stage as one undoable edit; SCAN SURFACE makes a surface of a click on the smart scan. The camera
+  "sim" runs the same pipeline on the scan simulator — demo mode and the tests scan with no hardware.
 - **LiDAR / model import**: OBJ, PLY (mesh and points), XYZ/PTS, LAS; register by three picked points
   (Umeyama) then point-to-plane ICP; or bridge with structured light: decoded camera pixels ray-cast into the
   model give thousands of 2D↔3D pairs per projector → `PoseSolver`.

@@ -53,20 +53,56 @@ as raw substrings):
    "refreshHz":60,"open":true,"fps":60.0,"dropped":0,"frameMsP95":4.1,"pattern":null,"light":"green"}],
  "media":{"items":12,"missing":0,"ready":true,"transfers":[]},
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6}],"scans":1},
- "scan":null,
+ "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
+   "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
+   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…"},
  "sync":{"role":"follower","leader":"9f8e7d6c","offsetMs":0.21,"rttMs":0.35,"driftPpm":3.2,"groups":["show"]},
  "links":{"patterns":{"state":"live","host":"10.0.0.5:9697","paired":true,"clip":"VT 2:28"},
    "stagewatch":{"state":"live","host":"10.0.0.6:9924","timer":{"state":"running","text":"12:30","seconds":750,
    "phase":"warning","color":"#F59E0B","title":"Keynote","message":""}}},
  "peers":[{"t":"patterns","id":"…","name":"FOH","light":"green","live":true}],
  "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","cpuPct":12,"memMb":840,"gcPauseMsMax":0.4},
- "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false}}
+ "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false},
+ "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
+   "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
+   "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
+   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}]}
 ```
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
   Stagewatch's VT link and countdown work unchanged; `seq` moves on every discontinuity.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
+- `scan` is the running or last scan (null before the first): its id from SCAN START's receipt on
+  (`OK {"stage":"accepted","effect":"…","scan":"sc…"}`), `state` starting / running / done / failed / cancelled,
+  `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
+  `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
+  `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
+  first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
+  `scan-<id>-smart`, `scan-<id>-confidence` and `scan-camera`.
+- `devices` is one row per projector link in the project's order: the link, then what its projector reports
+  (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
+  `credential` says whether a secret is kept for it — never the secret.
+
+## Projector control, credentials and the assistant
+
+- `DEVICE ADD <name> <protocol> <host[:port]> [PROJECTOR <projector>] [OUTPUT <output>]` links a projector box (the
+  link is a project entity, `dv…`; `ADD device {json}`, `SET dv… <field> <json>` and `REMOVE` work on it too).
+  `DEVICE POWER|SHUTTER|INPUT|FREEZE|PATTERN|LENS|RAW <device> …`, `DEVICE PREPARE <device>` and
+  `DEVICE IDENTIFY <device>` answer with the projector's own receipt: refused, unreached or rejected is `ERR` with
+  the words; sent or accepted is `OK` not yet applied; observed (a read-back confirmed it) is applied. Anything that
+  changes what leaves a lens is high risk. `DEVICE DISCOVER [SWEEP <address>]` runs the PJLink search.
+- `CREDENTIAL SET <ref> [<user>] <secret>` keeps a secret in the node's credential store (a link's reference is its
+  own id; the assistant's key is `assistant`), `CREDENTIAL CLEAR <ref>` forgets one, `CREDENTIAL LIST` names the
+  references. Like `AUTH`, a credential line is taken from this machine only, never from an assistant, never
+  journalled and never repeated in a reply.
+- `ASK <words>` runs one request of the client's conversation with the node's assistant and answers with its words
+  and every line it ran or queued (`{"conversation","outcome","text","status","lines":[…],"queued":["ap1"]}`).
+  `PROPOSALS [ALL]` lists what waits; `APPROVE <proposal>` runs the line through the node's own path and answers
+  the node's reply; `REJECT <proposal> [<why>]` drops it. Only a person approves or rejects: a line from an
+  assistant, from MCP or from an approval of either is refused.
+- `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
+  `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 
 ## HTTP (9940)
 
