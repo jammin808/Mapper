@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
+using PlayMap.Engine.Host;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
@@ -198,6 +200,29 @@ public sealed partial class RenderHost : IRenderHost
         }
         why = "";
         return host;
+    }
+
+    /// <summary>The node's render host as the engine host asks for it (<see cref="EngineParts.RenderHost"/>): windows on
+    /// the displays outputs are assigned to, none for a headless node (which still renders offscreen when it has GL).
+    /// A headless node with no display has no GL by design: null, and the log says why. Any other failure throws with
+    /// the reason, which the host shows as the node's "render" fault.</summary>
+    public static IRenderHost? ForNode(RenderHostRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var log = request.Logs.CreateLogger("PlayMap.Render");
+        var host = TryCreate(RenderHostOptions.Default with { Windows = !request.Options.Headless }, out var why);
+        if (host is not null)
+        {
+            log.LogInformation("The render host is up: {Renderer}, {Windows}.", host.RendererName,
+                request.Options.Headless ? "headless (outputs render offscreen)" : "windows on the assigned displays");
+            return host;
+        }
+        if (request.Options.Headless && why.StartsWith("no display", StringComparison.Ordinal))
+        {
+            log.LogInformation("This headless node draws nothing: {Why}.", why);
+            return null;
+        }
+        throw new InvalidOperationException(why);
     }
 
     // ---- IRenderHost ----------------------------------------------------------------------------------
@@ -451,7 +476,8 @@ public sealed partial class RenderHost : IRenderHost
             _finishNs = -1;
             _scan.AfterFrame(_presentOf);
         }
-        UpdateHealth(renderer, windows);
+        if (UpdateHealth(renderer, windows))
+            WindowsChanged(engine);
     }
 
     /// <summary>When a scan frame was presented on an output: its window's swap, else (no window) the instant
@@ -525,12 +551,17 @@ public sealed partial class RenderHost : IRenderHost
         ThreadPool.UnsafeQueueUserWorkItem(static e => e.FactsChanged(), engine, preferLocal: false);
     }
 
-    private void UpdateHealth(RenderEngine renderer, OutputWindows windows)
+    /// <summary>Writes each output's numbers for STATE; true when what STATE's light is made of moved (a window
+    /// opened or closed, the first dropped frame, the first measured rate) so the engine republishes — the numbers
+    /// themselves ride the next push, never a push of their own.</summary>
+    private bool UpdateHealth(RenderEngine renderer, OutputWindows windows)
     {
+        var moved = false;
         lock (_healthGate)
         {
             foreach (var h in _health)
             {
+                var before = (h.Open, h.Dropped > 0, h.Fps > 0);
                 if (windows.WindowOf(h.OutputId) is not null)
                 {
                     var s = renderer.Stats(h.OutputId);
@@ -549,8 +580,10 @@ public sealed partial class RenderHost : IRenderHost
                 }
                 if (windows.DisplayOf(h.OutputId) is { } display)
                     h.Display = display;
+                moved |= before != (h.Open, h.Dropped > 0, h.Fps > 0);
             }
         }
+        return moved;
     }
 
     private void ReleaseFrameWaiters(long frames)
