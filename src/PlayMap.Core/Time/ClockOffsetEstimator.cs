@@ -114,7 +114,9 @@ public sealed class ClockOffsetEstimator
 /// nanoseconds through the estimator. A node with no leader is its own (offset zero).</summary>
 public sealed class NetworkClock(IMonoClock local)
 {
-    private ClockOffsetEstimator? _estimator;
+    // Swapped whole by the sync's receive thread and read lock-free by the control lane and the render thread: the
+    // estimator handed in is never written again, and the volatile swap publishes it whole to every reader.
+    private volatile ClockOffsetEstimator? _estimator;
 
     public IMonoClock Local { get; } = local;
 
