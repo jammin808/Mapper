@@ -92,6 +92,10 @@ internal sealed class SourceResolver : IDisposable
                 return g is null ? _services.Black : _generators.Render(g, width, height, context, in _generatorFrame);
             case SourceKind.Canvas:
                 return Canvas(source.Id) ?? _services.Black;
+            case SourceKind.Playlist when _provider.Route(source, _leaderNs) is { } routed:
+                // A playlist on an item the renderer draws itself; one level only, so a playlist that names a
+                // playlist cannot recurse.
+                return routed.Kind is SourceKind.Playlist ? _services.Black : Resolve(routed, width, height, context);
             default:
                 return Video(source) ?? _services.Black;
         }

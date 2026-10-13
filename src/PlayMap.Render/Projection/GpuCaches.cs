@@ -85,6 +85,12 @@ internal sealed class GpuCaches : IDisposable
 
     public void BeginFrame(long frame) => _frame = frame;
 
+    /// <summary>Meshes uploaded since the caches were made (a mesh instance that keeps coming back is not).</summary>
+    public int MeshUploads { get; private set; }
+
+    /// <summary>Warp meshes uploaded since the caches were made (the identity quad is not counted).</summary>
+    public int WarpUploads { get; private set; }
+
     /// <summary>The GPU mesh of a surface: the whole mesh, or the listed triangles of it.</summary>
     public GpuMesh Mesh(MeshData mesh, ImmutableArray<int> faces)
     {
@@ -141,6 +147,7 @@ internal sealed class GpuCaches : IDisposable
         var ib = _device.CreateBuffer(BufferKind.Index);
         _device.SetBufferData<uint>(ib, indices, dynamic: false);
         var vao = _device.CreateVertexArray(GpuMesh.Layout, vb, ib);
+        MeshUploads++;
         return new GpuMesh { Vao = vao, Vertices = vb, Indices = ib, IndexCount = indices.Length, Min = min, Max = max };
     }
 
@@ -199,6 +206,7 @@ internal sealed class GpuCaches : IDisposable
         {
             e = new Entry<GpuWarp> { Value = UploadWarp(geometry.Positions, geometry.TexCoords, geometry.Indices) };
             _warps[geometry] = e;
+            WarpUploads++;
         }
         e.LastUsed = _frame;
         return e.Value;

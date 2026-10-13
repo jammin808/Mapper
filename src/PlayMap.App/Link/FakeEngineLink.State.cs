@@ -163,10 +163,17 @@ public sealed partial class FakeEngineLink
             w.WriteStartObject("air");
             w.WriteBoolean("blackout", _blackout);
             w.WriteBoolean("frozen", _frozen);
+            // The engine's shape: the kind and the outputs it covers (empty = all).
             if (_pattern is null)
                 w.WriteNull("pattern");
             else
-                w.WriteString("pattern", _pattern);
+            {
+                w.WriteStartObject("pattern");
+                w.WriteString("kind", _pattern);
+                w.WriteStartArray("outputs");
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
             w.WriteBoolean("identify", _identifyUntilNs != 0);
             w.WriteEndObject();
             WriteVideo(w, focused, fc, now);

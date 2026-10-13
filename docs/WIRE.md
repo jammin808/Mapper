@@ -171,3 +171,16 @@ as raw substrings):
 between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s,
 `{"cmd":"…","id":"…"}` commands with receipts, `{"cmd":"ping","t":…}` → pong), `GET /tls`, `GET /tls.cer`,
 `/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in a URL.
+
+## Previews (VIEW)
+
+The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <what> [<w>x<h>]`, where
+`<what>` is `editor`, `output:<id>`, `projector:<id>` (the stage as that projector lights it, at its raster),
+`camera:<id>` or `scan:<id>:smart|confidence`; `VIEW <view> CAMERA {"intrinsics":…,"pose":…}` moves an editor
+view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> HIDE` lets it go.
+Pictures are BGRA in the shared-memory ring `PreviewRing.PathFor(nodeId, view)`, fitted inside the size asked
+(and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
+at most 30. A view keeps its ring while it lives (a reader opens it once). View ids are file names: letters,
+digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
+a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
+stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.

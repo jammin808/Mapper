@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PlayMap.Core.Content;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Mapping;
@@ -14,6 +15,22 @@ public interface ISourceProvider
     /// <summary>The frame a source shows at a leader instant (the predicted vblank plus the output's
     /// latency, mapped to the leader's clock), or null to hold what the GPU has.</summary>
     VideoFrameLease? Acquire(SourceRef source, long leaderNs);
+
+    /// <summary>What a playlist shows at a leader instant when that is a picture the renderer draws itself —
+    /// a generator, a colour, a canvas, or <see cref="SourceRef.None"/> for black — or null when the playlist's
+    /// pictures come as frames through <see cref="Acquire"/>. Called on the render thread (possibly more than
+    /// once a frame); must not block. A provider that routes nothing keeps the default.</summary>
+    SourceRef? Route(SourceRef source, long leaderNs) => null;
+}
+
+/// <summary>Outputs that show a picture raw this frame — a structured-light frame at the projector's native
+/// pixels: the whole raster, with no warp, mask, blend, lens, trim, rotation, dither or identification card.
+/// Checked after blackout (blackout still wins) and before freeze and the pattern override; every other
+/// output keeps the show. Called on the render thread once per output per frame; must not block.</summary>
+public interface IRawOutputs
+{
+    /// <summary>The source an output shows raw this frame, or null for the show.</summary>
+    SourceRef? For(string outputId);
 }
 
 /// <summary>The geometry and maps the renderer consumes but does not make: meshes from the mesh cache, the
@@ -93,9 +110,15 @@ public readonly record struct FrameInputs
     /// <summary>Every output holds its last picture.</summary>
     public bool Freeze { get; init; }
 
-    /// <summary>When set, every output shows this source full-frame (through its warp, blend and trims)
-    /// instead of its own content — "the grid on every projector".</summary>
+    /// <summary>When set, every output <see cref="PatternOutputs"/> names shows this source full-frame
+    /// (through its warp, blend and trims) instead of its own content — "the grid on every projector".</summary>
     public SourceRef? PatternOverride { get; init; }
+
+    /// <summary>The outputs <see cref="PatternOverride"/> covers; empty (the default) = every output.</summary>
+    public ImmutableArray<string> PatternOutputs { get; init; }
+
+    /// <summary>Outputs that show a picture raw this frame instead of anything else but blackout (null = none).</summary>
+    public IRawOutputs? Raw { get; init; }
 
     /// <summary>Every output carries its identification card over the picture.</summary>
     public bool Identify { get; init; }
@@ -104,4 +127,17 @@ public readonly record struct FrameInputs
     public EffectImpulse Impulse { get; init; }
 
     public double LeaderSeconds => LeaderNs / 1e9;
+
+    /// <summary>True when the pattern override is up and covers the output.</summary>
+    public bool PatternCovers(string outputId)
+    {
+        if (PatternOverride is not { IsNone: false })
+            return false;
+        if (PatternOutputs.IsDefaultOrEmpty)
+            return true;
+        foreach (var id in PatternOutputs)
+            if (string.Equals(id, outputId, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
 }

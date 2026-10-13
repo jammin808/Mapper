@@ -3,6 +3,7 @@ using PlayMap.Core.Calibration;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Rendering;
 
 namespace PlayMap.Engine;
 
@@ -73,8 +74,88 @@ public sealed partial class EngineCore
         }), $"{pj.Name}: {solution.Words}{worse}");
     }
 
-    private CommandReply SolveBlend(List<string> args) =>
-        CommandReply.Fail("the 3D blend solver is not on this node yet");
+    private StageMeshes? _meshes;
+    private BlendSolveResult? _lastBlendSolve;
+
+    /// <summary>The project's meshes, loaded once per asset and shared by the solvers and the render host.</summary>
+    public StageMeshes Meshes => LazyInitializer.EnsureInitialized(ref _meshes, () => new StageMeshes(MeshFolder));
+
+    /// <summary>The last blend BLEND SOLVE computed (null before the first).</summary>
+    public BlendSolveResult? LastBlendSolve => Volatile.Read(ref _lastBlendSolve);
+
+    /// <summary>Raised on the control lane when BLEND SOLVE has computed a blend; the render host installs its
+    /// maps at once (while the project's blend inputs are still the ones solved).</summary>
+    public event Action<BlendSolveResult>? BlendSolved;
+
+    /// <summary>The folder a project's relative mesh paths are read from: the open project file's, else the
+    /// node's project folder.</summary>
+    private string? MeshFolder() => _projectPath is { } path ? Path.GetDirectoryName(path) : Services.ProjectFolder;
+
+    /// <summary>BLEND SOLVE [&lt;output&gt;|ALL]: the automatic 3D blend of every output that blends
+    /// automatically — they light the stage together, so they are solved together; naming one output checks
+    /// that it takes part and answers for it alone. Pure maths on the control lane (no GPU); the maps reach the
+    /// render host through <see cref="BlendSolved"/>. A stage whose blend inputs have not moved since the last
+    /// solve is refused: the solve would change nothing.</summary>
+    private CommandReply SolveBlend(List<string> args)
+    {
+        if (args.Count > 1)
+            return CommandReply.Fail("BLEND SOLVE [<output>|ALL]");
+        var p = Store.Project;
+        Output? named = null;
+        if (args.Count == 1 && !args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            named = ResolveOutput(args[0]);
+            if (named is null)
+                return CommandReply.Fail($"no output {args[0]}");
+            if (BlendInputs.WhyNot(named, p) is { } why)
+                return CommandReply.Fail(why);
+        }
+        var inputs = BlendInputs.Of(p);
+        if (inputs.IsEmpty)
+            return CommandReply.Fail("no output blends automatically — an enabled output in Projector mode, driving a projector, with automatic blending on");
+        if (LastBlendSolve is { } last && last.Inputs.Equals(inputs))
+            return CommandReply.Fail($"the blend is already solved for this stage — nothing has moved since ({last.Solution.Words})");
+        var solution = inputs.Solve(Meshes);
+        var result = new BlendSolveResult(inputs, solution, Store.Current.Revision);
+        Volatile.Write(ref _lastBlendSolve, result);
+        BlendSolved?.Invoke(result);
+        var answered = named is null ? solution.Outputs : solution.Outputs.Where(o => o.OutputId == named.Id).ToList();
+        var json = JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("outputs");
+            foreach (var o in answered)
+            {
+                w.WriteStartObject();
+                w.WriteString("id", o.OutputId);
+                w.WriteString("name", p.FindOutput(o.OutputId)?.Name ?? o.OutputId);
+                w.WriteString("projector", o.ProjectorId);
+                w.WriteNumber("covered", Math.Round(o.CoveredFraction, 4));
+                w.WriteNumber("overlap", Math.Round(o.OverlapFraction, 4));
+                w.WriteNumber("shadow", Math.Round(o.ShadowFraction, 4));
+                w.WriteNumber("maxOverlap", o.MaxOverlap);
+                w.WriteStartArray("overlapsWith");
+                foreach (var n in o.OverlapsWith)
+                    w.WriteStringValue(n);
+                w.WriteEndArray();
+                w.WriteNumber("mapWidth", o.Map.Width);
+                w.WriteNumber("mapHeight", o.Map.Height);
+                w.WriteString("words", o.Words);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteStartArray("problems");
+            foreach (var problem in solution.Problems)
+                w.WriteStringValue(problem);
+            w.WriteEndArray();
+            w.WriteString("words", solution.Words);
+            w.WriteEndObject();
+        });
+        var count = solution.Outputs.Count;
+        return CommandReply.Success(json, named is null
+            ? $"blend solved for {count} output{(count == 1 ? "" : "s")}"
+            : $"blend solved for {count} output{(count == 1 ? "" : "s")}, {named.Name} among them");
+    }
 
     /// <summary>A finished scan's solve: in memory, or read back from its folder (and then kept); null when neither.</summary>
     private Scanning.ScanOutcome? OutcomeOf(ScanRecord scan)
