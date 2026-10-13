@@ -594,8 +594,15 @@ public static class VerbCatalog
         foreach (var high in spec.HighFor)
             if (string.Equals(high, first, StringComparison.Ordinal))
                 return VerbRisk.High;
-        if (spec.EmbedsLine && EmbeddedLine(spec, line, m.Words) is { } carried && Match(carried) is not null)
-            risk = Max(risk, depth >= MaxEmbedding ? VerbRisk.High : RiskOf(carried, depth + 1));
+        if (!spec.EmbedsLine)
+            return risk;
+        foreach (var carried in CarriedReadings(spec, line, m.Words))
+        {
+            if (carried is null)
+                return VerbRisk.High;
+            if (Match(carried) is not null)
+                risk = Max(risk, depth >= MaxEmbedding ? VerbRisk.High : RiskOf(carried, depth + 1));
+        }
         return risk;
     }
 
@@ -612,9 +619,10 @@ public static class VerbCatalog
         return false;
     }
 
-    /// <summary>The line a carrying verb's line carries: the words after TO for a row whose syntax binds "TO &lt;target line&gt;",
-    /// else the words after an optional "FROM &lt;x&gt;"; a JSON argument's "target". Null when it carries none. Words that name no
-    /// verb are no line: they can never run, so they add no risk.</summary>
+    /// <summary>The line a carrying verb's line carries, as its owner reads it: the words after the first TO for a row whose syntax
+    /// binds "TO &lt;target line&gt;", else the words after an optional "FROM &lt;x&gt;"; a JSON argument's "target" (in any case;
+    /// the last one given). Null when it carries none. Words that name no verb are no line: they can never run, so they add no
+    /// risk.</summary>
     public static WireLine? EmbeddedLine(VerbSpec spec, WireLine line, int verbWords)
     {
         ArgumentNullException.ThrowIfNull(spec);
@@ -623,48 +631,74 @@ public static class VerbCatalog
             return null;
         var first = line.Word(verbWords);
         if (first.StartsWith('{'))
-            return TargetOf(first);
-        int from;
-        if (spec.Syntax.Contains(" TO <target line>", StringComparison.Ordinal))
-        {
-            from = -1;
-            for (var i = verbWords; i < line.Count; i++)
-            {
-                if (string.Equals(line.WordUpper(i), "TO", StringComparison.Ordinal))
-                {
-                    from = i + 1;
-                    break;
-                }
-            }
-            if (from < 0)
-                return null;
-        }
-        else
-        {
-            from = string.Equals(line.WordUpper(verbWords), "FROM", StringComparison.Ordinal) ? verbWords + 2 : verbWords;
-        }
-        if (from >= line.Count)
-            return null;
-        return new WireLine(null, line.Words.Skip(from).ToList(), line.RestAfter(from));
+            return Targets(first).LastOrDefault();
+        if (!BindsTo(spec))
+            return CarriedAfterFrom(line, verbWords);
+        for (var i = verbWords; i < line.Count; i++)
+            if (string.Equals(line.WordUpper(i), "TO", StringComparison.Ordinal))
+                return Tail(line, i + 1);
+        return null;
     }
 
-    private static WireLine? TargetOf(string json)
+    /// <summary>Every line a carrying verb's line could be read to carry, so its risk is the highest of them: the words after each
+    /// TO (an input's own words may hold one), else after an optional FROM x; every "target" of a JSON argument, in any case. A
+    /// null reading is a JSON argument no reader can read, which counts as high.</summary>
+    private static IEnumerable<WireLine?> CarriedReadings(VerbSpec spec, WireLine line, int verbWords)
     {
+        if (line.Count <= verbWords)
+            yield break;
+        var first = line.Word(verbWords);
+        if (first.StartsWith('{'))
+        {
+            foreach (var target in Targets(first))
+                yield return target;
+            yield break;
+        }
+        if (!BindsTo(spec))
+        {
+            if (CarriedAfterFrom(line, verbWords) is { } carried)
+                yield return carried;
+            yield break;
+        }
+        for (var i = verbWords; i < line.Count; i++)
+            if (string.Equals(line.WordUpper(i), "TO", StringComparison.Ordinal) && Tail(line, i + 1) is { } after)
+                yield return after;
+    }
+
+    private static bool BindsTo(VerbSpec spec) => spec.Syntax.Contains(" TO <target line>", StringComparison.Ordinal);
+
+    private static WireLine? CarriedAfterFrom(WireLine line, int verbWords) =>
+        Tail(line, string.Equals(line.WordUpper(verbWords), "FROM", StringComparison.Ordinal) ? verbWords + 2 : verbWords);
+
+    private static WireLine? Tail(WireLine line, int from) =>
+        from < line.Count ? new WireLine(null, line.Words.Skip(from).ToList(), line.RestAfter(from)) : null;
+
+    /// <summary>Every "target" a JSON argument gives (any case, each one when it is given twice), read as lines; a text that does not
+    /// read as one is skipped (it can never run). One null when the argument is not JSON any reader takes.</summary>
+    private static IEnumerable<WireLine?> Targets(string json)
+    {
+        System.Text.Json.JsonElement root;
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
-                return null;
-            foreach (var p in doc.RootElement.EnumerateObject())
-                if (p.NameEquals("target") && p.Value.ValueKind == System.Text.Json.JsonValueKind.String)
-                    return WireGrammar.TryParse(p.Value.GetString(), out var parsed, out _) ? parsed : null;
-            return null;
+            root = System.Text.Json.JsonElement.Parse(json, ReaderOptions);
         }
         catch (System.Text.Json.JsonException)
         {
-            return null;
+            return [null];
         }
+        if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
+            return [];
+        var lines = new List<WireLine?>();
+        foreach (var p in root.EnumerateObject())
+            if (p.Name.Equals("target", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                && WireGrammar.TryParse(p.Value.GetString(), out var parsed, out _))
+                lines.Add(parsed);
+        return lines;
     }
+
+    /// <summary>How a JSON argument is read everywhere a verb takes one: comments and trailing commas allowed.</summary>
+    private static readonly System.Text.Json.JsonDocumentOptions ReaderOptions =
+        new() { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     /// <summary>True when a line carries a verb's secret words (a token, a key, a password).</summary>
     public static bool HoldsSecret(WireLine line)

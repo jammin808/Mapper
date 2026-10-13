@@ -33,6 +33,15 @@ public sealed class RiskOfTests
     [InlineData("BIND ADD {\"input\":\"OSC /x\",\"target\":\"TEMPO TAP\"}", VerbRisk.Review)]
     [InlineData("BIND ADD OSC /x TO BIND ADD OSC /y TO BLACKOUT ON", VerbRisk.High)]
     [InlineData("BIND ADD OSC /x TO NOT A VERB", VerbRisk.Review)]
+    // Every reading a binder could take counts: a TO among the input's words, a target key in another case or given twice, a
+    // JSON argument with comments; an argument no reader takes is high.
+    [InlineData("BIND ADD OSC TO TO BLACKOUT ON", VerbRisk.High)]
+    [InlineData("BIND ADD MIDI APC40 NOTE 1 53 TO SURFACE CORNER sf1 TL TO 0.1 0.2", VerbRisk.Review)]
+    [InlineData("BIND ADD {\"input\":\"OSC /x\",\"Target\":\"BLACKOUT ON\"}", VerbRisk.High)]
+    [InlineData("BIND ADD {\"target\":\"TEMPO TAP\",\"target\":\"BLACKOUT ON\"}", VerbRisk.High)]
+    [InlineData("BIND ADD {\"target\":\"BLACKOUT ON\",\"TARGET\":\"TEMPO TAP\"}", VerbRisk.High)]
+    [InlineData("BIND ADD {/* a fader */ \"input\":\"OSC /x\",\"target\":\"BLACKOUT ON\",}", VerbRisk.High)]
+    [InlineData("BIND ADD {\"input\":\"OSC /x\",\"target\":}", VerbRisk.High)]
     [InlineData("BIND LEARN BLACKOUT ON", VerbRisk.High)]
     [InlineData("BIND LEARN FROM MIDI PANIC", VerbRisk.High)]
     [InlineData("BIND LEARN FROM APC40 TEMPO TAP", VerbRisk.Review)]
@@ -68,6 +77,7 @@ public sealed class RiskOfTests
         Assert.Equal("SURFACE CORNER sf1 TL TO 0.1 0.2", Carried("BIND LEARN FROM MIDI SURFACE CORNER sf1 TL TO 0.1 0.2"));
         Assert.Equal("OFF", Carried("BIND LEARN OFF"));
         Assert.Equal("PANIC", Carried("BIND ADD {\"input\":\"OSC /p\",\"target\":\"PANIC\"}"));
+        Assert.Equal("PANIC", Carried("BIND ADD {\"Target\":\"TEMPO TAP\", \"target\":\"PANIC\"}"));
         Assert.Null(Carried("BIND ADD MIDI APC40 NOTE 1 53"));
         Assert.Null(Carried("BIND ADD {\"input\":\"OSC /p\"}"));
         Assert.Null(Carried("BLACKOUT ON"));
