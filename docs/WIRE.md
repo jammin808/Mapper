@@ -104,6 +104,10 @@ as raw substrings):
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
   Stagewatch's VT link and countdown work unchanged; `seq` moves on every discontinuity.
+- A playlist's item may play another playlist (`PLAYLIST ADD <playlist> playlist:<other>`): it shows that playlist's
+  current picture, its transitions included. An edit that would make a playlist play itself, directly or through
+  others, is refused with the reason; a loop already in a project draws black there and its playlists' rows carry
+  `"problem":"plays itself (A → B → A) — black there"`.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round

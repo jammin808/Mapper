@@ -24,8 +24,8 @@ namespace PlayMap.Engine.Rendering;
 /// or a ref made here for that one item's frames (the playlist's id and the item's, which no real id can
 /// spell); the incoming item is prepared ahead of the window's opening, as a cut's is ahead of the switch.</para>
 ///
-/// <para>A playlist on a generator, a colour or a canvas is routed to it (<see cref="Route"/>); an idle playlist
-/// is black. Acquire never blocks and answers null while a source opens or has nothing new: the renderer holds
+/// <para>A playlist on a generator, a colour, a canvas or another playlist is routed to it (<see cref="Route"/>); an
+/// idle playlist is black. Acquire never blocks and answers null while a source opens or has nothing new: the renderer holds
 /// the picture it has. Called on the render thread only; nothing here allocates per frame once warm.</para></summary>
 internal sealed class EngineSources : ISourceProvider, IDisposable
 {
@@ -130,19 +130,21 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     public SourceRef? Route(SourceRef source, long leaderNs)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (source.Kind != SourceKind.Playlist)
+        // An item's own frames (a side of a mix) are never routed again.
+        if (source.Kind != SourceKind.Playlist || _itemRefOwners.ContainsKey(source.Id))
             return null;
         if (!_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle)
             return SourceRef.None;
         PrepareNext(lane, leaderNs);
         var (now, _, _) = lane.At(leaderNs);
-        return Drawn(now) ? now : null;
+        // An item that plays another playlist shows that playlist's picture (the renderer refuses a loop).
+        return Drawn(now) || now.Kind == SourceKind.Playlist ? now : null;
     }
 
     public SourceMix? Mix(SourceRef source, long leaderNs)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (source.Kind != SourceKind.Playlist || !_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle
+        if (source.Kind != SourceKind.Playlist || _itemRefOwners.ContainsKey(source.Id) || !_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle
             || lane.ItemId is null || lane.NextItemId is null || lane.MixAt(leaderNs) is not { } mix)
             return null;
         PrepareNext(lane, leaderNs);
@@ -153,10 +155,11 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     /// <summary>A picture the renderer draws itself, not frames from a decoder.</summary>
     private static bool Drawn(SourceRef source) => source.Kind is SourceKind.Generator or SourceKind.Color or SourceKind.Canvas or SourceKind.None;
 
-    /// <summary>One side of a mix: the item's routed picture, or the ref for its frames (made once per item).</summary>
+    /// <summary>One side of a mix: the item's routed picture (another playlist's included), or the ref for its frames
+    /// (made once per item).</summary>
     private SourceRef SideOf(string playlistId, string itemId, SourceRef source)
     {
-        if (Drawn(source))
+        if (Drawn(source) || source.Kind == SourceKind.Playlist)
             return source;
         if (!_itemRefs.TryGetValue(itemId, out var made) || !_itemRefOwners.TryGetValue(made.Id, out var owner)
             || !string.Equals(owner.PlaylistId, playlistId, StringComparison.Ordinal))

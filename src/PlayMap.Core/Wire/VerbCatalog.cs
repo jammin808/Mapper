@@ -80,7 +80,7 @@ public static class VerbCatalog
         V("PLAYLIST LIST", "PLAYLIST LIST", "Every playlist with its transport", VerbCategory.Playlist, VerbRisk.Low, false),
         V("PLAYLIST GET", "PLAYLIST GET <playlist>", "One playlist, its items and transport", VerbCategory.Playlist, VerbRisk.Low, false),
         V("PLAYLIST NEW", "PLAYLIST NEW <name>", "Makes an empty playlist; answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
-        V("PLAYLIST ADD", "PLAYLIST ADD <playlist> <source> [<label>]", "Adds an item (media:…, generator:…, color:#…); answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
+        V("PLAYLIST ADD", "PLAYLIST ADD <playlist> <source> [<label>]", "Adds an item (media:…, generator:…, color:#…, playlist:… — another playlist's picture, never one that plays this one); answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
         V("PLAYLIST REMOVE", "PLAYLIST REMOVE <playlist> <item>", "Removes an item", VerbCategory.Playlist, VerbRisk.Review, true),
         V("PLAYLIST MOVE", "PLAYLIST MOVE <playlist> <item> <index>", "Reorders an item", VerbCategory.Playlist, VerbRisk.Low, true),
         V("PLAYLIST DELETE", "PLAYLIST DELETE <playlist>", "Deletes a playlist", VerbCategory.Playlist, VerbRisk.Review, true),

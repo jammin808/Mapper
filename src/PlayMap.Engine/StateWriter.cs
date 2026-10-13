@@ -289,6 +289,9 @@ public static class StateWriter
         else
             w.WriteNull("next");
         w.WriteNumber("items", list.Items.Length);
+        // A loop of playlists playing each other (only an old file or a hand edit can hold one) draws black there.
+        if (PlaylistNesting.Loop(e.Store.Project, list.Id) is { } loop)
+            w.WriteString("problem", $"plays itself ({loop}) — black there");
         w.WriteEndObject();
     }
 

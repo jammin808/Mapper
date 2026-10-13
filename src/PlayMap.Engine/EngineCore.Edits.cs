@@ -260,7 +260,7 @@ public sealed partial class EngineCore
         var item = WithId(ReadOverDefault<PlaylistItem>(p, json), p.NewId(Ids.PlaylistItem));
         if (item.Source.IsNone)
             throw new EditRefusedException("an item needs a source");
-        if (ResolveSourceProblem(item.Source) is { } problem)
+        if ((ResolveSourceProblem(item.Source) ?? PlaylistNesting.Problem(p, list.Id, item.Source)) is { } problem)
             throw new EditRefusedException(problem);
         return (p with { Playlists = p.Playlists.Update(list.Id, l => l with { Items = l.Items.Add(item) }) }, item.Id);
     }
@@ -366,6 +366,17 @@ public sealed partial class EngineCore
             case Layer l:
                 if (!l.Source.IsNone && ResolveSourceProblem(l.Source) is { } lp)
                     throw new EditRefusedException(lp);
+                break;
+            case PlaylistItem it:
+                // An item may show another playlist, never one that comes back to its own.
+                if (p.Playlists.FirstOrDefault(l => l.Items.IndexOfId(it.Id) >= 0) is { } owner
+                    && ((it.Source.IsNone ? null : ResolveSourceProblem(it.Source)) ?? PlaylistNesting.Problem(p, owner.Id, it.Source)) is { } ip)
+                    throw new EditRefusedException(ip);
+                break;
+            case Playlist pl:
+                foreach (var item in pl.Items)
+                    if (PlaylistNesting.Problem(p with { Playlists = p.Playlists.Update(pl.Id, _ => pl) }, pl.Id, item.Source) is { } np)
+                        throw new EditRefusedException(np);
                 break;
             case Generator g:
                 var kind = Core.Content.GeneratorCatalog.Find(g.Kind) ?? throw new EditRefusedException($"no generator kind {g.Kind} — GENERATOR KINDS lists them");

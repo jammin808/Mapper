@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -164,6 +165,43 @@ public sealed class RenderHostTests(ITestOutputHelper log)
             var px = await rig.ReadUntil("op_1", p => Near(HostRig.At(p, 64, 32, 24), r, 0, b));
             log.WriteLine($"dip at {atMs} ms: {HostRig.At(px, 64, 32, 24)}");
         }
+    }
+
+    [Fact]
+    public async Task AnItemThatPlaysAnotherPlaylistShowsItsPictureAndALoopIsBlackWithWords()
+    {
+        var path = Clips.Solid("0xFF0000", 2);
+        var red = new MediaItem("md_red", "Red", MediaKind.Video, path, "", new FileInfo(path).Length,
+            MediaInfo.Unknown with { DurationNs = 2_000_000_000, Width = 64, Height = 48, FrameRate = "25" }, []);
+        PlaylistItem Nest(string id, string playlist) => PlaylistItem.For(id, SourceRef.Playlist(playlist), id) with { DurationNs = 10_000_000_000, End = EndAction.Hold };
+        // Show plays Clip (a decoded clip) and Bed (a colour); A and B play each other, as only an old file could hold.
+        var project = HostRig.WithOutputs(
+            HostRig.Screen("op_show", SourceRef.Playlist("pl_show"), 64, 48),
+            HostRig.Screen("op_bed", SourceRef.Playlist("pl_outer_bed"), 64, 48),
+            HostRig.Screen("op_loop", SourceRef.Playlist("pl_a"), 64, 48)) with
+        {
+            Media = [red],
+            Playlists =
+            [
+                new Playlist("pl_show", "Show", [Nest("it_clip", "pl_clip")], false, null),
+                new Playlist("pl_clip", "Clip", [PlaylistItem.For("it_red", SourceRef.Media("md_red"), "Red") with { End = EndAction.Hold }], false, null),
+                new Playlist("pl_outer_bed", "Outer", [Nest("it_bed", "pl_bed")], false, null),
+                new Playlist("pl_bed", "Bed", [PlaylistItem.For("it_green", SourceRef.Solid("#00FF00"), "Green") with { DurationNs = 10_000_000_000, End = EndAction.Hold }], false, null),
+                new Playlist("pl_a", "A", [Nest("it_a", "pl_b")], false, null),
+                new Playlist("pl_b", "B", [Nest("it_b", "pl_a")], false, null),
+            ],
+        };
+        await using var rig = HostRig.Start(project, new MediaFiles());
+        foreach (var list in new[] { "pl_show", "pl_clip", "pl_outer_bed", "pl_bed", "pl_a", "pl_b" })
+            await rig.Ok("PLAYLIST GO " + list);
+
+        await rig.ReadUntil("op_show", p => Near(HostRig.At(p, 64, 32, 24), 255, 0, 0));
+        await rig.ReadUntil("op_bed", p => Near(HostRig.At(p, 64, 32, 24), 0, 255, 0));
+        await rig.Host.FramesAsync(10).WaitAsync(HostRig.Patience);
+        Assert.Equal((0, 0, 0), HostRig.At(await rig.Read("op_loop"), 64, 32, 24));
+        var rows = JsonDocument.Parse(rig.Engine.State().Json).RootElement.GetProperty("playlists").EnumerateArray().ToDictionary(l => l.GetProperty("id").GetString()!);
+        Assert.Equal("plays itself (A → B → A) — black there", rows["pl_a"].GetProperty("problem").GetString());
+        Assert.False(rows["pl_show"].TryGetProperty("problem", out _));
     }
 
     private static bool Near((int R, int G, int B) px, double r, double g, double b, double tolerance = 4) =>

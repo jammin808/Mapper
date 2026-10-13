@@ -278,6 +278,36 @@ public sealed class EngineRouterTests
     }
 
     [Fact]
+    public async Task APlaylistMayPlayAnotherButNeverOneThatComesBackToItself()
+    {
+        await using var rig = new Rig();
+        var show = await rig.Ok("PLAYLIST NEW Show");
+        var loops = await rig.Ok("PLAYLIST NEW Loops");
+        var bed = await rig.Ok("PLAYLIST NEW Bed");
+        await rig.Ok($"PLAYLIST ADD {bed} color:#202020 Grey");
+        await rig.Ok($"PLAYLIST ADD {loops} playlist:{bed} Bed");
+        var nested = await rig.Ok($"PLAYLIST ADD {show} playlist:{loops} Loops");
+
+        var self = await rig.Run($"PLAYLIST ADD {show} playlist:{show}");
+        Assert.False(self.Ok);
+        Assert.Equal("Show cannot play itself", self.Payload);
+        var round = await rig.Run($"PLAYLIST ADD {bed} playlist:{show}");
+        Assert.False(round.Ok);
+        Assert.Equal("Show already plays Bed — a playlist cannot play itself through another", round.Payload);
+        // The generic edits are fenced the same way: an item's source, an item added as JSON.
+        var grey = rig.Engine.Store.Project.FindPlaylist(bed)!.Items[0].Id;
+        var set = await rig.Run($"SET {grey} source {{\"kind\":\"playlist\",\"id\":\"{loops}\"}}");
+        Assert.False(set.Ok);
+        Assert.Contains("a playlist cannot play itself through another", set.Payload, StringComparison.Ordinal);
+        var added = await rig.Run($"ADD item {bed} {{\"source\":{{\"kind\":\"playlist\",\"id\":\"{show}\"}},\"label\":\"Back\"}}");
+        Assert.False(added.Ok);
+        Assert.Contains("a playlist cannot play itself through another", added.Payload, StringComparison.Ordinal);
+        Assert.Single(rig.Engine.Store.Project.FindPlaylist(bed)!.Items);
+        Assert.Equal(SourceRef.Playlist(loops), rig.Engine.Store.Project.FindPlaylist(show)!.Items.Single(i => i.Id == nested).Source);
+        Assert.All(rig.State().GetProperty("playlists").EnumerateArray(), l => Assert.False(l.TryGetProperty("problem", out _)));
+    }
+
+    [Fact]
     public async Task TheJournalRecordsWhatChangedAndWhatWasRefused()
     {
         await using var rig = new Rig();
