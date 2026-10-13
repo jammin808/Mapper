@@ -74,6 +74,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     private long _candidateNs;
     private long _candidateDur;
     private bool _hasCandidate;
+    private FrameLayout? _reserved;
     private readonly nint[] _pendingFrames = new nint[2];
     private readonly long[] _pendingNs = new long[2];
     private readonly long[] _pendingDur = new long[2];
@@ -548,6 +549,11 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
                 _decoderName = FfmpegUtil.Text(_decoder.Context->codec->name);
             }
             var layout = _writer!.LayoutFor(src, out var plan);
+            if (!layout.Equals(_reserved))
+            {
+                _pool.Reserve(layout);
+                _reserved = layout;
+            }
             var slot = _pool.TryRent(layout);
             if (slot is null)
                 return false;

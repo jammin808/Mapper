@@ -11,6 +11,27 @@ namespace PlayMap.Media.Tests;
 public class PerformanceTests(ITestOutputHelper output)
 {
     [Fact]
+    public void EverySlotsFirstRentAllocatesNothingOnceTheLayoutIsReserved()
+    {
+        // A producer that runs ahead rents slots it never needed before; that must not depend on when it happens.
+        TestMedia.Ensure();
+        using var pool = new PlayMap.Media.Frames.FramePool(6);
+        var plan = PlayMap.Media.Frames.FrameFormats.Plan(FFmpeg.AutoGen.AVPixelFormat.AV_PIX_FMT_NV12, PlayMap.Media.Frames.PlanMode.Video);
+        var layout = PlayMap.Media.Frames.FrameLayout.For(plan.Layout, 1920, 1080);
+        pool.Reserve(layout);
+        var slots = new PlayMap.Media.Frames.FrameSlot?[pool.Capacity];
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < slots.Length; i++)
+            slots[i] = pool.TryRent(layout);
+        var after = GC.GetAllocatedBytesForCurrentThread();
+        foreach (var s in slots)
+            s!.Release();
+        Assert.All(slots, s => Assert.NotNull(s));
+        Assert.Equal(0, after - before);
+        Assert.Equal(0, pool.InUse);
+    }
+
+    [Fact]
     public async Task PlayingAllocatesNothingPerFrameOnceWarm()
     {
         using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));

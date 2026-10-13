@@ -144,6 +144,12 @@ internal sealed unsafe class FrameSlot
 
     /// <summary>Sizes the buffer for a layout (reallocating only when it grows or the plane set changes) and
     /// resets the per-frame metadata. Called by the producer on a slot it alone holds.</summary>
+    internal void ReservePlanes(int planes)
+    {
+        if (_planes.Length != planes)
+            _planes = new FramePlane[planes];
+    }
+
     internal void Prepare(FrameLayout layout)
     {
         if (Capacity < layout.TotalBytes)
@@ -211,7 +217,6 @@ internal sealed class FramePool : IDisposable
     private readonly FrameSlot?[] _free;
     private readonly Action? _onFree;
     private int _freeCount;
-    private int _created;
     private bool _disposed;
 
     public FramePool(int capacity, Action? onFree = null)
@@ -220,6 +225,11 @@ internal sealed class FramePool : IDisposable
         Capacity = capacity;
         _free = new FrameSlot?[capacity];
         _onFree = onFree;
+        // Every slot object exists from the start, so a rent never allocates on the producer's thread however
+        // far ahead it runs; a slot's pixels are native memory taken on its first rent.
+        for (var i = 0; i < capacity; i++)
+            _free[i] = new FrameSlot(this);
+        _freeCount = capacity;
     }
 
     public int Capacity { get; }
@@ -230,7 +240,7 @@ internal sealed class FramePool : IDisposable
         get
         {
             lock (_gate)
-                return _created - _freeCount;
+                return Capacity - _freeCount;
         }
     }
 
@@ -245,17 +255,22 @@ internal sealed class FramePool : IDisposable
                 return null;
             if (_freeCount > 0)
                 slot = _free[--_freeCount];
-            else if (_created < Capacity)
-            {
-                _created++;
-                slot = new FrameSlot(this);
-            }
         }
         if (slot is null)
             return null;
         slot.Prepare(layout);
         slot.SetFirstReference();
         return slot;
+    }
+
+    /// <summary>Sizes every free slot's plane table for the layout, so no slot's first rent in the show makes a
+    /// managed object (the producer calls this when it first meets the stream's layout).</summary>
+    public void Reserve(FrameLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        lock (_gate)
+            for (var i = 0; i < _freeCount; i++)
+                _free[i]!.ReservePlanes(layout.Planes);
     }
 
     internal void Return(FrameSlot slot)

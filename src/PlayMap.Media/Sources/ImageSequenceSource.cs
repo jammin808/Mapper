@@ -34,6 +34,7 @@ public sealed unsafe class ImageSequenceSource : IVideoSource
     private readonly SourceStats _stats = new();
     private readonly FrameQueue _queue;
     private readonly FramePool _pool;
+    private FrameLayout? _reserved;
     private readonly ManualResetEventSlim _wake = new(false);
     private readonly TaskCompletionSource<bool> _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Thread _thread;
@@ -267,6 +268,11 @@ public sealed unsafe class ImageSequenceSource : IVideoSource
                 throw new MediaOpenException(MediaProblem.DecodeFailed, "no picture in " + Path.GetFileName(_files[index]));
             _stats.FrameDecoded();
             var layout = _writer!.LayoutFor(_frame, out var plan);
+            if (!layout.Equals(_reserved))
+            {
+                _pool.Reserve(layout);
+                _reserved = layout;
+            }
             FrameSlot? slot;
             while ((slot = _pool.TryRent(layout)) is null)
             {

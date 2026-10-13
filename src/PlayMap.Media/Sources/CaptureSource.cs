@@ -38,6 +38,7 @@ public sealed unsafe class CaptureSource : IVideoSource
     private readonly CaptureOptions _options;
     private readonly SourceStats _stats = new();
     private readonly FramePool _pool;
+    private FrameLayout? _reserved;
     private readonly LeasePool _leases = new(8);
     private readonly Lock _gate = new();
     private readonly Lock _inputGate = new();
@@ -271,6 +272,11 @@ public sealed unsafe class CaptureSource : IVideoSource
             return;
         }
         var layout = writer.LayoutFor(src, out var plan);
+        if (!layout.Equals(_reserved))
+        {
+            _pool.Reserve(layout);
+            _reserved = layout;
+        }
         var slot = _pool.TryRent(layout);
         if (slot is null)
         {
