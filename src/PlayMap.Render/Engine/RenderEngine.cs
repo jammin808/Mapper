@@ -49,6 +49,8 @@ public sealed class RenderEngine : IDisposable
         public FramePacer Pacer = new(60);
         public GpuTimer? Timer;
         public bool HasPicture;
+        /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
+        public bool Raw;
         public long LastFrame;
         public double RenderMs;
         public GpuTexture? IdentifyCard;
@@ -115,6 +117,12 @@ public sealed class RenderEngine : IDisposable
 
     /// <summary>Video uploads done (all sources; a repeated generation is not one).</summary>
     public int VideoUploads => _sources.VideoUploads;
+
+    /// <summary>Meshes uploaded (a mesh instance the stage keeps handing back is uploaded once).</summary>
+    public int MeshUploads => _caches.MeshUploads;
+
+    /// <summary>Warp meshes uploaded (a warp instance the stage keeps handing back is uploaded once).</summary>
+    public int WarpUploads => _caches.WarpUploads;
 
     /// <summary>The generators faulted now (each shows its error card until its settings change).</summary>
     public IReadOnlyList<GeneratorFault> GeneratorFaults() => _generators.Faults();
@@ -212,14 +220,22 @@ public sealed class RenderEngine : IDisposable
                 Device.BindTarget(st.Final!);
                 Device.Clear(0, 0, 0, 1);
                 st.HasPicture = true;
+                st.Raw = false;
             }
-            else if (!(inputs.Freeze && st.HasPicture))
+            else if (inputs.Raw?.For(output.Id) is { IsNone: false } raw)
+            {
+                DrawRaw(output, st, raw);
+                st.HasPicture = true;
+                st.Raw = true;
+            }
+            else if (!(inputs.Freeze && st.HasPicture && !st.Raw))
             {
                 if (_options.GpuTiming)
                     (st.Timer ??= new GpuTimer(Device)).Begin();
                 DrawOutput(output, i, st, in inputs);
                 st.Timer?.End();
                 st.HasPicture = true;
+                st.Raw = false;
             }
             st.RenderMs = (MonoClock.Instance.NowNs - start) / 1e6;
         }
@@ -247,9 +263,9 @@ public sealed class RenderEngine : IDisposable
         var src = new Vector4(0, 0, 1, 1);
         try
         {
-            if (inputs.PatternOverride is { IsNone: false } pattern)
+            if (inputs.PatternCovers(output.Id))
             {
-                picture = _sources.Resolve(pattern, output.Width, output.Height, context);
+                picture = _sources.Resolve(inputs.PatternOverride!, output.Width, output.Height, context);
             }
             else
             {
@@ -292,6 +308,24 @@ public sealed class RenderEngine : IDisposable
             OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, Frame));
         if (inputs.Identify)
             DrawIdentify(st, context, output.Width, output.Height);
+    }
+
+    /// <summary>A raw picture over the whole raster: the identity warp, no mask, blend or lens, a neutral trim,
+    /// no rotation and no dither, so an 8-bit code in is the same code out at the same pixel.</summary>
+    private void DrawRaw(Output output, OutputState st, SourceRef raw)
+    {
+        GpuTexture picture;
+        try
+        {
+            picture = _sources.Resolve(raw, output.Width, output.Height, new GeneratorContext(output.Name, 0, "#FFFFFF", true));
+        }
+        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            picture = _services.Black;
+            Device.InvalidateState();
+        }
+        _outputStage.Draw(st.Final!, new OutputStageInputs(picture, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, null,
+            ColorTrim.Neutral, 0, 0f, Frame));
     }
 
     /// <summary>The identification card over an output: number, name and colour, drawn once per change at
