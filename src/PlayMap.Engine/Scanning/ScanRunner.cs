@@ -704,7 +704,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         SettleDetector? settle = null;
         int w = 0, h = 0, unsettled = 0;
         var generation = 0L;
-        var latencyNs = (long)(latencyMs * 1e6);
+        // Never below zero: a frame that arrived before its pattern was presented cannot show it (a negative
+        // estimate is the two clocks' stamps disagreeing by less than a frame, not light arriving early).
+        var latencyNs = (long)(Math.Max(0, latencyMs) * 1e6);
         for (var i = 0; i < plan.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
