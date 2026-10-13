@@ -27,6 +27,9 @@ public static class Ids
     public const string Mask = "mk";
     public const string Project = "pr";
 
+    /// <summary>A projector's control link (<see cref="DeviceLink"/>).</summary>
+    public const string Device = "dv";
+
     /// <summary>A new id: the prefix and eight random hex digits (32 bits — unique within a project by
     /// a margin no show reaches; collisions are still checked by <see cref="NewUnique"/>).</summary>
     public static string New(string prefix)

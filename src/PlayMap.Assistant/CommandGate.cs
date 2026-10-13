@@ -25,7 +25,7 @@ public static class CommandGate
     /// <summary>The id prefixes of the entities <see cref="Project.AllIds"/> lists (<see cref="Ids"/>); masks and
     /// pins live inside their owners and are left to the node to judge.</summary>
     private static readonly string[] IdPrefixes =
-        [Ids.Media, Ids.Playlist, Ids.PlaylistItem, Ids.Canvas, Ids.Layer, Ids.Generator, Ids.Surface, Ids.Mesh, Ids.Projector, Ids.Output, Ids.Camera, Ids.Scan];
+        [Ids.Media, Ids.Playlist, Ids.PlaylistItem, Ids.Canvas, Ids.Layer, Ids.Generator, Ids.Surface, Ids.Mesh, Ids.Projector, Ids.Output, Ids.Camera, Ids.Scan, Ids.Device];
 
     /// <summary>The risk of a verb by name: the catalogue's, or high when the catalogue does not know it.</summary>
     public static VerbRisk RiskOf(string verbName) => VerbCatalog.Find(verbName)?.Risk ?? VerbRisk.High;

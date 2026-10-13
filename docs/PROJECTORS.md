@@ -183,20 +183,41 @@ testing on the model. Both families speak PJLink, which `DriverSuggestion` keeps
 | Lens | raw read/record (`ReadLensAsync`), recall (`MoveLensAsync`, `RecallLensMemoryAsync`), the prior (`LensFromProjector`) |
 | The show | power and input through the same verbs; every result says sent / accepted / observed |
 
-## 7. For the integrator
+## 7. In the engine
 
-- `ProjectorLink` (in `PlayMap.Devices.Model`) is the record to add to the project model (`Ids` prefix `dv`); its
-  secret lives in an `ICredentialStore` under `CredentialRef`, so the link travels on the wire and in the journal
-  whole. The engine supplies the store (secrets ride in no line, no journal row, no hello).
-- `DeviceManager` is the one writer of device state; STATE and the context read `States` and listen to
-  `StateChanged`. Commands from the wire go through `RunAsync`/`ReadAsync` (the gate); the result's stage is the
-  receipt (`Refused` → ERR with the words; `Accepted` → accepted; `Observed` → applied and observed).
-- Wire verbs (suggested, not in Core yet): `DEVICE ADD/SET/REMOVE`, `DEVICE <id> POWER ON|OFF`, `… SHUTTER
-  OPEN|CLOSE`, `… INPUT <code>`, `… FREEZE ON|OFF`, `… PATTERN <name>|OFF`, `… LENS <axis> TO|BY <n>`,
-  `… LENS MEMORY <n>`, `… RAW <line>` (high risk), `DEVICE DISCOVER`, `DEVICE <id> PREPARE` (shows the plan, then
-  runs it), `DEVICE <id> IDENTIFY`. `AllowUnverified` is an operator setting, never a wire default.
-- The PJLink UDP socket (`PjLinkUdp`, port 4352) is shared by discovery and notifications; bind it once in the
-  engine and hand it to both.
+- **Where a link lives: the project.** A link names a host on the venue's network, a credential reference and the
+  PlayMap projector and output it is. It is a stage entity (`Stage.Devices`, Core's `DeviceLink`, id prefix `dv`)
+  rather than a node setting because it names the project's own projector and output (a node setting would point at
+  ids another show does not have), because it is edited, undone and saved with the show like the projector it
+  belongs to (the stage — poses, scans — is as particular to the venue as an address is), and because a backup node
+  that opens the same show controls the same boxes. Nothing in it is secret: the password lives in the node's own
+  credential store under `CredentialRef` (by default the link's id), so the link travels in the file, on the wire and
+  in the journal whole, and a node that opens the show elsewhere needs its own entry before a protected projector
+  answers. The engine turns a `DeviceLink` into the drivers' `ProjectorLink` (the protocol's word checked).
+- **The credential store** (`NodeCredentialStore`) keeps the secrets in the node's keys folder, protected at rest as
+  the TLS key is (DPAPI for this user on Windows, an owner-only file elsewhere). `CREDENTIAL SET <ref> [<user>]
+  <secret>` fills it from this machine only; no line, journal row, STATE or context carries a secret.
+- **`DeviceService`** owns the `DeviceManager` (the one writer of device state), the PJLink UDP socket (bound once,
+  shared by discovery and notifications), the discovery and the store; it keeps the manager's links in step with the
+  project. STATE's `devices` rows and the context's `device:<id>` items (red for an error fault or a projector gone,
+  amber for a warning, staleness or a power transition) come from `States`.
+- **The verbs**, verb first as the rest of the vocabulary: `DEVICE LIST`, `DEVICE GET <device>`, `DEVICE ADD <name>
+  <protocol> <host[:port]> [PROJECTOR <projector>] [OUTPUT <output>]`, `DEVICE REMOVE <device>`, `DEVICE POWER <device>
+  ON|OFF`, `DEVICE SHUTTER <device> OPEN|CLOSE`, `DEVICE INPUT <device> <code>`, `DEVICE FREEZE <device> ON|OFF`,
+  `DEVICE PATTERN <device> <name>|OFF`, `DEVICE LENS <device> SHIFTH|SHIFTV|ZOOM|FOCUS|MEMORY [TO|BY] <n>`,
+  `DEVICE RAW <device> <line>`, `DEVICE DISCOVER [SWEEP <address>]`, `DEVICE PREPARE <device>`, `DEVICE IDENTIFY
+  <device> [<seconds>]`. Power, shutter, input, freeze, patterns, lens, raw lines and PREPARE change what leaves a
+  lens and are high risk; the catalogue's risk is per verb, so powering on and opening a shutter are high as well.
+  The result's stage is the receipt: `Refused`, `Unreached` and `Rejected` → ERR with the words; `Sent` and
+  `Accepted` → OK, not yet applied; `Observed` → applied. `AllowUnverified` is set with `SET <dv…> allowUnverified
+  true` by an operator; it is never a default.
+- **Scans**: a projector with a link is readied by `PrepareForScan` before its patterns and gives a `BlackFrame`
+  (the room with the shutter closed); the scan's notes say what the protocol could not do.
+- **In the node**, `DeviceService` is the host extension "devices" (`OpsParts`): one credential store per node, in
+  its keys folder, shared with the assistant; the service attaches before the node's doors open and its links
+  close after a running scan has stopped. The PJLink UDP port (4352) is bound once; when another program holds it,
+  notifications and discovery answers are missed and the journal says why, while commands and polling still go
+  over TCP.
 
 ## 8. Not done, and why
 

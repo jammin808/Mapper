@@ -103,6 +103,8 @@ public static class ContextBuilder
         foreach (var f in s.Faults?.Faults() ?? [])
             items.Add(new ContextItem("fault:" + f.Part, "fault", f.Part, Light.Red, f.Words));
 
+        engine.AddOpsContext(items, links);
+
         var outputsWords = green > 0 ? $"{green} output{(green == 1 ? "" : "s")} green" : !p.Outputs.Any(o => o.Enabled) ? "no outputs on" : "outputs not measured";
         var headline = air.EffectiveBlackout ? "BLACKOUT · " + outputsWords
             : playing is not null ? $"{playing} · {outputsWords}"

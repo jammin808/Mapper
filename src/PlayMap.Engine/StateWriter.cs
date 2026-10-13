@@ -113,7 +113,7 @@ public static class StateWriter
         w.WriteEndObject();
 
         w.WritePropertyName("scan");
-        WriteScan(w, s.Scan.Current);
+        e.WriteScanState(w);
 
         w.WritePropertyName("sync");
         WriteSync(w, e);
@@ -161,6 +161,8 @@ public static class StateWriter
         w.WriteNumber("clients", s.Ai?.Clients ?? 0);
         w.WriteNumber("proposals", s.Proposals?.Waiting ?? 0);
         w.WriteEndObject();
+
+        e.WriteOpsState(w);
 
         w.WriteEndObject();
     }

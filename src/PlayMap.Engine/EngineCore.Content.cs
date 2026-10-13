@@ -287,8 +287,9 @@ public sealed partial class EngineCore
         }
         var p = Store.Project;
         var camera = p.Stage.Cameras.Find(args[0]);
-        if (camera is null)
-            return CommandReply.Fail($"no camera {args[0]}");
+        var simulated = camera is null && args[0].Equals(Scanning.SimulatedRig.CameraId, StringComparison.OrdinalIgnoreCase);
+        if (camera is null && !simulated)
+            return CommandReply.Fail($"no camera {args[0]} (\"{Scanning.SimulatedRig.CameraId}\" scans the simulator)");
         var projectors = args.Count > 1 ? args.Skip(1).ToList() : p.Stage.Projectors.Select(x => x.Id).ToList();
         if (projectors.Count == 0)
             return CommandReply.Fail("no projector to scan — add one first");
@@ -297,13 +298,16 @@ public sealed partial class EngineCore
                 return CommandReply.Fail($"no projector {id}");
         if (Services.Scan.Current is { State: not ("done" or "failed" or "cancelled") })
             return CommandReply.Fail("a scan is already running — SCAN CANCEL stops it");
-        var task = Services.Scan.StartAsync(camera.Id, projectors, mode, ct);
+        var task = Services.Scan.StartAsync(camera?.Id ?? Scanning.SimulatedRig.CameraId, projectors, mode, ct);
+        if (task.IsFaulted)
+            return CommandReply.Fail(task.Exception?.InnerException?.Message ?? "the scan did not start");
         _ = task.ContinueWith(t => _lane.Post(() =>
         {
             Journal.Add(t.IsCompletedSuccessfully ? "scan" : "refused", t.IsCompletedSuccessfully ? $"scan {t.Result} finished" : t.Exception?.InnerException?.Message ?? "scan failed", ok: t.IsCompletedSuccessfully);
             FactsChanged();
         }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        return CommandReply.Accepted($"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera.Name} ({mode})");
+        var effect = $"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera?.Name ?? "the simulated camera"} ({mode})";
+        return ScanStarted(effect);
     }
 
     private CommandReply ScanApply(List<string> args)
@@ -501,7 +505,7 @@ public sealed partial class EngineCore
         w.WriteEndArray();
     });
 
-    private string ScanStatusJson() => JsonOut(w => StateWriter.WriteScan(w, Services.Scan.Current));
+    private string ScanStatusJson() => JsonOut(WriteScanState);
 
     private string NodesJson() => JsonOut(w =>
     {

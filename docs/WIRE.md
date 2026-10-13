@@ -82,7 +82,9 @@ as raw substrings):
  "media":{"items":12,"missing":0,"ready":true,"transfers":[{"media":"md…","name":"Intro","progress":0.42,
    "from":"Stage right","state":"pulling","hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6}],"scans":1},
- "scan":null,
+ "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
+   "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
+   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…"},
  "sync":{"role":"follower","leader":"9f8e7d6c","offsetMs":0.21,"rttMs":0.35,"driftPpm":3.2,"groups":["show"]},
  "links":{"patterns":{"state":"live","host":"10.0.0.5:9697","paired":true,"detail":"VT 2:28","clip":"VT 2:28"},
    "stagewatch":{"state":"live","host":"10.0.0.6:9924","paired":true,"detail":"following Stagewatch at 10.0.0.6:9924",
@@ -92,7 +94,11 @@ as raw substrings):
  "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","cpuPct":12,"memMb":840,"gcPauseMsMax":0.4},
  "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false},
  "faults":[],
- "ai":{"mcp":true,"clients":1,"proposals":0}}
+ "ai":{"mcp":true,"clients":1,"proposals":0},
+ "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
+   "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
+   "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
+   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}]}
 ```
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
@@ -113,6 +119,17 @@ as raw substrings):
 - `ai` is the assistant's door: `mcp` (served at `/mcp`), `clients` (MCP clients heard in the last minute and open
   WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant).
 
+- `scan` is the running or last scan (null before the first): its id from SCAN START's receipt on
+  (`OK {"stage":"accepted","effect":"…","scan":"sc…"}`), `state` starting / running / done / failed / cancelled,
+  `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
+  `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
+  `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
+  first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
+  (`VIEW <view> SHOW scan:<id>:smart|confidence`, `VIEW <view> SHOW camera:<id>`; see Previews).
+- `devices` is one row per projector link in the project's order: the link, then what its projector reports
+  (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
+  `credential` says whether a secret is kept for it — never the secret.
+
 ## The node's own verbs (beside the catalogue's)
 
 - `PAIRING NEW` (high risk) makes a new pairing token, writes it to the node's settings first, then hands it to the
@@ -126,6 +143,30 @@ as raw substrings):
 - `MEDIA LIST` rows carry `state` — `ready`, `missing` (no file, or not the bytes the project names), `fetching`,
   `unplayable` (the right bytes, nothing here decodes them) or `unknown` (not hashed or not checked yet) — and
   `progress` (0–1, a fetch's fraction).
+
+## Projector control, credentials and the assistant
+
+- `DEVICE ADD <name> <protocol> <host[:port]> [PROJECTOR <projector>] [OUTPUT <output>]` links a projector box (the
+  link is a project entity, `dv…`; `ADD device {json}`, `SET dv… <field> <json>` and `REMOVE` work on it too).
+  `DEVICE POWER|SHUTTER|INPUT|FREEZE|PATTERN|LENS|RAW <device> …`, `DEVICE PREPARE <device>` and
+  `DEVICE IDENTIFY <device>` answer with the projector's own receipt: refused, unreached or rejected is `ERR` with
+  the words; sent or accepted is `OK` not yet applied; observed (a read-back confirmed it) is applied. Anything that
+  changes what leaves a lens is high risk. `DEVICE DISCOVER [SWEEP <address>]` runs the PJLink search.
+- `CREDENTIAL SET <ref> [<user>] <secret>` keeps a secret in the node's credential store (a link's reference is its
+  own id; the assistant's key is `assistant`), `CREDENTIAL CLEAR <ref>` forgets one, `CREDENTIAL LIST` names the
+  references. Like `AUTH`, a credential line is taken from this machine only, never from an assistant, never
+  journalled and never repeated in a reply.
+- The assistant's settings are the node's own, in `playmap.assistant.json` beside its settings (provider, model,
+  effort, the low- and review-risk switches); with no file the assistant is off. Its key is never in that file.
+- `ASK <words>` runs one request of the client's conversation with the node's assistant and answers with its words
+  and every line it ran or queued (`{"conversation","outcome","text","status","lines":[…],"queued":["ap1"]}`).
+  `PROPOSALS [ALL]` lists what waits; `APPROVE <proposal>` runs the line through the node's own path and answers
+  the node's reply; `REJECT <proposal> [<why>]` drops it. Only a person approves or rejects: a line from an
+  assistant, from MCP or from an approval of either is refused. An MCP assistant's high-risk line (while "AI may
+  act" is off) waits on the same list — `run_command` answers `{"stage":"queued","proposal":"ap…"}` — except a
+  person's own verbs (`APPROVE`, `REJECT`, `ASK`, `CREDENTIAL …`), which are refused, not queued.
+- `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
+  `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 
 ## HTTP (9940)
 
@@ -147,3 +188,11 @@ at most 30. A view keeps its ring while it lives (a reader opens it once). View 
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
 stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
+
+The scan side feeds the camera and scan views. A camera view (`camera:<id>`, or `camera:sim` for the bare
+simulator) shows the frames a running scan takes through that camera; between scans, a capture camera is opened
+for its views (a scan takes it over and gives it back; it closes with its last view) and the simulated camera shows
+its scene under white light — at most 25 pictures a second. A scan view draws the first projector's smart scan or
+its confidence (red unsure, green sure) at the projector's raster when shown, or when the scan running now
+finishes; a scan's pictures are kept in memory until the node stops, so a scan from before a restart is refused
+with the reason.

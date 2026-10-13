@@ -208,9 +208,10 @@ public sealed class TlsIdentity : IDisposable
 }
 
 /// <summary>Windows DPAPI for this user: the key file is readable only by the account that made it, on this
-/// machine. System32's crypt32 by full search path, never a DLL planted beside a portable exe.</summary>
+/// machine. System32's crypt32 by full search path, never a DLL planted beside a portable exe. Public so every
+/// secret the node keeps at rest (the TLS key, the credential store) is protected the one way.</summary>
 [SupportedOSPlatform("windows")]
-internal static class Dpapi
+public static class Dpapi
 {
     private const int UiForbidden = 0x1;
 
