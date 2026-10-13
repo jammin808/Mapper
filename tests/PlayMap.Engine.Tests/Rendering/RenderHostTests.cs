@@ -204,6 +204,41 @@ public sealed class RenderHostTests(ITestOutputHelper log)
         Assert.False(rows["pl_show"].TryGetProperty("problem", out _));
     }
 
+    [Fact]
+    public void EachHeadlessOutputCountsDroppedFramesAgainstItsOwnRefreshNotTheShowsRate()
+    {
+        // A 25 fps show on a 60 Hz and a 120 Hz output: the loop serves the faster, and presents at 60 Hz drop
+        // nothing on the 60 Hz output but one slot a frame on the 120 Hz one.
+        var project = HostRig.WithOutputs(
+            HostRig.Screen("op_60", SourceRef.Solid("#FF0000"), 64, 36),
+            HostRig.Screen("op_120", SourceRef.Solid("#FF0000"), 64, 36) with { RefreshHz = 120 },
+            HostRig.Screen("op_off", SourceRef.Solid("#FF0000"), 64, 36) with { RefreshHz = 240, Enabled = false });
+        project = project with { Settings = project.Settings with { FrameRate = "25" } };
+        Assert.Equal(120, HeadlessPacing.LoopRateHz(project, 25));
+        Assert.Equal(25, HeadlessPacing.LoopRateHz(project with { Outputs = [] }, 25));
+
+        var pacing = new HeadlessPacing();
+        pacing.Sync(project);
+        Assert.Null(pacing.Of("op_off"));
+        for (var f = 0; f <= 120; f++)
+            pacing.OnPresented(1_000_000_000 + f * 1_000_000_000L / 60);
+        Assert.Equal(0, pacing.Of("op_60")!.Missed);
+        Assert.Equal(120, pacing.Of("op_120")!.Missed);
+        Assert.Equal(60, pacing.Of("op_60")!.Fps, 1);
+    }
+
+    [Fact]
+    public async Task AHeadlessLoopServesItsOutputsRefreshRatherThanTheShowsFrameRate()
+    {
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#0000FF"), 64, 36) with { RefreshHz = 50 });
+        project = project with { Settings = project.Settings with { FrameRate = "25" } };
+        await using var rig = HostRig.Start(project);
+        await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
+        var health = Assert.Single(rig.Host.Health());
+        log.WriteLine($"headless at {health.Fps:0.0} fps, {health.Dropped} dropped against 50 Hz");
+        Assert.InRange(health.Fps, 40, 60);
+    }
+
     private static bool Near((int R, int G, int B) px, double r, double g, double b, double tolerance = 4) =>
         Math.Abs(px.R - r) <= tolerance && Math.Abs(px.G - g) <= tolerance && Math.Abs(px.B - b) <= tolerance;
 

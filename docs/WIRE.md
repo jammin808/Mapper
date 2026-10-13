@@ -108,6 +108,9 @@ as raw substrings):
   current picture, its transitions included. An edit that would make a playlist play itself, directly or through
   others, is refused with the reason; a loop already in a project draws black there and its playlists' rows carry
   `"problem":"plays itself (A → B → A) — black there"`.
+- `outputs[].dropped` counts that output's refresh slots that passed without a new picture, against its own target:
+  a windowed output's display refresh, a headless output's configured `refreshHz` (the headless loop runs at the
+  fastest enabled output's refresh, not the show's frame rate). `fps` and `frameMsP95` are measured the same way.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
