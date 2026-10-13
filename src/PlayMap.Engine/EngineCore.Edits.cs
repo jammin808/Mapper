@@ -159,11 +159,24 @@ public sealed partial class EngineCore
         if (args.Count < 2)
             return CommandReply.Fail("ADD <kind> [<owner>] <json>");
         var kind = args[0].ToLowerInvariant();
-        var owned = kind is "layer" or "pin" or "mask";
-        if (owned && args.Count < 3)
-            return CommandReply.Fail($"ADD {kind} <owner id> <json>");
-        var owner = owned ? args[1] : null;
-        var json = line.RestAfter(owned ? 3 : 2);
+        var owned = kind is "layer" or "pin" or "mask" or "item";
+        // An owned entity names its owner as a word before the JSON, or as "parent" inside it.
+        var ownerWord = owned && args.Count >= 3 && !args[1].StartsWith('{');
+        var owner = ownerWord ? args[1] : null;
+        var json = line.RestAfter(ownerWord ? 3 : 2);
+        if (owned && owner is null)
+        {
+            try
+            {
+                (owner, json) = TakeParent(json);
+            }
+            catch (EditRefusedException ex)
+            {
+                return CommandReply.Fail(ex.Message);
+            }
+            if (owner is null)
+                return CommandReply.Fail($"ADD {kind} <owner id> <json>, or \"parent\":\"<owner id>\" in the JSON");
+        }
         string newId = "";
         var r = Store.Apply($"add {kind}", p =>
         {
@@ -182,7 +195,8 @@ public sealed partial class EngineCore
                 "layer" => AddLayer(p, owner!, json),
                 "pin" => AddPin(p, owner!, json),
                 "mask" => AddMask(p, owner!, json),
-                _ => throw new EditRefusedException($"ADD takes media, playlist, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output or mask — not {kind}"),
+                "item" => AddItem(p, owner!, json),
+                _ => throw new EditRefusedException($"ADD takes media, playlist, item, generator, canvas, layer, surface, mesh, projector, pin, camera, viewpoint, output or mask — not {kind}"),
             };
             newId = result.id;
             return result.next;
@@ -214,6 +228,38 @@ public sealed partial class EngineCore
         var pj = p.FindProjector(projectorId) ?? throw new EditRefusedException($"no projector {projectorId}");
         var pin = WithId(ReadOverDefault<CalibrationPin>(p, json), p.NewId("pn"));
         return (p.WithStage(s => s with { Projectors = s.Projectors.Update(pj.Id, x => x with { Pins = x.Pins.Add(pin) }) }), pin.Id);
+    }
+
+    /// <summary>Splits "parent" off an ADD's JSON: the owner's id and the entity's own fields.</summary>
+    private static (string? Parent, string Json) TakeParent(string json)
+    {
+        System.Text.Json.Nodes.JsonObject obj;
+        try
+        {
+            obj = System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject
+                ?? throw new EditRefusedException("ADD takes a JSON object");
+        }
+        catch (JsonException ex)
+        {
+            throw new EditRefusedException($"ADD takes a JSON object ({ex.Message.Split('.')[0]})");
+        }
+        var key = obj.Select(kv => kv.Key).FirstOrDefault(k => k.Equals("parent", StringComparison.OrdinalIgnoreCase));
+        if (key is null)
+            return (null, json);
+        var parent = obj[key] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+        obj.Remove(key);
+        return (parent, obj.ToJsonString());
+    }
+
+    private (Project, string) AddItem(Project p, string playlistId, string json)
+    {
+        var list = p.FindPlaylist(playlistId) ?? throw new EditRefusedException($"no playlist {playlistId}");
+        var item = WithId(ReadOverDefault<PlaylistItem>(p, json), p.NewId(Ids.PlaylistItem));
+        if (item.Source.IsNone)
+            throw new EditRefusedException("an item needs a source");
+        if (ResolveSourceProblem(item.Source) is { } problem)
+            throw new EditRefusedException(problem);
+        return (p with { Playlists = p.Playlists.Update(list.Id, l => l with { Items = l.Items.Add(item) }) }, item.Id);
     }
 
     private (Project, string) AddMask(Project p, string ownerId, string json)
@@ -248,6 +294,11 @@ public sealed partial class EngineCore
             var t when t == typeof(Viewpoint) => new Viewpoint("", "Viewpoint", Intrinsics.FromFieldOfView(1920, 1080, 60), Pose.Identity),
             var t when t == typeof(CalibrationPin) => new CalibrationPin("", Vec3d.Zero, Vec2d.Zero, true),
             var t when t == typeof(Mask) => new Mask("", "Mask", BezierPath.Empty, MaskMode.Add, 0, false, true),
+            var t when t == typeof(PlaylistItem) => PlaylistItem.For("", SourceRef.None, "Item") with
+            {
+                Transition = p.Settings.DefaultTransition,
+                TransitionNs = p.Settings.DefaultTransitionNs,
+            },
             _ => throw new EditRefusedException($"cannot add a {typeof(T).Name}"),
         };
         if (string.IsNullOrWhiteSpace(json))
