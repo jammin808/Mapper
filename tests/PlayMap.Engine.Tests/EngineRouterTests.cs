@@ -269,7 +269,7 @@ public sealed class EngineRouterTests
         await rig.TwoItems();
         var keys = rig.State().EnumerateObject().Select(p => p.Name).ToArray();
         Assert.Equal(["v", "seq", "id", "t", "name", "version", "at", "light", "headline", "air", "video", "playlists", "outputs",
-            "media", "stage", "scan", "sync", "links", "peers", "machine", "project"], keys);
+            "media", "stage", "scan", "sync", "links", "peers", "machine", "project", "faults", "ai"], keys);
         Assert.Equal("playmap", rig.State().GetProperty("t").GetString());
         var ctx = JsonDocument.Parse(rig.Engine.Context()).RootElement;
         Assert.Equal("playmap", ctx.GetProperty("node").GetProperty("t").GetString());

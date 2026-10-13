@@ -294,7 +294,12 @@ public sealed class StagewatchLink : IAsyncDisposable
         SetStatus(LinkStatus.Live);
         _words = "following Stagewatch at " + Address + (_o.Tls ? " over TLS" : "");
         if (_o.Tls && _o.Key.Length == 0 && Pin == PinVerdict.FirstUse)
-            _pins.Pin(_o.PinKey, _presented);   // no key: the WebSocket's answer is the first trusted contact
+        {
+            // No key: the WebSocket's answer is the first trusted contact. The link says so before the store holds it,
+            // so whoever sees the pin stored sees the link's verdict too.
+            Pin = PinVerdict.Pinned;
+            _pins.Pin(_o.PinKey, _presented);
+        }
 
         using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(4) };
         if (_o.Tls)
@@ -497,8 +502,9 @@ public sealed class StagewatchLink : IAsyncDisposable
             using var response = await http.SendAsync(request, ct);
             if (response.IsSuccessStatusCode && _o.Tls && Pin == PinVerdict.FirstUse && _presented.Length > 0)
             {
-                _pins.Pin(_o.PinKey, _presented);
+                // The verdict first, then the store (whose lock publishes both): whoever sees the pin stored sees Pinned.
                 Pin = PinVerdict.Pinned;
+                _pins.Pin(_o.PinKey, _presented);
                 _words = $"Stagewatch's certificate pinned ({TlsFingerprint.Short(_presented)})";
             }
             else if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)

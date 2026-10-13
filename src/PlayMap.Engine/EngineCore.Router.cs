@@ -108,10 +108,12 @@ public sealed partial class EngineCore
             "SYNC STATUS" => CommandReply.Success(SyncJson()),
             "SYNC LEAD" => NetworkAction(args, 1, "SYNC LEAD <group>", (nc, a) => nc.LeadAsync(a[0], ct)),
             "SYNC FOLLOW" => NetworkAction(args, 2, "SYNC FOLLOW <group> <node>", (nc, a) => nc.FollowAsync(a[0], a[1], ct)),
+            "LINK PATTERNS" when args.Count > 0 && args[0].Equals("FOLLOW-BLACKOUT", StringComparison.OrdinalIgnoreCase) => FollowPatternsBlackout(args),
             "LINK PATTERNS" => NetworkAction(args, 1, "LINK PATTERNS <host[:port]>|OFF [<token>]",
                 (nc, a) => nc.LinkPatternsAsync(IsOff(a[0]) ? null : a[0], a.Count > 1 ? a[1] : null, ct)),
             "LINK STAGEWATCH" => NetworkAction(args, 1, "LINK STAGEWATCH <host[:port]>|OFF [<key>]",
                 (nc, a) => nc.LinkStagewatchAsync(IsOff(a[0]) ? null : a[0], a.Count > 1 ? a[1] : null, ct)),
+            "PAIRING NEW" => NewPairing(),
 
             _ => CommandReply.Fail($"{spec.Name} is not available on this node yet"),
         };
