@@ -313,7 +313,15 @@ public sealed class PreviewViews : IDisposable
                     else
                     {
                         var size = ViewRequest.Fit(request.Width, request.Height, request.Width / (double)request.Height);
-                        sink = new PreviewSink(new PreviewRingWriter(RingPath(request.ViewId), size.Width, size.Height));
+                        try
+                        {
+                            sink = new PreviewSink(new PreviewRingWriter(RingPath(request.ViewId), size.Width, size.Height));
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            _shown.Remove(request.ViewId);
+                            return $"{request.ViewId}'s ring could not be made: {ex.Message}";
+                        }
                     }
                     var running = feed.Start(request, sink, out var why);
                     if (running is null)

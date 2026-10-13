@@ -26,6 +26,11 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
 {
     public const int IdleFrames = 120;
     public const long PrepareAheadNs = 2_000_000_000;
+
+    /// <summary>A source that could not open is opened again after this many frames (a file fetched from a
+    /// peer, a camera plugged in).</summary>
+    public const int RetryFrames = 300;
+
     private const int SweepEvery = 30;
 
     private static long s_epochs;
@@ -34,6 +39,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     {
         public required MediaItem Item { get; init; }
         public required long Epoch { get; init; }
+        public required long OpenedFrame { get; init; }
         public IVideoSource? Source;
         public string? Problem;
         public int Retired;
@@ -247,7 +253,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         }
         if (_media is null || _disposed)
             return null;
-        slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame };
+        slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame, OpenedFrame = _frame };
         slots[key] = slot;
         var media = _media;
         ThreadPool.UnsafeQueueUserWorkItem(static s => Open(s.Media, s.Slot), (Media: media, Slot: slot), preferLocal: false);
@@ -288,6 +294,26 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             ThreadPool.UnsafeQueueUserWorkItem(static s => s.Dispose(), source, preferLocal: false);
     }
 
+    /// <summary>True when the source could not open (the backend refused it, or it opened and gave up).</summary>
+    private static bool Failed(Slot slot)
+    {
+        if (slot.Problem is not null)
+            return true;
+        var opened = Volatile.Read(ref slot.Source) switch
+        {
+            FfmpegVideoSource v => v.Opened,
+            ImageSource i => i.Opened,
+            ImageSequenceSource q => q.Opened,
+            CaptureSource c => c.Opened,
+            _ => null,
+        };
+        if (opened is not { IsCompleted: true })
+            return false;
+#pragma warning disable VSTHRD002 // The task has completed (checked above): Result reads it, it never waits.
+        return !opened.IsCompletedSuccessfully || !opened.Result;
+#pragma warning restore VSTHRD002
+    }
+
     private bool ItemGone(string itemId, Slot slot) => _project.FindMedia(slot.Item.Id) is null || !ProjectHasItem(itemId);
 
     private bool MediaGone(string mediaId, Slot slot) => _project.FindMedia(mediaId) is null;
@@ -306,7 +332,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private void Sweep(Dictionary<string, Slot> slots, Func<string, Slot, bool> gone)
     {
         foreach (var (key, slot) in slots)
-            if (_frame - slot.LastUsed > IdleFrames || gone(key, slot))
+            if (_frame - slot.LastUsed > IdleFrames || gone(key, slot) || (Failed(slot) && _frame - slot.OpenedFrame > RetryFrames))
                 _stale.Add(key);
         foreach (var key in _stale)
         {

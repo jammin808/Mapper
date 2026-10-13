@@ -74,7 +74,16 @@ public sealed partial class RenderHost : IViewRenderer
                 var (w, h) = request.Kind == ViewKind.Editor
                     ? (ViewRequest.MaxWidth, ViewRequest.MaxHeight)
                     : (Math.Min(request.Width, ViewRequest.MaxWidth), Math.Min(request.Height, ViewRequest.MaxHeight));
-                slot = new ViewSlot(request.ViewId, new PreviewRingWriter(engine.Previews.RingPath(request.ViewId), w, h));
+                PreviewRingWriter ring;
+                try
+                {
+                    ring = new PreviewRingWriter(engine.Previews.RingPath(request.ViewId), w, h);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return $"{request.ViewId}'s ring could not be made: {ex.Message}";
+                }
+                slot = new ViewSlot(request.ViewId, ring);
                 _views[request.ViewId] = slot;
             }
             if (_cameras.TryGetValue(request.ViewId, out var camera))

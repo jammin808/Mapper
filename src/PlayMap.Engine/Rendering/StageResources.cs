@@ -270,17 +270,32 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
         var next = new Tables(project, revision, settled: !missing, meshes);
         foreach (var output in project.Outputs)
         {
-            next.Warps[output.Id] = WarpFor(output, prev);
-            if (EdgeFor(output, prev) is { } edge)
-                next.Edges[output.Id] = edge;
-            if (OutputMaskFor(output, prev) is { } mask)
-                next.OutputMasks[output.Id] = mask;
-            if (LensFor(output, project, prev) is { } lens)
-                next.Lenses[output.Id] = lens;
+            // One output's bad data (a degenerate mask, a lens that does not invert) costs that map, not the rest.
+            Guard(output.Name, () => next.Warps[output.Id] = WarpFor(output, prev));
+            Guard(output.Name, () =>
+            {
+                if (EdgeFor(output, prev) is { } edge)
+                    next.Edges[output.Id] = edge;
+            });
+            Guard(output.Name, () =>
+            {
+                if (OutputMaskFor(output, prev) is { } mask)
+                    next.OutputMasks[output.Id] = mask;
+            });
+            Guard(output.Name, () =>
+            {
+                if (LensFor(output, project, prev) is { } lens)
+                    next.Lenses[output.Id] = lens;
+            });
         }
         foreach (var surface in project.Stage.Surfaces)
-            if (SurfaceMaskFor(surface, prev) is { } mask)
-                next.SurfaceMasks[surface.Id] = mask;
+        {
+            Guard(surface.Name, () =>
+            {
+                if (SurfaceMaskFor(surface, prev) is { } mask)
+                    next.SurfaceMasks[surface.Id] = mask;
+            });
+        }
         if (Volatile.Read(ref _solved) is { } solved)
         {
             // The last good automatic blend stays up while a newer stage is solved.
@@ -289,6 +304,18 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                     next.Blends[o.OutputId] = o.Map;
         }
         return next;
+    }
+
+    private void Guard(string owner, Action build)
+    {
+        try
+        {
+            build();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or ArithmeticException or IndexOutOfRangeException)
+        {
+            LastProblem = $"{owner}: {ex.Message}";
+        }
     }
 
     private WarpEntry WarpFor(Output output, Tables prev)

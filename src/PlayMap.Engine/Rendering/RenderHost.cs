@@ -95,6 +95,9 @@ public sealed partial class RenderHost : IRenderHost
 {
     private const string PatternGeneratorId = "gn_air_pattern";
     private const int FrameRing = 120;
+
+    /// <summary>Frames in a row that may fault before the loop gives up (a lost context faults every frame).</summary>
+    private const int FaultLimit = 30;
     private static readonly SourceRef PatternSource = SourceRef.Generator(PatternGeneratorId);
 
     private readonly RenderHostOptions _options;
@@ -112,7 +115,7 @@ public sealed partial class RenderHost : IRenderHost
     private readonly double[] _frameMs = new double[FrameRing];
     private readonly double[] _frameMsSorted = new double[FrameRing];
     private readonly Lock _frameMsGate = new();
-    private readonly FramePacer _loopPacer = new(60);
+    private FramePacer _loopPacer = new(60);
     private readonly FramePacer _vblank = new(60);
     private readonly Func<string, long> _presentOf;
 
@@ -366,11 +369,26 @@ public sealed partial class RenderHost : IRenderHost
     private void Loop(EngineCore engine)
     {
         _deadlineNs = MonoClock.Instance.NowNs;
+        var faults = 0;
         while (!_stopping)
         {
             var bytesBefore = GC.GetAllocatedBytesForCurrentThread();
             var start = MonoClock.Instance.NowNs;
-            Frame(engine);
+            try
+            {
+                Frame(engine);
+                faults = 0;
+            }
+            catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException)
+            {
+                // One bad frame is journalled and the next is drawn; a fault every frame for a while (a lost
+                // context) stops the loop, and the engine plays on with its outputs closed.
+                if (faults++ == 0)
+                    engine.Journal.Add("fault", $"render frame: {ex.GetType().Name}: {ex.Message}", ok: false);
+                _context!.Device.InvalidateState();
+                if (faults >= FaultLimit)
+                    throw;
+            }
             var end = MonoClock.Instance.NowNs;
             Interlocked.Add(ref _framePathBytes, GC.GetAllocatedBytesForCurrentThread() - bytesBefore);
             var frames = Interlocked.Increment(ref _frames);
@@ -560,6 +578,8 @@ public sealed partial class RenderHost : IRenderHost
     private void Pace(EngineCore engine, long frameStartNs)
     {
         var rate = _options.HeadlessRateHz > 0 ? _options.HeadlessRateHz : RenderEngine.FrameRateOf(engine.Store.Project.Settings.FrameRate);
+        if (Math.Abs(_loopPacer.NominalHz - rate) > 1e-6)
+            _loopPacer = new FramePacer(rate);
         var period = (long)(1e9 / rate);
         var now = MonoClock.Instance.NowNs;
         if (_windows!.Pacer is not null)
@@ -602,6 +622,9 @@ public sealed partial class RenderHost : IRenderHost
                 done.TrySetCanceled(CancellationToken.None);
             _frameWaiters.Clear();
         }
+        lock (_healthGate)
+            _health = [];
+        _openWindows = 0;
         while (_work.TryDequeue(out var work))
             work();
     }
