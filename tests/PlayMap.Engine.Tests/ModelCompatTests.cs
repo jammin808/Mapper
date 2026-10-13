@@ -93,6 +93,39 @@ public sealed class ModelCompatTests
     }
 
     [Fact]
+    public async Task ARoundTwoFieldThatNamesAnEntityKeepsItFromBeingRemoved()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), Seeded());
+        const string corners = "\"topLeft\":{\"x\":0,\"y\":0},\"topRight\":{\"x\":1,\"y\":0},\"bottomRight\":{\"x\":1,\"y\":1},\"bottomLeft\":{\"x\":0,\"y\":1}";
+
+        await Ok(engine, "ADD surface {\"name\":\"Quad\",\"pixel\":{\"projectorId\":\"pj0a0b0c01\"," + corners + "}}");
+        await Ok(engine, "SET al0a0b0c01 outputIds [\"op_1\"]");
+        await Ok(engine, "ADD send {\"name\":\"Program\",\"protocol\":\"ndi\",\"tap\":\"source:media:md0a0b0c01\"}");
+        var revision = engine.Store.Current.Revision;
+
+        var projector = await Run(engine, "REMOVE pj0a0b0c01");
+        var output = await Run(engine, "REMOVE op_1");
+        var media = await Run(engine, "REMOVE md0a0b0c01");
+
+        Assert.Contains("in use by Quad", projector.Payload, StringComparison.Ordinal);
+        Assert.Contains("in use by Screens", output.Payload, StringComparison.Ordinal);
+        Assert.Contains("in use by Program", media.Payload, StringComparison.Ordinal);
+        Assert.Equal(revision, engine.Store.Current.Revision);
+        Assert.NotNull(engine.Store.Project.FindProjector("pj0a0b0c01"));
+    }
+
+    [Fact]
+    public async Task AnAddWithAKeyGivenTwiceTakesTheLastValue()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), Seeded());
+
+        var id = await Ok(engine, "ADD controlpoint {\"name\":\"First\",\"Name\":\"Second\",}");
+
+        Assert.Equal("Second", engine.Store.Project.Stage.Controls.Find(id)!.Name);
+        Assert.Equal("Second", (await Get(engine, id)).GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task AnEffectSlotIsAddedToItsOwnersChainAndEditedThere()
     {
         await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), Seeded());

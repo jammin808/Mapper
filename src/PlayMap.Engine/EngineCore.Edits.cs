@@ -330,7 +330,7 @@ public sealed partial class EngineCore
         System.Text.Json.Nodes.JsonObject obj;
         try
         {
-            obj = System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject
+            obj = ProjectFile.ParseTree(json) as System.Text.Json.Nodes.JsonObject
                 ?? throw new EditRefusedException("ADD takes a JSON object");
         }
         catch (JsonException ex)
@@ -415,7 +415,7 @@ public sealed partial class EngineCore
         try
         {
             var baseNode = JsonSerializer.SerializeToNode(def, typeof(T), ProjectFile.Compact)!.AsObject();
-            var overlay = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject()
+            var overlay = ProjectFile.ParseTree(json)?.AsObject()
                 ?? throw new EditRefusedException("ADD takes a JSON object");
             foreach (var (key, value) in overlay.ToList())
             {
@@ -577,6 +577,27 @@ public sealed partial class EngineCore
         foreach (var l in p.Playlists)
             if (l.Chase?.Sources.Contains(id, StringComparer.Ordinal) == true)
                 users.Add(l.Name);
+        foreach (var s in p.Stage.Surfaces)
+            if (s.Pixel?.ProjectorId == id)
+                users.Add(s.Name);
+        foreach (var g in p.Generators)
+            if (g.Inputs.Values.Any(x => x.Id == id))
+                users.Add(g.Name);
+        foreach (var m in p.Media)
+            if (m.Live is { } live && SourceRef.TryParse(live.Fallback, out var fallback) && fallback.Id == id)
+                users.Add(m.Name);
+        foreach (var a in p.Stage.Aligns)
+            if (a.CameraId == id || a.CanvasId == id || a.OutputIds.Contains(id, StringComparer.Ordinal))
+                users.Add(a.Name);
+        foreach (var f in p.Leds.Fixtures)
+            if (f.SpaceId == id || f.ViewpointId == id)
+                users.Add(f.Name);
+        foreach (var x in p.Sends)
+            if (x.Tap.EndsWith(":" + id, StringComparison.Ordinal))
+                users.Add(x.Name);
+        foreach (var plan in p.Show.Panic)
+            if (plan.SafeLook?.Id == id)
+                users.Add("the safe look of " + plan.OutputId);
         return users;
     }
 
