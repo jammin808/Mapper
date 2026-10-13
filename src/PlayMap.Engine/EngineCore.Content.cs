@@ -421,6 +421,7 @@ public sealed partial class EngineCore
 
     private string MediaListJson() => JsonOut(w =>
     {
+        var transfers = Services.Transfers?.Transfers() ?? [];
         w.WriteStartArray();
         foreach (var m in Store.Project.Media)
         {
@@ -436,10 +437,35 @@ public sealed partial class EngineCore
             w.WriteBoolean("present", ready?.Present ?? !m.IsFile);
             w.WriteBoolean("ready", ready is { Present: true, Decodable: true } || !m.IsFile);
             w.WriteString("words", ready?.Words ?? (m.IsFile ? "no media engine" : "a URL"));
+            var (state, progress) = Availability(m, ready, transfers);
+            w.WriteString("state", state);
+            w.WriteNumber("progress", Math.Round(progress, 3));
             w.WriteEndObject();
         }
         w.WriteEndArray();
     });
+
+    /// <summary>Where an item stands on this node, in the desk's words: fetching (with how far); missing (no file here, or
+    /// a file whose bytes are not the ones the project names — a fetch brings the right one); unplayable (the right bytes,
+    /// but nothing here decodes them); ready — or unknown while it is not hashed yet, its first check runs, or the node
+    /// has no media engine.</summary>
+    private static (string State, double Progress) Availability(MediaItem m, MediaReadiness? ready, IReadOnlyList<MediaTransferView> transfers)
+    {
+        if (transfers.FirstOrDefault(t => t.MediaId == m.Id && t.Moving) is { } pulling)
+            return ("fetching", pulling.Progress);
+        if (!m.IsFile)
+            return ("ready", 1);
+        return ready switch
+        {
+            null => ("unknown", 0),
+            { Present: false } => ("missing", 0),
+            { Words: Host.MediaBackend.Checking } => ("unknown", 0),
+            { Verified: false } when m.ContentHash.Length == 0 => ("unknown", 0),
+            { Verified: false } => ("missing", 0),
+            { Decodable: true } => ("ready", 1),
+            _ => ("unplayable", 0),
+        };
+    }
 
     private string MediaStatusJson() => JsonOut(w =>
     {

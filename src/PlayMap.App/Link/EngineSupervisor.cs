@@ -113,7 +113,8 @@ public sealed class EngineSupervisor : IAsyncDisposable
         }
     }
 
-    /// <summary>"PlayMap engine" from the running exe's own full path (never resolved through PATH).</summary>
+    /// <summary>"PlayMap engine --desk-pid &lt;this desk&gt;" from the running exe's own full path (never resolved through
+    /// PATH). The engine notes in its journal when this desk goes, and plays on.</summary>
     private static IEngineProcess? StartOwnEngine()
     {
         var exe = Environment.ProcessPath;
@@ -126,6 +127,8 @@ public sealed class EngineSupervisor : IAsyncDisposable
             WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory,
         };
         info.ArgumentList.Add("engine");
+        info.ArgumentList.Add("--desk-pid");
+        info.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         try
         {
             var p = Process.Start(info);

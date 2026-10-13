@@ -100,6 +100,9 @@ public static class ContextBuilder
         if (s.Scan.Current is { } scan && scan.State is not ("done" or "failed" or "cancelled"))
             items.Add(new ContextItem("scan", "scan", "Scan", Light.Amber, scan.Words));
 
+        foreach (var f in s.Faults?.Faults() ?? [])
+            items.Add(new ContextItem("fault:" + f.Part, "fault", f.Part, Light.Red, f.Words));
+
         engine.AddOpsContext(items, links);
 
         var outputsWords = green > 0 ? $"{green} output{(green == 1 ? "" : "s")} green" : !p.Outputs.Any(o => o.Enabled) ? "no outputs on" : "outputs not measured";

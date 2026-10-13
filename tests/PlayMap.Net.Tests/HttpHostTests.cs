@@ -190,14 +190,32 @@ public class HttpHostTests
         }
 
         await SendAsync(ws, "{\"cmd\":\"BLACKOUT ON\",\"id\":\"a1\"}");
-        var receipt = await ReceiveUntilAsync(ws, m => m.Contains("\"receipt\"", StringComparison.Ordinal));
+        var (receipt, frame) = await ReceiptAndFrameAsync(ws, "a1", 2);
         Assert.StartsWith("{\"type\":\"receipt\",\"id\":\"a1\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"blackout on\"", receipt, StringComparison.Ordinal);
-        var frame = await ReceiveUntilAsync(ws, m => m.Contains("\"seq\":2,", StringComparison.Ordinal));
         Assert.Contains("\"blackout\":true", frame, StringComparison.Ordinal);
         Assert.Equal("ws", Assert.Single(endpoint.Lines).Session.Transport);
 
         endpoint.IsLive = false;
         Assert.Equal("{\"type\":\"beat\",\"live\":false}", await ReceiveUntilAsync(ws, m => m.Contains("\"live\":false", StringComparison.Ordinal)));
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt()
+    {
+        // The node publishes its change before it answers the line, so the sender may put the frame on the socket
+        // first; holding the answer makes that order certain instead of a matter of thread scheduling.
+        var endpoint = new FakeEndpoint { HoldReply = TimeSpan.FromMilliseconds(300) };
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { BeatEvery = TimeSpan.FromSeconds(30) });
+        using var ws = new ClientWebSocket();
+        await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + host.Port + "/ws"), CancellationToken.None);
+        Assert.Contains("\"seq\":1,", await ReceiveAsync(ws), StringComparison.Ordinal);
+
+        await SendAsync(ws, "{\"cmd\":\"BLACKOUT ON\",\"id\":\"b7\"}");
+        var frame = await ReceiveAsync(ws);
+        Assert.Contains("\"seq\":2,", frame, StringComparison.Ordinal);
+        Assert.Contains("\"blackout\":true", frame, StringComparison.Ordinal);
+        Assert.StartsWith("{\"type\":\"receipt\",\"id\":\"b7\",\"ok\":true,\"stage\":\"applied\"", await ReceiveAsync(ws), StringComparison.Ordinal);
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
 
@@ -290,6 +308,29 @@ public class HttpHostTests
             if (match(m))
                 return m;
         }
+    }
+
+    /// <summary>A command's receipt and the first state frame at or past <paramref name="seq"/>, in whichever order they
+    /// come: a receipt answers the command, a frame is the node's state latest-wins, and the node publishes a change
+    /// before it answers the line that made it — so the frame may be on the socket first. Nothing read is dropped
+    /// before both are in.</summary>
+    internal static async Task<(string Receipt, string Frame)> ReceiptAndFrameAsync(ClientWebSocket ws, string id, long seq, int timeoutMs = 5000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        string? receipt = null;
+        string? frame = null;
+        while (receipt is null || frame is null)
+        {
+            var m = await ReceiveAsync(ws, Math.Max(1, timeoutMs - (int)sw.ElapsedMilliseconds));
+            using var doc = JsonDocument.Parse(m);
+            var r = doc.RootElement;
+            var type = r.GetProperty("type").GetString();
+            if (type == "receipt" && r.GetProperty("id").GetString() == id)
+                receipt ??= m;
+            else if (type == "state" && r.GetProperty("seq").GetInt64() >= seq)
+                frame ??= m;
+        }
+        return (receipt, frame);
     }
 
     internal static Task SendAsync(ClientWebSocket ws, string json) =>
