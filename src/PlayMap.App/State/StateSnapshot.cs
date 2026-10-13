@@ -159,7 +159,7 @@ public sealed record StateSnapshot(
     }
 
     private static AirState ReadAir(JsonElement? a) => a is { } e
-        ? new AirState(e.Bool("blackout"), e.Bool("frozen"), e.StrOrNull("pattern"), e.Bool("identify"))
+        ? new AirState(e.Bool("blackout"), e.Bool("frozen"), e.Obj("pattern")?.StrOrNull("kind") ?? e.StrOrNull("pattern"), e.Bool("identify"))
         : AirState.Normal;
 
     private static VideoRow? ReadVideo(JsonElement? v) => v is { } e

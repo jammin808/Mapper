@@ -66,6 +66,9 @@ public class DeskLogicTests
         Assert.True(sparse.Air.Blackout);
         Assert.Empty(sparse.Playlists);
         Assert.Null(sparse.FocusedPlaylist);
+        // The engine writes the pattern as its kind and the outputs it covers.
+        var patterned = StateSnapshot.Parse("{\"seq\":4,\"air\":{\"pattern\":{\"kind\":\"pattern.grid\",\"outputs\":[]}}}");
+        Assert.Equal("pattern.grid", patterned.Air.Pattern);
     }
 
     [Fact]
