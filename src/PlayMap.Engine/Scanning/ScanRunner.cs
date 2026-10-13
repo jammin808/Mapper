@@ -1,13 +1,16 @@
+using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Scan;
-using PlayMap.Core.Time;
+using PlayMap.Core.Vision;
 using PlayMap.Engine.Devices;
+using PlayMap.Vision.Segmentation;
 
 namespace PlayMap.Engine.Scanning;
 
-/// <summary>How the scan runner paces a real capture.</summary>
+/// <summary>How the scan runner paces a real capture, and where its pictures go.</summary>
 public sealed record ScanRunnerOptions
 {
     /// <summary>White flashes (each followed by black) that measure the camera's latency.</summary>
@@ -36,6 +39,36 @@ public sealed record ScanRunnerOptions
 
     /// <summary>The settle detector's thresholds.</summary>
     public SettleOptions Settle { get; init; } = new();
+
+    /// <summary>Where the camera, smart-scan and confidence pictures go (null: the node's preview rings, once bound).</summary>
+    public IScanPreviews? Previews { get; init; }
+
+    /// <summary>The segmenter click-to-surface uses (null: Vision's router with the classical segmenter, which needs
+    /// no model).</summary>
+    public ISegmenter? Segmenter { get; init; }
+}
+
+/// <summary>One projector's part of a scan as STATE.scan shows it.</summary>
+public sealed record ScanProjectorState(string Id, string Name, double Progress, string State);
+
+/// <summary>STATE.scan: the running (or last) scan — its id from the start, "starting", "running", "done", "failed" or
+/// "cancelled", the step it is on, patterns shown of all, progress and quality (0–1), the quality in words, a
+/// message, each projector's progress, and the regions it suggests as surfaces (on the smart-scan picture, 0–1).</summary>
+public sealed record ScanView(
+    string Id,
+    string State,
+    string Stage,
+    int Pattern,
+    int Patterns,
+    double Progress,
+    double Quality,
+    string QualityWords,
+    string Message,
+    ImmutableArray<ScanProjectorState> Projectors,
+    ImmutableArray<ScanRegion> Regions,
+    string? ProjectorId)
+{
+    public bool IsRunning => State is "starting" or "running";
 }
 
 /// <summary>
@@ -44,42 +77,69 @@ public sealed record ScanRunnerOptions
 /// patterns go up on the projector's output one by one through <see cref="IScanDisplay"/>, and for each the first
 /// camera frame that arrived at or after the present plus the camera's measured latency and that the settle
 /// detector accepts is kept; the frames are decoded, scored and turned into the smart scan. Then every projector
-/// is solved together (<see cref="ScanSolver"/>), the result is kept in memory and in the scan's folder beside the
-/// project, and the engine adds the <see cref="ScanRecord"/> on its lane. A simulated camera ("sim", or a rig of
-/// kind <see cref="CameraSourceKind.Simulated"/>) renders its frames with the scan simulator instead. One scan at a
-/// time; <see cref="Cancel"/> stops it and gives the outputs back. Progress is <see cref="Current"/>, for STATE.
+/// is solved together (<see cref="ScanSolver"/>), the surfaces it suggests are found, the result is kept in memory
+/// and in the scan's folder beside the project, and the engine adds the <see cref="ScanRecord"/> on its lane. A
+/// simulated camera ("sim", or a rig of kind <see cref="CameraSourceKind.Simulated"/>) renders its frames with the
+/// scan simulator instead. One scan at a time; <see cref="Cancel"/> stops it and gives the outputs back. Progress is
+/// <see cref="View"/> (STATE.scan) and <see cref="Current"/> (the seam's summary).
 /// </summary>
 public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 {
     private const int KeptOutcomes = 8;
+
+    /// <summary>The share of the progress bar the captures take; solving and meshing take the rest.</summary>
+    private const double CaptureShare = 0.85;
 
     private readonly IScanDisplay? _display;
     private readonly ScanRunnerOptions _options;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, ScanOutcome> _outcomes = new(StringComparer.Ordinal);
     private readonly Queue<string> _order = new();
+    private readonly ISegmenter _segmenter;
     private EngineCore? _engine;
+    private IScanPreviews? _previews;
+    private PreviewRingPublisher? _ownPreviews;
     private CancellationTokenSource? _running;
     private Task? _task;
+    private volatile ScanView? _view;
     private volatile ScanProgress? _current;
 
     public ScanRunner(IScanDisplay? display, ScanRunnerOptions? options = null)
     {
         _display = display;
         _options = options ?? new ScanRunnerOptions();
+        _previews = _options.Previews;
+        _segmenter = _options.Segmenter ?? new SegmenterRouter([], new ClassicalSegmenter(), null);
     }
 
     public ScanProgress? Current => _current;
 
-    /// <summary>Raised (on the scan's thread) whenever <see cref="Current"/> moves.</summary>
-    public event Action<ScanProgress>? Progressed;
+    /// <summary>STATE.scan's row: the running or last scan (null before the first).</summary>
+    public ScanView? View => _view;
 
-    /// <summary>Gives the runner the node it scans for: the project it reads, the lane it stores the record on.</summary>
+    /// <summary>The id of the scan running now (null when none is).</summary>
+    public string? RunningId => _view is { IsRunning: true } v ? v.Id : null;
+
+    /// <summary>The segmenter click-to-surface uses.</summary>
+    public ISegmenter Segmenter => _segmenter;
+
+    /// <summary>Raised (on the scan's thread) whenever the scan moves on.</summary>
+    public event Action<ScanView>? Progressed;
+
+    /// <summary>Gives the runner the node it scans for: the project it reads, the lane it stores the record on, and —
+    /// unless a seam was given — the node's preview rings for its pictures.</summary>
     public void Bind(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
         lock (_gate)
+        {
             _engine = engine;
+            if (_previews is null)
+            {
+                _ownPreviews = new PreviewRingPublisher(engine.Services.Settings.NodeId);
+                _previews = _ownPreviews;
+            }
+        }
     }
 
     /// <summary>A finished scan this node still holds in memory (the most recent few), or null.</summary>
@@ -89,12 +149,20 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             return _outcomes.GetValueOrDefault(scanId);
     }
 
+    /// <summary>Keeps a scan read back from its folder, so the next click on it does not read it again.</summary>
+    public void Remember(ScanOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        Keep(outcome);
+    }
+
     public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
         EngineCore engine;
         CancellationTokenSource cts;
+        Setup setup;
         lock (_gate)
         {
             if (_engine is null)
@@ -102,21 +170,24 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             if (_running is not null)
                 return Task.FromException<string>(new InvalidOperationException("a scan is already running — SCAN CANCEL stops it"));
             engine = _engine;
+            try
+            {
+                setup = ReadSetup(engine, cameraId, projectorIds, mode);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Task.FromException<string>(ex);
+            }
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
             cts = new CancellationTokenSource();
             _running = cts;
         }
-        var scanMode = mode.ToLowerInvariant() switch
-        {
-            "fast" => ScanMode.Fast,
-            "difficult" => ScanMode.Difficult,
-            _ => ScanMode.Robust,
-        };
-        Publish(new ScanProgress("starting", null, 0, 0, 0, "getting ready"));
-        var run = Task.Run(() => RunAsync(engine, cameraId, projectorIds, scanMode, cts.Token), CancellationToken.None);
+        var track = new Track(this, setup);
+        track.Step("starting", "starting", "getting ready");
+        var run = Task.Run(() => RunAsync(engine, setup, track, cts.Token), CancellationToken.None);
         lock (_gate)
             _task = run;
-        return Finish(run, cts);
+        return Finish(run, track, cts);
     }
 
     public bool Cancel()
@@ -130,7 +201,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         }
     }
 
-    private async Task<string> Finish(Task<string> run, CancellationTokenSource cts)
+    private async Task<string> Finish(Task<string> run, Track track, CancellationTokenSource cts)
     {
         try
         {
@@ -138,12 +209,12 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            Publish(new ScanProgress("cancelled", null, 0, 0, 0, "the scan was cancelled; the outputs are back on the show"));
+            track.End("cancelled", "Cancelled — the outputs are back on the show");
             throw;
         }
         catch (Exception ex)
         {
-            Publish(new ScanProgress("failed", _current?.ProjectorId, _current?.Pattern ?? 0, _current?.Of ?? 0, 0, ex.Message));
+            track.End("failed", ex.Message);
             throw;
         }
         finally
@@ -157,53 +228,187 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         }
     }
 
-    private void Publish(ScanProgress progress)
+    private void Publish(ScanView view)
     {
-        _current = progress;
-        Progressed?.Invoke(progress);
+        _view = view;
+        _current = new ScanProgress(view.State, view.ProjectorId, view.Pattern, view.Patterns, Math.Round(view.Quality * 100, 1),
+            view.Message.Length > 0 ? view.Message : view.Stage);
+        Progressed?.Invoke(view);
         EngineCore? engine;
         lock (_gate)
             engine = _engine;
         engine?.FactsChanged();
     }
 
-    /// <summary>What a scan reads from the project when it starts.</summary>
-    private sealed record Setup(CameraRig? Rig, ScanCameraView Camera, List<Projector> Projectors, Project Project, string? Folder);
-
-    private async Task<string> RunAsync(EngineCore engine, string cameraId, IReadOnlyList<string> projectorIds, ScanMode mode, CancellationToken ct)
+    /// <summary>One projector of a scan: the model's projector, the output it is scanned through (none when
+    /// simulated) and the plan at that raster.</summary>
+    private sealed record Part(Projector Projector, Output? Output, ScanPlan Plan)
     {
-        var setup = ReadSetup(engine, cameraId, projectorIds);
-        var simulated = setup.Rig is null || setup.Rig.SourceKind == CameraSourceKind.Simulated;
-        var names = string.Join(", ", setup.Projectors.Select(p => p.Name));
-        List<ProjectorCapture> captures;
+        public int Width => Plan.ProjectorWidth;
+
+        public int Height => Plan.ProjectorHeight;
+    }
+
+    /// <summary>What a scan reads from the project when it starts.</summary>
+    private sealed record Setup(string Id, CameraRig? Rig, ScanCameraView Camera, List<Part> Parts, Project Project, string? Folder, bool Simulated)
+    {
+        public string Names => string.Join(", ", Parts.Select(p => p.Projector.Name));
+    }
+
+    /// <summary>The scan's progress as it moves: each step published as a new <see cref="ScanView"/>.</summary>
+    private sealed class Track(ScanRunner runner, Setup setup)
+    {
+        private readonly Lock _gate = new();
+        private readonly double[] _progress = new double[setup.Parts.Count];
+        private readonly string[] _states = Enumerable.Repeat("waiting", setup.Parts.Count).ToArray();
+        private readonly int _patterns = setup.Parts.Sum(p => p.Plan.Count);
+        private int _shown;
+        private double _overall;
+        private double _quality;
+        private string _qualityWords = "";
+        private string _stage = "starting";
+        private string _message = "";
+        private string? _projector;
+        private ImmutableArray<ScanRegion> _regions = [];
+
+        public void Step(string state, string stage, string message, int? part = null, string? partState = null, double? overall = null)
+        {
+            lock (_gate)
+            {
+                _stage = stage;
+                _message = message;
+                if (part is { } j)
+                {
+                    _projector = setup.Parts[j].Projector.Id;
+                    if (partState is not null)
+                        _states[j] = partState;
+                }
+                if (overall is { } o)
+                    _overall = Math.Max(_overall, o);
+            }
+            Publish(state);
+        }
+
+        public void Pattern(int part, int index, string message)
+        {
+            lock (_gate)
+            {
+                _shown++;
+                _projector = setup.Parts[part].Projector.Id;
+                _states[part] = "scanning";
+                _progress[part] = (index + 1) / (double)setup.Parts[part].Plan.Count;
+                _overall = CaptureShare * _shown / Math.Max(1, _patterns);
+                _stage = "scanning";
+                _message = message;
+            }
+            Publish("running");
+        }
+
+        /// <summary>A projector decoded: its part is done and the quality is the worst decode so far.</summary>
+        public void Decoded(int part, ScanQualityReport quality)
+        {
+            lock (_gate)
+            {
+                _progress[part] = 1;
+                _states[part] = "done";
+                var q = quality.Score / 100.0;
+                if (_qualityWords.Length == 0 || q < _quality)
+                {
+                    _quality = q;
+                    _qualityWords = quality.Words;
+                }
+            }
+            Publish("running");
+        }
+
+        public void Quality(double quality, string words)
+        {
+            lock (_gate)
+            {
+                _quality = quality;
+                _qualityWords = words;
+            }
+        }
+
+        public void Regions(IReadOnlyList<ScanRegion> regions)
+        {
+            lock (_gate)
+                _regions = [.. regions];
+        }
+
+        public void End(string state, string message)
+        {
+            lock (_gate)
+            {
+                _stage = state;
+                _message = message;
+                if (state == "done")
+                {
+                    _overall = 1;
+                    for (var j = 0; j < _states.Length; j++)
+                        _states[j] = "done";
+                }
+                else
+                {
+                    for (var j = 0; j < _states.Length; j++)
+                    {
+                        if (_states[j] != "done")
+                            _states[j] = state;
+                    }
+                }
+                _projector = null;
+            }
+            Publish(state);
+        }
+
+        private void Publish(string state)
+        {
+            ScanView view;
+            lock (_gate)
+            {
+                view = new ScanView(setup.Id, state, _stage, _shown, _patterns, Math.Round(_overall, 3), Math.Round(_quality, 3), _qualityWords, _message,
+                    [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
+                    _regions, _projector);
+            }
+            runner.Publish(view);
+        }
+    }
+
+    private async Task<string> RunAsync(EngineCore engine, Setup setup, Track track, CancellationToken ct)
+    {
         var views = new List<(string, ProjectorView)>();
         var notes = new List<string>();
+        List<ProjectorCapture> captures;
         SimulatedRig? rig = null;
         Func<Core.Numerics.Vec2d, Core.Numerics.Vec2d, double?>? known = null;
-        if (simulated)
+        if (setup.Simulated)
         {
             rig = new SimulatedRig(SimulatedRig.SceneOf(setup.Rig), setup.Camera.Intrinsics.Width, setup.Camera.Intrinsics.Height,
-                setup.Projectors.Select(p => p.Intrinsics).ToList());
-            await PrepareDevicesAsync(engine, setup, null, notes, ct).ConfigureAwait(false);
-            captures = CaptureSimulated(rig, setup, mode, views, out var truth, ct);
+                setup.Parts.Select(p => p.Projector.Intrinsics).ToList());
+            await PrepareDevicesAsync(engine, setup, track, null, notes, ct).ConfigureAwait(false);
+            captures = CaptureSimulated(rig, setup, track, views, out var truth, ct);
             known = rig.KnownDistance(truth);
         }
         else
         {
-            captures = await CaptureRealAsync(engine, setup, mode, views, notes, ct).ConfigureAwait(false);
+            captures = await CaptureRealAsync(engine, setup, track, views, notes, ct).ConfigureAwait(false);
         }
 
-        Publish(new ScanProgress("calibrating", null, 0, 0, captures.Min(c => c.Quality.Score), $"solving {names}"));
+        track.Step("running", "calibrating", $"solving {setup.Names}", overall: 0.88);
         var options = new ScanSolveOptions { KnownDistance = known, Model = StageModel(setup) };
         var solution = await Task.Run(() => ScanSolver.Solve(setup.Camera, captures, options, ct), ct).ConfigureAwait(false);
         if (!solution.Projectors.Any(p => p.Solved))
             throw new InvalidOperationException("no projector could be solved — " + string.Join("; ", solution.Projectors.Select(p => p.Name + ": " + p.Words)));
 
-        var id = await engine.Lane.RunAsync(() => engine.Store.Project.NewId(Ids.Scan)).ConfigureAwait(false);
-        var name = "Scan of " + names;
+        track.Step("running", "finding surfaces", "looking for the surfaces worth making", overall: 0.95);
+        var name = "Scan of " + setup.Names;
         var truthDevices = rig is null ? (IReadOnlyList<SimulatedDevice>)[]
-            : [new SimulatedDevice("camera", rig.Camera.Intrinsics, rig.Camera.Pose), .. setup.Projectors.Select((p, j) => new SimulatedDevice(p.Id, rig.Projector(j).Intrinsics, rig.Projector(j).Pose))];
-        var outcome = new ScanOutcome(id, name, setup.Rig?.Id ?? SimulatedRig.CameraId, simulated, rig?.SceneName ?? "", solution, views, truthDevices);
+            : [new SimulatedDevice("camera", rig.Camera.Intrinsics, rig.Camera.Pose), .. setup.Parts.Select((p, j) => new SimulatedDevice(p.Projector.Id, rig.Projector(j).Intrinsics, rig.Projector(j).Pose))];
+        var outcome = new ScanOutcome(setup.Id, name, setup.Rig?.Id ?? SimulatedRig.CameraId, setup.Simulated, rig?.SceneName ?? "", solution, views, truthDevices);
+        var geometry = ScanArchive.GeometryOf(outcome, ScanSurfaces.CameraImage(captures[0].Map));
+        var regions = geometry is null ? [] : await Task.Run(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
+        outcome = outcome with { Geometry = geometry, Regions = regions };
+        track.Regions(regions);
         if (rig is not null)
             notes.Add(TruthWords(outcome));
         var dataPath = "";
@@ -223,26 +428,48 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             notes.Add("the project is not saved yet: the scan is kept in memory until the node stops");
         }
         Keep(outcome);
-        var record = new ScanRecord(id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
-            [.. setup.Projectors.Select(p => p.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
+        PublishPictures(outcome);
+        var record = new ScanRecord(setup.Id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
+            [.. setup.Parts.Select(p => p.Projector.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
             string.Join(" ", new[] { solution.Words }.Concat(notes)));
         await engine.Lane.RunAsync(() => engine.Store.Apply($"scan {name}", p => p.WithStage(s => s with { Scans = s.Scans.Upsert(record) }))).ConfigureAwait(false);
-        var quality = captures.Min(c => c.Quality.Score);
-        Publish(new ScanProgress("done", null, captures.Count, captures.Count, quality,
-            string.Create(CultureInfo.InvariantCulture, $"{id} ready — SCAN APPLY {id} puts it on the stage. {solution.Words}")));
-        return id;
+        var worst = captures.MinBy(c => c.Quality.Score)!.Quality;
+        track.Quality(worst.Score / 100.0, string.Create(CultureInfo.InvariantCulture,
+            $"{worst.Grade} — {worst.DecodedFraction * 100:0} % of the lit picture decoded, {regions.Count} region{(regions.Count == 1 ? "" : "s")} found"));
+        track.End("done", string.Create(CultureInfo.InvariantCulture, $"{setup.Id} ready — SCAN APPLY {setup.Id} puts it on the stage. {solution.Words}"));
+        return setup.Id;
     }
 
-    private Setup ReadSetup(EngineCore engine, string cameraId, IReadOnlyList<string> projectorIds)
+    private Setup ReadSetup(EngineCore engine, string cameraId, IReadOnlyList<string> projectorIds, string mode)
     {
         var p = engine.Store.Project;
         var rig = p.Stage.Cameras.Find(cameraId);
         if (rig is null && !cameraId.Equals(SimulatedRig.CameraId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"no camera {cameraId}");
-        var projectors = new List<Projector>();
+        var simulated = rig is null || rig.SourceKind == CameraSourceKind.Simulated;
+        var planOptions = new ScanPlanOptions
+        {
+            Mode = mode.ToLowerInvariant() switch
+            {
+                "fast" => ScanMode.Fast,
+                "difficult" => ScanMode.Difficult,
+                _ => ScanMode.Robust,
+            },
+        };
+        var parts = new List<Part>();
         foreach (var id in projectorIds)
-            projectors.Add(p.FindProjector(id) ?? throw new InvalidOperationException($"no projector {id}"));
-        if (projectors.Count == 0)
+        {
+            var pj = p.FindProjector(id) ?? throw new InvalidOperationException($"no projector {id}");
+            if (simulated)
+            {
+                parts.Add(new Part(pj, null, ScanPlan.Create(pj.Intrinsics.Width, pj.Intrinsics.Height, planOptions)));
+                continue;
+            }
+            var output = p.Outputs.FirstOrDefault(o => o.ProjectorId == pj.Id && o.Enabled)
+                ?? throw new InvalidOperationException($"no output drives {pj.Name} — set an output's projector to it first");
+            parts.Add(new Part(pj, output, ScanPlan.Create(output.Width, output.Height, planOptions)));
+        }
+        if (parts.Count == 0)
             throw new InvalidOperationException("no projector to scan");
         ScanCameraView camera;
         if (rig is not null)
@@ -254,16 +481,16 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             // The bare simulator: a calibrated webcam (its optics are the scene camera's) whose place in the world the
             // demo knows. The projectors are what the scan finds.
             var truth = new SimulatedRig(SimulatedRig.DefaultScene, _options.SimulatedCameraWidth, _options.SimulatedCameraHeight,
-                projectors.Select(x => x.Intrinsics).ToList()).Camera;
+                parts.Select(x => x.Projector.Intrinsics).ToList()).Camera;
             camera = new ScanCameraView(SimulatedRig.CameraId, "Simulated camera", truth.Intrinsics, truth.Lens, truth.Pose, true);
         }
-        return new Setup(rig, camera, projectors, p, engine.ProjectFolderForFiles);
+        return new Setup(p.NewId(Ids.Scan), rig, camera, parts, p, engine.ProjectFolderForFiles, simulated);
     }
 
-    /// <summary>The stage's first mesh that loads from the project folder, for a bridged registration.</summary>
+    /// <summary>The stage's first imported mesh that loads from the project folder, for a bridged registration.</summary>
     private static MeshRaycaster? StageModel(Setup setup)
     {
-        if (setup.Folder is null || !setup.Camera.Calibrated)
+        if (setup.Folder is null || !setup.Camera.Calibrated || setup.Simulated)
             return null;
         foreach (var m in setup.Project.Stage.Meshes.Where(m => m.Path.Length > 0 && m.Origin == MeshOrigin.Imported))
         {
@@ -281,56 +508,67 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return null;
     }
 
-    private List<ProjectorCapture> CaptureSimulated(SimulatedRig rig, Setup setup, ScanMode mode, List<(string, ProjectorView)> views, out SimTruth truth, CancellationToken ct)
+    private List<ProjectorCapture> CaptureSimulated(SimulatedRig rig, Setup setup, Track track, List<(string, ProjectorView)> views, out SimTruth truth,
+        CancellationToken ct)
     {
         var captures = new List<ProjectorCapture>();
         SimTruth? first = null;
-        for (var j = 0; j < setup.Projectors.Count; j++)
+        for (var j = 0; j < setup.Parts.Count; j++)
         {
-            var pj = setup.Projectors[j];
-            var w = pj.Intrinsics.Width;
-            var h = pj.Intrinsics.Height;
-            var plan = ScanPlan.Create(w, h, new ScanPlanOptions { Mode = mode });
-            var sim = rig.Simulator(j, plan);
+            var part = setup.Parts[j];
+            var sim = rig.Simulator(j, part.Plan);
             first ??= sim.Truth;
-            var frames = new byte[plan.Count][];
-            for (var i = 0; i < plan.Count; i++)
+            var frames = new byte[part.Plan.Count][];
+            for (var i = 0; i < part.Plan.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 frames[i] = sim.Render(i);
-                Publish(new ScanProgress("scanning", pj.Id, i + 1, plan.Count, captures.Count > 0 ? captures[^1].Quality.Score : 0,
-                    string.Create(CultureInfo.InvariantCulture, $"{pj.Name}: pattern {i + 1} of {plan.Count} ({plan.Frames[i].Name}), simulated {rig.SceneName}")));
+                _previews?.Publish(ScanPictures.CameraView, frames[i], sim.CameraWidth, sim.CameraHeight, 1, Core.Time.MonoClock.Instance.NowNs);
+                track.Pattern(j, i, string.Create(CultureInfo.InvariantCulture,
+                    $"{part.Projector.Name}: pattern {i + 1} of {part.Plan.Count} ({part.Plan.Frames[i].Name}), simulated {rig.SceneName}"));
             }
-            captures.Add(Decode(pj, w, h, plan, sim.CameraWidth, sim.CameraHeight, frames, sim.RenderWhiteColour(), views));
+            captures.Add(Decode(j, part, sim.CameraWidth, sim.CameraHeight, frames, sim.RenderWhiteColour(), views, track));
         }
         truth = first!;
         return captures;
     }
 
-    private ProjectorCapture Decode(Projector pj, int w, int h, ScanPlan plan, int cameraWidth, int cameraHeight, byte[][] frames, int[]? colour,
-        List<(string, ProjectorView)> views)
+    private static ProjectorCapture Decode(int j, Part part, int cameraWidth, int cameraHeight, byte[][] frames, int[]? colour,
+        List<(string, ProjectorView)> views, Track track)
     {
-        Publish(new ScanProgress("decoding", pj.Id, plan.Count, plan.Count, 0, $"{pj.Name}: decoding {plan.Count} frames"));
-        var map = new StructuredLightDecoder(plan).Decode(cameraWidth, cameraHeight, frames, colour);
+        track.Step("running", "decoding", $"{part.Projector.Name}: decoding {part.Plan.Count} frames", j, "decoding");
+        var map = new StructuredLightDecoder(part.Plan).Decode(cameraWidth, cameraHeight, frames, colour);
         var quality = ScanQuality.Assess(map);
         if (map.Axes == ScanAxes.Both && map.Stats.Valid > 0)
-            views.Add((pj.Id, ProjectorView.Build(map)));
-        Publish(new ScanProgress("decoding", pj.Id, plan.Count, plan.Count, quality.Score, $"{pj.Name}: {quality.Words}"));
-        return new ProjectorCapture(pj, w, h, map, quality);
+            views.Add((part.Projector.Id, ProjectorView.Build(map)));
+        track.Decoded(j, quality);
+        return new ProjectorCapture(part.Projector, part.Width, part.Height, map, quality);
+    }
+
+    /// <summary>The first projector's smart scan and confidence to their preview views.</summary>
+    private void PublishPictures(ScanOutcome outcome)
+    {
+        if (_previews is null || outcome.Views.Count == 0)
+            return;
+        var (_, view) = outcome.Views[0];
+        var now = Core.Time.MonoClock.Instance.NowNs;
+        _previews.Publish(ScanPictures.SmartView(outcome.Id), ScanPictures.Smart(view), view.Width, view.Height, 4, now);
+        _previews.Publish(ScanPictures.ConfidenceView(outcome.Id), ScanPictures.Confidence(view), view.Width, view.Height, 4, now);
     }
 
     /// <summary>Each projector with a device link is readied for the scan (shutter open, its own geometry off, lens
     /// recorded) and gives a shutter-closed black frame; what its protocol cannot do is said in the notes.</summary>
-    private async Task PrepareDevicesAsync(EngineCore engine, Setup setup, IScanCamera? camera, List<string> notes, CancellationToken ct)
+    private async Task PrepareDevicesAsync(EngineCore engine, Setup setup, Track track, IScanCamera? camera, List<string> notes, CancellationToken ct)
     {
         if (engine.Services.Devices is not { } devices)
             return;
-        foreach (var pj in setup.Projectors)
+        for (var j = 0; j < setup.Parts.Count; j++)
         {
+            var pj = setup.Parts[j].Projector;
             var link = setup.Project.Stage.Devices.FirstOrDefault(d => d.ProjectorId == pj.Id);
             if (link is null)
                 continue;
-            Publish(new ScanProgress("preparing", pj.Id, 0, 0, 0, $"{pj.Name}: readying {link.Name} for the scan"));
+            track.Step("running", "preparing", $"{pj.Name}: readying {link.Name} for the scan", j, "preparing");
             var prepared = await devices.PrepareForScanAsync(link.Id, ct).ConfigureAwait(false);
             notes.Add($"{link.Name}: {DeviceService.Summary(prepared)}.");
             var level = double.NaN;
@@ -345,7 +583,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         }
     }
 
-    private async Task<List<ProjectorCapture>> CaptureRealAsync(EngineCore engine, Setup setup, ScanMode mode, List<(string, ProjectorView)> views,
+    private async Task<List<ProjectorCapture>> CaptureRealAsync(EngineCore engine, Setup setup, Track track, List<(string, ProjectorView)> views,
         List<string> notes, CancellationToken ct)
     {
         var display = _display ?? throw new InvalidOperationException("this node has no outputs to show the patterns on");
@@ -356,19 +594,18 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         {
             if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                 throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
-            await PrepareDevicesAsync(engine, setup, camera, notes, ct).ConfigureAwait(false);
+            await PrepareDevicesAsync(engine, setup, track, camera, notes, ct).ConfigureAwait(false);
             var captures = new List<ProjectorCapture>();
-            foreach (var pj in setup.Projectors)
+            for (var j = 0; j < setup.Parts.Count; j++)
             {
-                var output = setup.Project.Outputs.FirstOrDefault(o => o.ProjectorId == pj.Id && o.Enabled)
-                    ?? throw new InvalidOperationException($"no output drives {pj.Name} — set an output's projector to it first");
-                var latency = await MeasureLatencyAsync(display, camera, pj, output, ct).ConfigureAwait(false);
-                notes.Add($"{pj.Name}: {latency.Words}.");
-                var plan = ScanPlan.Create(output.Width, output.Height, new ScanPlanOptions { Mode = mode });
-                var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, pj, output, plan, latency.LatencyMs, captures, ct).ConfigureAwait(false);
+                var part = setup.Parts[j];
+                track.Step("running", "latency", $"{part.Projector.Name}: measuring the camera's latency with white flashes", j, "latency");
+                var latency = await MeasureLatencyAsync(display, camera, part.Output!, ct).ConfigureAwait(false);
+                notes.Add($"{part.Projector.Name}: {latency.Words}.");
+                var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, j, part, latency.LatencyMs, track, ct).ConfigureAwait(false);
                 if (unsettled > 0)
-                    notes.Add(string.Create(CultureInfo.InvariantCulture, $"{pj.Name}: {unsettled} of {plan.Count} patterns were taken without the camera settling."));
-                captures.Add(Decode(pj, output.Width, output.Height, plan, w, h, frames, null, views));
+                    notes.Add(string.Create(CultureInfo.InvariantCulture, $"{part.Projector.Name}: {unsettled} of {part.Plan.Count} patterns were taken without the camera settling."));
+                captures.Add(Decode(j, part, w, h, frames, null, views, track));
             }
             return captures;
         }
@@ -384,9 +621,8 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 
     /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present;
     /// every frame's mean brightness collected meanwhile.</summary>
-    private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, Projector pj, Output output, CancellationToken ct)
+    private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, Output output, CancellationToken ct)
     {
-        Publish(new ScanProgress("latency", pj.Id, 0, 0, 0, $"{pj.Name}: measuring the camera's latency with white flashes"));
         var estimator = new LatencyEstimator();
         var gate = new Lock();
         var white = new byte[output.Width * output.Height];
@@ -410,6 +646,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                 if (f is null)
                     continue;
                 generation = f.Generation;
+                _previews?.Publish(ScanPictures.CameraView, f.Gray, f.Width, f.Height, 1, f.ArrivalNs);
                 var mean = LatencyEstimator.MeanBrightness(f.Gray);
                 lock (gate)
                     estimator.AddFrame(f.ArrivalNs / 1e6, mean);
@@ -440,9 +677,11 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 
     /// <summary>Every pattern on the glass in turn; for each, the first frame that arrived at or after the present
     /// plus the latency and that the settle detector accepts (or, after enough late frames, the last one).</summary>
-    private async Task<(byte[][] Frames, int Width, int Height, int Unsettled)> ShowAndCaptureAsync(IScanDisplay display, IScanCamera camera, Projector pj,
-        Output output, ScanPlan plan, double latencyMs, List<ProjectorCapture> done, CancellationToken ct)
+    private async Task<(byte[][] Frames, int Width, int Height, int Unsettled)> ShowAndCaptureAsync(IScanDisplay display, IScanCamera camera,
+        int j, Part part, double latencyMs, Track track, CancellationToken ct)
     {
+        var plan = part.Plan;
+        var output = part.Output!;
         var frames = new byte[plan.Count][];
         var pattern = new byte[output.Width * output.Height];
         SettleDetector? settle = null;
@@ -463,6 +702,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                     ?? throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
                         $"the camera sent no picture for {_options.FrameTimeout.TotalSeconds:0.#} s ({camera.Problem})"));
                 generation = f.Generation;
+                _previews?.Publish(ScanPictures.CameraView, f.Gray, f.Width, f.Height, 1, f.ArrivalNs);
                 if (f.ArrivalNs < earliest)
                     continue;
                 if (settle is null)
@@ -483,8 +723,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                 }
             }
             frames[i] = last.Gray;
-            Publish(new ScanProgress("scanning", pj.Id, i + 1, plan.Count, done.Count > 0 ? done[^1].Quality.Score : 0,
-                string.Create(CultureInfo.InvariantCulture, $"{pj.Name}: pattern {i + 1} of {plan.Count} ({plan.Frames[i].Name})")));
+            track.Pattern(j, i, string.Create(CultureInfo.InvariantCulture, $"{part.Projector.Name}: pattern {i + 1} of {plan.Count} ({plan.Frames[i].Name})"));
         }
         return (frames, w, h, unsettled);
     }
@@ -493,11 +732,65 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         lock (_gate)
         {
+            if (!_outcomes.ContainsKey(outcome.Id))
+                _order.Enqueue(outcome.Id);
             _outcomes[outcome.Id] = outcome;
-            _order.Enqueue(outcome.Id);
             while (_order.Count > KeptOutcomes)
                 _outcomes.Remove(_order.Dequeue());
         }
+    }
+
+    /// <summary>STATE.scan: this runner's view (null before the first scan).</summary>
+    public void WriteState(Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        if (_view is not { } v)
+        {
+            w.WriteNullValue();
+            return;
+        }
+        w.WriteStartObject();
+        w.WriteString("id", v.Id);
+        w.WriteString("state", v.State);
+        w.WriteString("stage", v.Stage);
+        w.WriteNumber("pattern", v.Pattern);
+        w.WriteNumber("patterns", v.Patterns);
+        w.WriteNumber("progress", v.Progress);
+        w.WriteNumber("quality", v.Quality);
+        w.WriteString("qualityWords", v.QualityWords);
+        w.WriteString("message", v.Message);
+        w.WriteStartArray("projectors");
+        foreach (var p in v.Projectors)
+        {
+            w.WriteStartObject();
+            w.WriteString("id", p.Id);
+            w.WriteString("name", p.Name);
+            w.WriteNumber("progress", p.Progress);
+            w.WriteString("state", p.State);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteStartArray("regions");
+        foreach (var r in v.Regions)
+        {
+            w.WriteStartObject();
+            w.WriteString("id", r.Id);
+            w.WriteString("label", r.Label);
+            w.WriteStartArray("rect");
+            w.WriteNumberValue(r.X);
+            w.WriteNumberValue(r.Y);
+            w.WriteNumberValue(r.W);
+            w.WriteNumberValue(r.H);
+            w.WriteEndArray();
+            w.WriteNumber("confidence", r.Confidence);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        if (v.ProjectorId is null)
+            w.WriteNull("projector");
+        else
+            w.WriteString("projector", v.ProjectorId);
+        w.WriteEndObject();
     }
 
     /// <summary>How close a simulated scan came to the simulator's truth, in words.</summary>
@@ -557,6 +850,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             }
         }
         lock (_gate)
+        {
             _running?.Dispose();
+            _ownPreviews?.Dispose();
+        }
     }
 }

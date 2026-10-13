@@ -299,12 +299,15 @@ public sealed partial class EngineCore
         if (Services.Scan.Current is { State: not ("done" or "failed" or "cancelled") })
             return CommandReply.Fail("a scan is already running — SCAN CANCEL stops it");
         var task = Services.Scan.StartAsync(camera?.Id ?? Scanning.SimulatedRig.CameraId, projectors, mode, ct);
+        if (task.IsFaulted)
+            return CommandReply.Fail(task.Exception?.InnerException?.Message ?? "the scan did not start");
         _ = task.ContinueWith(t => _lane.Post(() =>
         {
             Journal.Add(t.IsCompletedSuccessfully ? "scan" : "refused", t.IsCompletedSuccessfully ? $"scan {t.Result} finished" : t.Exception?.InnerException?.Message ?? "scan failed", ok: t.IsCompletedSuccessfully);
             FactsChanged();
         }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        return CommandReply.Accepted($"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera?.Name ?? "the simulated camera"} ({mode})");
+        var effect = $"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera?.Name ?? "the simulated camera"} ({mode})";
+        return ScanStarted(effect);
     }
 
     private CommandReply ScanApply(List<string> args)
@@ -476,7 +479,7 @@ public sealed partial class EngineCore
         w.WriteEndArray();
     });
 
-    private string ScanStatusJson() => JsonOut(w => StateWriter.WriteScan(w, Services.Scan.Current));
+    private string ScanStatusJson() => JsonOut(WriteScanState);
 
     private string NodesJson() => JsonOut(w =>
     {

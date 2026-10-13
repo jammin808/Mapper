@@ -192,47 +192,8 @@ public sealed class AssistantService : IAsyncDisposable
         return provider;
     }
 
-    /// <summary>The assistant's row in STATE: on or off, the model, how many proposals wait, the approval desk, and
-    /// each conversation's last answer (secrets masked).</summary>
-    public void WriteState(Utf8JsonWriter w)
-    {
-        ArgumentNullException.ThrowIfNull(w);
-        var all = Queue.All;
-        w.WriteStartObject();
-        w.WriteBoolean("enabled", Settings.Enabled && Settings.Provider != AssistantProviderKind.None);
-        w.WriteString("provider", Settings.Provider.ToString().ToLowerInvariant());
-        w.WriteString("model", Settings.Model);
-        w.WriteBoolean("keySet", _credentials.Find(NodeCredentialStore.AssistantKey) is { Secret.Length: > 0 });
-        w.WriteNumber("pending", all.Count(p => p.State == ProposalState.Pending));
-        w.WriteNumber("forwarded", all.Count(p => p.State == ProposalState.Forwarded));
-        if (_desk is { } desk)
-        {
-            w.WriteStartObject("desk");
-            w.WriteString("name", desk.Name);
-            w.WriteString("problem", desk.Problem);
-            w.WriteEndObject();
-        }
-        else
-            w.WriteNull("desk");
-        w.WriteStartArray("conversations");
-        foreach (var c in Conversations)
-        {
-            w.WriteStartObject();
-            w.WriteString("id", c.Id);
-            w.WriteString("client", c.Client);
-            w.WriteBoolean("busy", c.Busy);
-            w.WriteString("outcome", c.Outcome);
-            w.WriteString("answer", c.Answer.Length > 400 ? c.Answer[..400] + "…" : c.Answer);
-            w.WriteString("status", c.Status);
-            w.WriteStartArray("queued");
-            foreach (var q in c.Queued)
-                w.WriteStringValue(q);
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        w.WriteEndArray();
-        w.WriteEndObject();
-    }
+    /// <summary>Proposals waiting for a person on this node's list (STATE.ai.proposals).</summary>
+    public int Waiting => Queue.Pending.Count;
 
     /// <summary>One proposal as the wire shows it.</summary>
     public static void WriteProposal(Utf8JsonWriter w, Proposal p, SecretRedactor redactor)

@@ -76,46 +76,73 @@ public sealed partial class EngineCore
     private CommandReply SolveBlend(List<string> args) =>
         CommandReply.Fail("the 3D blend solver is not on this node yet");
 
+    /// <summary>A finished scan's solve: in memory, or read back from its folder (and then kept); null when neither.</summary>
+    private Scanning.ScanOutcome? OutcomeOf(ScanRecord scan)
+    {
+        var runner = Services.Scan as Scanning.ScanRunner;
+        if (runner?.Find(scan.Id) is { } kept)
+            return kept;
+        if (ProjectFolderForFiles is not { } folder || Scanning.ScanArchive.Load(folder, scan.DataPath) is not { } loaded)
+            return null;
+        runner?.Remember(loaded);
+        return loaded;
+    }
+
+    private static string NoData(ScanRecord scan) =>
+        $"{scan.Name}'s data is not on this node{(scan.DataPath.Length > 0 ? $" (no {scan.DataPath}/scan.json)" : " (it was kept in memory by a node that has stopped)")}";
+
+    /// <summary>The scan's mesh written beside the project (meshes/, binary PLY, written beside and moved over), as
+    /// a mesh asset with its content hash.</summary>
+    private static MeshAsset WriteScanMesh(string folder, ScanRecord scan, string meshId, MeshData mesh)
+    {
+        var relative = $"meshes/{scan.Id}-{meshId}.ply";
+        var full = Path.Combine(folder, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var temp = full + ".saving";
+        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+            MeshIO.WritePly(stream, mesh);
+        string hash;
+        using (var read = File.OpenRead(temp))
+            hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(read));
+        File.Move(temp, full, overwrite: true);
+        return new MeshAsset(meshId, "Scan mesh — " + scan.Name, MeshOrigin.Scanned, relative, hash, "", ParamSet.Empty, mesh.VertexCount, mesh.TriangleCount);
+    }
+
+    /// <summary>The scan's mesh is on the stage already (a surface was made from it, or it was applied).</summary>
+    private static MeshAsset? ScanMesh(Project p, ScanRecord scan) => scan.MeshId is { } id ? p.FindMesh(id) : null;
+
     /// <summary>SCAN APPLY: a finished scan onto the stage, as one undoable edit. The scan's mesh is written beside the
-    /// project (meshes/, binary PLY) and becomes a mesh asset with one visible surface over all of it; every solved
-    /// projector takes the scan's optics and pose (as a solve does — a locked projector is left as it is); the camera
-    /// takes its solved optics and is marked calibrated (the simulator's camera is added as a rig); each detected
-    /// plane is offered as a hidden surface tagged "suggested" (SURFACE SHOW makes it real, REMOVE drops it). A scan
-    /// already applied is refused: UNDO takes it back.</summary>
+    /// project (meshes/, binary PLY) and becomes a mesh asset — or the one SCAN SURFACE already made is kept — with
+    /// one visible surface over all of it; every solved projector takes the scan's optics and pose (as a solve does — a
+    /// locked projector is left as it is); the camera takes its solved optics and is marked calibrated (the
+    /// simulator's camera is added as a rig); each detected plane is offered as a hidden surface tagged "suggested"
+    /// (SURFACE SHOW makes it real, REMOVE drops it). A scan already applied is refused: UNDO takes it back.</summary>
     private CommandReply ApplyScan(ScanRecord scan)
     {
-        if (scan.MeshId is { } applied && Store.Project.FindMesh(applied) is not null)
-            return CommandReply.Fail($"{scan.Name} is applied already (mesh {applied}) — UNDO takes it back");
+        var existing = ScanMesh(Store.Project, scan);
+        if (existing is not null && Store.Project.Stage.Surfaces.Any(s => s.MeshId == existing.Id && s.Faces.IsEmpty && s.Tags.Contains("scan")))
+            return CommandReply.Fail($"{scan.Name} is applied already (mesh {existing.Id}) — UNDO takes it back");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the scan's mesh is written beside it");
-        var outcome = (Services.Scan as Scanning.ScanRunner)?.Find(scan.Id) ?? Scanning.ScanArchive.Load(folder, scan.DataPath);
-        if (outcome is null)
-            return CommandReply.Fail($"{scan.Name}'s data is not on this node{(scan.DataPath.Length > 0 ? $" (no {scan.DataPath}/scan.json)" : " (it was kept in memory by a node that has stopped)")}");
+        if (OutcomeOf(scan) is not { } outcome)
+            return CommandReply.Fail(NoData(scan));
         if (outcome.Solution.Mesh is not { } mesh)
             return CommandReply.Fail($"{scan.Name} has no mesh — nothing was triangulated; scan again with the camera seeing more of the projection");
 
         var p = Store.Project;
-        var meshId = p.NewId(Ids.Mesh);
-        var relative = $"meshes/{scan.Id}-{meshId}.ply";
-        string hash;
+        MeshAsset asset;
         try
         {
-            var full = Path.Combine(folder, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            var temp = full + ".saving";
-            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                MeshIO.WritePly(stream, mesh);
-            using (var read = File.OpenRead(temp))
-                hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(read));
-            File.Move(temp, full, overwrite: true);
+            asset = existing ?? WriteScanMesh(folder, scan, p.NewId(Ids.Mesh), mesh);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return CommandReply.Fail($"the scan's mesh could not be written beside the project: {ex.Message}");
         }
-
+        var meshId = asset.Id;
+        var relative = asset.Path;
+        var hash = asset.ContentHash;
         var solution = outcome.Solution;
-        var asset = new MeshAsset(meshId, "Scan mesh — " + scan.Name, MeshOrigin.Scanned, relative, hash, "", ParamSet.Empty, mesh.VertexCount, mesh.TriangleCount);
         var applyTo = solution.Projectors.Where(x => x.Solved && p.FindProjector(x.ProjectorId) is { Locked: false }).ToList();
         var locked = solution.Projectors.Where(x => x.Solved && p.FindProjector(x.ProjectorId) is { Locked: true }).Select(x => x.Name).ToList();
         var rig = p.Stage.Cameras.Find(outcome.CameraId);
@@ -160,7 +187,7 @@ public sealed partial class EngineCore
                 }
                 return st with
                 {
-                    Meshes = st.Meshes.Add(asset),
+                    Meshes = existing is null ? st.Meshes.Add(asset) : st.Meshes,
                     Surfaces = surfaces,
                     Projectors = projectors,
                     Cameras = cameras,
@@ -231,6 +258,111 @@ public sealed partial class EngineCore
             w.WriteString("words", words);
             w.WriteEndObject();
         }), words);
+    }
+
+    /// <summary>SCAN SURFACE &lt;scan&gt; &lt;x&gt; &lt;y&gt; [&lt;name&gt;]: a click on the smart scan (0–1 across and down) becomes
+    /// a surface. The first projector's ray at that point is cast into the scan mesh and seen by the camera; the
+    /// segmenter (Vision's router: a model when one is installed, the classical one otherwise) grows a region there
+    /// over the scanned surface, stopping at depth jumps; the region's mesh faces and its outline (pen-tool masks on
+    /// the mesh's UVs) make the surface, named as the scan reads it unless a name is given. The scan's mesh joins the
+    /// stage with it when it is not there yet; one undoable edit. Answers the surface's id.</summary>
+    private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, CancellationToken ct)
+    {
+        const string Syntax = "SCAN SURFACE <scan> <x> <y> [<name>] — x and y from 0 to 1 across and down the scan's smart-scan picture — or SCAN SURFACE <scan> REGION <region> [<name>]";
+        var byRegion = args.Count >= 3 && args[1].Equals("REGION", StringComparison.OrdinalIgnoreCase);
+        double x = 0, y = 0;
+        if (args.Count < 3 || (!byRegion && (!double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out x)
+            || !double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out y)
+            || x is < 0 or > 1 || y is < 0 or > 1)))
+            return CommandReply.Fail(Syntax);
+        if (Store.Project.Stage.Scans.Find(args[0]) is not { } scan)
+            return CommandReply.Fail($"no scan {args[0]}");
+        if (ProjectFolderForFiles is not { } folder)
+            return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the scan's mesh is written beside it");
+        var outcome = await Task.Run(() => OutcomeOf(scan), ct).ConfigureAwait(false);
+        if (outcome is null)
+            return CommandReply.Fail(NoData(scan));
+        if (outcome.Geometry is not { } g)
+            return CommandReply.Fail($"{scan.Name} has no scanned surface to select from — nothing was triangulated");
+        Core.Vision.SegmentationMask mask;
+        if (byRegion)
+        {
+            if (outcome.Regions.FirstOrDefault(r => r.Id.Equals(args[2], StringComparison.OrdinalIgnoreCase)) is not { } region)
+                return CommandReply.Fail($"{scan.Name} suggests no region {args[2]} — STATE.scan.regions lists them");
+            mask = region.Mask;
+        }
+        else
+        {
+            if (Scanning.ScanSurfaces.CameraPixelAt(g, x, y) is not { } pixel)
+                return CommandReply.Fail("the projector lights nothing the scan reached there — click on the scanned picture");
+            var segmenter = (Services.Scan as Scanning.ScanRunner)?.Segmenter
+                ?? new Vision.Segmentation.SegmenterRouter([], new Vision.Segmentation.ClassicalSegmenter(), null);
+            var result = await segmenter.SegmentAsync(new Core.Vision.VisionFrame(g.Image, g.Cloud), Core.Vision.SegmentationPrompt.Click(pixel.X, pixel.Y), ct)
+                .ConfigureAwait(false);
+            if (result.Best is not { } best)
+                return CommandReply.Fail("nothing to select there — " + (result.Words.Length > 0 ? result.Words : "the segmenter found no region"));
+            mask = best;
+        }
+        var faces = Scanning.ScanSurfaces.Faces(g, mask);
+        if (faces.Length == 0)
+            return CommandReply.Fail("the region there covers no whole triangle of the scan mesh — click nearer its middle");
+        var proposals = Vision.Surfaces.SurfaceSuggestion.Propose([mask], g.Cloud);
+        var proposal = proposals.Count > 0 ? proposals[0] : null;
+        var given = string.Join(' ', args.Skip(3)).Trim();
+        var name = given.Length > 0 ? given : proposal?.Name is { Length: > 0 } guess ? char.ToUpperInvariant(guess[0]) + guess[1..] : "Scanned surface";
+        var tags = new List<string> { "scan" };
+        if (proposal is not null)
+            tags.AddRange(proposal.Tags.Where(t => !tags.Contains(t, StringComparer.Ordinal)));
+
+        MeshAsset? written = null;
+        if (ScanMesh(Store.Project, scan) is null)
+        {
+            if (outcome.Solution.Mesh is not { } mesh)
+                return CommandReply.Fail($"{scan.Name} has no mesh");
+            try
+            {
+                var meshId = Store.Project.NewId(Ids.Mesh);
+                written = await Task.Run(() => WriteScanMesh(folder, scan, meshId, mesh), ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return CommandReply.Fail($"the scan's mesh could not be written beside the project: {ex.Message}");
+            }
+        }
+        return await _lane.RunAsync(() =>
+        {
+            string surfaceId = "";
+            var paths = 0;
+            var r = Store.Apply($"surface {name} from {scan.Name}", p =>
+            {
+                var current = p.Stage.Scans.Find(scan.Id) ?? throw new EditRefusedException($"no scan {scan.Id}");
+                var asset = ScanMesh(p, current) ?? written ?? throw new EditRefusedException($"{scan.Name}'s mesh is not on the stage");
+                var taken = new HashSet<string>(p.AllIds(), StringComparer.Ordinal) { asset.Id };
+                string Fresh(string prefix)
+                {
+                    string id;
+                    do
+                        id = Ids.New(prefix);
+                    while (!taken.Add(id));
+                    return id;
+                }
+                surfaceId = Fresh(Ids.Surface);
+                var masks = Scanning.ScanSurfaces.Masks(mask, () => Fresh(Ids.Mask));
+                paths = masks.Length;
+                var surface = new Surface(surfaceId, name, asset.Id, Transform3.Identity, [.. faces], SurfaceContent.Empty, 1, masks, true, false,
+                    PlaneColour(proposal?.Plane is null ? "curved" : tags.Contains("floor") ? "floor" : tags.Contains("wall") ? "wall" : "top"), [.. tags]);
+                return p.WithStage(st => st with
+                {
+                    Meshes = st.Meshes.Find(asset.Id) is null ? st.Meshes.Add(asset) : st.Meshes,
+                    Surfaces = st.Surfaces.Add(surface),
+                    Scans = st.Scans.Update(scan.Id, sc => sc.MeshId == asset.Id ? sc : sc with { MeshId = asset.Id }),
+                });
+            });
+            return r.Changed
+                ? CommandReply.Success(surfaceId, string.Create(CultureInfo.InvariantCulture,
+                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}"))
+                : FromEdit(r);
+        }).ConfigureAwait(false);
     }
 
     private static string PlaneColour(string kind) => kind switch

@@ -95,7 +95,11 @@ public sealed record ScanSolution(
     double Scale,
     bool Metric,
     string Method,
-    string Words);
+    string Words)
+{
+    /// <summary>The camera cell each mesh vertex came from (the mesh's UVs are that grid, normalised).</summary>
+    public int[]? VertexCells { get; init; }
+}
 
 /// <summary>
 /// From decodes to stage content, the same for a real and a simulated scan: per projector the dense pairs; then
@@ -127,6 +131,7 @@ public static class ScanSolver
         var valid = cloud is null ? 0 : cloud.Points.Count(PointCloud.IsValid);
         PointCloud? withNormals = null;
         MeshData? mesh = null;
+        int[]? cells = null;
         var planes = new List<PlaneSuggestion>();
         if (cloud is not null && valid >= 3)
         {
@@ -134,6 +139,7 @@ public static class ScanSolver
             ct.ThrowIfCancellationRequested();
             var grid = GridMesher.Build(withNormals);
             mesh = grid.Mesh.TriangleCount > 0 ? grid.Mesh : null;
+            cells = mesh is null ? null : grid.VertexCells;
             if (mesh is not null)
                 planes.AddRange(Planes(withNormals, grid, solvedCamera.Pose.Position, metric || bridged, valid));
         }
@@ -152,7 +158,7 @@ public static class ScanSolver
         var summary = string.Create(CultureInfo.InvariantCulture,
             $"{solvedCount} of {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} solved ({(bridged ? "bridged into the stage's model" : "self-calibrated")}); {valid:N0} points, {mesh?.TriangleCount ?? 0:N0} triangles, {planes.Count} plane{(planes.Count == 1 ? "" : "s")}; {words}");
         return new ScanSolution(solvedCamera, projectors, withNormals ?? cloud, mesh, valid, planes, scale, metric || bridged,
-            bridged ? "bridged" : "self-calibration", summary);
+            bridged ? "bridged" : "self-calibration", summary) { VertexCells = cells };
     }
 
     /// <summary>A solved device at the raster its patterns were shown at.</summary>

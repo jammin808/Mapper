@@ -99,7 +99,7 @@ public static class StateWriter
         w.WriteEndObject();
 
         w.WritePropertyName("scan");
-        WriteScan(w, s.Scan.Current);
+        e.WriteScanState(w);
 
         w.WritePropertyName("sync");
         WriteSync(w, e);

@@ -18,7 +18,7 @@ namespace PlayMap.Engine;
 public sealed partial class EngineCore
 {
     private static readonly FrozenSet<string> OpsVerbs = VerbCatalog.All
-        .Where(v => v.Category is VerbCategory.Device or VerbCategory.Assistant)
+        .Where(v => v.Category is VerbCategory.Device or VerbCategory.Assistant || v.Name == "SCAN SURFACE")
         .Select(v => v.Name)
         .ToFrozenSet(StringComparer.Ordinal);
 
@@ -51,9 +51,12 @@ public sealed partial class EngineCore
         {
             reply = spec.Mutates && !session.Paired
                 ? CommandReply.Fail("not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web")
-                : spec.Category == VerbCategory.Device
-                    ? await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false)
-                    : await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false);
+                : spec.Category switch
+                {
+                    VerbCategory.Device => await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
+                    VerbCategory.Assistant => await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
+                    _ => await ScanSurfaceAsync(args, line, ct).ConfigureAwait(false),
+                };
         }
         catch (EditRefusedException refused)
         {
@@ -91,21 +94,40 @@ public sealed partial class EngineCore
     /// <summary>The credential store the node keeps its secrets in (the device service's, else the assistant's).</summary>
     private ICredentialStore? Credentials => Services.Devices?.Credentials ?? Services.Assistant?.Credentials;
 
-    /// <summary>STATE's operations rows, at the end of the object: "devices" (one per projector link, in the
-    /// project's order) and "assistant" (null when the node has none). No secret is ever among them.</summary>
+    /// <summary>STATE's operations row, at the end of the object: "devices", one per projector link in the project's
+    /// order. No secret is ever in it.</summary>
     internal void WriteOpsState(Utf8JsonWriter w)
     {
         w.WriteStartArray("devices");
         foreach (var d in Store.Project.Stage.Devices)
             WriteDevice(w, d);
         w.WriteEndArray();
-        if (Services.Assistant is { } assistant)
-        {
-            w.WritePropertyName("assistant");
-            assistant.WriteState(w);
-        }
+    }
+
+    /// <summary>STATE.scan (and SCAN STATUS): the scan runner's own row — id from the start, state and stage, progress,
+    /// each projector, the suggested regions — or the seam's summary for another scan backend.</summary>
+    internal void WriteScanState(Utf8JsonWriter w)
+    {
+        if (Services.Scan is Scanning.ScanRunner runner)
+            runner.WriteState(w);
         else
-            w.WriteNull("assistant");
+            StateWriter.WriteScan(w, Services.Scan.Current);
+    }
+
+    /// <summary>SCAN START's receipt: accepted, with the scan's id when the runner gave it one.</summary>
+    private CommandReply ScanStarted(string effect)
+    {
+        if (Services.Scan is not Scanning.ScanRunner { RunningId: { } id })
+            return CommandReply.Accepted(effect);
+        var payload = JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("stage", "accepted");
+            w.WriteString("effect", effect);
+            w.WriteString("scan", id);
+            w.WriteEndObject();
+        });
+        return CommandReply.Success(payload, effect) with { Applied = false };
     }
 
     /// <summary>The context's operations items: each projector link with its light and headline (a projector in error

@@ -126,6 +126,7 @@ public static class VerbCatalog
         V("SCAN STATUS", "SCAN STATUS", "The running scan's progress and quality", VerbCategory.Scan, VerbRisk.Low, false),
         V("SCAN CANCEL", "SCAN CANCEL", "Stops a scan and gives the outputs back", VerbCategory.Scan, VerbRisk.Low, true),
         V("SCAN APPLY", "SCAN APPLY <scan>", "Turns a scan into mesh, projectors and surfaces", VerbCategory.Scan, VerbRisk.Review, true),
+        V("SCAN SURFACE", "SCAN SURFACE <scan> <x> <y> [<name>]", "Makes a surface of what is at x, y (0–1 across and down the scan's smart-scan picture), or of a suggested region (REGION <id> in place of x y): its mesh faces and a mask outlining it; answers its id", VerbCategory.Scan, VerbRisk.Review, true),
         V("LATENCY MEASURE", "LATENCY MEASURE <camera> [<output>]", "Flashes white and times the camera's view of it", VerbCategory.Scan, VerbRisk.High, true),
 
         // Generic project edits — what the desk itself uses, so nothing the desk can do is closed to Patterns or an AI.
