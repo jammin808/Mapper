@@ -152,7 +152,7 @@ The pen magnetises to scan edges and depth discontinuities; Ctrl suppresses it. 
 - **Non-deterministic badge** on items fed by live inputs, web pages or audio analysis: "breaks mirror backup". Fixes offered: "capture to HAP" (not for YouTube) or "feed both nodes from one router".
 - **Grid view (optional).** N playlists as columns; a column GO fires an `AT`-synchronised GO on every playlist.
 - **TC-locked playlists.** Items carry a timecode in-point and keyframed `SET` tracks. No timeline engine (docs/COMPETITIVE.md §8).
-- **Transitions.** Fade and Dip are modelled but not drawn; rendering them is a prerequisite (ROADMAP R1.10).
+- **Transitions.** Fade and Dip are drawn when an item ends into the next: the incoming item overlaps the last T of the outgoing one, mixed in linear light (a dip goes through black at the middle). A GO, NEXT or PREV taken by hand cuts.
 
 ### 4.7 Multi-output planning
 

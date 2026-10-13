@@ -19,6 +19,11 @@ namespace PlayMap.Engine.Rendering;
 /// loop. A library item shown directly loops on the leader's clock. A decoder no frame has used for
 /// <see cref="IdleFrames"/> frames, or whose item left the project, is disposed on a worker.</para>
 ///
+/// <para>A playlist whose next item comes in with a fade or a dip is mixed across the window its lane
+/// schedules (<see cref="PlaylistPlayback.MixAt"/>, <see cref="Mix"/>): each side is the item's routed picture,
+/// or a ref made here for that one item's frames (the playlist's id and the item's, which no real id can
+/// spell); the incoming item is prepared ahead of the window's opening, as a cut's is ahead of the switch.</para>
+///
 /// <para>A playlist on a generator, a colour or a canvas is routed to it (<see cref="Route"/>); an idle playlist
 /// is black. Acquire never blocks and answers null while a source opens or has nothing new: the renderer holds
 /// the picture it has. Called on the render thread only; nothing here allocates per frame once warm.</para></summary>
@@ -58,6 +63,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private readonly Dictionary<string, Slot> _liveSlots = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (CameraRig Rig, MediaItem Item)> _rigItems = new(StringComparer.Ordinal);
     private readonly List<string> _stale = [];
+    private readonly Dictionary<string, SourceRef> _itemRefs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (string PlaylistId, string ItemId)> _itemRefOwners = new(StringComparer.Ordinal);
     private readonly Func<string, Slot, bool> _itemGone;
     private readonly Func<string, Slot, bool> _mediaGone;
     private readonly Func<string, Slot, bool> _liveGone;
@@ -106,7 +113,9 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             case SourceKind.Media:
                 return _project.FindMedia(source.Id) is { } item ? MediaAt(item, leaderNs) : null;
             case SourceKind.Playlist:
-                return PlaylistAt(source.Id, leaderNs);
+                return _itemRefOwners.TryGetValue(source.Id, out var owner)
+                    ? ItemOf(owner.PlaylistId, owner.ItemId, leaderNs)
+                    : PlaylistAt(source.Id, leaderNs);
             case SourceKind.Live:
                 if (_scan is not null && _scan.TryAcquire(source, out var scanFrame))
                     return scanFrame;
@@ -127,7 +136,48 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             return SourceRef.None;
         PrepareNext(lane, leaderNs);
         var (now, _, _) = lane.At(leaderNs);
-        return now.Kind is SourceKind.Generator or SourceKind.Color or SourceKind.Canvas or SourceKind.None ? now : null;
+        return Drawn(now) ? now : null;
+    }
+
+    public SourceMix? Mix(SourceRef source, long leaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.Kind != SourceKind.Playlist || !_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle
+            || lane.ItemId is null || lane.NextItemId is null || lane.MixAt(leaderNs) is not { } mix)
+            return null;
+        PrepareNext(lane, leaderNs);
+        return new SourceMix(SideOf(lane.PlaylistId, lane.ItemId, lane.Source), SideOf(lane.PlaylistId, lane.NextItemId, lane.NextSource),
+            mix.Kind, mix.Progress);
+    }
+
+    /// <summary>A picture the renderer draws itself, not frames from a decoder.</summary>
+    private static bool Drawn(SourceRef source) => source.Kind is SourceKind.Generator or SourceKind.Color or SourceKind.Canvas or SourceKind.None;
+
+    /// <summary>One side of a mix: the item's routed picture, or the ref for its frames (made once per item).</summary>
+    private SourceRef SideOf(string playlistId, string itemId, SourceRef source)
+    {
+        if (Drawn(source))
+            return source;
+        if (!_itemRefs.TryGetValue(itemId, out var made) || !_itemRefOwners.TryGetValue(made.Id, out var owner)
+            || !string.Equals(owner.PlaylistId, playlistId, StringComparison.Ordinal))
+        {
+            made = SourceRef.Playlist(playlistId + "/" + itemId);
+            _itemRefs[itemId] = made;
+            _itemRefOwners[made.Id] = (playlistId, itemId);
+        }
+        return made;
+    }
+
+    /// <summary>The frame one item of a playlist shows at a leader instant, while it is the current or the next.</summary>
+    private VideoFrameLease? ItemOf(string playlistId, string itemId, long leaderNs)
+    {
+        if (!_playback.Playlists.TryGetValue(playlistId, out var lane) || lane.IsIdle)
+            return null;
+        if (string.Equals(lane.ItemId, itemId, StringComparison.Ordinal))
+            return ItemFrame(lane.Source, lane.Clip, itemId, leaderNs);
+        if (string.Equals(lane.NextItemId, itemId, StringComparison.Ordinal))
+            return ItemFrame(lane.NextSource, lane.NextClip, itemId, leaderNs);
+        return null;
     }
 
     // ---- playlists ------------------------------------------------------------------------------------
@@ -137,8 +187,12 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         if (!_playback.Playlists.TryGetValue(playlistId, out var lane) || lane.IsIdle)
             return null;
         var (source, clip, itemId) = lane.At(leaderNs);
-        if (itemId is null)
-            return null;
+        return itemId is null ? null : ItemFrame(source, clip, itemId, leaderNs);
+    }
+
+    /// <summary>An item's frame at a leader instant on its own clip, from the item's own decoder.</summary>
+    private VideoFrameLease? ItemFrame(SourceRef source, Core.Playback.ClipTransport clip, string itemId, long leaderNs)
+    {
         if (source.Kind == SourceKind.Live)
             return LiveFor(source.Id) is { } liveItem ? Live(source.Id, liveItem) : null;
         if (source.Kind != SourceKind.Media || _project.FindMedia(source.Id) is not { } item)
@@ -159,10 +213,11 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         return _leases.Wrap(src.Acquire(clip.PositionAt(leaderNs)), slot.Epoch);
     }
 
-    /// <summary>Opens and prerolls the item a playlist switches to next, once its switch is near.</summary>
+    /// <summary>Opens and prerolls the item a playlist switches to next, once the instant it first shows (its
+    /// transition window's opening, or the switch) is near; it prerolls at its first frame.</summary>
     private void PrepareNext(PlaylistPlayback lane, long leaderNs)
     {
-        if (lane.NextItemId is null || leaderNs >= lane.SwitchAtLeaderNs || lane.SwitchAtLeaderNs - leaderNs > PrepareAheadNs
+        if (lane.NextItemId is null || leaderNs >= lane.SwitchAtLeaderNs || lane.NextShowsAtNs - leaderNs > PrepareAheadNs
             || lane.NextSource.Kind != SourceKind.Media || _project.FindMedia(lane.NextSource.Id) is not { } item || item.Kind == MediaKind.Stream)
             return;
         var slot = SlotFor(_itemSlots, lane.NextItemId, item);
@@ -171,7 +226,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             return;
         var clip = lane.NextClip;
         SetLoop(slot, src, clip.Loop, clip.InNs, clip.OutNs);
-        src.Prepare(clip.PositionAt(lane.SwitchAtLeaderNs), true, clip.Anchor.Rate);
+        src.Prepare(clip.PositionAt(Math.Max(lane.NextShowsAtNs, leaderNs)), true, clip.Anchor.Rate);
         slot.PreparedSeq = clip.Seq;
     }
 
@@ -331,6 +386,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
 
     private void Sweep(Dictionary<string, Slot> slots, Func<string, Slot, bool> gone)
     {
+        if (ReferenceEquals(slots, _itemSlots))
+            SweepItemRefs();
         foreach (var (key, slot) in slots)
             if (_frame - slot.LastUsed > IdleFrames || gone(key, slot) || (Failed(slot) && _frame - slot.OpenedFrame > RetryFrames))
                 _stale.Add(key);
@@ -339,6 +396,20 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             Retire(slots[key]);
             slots.Remove(key);
         }
+        _stale.Clear();
+    }
+
+    /// <summary>Forgets the refs made for items that left the project.</summary>
+    private void SweepItemRefs()
+    {
+        foreach (var (itemId, made) in _itemRefs)
+            if (!ProjectHasItem(itemId))
+            {
+                _stale.Add(itemId);
+                _itemRefOwners.Remove(made.Id);
+            }
+        foreach (var itemId in _stale)
+            _itemRefs.Remove(itemId);
         _stale.Clear();
     }
 

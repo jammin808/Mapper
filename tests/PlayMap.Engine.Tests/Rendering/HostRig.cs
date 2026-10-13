@@ -152,6 +152,21 @@ internal static class Clips
         return path;
     }
 
+    /// <summary>A 64 × 48 H.264 clip at 25 fps of one flat colour (an ffmpeg colour word or 0xRRGGBB).</summary>
+    public static string Solid(string color, double seconds)
+    {
+        var path = Path.Combine(Folder.Value, string.Create(CultureInfo.InvariantCulture, $"solid-{color.TrimStart('0', 'x')}-{seconds:0.##}.mp4"));
+        if (File.Exists(path))
+            return path;
+        var args = string.Create(CultureInfo.InvariantCulture,
+            $"-hide_banner -loglevel error -y -f lavfi -i color=c={color}:s=64x48:r=25:d={seconds} -c:v libx264 -preset ultrafast -qp 0 -g 25 -pix_fmt yuv444p \"{path}\"");
+        using var p = Process.Start(new ProcessStartInfo(Ffmpeg(), args) { RedirectStandardError = true, UseShellExecute = false })!;
+        var err = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+        return path;
+    }
+
     /// <summary>The frame index a counted clip's picture carries (read from a BGRA output of its width).</summary>
     public static int IndexIn(byte[] bgra, int width)
     {

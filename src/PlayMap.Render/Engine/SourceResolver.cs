@@ -1,5 +1,6 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
+using PlayMap.Core.Playback;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Video;
@@ -11,7 +12,8 @@ namespace PlayMap.Render.Engine;
 /// <see cref="ISourceProvider"/> (asked once per source per frame, uploaded unless its generation is already
 /// on the GPU, disposed at once). A source with nothing to show is black; a video that has nothing new holds
 /// its last picture. Canvases are composited once a frame, layers bottom to top, nested canvases included
-/// (a canvas that contains itself draws black there).</summary>
+/// (a canvas that contains itself draws black there). A playlist in a transition is mixed once a frame from
+/// the two sides its provider names, in linear light (<see cref="SourceMix"/>).</summary>
 internal sealed class SourceResolver : IDisposable
 {
     public const int IdleFrames = 120;
@@ -46,6 +48,8 @@ internal sealed class SourceResolver : IDisposable
     private readonly bool _streaming;
     private readonly Dictionary<SourceRef, VideoEntry> _videos = [];
     private readonly Dictionary<string, CanvasEntry> _canvases = new(StringComparer.Ordinal);
+    private readonly Dictionary<SourceRef, CanvasEntry> _mixes = [];
+    private readonly List<SourceRef> _staleMixes = [];
     private readonly Dictionary<string, GpuTexture> _colors = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _composing = new(StringComparer.Ordinal);
     private readonly List<SourceRef> _staleVideos = [];
@@ -92,6 +96,8 @@ internal sealed class SourceResolver : IDisposable
                 return g is null ? _services.Black : _generators.Render(g, width, height, context, in _generatorFrame);
             case SourceKind.Canvas:
                 return Canvas(source.Id) ?? _services.Black;
+            case SourceKind.Playlist when _provider.Mix(source, _leaderNs) is { } mix:
+                return Mixed(source, mix, width, height, context);
             case SourceKind.Playlist when _provider.Route(source, _leaderNs) is { } routed:
                 // A playlist on an item the renderer draws itself; one level only, so a playlist that names a
                 // playlist cannot recurse.
@@ -100,6 +106,46 @@ internal sealed class SourceResolver : IDisposable
                 return Video(source) ?? _services.Black;
         }
     }
+
+    /// <summary>A playlist between two pictures: both sides resolved first (a side may draw), then mixed into
+    /// the playlist's own target at the larger of their sizes, once a frame.</summary>
+    private GpuTexture Mixed(SourceRef playlist, SourceMix mix, int width, int height, GeneratorContext context)
+    {
+        if (_mixes.TryGetValue(playlist, out var entry) && entry.LastRendered == _frame)
+        {
+            entry.LastUsed = _frame;
+            return entry.Target.Color;
+        }
+        var from = Side(mix.From, width, height, context);
+        var to = Side(mix.To, width, height, context);
+        var w = Math.Max(1, Math.Max(from.Width, to.Width));
+        var h = Math.Max(1, Math.Max(from.Height, to.Height));
+        if (entry is null || entry.Target.Width != w || entry.Target.Height != h)
+        {
+            entry?.Dispose();
+            entry = new CanvasEntry { Target = _services.Device.CreateRenderTarget(w, h, TextureFormat.Rgba16F) };
+            _mixes[playlist] = entry;
+        }
+        entry.LastUsed = _frame;
+        entry.LastRendered = _frame;
+        var (wf, wt) = Transitions.Weights(mix.Kind, mix.Progress);
+        var d = _services.Device;
+        d.BindTarget(entry.Target);
+        d.SetBlend(BlendMode.Opaque);
+        var p = d.Program("mix");
+        p.Set("uWeights", (float)wf, (float)wt);
+        p.Set("uGamma", (float)Transitions.Gamma);
+        d.BindSampler(p, "uFrom", 0, from);
+        d.BindSampler(p, "uTo", 1, to);
+        d.DrawFullscreen(p);
+        entry.Target.Color.Version++;
+        return entry.Target.Color;
+    }
+
+    /// <summary>One side of a mix: a picture the renderer draws, or the frames of a ref the provider made for
+    /// one item (never mixed or routed again, so a side cannot recurse).</summary>
+    private GpuTexture Side(SourceRef side, int width, int height, GeneratorContext context) =>
+        side.Kind == SourceKind.Playlist ? Video(side) ?? _services.Black : Resolve(side, width, height, context);
 
     /// <summary>The generator a source names when it is a surface-aware effect (drawn by the stage shader
     /// with the surface's own geometry), else null.</summary>
@@ -262,6 +308,15 @@ internal sealed class SourceResolver : IDisposable
             _canvases.Remove(key);
         }
         _staleCanvases.Clear();
+        foreach (var (key, e) in _mixes)
+            if (_frame - e.LastUsed > IdleFrames)
+                _staleMixes.Add(key);
+        foreach (var key in _staleMixes)
+        {
+            _mixes[key].Dispose();
+            _mixes.Remove(key);
+        }
+        _staleMixes.Clear();
     }
 
     public void Dispose()
@@ -270,10 +325,13 @@ internal sealed class SourceResolver : IDisposable
             e.Dispose();
         foreach (var e in _canvases.Values)
             e.Dispose();
+        foreach (var e in _mixes.Values)
+            e.Dispose();
         foreach (var t in _colors.Values)
             t.Dispose();
         _videos.Clear();
         _canvases.Clear();
+        _mixes.Clear();
         _colors.Clear();
     }
 }
