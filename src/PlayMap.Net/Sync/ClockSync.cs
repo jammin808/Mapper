@@ -154,6 +154,11 @@ public sealed class ClockSyncResponder : IAsyncDisposable
                 // The asker's route went away; it asks again in a quarter second.
                 _log.LogDebug(ex, "A clock sync reply did not leave.");
             }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+            {
+                // Stopped while a reply was leaving: a follower still asking is the normal case, not a fault of the stop.
+                return;
+            }
         }
     }
 

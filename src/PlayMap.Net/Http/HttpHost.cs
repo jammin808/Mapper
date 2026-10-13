@@ -79,6 +79,8 @@ public sealed class HttpHost : IAsyncDisposable
     private volatile NodeSettings _settings;
     private WebApplication? _app;
     private long _sessions;
+    private int _webSockets;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _mcpSessions = new(StringComparer.Ordinal);
     private int _disposed;
 
     public HttpHost(NodeSettings settings, IWireEndpoint endpoint, ShowWallClock wall, HttpHostOptions? options = null)
@@ -98,6 +100,43 @@ public sealed class HttpHost : IAsyncDisposable
     public bool ServesTls => _options.Tls is not null;
 
     public long Faults => _runner.Faults;
+
+    /// <summary>Whether MCP is served at <c>/mcp</c>.</summary>
+    public bool ServesMcp => _options.Mcp;
+
+    /// <summary>WebSockets open on <c>/ws</c> now.</summary>
+    public int WebSockets => Volatile.Read(ref _webSockets);
+
+    /// <summary>MCP clients heard from in the last minute (an MCP client over HTTP holds nothing open, so it counts while
+    /// it keeps asking; a session that says goodbye stops counting at once).</summary>
+    public int McpSessions
+    {
+        get
+        {
+            var now = Stopwatch.GetTimestamp();
+            foreach (var (id, seen) in _mcpSessions)
+                if (Stopwatch.GetElapsedTime(seen, now) > McpSessionQuiet)
+                    _mcpSessions.TryRemove(new KeyValuePair<string, long>(id, seen));
+            return _mcpSessions.Count;
+        }
+    }
+
+    private static readonly TimeSpan McpSessionQuiet = TimeSpan.FromMinutes(1);
+
+    /// <summary>An MCP client is its session when it has one (the initialize handshake); a client on a later revision has
+    /// none, so it is its connection (a client keeps its connection between calls).</summary>
+    private void NoteMcpClient(HttpContext context)
+    {
+        var session = context.Request.Headers["Mcp-Session-Id"].ToString();
+        var key = session.Length is > 0 and <= 128 ? "s:" + session : "c:" + context.Connection.Id;
+        if (session.Length > 0 && HttpMethods.IsDelete(context.Request.Method))
+        {
+            _mcpSessions.TryRemove(key, out _);
+            return;
+        }
+        if (_mcpSessions.Count < 4096 || _mcpSessions.ContainsKey(key))
+            _mcpSessions[key] = Stopwatch.GetTimestamp();
+    }
 
     public NodeSettings Settings => _settings;
 
@@ -218,6 +257,8 @@ public sealed class HttpHost : IAsyncDisposable
             return;
         }
         var remote = context.Connection.RemoteIpAddress;
+        if (path.StartsWith("/mcp", StringComparison.Ordinal))
+            NoteMcpClient(context);
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(McpTools.AddressClaim, NetAddress.Text(remote)),
@@ -326,7 +367,15 @@ public sealed class HttpHost : IAsyncDisposable
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
         using var session = new WebSocketSession(socket, _runner, _changes, _isAnimating, _isLive, Session(context, "ws"), _options.BeatEvery, _log);
-        await session.RunAsync(stop.Token);
+        Interlocked.Increment(ref _webSockets);
+        try
+        {
+            await session.RunAsync(stop.Token);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _webSockets);
+        }
     }
 
     private SessionInfo Session(HttpContext context, string transport)

@@ -55,6 +55,7 @@ public static class StateWriter
         }
         w.WriteBoolean("identify", air.IdentifyUntilLeaderNs != 0);
         w.WriteBoolean("patternsBlackout", air.PatternsBlackout);
+        w.WriteBoolean("followPatternsBlackout", air.FollowPatternsBlackout);
         w.WriteEndObject();
 
         WriteVideo(w, e, project.Project, now);
@@ -76,6 +77,19 @@ public static class StateWriter
         w.WriteNumber("missing", missing);
         w.WriteBoolean("ready", missing == 0);
         w.WriteStartArray("transfers");
+        foreach (var t in s.Transfers?.Transfers() ?? [])
+        {
+            w.WriteStartObject();
+            w.WriteString("media", t.MediaId);
+            w.WriteString("name", t.Name);
+            w.WriteNumber("progress", Math.Round(t.Progress, 3));
+            w.WriteString("from", t.From);
+            w.WriteString("state", t.State);
+            w.WriteString("hash", t.Hash);
+            w.WriteNumber("bytesDone", t.BytesDone);
+            w.WriteNumber("size", t.Size);
+            w.WriteEndObject();
+        }
         w.WriteEndArray();
         w.WriteEndObject();
 
@@ -129,6 +143,23 @@ public static class StateWriter
         else
             w.WriteString("path", e.ProjectPath);
         w.WriteBoolean("dirty", e.Dirty);
+        w.WriteEndObject();
+
+        w.WriteStartArray("faults");
+        foreach (var f in s.Faults?.Faults() ?? [])
+        {
+            w.WriteStartObject();
+            w.WriteString("part", f.Part);
+            w.WriteString("words", f.Words);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+
+        // The assistant's door: MCP served, who is on the web port, proposals waiting for a person.
+        w.WriteStartObject("ai");
+        w.WriteBoolean("mcp", s.Ai?.Mcp ?? false);
+        w.WriteNumber("clients", s.Ai?.Clients ?? 0);
+        w.WriteNumber("proposals", s.Proposals?.Waiting ?? 0);
         w.WriteEndObject();
 
         w.WriteEndObject();
@@ -345,6 +376,8 @@ public static class StateWriter
         w.WriteString("host", link.Host);
         w.WriteBoolean("paired", link.Paired);
         w.WriteString("detail", link.Detail);
+        if (name == "patterns")
+            w.WriteString("clip", link.Detail);
         if (timerJson is not null)
         {
             w.WritePropertyName("timer");

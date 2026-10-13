@@ -144,8 +144,9 @@ public static class VerbCatalog
         V("SYNC STATUS", "SYNC STATUS", "Clock offset, jitter and the sync groups", VerbCategory.Network, VerbRisk.Low, false),
         V("SYNC LEAD", "SYNC LEAD <group>", "This node leads a sync group", VerbCategory.Network, VerbRisk.Review, true),
         V("SYNC FOLLOW", "SYNC FOLLOW <group> <node>", "This node follows a sync group's leader", VerbCategory.Network, VerbRisk.Review, true),
-        V("LINK PATTERNS", "LINK PATTERNS <host[:port]>|OFF [<token>]", "Follows a Patterns desk (its clip clock, its blackout)", VerbCategory.Network, VerbRisk.Review, true),
-        V("LINK STAGEWATCH", "LINK STAGEWATCH <host[:port]>|OFF [<key>]", "Follows a Stagewatch (its timer as a source)", VerbCategory.Network, VerbRisk.Review, true),
+        V("LINK PATTERNS", "LINK PATTERNS <host[:port]>|OFF [<token>] | LINK PATTERNS FOLLOW-BLACKOUT ON|OFF", "Follows a Patterns desk (its clip clock, its blackout); FOLLOW-BLACKOUT says whether the desk's blackout blacks this node out", VerbCategory.Network, VerbRisk.Review, true),
+        V("LINK STAGEWATCH", "LINK STAGEWATCH <host[:port]>|\"\"|OFF [<key>]", "Follows a Stagewatch (its timer as a source); \"\" follows the first one heard", VerbCategory.Network, VerbRisk.Review, true),
+        V("PAIRING NEW", "PAIRING NEW", "A new pairing token for this node: every paired peer pairs again (the token never rides a line — it is read where the node keeps it)", VerbCategory.Network, VerbRisk.High, true),
     ];
 
     private static readonly FrozenDictionary<string, VerbSpec> ByName = BuildIndex();
