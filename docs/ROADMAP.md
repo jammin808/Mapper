@@ -63,7 +63,7 @@ Decisions where the lenses disagreed are in docs/COMPETITIVE.md §8. In short: D
 | R1.7 | Click-to-surface verbs (`SURFACE FROM-POINT`) on the classical segmenter plus a pinned SAM 2.1-tiny ONNX export (with the previous-mask input) and checksum; licence of the export checked. Text select (`FROM-TEXT`) is mid-term (M30) | ★★★ | M | R1.1 |
 | R1.8 | Verb-first contract and CI check; verbs for pin warp, masks and pen, coverage, output layout, live inputs, audio volume, vision (select, suggest) | ★★★ | M | R0.2 |
 | R1.9 | Engine-served `/scan` phone camera page (JPEG over WebSocket, frame envelope with time, intrinsics and pose) | ★★ | M | R1.1 |
-| R1.10 | Render Fade and Dip transitions in linear light | ★★ | S | R0.3 |
+| R1.10 | ~~Render Fade and Dip transitions in linear light~~ (done: scheduled switches mix across the incoming item's window) | ★★ | S | R0.3 |
 | R1.11 | `LATENCY MEASURE` with the scan camera; per-output latency stored and fed into frame selection | ★★ | S | R1.1 |
 | R1.12 | `PICK RAY`, `PICK PIXEL`, `HIGHLIGHT`, `CURSOR` verbs (desk on-wall cursor and hover; XR Phase 0) | ★★★ | S | R1.5, R1.2 |
 | R1.13 | Scan preflight: camera capability probe (manual exposure, focus and white-balance lock, MJPEG, banding risk) and projector-settings card (dynamic contrast, iris, eco, interpolation, auto keystone); a tested camera list published | ★★★ | M | R1.1, R1.3 |

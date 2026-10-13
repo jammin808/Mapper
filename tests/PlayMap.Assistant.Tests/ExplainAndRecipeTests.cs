@@ -126,7 +126,8 @@ public class ExplainAndRecipeTests
     {
         var plan = MappingRecipes.BlendOutputs(SampleShow.Project(), ["2", "3"]);
 
-        Assert.Equal(["SET op00000002 blend.auto3D true", "BLEND SOLVE op00000002", "BLEND SOLVE op00000003"], plan.Lines);
+        // One solve covers every output that blends automatically: a line per output would be refused after the first.
+        Assert.Equal(["SET op00000002 blend.auto3D true", "BLEND SOLVE ALL"], plan.Lines);
     }
 
     [Fact]

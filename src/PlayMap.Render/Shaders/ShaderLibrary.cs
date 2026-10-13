@@ -58,6 +58,24 @@ public static class ShaderLibrary
         }
         """;
 
+    /// <summary>Two pictures over the whole target, mixed in linear light: each decoded through the display
+    /// gamma, weighted (uWeights = from, to), summed and encoded again — a fade hands over without the dark
+    /// middle a mix of encoded values has, and a dip's weights reach black.</summary>
+    private const string MixFs = Header + """
+        in vec2 vUv;
+        uniform sampler2D uFrom;
+        uniform sampler2D uTo;
+        uniform vec2 uWeights;
+        uniform float uGamma;
+        out vec4 oColor;
+        void main() {
+            vec3 a = pow(max(texture(uFrom, vUv).rgb, 0.0), vec3(uGamma));
+            vec3 b = pow(max(texture(uTo, vUv).rgb, 0.0), vec3(uGamma));
+            vec3 light = clamp(a * uWeights.x + b * uWeights.y, 0.0, 1.0);
+            oColor = vec4(pow(light, vec3(1.0 / uGamma)), 1.0);
+        }
+        """;
+
     private const string SolidFs = Header + """
         uniform vec4 uColor;
         out vec4 oColor;
@@ -802,6 +820,7 @@ public static class ShaderLibrary
         "blit" => (FullscreenVs, BlitFs),
         "solid" => (FullscreenVs, SolidFs),
         "quad" => (QuadVs, QuadFs),
+        "mix" => (FullscreenVs, MixFs),
         "yuv" => (FullscreenVs, YuvFs),
         "stage" => (StageVs, StageFs),
         "output" => (OutputVs, OutputFs),
@@ -828,7 +847,7 @@ public static class ShaderLibrary
     /// <summary>Every program name, for a warm-up that compiles them all before the show.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
-        "present", "blit", "solid", "quad", "yuv", "stage", "output", "sprite", "lines", "checker", "motion", "colorcycle", "syncmarks",
+        "present", "blit", "solid", "quad", "mix", "yuv", "stage", "output", "sprite", "lines", "checker", "motion", "colorcycle", "syncmarks",
         "fractal.mandelbrot", "fractal.julia", "fractal.burningship", "fractal.newton", "fractal.warp",
         "reactive.plasma", "reactive.tunnel", "reactive.kaleidoscope", "reactive.pulse", "reactive.vortex", "reactive.starwarp",
     ];

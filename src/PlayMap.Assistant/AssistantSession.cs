@@ -359,7 +359,7 @@ public sealed class AssistantSession
                 invalid = true;
             lines.AddRange(outcome.Lines);
             foreach (var l in outcome.Lines)
-                Log($"assistant: {l.StatusWord} {l.Line} ({ShowContext.RiskWord(l.Risk)}) — {l.Reply}");
+                Log($"assistant: {l.StatusWord} {VerbCatalog.Redacted(l.Line)} ({ShowContext.RiskWord(l.Risk)}) — {l.Reply}");
             results.Add(new ToolResultPart(c.Id, outcome.Content, outcome.IsError));
             Emit(sink, new ToolAnswered(c.Name, outcome.Content, outcome.IsError, outcome.Lines));
             Note("tool-result", _redactor.Redact(outcome.Content));

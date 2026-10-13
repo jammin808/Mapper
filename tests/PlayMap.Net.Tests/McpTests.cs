@@ -100,6 +100,22 @@ public class McpTests
     }
 
     [Fact]
+    public async Task AQueuedLineIsAnsweredWithoutItsSecretWordsButQueuedWhole()
+    {
+        var queue = new FakeQueue();
+        await using var host = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true),
+            new HttpHostOptions { Approvals = new SwitchApprovalPolicy(() => false, queue) });
+        await using var client = await ConnectAsync(host);
+        var queued = await client.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = "CREDENTIAL SET pj1 admin hunter2", ["reason"] = "the box" });
+        var text = TextOf(queued);
+        using var doc = JsonDocument.Parse(text);
+        Assert.Equal("CREDENTIAL SET pj1 " + VerbCatalog.SecretMarker, doc.RootElement.GetProperty("line").GetString());
+        Assert.DoesNotContain("hunter2", text, StringComparison.Ordinal);
+        // The queue holds the line itself: an approval runs what was asked, not what was shown.
+        Assert.Equal("CREDENTIAL SET pj1 admin hunter2", Assert.Single(queue.Proposed).Line);
+    }
+
+    [Fact]
     public async Task TheTokenFencesMcpLikeEveryOtherRoute()
     {
         await using var host = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: false));

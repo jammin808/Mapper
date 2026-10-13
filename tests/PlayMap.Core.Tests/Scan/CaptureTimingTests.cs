@@ -58,6 +58,29 @@ public class CaptureTimingTests
     }
 
     [Fact]
+    public void ACameraThatSeesTheChangeWholeJustAfterThePresentIsNotMadeOutToSeeItEarly()
+    {
+        // A loopback camera on a headless node: it reads the finished picture 0.4 ms after each frame is presented
+        // (every 16.6 ms), so the first picture after a change shows it whole. The change was not seen half a frame
+        // before it was presented.
+        const double period = 16.6;
+        double[] changes = [1000 + 0 * period, 1000 + 20 * period, 1000 + 40 * period, 1000 + 60 * period];
+        var estimator = new LatencyEstimator();
+        foreach (var c in changes)
+            estimator.AddChange(c);
+        for (var k = -10; k < 80; k++)
+        {
+            var present = 1000 + k * period;
+            var white = changes.Count(c => present >= c) % 2 == 1;
+            estimator.AddFrame(present + 0.4, white ? 230 : 10);
+        }
+        var estimate = estimator.Estimate();
+        Assert.NotNull(estimate);
+        Assert.Equal(4, estimate.Transitions);
+        Assert.InRange(estimate.LatencyMs, 0, 0.4);
+    }
+
+    [Fact]
     public void AFlashTheCameraNeverSawGivesNoEstimate()
     {
         var estimator = new LatencyEstimator();

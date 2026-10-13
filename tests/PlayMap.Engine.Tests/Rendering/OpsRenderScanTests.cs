@@ -146,6 +146,10 @@ public sealed class OpsRenderScanTests(ITestOutputHelper output)
         Assert.True(runner.View!.State == "done", runner.View.Message);
         var record = Assert.Single(node.Engine.Store.Project.Stage.Scans);
         output.WriteLine(record.Notes);
+        // Each frame is stamped at its present and read back after it: the latency is never made out below zero,
+        // and the guard against it never fired.
+        Assert.Contains("Camera latency 0 ms", record.Notes, StringComparison.Ordinal);
+        Assert.DoesNotContain(node.Engine.Journal.Recent(200), r => r.Text.Contains("below zero", StringComparison.Ordinal));
         var solved = Assert.Single(runner.Find(record.Id)!.Solution.Projectors);
         Assert.True(solved.Solved, solved.Words);
         var (position, degrees) = ScanRunner.PoseError(solved.Pose, truth.Pose);

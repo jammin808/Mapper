@@ -35,7 +35,9 @@ public sealed record StagewatchSinkOptions
 
 /// <summary>
 /// The node's proposals sent to a Stagewatch approval desk (Show Bus 1.2 §11): each is posted to
-/// <c>POST /api/proposals</c> as {from, target (this node), line, reason, risk} and waits there for the show caller.
+/// <c>POST /api/proposals</c> as {from, target (this node), line, reason, risk} and waits there for the show caller;
+/// the line goes as it is shown (its secret words replaced by a marker), and once approved the node runs its own record
+/// of it, never the desk's copy.
 /// Stagewatch pushes nothing back, so decisions are pulled: what was approved for this node is collected with
 /// <c>GET /api/proposals?target=&lt;id&gt;&amp;state=approved</c>, run once through the node's own command path (its
 /// fences still apply) and answered with <c>POST /api/proposals/&lt;id&gt;/result {"ok","words"}</c>; and
@@ -93,7 +95,8 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             w.WriteStartObject();
             Node(w, "from");
             Node(w, "target");
-            w.WriteString("line", proposal.Line);
+            // The desk shows the line without its secret words; the node keeps them and runs its own record.
+            w.WriteString("line", proposal.Shown);
             w.WriteString("reason", proposal.Reason);
             w.WriteString("risk", proposal.RiskWord);
             w.WriteEndObject();
@@ -152,7 +155,9 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
                     continue;
             }
             var decidedBy = Str(item, "decidedBy");
-            var (ok, words) = await RunAsync(id, Str(item, "line"), decidedBy, ct).ConfigureAwait(false);
+            // This node's own proposal runs from its own record (the desk only ever held the shown copy).
+            var line = OwnForwarded(id) is { } own ? own.Line : Str(item, "line");
+            var (ok, words) = await RunAsync(id, line, decidedBy, ct).ConfigureAwait(false);
             var result = JsonOut(w =>
             {
                 w.WriteStartObject();
@@ -214,11 +219,15 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         }
     }
 
+    /// <summary>This node's proposal the desk holds under its id, while it waits there; null for another proposer's.</summary>
+    private Proposal? OwnForwarded(string remoteId) =>
+        _queue.All.FirstOrDefault(p => p.State == ProposalState.Forwarded && p.RemoteDesk == Name && p.RemoteId == remoteId);
+
     /// <summary>The desk's decision for one of this node's forwarded proposals; a proposal another node made, or one
     /// already completed, is left alone.</summary>
     private void Complete(string remoteId, bool? ok, string words, string decidedBy)
     {
-        var local = _queue.All.FirstOrDefault(p => p.State == ProposalState.Forwarded && p.RemoteDesk == Name && p.RemoteId == remoteId);
+        var local = OwnForwarded(remoteId);
         if (local is null)
             return;
         try

@@ -59,10 +59,10 @@ public sealed class BlendInputs : IEquatable<BlendInputs>
     }
 
     /// <summary>Solves the blend on the caller's thread (pure maths, no GPU); meshes load as needed.</summary>
-    public BlendSolution Solve(StageMeshes meshes, CancellationToken ct = default)
+    public BlendSolution Solve(StageMeshes meshes, IProgress<double>? progress = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(meshes);
-        return BlendSolver3D.Solve(Stage, Outputs, meshes.For(Stage), BlendSolveOptions.Default, ct);
+        return BlendSolver3D.Solve(Stage, Outputs, meshes.For(Stage), BlendSolveOptions.Default, progress, ct);
     }
 
     public bool Equals(BlendInputs? other)

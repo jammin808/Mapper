@@ -439,7 +439,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                     continue;
                 using var solving = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 Volatile.Write(ref _solving, solving);
-                var solution = inputs.Solve(_meshes, solving.Token);
+                var solution = inputs.Solve(_meshes, ct: solving.Token);
                 Interlocked.CompareExchange(ref _solving, null, solving);
                 if (!inputs.Equals(Volatile.Read(ref _blendWanted)))
                     continue;

@@ -67,6 +67,11 @@ know GL). Only App references Avalonia.
   and asks `FrameSelector` which frame to show. No node integrates a frame delta, so none drifts; a dropped
   render frame heals itself. Without genlock the honest ceiling is ±1 refresh between machines; with NVIDIA
   sync hardware (roadmap) it is the same vblank.
+- An item that comes in with a Fade or a Dip of T overlaps the item it follows: its window is the outgoing item's
+  last T before the switch (cut to what both can give), the incoming item is anchored to start in it (at its
+  opening for a fade, its middle for a dip) and prepared ahead, and the renderer mixes the two pictures in linear
+  light (`Transitions`). The window is a function of the two anchors, so every node mixes the same pictures at the
+  same instant. A GO taken by hand cuts.
 - Audio is slaved to the timeline by resampling (±0.5 %).
 
 ## 5. Rendering

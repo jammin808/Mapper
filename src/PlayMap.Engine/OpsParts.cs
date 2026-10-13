@@ -105,7 +105,12 @@ public static class OpsParts
         {
             // Read here: a settings file that does not read is this part's fault, and the node runs without it.
             var settings = options.AssistantSettings ?? AssistantSettingsFile.Load(setup.Home);
-            _service = new AssistantService(credentials, settings, options.Assistant);
+            // ASSISTANT SET keeps what it changes in the node's folder, beside the node's own settings.
+            var home = setup.Home;
+            _service = new AssistantService(credentials, settings, options.Assistant with
+            {
+                Save = options.Assistant.Save ?? (s => AssistantSettingsFile.Save(home, s)),
+            });
             return services with { Assistant = _service, Proposals = _service };
         }
 

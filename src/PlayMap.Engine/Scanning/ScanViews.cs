@@ -16,6 +16,9 @@ namespace PlayMap.Engine.Scanning;
 /// <item>A scan view shows the first projector's smart scan or the decode's confidence, drawn once when shown — or,
 /// for the scan running now, when it finishes. A scan's pictures are kept in memory until the node stops.</item>
 /// </list>
+/// A capture camera that cannot open (no device, a stream that does not answer, a driver that refuses) shows a card
+/// with the reason on its views, and the reason rides in STATE.cameras until pictures flow; a view shown again tries
+/// the camera again.
 /// A camera's pictures reach its views at most every <see cref="MinGapNs"/> (a glance, not a recording). Start and
 /// a handle's Dispose are called under the registry's lock: neither calls back into the registry, and every picture is
 /// written outside this class's own lock. Thread-safe.
@@ -37,6 +40,8 @@ internal sealed class ScanViews
     private readonly Dictionary<string, Task> _ended = new(StringComparer.Ordinal);
     private readonly HashSet<string> _held = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _lastNs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _problems = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _live = new(StringComparer.Ordinal);
     private bool _stopped;
 
     /// <param name="open">Opens a capture camera for its views (the scan's own opener).</param>
@@ -111,6 +116,7 @@ internal sealed class ScanViews
         var id = rig?.Id ?? SimulatedRig.CameraId;
         var watch = new Watch(true, id, null, sink);
         bool still;
+        string? problem;
         lock (_gate)
         {
             if (_stopped)
@@ -120,11 +126,15 @@ internal sealed class ScanViews
             }
             _watches.Add(watch);
             still = simulated && !_held.Contains(id);
+            // A camera that could not open is tried again; its card stays up meanwhile.
+            problem = _problems.GetValueOrDefault(id);
             if (!simulated && !_held.Contains(id))
                 StartPump(id, rig!);
         }
         if (still)
             _ = Task.Run(() => DrawStill(rig, sink), CancellationToken.None);
+        else if (problem is not null)
+            DrawProblem(sink, rig?.Name ?? id, problem);
         return new Handle(this, watch);
     }
 
@@ -202,6 +212,9 @@ internal sealed class ScanViews
                 {
                     pump.Done = true;
                     pump.Stop.Dispose();
+                    // Ended on its own (the camera failed): the next view's start opens it again.
+                    if (_pumps.TryGetValue(cameraId, out var current) && ReferenceEquals(current, pump))
+                        _pumps.Remove(cameraId);
                 }
             }
         }, CancellationToken.None);
@@ -222,8 +235,16 @@ internal sealed class ScanViews
         try
         {
             camera = _open(rig);
-            if (camera is null || !await camera.OpenAsync(ct).ConfigureAwait(false))
+            if (camera is null)
+            {
+                Failed(cameraId, rig.Name, $"{rig.Name} cannot be opened on this node ({rig.SourceKind.ToString().ToLowerInvariant()} {rig.Source})");
                 return;
+            }
+            if (!await camera.OpenAsync(ct).ConfigureAwait(false))
+            {
+                Failed(cameraId, rig.Name, $"{rig.Name} did not open: {(camera.Problem.Length > 0 ? camera.Problem : "it gave no reason")}");
+                return;
+            }
             var generation = 0L;
             while (!ct.IsCancellationRequested)
             {
@@ -231,17 +252,101 @@ internal sealed class ScanViews
                 if (frame is null)
                     continue;
                 generation = frame.Generation;
+                Flowing(cameraId);
                 CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Let go for a scan or because its last view went: nothing went wrong.
+        }
+        catch (TimeoutException)
+        {
+            Failed(cameraId, rig.Name, $"{rig.Name} did not open: no picture came within 15 s");
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // A camera that stops giving pictures leaves its views on the last one; a scan through it says why.
+            // A camera that stops giving pictures leaves its views on the last one, and STATE.cameras says why.
+            Failed(cameraId, rig.Name, $"{rig.Name} stopped: {ex.Message}", card: !IsLive(cameraId));
         }
         finally
         {
             camera?.Dispose();
+            lock (_gate)
+                _live.Remove(cameraId);
         }
+    }
+
+    private bool IsLive(string cameraId)
+    {
+        lock (_gate)
+            return _live.Contains(cameraId);
+    }
+
+    /// <summary>Pictures flow from a camera: its problem (if any) is over.</summary>
+    private void Flowing(string cameraId)
+    {
+        bool cleared;
+        lock (_gate)
+        {
+            cleared = _live.Add(cameraId) && _problems.Remove(cameraId);
+        }
+        if (cleared)
+            _engine.FactsChanged();
+    }
+
+    /// <summary>A camera could not give pictures: the reason is kept for STATE and drawn on its views.</summary>
+    private void Failed(string cameraId, string name, string words, bool card = true)
+    {
+        PreviewSink[] sinks;
+        lock (_gate)
+        {
+            if (_stopped)
+                return;
+            _problems[cameraId] = words;
+            sinks = card ? _watches.Where(w => w.Camera && w.Target == cameraId).Select(w => w.Sink).ToArray() : [];
+        }
+        foreach (var sink in sinks)
+            DrawProblem(sink, name, words);
+        _engine.FactsChanged();
+    }
+
+    private static void DrawProblem(PreviewSink sink, string name, string words)
+    {
+        var (w, h) = ViewRequest.Fit(sink.MaxWidth, sink.MaxHeight, sink.MaxWidth / (double)Math.Max(1, sink.MaxHeight));
+        sink.WriteBgra(Render.Generators.Skia.NoticeCard.Bgra(w, h, name + " shows no picture", words), w, h, w * 4, MonoClock.Instance.NowNs);
+    }
+
+    /// <summary>STATE.cameras: every camera with a view open or a problem — its state (live, opening, scanning,
+    /// simulated or failed), how many views show it, and the reason it gives no picture ("" when none).</summary>
+    public void WriteCameras(System.Text.Json.Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        var stage = _engine.Store.Project.Stage;
+        List<(string Id, int Views, string State, string Problem)> rows = [];
+        lock (_gate)
+        {
+            var ids = _watches.Where(x => x.Camera).Select(x => x.Target).Concat(_problems.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+            foreach (var id in ids)
+            {
+                var problem = _problems.GetValueOrDefault(id) ?? "";
+                var simulated = stage.Cameras.Find(id) is not { } rig ? id.Equals(SimulatedRig.CameraId, StringComparison.OrdinalIgnoreCase) : rig.SourceKind == CameraSourceKind.Simulated;
+                var state = _held.Contains(id) ? "scanning" : problem.Length > 0 ? "failed" : simulated ? "simulated" : _live.Contains(id) ? "live" : "opening";
+                rows.Add((id, _watches.Count(x => x.Camera && x.Target == id), state, problem));
+            }
+        }
+        w.WriteStartArray();
+        foreach (var (id, views, state, problem) in rows)
+        {
+            w.WriteStartObject();
+            w.WriteString("id", id);
+            w.WriteString("name", stage.Cameras.Find(id)?.Name ?? id);
+            w.WriteString("state", state);
+            w.WriteNumber("views", views);
+            w.WriteString("problem", problem);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
     }
 
     /// <summary>The simulated camera's scene under the first projector's white, in colour.</summary>
@@ -313,12 +418,19 @@ internal sealed class ScanViews
 
     private void Drop(Watch watch)
     {
+        var forgot = false;
         lock (_gate)
         {
             _watches.Remove(watch);
             if (watch.Camera && !_watches.Any(w => w.Camera && w.Target == watch.Target))
+            {
                 StopPump(watch.Target);
+                // Nobody asks for the camera now: its problem is no longer news.
+                forgot = _problems.Remove(watch.Target);
+            }
         }
+        if (forgot)
+            _engine.FactsChanged();
     }
 
     /// <summary>Takes the feeds off the node's views, closes their views (their rings go) and lets every camera go.</summary>

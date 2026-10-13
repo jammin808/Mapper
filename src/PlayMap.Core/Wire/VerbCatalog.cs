@@ -44,6 +44,10 @@ public sealed record VerbSpec(
     /// <summary>The word index from which a line of this verb carries a secret (a token, a key, a password),
     /// or null. Everything from there on is kept out of journals, logs and records.</summary>
     public int? SecretFrom { get; init; }
+
+    /// <summary>First words after the verb that make a line of it high risk whatever <see cref="Risk"/> says (an
+    /// ASSISTANT SET of "enabled" or "provider"); compared upper-cased. Empty: the verb's risk is every line's.</summary>
+    public IReadOnlyList<string> HighFor { get; init; } = [];
 }
 
 /// <summary>The vocabulary. Patterns' clip verbs (VIDEO, with VT and CLIP as aliases) mean exactly what they
@@ -80,7 +84,7 @@ public static class VerbCatalog
         V("PLAYLIST LIST", "PLAYLIST LIST", "Every playlist with its transport", VerbCategory.Playlist, VerbRisk.Low, false),
         V("PLAYLIST GET", "PLAYLIST GET <playlist>", "One playlist, its items and transport", VerbCategory.Playlist, VerbRisk.Low, false),
         V("PLAYLIST NEW", "PLAYLIST NEW <name>", "Makes an empty playlist; answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
-        V("PLAYLIST ADD", "PLAYLIST ADD <playlist> <source> [<label>]", "Adds an item (media:…, generator:…, color:#…); answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
+        V("PLAYLIST ADD", "PLAYLIST ADD <playlist> <source> [<label>]", "Adds an item (media:…, generator:…, color:#…, playlist:… — another playlist's picture, never one that plays this one); answers its id", VerbCategory.Playlist, VerbRisk.Low, true),
         V("PLAYLIST REMOVE", "PLAYLIST REMOVE <playlist> <item>", "Removes an item", VerbCategory.Playlist, VerbRisk.Review, true),
         V("PLAYLIST MOVE", "PLAYLIST MOVE <playlist> <item> <index>", "Reorders an item", VerbCategory.Playlist, VerbRisk.Low, true),
         V("PLAYLIST DELETE", "PLAYLIST DELETE <playlist>", "Deletes a playlist", VerbCategory.Playlist, VerbRisk.Review, true),
@@ -111,8 +115,8 @@ public static class VerbCatalog
         // Outputs.
         V("OUTPUT LIST", "OUTPUT LIST", "Every output, its display and its health", VerbCategory.Output, VerbRisk.Low, false),
         V("DISPLAYS", "DISPLAYS", "The displays this machine sees", VerbCategory.Output, VerbRisk.Low, false),
-        V("VIEW", "VIEW <view> SHOW|CAMERA|HIDE [<what> [<w>x<h>]|<camera json>]",
-            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; CAMERA moves an editor view's eye; HIDE lets it go",
+        V("VIEW", "VIEW <view> SHOW|CAMERA|KEEP|HIDE [<what> [<w>x<h>]|<camera json>]",
+            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; CAMERA moves an editor view's eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go",
             VerbCategory.Output, VerbRisk.Low, false),
         V("OUTPUT ENABLE", "OUTPUT ENABLE <output> ON|OFF", "Opens or closes an output", VerbCategory.Output, VerbRisk.High, true),
         V("OUTPUT SOURCE", "OUTPUT SOURCE <output> <source>", "What a canvas or source output shows", VerbCategory.Output, VerbRisk.High, true),
@@ -186,6 +190,10 @@ public static class VerbCatalog
         V("PROPOSALS", "PROPOSALS [ALL]", "The assistant's lines waiting for a person (ALL: every proposal and how it ended)", VerbCategory.Assistant, VerbRisk.Low, false),
         V("APPROVE", "APPROVE <proposal>", "A person approves a proposal: its line runs through the node's own checks", VerbCategory.Assistant, VerbRisk.High, true),
         V("REJECT", "REJECT <proposal> [<why>]", "A person rejects a proposal: it never runs", VerbCategory.Assistant, VerbRisk.Review, true),
+        V("ASSISTANT STATUS", "ASSISTANT STATUS", "The assistant's settings: on or off, provider, model, effort, endpoint, what runs without asking, and whether a key is set (never the key)", VerbCategory.Assistant, VerbRisk.Low, false),
+        V("ASSISTANT SET", "ASSISTANT SET enabled|provider|model|effort|baseUrl|runLowWithoutAsking|runReviewWithoutAsking <value>",
+            "Changes one of the assistant's settings, kept in the node's playmap.assistant.json and applied at once; from this machine or its paired desk only, never by an assistant. The key goes through CREDENTIAL SET assistant",
+            VerbCategory.Assistant, VerbRisk.Review, true) with { HighFor = ["ENABLED", "PROVIDER"] },
     ];
 
     private static readonly FrozenDictionary<string, VerbSpec> ByName = BuildIndex();
@@ -202,20 +210,63 @@ public static class VerbCatalog
         return d.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
-    /// <summary>The verb a line names: the longest match of its first one or two words (upper-cased), with
-    /// how many words it took. VT and CLIP are VIDEO (Patterns' aliases), whatever follows. Null when
-    /// nothing matches.</summary>
-    /// <summary>The line as it may be written down: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
-    /// are replaced by one marker, so a journal row or a log never holds a token, a key or a password.</summary>
+    /// <summary>What stands in a shown line for a verb's secret words.</summary>
+    public const string SecretMarker = "‹secret›";
+
+    /// <summary>The line as it may be written down or shown: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
+    /// are replaced by one marker, so a journal row, a log, a proposal on a desk or a reply never holds a token, a
+    /// key or a password. Only the line itself, kept where it runs, carries them.</summary>
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
         if (Match(line) is not { Spec.SecretFrom: int from } || line.Count <= from)
             return line.Raw;
         var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
-        return string.Join(' ', kept) + " ‹secret›";
+        return string.Join(' ', kept) + " " + SecretMarker;
     }
 
+    /// <summary>A line's text as it may be shown (<see cref="Redacted(WireLine)"/>); a text that does not read as a
+    /// line names no verb, so it has no secret words, and is shown as it came.</summary>
+    public static string Redacted(string text) =>
+        WireGrammar.TryParse(text ?? "", out var line, out _) ? Redacted(line) : text ?? "";
+
+    /// <summary>A line's risk: its verb's, raised to high by the words that make it so (<see cref="VerbSpec.HighFor"/>);
+    /// high for a line no verb names.</summary>
+    public static VerbRisk RiskOf(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (Match(line) is not { } m)
+            return VerbRisk.High;
+        var first = line.WordUpper(m.Words);
+        foreach (var high in m.Spec.HighFor)
+            if (string.Equals(high, first, StringComparison.Ordinal))
+                return VerbRisk.High;
+        return m.Spec.Risk;
+    }
+
+    /// <summary>True when a line carries a verb's secret words (a token, a key, a password).</summary>
+    public static bool HoldsSecret(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return Match(line) is { Spec.SecretFrom: int from } && line.Count > from;
+    }
+
+    /// <summary>True when a line's secret words are the marker a shown copy carries: a copy taken from a desk or a
+    /// log, which must never run in place of the line it stands for.</summary>
+    public static bool IsShownCopy(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (Match(line) is not { Spec.SecretFrom: int from })
+            return false;
+        for (var i = from; i < line.Count; i++)
+            if (string.Equals(line.Word(i), SecretMarker, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
+    /// <summary>The verb a line names: the longest match of its first one or two words (upper-cased), with
+    /// how many words it took. VT and CLIP are VIDEO (Patterns' aliases), whatever follows. Null when
+    /// nothing matches.</summary>
     public static (VerbSpec Spec, int Words)? Match(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);

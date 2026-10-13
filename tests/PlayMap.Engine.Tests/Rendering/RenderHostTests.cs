@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.Json;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Playback;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Rendering;
 using Xunit.Abstractions;
@@ -90,6 +92,155 @@ public sealed class RenderHostTests(ITestOutputHelper log)
         rig.Clock.NowNs = 5_000_000_000 + 1_500_000_000;
         await rig.ReadUntil("op_1", p => Clips.IndexIn(p, 64) == 12);
     }
+
+    [Fact]
+    public async Task AFadeMixesTheTwoItemsInLinearLightInProportionAcrossItsWindow()
+    {
+        // A red second ends into a blue clip that fades in over 400 ms: the window is the last 400 ms of the red,
+        // the blue starts at its opening (prepared ahead), and every instant of it is a mix of the two in proportion.
+        MediaItem Clip(string id, string color, double seconds)
+        {
+            var path = Clips.Solid(color, seconds);
+            return new MediaItem(id, id, MediaKind.Video, path, "", new FileInfo(path).Length,
+                MediaInfo.Unknown with { DurationNs = (long)(seconds * 1e9), Width = 64, Height = 48, FrameRate = "25" }, []);
+        }
+        var red = PlaylistItem.For("it_red", SourceRef.Media("md_red"), "Red");
+        var blue = PlaylistItem.For("it_blue", SourceRef.Media("md_blue"), "Blue") with
+        {
+            End = EndAction.Hold, Transition = TransitionKind.Fade, TransitionNs = 400_000_000,
+        };
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Playlist("pl_show"), 64, 48)) with
+        {
+            Media = [Clip("md_red", "0xFF0000", 1), Clip("md_blue", "0x0000FF", 2)],
+            Playlists = [new Playlist("pl_show", "Show", [red, blue], false, null)],
+        };
+        await using var rig = HostRig.Start(project, new MediaFiles());
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Clock.NowNs = 5_000_000_000 + 500_000_000;
+        await rig.ReadUntil("op_1", p => HostRig.At(p, 64, 32, 24) is { R: > 240, B: < 10 });
+
+        foreach (var progress in new[] { 0.25, 0.5, 0.75 })
+        {
+            rig.Clock.NowNs = 5_000_000_000 + 600_000_000 + (long)(progress * 400_000_000);
+            var r = Transitions.Mix8(255, 0, TransitionKind.Fade, progress);
+            var b = Transitions.Mix8(0, 255, TransitionKind.Fade, progress);
+            var px = await rig.ReadUntil("op_1", p => Near(HostRig.At(p, 64, 32, 24), r, 0, b));
+            log.WriteLine($"fade at {progress:0.00}: {HostRig.At(px, 64, 32, 24)} (expected {r:0}, 0, {b:0})");
+        }
+
+        // After the switch only the blue is up, and the lane has moved on to it.
+        rig.Clock.NowNs = 5_000_000_000 + 1_100_000_000;
+        await rig.ReadUntil("op_1", p => Near(HostRig.At(p, 64, 32, 24), 0, 0, 255));
+        Assert.Equal("it_blue", rig.Engine.Snapshot.Playback.Playlists["pl_show"].ItemId);
+    }
+
+    [Fact]
+    public async Task ADipTakesTheOutgoingItemToBlackAndBringsTheIncomingOneUpFromIt()
+    {
+        var red = PlaylistItem.For("it_red", SourceRef.Solid("#FF0000"), "Red") with { DurationNs = 1_000_000_000 };
+        var blue = PlaylistItem.For("it_blue", SourceRef.Solid("#0000FF"), "Blue") with
+        {
+            DurationNs = 2_000_000_000, End = EndAction.Hold, Transition = TransitionKind.Dip, TransitionNs = 400_000_000,
+        };
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Playlist("pl_show"), 64, 48)) with
+        {
+            Playlists = [new Playlist("pl_show", "Show", [red, blue], false, null)],
+        };
+        await using var rig = HostRig.Start(project);
+        await rig.Ok("PLAYLIST GO pl_show");
+
+        // The window is [0.6 s, 1.0 s): red at half light a quarter in, black at the middle, blue at half light
+        // three quarters in, blue alone after the switch.
+        var expected = new (long AtMs, double R, double B)[]
+        {
+            (500, 255, 0),
+            (700, Transitions.Mix8(255, 0, TransitionKind.Dip, 0.25), 0),
+            (800, 0, 0),
+            (900, 0, Transitions.Mix8(0, 255, TransitionKind.Dip, 0.75)),
+            (1_100, 0, 255),
+        };
+        foreach (var (atMs, r, b) in expected)
+        {
+            rig.Clock.NowNs = 5_000_000_000 + atMs * 1_000_000;
+            var px = await rig.ReadUntil("op_1", p => Near(HostRig.At(p, 64, 32, 24), r, 0, b));
+            log.WriteLine($"dip at {atMs} ms: {HostRig.At(px, 64, 32, 24)}");
+        }
+    }
+
+    [Fact]
+    public async Task AnItemThatPlaysAnotherPlaylistShowsItsPictureAndALoopIsBlackWithWords()
+    {
+        var path = Clips.Solid("0xFF0000", 2);
+        var red = new MediaItem("md_red", "Red", MediaKind.Video, path, "", new FileInfo(path).Length,
+            MediaInfo.Unknown with { DurationNs = 2_000_000_000, Width = 64, Height = 48, FrameRate = "25" }, []);
+        PlaylistItem Nest(string id, string playlist) => PlaylistItem.For(id, SourceRef.Playlist(playlist), id) with { DurationNs = 10_000_000_000, End = EndAction.Hold };
+        // Show plays Clip (a decoded clip) and Bed (a colour); A and B play each other, as only an old file could hold.
+        var project = HostRig.WithOutputs(
+            HostRig.Screen("op_show", SourceRef.Playlist("pl_show"), 64, 48),
+            HostRig.Screen("op_bed", SourceRef.Playlist("pl_outer_bed"), 64, 48),
+            HostRig.Screen("op_loop", SourceRef.Playlist("pl_a"), 64, 48)) with
+        {
+            Media = [red],
+            Playlists =
+            [
+                new Playlist("pl_show", "Show", [Nest("it_clip", "pl_clip")], false, null),
+                new Playlist("pl_clip", "Clip", [PlaylistItem.For("it_red", SourceRef.Media("md_red"), "Red") with { End = EndAction.Hold }], false, null),
+                new Playlist("pl_outer_bed", "Outer", [Nest("it_bed", "pl_bed")], false, null),
+                new Playlist("pl_bed", "Bed", [PlaylistItem.For("it_green", SourceRef.Solid("#00FF00"), "Green") with { DurationNs = 10_000_000_000, End = EndAction.Hold }], false, null),
+                new Playlist("pl_a", "A", [Nest("it_a", "pl_b")], false, null),
+                new Playlist("pl_b", "B", [Nest("it_b", "pl_a")], false, null),
+            ],
+        };
+        await using var rig = HostRig.Start(project, new MediaFiles());
+        foreach (var list in new[] { "pl_show", "pl_clip", "pl_outer_bed", "pl_bed", "pl_a", "pl_b" })
+            await rig.Ok("PLAYLIST GO " + list);
+
+        await rig.ReadUntil("op_show", p => Near(HostRig.At(p, 64, 32, 24), 255, 0, 0));
+        await rig.ReadUntil("op_bed", p => Near(HostRig.At(p, 64, 32, 24), 0, 255, 0));
+        await rig.Host.FramesAsync(10).WaitAsync(HostRig.Patience);
+        Assert.Equal((0, 0, 0), HostRig.At(await rig.Read("op_loop"), 64, 32, 24));
+        var rows = JsonDocument.Parse(rig.Engine.State().Json).RootElement.GetProperty("playlists").EnumerateArray().ToDictionary(l => l.GetProperty("id").GetString()!);
+        Assert.Equal("plays itself (A → B → A) — black there", rows["pl_a"].GetProperty("problem").GetString());
+        Assert.False(rows["pl_show"].TryGetProperty("problem", out _));
+    }
+
+    [Fact]
+    public void EachHeadlessOutputCountsDroppedFramesAgainstItsOwnRefreshNotTheShowsRate()
+    {
+        // A 25 fps show on a 60 Hz and a 120 Hz output: the loop serves the faster, and presents at 60 Hz drop
+        // nothing on the 60 Hz output but one slot a frame on the 120 Hz one.
+        var project = HostRig.WithOutputs(
+            HostRig.Screen("op_60", SourceRef.Solid("#FF0000"), 64, 36),
+            HostRig.Screen("op_120", SourceRef.Solid("#FF0000"), 64, 36) with { RefreshHz = 120 },
+            HostRig.Screen("op_off", SourceRef.Solid("#FF0000"), 64, 36) with { RefreshHz = 240, Enabled = false });
+        project = project with { Settings = project.Settings with { FrameRate = "25" } };
+        Assert.Equal(120, HeadlessPacing.LoopRateHz(project, 25));
+        Assert.Equal(25, HeadlessPacing.LoopRateHz(project with { Outputs = [] }, 25));
+
+        var pacing = new HeadlessPacing();
+        pacing.Sync(project);
+        Assert.Null(pacing.Of("op_off"));
+        for (var f = 0; f <= 120; f++)
+            pacing.OnPresented(1_000_000_000 + f * 1_000_000_000L / 60);
+        Assert.Equal(0, pacing.Of("op_60")!.Missed);
+        Assert.Equal(120, pacing.Of("op_120")!.Missed);
+        Assert.Equal(60, pacing.Of("op_60")!.Fps, 1);
+    }
+
+    [Fact]
+    public async Task AHeadlessLoopServesItsOutputsRefreshRatherThanTheShowsFrameRate()
+    {
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#0000FF"), 64, 36) with { RefreshHz = 50 });
+        project = project with { Settings = project.Settings with { FrameRate = "25" } };
+        await using var rig = HostRig.Start(project);
+        await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
+        var health = Assert.Single(rig.Host.Health());
+        log.WriteLine($"headless at {health.Fps:0.0} fps, {health.Dropped} dropped against 50 Hz");
+        Assert.InRange(health.Fps, 40, 60);
+    }
+
+    private static bool Near((int R, int G, int B) px, double r, double g, double b, double tolerance = 4) =>
+        Math.Abs(px.R - r) <= tolerance && Math.Abs(px.G - g) <= tolerance && Math.Abs(px.B - b) <= tolerance;
 
     [Fact]
     public async Task BlackoutWinsAndAPatternCoversOnlyTheOutputItNames()

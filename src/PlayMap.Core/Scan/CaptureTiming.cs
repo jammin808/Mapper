@@ -19,8 +19,10 @@ public sealed record LatencyEstimate(double LatencyMs, double SpreadMs, int Tran
 /// a few times, stamping each change at the instant it reached the glass, and feeds every camera frame's mean
 /// brightness with its arrival time. Per change: the level before (median of the frames before the change),
 /// the level after (median of the last third of the frames before the next change), and the instant the
-/// frames crossed half-way, interpolated between the two frames either side; a crossing must hold for two
-/// frames, so one noisy frame does not count. The latency is the median over the changes.
+/// frames crossed half-way, interpolated between the two frames either side — never from before the change
+/// itself, which no frame can have seen, so a camera that sees the change whole in the first frame after it is
+/// never made out to see it early; a crossing must hold for two frames, so one noisy frame does not count. The
+/// latency is the median over the changes, and is never below zero unless the camera's stamps are.
 /// </summary>
 public sealed class LatencyEstimator
 {
@@ -105,7 +107,9 @@ public sealed class LatencyEstimator
             var p0 = Progress(prior);
             var p1 = Progress(during[i]);
             var t = p1 - p0 > 1e-9 ? Math.Clamp((0.5 - p0) / (p1 - p0), 0, 1) : 1;
-            return prior.TimeMs + t * (during[i].TimeMs - prior.TimeMs) - start;
+            // The light changed at the change at the earliest: a frame from before it bounds nothing earlier.
+            var from = Math.Max(prior.TimeMs, start);
+            return from + t * (during[i].TimeMs - from) - start;
         }
         return null;
     }

@@ -17,6 +17,10 @@ public sealed record AssistantServiceOptions
 
     /// <summary>How long a proposal waits for a person before it expires (null: the queue's default, 15 min).</summary>
     public TimeSpan? ProposalLifetime { get; init; }
+
+    /// <summary>Keeps changed settings (the host writes the node's playmap.assistant.json); null: they live only until
+    /// the node stops, and ASSISTANT SET says so.</summary>
+    public Action<AssistantSettings>? Save { get; init; }
 }
 
 /// <summary>One conversation as STATE and the desk see it: whose, how its last request ended, its words (secrets
@@ -51,14 +55,43 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
         ArgumentNullException.ThrowIfNull(settings);
         _credentials = credentials;
         _options = options ?? new AssistantServiceOptions();
-        Settings = settings.Normalised();
+        _settings = settings.Normalised();
         Queue = new ProposalQueue(_endpoint, null, _options.Time, _options.ProposalLifetime);
         Queue.Changed += _ => _engine?.FactsChanged();
         Queue.Logged += line => Journal(line, true);
         Approvals = new QueueApprovals(this);
     }
 
-    public AssistantSettings Settings { get; }
+    private volatile AssistantSettings _settings;
+
+    /// <summary>The settings in force (ASSISTANT SET replaces them while the node runs).</summary>
+    public AssistantSettings Settings => _settings;
+
+    /// <summary>True when changed settings are kept for the next start.</summary>
+    public bool Persists => _options.Save is not null;
+
+    /// <summary>Whether the model's key is in the credential store — never the key.</summary>
+    public bool KeySet => _credentials.Find(NodeCredentialStore.AssistantKey) is not null;
+
+    /// <summary>Puts new settings in force: kept first (a save that fails changes nothing and throws), then live — the
+    /// provider is made again and every conversation starts over under them.</summary>
+    /// <exception cref="IOException">The settings could not be kept.</exception>
+    /// <exception cref="UnauthorizedAccessException">The settings could not be kept.</exception>
+    public void ApplySettings(AssistantSettings next)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+        var normalised = next.Normalised();
+        _options.Save?.Invoke(normalised);
+        lock (_gate)
+        {
+            _settings = normalised;
+            // A request still running on the old provider finishes on it; the providers go when the service does.
+            _conversations.Clear();
+            _provider = null;
+            _providerKeyVersion = -1;
+        }
+        _engine?.FactsChanged();
+    }
 
     /// <summary>Where the model's key is kept (under <see cref="NodeCredentialStore.AssistantKey"/>).</summary>
     public ICredentialStore Credentials => _credentials;
@@ -203,7 +236,7 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
         ArgumentNullException.ThrowIfNull(redactor);
         w.WriteStartObject();
         w.WriteString("id", p.Id);
-        w.WriteString("line", redactor.Redact(p.Line));
+        w.WriteString("line", redactor.Redact(p.Shown));
         w.WriteString("verb", p.Verb);
         w.WriteString("risk", p.RiskWord);
         w.WriteString("reason", redactor.Redact(p.Reason));

@@ -7,7 +7,9 @@ namespace PlayMap.Engine.Playback;
 /// <summary>What the render thread needs to show one playlist at any instant, without asking anyone: the
 /// current item and its transport, and — when the current item will end into another — the next item with
 /// the leader instant it takes over, already anchored. The switch therefore lands on the exact frame on every
-/// node, whatever the control lane is doing at that moment.</summary>
+/// node, whatever the control lane is doing at that moment. When the next item comes in with a fade or a dip,
+/// <see cref="MixStartNs"/> opens its window before the switch (<see cref="Transitions"/>): the next item is
+/// anchored to start inside it, so both pictures are known for every instant of the window.</summary>
 public sealed record PlaylistPlayback(
     string PlaylistId,
     int Index,
@@ -22,11 +24,28 @@ public sealed record PlaylistPlayback(
     ClipTransport NextClip,
     TransitionKind Transition,
     long TransitionNs,
-    double Volume)
+    double Volume,
+    /// <summary>How the next item comes in over the current one (a cut when none is scheduled).</summary>
+    TransitionKind NextTransition = TransitionKind.Cut,
+    /// <summary>The leader instant the next item's transition window opens (long.MaxValue = a cut at the switch).</summary>
+    long MixStartNs = long.MaxValue)
 {
     /// <summary>The item to show at a leader instant: the current one, or the next once its switch came.</summary>
     public (SourceRef Source, ClipTransport Clip, string? ItemId) At(long leaderNs) =>
         leaderNs >= SwitchAtLeaderNs && NextItemId is not null ? (NextSource, NextClip, NextItemId) : (Source, Clip, ItemId);
+
+    /// <summary>The transition a leader instant falls in — the current item going out, the next coming in —
+    /// with how far through its window it is (0..1), or null when one picture shows.</summary>
+    public (TransitionKind Kind, double Progress)? MixAt(long leaderNs)
+    {
+        if (NextItemId is null || NextTransition == TransitionKind.Cut || leaderNs < MixStartNs || leaderNs >= SwitchAtLeaderNs
+            || SwitchAtLeaderNs <= MixStartNs)
+            return null;
+        return (NextTransition, (double)(leaderNs - MixStartNs) / (SwitchAtLeaderNs - MixStartNs));
+    }
+
+    /// <summary>The leader instant the next item first shows: its window's opening, or the switch for a cut.</summary>
+    public long NextShowsAtNs => Math.Min(MixStartNs, SwitchAtLeaderNs);
 
     public bool IsIdle => Index < 0;
 }
@@ -157,7 +176,7 @@ public sealed class PlaybackLanes
             return (false, $"nothing is loaded in {list.Name} — PLAYLIST GO {list.Id} starts it");
         // A verb that lands after a scheduled switch acts on the item that is on now.
         if (nowLeaderNs >= lane.SwitchAtLeaderNs && lane.NextItemId is not null)
-            lane = Promote(lane);
+            lane = Promote(list, lane);
         var r = verb(lane.Clip);
         if (!r.Ok)
             return (false, r.Words);
@@ -199,7 +218,7 @@ public sealed class PlaybackLanes
                 continue;
             if (nowLeaderNs >= lane.SwitchAtLeaderNs && lane.NextItemId is not null)
             {
-                lane = Schedule(list, Promote(lane), nowLeaderNs);
+                lane = Schedule(list, Promote(list, lane), nowLeaderNs);
                 _lanes[id] = lane;
                 changed = true;
                 continue;
@@ -232,7 +251,11 @@ public sealed class PlaybackLanes
     /// Only a playing item with a known out point that ends into another item gets a scheduled switch.</summary>
     private PlaylistPlayback Schedule(Playlist list, PlaylistPlayback lane, long nowLeaderNs)
     {
-        var none = lane with { SwitchAtLeaderNs = long.MaxValue, NextIndex = -1, NextItemId = null, NextSource = SourceRef.None, NextClip = ClipTransport.Empty };
+        var none = lane with
+        {
+            SwitchAtLeaderNs = long.MaxValue, NextIndex = -1, NextItemId = null, NextSource = SourceRef.None, NextClip = ClipTransport.Empty,
+            NextTransition = TransitionKind.Cut, MixStartNs = long.MaxValue,
+        };
         if (lane.Index < 0 || lane.Index >= list.Items.Length || lane.Clip.State != TransportState.Playing || !lane.Clip.HasLength || lane.Clip.Loop)
             return none;
         var item = list.Items[lane.Index];
@@ -247,7 +270,13 @@ public sealed class PlaybackLanes
         if (switchAt < nowLeaderNs)
             switchAt = nowLeaderNs;
         var loaded = Load(list, next, lane.Clip.Seq);
-        var nextClip = loaded.Clip.Play(switchAt).Transport;
+        // The next item's window ends at the switch; one item following itself has one decoder, so it cuts.
+        var incoming = list.Items[next];
+        var rate = loaded.Clip.Anchor.Rate > 0 ? loaded.Clip.Anchor.Rate : 1;
+        var window = string.Equals(loaded.ItemId, lane.ItemId, StringComparison.Ordinal) ? 0
+            : Transitions.WindowNs(incoming.Transition, incoming.TransitionNs, switchAt, lane.Clip.Anchor.LeaderAt(lane.Clip.InNs),
+                loaded.Clip.HasLength ? (long)(loaded.Clip.LengthNs / rate) : 0);
+        var nextClip = loaded.Clip.Play(switchAt - Transitions.IncomingLeadNs(incoming.Transition, window)).Transport;
         return lane with
         {
             SwitchAtLeaderNs = switchAt,
@@ -255,12 +284,20 @@ public sealed class PlaybackLanes
             NextItemId = loaded.ItemId,
             NextSource = loaded.Source,
             NextClip = nextClip,
+            NextTransition = window > 0 ? incoming.Transition : TransitionKind.Cut,
+            MixStartNs = window > 0 ? switchAt - window : long.MaxValue,
         };
     }
 
-    private static PlaylistPlayback Promote(PlaylistPlayback lane) => new(lane.PlaylistId, lane.NextIndex, lane.NextItemId, lane.NextSource,
-        lane.NextClip with { Seq = Math.Max(lane.NextClip.Seq, lane.Clip.Seq) + 1 }, long.MaxValue, -1, null, SourceRef.None,
-        ClipTransport.Empty, lane.Transition, lane.TransitionNs, lane.Volume);
+    /// <summary>The next item becomes the current one, with its own transition and volume.</summary>
+    private static PlaylistPlayback Promote(Playlist list, PlaylistPlayback lane)
+    {
+        var at = list.Items.IndexOfId(lane.NextItemId);
+        var item = at >= 0 ? list.Items[at] : null;
+        return new(lane.PlaylistId, lane.NextIndex, lane.NextItemId, lane.NextSource,
+            lane.NextClip with { Seq = Math.Max(lane.NextClip.Seq, lane.Clip.Seq) + 1 }, long.MaxValue, -1, null, SourceRef.None,
+            ClipTransport.Empty, item?.Transition ?? lane.Transition, item?.TransitionNs ?? lane.TransitionNs, item?.Volume ?? lane.Volume);
+    }
 
     private static PlaylistPlayback Idle(string id) =>
         new(id, -1, null, SourceRef.None, ClipTransport.Empty, long.MaxValue, -1, null, SourceRef.None, ClipTransport.Empty, TransitionKind.Cut, 0, 1);

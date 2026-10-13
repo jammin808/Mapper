@@ -195,7 +195,9 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
             using (var window = Platform.OutputWindow.Create(c, new Platform.OutputWindowOptions("Output 1", Borderless: false, VSync: false, Width: 64, Height: 36)))
             {
-                engine.Attach("op1", window);
+                // Its presents are measured against its display's refresh, not a fixed 60.
+                engine.Attach("op1", window, 50);
+                Assert.Equal(50, engine.Stats("op1").RefreshHz, 1);
                 Assert.Equal(1, window.SwapInterval);
                 for (var f = 0; f < 5; f++)
                 {

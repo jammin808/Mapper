@@ -187,4 +187,21 @@ public class TimeAndPlaybackTests
         Assert.Equal(5_000_000_000, cursor.Clip.OutNs);
         Assert.Equal(TransportState.Cued, cursor.Clip.State);
     }
+
+    [Fact]
+    public void ATransitionWindowIsCutToWhatBothItemsCanGiveAndADipPassesThroughBlack()
+    {
+        // 400 ms asked; the outgoing item has played 300 ms, so the window is 300 ms; a cut never mixes.
+        Assert.Equal(300, Transitions.WindowNs(TransitionKind.Fade, 400, 1_000, 700, 0));
+        Assert.Equal(200, Transitions.WindowNs(TransitionKind.Dip, 400, 1_000, 0, 200));
+        Assert.Equal(0, Transitions.WindowNs(TransitionKind.Cut, 400, 1_000, 0, 0));
+        Assert.Equal(150, Transitions.IncomingLeadNs(TransitionKind.Dip, 300));
+        Assert.Equal(300, Transitions.IncomingLeadNs(TransitionKind.Fade, 300));
+
+        Assert.Equal((0.75, 0.25), Transitions.Weights(TransitionKind.Fade, 0.25));
+        Assert.Equal((0.0, 0.0), Transitions.Weights(TransitionKind.Dip, 0.5));
+        Assert.Equal((0.0, 0.5), Transitions.Weights(TransitionKind.Dip, 0.75));
+        // Half the light of full red is not half its code: the mix is in linear light.
+        Assert.Equal(186, Transitions.Mix8(255, 0, TransitionKind.Fade, 0.5), 0);
+    }
 }

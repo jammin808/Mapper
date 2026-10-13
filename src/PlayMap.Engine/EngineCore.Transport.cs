@@ -102,8 +102,8 @@ public sealed partial class EngineCore
         if (list is null)
             return CommandReply.Fail($"no playlist {args[0]}");
         if (!SourceRef.TryParse(args[1], out var source) || source.IsNone)
-            return CommandReply.Fail("a source is media:<id>, generator:<id>, canvas:<id>, live:<id>, timer:<id> or color:#RRGGBB");
-        if (ResolveSourceProblem(source) is { } problem)
+            return CommandReply.Fail("a source is media:<id>, playlist:<id>, generator:<id>, canvas:<id>, live:<id>, timer:<id> or color:#RRGGBB");
+        if ((ResolveSourceProblem(source) ?? PlaylistNesting.Problem(Store.Project, list.Id, source)) is { } problem)
             return CommandReply.Fail(problem);
         var label = args.Count > 2 ? string.Join(' ', args.Skip(2)) : SourceLabel(source);
         string id = "";

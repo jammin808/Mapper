@@ -116,7 +116,7 @@ internal sealed class OutputWindows : IDisposable
                     continue;
                 changed |= Close(output.Id, e);
             }
-            changed |= OpenWindow(output, want.Key, want.Display);
+            changed |= OpenWindow(output, want.Key, want.Display, want.RefreshHz);
         }
         foreach (var id in _entries.Keys)
             if (!_seen.Contains(id))
@@ -150,7 +150,7 @@ internal sealed class OutputWindows : IDisposable
         return closed;
     }
 
-    private static (WindowKey Key, string Display)? Want(Output output, IReadOnlyList<MonitorInfo> monitors)
+    private static (WindowKey Key, string Display, int RefreshHz)? Want(Output output, IReadOnlyList<MonitorInfo> monitors)
     {
         if (!output.Enabled || output.Kind is not (OutputKind.Display or OutputKind.Window) || output.Width < 1 || output.Height < 1)
             return null;
@@ -159,10 +159,11 @@ internal sealed class OutputWindows : IDisposable
         var key = output.Kind == OutputKind.Display
             ? new WindowKey(m.Index, m.X, m.Y, m.Width, m.Height, output.Kind, output.Name)
             : new WindowKey(m.Index, m.X, m.Y, Math.Min(output.Width, Math.Max(1, m.Width)), Math.Min(output.Height, Math.Max(1, m.Height)), output.Kind, output.Name);
-        return (key, DisplayMatch.KeyOf(m, monitors));
+        return (key, DisplayMatch.KeyOf(m, monitors), m.RefreshHz);
     }
 
-    private bool OpenWindow(Output output, WindowKey key, string display)
+    /// <param name="refreshHz">The display's refresh: what the window's presents are measured against.</param>
+    private bool OpenWindow(Output output, WindowKey key, string display, int refreshHz)
     {
         var entry = new Entry { Key = key, Display = display };
         _entries[output.Id] = entry;
@@ -172,7 +173,7 @@ internal sealed class OutputWindows : IDisposable
                 ? new OutputWindowOptions(output.Name, key.Monitor, Borderless: true, VSync: true)
                 : new OutputWindowOptions(output.Name, key.Monitor, Borderless: false, VSync: true, Width: key.Width, Height: key.Height, X: 32, Y: 32);
             entry.Window = OutputWindow.Create(_context, options);
-            _engine.Attach(output.Id, entry.Window);
+            _engine.Attach(output.Id, entry.Window, refreshHz);
             Open++;
             RepickPacer();
             return true;

@@ -109,11 +109,8 @@ public static class MappingRecipes
         var lines = new List<string>();
         foreach (var o in targets.Where(o => !o.Blend.Auto3D))
             lines.Add($"SET {o.Id} blend.auto3D true");
-        var all = targets.Count == projectorOutputs.Count && projectorOutputs.All(targets.Contains);
-        if (all)
-            lines.Add("BLEND SOLVE ALL");
-        else
-            lines.AddRange(targets.Select(o => $"BLEND SOLVE {o.Id}"));
+        // One solve weighs every output that blends automatically together (and one runs at a time): one line.
+        lines.Add("BLEND SOLVE ALL");
         return new RecipePlan(BlendOutputsName, [], lines, notes);
     }
 

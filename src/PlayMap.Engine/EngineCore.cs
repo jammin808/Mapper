@@ -153,6 +153,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         if (ct.IsCancellationRequested)
             return ValueTask.FromResult(CommandReply.Fail("cancelled"));
+        // A shown copy (its secret words replaced by the marker) stands for a line kept elsewhere: it never runs.
+        if (VerbCatalog.IsShownCopy(line))
+            return ValueTask.FromResult(CommandReply.Fail("this is a shown copy — its secret words were kept back where it was shown; "
+                + "the line runs only from the record that holds them (APPROVE its proposal)"));
         if (TryOps(line, session, ct, out var ops))
             return new ValueTask<CommandReply>(ops);
         return new ValueTask<CommandReply>(HandleOnLaneAsync(line, session, ct));
@@ -240,12 +244,14 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         Playback.Tick(Store.Project, now);
         if (_air.IdentifyUntilLeaderNs != 0 && now >= _air.IdentifyUntilLeaderNs)
             SetAir(a => a with { IdentifyUntilLeaderNs = 0 });
+        ExpireViews();
     }
 
     private long MediaDurationNs(string mediaId) => Store.Project.FindMedia(mediaId)?.Info.DurationNs ?? 0;
 
     public async ValueTask DisposeAsync()
     {
+        StopSolving();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
         await Journal.DisposeAsync().ConfigureAwait(false);

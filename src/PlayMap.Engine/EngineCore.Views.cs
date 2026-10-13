@@ -14,12 +14,28 @@ namespace PlayMap.Engine;
 /// why — the desk asks quietly and draws its own stand-in for a view the node cannot give.</summary>
 public sealed partial class EngineCore
 {
-    private const string ViewSyntax = "VIEW <view> SHOW <what> [<w>x<h>] | VIEW <view> CAMERA {\"intrinsics\":…,\"pose\":…} | VIEW <view> HIDE";
+    private const string ViewSyntax = "VIEW <view> SHOW <what> [<w>x<h>] | VIEW <view> CAMERA {\"intrinsics\":…,\"pose\":…} | VIEW <view> KEEP | VIEW <view> HIDE";
+
+    /// <summary>How often the lane lets lapsed view leases go.</summary>
+    private const long ViewExpiryEveryNs = 1_000_000_000;
+
+    private long _viewsExpiredAtNs;
 
     private PreviewViews? _previews;
 
     /// <summary>The node's preview views: the render host attaches to it, the scan side registers its feeds.</summary>
-    public PreviewViews Previews => LazyInitializer.EnsureInitialized(ref _previews, () => new PreviewViews(Services.Settings.NodeId));
+    public PreviewViews Previews => LazyInitializer.EnsureInitialized(ref _previews, () => new PreviewViews(Services.Settings.NodeId, Services.Mono));
+
+    /// <summary>On the lane's tick: views whose viewer stopped renewing them are hidden (once a second at most).</summary>
+    private void ExpireViews()
+    {
+        var now = Services.Mono.NowNs;
+        if (_previews is null || now - _viewsExpiredAtNs < ViewExpiryEveryNs)
+            return;
+        _viewsExpiredAtNs = now;
+        foreach (var view in _previews.Expire())
+            Journal.Add("view", $"{view} hidden: not renewed for {PreviewViews.LeaseNs / 1_000_000_000} s (VIEW {view} KEEP renews it)", ok: true);
+    }
 
     private CommandReply View(List<string> args, SessionInfo session)
     {
@@ -63,6 +79,9 @@ public sealed partial class EngineCore
                     return CommandReply.Fail("VIEW <view> CAMERA {\"intrinsics\":…,\"pose\":…} — the eye in the project's own JSON");
                 return Previews.Camera(view, camera) is { } notMoved ? CommandReply.Fail(notMoved) : CommandReply.Success(effect: $"{view} looks from its new eye");
             }
+            case "KEEP":
+                return args.Count != 2 ? CommandReply.Fail("VIEW <view> KEEP")
+                    : Previews.Keep(view) is { } notKept ? CommandReply.Fail(notKept) : CommandReply.Success(effect: $"{view} kept");
             case "HIDE":
                 return args.Count != 2 ? CommandReply.Fail("VIEW <view> HIDE")
                     : Previews.Hide(view) is { } notHidden ? CommandReply.Fail(notHidden) : CommandReply.Success(effect: $"{view} hidden");

@@ -666,7 +666,7 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     private WireReply View(WireLine line)
     {
-        // VIEW <view> SHOW <what> [<w>x<h>] | VIEW <view> CAMERA <json> | VIEW <view> HIDE
+        // VIEW <view> SHOW <what> [<w>x<h>] | VIEW <view> CAMERA <json> | VIEW <view> KEEP | VIEW <view> HIDE
         var view = line.Word(1);
         switch (line.WordUpper(2))
         {
@@ -676,10 +676,12 @@ public sealed partial class FakeEngineLink : IEngineLink
             case "SHOW":
                 _views[view] = line.Word(3);
                 return Ok();
+            case "KEEP":
+                return _views.ContainsKey(view) ? Ok() : Err($"no view {view} is shown");
             case "HIDE":
                 return _views.Remove(view) ? Ok() : Err($"no view '{view}'");
             default:
-                return Err("VIEW <view> SHOW <what> [<w>x<h>] | CAMERA <json> | HIDE");
+                return Err("VIEW <view> SHOW <what> [<w>x<h>] | CAMERA <json> | KEEP | HIDE");
         }
     }
 

@@ -94,15 +94,24 @@ as raw substrings):
  "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","cpuPct":12,"memMb":840,"gcPauseMsMax":0.4},
  "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false},
  "faults":[],
- "ai":{"mcp":true,"clients":1,"proposals":0},
+ "ai":{"mcp":true,"clients":1,"proposals":0,"assistant":{"enabled":true,"provider":"claude","model":"…","effort":"medium",
+   "baseUrl":"","runLowWithoutAsking":true,"runReviewWithoutAsking":false,"keySet":true,"kept":true}},
  "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
    "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
    "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
-   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}]}
+   "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}],
+ "solve":null}
 ```
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
   Stagewatch's VT link and countdown work unchanged; `seq` moves on every discontinuity.
+- A playlist's item may play another playlist (`PLAYLIST ADD <playlist> playlist:<other>`): it shows that playlist's
+  current picture, its transitions included. An edit that would make a playlist play itself, directly or through
+  others, is refused with the reason; a loop already in a project draws black there and its playlists' rows carry
+  `"problem":"plays itself (A → B → A) — black there"`.
+- `outputs[].dropped` counts that output's refresh slots that passed without a new picture, against its own target:
+  a windowed output's display refresh, a headless output's configured `refreshHz` (the headless loop runs at the
+  fastest enabled output's refresh, not the show's frame rate). `fps` and `frameMsP95` are measured the same way.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
@@ -117,7 +126,8 @@ as raw substrings):
   recovery record. Each is also a red item in the context. A node starts while at least one of the wire and the web
   port listens.
 - `ai` is the assistant's door: `mcp` (served at `/mcp`), `clients` (MCP clients heard in the last minute and open
-  WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant).
+  WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant), and `assistant` — its settings
+  in force as `ASSISTANT STATUS` answers them (null on a node without one).
 
 - `scan` is the running or last scan (null before the first): its id from SCAN START's receipt on
   (`OK {"stage":"accepted","effect":"…","scan":"sc…"}`), `state` starting / running / done / failed / cancelled,
@@ -126,6 +136,16 @@ as raw substrings):
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
   first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
   (`VIEW <view> SHOW scan:<id>:smart|confidence`, `VIEW <view> SHOW camera:<id>`; see Previews).
+- `solve` is the running or last `BLEND SOLVE` (null before the first): `{"id":"bs1","kind":"blend","state":"running",
+  "progress":0.42,"words":"solving the blend for 2 outputs","outputs":[],"problems":[]}`. `state` is running, done,
+  stale (the stage changed while it solved: the result was dropped, nothing installed), failed or cancelled; once
+  done, `outputs` has each output's `covered`, `overlap` and `shadow` fractions, `maxOverlap`, `overlapsWith`, the map's
+  size and words. `BLEND SOLVE` answers at once — `OK {"stage":"accepted","effect":"…","solve":"bs1"}` — and solves on a
+  worker, one at a time (a second is refused while one runs); the outcome lands in the journal and here.
+- `cameras` lists the cameras shown on views now, and any that could not give a picture: `{"id":"cm…","name":"Webcam",
+  "state":"failed","views":1,"problem":"Webcam did not open: /dev/video9: No such file or directory"}`. `state` is
+  live, opening, scanning (a scan holds it), simulated or failed; a failed camera's views carry a card with the same
+  words, and showing a view again tries the camera again. A camera with no view left drops off the list.
 - `devices` is one row per projector link in the project's order: the link, then what its projector reports
   (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
   `credential` says whether a secret is kept for it — never the secret.
@@ -158,6 +178,12 @@ as raw substrings):
   journalled and never repeated in a reply.
 - The assistant's settings are the node's own, in `playmap.assistant.json` beside its settings (provider, model,
   effort, the low- and review-risk switches); with no file the assistant is off. Its key is never in that file.
+  `ASSISTANT STATUS` answers them with `keySet` (whether a key is kept — never the key) and `kept` (whether a change
+  is written to the file). `ASSISTANT SET enabled|provider|model|effort|baseUrl|runLowWithoutAsking|runReviewWithoutAsking
+  <value>` changes one: high risk for `enabled` and `provider`, review for the rest; from this machine or its paired
+  desk only, never from an assistant, MCP or an approval; written to the file first, then in force at once (the
+  provider is made again and conversations start over). A value that changes nothing is refused. The key goes only
+  through `CREDENTIAL SET assistant …`.
 - `ASK <words>` runs one request of the client's conversation with the node's assistant and answers with its words
   and every line it ran or queued (`{"conversation","outcome","text","status","lines":[…],"queued":["ap1"]}`).
   `PROPOSALS [ALL]` lists what waits; `APPROVE <proposal>` runs the line through the node's own path and answers
@@ -165,6 +191,12 @@ as raw substrings):
   assistant, from MCP or from an approval of either is refused. An MCP assistant's high-risk line (while "AI may
   act" is off) waits on the same list — `run_command` answers `{"stage":"queued","proposal":"ap…"}` — except a
   person's own verbs (`APPROVE`, `REJECT`, `ASK`, `CREDENTIAL …`), which are refused, not queued.
+- A proposal is shown without its verb's secret words (`LINK PATTERNS 10.0.0.5 ‹secret›`): in `PROPOSALS`, the
+  replies, the journal, the queued receipt MCP answers and the copy a Stagewatch approval desk is offered. The node
+  keeps the line whole and an approval runs that (a proposal approved on the desk runs from the node's own record,
+  never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
+  its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
+  refused wherever it arrives.
 - `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 
@@ -181,7 +213,11 @@ between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"s
 The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <what> [<w>x<h>]`, where
 `<what>` is `editor`, `output:<id>`, `projector:<id>` (the stage as that projector lights it, at its raster),
 `camera:<id>` or `scan:<id>:smart|confidence`; `VIEW <view> CAMERA {"intrinsics":…,"pose":…}` moves an editor
-view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> HIDE` lets it go.
+view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> KEEP` renews it;
+`VIEW <view> HIDE` lets it go. A shown view is leased: SHOW, CAMERA and KEEP renew it, and a view not renewed for
+15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the node nothing for
+long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
+every view it shows every 5 s.
 Pictures are BGRA in the shared-memory ring `PreviewRing.PathFor(nodeId, view)`, fitted inside the size asked
 (and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
 at most 30. A view keeps its ring while it lives (a reader opens it once). View ids are file names: letters,

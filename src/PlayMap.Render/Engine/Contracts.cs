@@ -4,6 +4,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Playback;
 
 namespace PlayMap.Render.Engine;
 
@@ -21,7 +22,20 @@ public interface ISourceProvider
     /// pictures come as frames through <see cref="Acquire"/>. Called on the render thread (possibly more than
     /// once a frame); must not block. A provider that routes nothing keeps the default.</summary>
     SourceRef? Route(SourceRef source, long leaderNs) => null;
+
+    /// <summary>The transition a playlist is in at a leader instant — the picture it leaves and the one it
+    /// enters, how they mix and how far — or null when it shows one picture. Each side is a source the provider
+    /// itself answers: a picture the renderer draws (a generator, a colour, a canvas, none) or a ref the
+    /// provider made for one item's frames, which it answers through <see cref="Acquire"/> and never mixes or
+    /// routes again. Called on the render thread; must not block. A provider that mixes nothing keeps the
+    /// default.</summary>
+    SourceMix? Mix(SourceRef source, long leaderNs) => null;
 }
+
+/// <summary>Two pictures of one playlist across a transition window: <see cref="From"/> going out,
+/// <see cref="To"/> coming in, weighted by <see cref="Transitions.Weights"/> at <see cref="Progress"/> (0 = the
+/// window opens, 1 = the switch) and mixed in linear light.</summary>
+public readonly record struct SourceMix(SourceRef From, SourceRef To, TransitionKind Kind, double Progress);
 
 /// <summary>Outputs that show a picture raw this frame — a structured-light frame at the projector's native
 /// pixels: the whole raster, with no warp, mask, blend, lens, trim, rotation, dither or identification card.

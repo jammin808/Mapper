@@ -135,12 +135,17 @@ public sealed class RenderEngine : IDisposable
     }
 
     /// <summary>Shows an output in a window. The first window attached paces the loop (its swap waits for
-    /// the vertical blank); the others swap at once, so one thread driving several windows waits once a frame.</summary>
-    public void Attach(string outputId, OutputWindow window)
+    /// the vertical blank); the others swap at once, so one thread driving several windows waits once a frame.
+    /// The output's presents are measured against <paramref name="refreshHz"/>, its display's refresh (60 when the
+    /// platform does not say).</summary>
+    public void Attach(string outputId, OutputWindow window, double refreshHz = 0)
     {
         ArgumentNullException.ThrowIfNull(window);
         var st = State(outputId);
         st.Window = window;
+        var hz = refreshHz > 1 && double.IsFinite(refreshHz) ? refreshHz : 60;
+        if (Math.Abs(st.Pacer.NominalHz - hz) > 1e-6)
+            st.Pacer = new FramePacer(hz);
         if (!_paceOrder.Contains(outputId))
             _paceOrder.Add(outputId);
         RepickPacer();

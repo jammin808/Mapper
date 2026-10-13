@@ -118,6 +118,7 @@ public sealed partial class RenderHost : IRenderHost
     private readonly double[] _frameMsSorted = new double[FrameRing];
     private readonly Lock _frameMsGate = new();
     private FramePacer _loopPacer = new(60);
+    private readonly HeadlessPacing _headless = new();
     private readonly FramePacer _vblank = new(60);
     private readonly Func<string, long> _presentOf;
 
@@ -469,19 +470,22 @@ public sealed partial class RenderHost : IRenderHost
         renderer.Render(in inputs);
         if (windows.Pacer is { } pacer && windows.WindowOf(pacer) is { } paced)
             _vblank.OnPresented(paced.LastSwapNs);
-        _loopPacer.OnPresented(MonoClock.Instance.NowNs);
-        RenderPreviews(renderer, project, monoNow);
+        // The frame's present is stamped once, at the same point of every frame: its outputs drawn (a scan frame on an
+        // output with no window finished on the GPU first), before the previews and before any reader runs between
+        // frames — so what previews cost never moves it, and no readback of the frame can come before it.
+        _finishNs = -1;
         if (_scan.AnyHanded)
-        {
-            _finishNs = -1;
             _scan.AfterFrame(_presentOf);
-        }
+        var finished = _finishNs >= 0 ? _finishNs : MonoClock.Instance.NowNs;
+        _loopPacer.OnPresented(finished);
+        _headless.OnPresented(finished);
+        RenderPreviews(renderer, project, monoNow);
         if (UpdateHealth(renderer, windows))
             WindowsChanged(engine);
     }
 
     /// <summary>When a scan frame was presented on an output: its window's swap, else (no window) the instant
-    /// the GPU finished the frame.</summary>
+    /// the GPU finished the frame's outputs — taken once a frame, before its previews are drawn.</summary>
     private long PresentOf(string outputId)
     {
         if (_windows!.WindowOf(outputId) is { } window)
@@ -508,6 +512,7 @@ public sealed partial class RenderHost : IRenderHost
 
     private void ProjectChanged(EngineCore engine, Project project)
     {
+        _headless.Sync(project);
         if (_options.Windows)
         {
             RefreshDisplays();
@@ -572,11 +577,12 @@ public sealed partial class RenderHost : IRenderHost
                 }
                 else
                 {
-                    // Offscreen: the loop's own cadence is the output's.
+                    // Offscreen: the loop's cadence, measured against this output's own refresh target.
+                    var pacer = _headless.Of(h.OutputId) ?? _loopPacer;
                     h.Open = false;
-                    h.Fps = _loopPacer.Fps;
-                    h.Dropped = _loopPacer.Missed;
-                    h.FrameMsP95 = _loopPacer.FrameMsP95;
+                    h.Fps = pacer.Fps;
+                    h.Dropped = pacer.Missed;
+                    h.FrameMsP95 = pacer.FrameMsP95;
                 }
                 if (windows.DisplayOf(h.OutputId) is { } display)
                     h.Display = display;
@@ -610,7 +616,8 @@ public sealed partial class RenderHost : IRenderHost
     /// periods so the mean rate is exact, and is taken up again from now after a stall.</summary>
     private void Pace(EngineCore engine, long frameStartNs)
     {
-        var rate = _options.HeadlessRateHz > 0 ? _options.HeadlessRateHz : RenderEngine.FrameRateOf(engine.Store.Project.Settings.FrameRate);
+        var project = engine.Store.Project;
+        var rate = _options.HeadlessRateHz > 0 ? _options.HeadlessRateHz : HeadlessPacing.LoopRateHz(project, RenderEngine.FrameRateOf(project.Settings.FrameRate));
         if (Math.Abs(_loopPacer.NominalHz - rate) > 1e-6)
             _loopPacer = new FramePacer(rate);
         var period = (long)(1e9 / rate);

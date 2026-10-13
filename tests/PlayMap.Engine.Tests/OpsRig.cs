@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using PlayMap.Assistant;
@@ -26,20 +27,24 @@ internal sealed class OpsRig : IAsyncDisposable
     private readonly IAsyncDisposable _ops;
     private int _disposed;
 
-    public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null)
+    public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null,
+        ScanRunnerOptions? scan = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
-        Scanner = new ScanRunner(null);
+        Scanner = new ScanRunner(null, scan);
         Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,
             Timings = DriverTimings.Fast,
             Manager = new DeviceManagerOptions { TickMs = 50 },
         });
+        Home = new NodeHome(Folder);
+        var home = Home;
         Assistant = new AssistantService(Credentials, assistant ?? new AssistantSettings { Enabled = true }, new AssistantServiceOptions
         {
+            Save = s => AssistantSettingsFile.Save(home, s),
             Providers = (_, key) =>
             {
                 Model.KeySeen = key;
@@ -54,12 +59,16 @@ internal sealed class OpsRig : IAsyncDisposable
             Scan = Scanner,
             ProjectFolder = Folder,
             JournalPath = Path.Combine(Folder, "journal.jsonl"),
+            NetworkControl = network,
         };
         Engine = new EngineCore(services with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
         _ops = OpsServices.Attach(Engine);
     }
 
     public string Folder { get; }
+
+    /// <summary>The node's folder as the host has it: the assistant's settings file is kept here.</summary>
+    public NodeHome Home { get; }
 
     public NodeCredentialStore Credentials { get; }
 
@@ -197,4 +206,30 @@ internal sealed class ScriptedModel : IAssistantProvider
         new([new ToolCallPart(id, AssistantTools.ProposeCommands,
             JsonSerializer.Serialize(new Dictionary<string, object> { ["lines"] = lines, ["reason"] = reason }))],
             StopKind.ToolUse, new UsageCounts(100, 20, 0, 0), "scripted-model");
+}
+
+/// <summary>The network edge's link verbs, recorded exactly as the node handed them over (the secret words included).</summary>
+internal sealed class LinkSpy : INetworkControl
+{
+    public ConcurrentQueue<(string? Host, string? Secret)> Patterns { get; } = new();
+
+    public ConcurrentQueue<(string? Host, string? Secret)> Stagewatch { get; } = new();
+
+    public Task<string> LinkPatternsAsync(string? host, string? token, CancellationToken ct)
+    {
+        Patterns.Enqueue((host, token));
+        return Task.FromResult("following Patterns at " + host);
+    }
+
+    public Task<string> LinkStagewatchAsync(string? host, string? key, CancellationToken ct)
+    {
+        Stagewatch.Enqueue((host, key));
+        return Task.FromResult("following Stagewatch at " + host);
+    }
+
+    public Task<string> LeadAsync(string group, CancellationToken ct) => Task.FromResult("leading " + group);
+
+    public Task<string> FollowAsync(string group, string nodeId, CancellationToken ct) => Task.FromResult("following " + nodeId);
+
+    public Task<string> FetchAsync(IReadOnlyList<MediaItem> items, string? fromNode, CancellationToken ct) => Task.FromResult("nothing to fetch");
 }

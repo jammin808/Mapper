@@ -10,8 +10,8 @@ using PlayMap.Engine.Rendering;
 namespace PlayMap.Engine.Tests.Rendering;
 
 /// <summary>VIEW with no GPU: a render-backed view is refused with words, a bad view id, kind or size is
-/// refused cheaply, a peer elsewhere that has not paired is refused, and a camera view is fed by whatever the
-/// scan side registered — into the ring the desk reads.</summary>
+/// refused cheaply, a peer elsewhere that has not paired is refused, a camera view is fed by whatever the
+/// scan side registered — into the ring the desk reads — and a view nobody renews is let go.</summary>
 public sealed class ViewVerbTests
 {
     private static readonly SessionInfo Desk = SessionInfo.Desk("d1");
@@ -42,9 +42,9 @@ public sealed class ViewVerbTests
         }
     }
 
-    private static EngineCore Engine()
+    private static EngineCore Engine(ManualClock? clock = null)
     {
-        var services = EngineServices.ForTests(new ManualClock(5_000_000_000));
+        var services = EngineServices.ForTests(clock ?? new ManualClock(5_000_000_000));
         return new EngineCore(services with { Settings = services.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8] } });
     }
 
@@ -103,6 +103,36 @@ public sealed class ViewVerbTests
         Assert.True((await Run(engine, "VIEW scan-camera HIDE")).Ok);
         Assert.True(feed.Stopped);
         Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task AViewNotRenewedForFifteenSecondsIsHiddenAndItsRingLetGo()
+    {
+        var clock = new ManualClock(5_000_000_000);
+        await using var engine = Engine(clock);
+        var feed = new GreyCamera();
+        engine.Previews.Register("camera", feed);
+        Assert.True((await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540")).Ok);
+        var path = engine.Previews.RingPath("scan-camera");
+        Assert.Contains("no view nowhere is shown", (await Run(engine, "VIEW nowhere KEEP")).Payload, StringComparison.Ordinal);
+
+        // Renewed within its lease (KEEP, or SHOW of the same thing), it lives on.
+        clock.NowNs += 10_000_000_000;
+        Assert.True((await Run(engine, "VIEW scan-camera KEEP")).Ok);
+        clock.NowNs += 10_000_000_000;
+        Assert.True((await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540")).Ok);
+        clock.NowNs += 10_000_000_000;
+        Assert.Empty(engine.Previews.Expire());
+        Assert.True(File.Exists(path));
+        Assert.False(feed.Stopped);
+
+        // A viewer that stopped renewing: the lane's tick hides the view and lets its ring go, and says so.
+        clock.NowNs += 6_000_000_000;
+        Assert.True(await OpsRig.Eventually(() => !File.Exists(path)));
+        Assert.True(feed.Stopped);
+        Assert.Empty(engine.Previews.Shown());
+        Assert.Contains(engine.Journal.Recent(10), r => r.Text.StartsWith("scan-camera hidden: not renewed for 15 s", StringComparison.Ordinal));
+        Assert.False((await Run(engine, "VIEW scan-camera KEEP")).Ok);
     }
 
     [Fact]

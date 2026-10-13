@@ -160,9 +160,25 @@ public static class StateWriter
         w.WriteBoolean("mcp", s.Ai?.Mcp ?? false);
         w.WriteNumber("clients", s.Ai?.Clients ?? 0);
         w.WriteNumber("proposals", s.Proposals?.Waiting ?? 0);
+        // The assistant's settings in force and whether its key is set (never the key); null on a node without one.
+        if (s.Assistant is { } assistant)
+        {
+            w.WritePropertyName("assistant");
+            EngineCore.WriteAssistantStatus(w, assistant);
+        }
+        else
+        {
+            w.WriteNull("assistant");
+        }
         w.WriteEndObject();
 
         e.WriteOpsState(w);
+
+        w.WritePropertyName("solve");
+        e.WriteSolveState(w);
+
+        w.WritePropertyName("cameras");
+        e.WriteCamerasState(w);
 
         w.WriteEndObject();
     }
@@ -286,6 +302,9 @@ public static class StateWriter
         else
             w.WriteNull("next");
         w.WriteNumber("items", list.Items.Length);
+        // A loop of playlists playing each other (only an old file or a hand edit can hold one) draws black there.
+        if (PlaylistNesting.Loop(e.Store.Project, list.Id) is { } loop)
+            w.WriteString("problem", $"plays itself ({loop}) — black there");
         w.WriteEndObject();
     }
 

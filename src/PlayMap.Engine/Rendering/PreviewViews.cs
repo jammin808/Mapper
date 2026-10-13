@@ -1,5 +1,6 @@
 using System.Globalization;
 using PlayMap.Core.Media;
+using PlayMap.Core.Time;
 using PlayMap.Render.Projection;
 
 namespace PlayMap.Engine.Rendering;
@@ -221,12 +222,19 @@ public sealed class PreviewSink : IDisposable
     }
 }
 
-/// <summary>The node's preview views, as the VIEW verb drives them: SHOW, CAMERA and HIDE by view id. The
+/// <summary>The node's preview views, as the VIEW verb drives them: SHOW, CAMERA, KEEP and HIDE by view id. The
 /// render host attaches itself for the editor, outputs and projectors; the scan side registers feeds for
 /// cameras and scans (<see cref="Register"/>). A view of a kind nobody draws is refused with words (the desk
-/// then draws its own stand-in): with no GPU on the node, every render-backed view is. Thread-safe.</summary>
+/// then draws its own stand-in): with no GPU on the node, every render-backed view is.
+///
+/// <para>A shown view is leased: SHOW, CAMERA and KEEP renew it, and one not renewed for <see cref="LeaseNs"/> is
+/// hidden by <see cref="Expire"/> and its ring let go — a viewer that went away without HIDE (a desk that crashed,
+/// a peer that dropped) costs the node nothing for long. Thread-safe.</para></summary>
 public sealed class PreviewViews : IDisposable
 {
+    /// <summary>How long a view lives without SHOW, CAMERA or KEEP.</summary>
+    public const long LeaseNs = 15_000_000_000;
+
     private sealed record FeedView(ViewRequest Request, PreviewSink Sink, IDisposable Running);
 
     private readonly string _nodeId;
@@ -234,12 +242,15 @@ public sealed class PreviewViews : IDisposable
     private readonly Dictionary<string, IPreviewFeed> _feeds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FeedView> _fed = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ViewRequest> _shown = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _renewed = new(StringComparer.Ordinal);
+    private readonly IMonoClock _clock;
     private IViewRenderer? _renderer;
 
-    public PreviewViews(string nodeId)
+    public PreviewViews(string nodeId, IMonoClock? clock = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         _nodeId = nodeId;
+        _clock = clock ?? MonoClock.Instance;
     }
 
     /// <summary>The ring file a view's pictures go to.</summary>
@@ -260,7 +271,10 @@ public sealed class PreviewViews : IDisposable
             _renderer = renderer;
             if (renderer is null)
                 foreach (var id in _shown.Where(kv => kv.Value.Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector).Select(kv => kv.Key).ToList())
+                {
                     _shown.Remove(id);
+                    _renewed.Remove(id);
+                }
         }
     }
 
@@ -284,7 +298,10 @@ public sealed class PreviewViews : IDisposable
         lock (_gate)
         {
             if (_shown.TryGetValue(request.ViewId, out var had) && had == request)
+            {
+                _renewed[request.ViewId] = _clock.NowNs;
                 return null;
+            }
             switch (request.Kind)
             {
                 case ViewKind.Editor or ViewKind.Output or ViewKind.Projector:
@@ -335,7 +352,37 @@ public sealed class PreviewViews : IDisposable
                 }
             }
             _shown[request.ViewId] = request;
+            _renewed[request.ViewId] = _clock.NowNs;
             return null;
+        }
+    }
+
+    /// <summary>Renews a shown view's lease; null when renewed, else the words why not.</summary>
+    public string? Keep(string viewId)
+    {
+        lock (_gate)
+        {
+            if (!_shown.ContainsKey(viewId))
+                return $"no view {viewId} is shown — VIEW {viewId} SHOW <what> first";
+            _renewed[viewId] = _clock.NowNs;
+            return null;
+        }
+    }
+
+    /// <summary>Hides every view whose lease ran out (no SHOW, CAMERA or KEEP for <see cref="LeaseNs"/>), letting
+    /// its ring go; answers the views hidden.</summary>
+    public IReadOnlyList<string> Expire()
+    {
+        lock (_gate)
+        {
+            var now = _clock.NowNs;
+            List<string>? gone = null;
+            foreach (var (id, at) in _renewed)
+                if (now - at > LeaseNs && _shown.ContainsKey(id))
+                    (gone ??= []).Add(id);
+            foreach (var id in gone ?? [])
+                Hide(id);
+            return gone ?? (IReadOnlyList<string>)[];
         }
     }
 
@@ -344,7 +391,15 @@ public sealed class PreviewViews : IDisposable
     {
         ArgumentNullException.ThrowIfNull(camera);
         lock (_gate)
-            return _renderer is null ? "this node draws no pictures (no OpenGL here) — the view is the desk's own" : _renderer.Camera(viewId, camera);
+        {
+            if (_renderer is null)
+                return "this node draws no pictures (no OpenGL here) — the view is the desk's own";
+            if (_renderer.Camera(viewId, camera) is { } refused)
+                return refused;
+            if (_shown.ContainsKey(viewId))
+                _renewed[viewId] = _clock.NowNs;
+            return null;
+        }
     }
 
     /// <summary>Lets a view go; null when it went, else the words why not.</summary>
@@ -352,6 +407,7 @@ public sealed class PreviewViews : IDisposable
     {
         lock (_gate)
         {
+            _renewed.Remove(viewId);
             if (!_shown.Remove(viewId, out var had))
                 return $"no view {viewId} is shown";
             if (had.Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector)
@@ -377,6 +433,7 @@ public sealed class PreviewViews : IDisposable
             foreach (var id in _fed.Keys.ToList())
                 StopFeed(id);
             _shown.Clear();
+            _renewed.Clear();
         }
     }
 }
