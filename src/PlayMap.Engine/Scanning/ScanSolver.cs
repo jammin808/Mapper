@@ -230,7 +230,7 @@ public static class ScanSolver
     /// (a third of the lit area's extent or more), the known distance over the reconstructed one; the median of
     /// those the source knows. One reconstructed point is noisy at an edge; the median of many is not. Null when the
     /// source knows none.</summary>
-    private static (double Factor, int Samples)? KnownScale(ProjectorCalibration p, Func<Vec2d, Vec2d, double?> known)
+    private static (double Factor, int Samples)? KnownScale(Core.Calibration.ProjectorCalibration p, Func<Vec2d, Vec2d, double?> known)
     {
         var good = Enumerable.Range(0, p.CameraPixels.Count).Where(i => p.Inliers[i] && PointCloud.IsValid(p.Points[i])).ToArray();
         if (good.Length < 2)

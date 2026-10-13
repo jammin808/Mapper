@@ -46,6 +46,12 @@ public sealed record PlaylistItem(
 {
     public static PlaylistItem For(string id, SourceRef source, string label) =>
         new(id, source, label, 0, 0, 0, EndAction.Next, null, TransitionKind.Cut, 0, 1.0, 1.0);
+
+    /// <summary>The timecode the item starts at, as the cue sheet writes it ("01:00:00:00", ';' for drop frame) (wp2-control).</summary>
+    public string? TcIn { get; init; }
+
+    /// <summary>Effects on the item's picture (wp2-fx).</summary>
+    public FxChain Fx { get; init; } = FxChain.Empty;
 }
 
 /// <summary>An ordered run of items with its own transport. A node plays any number of playlists at once
@@ -56,7 +62,11 @@ public sealed record Playlist(
     ImmutableArray<PlaylistItem> Items,
     bool Loop,
     /// <summary>When set, this playlist's transport follows the sync group's leader on the network.</summary>
-    string? SyncGroup) : IEntity;
+    string? SyncGroup) : IEntity
+{
+    /// <summary>Set: the playlist follows timecode (wp2-control).</summary>
+    public TimecodeChase? Chase { get; init; }
+}
 
 /// <summary>Playlists that play playlists: an item whose source is another playlist shows that playlist's current
 /// picture, so long as no chain of them comes back to a playlist already on it (that would be a picture of itself).

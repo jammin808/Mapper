@@ -34,4 +34,7 @@ public sealed record DeviceLink(
 {
     /// <summary>The protocol every venue projector understands (power, input, shutter, health).</summary>
     public const string DefaultProtocol = "pjlink";
+
+    /// <summary>The projector's own processing as read before PlayMap reset it (wp2-align).</summary>
+    public NativeSnapshot? Snapshot { get; init; }
 }

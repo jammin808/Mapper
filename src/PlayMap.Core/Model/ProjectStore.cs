@@ -45,6 +45,10 @@ public sealed class ProjectStore
     /// <summary>Raised after every published change, on the thread that made it.</summary>
     public event Action<ProjectSnapshot>? Changed;
 
+    /// <summary>Checked before Apply, ApplyGroup, Undo and Redo publish: (before, after) → refusal words, or null to let it
+    /// through. Runs under the store's lock, so it must be quick and pure.</summary>
+    public Func<Project, Project, string?>? Guard { get; set; }
+
     public bool CanUndo
     {
         get
@@ -101,6 +105,8 @@ public sealed class ProjectStore
             }
             if (ReferenceEquals(after, before.Project) || after == before.Project)
                 return EditResult.Refused($"{label}: nothing to change", before.Revision);
+            if (Guard?.Invoke(before.Project, after) is { } guarded)
+                return EditResult.Refused(guarded, before.Revision);
 
             var now = _nowMs();
             var coalesce = coalesceKey is not null
@@ -123,6 +129,55 @@ public sealed class ProjectStore
         return new EditResult(true, label, published.Revision);
     }
 
+    /// <summary>Several edits as one undo step and one <see cref="Changed"/>: each edit reads the root the previous one made,
+    /// and a refusal of any refuses them all (wildcard OSC, MOD AUTO, LED IMPORT, BLIND COMMIT).</summary>
+    public EditResult ApplyGroup(string label, IReadOnlyList<Func<Project, Project>> edits)
+    {
+        ArgumentNullException.ThrowIfNull(edits);
+        return Apply(label, p =>
+        {
+            foreach (var edit in edits)
+                p = edit(p);
+            return p;
+        });
+    }
+
+    /// <summary>Publishes a new root with no undo entry (locks). Every root kept for undo and redo has these fields re-applied
+    /// by <paramref name="keep"/> (older root, the new root) → older root carrying them, so an undo never takes them back. The
+    /// guard is not asked: what this writes is what the guard reads.</summary>
+    public EditResult ApplyUnrecorded(string label, Func<Project, Project> edit, Func<Project, Project, Project>? keep = null)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        ProjectSnapshot published;
+        lock (_gate)
+        {
+            var before = _current;
+            Project after;
+            try
+            {
+                after = edit(before.Project);
+            }
+            catch (EditRefusedException refused)
+            {
+                return EditResult.Refused(refused.Message, before.Revision);
+            }
+            if (ReferenceEquals(after, before.Project) || after == before.Project)
+                return EditResult.Refused($"{label}: nothing to change", before.Revision);
+            if (keep is not null)
+            {
+                for (var i = 0; i < _undo.Count; i++)
+                    _undo[i] = (keep(_undo[i].Root, after), _undo[i].Label);
+                for (var i = 0; i < _redo.Count; i++)
+                    _redo[i] = (keep(_redo[i].Root, after), _redo[i].Label);
+            }
+            _lastCoalesceKey = null;
+            published = new ProjectSnapshot(after, before.Revision + 1, label);
+            _current = published;
+        }
+        Changed?.Invoke(published);
+        return new EditResult(true, label, published.Revision);
+    }
+
     public EditResult Undo()
     {
         ProjectSnapshot published;
@@ -131,6 +186,8 @@ public sealed class ProjectStore
             if (_undo.Count == 0)
                 return EditResult.Refused("nothing to undo", _current.Revision);
             var (root, label) = _undo[^1];
+            if (Guard?.Invoke(_current.Project, root) is { } guarded)
+                return EditResult.Refused(guarded, _current.Revision);
             _undo.RemoveAt(_undo.Count - 1);
             _redo.Add((_current.Project, label));
             _lastCoalesceKey = null;
@@ -149,6 +206,8 @@ public sealed class ProjectStore
             if (_redo.Count == 0)
                 return EditResult.Refused("nothing to redo", _current.Revision);
             var (root, label) = _redo[^1];
+            if (Guard?.Invoke(_current.Project, root) is { } guarded)
+                return EditResult.Refused(guarded, _current.Revision);
             _redo.RemoveAt(_redo.Count - 1);
             _undo.Add((_current.Project, label));
             _lastCoalesceKey = null;

@@ -51,4 +51,16 @@ public sealed record MediaItem(
     ImmutableArray<string> Tags) : IEntity
 {
     public bool IsFile => Kind is MediaKind.Video or MediaKind.Image or MediaKind.ImageSequence or MediaKind.Audio;
+
+    /// <summary>How to read the item's colour when its own tags are missing or wrong (HAP HDR has none) (wp2-decode).</summary>
+    public ColorOverride Color { get; init; } = ColorOverride.Auto;
+
+    /// <summary>Derived files of this item (wp2-optimise).</summary>
+    public ImmutableArray<MediaVersion> Versions { get; init; } = [];
+
+    /// <summary>"auto" (the best version this node plays, else the source), "source", or a version id (wp2-optimise).</summary>
+    public string Use { get; init; } = "auto";
+
+    /// <summary>A live input's pacing, loss policy and backup; stream items only (wp2-videoio).</summary>
+    public LiveSettings? Live { get; init; }
 }

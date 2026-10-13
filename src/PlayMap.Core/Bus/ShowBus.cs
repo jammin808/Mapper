@@ -35,6 +35,10 @@ public static class ShowBusConstants
     public const int PlayMapWirePort = 9941;
     /// <summary>PlayMap's fine clock sync (UDP, nanoseconds, between PlayMap nodes).</summary>
     public const int PlayMapSyncPort = 9942;
+    /// <summary>PlayMap's OSC control input (UDP), clear of Patterns (9696–9701) and Stagewatch (9923–9928).</summary>
+    public const int PlayMapOscPort = 9943;
+    /// <summary>PlayMap's OSCQuery (TCP, HTTP and WebSocket).</summary>
+    public const int PlayMapOscQueryPort = 9944;
 
     public const int PatternsWirePort = 9697;
     public const int PatternsHttpPort = 9696;

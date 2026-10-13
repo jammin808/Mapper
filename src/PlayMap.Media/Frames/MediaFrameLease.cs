@@ -35,7 +35,7 @@ public sealed class MediaFrameLease : VideoFrameLease
 
     /// <summary>When the frame was handed over by the decoder, on the process's monotonic clock (ns): a live
     /// source's latency is measured from here to the frame that draws it.</summary>
-    public long ArrivalNs => Slot.ArrivalNs;
+    public override long ArrivalNs => Slot.ArrivalNs;
 
     internal void Attach(FrameSlot slot) => Volatile.Write(ref _slot, slot);
 
