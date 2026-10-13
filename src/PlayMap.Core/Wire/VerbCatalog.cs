@@ -40,6 +40,10 @@ public sealed record VerbSpec(
     IReadOnlyList<string> Aliases)
 {
     public int WordCount => Name.Count(c => c == ' ') + 1;
+
+    /// <summary>The word index from which a line of this verb carries a secret (a token, a key, a password),
+    /// or null. Everything from there on is kept out of journals, logs and records.</summary>
+    public int? SecretFrom { get; init; }
 }
 
 /// <summary>The vocabulary. Patterns' clip verbs (VIDEO, with VT and CLIP as aliases) mean exactly what they
@@ -54,7 +58,7 @@ public static class VerbCatalog
         // Session — open on the wire.
         V("HELLO", "HELLO <name>[ module=<version>]", "Says who is talking (used in the pairing proof)", VerbCategory.Session, VerbRisk.Low, false),
         V("NONCE", "NONCE", "A fresh pairing challenge", VerbCategory.Session, VerbRisk.Low, false),
-        V("AUTH", "AUTH <token>", "Pairs with the token in clear (this machine only)", VerbCategory.Session, VerbRisk.Low, false),
+        V("AUTH", "AUTH <token>", "Pairs with the token in clear (this machine only)", VerbCategory.Session, VerbRisk.Low, false) with { SecretFrom = 1 },
         V("AUTH-PROOF", "AUTH-PROOF <hex>", "Pairs by proof: HMAC-SHA256(token, nonce + name)", VerbCategory.Session, VerbRisk.Low, false),
         V("PING", "PING [<t1 unix ms>]", "Liveness and the clock exchange: OK PONG t1 t2 t3", VerbCategory.Session, VerbRisk.Low, false),
         V("STATE", "STATE", "The whole node as JSON (also pushed as STATE {…} on change)", VerbCategory.Session, VerbRisk.Low, false, "STATUS"),
@@ -150,8 +154,8 @@ public static class VerbCatalog
         V("SYNC STATUS", "SYNC STATUS", "Clock offset, jitter and the sync groups", VerbCategory.Network, VerbRisk.Low, false),
         V("SYNC LEAD", "SYNC LEAD <group>", "This node leads a sync group", VerbCategory.Network, VerbRisk.Review, true),
         V("SYNC FOLLOW", "SYNC FOLLOW <group> <node>", "This node follows a sync group's leader", VerbCategory.Network, VerbRisk.Review, true),
-        V("LINK PATTERNS", "LINK PATTERNS <host[:port]>|OFF [<token>] | LINK PATTERNS FOLLOW-BLACKOUT ON|OFF", "Follows a Patterns desk (its clip clock, its blackout); FOLLOW-BLACKOUT says whether the desk's blackout blacks this node out", VerbCategory.Network, VerbRisk.Review, true),
-        V("LINK STAGEWATCH", "LINK STAGEWATCH <host[:port]>|\"\"|OFF [<key>]", "Follows a Stagewatch (its timer as a source); \"\" follows the first one heard", VerbCategory.Network, VerbRisk.Review, true),
+        V("LINK PATTERNS", "LINK PATTERNS <host[:port]>|OFF [<token>] | LINK PATTERNS FOLLOW-BLACKOUT ON|OFF", "Follows a Patterns desk (its clip clock, its blackout); FOLLOW-BLACKOUT says whether the desk's blackout blacks this node out", VerbCategory.Network, VerbRisk.Review, true) with { SecretFrom = 3 },
+        V("LINK STAGEWATCH", "LINK STAGEWATCH <host[:port]>|\"\"|OFF [<key>]", "Follows a Stagewatch (its timer as a source); \"\" follows the first one heard", VerbCategory.Network, VerbRisk.Review, true) with { SecretFrom = 3 },
         V("PAIRING NEW", "PAIRING NEW", "A new pairing token for this node: every paired peer pairs again (the token never rides a line — it is read where the node keeps it)", VerbCategory.Network, VerbRisk.High, true),
 
         // Projector control (docs/PROJECTORS.md): the boxes behind the outputs. Anything that changes what leaves a
@@ -172,7 +176,7 @@ public static class VerbCatalog
         V("DEVICE IDENTIFY", "DEVICE IDENTIFY <device> [<seconds>]", "Shows the projector's own identify pattern for a while", VerbCategory.Device, VerbRisk.Review, true),
         // A secret rides in this line, so — like AUTH — it is never journalled, it is taken from this machine only and
         // never from an assistant, and no answer repeats it.
-        V("CREDENTIAL SET", "CREDENTIAL SET <ref> [<user>] <secret>", "Keeps a secret in this node's credential store (a projector link's password, the assistant's key); this machine only", VerbCategory.Device, VerbRisk.High, false),
+        V("CREDENTIAL SET", "CREDENTIAL SET <ref> [<user>] <secret>", "Keeps a secret in this node's credential store (a projector link's password, the assistant's key); this machine only", VerbCategory.Device, VerbRisk.High, false) with { SecretFrom = 3 },
         V("CREDENTIAL CLEAR", "CREDENTIAL CLEAR <ref>", "Forgets a secret from this node's credential store; this machine only", VerbCategory.Device, VerbRisk.High, false),
         V("CREDENTIAL LIST", "CREDENTIAL LIST", "Which references hold a secret on this node (never the secrets)", VerbCategory.Device, VerbRisk.Low, false),
 
@@ -201,6 +205,17 @@ public static class VerbCatalog
     /// <summary>The verb a line names: the longest match of its first one or two words (upper-cased), with
     /// how many words it took. VT and CLIP are VIDEO (Patterns' aliases), whatever follows. Null when
     /// nothing matches.</summary>
+    /// <summary>The line as it may be written down: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
+    /// are replaced by one marker, so a journal row or a log never holds a token, a key or a password.</summary>
+    public static string Redacted(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (Match(line) is not { Spec.SecretFrom: int from } || line.Count <= from)
+            return line.Raw;
+        var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
+        return string.Join(' ', kept) + " ‹secret›";
+    }
+
     public static (VerbSpec Spec, int Words)? Match(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);

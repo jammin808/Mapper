@@ -172,12 +172,12 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, line.Raw, false);
+            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
             return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
         if (!reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : line.Raw) : reply.Payload ?? "refused",
-                session.ClientName, line.Raw, reply.Ok);
+            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
+                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
         return reply;
     }
 

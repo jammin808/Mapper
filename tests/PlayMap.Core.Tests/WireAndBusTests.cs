@@ -21,6 +21,25 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void ALinesSecretWordsNeverReachWhatIsWrittenDown()
+    {
+        string Shown(string text)
+        {
+            Assert.True(WireGrammar.TryParse(text, out var line, out _));
+            return VerbCatalog.Redacted(line);
+        }
+
+        Assert.Equal("LINK PATTERNS 10.0.0.5 \u2039secret\u203a", Shown("LINK PATTERNS 10.0.0.5 s3cr3t-token"));
+        Assert.Equal("LINK STAGEWATCH \"\" \u2039secret\u203a", Shown("LINK STAGEWATCH \"\" key-123"));
+        Assert.Equal("CREDENTIAL SET pj1 \u2039secret\u203a", Shown("CREDENTIAL SET pj1 admin hunter2"));
+        Assert.Equal("AUTH \u2039secret\u203a", Shown("AUTH abcdef"));
+        Assert.DoesNotContain("hunter2", Shown("@r1 CREDENTIAL SET pj1 admin hunter2"), StringComparison.Ordinal);
+        // A line without its secret, and every other verb, is written as it came.
+        Assert.Equal("LINK PATTERNS 10.0.0.5", Shown("LINK PATTERNS 10.0.0.5"));
+        Assert.Equal("BLACKOUT ON", Shown("BLACKOUT ON"));
+    }
+
+    [Fact]
     public void AMalformedIdIsRefusedWithPatternsWords()
     {
         Assert.False(WireGrammar.TryParse("@bad!id VIDEO PLAY", out _, out var error));

@@ -289,6 +289,19 @@ public sealed class EngineRouterTests
     }
 
     [Fact]
+    public async Task ATokenSentWithALinkNeverReachesTheJournal()
+    {
+        await using var rig = new Rig();
+        // No network edge on the test rig, so the line is refused — and refusals are journalled too.
+        await rig.Run("LINK PATTERNS 10.0.0.5 s3cr3t-token");
+        await rig.Run("LINK STAGEWATCH 10.0.0.6 key-123");
+        var rows = rig.Engine.Journal.Recent(10);
+        Assert.NotEmpty(rows);
+        Assert.DoesNotContain(rows, r => (r.Text + " " + r.Line).Contains("s3cr3t-token", StringComparison.Ordinal));
+        Assert.DoesNotContain(rows, r => (r.Text + " " + r.Line).Contains("key-123", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task AProjectSavesAndOpensAgain()
     {
         await using var rig = new Rig();
