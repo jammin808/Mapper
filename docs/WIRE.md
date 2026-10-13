@@ -194,7 +194,11 @@ between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"s
 The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <what> [<w>x<h>]`, where
 `<what>` is `editor`, `output:<id>`, `projector:<id>` (the stage as that projector lights it, at its raster),
 `camera:<id>` or `scan:<id>:smart|confidence`; `VIEW <view> CAMERA {"intrinsics":…,"pose":…}` moves an editor
-view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> HIDE` lets it go.
+view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> KEEP` renews it;
+`VIEW <view> HIDE` lets it go. A shown view is leased: SHOW, CAMERA and KEEP renew it, and a view not renewed for
+15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the node nothing for
+long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
+every view it shows every 5 s.
 Pictures are BGRA in the shared-memory ring `PreviewRing.PathFor(nodeId, view)`, fitted inside the size asked
 (and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
 at most 30. A view keeps its ring while it lives (a reader opens it once). View ids are file names: letters,

@@ -71,6 +71,30 @@ public class WorkspaceAndBlackoutTests
     }
 
     [AvaloniaFact]
+    public async Task TheDeskRenewsTheViewsItShowsEveryFiveSecondsAndAsksAgainForOneTheNodeLetGo()
+    {
+        // No window: its own 4 Hz timer would tick too; the test is the clock here.
+        await using var desk = new DeskHarness();
+        desk.Link.ClearSent();
+
+        for (var i = 1; i < MainViewModel.KeepViewsEveryTicks; i++)
+            desk.Main.Tick();
+        DeskHarness.Pump();
+        Assert.DoesNotContain(desk.Link.SentLines, l => l.EndsWith(" KEEP", StringComparison.Ordinal));
+        desk.Main.Tick();
+        DeskHarness.Pump();
+        Assert.Contains("VIEW op-op_1 KEEP", desk.Link.SentLines);
+
+        // The node let the view go (its lease ran out, or it restarted): the next renewal is refused and the desk shows it again.
+        await desk.Link.SendAsync("VIEW op-op_1 HIDE");
+        desk.Link.ClearSent();
+        for (var i = 0; i < MainViewModel.KeepViewsEveryTicks; i++)
+            desk.Main.Tick();
+        DeskHarness.Pump();
+        Assert.Equal(["VIEW op-op_1 KEEP", "VIEW op-op_1 SHOW output:op_1 480x270"], desk.Link.SentLines.Where(l => l.StartsWith("VIEW op-op_1", StringComparison.Ordinal)).ToArray());
+    }
+
+    [AvaloniaFact]
     public async Task TheBlackoutButtonFollowsStateAirBlackoutNotItsOwnPress()
     {
         await using var desk = new DeskHarness();

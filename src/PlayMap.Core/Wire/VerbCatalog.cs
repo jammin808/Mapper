@@ -111,8 +111,8 @@ public static class VerbCatalog
         // Outputs.
         V("OUTPUT LIST", "OUTPUT LIST", "Every output, its display and its health", VerbCategory.Output, VerbRisk.Low, false),
         V("DISPLAYS", "DISPLAYS", "The displays this machine sees", VerbCategory.Output, VerbRisk.Low, false),
-        V("VIEW", "VIEW <view> SHOW|CAMERA|HIDE [<what> [<w>x<h>]|<camera json>]",
-            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; CAMERA moves an editor view's eye; HIDE lets it go",
+        V("VIEW", "VIEW <view> SHOW|CAMERA|KEEP|HIDE [<what> [<w>x<h>]|<camera json>]",
+            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; CAMERA moves an editor view's eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go",
             VerbCategory.Output, VerbRisk.Low, false),
         V("OUTPUT ENABLE", "OUTPUT ENABLE <output> ON|OFF", "Opens or closes an output", VerbCategory.Output, VerbRisk.High, true),
         V("OUTPUT SOURCE", "OUTPUT SOURCE <output> <source>", "What a canvas or source output shows", VerbCategory.Output, VerbRisk.High, true),

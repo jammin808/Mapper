@@ -244,6 +244,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         Playback.Tick(Store.Project, now);
         if (_air.IdentifyUntilLeaderNs != 0 && now >= _air.IdentifyUntilLeaderNs)
             SetAir(a => a with { IdentifyUntilLeaderNs = 0 });
+        ExpireViews();
     }
 
     private long MediaDurationNs(string mediaId) => Store.Project.FindMedia(mediaId)?.Info.DurationNs ?? 0;

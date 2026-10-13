@@ -354,12 +354,40 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     /// <summary>The desk is closing: stop watching (the engine keeps playing).</summary>
     public void BeginShutdown() => _ = DisposeAsync().AsTask();
 
-    /// <summary>Moves the counters between pushes (the window's 4 Hz tick).</summary>
+    /// <summary>Ticks between two renewals of the shown views' leases: 5 s at the window's 4 Hz (the node lets a view
+    /// go after 15 s without one).</summary>
+    public const int KeepViewsEveryTicks = 20;
+
+    private int _ticksSinceKeep;
+
+    /// <summary>Moves the counters between pushes (the window's 4 Hz tick) and keeps the shown views alive.</summary>
     public void Tick()
     {
         if (Master.IsRunning)
             Master.Advance();
         Play.Tick();
+        if (++_ticksSinceKeep >= KeepViewsEveryTicks)
+        {
+            _ticksSinceKeep = 0;
+            KeepViews();
+        }
+    }
+
+    /// <summary>Renews the lease of every view the desk shows (VIEW &lt;view&gt; KEEP), quietly; a view the node let go
+    /// meanwhile (it restarted, the lease ran out) is asked for again.</summary>
+    private void KeepViews()
+    {
+        if (!Session.IsLive)
+            return;
+        foreach (var (view, what) in _views.ToList())
+            _ = KeepAsync(view, what);
+    }
+
+    private async Task KeepAsync(string view, string what)
+    {
+        var reply = await Session.SendQuietAsync($"VIEW {view} KEEP");
+        if (reply is { Ok: false } && _views.TryGetValue(view, out var still) && still == what)
+            _ = Session.SendQuietAsync($"VIEW {view} SHOW {what}");
     }
 
     private void OnStatus(LinkStatus status)
