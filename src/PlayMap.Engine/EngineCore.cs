@@ -154,7 +154,30 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     }
 
     /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).</summary>
-    private ProjectStore EditsFor(SessionInfo session) => BlindStoreFor(session) ?? Store;
+    private ProjectStore EditsFor(SessionInfo session) => DraftOf(session) ?? Store;
+
+    /// <summary>The blind draft a session's document edits go to, or null for the live store: the show's (wp2-blind), or a test's
+    /// stand-in for it.</summary>
+    private ProjectStore? DraftOf(SessionInfo session) => DraftForTests?.Invoke(session) ?? BlindStoreFor(session);
+
+    /// <summary>A test's stand-in for the show's blind draft: the store a session's document edits go to, on the lane and off it,
+    /// through the same router (null in a running node, where the show's gate decides).</summary>
+    internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
+
+    /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
+    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live).</summary>
+    private T EditsInto<T>(SessionInfo session, Func<T> handler)
+    {
+        _lineStore = DraftOf(session);
+        try
+        {
+            return handler();
+        }
+        finally
+        {
+            _lineStore = null;
+        }
+    }
 
     public PlaybackLanes Playback { get; }
 

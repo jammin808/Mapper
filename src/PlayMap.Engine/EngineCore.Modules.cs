@@ -111,8 +111,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     private readonly VerbRoutes _routes = new();
     private long _eventSeq;
 
-    /// <summary>The verbs, topics and INDEX sections the packages routed.</summary>
-    public VerbRoutes Routes => _routes;
+    /// <summary>The verbs, topics and INDEX sections the packages routed from their Route hooks in the constructor; fixed from then
+    /// on (VERBS, the prompt and the context are made from it once), so it is not the public surface's to change.</summary>
+    internal VerbRoutes Routes => _routes;
 
     /// <summary>A show event, raised on the thread that saw it.</summary>
     public event Action<ShowEvent>? EventRaised;

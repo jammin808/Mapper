@@ -12,7 +12,6 @@ namespace PlayMap.Engine;
 public sealed partial class EngineCore
 {
     private string? _verbsJson;
-    private ProjectStore? _intoStore;
 
     /// <summary>Patterns' Interactive fact keys (src/Patterns.Core/Services/Interactive.cs): a Patterns desk
     /// driving this node as a "Lines" device sends them on change and all of them on connect.</summary>
@@ -38,7 +37,7 @@ public sealed partial class EngineCore
         GateLine(spec, line, session, ref refused, ref lineStore);
         if (refused is not null)
             return refused;
-        _lineStore = lineStore ?? _intoStore;
+        _lineStore = lineStore ?? DraftForTests?.Invoke(session);
         try
         {
             if (_routes.TryLane(spec.Name, out var handler))
@@ -50,22 +49,6 @@ public sealed partial class EngineCore
             _lineStore = null;
         }
     }
-
-    /// <summary>Runs one line on the lane with its document edits sent to <paramref name="store"/>, as the show's gate does for a
-    /// blind session: the spine's proof that every edit handler reads and writes through <see cref="Edits"/>, never the live store.</summary>
-    internal Task<CommandReply> RouteIntoAsync(ProjectStore store, WireLine line, SessionInfo session) =>
-        _lane.RunAsync(() =>
-        {
-            _intoStore = store;
-            try
-            {
-                return Route(line, session, CancellationToken.None);
-            }
-            finally
-            {
-                _intoStore = null;
-            }
-        });
 
     /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, and a node-to-node verb
     /// runs only from a fleet peer or the node itself. Null lets the line on to the show's gate.</summary>
