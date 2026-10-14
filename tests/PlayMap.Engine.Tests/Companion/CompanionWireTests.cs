@@ -91,6 +91,29 @@ public sealed class CompanionWireTests
     }
 
     [Fact]
+    public async Task OnAnArmedNodeWhoAmIListsWhatItMayRunAndARefusalReachesTheDeckWithWords()
+    {
+        await using var rig = await HostRig.StartAsync();
+        var list = await rig.OkAsync("PLAYLIST NEW Show");
+        await rig.OkAsync($"PLAYLIST ADD {list} color:#FF0000 Red");
+        await rig.OkAsync("SHOW ARM");
+
+        await using var ws = await Lines.ConnectAsync(rig.Network.HttpPort);
+        Assert.StartsWith("OK @h", await ws.AskAsync("h", "HELLO Companion:FOH deck"), StringComparison.Ordinal);
+        var me = JsonDocument.Parse((await ws.AskAsync("w", "WHOAMI"))["OK @w ".Length..]).RootElement;
+        Assert.True(me.GetProperty("armed").GetBoolean());
+        Assert.Equal(JsonValueKind.Array, me.GetProperty("may").ValueKind);
+        var may = me.GetProperty("may").EnumerateArray().Select(v => v.GetString()).ToList();
+        Assert.Contains("WHOAMI", may);
+        Assert.DoesNotContain("PLAYLIST NEW", may);
+
+        var refused = await ws.AskAsync("e", "PLAYLIST NEW Encore");
+        Assert.StartsWith("ERR @e ", refused, StringComparison.Ordinal);
+        Assert.True(refused.Length > "ERR @e ".Length + 10, refused);
+        Assert.Single(rig.State().GetProperty("playlists").EnumerateArray());
+    }
+
+    [Fact]
     public async Task TheWebPortServesAPictureWithItsEtag()
     {
         await using var rig = await HostRig.StartAsync();
