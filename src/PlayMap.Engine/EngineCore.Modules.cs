@@ -206,7 +206,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         TickContent(leaderNs); TickLed(leaderNs); TickWall(leaderNs);
     }
 
-    /// <summary>STATE's new top-level keys, in this order, after "cameras".</summary>
+    /// <summary>STATE's new top-level keys, in this order, after "cameras". STATE is written on whichever thread asks for it and
+    /// cached by <see cref="StateKey"/>: every State, Air, Output … hook reads published state only (never the lane's working
+    /// fields), and a package whose facts move outside the project, the playback and the air calls <see cref="FactsChanged"/>.</summary>
     internal void WriteModuleState(Utf8JsonWriter w)
     {
         StateShow(w); StateFleet(w); StateDecode(w); StateVideoIo(w); StateControl(w); StateCompanion(w); StateFx(w);
@@ -232,7 +234,8 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     internal void WriteProjectExtras(Utf8JsonWriter w) { ProjectCompanion(w); }
 
-    /// <summary>Every package's context items and links (Eye verbs only), then the fleet package's shaping for a 12-thing window.</summary>
+    /// <summary>Every package's context items and links (Eye verbs only), then the fleet package's shaping for a 12-thing window. Built
+    /// on whichever thread asks (with STATE, or for CONTEXT): each hook reads published state only.</summary>
     internal void AddModuleContext(List<ContextItem> items, List<ContextLink> links)
     {
         ContextShow(items, links); ContextFleet(items, links); ContextSync(items, links); ContextOutput(items, links); ContextDecode(items, links);
