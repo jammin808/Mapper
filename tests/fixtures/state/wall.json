@@ -1,1 +1,255 @@
-{}
+{
+  "air": {
+    "overlay": {
+      "on": true,
+      "outputs": [
+        "op_fixture1"
+      ],
+      "layers": [
+        "cursor",
+        "outlines",
+        "handles",
+        "lattice"
+      ],
+      "handle": {
+        "surface": "sf_fixture1",
+        "kind": "corner",
+        "index": 0
+      },
+      "grid": false,
+      "cursors": 1,
+      "armed": false
+    }
+  },
+  "calibration": {
+    "moved": [],
+    "task": {
+      "id": "kt_fixture1",
+      "kind": "resolve",
+      "state": "done",
+      "projector": "pj_test2",
+      "progress": 1,
+      "words": "Projector 2 staged: C 3.8 \u2014 95 % of its pins within 3.2 px; pin 13 is off by 3.4 px; could be 1.0 px off at the edges \u2014 its score 3.8 is over the gate 1.5; CALIBRATION ACCEPT cs_fixture1 applies it"
+    },
+    "targets": [
+      {
+        "id": "pj_test1",
+        "kind": "projector",
+        "name": "Projector 1",
+        "score": 0.2,
+        "unit": "px",
+        "grade": "A",
+        "light": "green",
+        "source": "pins",
+        "words": "A 0.2 \u2014 fits its 14 pins to 0.13 px",
+        "worst": "",
+        "confidence": 1,
+        "snapshot": "cs_fixture2",
+        "fallback": "cs_fixture2",
+        "staged": null,
+        "history": 1,
+        "verifiedP95": -1,
+        "terms": [
+          {
+            "code": "rms",
+            "words": "fits its 14 pins to 0.13 px",
+            "value": 0.134,
+            "unit": "px",
+            "penalty": 0.2,
+            "light": "green",
+            "where": "",
+            "fix": "CALIBRATION RESOLVE pj_test1",
+            "hint": "drag the pins that disagree onto their features, then solve again"
+          },
+          {
+            "code": "p95",
+            "words": "95 % of its pins within 0.2 px; pin 10 is off by 0.3 px",
+            "value": 0.231,
+            "unit": "px",
+            "penalty": 0,
+            "light": "green",
+            "where": "pins:pn_006409",
+            "fix": "SET pn_006409 enabled false",
+            "hint": "or drag pin 10 onto its feature"
+          },
+          {
+            "code": "spread",
+            "words": "the pins cover 47 % of the picture",
+            "value": 46.564,
+            "unit": "%",
+            "penalty": 0,
+            "light": "green",
+            "where": "quadrant:bl",
+            "fix": "PROJECTOR SOLVE pj_test1 LOCK FOCAL",
+            "hint": "add pins in the empty quarters"
+          },
+          {
+            "code": "coverage",
+            "words": "pins in 67 % of the picture\u0027s cells",
+            "value": 66.667,
+            "unit": "%",
+            "penalty": 0,
+            "light": "green",
+            "where": "quadrant:bl",
+            "fix": "PROJECTOR SOLVE pj_test1 LOCK SHIFT",
+            "hint": "add pins in the empty part of the picture"
+          },
+          {
+            "code": "conditioning",
+            "words": "could be 0.1 px off at the edges",
+            "value": 0.073,
+            "unit": "px",
+            "penalty": 0,
+            "light": "green",
+            "where": "edges",
+            "fix": "PROJECTOR SOLVE pj_test1 LOCK FOCAL",
+            "hint": "or add a pin off this plane"
+          },
+          {
+            "code": "lens",
+            "words": "throw 1.50, shift 10 % up",
+            "value": 0.1,
+            "unit": "",
+            "penalty": 0,
+            "light": "green",
+            "where": "",
+            "fix": "PROJECTOR SOLVE pj_test1 LOCK SHIFT",
+            "hint": "check the projector\u0027s zoom, shift and scaling, or lock them"
+          }
+        ]
+      },
+      {
+        "id": "pj_test2",
+        "kind": "projector",
+        "name": "Projector 2",
+        "score": 0.2,
+        "unit": "px",
+        "grade": "A",
+        "light": "amber",
+        "source": "pins",
+        "words": "A 0.2 \u2014 fits its 14 pins to 0.14 px",
+        "worst": "",
+        "confidence": 1,
+        "snapshot": "cs_fixture3",
+        "fallback": "cs_fixture3",
+        "staged": "cs_fixture1",
+        "history": 2,
+        "verifiedP95": -1,
+        "terms": [
+          {
+            "code": "rms",
+            "words": "fits its 14 pins to 0.14 px",
+            "value": 0.141,
+            "unit": "px",
+            "penalty": 0.2,
+            "light": "green",
+            "where": "",
+            "fix": "CALIBRATION RESOLVE pj_test2",
+            "hint": "drag the pins that disagree onto their features, then solve again"
+          },
+          {
+            "code": "p95",
+            "words": "95 % of its pins within 0.2 px; pin 14 is off by 0.2 px",
+            "value": 0.226,
+            "unit": "px",
+            "penalty": 0,
+            "light": "green",
+            "where": "pins:pn_00650d",
+            "fix": "SET pn_00650d enabled false",
+            "hint": "or drag pin 14 onto its feature"
+          },
+          {
+            "code": "spread",
+            "words": "the pins cover 50 % of the picture",
+            "value": 49.545,
+            "unit": "%",
+            "penalty": 0,
+            "light": "green",
+            "where": "quadrant:br",
+            "fix": "PROJECTOR SOLVE pj_test2 LOCK FOCAL",
+            "hint": "add pins in the empty quarters"
+          },
+          {
+            "code": "coverage",
+            "words": "pins in 75 % of the picture\u0027s cells",
+            "value": 75,
+            "unit": "%",
+            "penalty": 0,
+            "light": "green",
+            "where": "quadrant:br",
+            "fix": "PROJECTOR SOLVE pj_test2 LOCK SHIFT",
+            "hint": "add pins in the empty part of the picture"
+          },
+          {
+            "code": "conditioning",
+            "words": "could be 0.1 px off at the edges",
+            "value": 0.063,
+            "unit": "px",
+            "penalty": 0,
+            "light": "green",
+            "where": "edges",
+            "fix": "PROJECTOR SOLVE pj_test2 LOCK FOCAL",
+            "hint": "or add a pin off this plane"
+          },
+          {
+            "code": "lens",
+            "words": "throw 1.50, shift 10 % up",
+            "value": 0.1,
+            "unit": "",
+            "penalty": 0,
+            "light": "green",
+            "where": "",
+            "fix": "PROJECTOR SOLVE pj_test2 LOCK SHIFT",
+            "hint": "check the projector\u0027s zoom, shift and scaling, or lock them"
+          }
+        ]
+      },
+      {
+        "id": "pj_fixture1",
+        "kind": "projector",
+        "name": "Projector 3",
+        "score": -1,
+        "unit": "px",
+        "grade": "",
+        "light": "grey",
+        "source": "",
+        "words": "Projector 3 has no calibration result \u2014 PROJECTOR SOLVE pj_fixture1, or CALIBRATION SAVE pj_fixture1",
+        "worst": "",
+        "confidence": -1,
+        "snapshot": null,
+        "fallback": null,
+        "staged": null,
+        "history": 0,
+        "verifiedP95": -1,
+        "terms": []
+      }
+    ]
+  },
+  "onboarding": {
+    "stage": "quad",
+    "startedAt": 1760000000000,
+    "litAt": 1760000000000,
+    "quadAt": 1760000000000,
+    "contentAt": null,
+    "seconds": 0
+  },
+  "stage": {
+    "projectors": [
+      {
+        "id": "pj_test1",
+        "grade": "A",
+        "quads": 0
+      },
+      {
+        "id": "pj_test2",
+        "grade": "A",
+        "quads": 0
+      },
+      {
+        "id": "pj_fixture1",
+        "grade": "",
+        "quads": 1
+      }
+    ]
+  }
+}

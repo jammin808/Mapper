@@ -106,11 +106,12 @@ public static class CalibrationScoring
                 With(holes, ("pin", o.Id), ("pinNo", o.Number.ToString(CultureInfo.InvariantCulture)))));
         }
 
-        // Spread: the inliers' convex hull over the raster, and the emptiest quarter.
+        // Spread: the inliers' convex hull over the raster, and the emptiest quarter (named when the hull is short of the mark).
         var hull = HullArea(inlierPixels) / Math.Max(1.0, (double)k.Width * k.Height);
-        var empty = EmptyQuarter(inlierPixels, k.Width, k.Height);
-        terms.Add(Term(ScoreTermCodes.Spread, ScoreVocabulary.Of(ScoreTermCodes.Spread).Words(hull * 100, QuarterWords(empty)), hull * 100,
-            2 * Math.Max(0, 0.35 - hull) / 0.35, "quadrant:" + empty, holes));
+        var (empty, inEmpty) = EmptyQuarter(inlierPixels, k.Width, k.Height);
+        var spreadPenalty = 2 * Math.Max(0, 0.35 - hull) / 0.35;
+        terms.Add(Term(ScoreTermCodes.Spread, ScoreVocabulary.Of(ScoreTermCodes.Spread).Words(hull * 100,
+            spreadPenalty > 0 ? $"; the {QuarterWords(empty)} extrapolates" : ""), hull * 100, spreadPenalty, "quadrant:" + empty, holes));
 
         // Coverage: a 4 × 3 grid of the raster's cells holding an inlier pin.
         var cells = new bool[12];
@@ -121,8 +122,8 @@ public static class CalibrationScoring
             cells[cy * 4 + cx] = true;
         }
         var covered = cells.Count(c => c) / 12.0;
-        terms.Add(Term(ScoreTermCodes.Coverage, ScoreVocabulary.Of(ScoreTermCodes.Coverage).Words(covered * 100, QuarterWords(empty)), covered * 100,
-            2 * Math.Max(0, 0.5 - covered), "quadrant:" + empty, holes));
+        terms.Add(Term(ScoreTermCodes.Coverage, ScoreVocabulary.Of(ScoreTermCodes.Coverage).Words(covered * 100,
+            inEmpty == 0 ? $"; none in the {QuarterWords(empty)} quarter" : ""), covered * 100, 2 * Math.Max(0, 0.5 - covered), "quadrant:" + empty, holes));
 
         // Conditioning: the solve's own uncertainty on the wall, and its weakest direction.
         var analysed = SolveUncertaintyAnalysis.Analyse(k, solved.Lens, solved.Pose, inlierPairs, solved.Locks);
@@ -286,9 +287,15 @@ public static class CalibrationScoring
             words.Add("lens distortion unrealistic for a projector");
         }
         var w = words.Count > 0 ? string.Join("; ", words)
-            : string.Create(CultureInfo.InvariantCulture, $"throw {throwRatio:0.00}, shift {(k.Cy - k.Height / 2.0) / k.Height * -100:0} % vertical");
+            : LensWords(throwRatio, (k.Cy - k.Height / 2.0) / k.Height);
         return (penalty, w, Math.Round(Math.Max(aspect, shift), 4));
     }
+
+    /// <summary>"throw 1.50, shift 10 % up": the datasheet's sign (the picture up of the axis when cy is below the centre row).</summary>
+    private static string LensWords(double throwRatio, double shiftUp) =>
+        Math.Abs(shiftUp) < 0.005
+            ? string.Create(CultureInfo.InvariantCulture, $"throw {throwRatio:0.00}, no lens shift")
+            : string.Create(CultureInfo.InvariantCulture, $"throw {throwRatio:0.00}, shift {Math.Abs(shiftUp) * 100:0} % {(shiftUp > 0 ? "up" : "down")}");
 
     private static string QuarterWords(string q) => q switch
     {
@@ -300,7 +307,7 @@ public static class CalibrationScoring
     };
 
     /// <summary>The raster quarter with the fewest pins (tl, tr, bl, br); of equals, the one farthest from the pins' centre.</summary>
-    private static string EmptyQuarter(List<Vec2d> pixels, int width, int height)
+    private static (string Quarter, int Pins) EmptyQuarter(List<Vec2d> pixels, int width, int height)
     {
         Span<int> count = stackalloc int[4];
         var centre = Vec2d.Zero;
@@ -316,7 +323,7 @@ public static class CalibrationScoring
         for (var i = 1; i < 4; i++)
             if (count[i] < count[best] || (count[i] == count[best] && Far(i) > Far(best)))
                 best = i;
-        return best switch { 0 => "tl", 1 => "tr", 2 => "bl", _ => "br" };
+        return (best switch { 0 => "tl", 1 => "tr", 2 => "bl", _ => "br" }, count[best]);
     }
 
     /// <summary>The area of the points' convex hull (monotone chain).</summary>

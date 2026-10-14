@@ -25,7 +25,7 @@ public static class ScoreVocabulary
             "CALIBRATION RESOLVE {target}", "drag the pins that disagree onto their features, then solve again"),
         new(ScoreTermCodes.P95, "worst pins", "95 % of its pins within {0:0.0} px; pin {1} is off by {2:0.0} px", "px",
             "SET {pin} enabled false", "or drag pin {pinNo} onto its feature"),
-        new(ScoreTermCodes.Coverage, "coverage", "pins in {0:0} % of the picture's cells; {1} has none", "%",
+        new(ScoreTermCodes.Coverage, "coverage", "pins in {0:0} % of the picture's cells{1}", "%",
             "PROJECTOR SOLVE {target} LOCK SHIFT", "add pins in the empty part of the picture"),
         new(ScoreTermCodes.Conditioning, "conditioning", "could be {0:0.0} px off at the edges{1}", "px",
             "PROJECTOR SOLVE {target} LOCK FOCAL", "or add a pin off this plane"),
@@ -35,7 +35,7 @@ public static class ScoreVocabulary
             "SET {pin} enabled false", "or drag pin {pinNo} onto its feature"),
         new(ScoreTermCodes.Geometry, "geometry", "{0}", "", "CALIBRATION FALLBACK {target}",
             "the pins disagree on where the projector is: check which point of the stage each one names"),
-        new(ScoreTermCodes.Spread, "spread", "the pins cover {0:0} % of the picture; the {1} extrapolates", "%",
+        new(ScoreTermCodes.Spread, "spread", "the pins cover {0:0} % of the picture{1}", "%",
             "PROJECTOR SOLVE {target} LOCK FOCAL", "add pins in the empty quarters"),
         // scans
         new(ScoreTermCodes.DenseRms, "dense fit", "the scan fits {0:N0} points to {1:0.00} px", "px",

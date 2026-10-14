@@ -211,4 +211,28 @@ public sealed class QuadVerbTests
         Assert.Contains("off already", await rig.Refused("OVERLAY OFF"), StringComparison.Ordinal);
         Assert.Contains("— not hats", await rig.Refused("OVERLAY ON LAYERS outlines,hats"), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task CursorsAreEphemeralAndTheirLeaseLapses()
+    {
+        var (rig, outputId, _) = await Lit();
+        await using var _r = rig;
+        var revision = rig.Engine.Store.Current.Revision;
+        var journal = rig.Engine.Journal.Recent(100).Count;
+        var reply = await rig.Run($"CURSOR {outputId} 0.5 0.4 TRAIL 0.1 0.1 0.9 0.12 COLOR #ff8800");
+        Assert.True(reply.Ok);
+        Assert.True(reply.Silent);
+        var cursor = Assert.Single(rig.Engine.WallCursors);
+        Assert.Equal((outputId, new Vec2d(0.5, 0.4), "#FF8800", 2), (cursor.OutputId, cursor.At, cursor.Color, cursor.Trail.Length));
+        Assert.Equal(1, rig.State().GetProperty("air").GetProperty("overlay").GetProperty("cursors").GetInt32());
+        // The same session moves its one cursor; nothing reaches the project or the journal.
+        await rig.Run($"CURSOR {outputId} 0.6 0.4");
+        Assert.Equal(new Vec2d(0.6, 0.4), Assert.Single(rig.Engine.WallCursors).At);
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
+        Assert.Equal(journal, rig.Engine.Journal.Recent(100).Count);
+        Assert.Contains("0–1", await rig.Refused($"CURSOR {outputId} 3 0.4"), StringComparison.Ordinal);
+        rig.Clock.AdvanceMs(3_500);
+        await WallRig.Until(() => rig.Engine.WallCursors.IsEmpty, "the cursor's lease to lapse");
+        Assert.Contains("no cursor", await rig.Refused("CURSOR OFF"), StringComparison.Ordinal);
+    }
 }

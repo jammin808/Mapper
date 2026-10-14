@@ -51,6 +51,7 @@ public sealed partial class EngineCore
         routes.Lane("HANDLE PREV", Guarded(c => HandleStep(c, -1)));
         routes.Lane("HANDLE NUDGE", Guarded(HandleNudge));
         routes.Lane("OVERLAY", Guarded(Overlay));
+        routes.Lane("CURSOR", Guarded(Cursor));
     }
 
     // ---- parsing ---------------------------------------------------------------------------------------------------------
@@ -220,8 +221,7 @@ public sealed partial class EngineCore
         var lease = Services.Mono.NowNs + Services.Settings.Wall.OverlayLeaseMs * 1_000_000L;
         SetAir(a => a with
         {
-            Overlay = new OverlayState(true, [outputId], OverlayLayers.Cursor | OverlayLayers.Outlines | OverlayLayers.Names | OverlayLayers.Handles,
-                a.Overlay.Handle, 0, c.Session.SessionId, lease),
+            Overlay = new OverlayState(true, [outputId], Drawn, a.Overlay.Handle, 0, c.Session.SessionId, lease),
             IdentifyUntilLeaderNs = now + 3_000_000_000,
         });
         if (_litAtUnixMs == 0)
@@ -699,14 +699,17 @@ public sealed partial class EngineCore
     private static bool OverlayCovers(OverlayState o, string outputId) =>
         o.On && (o.Outputs.IsDefaultOrEmpty || o.Outputs.Contains(outputId, StringComparer.Ordinal));
 
+    /// <summary>The layers the overlay draws on this node, by their words.</summary>
     private static readonly (string Word, OverlayLayers Layer)[] LayerWords =
     [
-        ("cursor", OverlayLayers.Cursor), ("outlines", OverlayLayers.Outlines), ("names", OverlayLayers.Names),
-        ("handles", OverlayLayers.Handles), ("lattice", OverlayLayers.Lattice), ("pins", OverlayLayers.Pins), ("grid", OverlayLayers.Grid),
+        ("cursor", OverlayLayers.Cursor), ("outlines", OverlayLayers.Outlines), ("handles", OverlayLayers.Handles), ("lattice", OverlayLayers.Lattice),
     ];
 
+    /// <summary>Every layer this node draws: EDIT and ALL.</summary>
+    private const OverlayLayers Drawn = OverlayLayers.Cursor | OverlayLayers.Outlines | OverlayLayers.Handles | OverlayLayers.Lattice;
+
     private static IEnumerable<string> LayerNames(OverlayLayers layers) =>
-        LayerWords.Where(x => x.Layer != OverlayLayers.Grid && (layers & x.Layer) != 0).Select(x => x.Word);
+        LayerWords.Where(x => (layers & x.Layer) != 0).Select(x => x.Word);
 
     /// <summary>OVERLAY ON|OFF|TOGGLE|KEEP [ON &lt;output&gt;|ALL] [LAYERS &lt;a,b,…&gt;|EDIT|ALL]: the edit overlay on the wall, drawn through
     /// each output's warp and never through its blend. ON and KEEP hold a lease the asking session renews (it lapses after the
@@ -740,22 +743,20 @@ public sealed partial class EngineCore
             else if (rest[i].Equals("LAYERS", StringComparison.OrdinalIgnoreCase) && i + 1 < rest.Count)
             {
                 var word = rest[++i];
-                if (word.Equals("EDIT", StringComparison.OrdinalIgnoreCase))
+                if (word.Equals("EDIT", StringComparison.OrdinalIgnoreCase) || word.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                 {
-                    layers = OverlayLayers.Edit;
-                }
-                else if (word.Equals("ALL", StringComparison.OrdinalIgnoreCase))
-                {
-                    layers = OverlayLayers.All & ~OverlayLayers.Grid;
+                    layers = Drawn;
                 }
                 else
                 {
                     var set = OverlayLayers.None;
                     foreach (var part in word.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     {
-                        var hit = LayerWords.FirstOrDefault(x => x.Word.Equals(part, StringComparison.OrdinalIgnoreCase) && x.Layer != OverlayLayers.Grid);
+                        var hit = LayerWords.FirstOrDefault(x => x.Word.Equals(part, StringComparison.OrdinalIgnoreCase));
                         if (hit.Word is null)
-                            return CommandReply.Fail($"a layer is cursor, outlines, names, handles, lattice or pins — not {part}");
+                            return CommandReply.Fail(part.ToLowerInvariant() is "names" or "pins"
+                                ? $"the overlay draws no {part.ToLowerInvariant()} on this node yet — cursor, outlines, handles, lattice"
+                                : $"a layer is cursor, outlines, handles or lattice — not {part}");
                         set |= hit.Layer;
                     }
                     layers = set;
@@ -815,6 +816,60 @@ public sealed partial class EngineCore
     private string OverlayWhere(OverlayState o) =>
         o.Outputs.IsDefaultOrEmpty ? "every output" : string.Join(", ", o.Outputs.Select(id => Store.Project.FindOutput(id)?.Name ?? id));
 
+    private readonly CursorBoard _cursors = new();
+
+    /// <summary>Every session's cursor on the wall now (any thread; the render host draws them).</summary>
+    internal System.Collections.Immutable.ImmutableArray<WallCursor> WallCursors => _cursors.Cursors;
+
+    /// <summary>CURSOR &lt;output&gt; &lt;x&gt; &lt;y&gt; [TRAIL &lt;x&gt; &lt;y&gt;…] [COLOR #rrggbb] | CURSOR OFF: this session's cursor on the wall, 0–1
+    /// across and down the output, with the clicks so far; its lease lapses after the node's CursorLeaseMs unless sent again. No
+    /// journal, no undo, no answer but OK; STATE moves only when the number of cursors does.</summary>
+    private CommandReply Cursor(VerbCall c)
+    {
+        const string Syntax = "CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb] | CURSOR OFF";
+        if (c.Args.Count == 1 && c.Args[0].Equals("OFF", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_cursors.Remove(c.Session.SessionId))
+                return CommandReply.Fail("this session has no cursor on the wall");
+            FactsChanged();
+            return CommandReply.NoReply();
+        }
+        var args = new List<string>(c.Args);
+        var color = "#FFFFFF";
+        var ci = args.FindIndex(a => a.Equals("COLOR", StringComparison.OrdinalIgnoreCase));
+        if (ci >= 0)
+        {
+            if (ci + 1 >= args.Count || args[ci + 1].Length != 7 || args[ci + 1][0] != '#'
+                || !int.TryParse(args[ci + 1].AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+                return CommandReply.Fail("COLOR takes #rrggbb");
+            color = args[ci + 1].ToUpperInvariant();
+            args.RemoveRange(ci, 2);
+        }
+        if (args.Count < 3 || OutputNamed(Store.Project, args[0]) is not { } output)
+            return CommandReply.Fail(args.Count < 3 ? Syntax : $"no output {args[0]}");
+        static bool Wall(string word, out double v) => Number(word, out v) && v is >= -0.5 and <= 1.5;
+        if (!Wall(args[1], out var x) || !Wall(args[2], out var y))
+            return CommandReply.Fail("x and y are 0–1 across and down the output");
+        var trail = System.Collections.Immutable.ImmutableArray.CreateBuilder<Vec2d>();
+        if (args.Count > 3)
+        {
+            if (!args[3].Equals("TRAIL", StringComparison.OrdinalIgnoreCase) || (args.Count - 4) % 2 != 0 || args.Count - 4 > 16)
+                return CommandReply.Fail(Syntax + " (a trail is up to 8 points)");
+            for (var i = 4; i < args.Count; i += 2)
+            {
+                if (!Wall(args[i], out var tx) || !Wall(args[i + 1], out var ty))
+                    return CommandReply.Fail("a trail point is 0–1 across and down the output");
+                trail.Add(new Vec2d(tx, ty));
+            }
+        }
+        var now = Services.Mono.NowNs;
+        var cursor = new WallCursor(c.Session.SessionId, c.Session.ClientName, output.Id, new Vec2d(x, y), trail.ToImmutable(), color, now,
+            now + Services.Settings.Wall.CursorLeaseMs * 1_000_000L);
+        if (_cursors.Put(cursor, Services.Settings.Wall.MaxCursors))
+            FactsChanged();
+        return CommandReply.NoReply();
+    }
+
     /// <summary>The lane's tick for the wall: an overlay whose lease lapsed, or any overlay while the show is armed, goes off; the
     /// first content on a quad is noted.</summary>
     private void TickQuads()
@@ -822,6 +877,8 @@ public sealed partial class EngineCore
         var o = _air.Overlay;
         if (o.On && (Services.ShowGate.Armed || (o.LeaseUntilMonoNs > 0 && Services.Mono.NowNs >= o.LeaseUntilMonoNs)))
             SetAir(a => a with { Overlay = a.Overlay with { On = false, LeaseUntilMonoNs = 0 } });
+        if (_cursors.Prune(Services.Mono.NowNs))
+            FactsChanged();
         if (_quadAtUnixMs != 0 && _contentAtUnixMs == 0 && QuadShowsContent(Store.Project))
         {
             _contentAtUnixMs = Services.Wall.UnixMs;
@@ -860,19 +917,20 @@ public sealed partial class EngineCore
         w.WritePropertyName("handle");
         WriteHandle(w, o.Handle);
         w.WriteBoolean("grid", false);
+        w.WriteNumber("cursors", _cursors.Cursors.Length);
         w.WriteBoolean("armed", Services.ShowGate.Armed);
         w.WriteEndObject();
     }
 
     /// <summary>onboarding: the first light, the first quad and the first content on a quad, as wall-clock instants, and the seconds
-    /// from the node's start to the latest of them (−1 before the first).</summary>
+    /// from the node's start to the latest of them; before the first light every instant is null and the seconds −1.</summary>
     private void WriteOnboarding(Utf8JsonWriter w)
     {
         var stage = _contentAtUnixMs != 0 ? "content" : _quadAtUnixMs != 0 ? "quad" : _litAtUnixMs != 0 ? "lit" : "none";
         var latest = Math.Max(_litAtUnixMs, Math.Max(_quadAtUnixMs, _contentAtUnixMs));
         w.WriteStartObject("onboarding");
         w.WriteString("stage", stage);
-        w.WriteNumber("startedAt", _onboardingStartUnixMs);
+        WriteInstant(w, "startedAt", latest == 0 ? 0 : _onboardingStartUnixMs);
         WriteInstant(w, "litAt", _litAtUnixMs);
         WriteInstant(w, "quadAt", _quadAtUnixMs);
         WriteInstant(w, "contentAt", _contentAtUnixMs);

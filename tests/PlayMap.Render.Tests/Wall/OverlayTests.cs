@@ -91,4 +91,34 @@ public class OverlayTests(GlFixture gl)
         Assert.Equal(none, Render(project, Pinned, Editing with { Outputs = ["op_other"] }, armed: false, withPass: true));
         Assert.Equal(none, Render(project, Pinned, OverlayState.Off, armed: false, withPass: true));
     }
+
+    [Fact]
+    public void ACursorIsDrawnOnTheWallInItsColour()
+    {
+        var project = Scene3(OutputWarp.None);
+        var cursor = new WallCursor("s1", "Desk", "op1", new Vec2d(0.25, 0.75), [new Vec2d(0.8, 0.2)], "#FF8800", 0, long.MaxValue);
+        var px = gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(c.Device);
+            var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with
+            {
+                Overlay = new OverlayState(true, [], OverlayLayers.Cursor, null, 0, "", 0),
+                Cursors = [cursor],
+                Passes = [pass],
+            };
+            pass.Prepare(in inputs);
+            engine.Render(inputs);
+            var bytes = new byte[PW * PH * 4];
+            Assert.True(engine.ReadOutput("op1", bytes));
+            return bytes;
+        });
+        var at = new Vec2d(0.25 * PW, 0.75 * PH);
+        // An arm, beyond the gap; the centre itself is the gap.
+        Pixels.Near((0xFF, 0x88, 0x00), Pixels.At(px, PW, (int)at.X + 15, (int)at.Y), 3, "the right arm");
+        Pixels.Near((0xFF, 0x88, 0x00), Pixels.At(px, PW, (int)at.X, (int)at.Y - 15), 3, "the upper arm");
+        Assert.True(Pixels.At(px, PW, (int)at.X, (int)at.Y).G < 0x88 || Pixels.At(px, PW, (int)at.X, (int)at.Y).R < 0xFF);
+        // The click so far, a dot.
+        Pixels.Near((0xFF, 0x88, 0x00), Pixels.At(px, PW, (int)(0.8 * PW), (int)(0.2 * PH)), 3, "the trail's dot");
+    }
 }

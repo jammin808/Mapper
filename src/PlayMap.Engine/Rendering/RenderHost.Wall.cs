@@ -16,7 +16,7 @@ public sealed partial class RenderHost
 
     partial void ComposeWall(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
-        inputs = inputs with { Overlay = snap.Air.Overlay, Armed = inputs.Armed || engine.Services.ShowGate.Armed };
+        inputs = inputs with { Overlay = snap.Air.Overlay, Cursors = engine.WallCursors, Armed = inputs.Armed || engine.Services.ShowGate.Armed };
         if (_overlay is not { } pass)
             return;
         if (_overlayPasses.IsDefault || inputs.Passes != _overlayGiven)

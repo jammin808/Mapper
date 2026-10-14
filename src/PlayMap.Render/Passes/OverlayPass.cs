@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PlayMap.Core.Content;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
@@ -33,16 +34,22 @@ public sealed class OverlayPass : IFramePass
     {
         public required GpuBuffer Buffer { get; init; }
         public required VertexArray Vao { get; init; }
+        public required GpuBuffer CursorBuffer { get; init; }
+        public required VertexArray CursorVao { get; init; }
         public Project? Project;
         public OverlayState? State;
         public Output? Output;
         public int Count;
+        public ImmutableArray<WallCursor> Cursors;
+        public int CursorCount;
         public long LastUsed;
 
         public void Dispose()
         {
             Vao.Dispose();
             Buffer.Dispose();
+            CursorVao.Dispose();
+            CursorBuffer.Dispose();
         }
     }
 
@@ -52,6 +59,7 @@ public sealed class OverlayPass : IFramePass
     private float[] _scratch = new float[Floats * 1024];
     private int _count;
     private OverlayState? _state;
+    private ImmutableArray<WallCursor> _cursors;
     private bool _armed;
 
     public OverlayPass(GlDevice device)
@@ -72,6 +80,7 @@ public sealed class OverlayPass : IFramePass
     public void Prepare(in FrameInputs inputs)
     {
         _state = inputs.Overlay;
+        _cursors = inputs.Cursors;
         _armed = inputs.Armed;
     }
 
@@ -89,7 +98,15 @@ public sealed class OverlayPass : IFramePass
         {
             var buffer = _device.CreateBuffer(BufferKind.Vertex);
             _device.SetBufferData<float>(buffer, new float[Floats * 3]);
-            e = new Entry { Buffer = buffer, Vao = _device.CreateVertexArray(Layout, buffer) };
+            var cursors = _device.CreateBuffer(BufferKind.Vertex);
+            _device.SetBufferData<float>(cursors, new float[Floats * 3]);
+            e = new Entry
+            {
+                Buffer = buffer,
+                Vao = _device.CreateVertexArray(Layout, buffer),
+                CursorBuffer = cursors,
+                CursorVao = _device.CreateVertexArray(Layout, cursors),
+            };
             _entries[output.Id] = e;
         }
         e.LastUsed = frame.Frame;
@@ -100,7 +117,18 @@ public sealed class OverlayPass : IFramePass
             (e.Project, e.State, e.Output, e.Count) = (frame.Project, _state, output, _count);
             Builds++;
         }
-        if (e.Count == 0)
+        if ((_state!.Layers & OverlayLayers.Cursor) == 0)
+        {
+            e.CursorCount = 0;
+        }
+        else if (e.Cursors != _cursors)
+        {
+            BuildCursors(output.Id, final.Width, final.Height);
+            if (_count > 0)
+                _device.SetBufferData<float>(e.CursorBuffer, _scratch.AsSpan(0, _count * Floats));
+            (e.Cursors, e.CursorCount) = (_cursors, _count);
+        }
+        if (e.Count == 0 && e.CursorCount == 0)
             return;
         _device.BindTarget(final);
         _device.SetBlend(BlendMode.Normal);
@@ -108,9 +136,58 @@ public sealed class OverlayPass : IFramePass
         _device.SetCull(CullMode.None);
         var p = _device.Program("overlay.shapes");
         p.Set("uTarget", (float)final.Width, (float)final.Height);
-        _device.Draw(p, e.Vao, PrimitiveKind.Triangles, e.Count);
+        if (e.Count > 0)
+            _device.Draw(p, e.Vao, PrimitiveKind.Triangles, e.Count);
+        if (e.CursorCount > 0)
+            _device.Draw(p, e.CursorVao, PrimitiveKind.Triangles, e.CursorCount);
         final.Color.Version++;
     }
+
+    /// <summary>Every cursor on this output in its session's colour, in the output's own pixels (cursors are on the wall, past the
+    /// warp): a crosshair of four arms around a gap, the clicks so far as dots joined to the live point (the rubber band).</summary>
+    private void BuildCursors(string outputId, int width, int height)
+    {
+        _count = 0;
+        if (_cursors.IsDefaultOrEmpty)
+            return;
+        Span<Vec2d> band = stackalloc Vec2d[MaxTrail + 1];
+        Span<Vec2d> arm = stackalloc Vec2d[2];
+        foreach (var cursor in _cursors)
+        {
+            if (!string.Equals(cursor.OutputId, outputId, StringComparison.Ordinal))
+                continue;
+            var c = ColorRgb.Parse(cursor.Color, new ColorRgb(1, 1, 1));
+            var at = new Vec2d(cursor.At.X * width, cursor.At.Y * height);
+            if (!cursor.Trail.IsDefaultOrEmpty)
+            {
+                var n = Math.Min(cursor.Trail.Length, MaxTrail);
+                for (var i = 0; i < n; i++)
+                    band[i] = new Vec2d(cursor.Trail[i].X * width, cursor.Trail[i].Y * height);
+                band[n] = at;
+                Polyline(band[..(n + 1)], 2, c.R, c.G, c.B, 0.9f);
+                for (var i = 0; i < n; i++)
+                    Square(band[i], 7, c.R, c.G, c.B, 1);
+            }
+            for (var pass = 0; pass < 2; pass++)
+            {
+                var (w, r, g, b, a) = pass == 0 ? (CursorArm + 2, 0f, 0f, 0f, 0.6f) : (CursorArm, c.R, c.G, c.B, 1f);
+                foreach (var (dx, dy) in Arms)
+                {
+                    arm[0] = new Vec2d(at.X + dx * CursorGap, at.Y + dy * CursorGap);
+                    arm[1] = new Vec2d(at.X + dx * (CursorGap + CursorLength), at.Y + dy * (CursorGap + CursorLength));
+                    Polyline(arm, w, r, g, b, a);
+                }
+            }
+        }
+    }
+
+    /// <summary>The clicks so far a cursor shows (a quad's four, and a lattice's worth more).</summary>
+    private const int MaxTrail = 8;
+
+    private const float CursorArm = 3f;
+    private const float CursorGap = 6f;
+    private const float CursorLength = 24f;
+    private static readonly (int Dx, int Dy)[] Arms = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     public void FrameEnd(in PassFrame frame)
     {

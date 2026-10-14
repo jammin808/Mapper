@@ -139,6 +139,14 @@ public sealed partial class EngineCore
         w.WriteNumber("score", score is null ? -1 : score.Value);
         w.WriteString("unit", score?.Unit ?? "px");
         w.WriteString("grade", score?.Grade ?? "");
+        w.WriteString("light", score is null ? (stagedId is null ? "grey" : "amber") : score.Grade switch
+        {
+            "F" => "red",
+            "C" => "amber",
+            _ when stagedId is not null => "amber",
+            "A" or "B" => "green",
+            _ => "grey",
+        });
         w.WriteString("source", score?.Source ?? "");
         w.WriteString("words", score is null
             ? (kind == CalibrationTarget.Projector ? $"{name} has no calibration result — PROJECTOR SOLVE {targetId}, or CALIBRATION SAVE {targetId}" : $"{name} has no result")
