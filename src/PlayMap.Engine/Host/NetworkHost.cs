@@ -142,6 +142,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         ArgumentNullException.ThrowIfNull(module);
         if (_web is not null)
             throw new InvalidOperationException($"{module.Name} came after the web port opened — web modules are added before the node starts");
+        if (HttpHost.WhyNotAModulePath(module.PathPrefix) is { } why)
+            throw new ArgumentException($"{module.Name}: {why}", nameof(module));
         if (_modules.Exists(m => string.Equals(m.PathPrefix, module.PathPrefix, StringComparison.Ordinal)))
             throw new InvalidOperationException($"{module.PathPrefix} is served by another web module already");
         _modules.Add(module);

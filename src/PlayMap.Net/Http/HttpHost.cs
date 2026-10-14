@@ -93,6 +93,9 @@ public sealed class HttpHost : IAsyncDisposable
         _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
         _wall = wall ?? throw new ArgumentNullException(nameof(wall));
         _options = options ?? new HttpHostOptions();
+        foreach (var module in _options.Modules)
+            if (WhyNotAModulePath(module.PathPrefix) is { } why)
+                throw new ArgumentException($"{module.Name}: {why}", nameof(options));
         _log = _options.LoggerFactory?.CreateLogger("PlayMap.Net.Http") ?? NullLogger.Instance;
         _runner = new CommandRunner(endpoint, wall, _log);
         _isAnimating = _options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
@@ -285,6 +288,24 @@ public sealed class HttpHost : IAsyncDisposable
             new Claim(McpTools.LoopbackClaim, NetAddress.IsLoopback(remote) ? "1" : "0"),
         ], "playmap"));
         await next(context);
+    }
+
+    /// <summary>The node's own paths: a web module admits requests before the token gate, so it never serves under one of these
+    /// (an open module there would open the node's own routes).</summary>
+    private static readonly string[] NodePaths = ["/api", "/ws", "/mcp", "/tls", "/tls.cer"];
+
+    /// <summary>Why a module may not serve under <paramref name="prefix"/>, or null when it may: a path of its own ("/scan"), not the
+    /// root and not one of the node's own routes or under them.</summary>
+    public static string? WhyNotAModulePath(string? prefix)
+    {
+        var p = (prefix ?? "").TrimEnd('/');
+        if (p.Length < 2 || p[0] != '/')
+            return $"a web module serves under a path of its own (\"/scan\"), not '{prefix}'";
+        foreach (var own in NodePaths)
+            if (p.Equals(own, StringComparison.OrdinalIgnoreCase) || p.StartsWith(own + "/", StringComparison.OrdinalIgnoreCase)
+                || own.StartsWith(p + "/", StringComparison.OrdinalIgnoreCase))
+                return $"{p} is the node's own path ({own}) — a web module serves under a path of its own";
+        return null;
     }
 
     /// <summary>The module whose path a request is under (the longest prefix), or null.</summary>
