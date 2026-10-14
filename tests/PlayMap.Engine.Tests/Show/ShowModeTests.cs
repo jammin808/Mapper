@@ -141,6 +141,48 @@ public sealed class ShowModeTests
         Assert.Equal("{\"by\":\"Desk\"}", seen[0].FieldsJson);
     }
 
+    /// <summary>A node linked to Patterns and Stagewatch, both live.</summary>
+    private sealed class Linked : INetworkView
+    {
+        public IReadOnlyList<PeerView> Peers() => [];
+
+        public LinkView? Patterns() => new("live", "10.0.0.2:4000", true, "");
+
+        public LinkView? Stagewatch() => new("live", "10.0.0.3:4100", true, "");
+
+        public string? StagewatchTimerJson() => null;
+
+        public SyncView Sync() => new("solo", null, 0, 0, 0);
+    }
+
+    [Fact]
+    public async Task TheIndexHoldsTheShowsKeysAndPatternsControlsTheShowNotTheAir()
+    {
+        await using var rig = new ShowRig(services: s => s with { Network = new Linked() });
+        await rig.Ok("PANIC SET op_1 SAFE SAFE color:#000000");
+        var section = Assert.Single(rig.Engine.Routes.IndexSections, x => x.Section == "show");
+        Assert.Equal("$(id)", Assert.Single(section.Hint.Keys).DownLine);
+        using var buffer = new MemoryStream();
+        using (var w = new Utf8JsonWriter(buffer))
+            section.WriteRows(rig.Engine.Store.Project, rig.Engine.Snapshot, w);
+        var rows = JsonDocument.Parse(buffer.ToArray()).RootElement.EnumerateArray().ToList();
+        var ids = rows.Select(r => r.GetProperty("id").GetString()!).ToList();
+        foreach (var id in new[] { "SHOW ARM", "SHOW DISARM", "PANIC", "PANIC BLACK", "PANIC SAFE", "PANIC HARD", "PANIC CLEAR", "MASTER 0", "MASTER 100", "MASTER" })
+            Assert.Contains(id, ids);
+        foreach (var id in ids)
+        {
+            Assert.True(WireGrammar.TryParse(id, out var line, out _));
+            Assert.NotNull(VerbCatalog.Match(line!));
+        }
+        Assert.Equal("encoder", rows.Single(r => r.GetProperty("id").GetString() == "MASTER").GetProperty("kind").GetString());
+
+        var links = rig.Context().GetProperty("links").EnumerateArray()
+            .Select(l => (l.GetProperty("from").GetString(), l.GetProperty("to").GetString(), l.GetProperty("kind").GetString())).ToList();
+        Assert.Contains(("link:patterns", "show", "controls"), links);
+        Assert.Contains(("link:stagewatch", "show", "feeds"), links);
+        Assert.DoesNotContain(links, l => l.Item2 == "air");
+    }
+
     [Fact]
     public async Task AnAssistantsArmedLineWaitsOnThisNodesListForAPerson()
     {

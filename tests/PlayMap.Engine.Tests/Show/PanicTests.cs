@@ -188,6 +188,61 @@ public sealed class PanicTests
     }
 
     [Fact]
+    public async Task RunTakesThePictureDownAndLeavesTheShowRunning()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("PLAYLIST GO pl_show");
+        var t = rig.Now;
+        var reply = JsonDocument.Parse(await rig.Ok("PANIC RUN FADE 1000")).RootElement;
+        Assert.Equal("run", reply.GetProperty("outcome").GetString());
+        Assert.Equal(0.5, rig.Engine.AirGain("op_1", t + 500_000_000), Tolerance);
+        Assert.Equal(0.5, rig.Engine.AirAudioGain(t + 500_000_000), Tolerance);
+        rig.Advance(1500);
+        await Task.Delay(60);
+        var lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(TransportState.Playing, lane.Clip.State);
+        // CLEAR fades up into the show as it is now.
+        await rig.Ok("PANIC CLEAR FADE 0");
+        Assert.Equal(1.0, rig.Engine.AirGain("op_1", rig.Now), Tolerance);
+        Assert.Equal(1_500_000_000, lane.Clip.PositionAt(rig.Now) - lane.Clip.InNs);
+        await rig.Ok("PANIC SET op_1 RUN FADE 300");
+        Assert.Equal("run", JsonDocument.Parse(await rig.Ok("PANIC")).RootElement.GetProperty("outputs")[0].GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task APanicAtAnInstantLandsOnTheShowClock()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("PLAYLIST GO pl_show");
+        var t = rig.Now;
+        var reply = JsonDocument.Parse(await rig.Ok("PANIC REWIND FADE 1000 AT +2000")).RootElement;
+        Assert.Equal(t + 3_000_000_000, reply.GetProperty("outputs")[0].GetProperty("until").GetInt64());
+        Assert.Equal(1.0, rig.Engine.AirGain("op_1", t + 1_999_000_000), Tolerance);
+        Assert.Equal(0.5, rig.Engine.AirGain("op_1", t + 2_500_000_000), Tolerance);
+        Assert.Equal(0.0, rig.Engine.AirGain("op_1", t + 3_000_000_000), Tolerance);
+
+        rig.Advance(2500);
+        await Task.Delay(60);
+        Assert.Equal(TransportState.Playing, rig.Engine.Playback.Lane("pl_show")!.Clip.State);
+        rig.Advance(500);
+        Assert.True(await ShowRig.Eventually(() => rig.Engine.Playback.Lane("pl_show")!.Clip.State == TransportState.Cued));
+        Assert.Equal("it_a", rig.Engine.Playback.Lane("pl_show")!.ItemId);
+        Assert.Equal("AT takes +<ms> or a Unix ms", await rig.Refused("PANIC AT soon"));
+    }
+
+    [Fact]
+    public async Task APanicsOwnLineWaitsForItsInstant()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("PANIC FX-OFF AT +500");
+        await Task.Delay(60);
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Line == "FX BYPASS ALL ON");
+        Assert.Equal("scheduled", rig.State().GetProperty("air").GetProperty("panic").GetProperty("devices")[0].GetProperty("stage").GetString());
+        rig.Advance(500);
+        Assert.True(await ShowRig.Eventually(() => rig.Engine.Journal.Recent(50).Any(r => r.Line == "FX BYPASS ALL ON" && r.Who == "PlayMap")));
+    }
+
+    [Fact]
     public async Task FxOffSendsItsLineAsTheNode()
     {
         await using var rig = new ShowRig();

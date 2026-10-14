@@ -27,7 +27,7 @@ public sealed class ShowIndex(EngineCore engine) : IIndexContributor
         Row(w, "SHOW ARM", "show", "ARM", mode.Armed ? "green" : "grey", mode.Armed ? "armed" : "rehearsal");
         Row(w, "SHOW DISARM", "show", "DISARM", mode.Armed ? "grey" : "green", mode.Armed ? "armed" : "rehearsal");
         var outcomes = project.Show.Panic.Select(p => p.Outcome).Append(project.Show.Rules.DefaultOutcome).Append(PanicOutcome.Hard)
-            .Where(o => o != PanicOutcome.Run).Distinct().OrderBy(o => o);
+            .Distinct().OrderBy(o => o);
         Row(w, "PANIC", "panic", "PANIC", panic is null ? "grey" : "red", panic is null ? "ready" : PanicMath.Json(panic.Outcome));
         foreach (var o in outcomes)
             Row(w, "PANIC " + PanicMath.Word(o), "panic", "PANIC " + PanicMath.Word(o), panic?.Outcome == o ? "red" : "grey", PanicMath.Json(o));

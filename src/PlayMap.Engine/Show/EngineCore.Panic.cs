@@ -28,6 +28,11 @@ public sealed partial class EngineCore
     /// <summary>A transport outcome waiting for its fade's end: the playlist and what happens to it.</summary>
     private sealed record PanicStep(long AtLeaderNs, string PlaylistId, PanicOutcome Outcome);
 
+    /// <summary>A panic's own line waiting for the panic's instant (PANIC … AT).</summary>
+    private sealed record PanicLine(long AtLeaderNs, string Text, string Key);
+
+    private readonly List<PanicLine> _panicLinesDue = [];
+
     /// <summary>The air's levels the render thread reads now (null: every output at full, nothing held or overridden).</summary>
     internal IAirLevels? AirLevelsNow => _levels;
 
@@ -40,6 +45,9 @@ public sealed partial class EngineCore
     private CommandReply Panic(VerbCall c)
     {
         var p = Store.Project;
+        var (at, atError) = TakeAt(c.Args);
+        if (atError is not null)
+            return CommandReply.Fail(atError);
         if (ReadPanicWords(c.Args, p, true, out var outcome, out var targets, out var fadeMs) is { } error)
             return CommandReply.Fail(error);
         var now = LeaderNowNs;
@@ -51,8 +59,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"already in panic since {Seconds(current!.SinceUnixMs)} ({PanicMath.Json(current.Outcome)}) — PANIC CLEAR brings the air back");
 
         var rules = p.Show.Rules;
-        // The panic lands PanicLeadMs ahead on the show clock, so a group's members fade on the same frames.
-        var start = now + rules.PanicLeadMs * NsPerMs;
+        // The panic lands at its AT instant (now when none is given), PanicLeadMs ahead on the show clock, so a group's members
+        // fade on the same frames.
+        var start = at!.Value + rules.PanicLeadMs * NsPerMs;
         var notes = new List<string>();
         var entries = new List<OutputPanicAir>();
         foreach (var o in fresh)
@@ -68,9 +77,9 @@ public sealed partial class EngineCore
         _returns = [.. _returns.Where(r => !entries.Any(e => e.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
         SchedulePanicSteps(p, entries, now);
-        RunPanicLines(p, entries, clear: false);
+        RunPanicLines(p, entries, clear: false, start);
         RebuildLevels();
-        RaiseEvent("panic", now, w =>
+        RaiseEvent("panic", start, w =>
         {
             w.WriteString("outcome", PanicMath.Json(panic.Outcome));
             w.WriteBoolean("hard", false);
@@ -113,6 +122,9 @@ public sealed partial class EngineCore
             .ToImmutableArray();
         var panic = current with { Hard = true, Outputs = outputs, Seq = ++_panicSeq };
         _panicSteps.Clear();
+        foreach (var due in _panicLinesDue)
+            SendSystemLine(due.Text, due.Key);
+        _panicLinesDue.Clear();
         _returns = [.. _returns.Where(r => !outputs.Any(o => o.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
         SchedulePanicSteps(Store.Project, outputs, now);
@@ -151,8 +163,14 @@ public sealed partial class EngineCore
         var still = remaining.IsEmpty ? null : panic with { Outputs = remaining, Seq = ++_panicSeq };
         _returns = [.. _returns.Where(r => !returns.Any(n => n.OutputId == r.OutputId)), .. returns];
         DropStepsNotShownBy(p, remaining);
+        if (remaining.IsEmpty)
+        {
+            foreach (var due in _panicLinesDue)
+                _panicLines.TryRemove(due.Key, out _);
+            _panicLinesDue.Clear();
+        }
         SetAir(a => a with { Panic = still });
-        RunPanicLines(p, cleared, clear: true);
+        RunPanicLines(p, cleared, clear: true, now);
         RebuildLevels();
         RaiseEvent("panic.clear", now, w =>
         {
@@ -176,10 +194,10 @@ public sealed partial class EngineCore
 
     private CommandReply PanicSet(VerbCall c)
     {
-        const string Syntax = "PANIC SET <output>|ALL BLACK|REWIND|NEXT|FREEZE|SAFE|SHUTTER|FX-OFF|HARD [FADE <ms 0-10000>] [SAFE <source>]";
+        const string Syntax = "PANIC SET <output>|ALL BLACK|RUN|REWIND|NEXT|FREEZE|SAFE|SHUTTER|FX-OFF|HARD [FADE <ms 0-10000>] [SAFE <source>]";
         var a = c.Args;
         var p = Edits.Project;
-        if (a.Count < 2 || !PanicMath.TryParse(a[1], out var outcome) || outcome == PanicOutcome.Run)
+        if (a.Count < 2 || !PanicMath.TryParse(a[1], out var outcome))
             return CommandReply.Fail(Syntax);
         List<Output> outputs;
         if (a[0].Equals("ALL", StringComparison.OrdinalIgnoreCase))
@@ -282,12 +300,12 @@ public sealed partial class EngineCore
         fadeMs = null;
         var named = false;
         var syntax = takesOutcome
-            ? "PANIC [BLACK|REWIND|NEXT|FREEZE|SAFE|SHUTTER|FX-OFF|HARD] [ON <output>…|ALL] [FADE <ms 0-10000>] [HERE]"
+            ? "PANIC [BLACK|RUN|REWIND|NEXT|FREEZE|SAFE|SHUTTER|FX-OFF|HARD] [ON <output>…|ALL] [FADE <ms 0-10000>] [AT +<ms>|<unix ms>] [HERE]"
             : "PANIC CLEAR [ON <output>…|ALL] [FADE <ms 0-10000>] [HERE]";
         for (var i = 0; i < a.Count; i++)
         {
             var w = a[i];
-            if (takesOutcome && i == 0 && PanicMath.TryParse(w, out var oc) && oc != PanicOutcome.Run)
+            if (takesOutcome && i == 0 && PanicMath.TryParse(w, out var oc))
             {
                 outcome = oc;
             }
@@ -347,7 +365,7 @@ public sealed partial class EngineCore
         {
             if (PanicMath.Severity(e.Outcome) == 0 || p.FindOutput(e.OutputId) is not { } output)
                 continue;
-            var at = e.Outcome == PanicOutcome.Hard ? now : e.Level.StartLeaderNs + e.Level.DurationNs;
+            var at = e.Level.StartLeaderNs + (e.Outcome == PanicOutcome.Hard ? 0 : e.Level.DurationNs);
             foreach (var list in PlaylistsShownBy(p, output))
             {
                 var i = _panicSteps.FindIndex(s => s.PlaylistId == list);
@@ -440,7 +458,7 @@ public sealed partial class EngineCore
     /// <summary>The lines a panic sends as the node itself, through the gate like any other: every projector linked to a SHUTTER
     /// output closes (opens on clear); FX-OFF bypasses every effect (and lets them back on clear). Each answer is kept as that
     /// device's or the effects' stage in STATE.</summary>
-    private void RunPanicLines(Project p, IEnumerable<OutputPanicAir> entries, bool clear)
+    private void RunPanicLines(Project p, IEnumerable<OutputPanicAir> entries, bool clear, long at)
     {
         var fxSent = false;
         foreach (var e in entries)
@@ -448,14 +466,27 @@ public sealed partial class EngineCore
             if (e.Outcome == PanicOutcome.Shutter && p.FindOutput(e.OutputId) is { } o)
             {
                 foreach (var d in p.Stage.Devices.Where(d => d.OutputId == o.Id || (o.ProjectorId is { Length: > 0 } pj && d.ProjectorId == pj)))
-                    SendSystemLine($"DEVICE SHUTTER {d.Id} {(clear ? "OPEN" : "CLOSE")}", d.Id);
+                    SendSystemLineAt(at, $"DEVICE SHUTTER {d.Id} {(clear ? "OPEN" : "CLOSE")}", d.Id);
             }
             else if (e.Outcome == PanicOutcome.FxOff && !fxSent)
             {
                 fxSent = true;
-                SendSystemLine(clear ? "FX BYPASS ALL OFF" : "FX BYPASS ALL ON", "fx");
+                SendSystemLineAt(at, clear ? "FX BYPASS ALL OFF" : "FX BYPASS ALL ON", "fx");
             }
         }
+    }
+
+    /// <summary>A panic's line now, or waiting for the panic's instant on the show clock (a projector's shutter cannot be scheduled
+    /// in the projector, so the node sends it when the instant comes).</summary>
+    private void SendSystemLineAt(long at, string text, string key)
+    {
+        if (at <= LeaderNowNs)
+        {
+            SendSystemLine(text, key);
+            return;
+        }
+        _panicLines[key] = "scheduled";
+        _panicLinesDue.Add(new PanicLine(at, text, key));
     }
 
     private void SendSystemLine(string text, string key)
@@ -486,6 +517,17 @@ public sealed partial class EngineCore
     {
         if (_panicSteps.Count > 0)
             RunDueSteps(now);
+        for (var i = 0; i < _panicLinesDue.Count;)
+        {
+            var due = _panicLinesDue[i];
+            if (due.AtLeaderNs > now)
+            {
+                i++;
+                continue;
+            }
+            _panicLinesDue.RemoveAt(i);
+            SendSystemLine(due.Text, due.Key);
+        }
         if (!_returns.IsEmpty && _returns.Any(r => r.Settled(now)))
         {
             _returns = [.. _returns.Where(r => !r.Settled(now))];
