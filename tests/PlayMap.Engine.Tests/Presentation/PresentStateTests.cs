@@ -180,6 +180,22 @@ public sealed class RenderHostPresentTests
     }
 
     [Fact]
+    public async Task ANodeAskedForEs300RendersOnAnEsContextAndSaysSo()
+    {
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#0000FF"), 64, 36));
+        await using var rig = HostRig.Start(project, options: RenderHostOptions.Default with
+        {
+            Windows = false,
+            Platform = new PlatformRequest(Dialect: "es300"),
+        });
+        Assert.StartsWith("OpenGL ES 3.", rig.Host.RendererName, StringComparison.Ordinal);
+        Assert.Equal((0, 0, 255), HostRig.At(await rig.Read("op_1"), 64, 10, 10));
+        var machine = rig.Host.Machine();
+        Assert.Equal("es300", machine.Dialect);
+        Assert.True(machine.Context == "egl" || machine.Why.StartsWith("ES through GLX", StringComparison.Ordinal), $"{machine.Context}: {machine.Why}");
+    }
+
+    [Fact]
     public async Task PresentResetZeroesTheCountersAndJournalsTheOldTotals()
     {
         var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#0000FF"), 64, 36));

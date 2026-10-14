@@ -222,6 +222,35 @@ public sealed class FrameLockHostTests
     }
 
     [Fact]
+    public async Task UnderTheLockAWindowedPacersCountDrivesShowTime()
+    {
+        const int w = 64, h = 36;
+        var probe = RenderHost.TryCreate(RenderHostOptions.Default, out var why) ?? throw new InvalidOperationException(why);
+        var display = probe.Displays()[0].Key;
+        await probe.DisposeAsync();
+        var driver = new FakeFrameLockDriver();
+        var project = HostRig.WithOutputs(HostRig.Screen("op_w", SourceRef.Solid("#336699"), w, h, OutputKind.Window, display));
+        await using var rig = HostRig.Start(project, options: RenderHostOptions.Default with { FrameLock = () => driver, FrameLockAuto = false });
+        await Until(rig, () => rig.Host.Health() is [{ Open: true }] && rig.Host.Board is not null, "the window never opened");
+        Assert.Equal("clock", rig.Host.TimeSource);
+
+        var applied = await rig.Run("SYNC APPLY");
+        Assert.True(applied.Ok, applied.Payload);
+        Assert.True(rig.Host.Locks()["op_w"].Locked, applied.Payload);
+        await Until(rig, () => rig.Host.TimeSource == "count", "show time never came from the count");
+        var anchor = rig.Host.LocalAnchor();
+        Assert.NotNull(anchor);
+        Assert.True(anchor.Value.PeriodPs > 1_000_000_000, $"{anchor.Value.PeriodPs} ps");
+        Assert.Equal("count", State(rig).GetProperty("sync").GetProperty("lock").GetProperty("time").GetString());
+        var present = State(rig).GetProperty("outputs")[0].GetProperty("present");
+        Assert.Equal("gl-window", present.GetProperty("path").GetString());
+        Assert.Equal("gl", present.GetProperty("mode").GetString());
+
+        Assert.True((await rig.Run("SYNC LEAVE")).Ok);
+        await Until(rig, () => rig.Host.TimeSource == "clock", "show time stayed on the count after leaving");
+    }
+
+    [Fact]
     public async Task ADriverThatRefusesTheJoinFallsOutWithItsWordsAndLeaveFreesEveryOutput()
     {
         var (rig, driver) = Start(Screen("op_a"));

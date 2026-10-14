@@ -147,12 +147,13 @@ public sealed class PresentClock
         _began = false;
     }
 
-    /// <summary>The frame's work starts at <paramref name="nowNs"/>: on a measured clock, it is meant for the next refresh.</summary>
+    /// <summary>The frame's work starts at <paramref name="nowNs"/>: on a measured clock, it is meant for the next refresh — or, when it
+    /// starts in the last quarter period before a vblank (a swap's return jitters around the fitted instant), for the one after it.</summary>
     public void BeginFrame(long nowNs)
     {
         if (!Measured)
             return;
-        _expected = Vblank.HasPhase ? Vblank.IndexAt(nowNs) + 1 : 0;
+        _expected = Vblank.HasPhase ? Vblank.IndexAt(nowNs + (long)(Vblank.PeriodNs / 4)) + 1 : 0;
         _began = Vblank.HasPhase;
     }
 
