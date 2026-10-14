@@ -114,4 +114,35 @@ public sealed class TopicSinkTests
         Assert.DoesNotContain("INDEX rows 1", lines);
         Assert.Equal("INDEX rows 3", lines[^1]);
     }
+
+    [Fact]
+    public async Task AScreensQueueTakesItsTopicsInOrderAndDropsALateLineOnceTheScreenIsGone()
+    {
+        var queue = new PushQueue();
+        var index = queue.SinkFor("INDEX");
+        var events = queue.SinkFor("EVENTS");
+        try
+        {
+            Assert.True(events.InOrder("EVENT 1"));
+            index.Latest("rows", "INDEX rows 1");
+            index.Latest("rows", "INDEX rows 2");
+            Assert.True(events.InOrder("EVENT 2"));
+            await queue.WaitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+            var frames = queue.Drain().Select(System.Text.Encoding.UTF8.GetString).ToList();
+
+            Assert.Equal(
+                ["""{"type":"push","topic":"EVENTS","line":"EVENT 1"}""", """{"type":"push","topic":"EVENTS","line":"EVENT 2"}""",
+                 """{"type":"push","topic":"INDEX","line":"INDEX rows 2"}"""],
+                frames);
+        }
+        finally
+        {
+            queue.Dispose();
+        }
+
+        // A package pushing after the screen closed (its own thread, or the lane's) is told no, and nothing is thrown at it.
+        Assert.False(events.InOrder("EVENT 3"));
+        index.Latest("rows", "INDEX rows 3");
+        Assert.Empty(queue.Drain());
+    }
 }

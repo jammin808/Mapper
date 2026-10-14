@@ -135,6 +135,7 @@ internal sealed class PushQueue : IDisposable
     private readonly Queue<(string Topic, string Line)> _inOrder = new();
     private readonly Dictionary<string, (string Topic, string Line)> _latest = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _signal = new(0, 1);
+    private bool _disposed;
 
     public IPushSink SinkFor(string topic) => new Sink(this, topic);
 
@@ -165,11 +166,25 @@ internal sealed class PushQueue : IDisposable
         w.WriteEndObject();
     });
 
-    public void Dispose() => _signal.Dispose();
+    /// <summary>Once the session is gone a topic's late line is dropped, never thrown at the thread that pushed it (a package's own,
+    /// the lane's included).</summary>
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _inOrder.Clear();
+            _latest.Clear();
+        }
+        _signal.Dispose();
+    }
 
+    /// <summary>Under the gate: wakes the pump unless the session is gone.</summary>
     private void Wake()
     {
-        if (_signal.CurrentCount == 0)
+        if (!_disposed && _signal.CurrentCount == 0)
             _signal.Release();
     }
 
@@ -181,6 +196,8 @@ internal sealed class PushQueue : IDisposable
         {
             lock (queue._gate)
             {
+                if (queue._disposed)
+                    return;
                 queue._latest[topic + "\u0000" + key] = (topic, line);
                 queue.Wake();
             }
@@ -192,6 +209,8 @@ internal sealed class PushQueue : IDisposable
                 return false;
             lock (queue._gate)
             {
+                if (queue._disposed)
+                    return false;
                 var queued = queue._inOrder.Count(i => ReferenceEquals(i.Topic, topic));
                 if (queued >= TopicSubscriptions.InOrderBound)
                 {
