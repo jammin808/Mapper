@@ -267,11 +267,12 @@ public sealed class FxVerbTests
     }
 
     [Fact]
-    public async Task AnEditCannotAddASlotOfAKindThisNodeDoesNotHave()
+    public async Task AGenericEditKeepsAKindThisNodeLacksAsMissingAndRefusesAStrayParameter()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        var r = await Refused(engine, "ADD fx op_1 {\"kind\":\"fx.sparkle\"}");
-        Assert.Contains("no effect kind fx.sparkle", r, StringComparison.Ordinal);
+        var lacking = await Ok(engine, "ADD fx op_1 {\"kind\":\"fx.sparkle\"}");
+        Assert.Equal("missing", Slot(engine, lacking).GetProperty("state").GetString());
+        Assert.Contains("this node has no effect fx.sparkle", Slot(engine, lacking).GetProperty("words").GetString(), StringComparison.Ordinal);
         Assert.Contains("Blur has no parameter size", await Refused(engine, "ADD fx op_1 {\"kind\":\"fx.blur\",\"params\":{\"values\":{\"size\":\"1\"}}}"), StringComparison.Ordinal);
         Assert.StartsWith("fx", await Ok(engine, "ADD fx op_1 {\"kind\":\"fx.blur\",\"params\":{\"values\":{\"radius\":\"3\"}}}"), StringComparison.Ordinal);
     }

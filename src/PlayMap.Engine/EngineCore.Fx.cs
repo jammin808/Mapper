@@ -589,12 +589,11 @@ public sealed partial class EngineCore
 
     partial void ValidateFx(Project p, object entity, ref string? why)
     {
-        if (why is not null || entity is not FxSlot slot)
+        // A kind this node does not have is kept (the show may come from a node that has it) and shows as missing in STATE;
+        // a parameter its kind does not have is refused.
+        if (why is not null || entity is not FxSlot slot || FxCatalog.For(p.FxAssets).Find(slot.Kind) is not { } kind)
             return;
-        var kind = FxCatalog.For(p.FxAssets).Find(slot.Kind);
-        if (kind is null)
-            why = $"no effect kind {slot.Kind} — FX KINDS lists them";
-        else if (slot.Params.Values.Keys.FirstOrDefault(k => kind.Param(k) is null) is { } stray)
+        if (slot.Params.Values.Keys.FirstOrDefault(k => kind.Param(k) is null) is { } stray)
             why = $"{kind.Name} has no parameter {stray}";
     }
 }

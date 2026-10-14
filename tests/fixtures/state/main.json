@@ -35,7 +35,8 @@
       "frameMsP95": 0,
       "pattern": null,
       "projector": "pj_left",
-      "light": "grey"
+      "light": "grey",
+      "fx": null
     },
     {
       "id": "op_right",
@@ -53,7 +54,8 @@
       "frameMsP95": 0,
       "pattern": null,
       "projector": "pj_right",
-      "light": "grey"
+      "light": "grey",
+      "fx": null
     }
   ],
   "media": {
@@ -171,5 +173,25 @@
     ],
     "problems": []
   },
-  "cameras": []
+  "cameras": [],
+  "fx": {
+    "budgetMs": 4,
+    "library": {
+      "builtin": 10,
+      "isf": 0,
+      "ffgl": 0,
+      "quarantined": 0
+    },
+    "compile": {
+      "lane": "none",
+      "pending": 0,
+      "words": "no renderer on this node"
+    },
+    "slots": [],
+    "plugins": {
+      "enabled": false,
+      "inProcess": 0,
+      "words": "FFGL plugins are not hosted by this build"
+    }
+  }
 }

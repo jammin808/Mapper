@@ -1,1 +1,154 @@
-[]
+[
+  {
+    "title": "Effects",
+    "path": "fx",
+    "light": {
+      "path": "fx.slots[].state",
+      "red": [
+        "faulted",
+        "missing"
+      ],
+      "amber": [
+        "compiling"
+      ],
+      "green": [
+        "ok"
+      ]
+    },
+    "words": "fx.compile.words",
+    "fields": [
+      {
+        "label": "Effects",
+        "path": "fx.slots.length"
+      },
+      {
+        "label": "Built-in kinds",
+        "path": "fx.library.builtin"
+      },
+      {
+        "label": "Show ISF files",
+        "path": "fx.library.isf"
+      },
+      {
+        "label": "Compile lane",
+        "path": "fx.compile.lane"
+      },
+      {
+        "label": "Compiling",
+        "path": "fx.compile.pending"
+      },
+      {
+        "label": "Budget (ms)",
+        "path": "fx.budgetMs"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Effects off",
+        "line": "FX BYPASS ALL ON"
+      },
+      {
+        "label": "Effects on",
+        "line": "FX BYPASS ALL OFF"
+      },
+      {
+        "label": "Kinds",
+        "line": "FX KINDS"
+      }
+    ]
+  },
+  {
+    "title": "Effect",
+    "path": "fx.slots[]",
+    "light": {
+      "path": "state",
+      "red": [
+        "faulted",
+        "missing"
+      ],
+      "amber": [
+        "compiling"
+      ],
+      "green": [
+        "ok"
+      ]
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "On",
+        "path": "owner"
+      },
+      {
+        "label": "GPU (ms)",
+        "path": "gpuMs"
+      },
+      {
+        "label": "Mix",
+        "path": "mix"
+      },
+      {
+        "label": "Frame-exact",
+        "path": "deterministic"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Bypass",
+        "line": "FX BYPASS $(id) TOGGLE"
+      },
+      {
+        "label": "Mix \u002B",
+        "line": "FX SET $(id) mix BY 0.05"
+      },
+      {
+        "label": "Mix \u2212",
+        "line": "FX SET $(id) mix BY -0.05"
+      },
+      {
+        "label": "Remove",
+        "line": "FX REMOVE $(id)"
+      }
+    ]
+  },
+  {
+    "title": "Output effects",
+    "path": "outputs[].fx",
+    "light": {
+      "path": "light"
+    },
+    "words": "",
+    "fields": [
+      {
+        "label": "Effects",
+        "path": "slots"
+      },
+      {
+        "label": "Cost (ms)",
+        "path": "costMs"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Bypass all",
+        "line": "FX BYPASS $(id) ON"
+      },
+      {
+        "label": "Bring back",
+        "line": "FX BYPASS $(id) OFF"
+      },
+      {
+        "label": "List",
+        "line": "FX LIST $(id)"
+      }
+    ]
+  }
+]
