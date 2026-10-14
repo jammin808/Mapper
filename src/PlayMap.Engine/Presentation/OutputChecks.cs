@@ -11,8 +11,9 @@ namespace PlayMap.Engine.Presentation;
 /// <list type="bullet">
 /// <item>present — green within the late budget, amber over it (0.5 % of the last 10 s of refreshes late), grey before anything was
 /// presented (or with no render host);</item>
-/// <item>lock — while the group's lock is applied: green locked; amber joining, held out, or free-running (fix: SYNC REJOIN); red
-/// fell out (fix: SYNC REJOIN). An output that fell out shows even when the lock was released since.</item>
+/// <item>lock — while the group's lock is applied: green locked; amber joining, held out (fix: SYNC REJOIN), or free-running after a
+/// refused join (fix: SYNC APPLY); red fell out (fix: SYNC REJOIN). An output that fell out shows even when the lock was released
+/// since.</item>
 /// </list>
 /// Reads published state only.</summary>
 public sealed class OutputPresentCheck : IPreflightCheck
@@ -67,8 +68,12 @@ public sealed class OutputPresentCheck : IPreflightCheck
             return new PreflightRow(id, node, "outputs", o.Name, Light.Green, l.StateWord, l.Words, null);
         if (l.State == LockState.Joining)
             return new PreflightRow(id, node, "outputs", o.Name, Light.Amber, "joining", l.Words, null);
-        var why = heldOut ? "left out of the lock the group applied" : l.Words.Length > 0 ? l.Words : "free-running in a group that applied the lock";
-        return new PreflightRow(id, node, "outputs", o.Name, Light.Amber, "free-running", why, rejoin);
+        // Held out: SYNC REJOIN brings it back. Free by a refused join (no board, armed, …): only a new SYNC APPLY asks again, once
+        // what refused it is fixed (SYNC REJOIN would answer "nothing fell out").
+        if (heldOut)
+            return new PreflightRow(id, node, "outputs", o.Name, Light.Amber, "free-running", "left out of the lock the group applied", rejoin);
+        var why = l.Words.Length > 0 ? l.Words : "free-running in a group that applied the lock";
+        return new PreflightRow(id, node, "outputs", o.Name, Light.Amber, "free-running", why, "SYNC APPLY");
     }
 }
 

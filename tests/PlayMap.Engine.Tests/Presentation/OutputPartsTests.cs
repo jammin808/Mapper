@@ -69,6 +69,25 @@ public sealed class OutputPartsTests
         Assert.True((await rig.Run("SYNC REJOIN op_a")).Ok);
         rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
         Assert.Equal(Light.Green, Assert.Single(rows, r => r.Id == "outputs.lock.op_a").Light);
+
+        // Free by a refused join, not held out: nothing fell out, so the fix is a new SYNC APPLY (SYNC REJOIN would be refused).
+        outputs.Held.Remove("op_b");
+        outputs.LockViews["op_b"] = outputs.LockViews["op_b"] with
+        {
+            State = LockState.FreeMeasured,
+            Reason = LockReasons.Armed,
+            Words = "armed: joining the lock may step the picture — black out first, or SHOW DISARM",
+        };
+        rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+        var refused = Assert.Single(rows, r => r.Id == "outputs.lock.op_b");
+        Assert.Equal(Light.Amber, refused.Light);
+        Assert.Equal("SYNC APPLY", refused.Fix);
+        Assert.StartsWith("armed:", refused.Note, StringComparison.Ordinal);
+        Assert.False((await rig.Run("SYNC REJOIN op_b")).Ok);
+        var applied = await rig.Run(refused.Fix!);
+        Assert.True(applied.Ok, applied.Payload);
+        rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+        Assert.Equal(Light.Green, Assert.Single(rows, r => r.Id == "outputs.lock.op_b").Light);
     }
 
     private static WireLine Parse(string line)
@@ -123,8 +142,19 @@ public sealed class OutputPartsTests
         var item = Assert.Single(doc.RootElement.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetString() == "sync:lock");
         Assert.Equal("sync", item.GetProperty("kind").GetString());
         Assert.Equal("green", item.GetProperty("light").GetString());
-        Assert.Contains(doc.RootElement.GetProperty("links").EnumerateArray(),
+        var link = Assert.Single(doc.RootElement.GetProperty("links").EnumerateArray(),
             l => l.GetProperty("from").GetString() == "output:op_a" && l.GetProperty("to").GetString() == "sync:lock");
+        // The Eye drops any other link kind: a locked output follows the lock.
+        Assert.Equal(ContextLinkKinds.Follows, link.GetProperty("kind").GetString());
+
+        // Fallen out, it only hears the lock (and is red).
+        rig.Outputs.LockViews["op_a"] = rig.Outputs.LockViews["op_a"] with { State = LockState.FellOut, Reason = LockReasons.Stall };
+        using var fell = JsonDocument.Parse(rig.Engine.Context());
+        var free = Assert.Single(fell.RootElement.GetProperty("links").EnumerateArray(),
+            l => l.GetProperty("from").GetString() == "output:op_a" && l.GetProperty("to").GetString() == "sync:lock");
+        Assert.Equal(ContextLinkKinds.Hears, free.GetProperty("kind").GetString());
+        Assert.Equal("red", free.GetProperty("light").GetString());
+        Assert.All(fell.RootElement.GetProperty("links").EnumerateArray(), l => Assert.True(ContextLinkKinds.IsEyeVerb(l.GetProperty("kind").GetString()!)));
     }
 }
 

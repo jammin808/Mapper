@@ -84,12 +84,14 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 ## Preflight, INDEX, context
 
 - **Preflight** (section `outputs`): per enabled output a present row (green; amber past the late budget, with what to do; grey
-  before anything was presented) and, while the lock is applied, a lock row: green locked, amber joining, amber free-running or
-  held out of a group that applied the lock (fix `SYNC REJOIN <output>`), red fell out (fix `SYNC REJOIN <output>`).
+  before anything was presented) and, while the lock is applied, a lock row: green locked, amber joining, amber held out of a
+  group that applied the lock (fix `SYNC REJOIN <output>`), amber free after a refused join (fix `SYNC APPLY`, once what refused
+  it is put right), red fell out (fix `SYNC REJOIN <output>`).
 - **INDEX** section `present`: per enabled output its present light (red when it fell out of the lock) and lock state; keys
   `OUTPUT STATS $(id)` lit by `outputs.$(id).present.light`, `SYNC REJOIN $(id)` lit by `outputs.$(id).lock.state`.
 - **Context**: while the lock is applied (or an output fell out), an item `sync:lock` (kind `sync`) lit by the group's lock, linked
-  from each output (`locked` or `free`); a `machine:present` item (amber) when the platform is not what was asked.
+  from each output with the Eye's verbs (`follows` while locked, `hears` while free); a `machine:present` item (amber) when the
+  platform is not what was asked.
 
 ## Verified here, compile-only, next
 

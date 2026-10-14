@@ -53,9 +53,11 @@ public sealed partial class EngineCore
             return [.. p.Outputs.Where(o => o.Enabled)];
         if (ResolveOutput(args[0]) is { } one)
             return [one];
-        refused = CommandReply.Fail($"no output '{args[0]}' — STATE's outputs name them (id, number or name)");
+        refused = CommandReply.Fail(NoOutputWords(args[0]));
         return null;
     }
+
+    private static string NoOutputWords(string name) => $"no output '{name}' — STATE's outputs name them (id, number or name)";
 
     private CommandReply OutputStats(List<string> args)
     {
@@ -181,9 +183,9 @@ public sealed partial class EngineCore
         }
         else
         {
-            var targets = OutputTargets(args, out var refused);
+            var targets = OutputTargets(args, out _);
             if (targets is null)
-                return refused!;
+                return LockRefuse(verb, "no-output", NoOutputWords(args[0]));
             ids = [.. targets.Select(o => o.Id).Where(id => !backend.HeldOut.Contains(id))];
             if (ids.Count == 0)
                 return LockRefuse(verb, "not-in-lock", $"{targets[0].Name} is out of the lock already");
@@ -213,9 +215,9 @@ public sealed partial class EngineCore
         }
         else
         {
-            var targets = OutputTargets(args, out var refused);
+            var targets = OutputTargets(args, out _);
             if (targets is null)
-                return refused!;
+                return LockRefuse(verb, "no-output", NoOutputWords(args[0]));
             candidates = targets.Select(o => o.Id);
         }
         var ids = candidates.Where(id => backend.HeldOut.Contains(id) || (locks.TryGetValue(id, out var v) && v.State == LockState.FellOut)).ToList();
@@ -420,8 +422,9 @@ public sealed partial class EngineCore
                 _ => Light.Amber,
             };
             items.Add(new ContextItem("sync:lock", "sync", "Frame lock", light, words));
+            // Links speak only the Eye's verbs: a locked output follows the lock; a free-running one hears it.
             foreach (var (id, v) in locks ?? new Dictionary<string, LockView>())
-                links.Add(new ContextLink("output:" + id, "sync:lock", v.Locked ? "locked" : "free",
+                links.Add(new ContextLink("output:" + id, "sync:lock", v.Locked ? ContextLinkKinds.Follows : ContextLinkKinds.Hears,
                     v.Locked ? Light.Green : v.State == LockState.FellOut ? Light.Red : Light.Amber));
         }
         if (PresentBackend?.Machine() is { Why.Length: > 0 } m)

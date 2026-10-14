@@ -42,6 +42,7 @@ An output is named by id, 1-based number or name; none, or `ALL`, is every enabl
 | `not-applied` | LEAVE, REJOIN | the lock is not applied |
 | `not-in-lock` | LEAVE | the output is out of the lock already |
 | `nothing-fell-out` | REJOIN | no output fell out or was held out |
+| `no-output` | LEAVE, REJOIN | the named output is no output of this node |
 
 Inside the machine an output's own refusal or fall-out reason is one of `no-board`, `not-configured`, `cable-into-switch`,
 `armed`, `stall`, `count-stalled`, `board-unsynced`, `device-busy`, `display-changed`, `join-timeout`, `join-refused`
@@ -70,8 +71,10 @@ Inside the machine an output's own refusal or fall-out reason is one of `no-boar
 - `sync.latencyMs` is `ProjectSettings.syncLatencyMs` when set (≥ 0), else the largest enabled output's `latencyMs`.
 - `machine.present.presentMsP95` is the time a frame spends in present calls (the pacing window's wait for the vblank included).
 - Events: `sync.fellout` `{"output","words"}` when an output falls out of the lock (with a `fault` journal row).
-- Context: `sync:lock` (kind `sync`) while the lock is applied, linked from each `output:<id>`; `machine:present` when the platform
-  is not what was asked.
+- Context: `sync:lock` (kind `sync`) while the lock is applied (or an output fell out), linked from each `output:<id>` with the
+  Eye's verbs only — `follows` while locked, `hears` while free; `machine:present` when the platform is not what was asked.
+- Preflight (section `outputs`): `outputs.present.<id>` and, while the lock is applied, `outputs.lock.<id>` — red when it fell
+  out (fix `SYNC REJOIN <id>`), amber when held out (fix `SYNC REJOIN <id>`) or free after a refused join (fix `SYNC APPLY`).
 - INDEX: section `present` (rows `{"id","kind":"output","label","parent","light","state"}`).
 - Fixture: `tests/fixtures/state/output.json`, cards `output.cards.json` (written by `OutputFixtureTests`).
 

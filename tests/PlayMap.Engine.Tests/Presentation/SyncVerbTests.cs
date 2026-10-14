@@ -122,6 +122,9 @@ public sealed class SyncVerbTests
         await Refused(rig, "SYNC REJOIN", "not-applied");
         Assert.True((await rig.Run("SYNC APPLY")).Ok);
         await Refused(rig, "SYNC REJOIN", "nothing-fell-out");
+        await Refused(rig, "SYNC LEAVE op_x", "no-output");
+        await Refused(rig, "SYNC REJOIN op_x", "no-output");
+        Assert.DoesNotContain(rig.Outputs.Calls, c => c.Contains("op_x", StringComparison.Ordinal));
 
         var left = await rig.Run("SYNC LEAVE op_b");
         Assert.True(left.Ok, left.Payload);
