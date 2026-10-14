@@ -90,12 +90,15 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
 
     public FxKind? Kind => _kind;
 
-    /// <summary>Takes the slot's record: a new kind or program starts again (buffers cleared, program asked for); new parameters
-    /// only recompute the uniforms. Called when the slot's record is not the one it has.</summary>
-    public void Configure(FxSlot slot, FxKind kind, IsfProgramSource source, ImmutableSortedDictionary<string, string> imports)
+    /// <summary>Takes the slot's record: other files (by content, not by which catalogue holds them) start again (buffers
+    /// cleared, program asked for); the same files from another catalogue keep the program and every buffer, so a show's other
+    /// edits never restart an effect on the air; new parameters only recompute the uniforms. Called when the slot's record or
+    /// the catalogue is not the one it has.</summary>
+    public void Configure(FxSlot slot, FxKind kind, IsfProgramSource source, FxSource files)
     {
-        if (!ReferenceEquals(kind, _kind) || !ReferenceEquals(source, _source))
-            Rebuild(kind, source, imports);
+        if (_kind is null || !string.Equals(files.Hash, _key, StringComparison.Ordinal) || !SameImages(files.Images, _imports))
+            Rebuild(kind, source, files);
+        _kind = kind;
         _slot = slot;
         _vars.Clear();
         Span<float> v = stackalloc float[4];
@@ -107,15 +110,27 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         }
     }
 
-    private void Rebuild(FxKind kind, IsfProgramSource source, ImmutableSortedDictionary<string, string> imports)
+    private static bool SameImages(ImmutableSortedDictionary<string, string> a, ImmutableSortedDictionary<string, string> b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a.Count != b.Count)
+            return false;
+        foreach (var (name, data) in a)
+            if (!b.TryGetValue(name, out var other) || !string.Equals(data, other, StringComparison.Ordinal))
+                return false;
+        return true;
+    }
+
+    private void Rebuild(FxKind kind, IsfProgramSource source, FxSource files)
     {
         DisposeBuffers();
         _kind = kind;
         _source = source;
-        _imports = imports;
+        _imports = files.Images;
         _entry = null;
         _name = kind.Id;
-        _key = FxCatalog.ContentHash(source.Fragment, source.Vertex);
+        _key = files.Hash;
         var doc = kind.Document;
         if (!doc.Valid)
         {
@@ -170,7 +185,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         }
         State = FxSlotState.Compiling;
         Words = "compiling";
-        _lane.Request(_key, _name, source.Vertex, source.Fragment, imports);
+        _lane.Request(_key, _name, source.Vertex, source.Fragment, _imports);
     }
 
     private static string Line(IsfIssue issue) => issue.Line > 0 ? $"line {issue.Line}: {issue.Words}" : issue.Words;
@@ -194,6 +209,13 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
             default:
                 return _vars.TryGetValue(name, out value);
         }
+    }
+
+    /// <summary>Keeps the slot's program on the lane through a frame it is not drawn in (its owner shows something else).</summary>
+    public void Keep(long frame)
+    {
+        if (_entry is { } entry)
+            entry.LastUsed = frame;
     }
 
     /// <summary>The effect's result for this frame at a size, or null when it has none to give (compiling or faulted: the chain

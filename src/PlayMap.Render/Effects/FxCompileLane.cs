@@ -45,6 +45,9 @@ internal sealed class FxProgramEntry : IDisposable
 /// <see cref="CheckAsync"/> from any thread.</summary>
 public sealed class FxCompileLane : IDisposable
 {
+    /// <summary>A program no slot has used for this many frames is let go.</summary>
+    public const int UnusedFrames = 600;
+
     private sealed record Job(string Key, string Name, string Vertex, string Fragment, ImmutableSortedDictionary<string, string> Images,
         TaskCompletionSource<FxCompileReport>? Report);
 
@@ -134,12 +137,9 @@ public sealed class FxCompileLane : IDisposable
     public Task<FxCompileReport> CheckAsync(string name, string vertex, string fragment)
     {
         var done = new TaskCompletionSource<FxCompileReport>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (_disposed || _jobs.IsAddingCompleted)
-        {
-            done.SetResult(new FxCompileReport(false, "the renderer is stopping", Mode));
+        if (!_disposed && _jobs.TryAddLive(new Job("", name, vertex, fragment, ImmutableSortedDictionary<string, string>.Empty, done)))
             return done.Task;
-        }
-        _jobs.Add(new Job("", name, vertex, fragment, ImmutableSortedDictionary<string, string>.Empty, done));
+        done.TrySetResult(new FxCompileReport(false, "the renderer is stopping", Mode));
         return done.Task;
     }
 
@@ -162,13 +162,13 @@ public sealed class FxCompileLane : IDisposable
         if (_disposed)
             return;
         if (_thread is null && _jobs.TryTake(out var job))
-            Finish(Compile(job, onLane: false), job);
+            Finish(Compile(job), job);
         while (_done.TryDequeue(out var compiled))
             Adopt(compiled);
         if (frame % 60 != 0)
             return;
         foreach (var (key, e) in _programs)
-            if (frame - e.LastUsed > 600)
+            if (frame - e.LastUsed > UnusedFrames)
                 _stale.Add(key);
         foreach (var key in _stale)
         {
@@ -207,8 +207,7 @@ public sealed class FxCompileLane : IDisposable
         {
             foreach (var job in _jobs.GetConsumingEnumerable())
             {
-                BeforeCompile?.Invoke(job.Name);
-                var compiled = Compile(job, onLane: true);
+                var compiled = Compile(job);
                 _gl.Finish();
                 Finish(compiled, job);
             }
@@ -233,10 +232,24 @@ public sealed class FxCompileLane : IDisposable
         report.TrySetResult(new FxCompileReport(compiled.Error is null, compiled.Error, Mode));
     }
 
-    private FxCompiled Compile(Job job, bool onLane)
+    /// <summary>One job, wherever the lane runs. Its boundary: whatever a job throws (a driver's or a decoder's exception)
+    /// faults that job with its words and the lane goes on, so nothing a file holds stops the compiles after it, the frame or the
+    /// process.</summary>
+    private FxCompiled Compile(Job job)
     {
-        if (!onLane)
+        try
+        {
             BeforeCompile?.Invoke(job.Name);
+            return Build(job);
+        }
+        catch (Exception ex)
+        {
+            return new FxCompiled(job.Key, 0, $"the compile lane could not build {job.Name}: {ex.Message}", []);
+        }
+    }
+
+    private FxCompiled Build(Job job)
+    {
         uint id;
         string? error;
         try
@@ -250,10 +263,10 @@ public sealed class FxCompileLane : IDisposable
         var images = ImmutableArray.CreateBuilder<FxDecodedImage>();
         foreach (var (name, data) in job.Images)
         {
-            if (Decode(name, data) is { } img)
+            if (Decode(name, data, out var why) is { } img)
                 images.Add(img);
             else
-                error ??= $"the imported image {name} does not decode (PNG or JPEG, base64)";
+                error ??= why;
         }
         if (error is not null && id != 0)
         {
@@ -263,8 +276,13 @@ public sealed class FxCompileLane : IDisposable
         return new FxCompiled(job.Key, id, error, images.ToImmutable());
     }
 
-    private static FxDecodedImage? Decode(string name, string base64)
+    /// <summary>The most pixels an imported picture may have (4096 × 4096): its size is read from its header before it is
+    /// decoded, so a small file that would unpack to gigabytes is refused, not decoded.</summary>
+    internal const long MaxImagePixels = 4096L * 4096;
+
+    private static FxDecodedImage? Decode(string name, string base64, out string why)
     {
+        why = $"the imported image {name} does not decode (PNG or JPEG, base64)";
         byte[] bytes;
         try
         {
@@ -273,6 +291,17 @@ public sealed class FxCompileLane : IDisposable
         catch (FormatException)
         {
             return null;
+        }
+        using (var data = SKData.CreateCopy(bytes))
+        using (var codec = SKCodec.Create(data))
+        {
+            if (codec is null)
+                return null;
+            if ((long)codec.Info.Width * codec.Info.Height > MaxImagePixels)
+            {
+                why = $"the imported image {name} is {codec.Info.Width} × {codec.Info.Height}; an effect's picture is at most 4096 × 4096";
+                return null;
+            }
         }
         using var decoded = SKBitmap.Decode(bytes);
         if (decoded is null || decoded.Width < 1 || decoded.Height < 1)
@@ -307,5 +336,22 @@ public sealed class FxCompileLane : IDisposable
         _programs.Clear();
         _pending.Clear();
         _jobs.Dispose();
+    }
+}
+
+/// <summary>Adding to a queue that the render thread may close (or let go) between a caller's check and its add.</summary>
+internal static class FxJobQueue
+{
+    /// <summary>Adds the item; false when the queue no longer takes items (it was completed or disposed meanwhile).</summary>
+    public static bool TryAddLive<T>(this BlockingCollection<T> queue, T item)
+    {
+        try
+        {
+            return queue.TryAdd(item);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            return false;
+        }
     }
 }

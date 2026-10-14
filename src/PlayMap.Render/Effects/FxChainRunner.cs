@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using PlayMap.Core.Effects;
 using PlayMap.Core.Model;
 using PlayMap.Render.Gpu;
@@ -138,7 +137,8 @@ public sealed class FxChainRunner : IDisposable
             Stats.For(slot.Id).Set(FxSlotState.Bypassed, slot.Bypass ? "bypassed" : "mix 0", _frame);
             return current;
         }
-        if (_catalog.Find(slot.Kind) is not { } kind || _catalog.Translation(kind.Id, _dialect) is not { } source)
+        if (_catalog.Find(slot.Kind) is not { } kind || _catalog.Translation(kind.Id, _dialect) is not { } source
+            || _catalog.Source(kind.Id) is not { } files)
         {
             var missing = Stats.For(slot.Id);
             if (missing.State == FxSlotState.Missing)
@@ -157,7 +157,7 @@ public sealed class FxChainRunner : IDisposable
         {
             if (!ReferenceEquals(state.Slot, slot) || !ReferenceEquals(state.Catalog, _catalog))
             {
-                state.Renderer.Configure(slot, kind, source, _catalog.Source(kind.Id)?.Images ?? ImmutableSortedDictionary<string, string>.Empty);
+                state.Renderer.Configure(slot, kind, source, files);
                 state.Slot = slot;
                 state.Catalog = _catalog;
                 state.Live.Kind(kind.Traits.HistoryDependent);
@@ -197,6 +197,39 @@ public sealed class FxChainRunner : IDisposable
             _device.InvalidateState();
             state.Live.Set(FxSlotState.Faulted, ex.Message, _frame);
             return current;
+        }
+    }
+
+    /// <summary>True when the owner's chain was applied or skipped this frame. Render thread.</summary>
+    public bool Met(string ownerId) => _owners.TryGetValue(ownerId, out var owner) && owner.LastUsed == _frame;
+
+    /// <summary>A chain the frame did not run because its owner showed something else (blackout, a test pattern, a safe look, a
+    /// scan frame): each slot that is not bypassed says why in <paramref name="words"/> (it is idle, not drawing), or, with null
+    /// words (a held picture, which still shows what the chain made), keeps its last state. Either way its renderer, buffers
+    /// and program are kept, so the chain draws again on the first frame its owner is drawn. Render thread; allocates nothing
+    /// once the slots are known.</summary>
+    public void Skip(FxChain chain, string ownerId, string? words)
+    {
+        ArgumentNullException.ThrowIfNull(chain);
+        if (chain.IsEmpty)
+            return;
+        if (!_owners.TryGetValue(ownerId, out var owner))
+            _owners[ownerId] = owner = new Owner();
+        owner.LastUsed = _frame;
+        foreach (var slot in chain.Slots)
+        {
+            var live = Stats.For(slot.Id);
+            if (_slots.TryGetValue(slot.Id, out var state))
+            {
+                state.LastUsed = _frame;
+                state.Renderer.Keep(_frame);
+            }
+            if (slot.Bypass || slot.Mix <= 0)
+                live.Set(FxSlotState.Bypassed, slot.Bypass ? "bypassed" : "mix 0", _frame);
+            else if (words is null)
+                live.Touch(_frame);
+            else
+                live.Set(FxSlotState.Idle, words, _frame);
         }
     }
 

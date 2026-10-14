@@ -84,6 +84,9 @@ public sealed class FxChainTests(GlFixture gl)
             var expected = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx) with { PatternOverride = pattern });
             var shown = Draw(engine, fx, Inputs(chained, fx) with { PatternOverride = pattern });
             Assert.Equal(expected, shown);
+            // The slots say they are not drawing, and why, rather than keeping the word of a frame the pattern replaced.
+            var covered = FxRig.Live(engine, fx, "fx00000002");
+            Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), (covered.State, covered.Words));
             // The chain runs again the moment the pattern is down.
             Assert.NotEqual(expected, Draw(engine, fx, Inputs(chained, fx)));
         });
@@ -298,6 +301,151 @@ public sealed class FxChainTests(GlFixture gl)
             Pixels.Near((255, 0, 0), Pixels.At(px, W, 10, 2), 2);
             Pixels.Near((0, 0, 255), Pixels.At(px, W, 10, H - 3), 2);
         });
+    }
+
+    [Fact]
+    public void AnOutputNotDrawnSaysWhyAndItsChainDrawsOnTheFirstFrameBack()
+    {
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(c);
+            var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
+            var inputs = Inputs(Card(FxRig.Chain(FxRig.Slot("fx.invert"))), fx);
+            DrawCompiled(engine, fx, inputs);
+            // Black for longer than the runner keeps an unused slot and the lane an unused program.
+            for (var i = 0; i < FxCompileLane.UnusedFrames + 2 * FxChainRunner.IdleFrames; i++)
+                Draw(engine, fx, inputs with { Blackout = true });
+            var black = FxRig.Live(engine, fx, "fx00000001");
+            Assert.Equal((FxSlotState.Idle, FxPass.BlackWords), (black.State, black.Words));
+            Assert.Equal(1, fx.Lane.Programs);
+
+            var back = Draw(engine, fx, inputs);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(engine, fx, "fx00000001").State);
+            Pixels.Near(Inverse(Pixels.At(plain, W, 20, 10)), Pixels.At(back, W, 20, 10), 1);
+
+            // A held picture keeps the chain's last word: it still shows what the chain made.
+            Draw(engine, fx, inputs with { Freeze = true });
+            Assert.Equal((FxSlotState.Ok, ""), (FxRig.Live(engine, fx, "fx00000001").State, FxRig.Live(engine, fx, "fx00000001").Words));
+        });
+    }
+
+    [Fact]
+    public void AnotherEditOfTheShowNeverRestartsAnEffectOnTheAir()
+    {
+        const string white = """
+            /*{ "ISFVSN": "2" }*/
+            void main() { gl_FragColor = vec4(1.0); }
+            """;
+        var asset = new FxAsset("fa00000003", "White", FxFormat.Isf, "", FxCatalog.ContentHash(white, null)) { Source = white };
+        gl.Run(c =>
+        {
+            var d = c.Device;
+            using var lane = new FxCompileLane(c);
+            using var a = new FxChainRunner(d, lane);
+            using var b = new FxChainRunner(d, lane);
+            var show = Project.CreateDefault("Edits");
+            var edited = show with { FxAssets = [asset] };
+            var chain = FxRig.Chain(FxRig.Slot("fx.feedback", ParamSet.Empty.With("decay", 0.9)));
+            using (var warmup = new FxChainRunner(d, lane))
+            using (var first = FxRig.Picture(d, W, H, (_, _) => (0, 0, 0)))
+            {
+                long warm = 0;
+                FxRig.Run(d, lane, warmup, show, chain, first, ref warm, owner: "warm");
+            }
+            long fa = 0, fb = 0;
+            for (var k = 0; k < 60; k++)
+            {
+                // Halfway, b's show gains a file no slot uses: another catalogue, the same feedback files, the same trail.
+                var leaderNs = 1_000_000_000L + k * 16_666_667L;
+                using var bar = FxRig.Picture(d, W, H, (x, _) => Math.Abs(x - k * 2 % W) < 3 ? (255, 255, 255) : (0, 0, 0));
+                var pa = Scene.ReadTexture(d, FxRig.Step(d, lane, a, show, chain, bar, ref fa, leaderNs));
+                var pb = Scene.ReadTexture(d, FxRig.Step(d, lane, b, k < 30 ? show : edited, chain, bar, ref fb, leaderNs));
+                Assert.Equal(pa, pb);
+            }
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(b, "fx00000001").State);
+        });
+    }
+
+    [Fact]
+    public void AShowsCatalogueIsMadeOnceWhileAnotherShowIsRead()
+    {
+        static FxAsset Asset(string id, string colour)
+        {
+            var fs = "/*{ \"ISFVSN\": \"2\" }*/\nvoid main() { gl_FragColor = vec4(" + colour + "); }\n";
+            return new FxAsset(id, id, FxFormat.Isf, "", FxCatalog.ContentHash(fs, null)) { Source = fs };
+        }
+        ImmutableArray<FxAsset> one = [Asset("fa00000011", "1.0")];
+        ImmutableArray<FxAsset> two = [Asset("fa00000012", "0.5")];
+        var first = FxCatalog.For(one);
+        var second = FxCatalog.For(two);
+        Assert.NotSame(first, second);
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Same(first, FxCatalog.For(one));
+            Assert.Same(second, FxCatalog.For(two));
+        }
+        Assert.Equal(first.Source("isf:fa00000011")!.Hash, FxCatalog.ContentHash(one[0].Source, null));
+    }
+
+    [Fact]
+    public void AnImportedPictureTooLargeToDecodeFaultsItsSlotAndTheLaneGoesOn()
+    {
+        const string src = """
+            /*{ "ISFVSN": "2", "IMPORTED": { "card": { "PATH": "card.png" } } }*/
+            void main() { gl_FragColor = IMG_NORM_PIXEL(card, isf_FragNormCoord); }
+            """;
+        var asset = new FxAsset("fa00000004", "Huge", FxFormat.Isf, "", FxCatalog.ContentHash(src, null))
+        {
+            Source = src,
+            Images = ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal, [KeyValuePair.Create("card", Convert.ToBase64String(PngHeader(100_000, 100_000)))]),
+        };
+        gl.Run(c =>
+        {
+            var d = c.Device;
+            using var lane = new FxCompileLane(c);
+            using var runner = new FxChainRunner(d, lane);
+            using var input = FxRig.Picture(d, W, H, (_, _) => (40, 70, 100));
+            var show = Project.CreateDefault("Huge") with { FxAssets = [asset] };
+            long frame = 0;
+            var px = FxRig.Run(d, lane, runner, show, FxRig.Chain(FxRig.Slot("isf:fa00000004"), FxRig.Slot("fx.invert", id: "fx00000002")), input, ref frame);
+            var huge = FxRig.Live(runner, "fx00000001");
+            Assert.Equal(FxSlotState.Faulted, huge.State);
+            Assert.Contains("100000 × 100000", huge.Words, StringComparison.Ordinal);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000002").State);
+            Pixels.Near((215, 185, 155), Pixels.At(px, W, 10, 10), 1);
+        });
+    }
+
+    /// <summary>A PNG that says it is width × height (its header and an empty image stream): what a decoder reads before it
+    /// decodes anything.</summary>
+    private static byte[] PngHeader(int width, int height)
+    {
+        static uint Crc(ReadOnlySpan<byte> data)
+        {
+            var c = 0xFFFFFFFFu;
+            foreach (var b in data)
+            {
+                c ^= b;
+                for (var k = 0; k < 8; k++)
+                    c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            }
+            return ~c;
+        }
+        static void Chunk(List<byte> png, string type, byte[] data)
+        {
+            var body = new List<byte>(System.Text.Encoding.ASCII.GetBytes(type));
+            body.AddRange(data);
+            png.AddRange(BigEndian((uint)data.Length));
+            png.AddRange(body);
+            png.AddRange(BigEndian(Crc(body.ToArray())));
+        }
+        static byte[] BigEndian(uint v) => [(byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v];
+        var png = new List<byte> { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        Chunk(png, "IHDR", [.. BigEndian((uint)width), .. BigEndian((uint)height), 8, 6, 0, 0, 0]);
+        Chunk(png, "IDAT", [0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        Chunk(png, "IEND", []);
+        return [.. png];
     }
 
     private static (int R, int G, int B) Inverse((int R, int G, int B) c) => (255 - c.R, 255 - c.G, 255 - c.B);

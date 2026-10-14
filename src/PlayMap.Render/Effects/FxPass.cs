@@ -20,6 +20,10 @@ public interface IFxAttachPoints
 /// runner; it is made, drawn and disposed on the render thread.</summary>
 public sealed class FxPass : IFramePass, IFxAttachPoints
 {
+    internal const string CoveredWords = "not drawn: a test pattern or safe look covers its output";
+    internal const string BlackWords = "not drawn: the air is black";
+    internal const string OtherWords = "not drawn: its output shows a scan frame or has no size";
+
     private readonly FxChainRunner _runner;
     private FrameInputs _air;
     private long _frame = -1;
@@ -57,8 +61,13 @@ public sealed class FxPass : IFramePass, IFxAttachPoints
     {
         ArgumentNullException.ThrowIfNull(output);
         Begin(in frame);
-        if (output.Fx.IsEmpty || _air.PatternCovers(output.Id) || _air.Levels?.Override(output.Id, frame.LeaderNs) is { IsNone: false })
+        if (output.Fx.IsEmpty)
             return picture;
+        if (_air.PatternCovers(output.Id) || _air.Levels?.Override(output.Id, frame.LeaderNs) is { IsNone: false })
+        {
+            _runner.Skip(output.Fx, output.Id, CoveredWords);
+            return picture;
+        }
         return _runner.Apply(output.Fx, output.Id, picture, Frame(in frame, 0));
     }
 
@@ -76,9 +85,20 @@ public sealed class FxPass : IFramePass, IFxAttachPoints
         return surface.Fx.IsEmpty ? picture : _runner.Apply(surface.Fx, surface.Id, picture, Frame(in frame, 0));
     }
 
+    /// <summary>Every enabled output whose chain the frame did not reach (blackout, a held picture, a scan frame) says why in its
+    /// slots, then the runner lets go of what has been idle long enough.</summary>
     public void FrameEnd(in PassFrame frame)
     {
         Begin(in frame);
+        var outputs = frame.Project.Outputs;
+        for (var i = 0; i < outputs.Length; i++)
+        {
+            var o = outputs[i];
+            if (o.Fx.IsEmpty || !o.Enabled || _runner.Met(o.Id))
+                continue;
+            var held = frame.Freeze || (_air.Levels?.Hold(o.Id, frame.LeaderNs) ?? false);
+            _runner.Skip(o.Fx, o.Id, frame.Blackout ? BlackWords : held ? null : OtherWords);
+        }
         _runner.EndFrame();
     }
 
