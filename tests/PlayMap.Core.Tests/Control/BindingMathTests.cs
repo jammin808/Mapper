@@ -140,7 +140,7 @@ public sealed class BindingMathTests
     [InlineData(0.4173, Placeholder.Value, "0.4173")]
     [InlineData(1.0 / 3, Placeholder.Value, "0.333333")]
     [InlineData(0.425, Placeholder.Percent, "43")]
-    [InlineData(2.6, Placeholder.Index, "3")]
+    [InlineData(2.6, Placeholder.Index, "#3")]
     [InlineData(0, Placeholder.Value, "0")]
     [InlineData(1234567.0, Placeholder.Value, "1234570")]
     public void ValuesBecomeInvariantWords(double value, Placeholder placeholder, string word) =>

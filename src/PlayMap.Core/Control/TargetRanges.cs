@@ -25,6 +25,14 @@ public static class TargetRanges
                 return OfGenerator(project, field.Id, field.Path);
             return OfField(project, field.Id, field.Path);
         }
+        if (target.Placeholder == Placeholder.Index && target.Spec.Name is "PLAYLIST GO" or "PLAYLIST CUE" && project is not null)
+        {
+            // An item number: 1 to the playlist's length.
+            var key = target.Line.Word(target.VerbWords);
+            var list = project.FindPlaylist(key) ?? project.Playlists.FirstOrDefault(l => l.Name.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (list is { Items.Length: > 0 })
+                return new TargetRange(1, list.Items.Length, false, true, true);
+        }
         if (target.PlaceholderAt >= 0 && SyntaxRange(target, target.PlaceholderAt) is { } r)
             return r;
         return target.Placeholder == Placeholder.Percent ? new TargetRange(0, 1, false, false, true) : TargetRange.Unknown;

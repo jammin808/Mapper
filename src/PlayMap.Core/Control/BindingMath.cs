@@ -150,13 +150,13 @@ public static class BindingMath
     }
 
     /// <summary>A shaped value as the word that replaces a placeholder: "*" → invariant, six significant digits, trimmed; "*%" → a
-    /// 0–100 integer; "#*" → a 1-based integer index.</summary>
+    /// 0–100 integer; "#*" → a 1-based item number ("#3").</summary>
     public static string Format(double value, Placeholder placeholder)
     {
         return placeholder switch
         {
             Placeholder.Percent => ((int)Math.Round(Math.Clamp(value, 0, 1) * 100, MidpointRounding.AwayFromZero)).ToString(CultureInfo.InvariantCulture),
-            Placeholder.Index => ((int)Math.Max(1, Math.Round(value, MidpointRounding.AwayFromZero))).ToString(CultureInfo.InvariantCulture),
+            Placeholder.Index => "#" + ((int)Math.Max(1, Math.Round(value, MidpointRounding.AwayFromZero))).ToString(CultureInfo.InvariantCulture),
             _ => Trim(value),
         };
     }

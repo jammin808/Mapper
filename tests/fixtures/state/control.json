@@ -1,1 +1,176 @@
-{}
+{
+  "control": {
+    "enabled": true,
+    "axisHz": 100,
+    "osc": {
+      "port": 0,
+      "open": true,
+      "senders": 0,
+      "refused": 0,
+      "malformed": 0,
+      "words": ""
+    },
+    "midi": {
+      "backend": "fake",
+      "open": true,
+      "words": "",
+      "inputs": [
+        {
+          "name": "APC40 mkII",
+          "surface": "ct00000001",
+          "open": true
+        }
+      ],
+      "outputs": []
+    },
+    "dmx": {
+      "artnet": {
+        "enabled": false,
+        "open": false,
+        "interface": "all",
+        "frames": 0,
+        "dropped": 0,
+        "polls": 0
+      }
+    },
+    "surfaces": [
+      {
+        "id": "ct00000001",
+        "name": "APC40",
+        "kind": "midi",
+        "enabled": true,
+        "connected": true,
+        "port": "APC40 mkII",
+        "profile": "",
+        "bindings": 1,
+        "light": "green"
+      },
+      {
+        "id": "ct00000002",
+        "name": "Desk",
+        "kind": "artnet",
+        "enabled": true,
+        "connected": false,
+        "port": null,
+        "profile": "",
+        "bindings": 1,
+        "light": "amber"
+      }
+    ],
+    "bindings": {
+      "count": 3,
+      "enabled": 3,
+      "live": 2,
+      "waiting": 1,
+      "unplugged": 0
+    },
+    "learning": null,
+    "learnt": null,
+    "last": {
+      "input": "MIDI APC40 CC 1 48",
+      "value": 1,
+      "binding": "bd00000003",
+      "at": 1760000002000
+    }
+  },
+  "timecode": {
+    "sources": [
+      {
+        "id": "tc00000004",
+        "name": "Rehearsal",
+        "kind": "internal",
+        "device": "",
+        "state": "rolling",
+        "text": "01:00:03:00",
+        "df": false,
+        "format": "25",
+        "detected": "25",
+        "fpsMeasured": 25,
+        "speedPpm": 0,
+        "sigmaUs": 0,
+        "open": true,
+        "errors": {
+          "biphase": 0,
+          "missing": 0,
+          "duplicate": 0,
+          "discontinuity": 0,
+          "invalid": 0,
+          "badBcd": 0,
+          "parity": 0
+        },
+        "userBits": "00000000",
+        "ageMs": 0,
+        "latencyMs": 0,
+        "words": "internal, rolling at 25 fps"
+      },
+      {
+        "id": "tc00000005",
+        "name": "FOH",
+        "kind": "ltc",
+        "device": "default:1",
+        "state": "unavailable",
+        "text": "",
+        "df": false,
+        "format": "auto",
+        "detected": "",
+        "fpsMeasured": 0,
+        "speedPpm": 0,
+        "sigmaUs": 0,
+        "levelDb": -120,
+        "level": "red",
+        "open": false,
+        "errors": {
+          "biphase": 0,
+          "missing": 0,
+          "duplicate": 0,
+          "discontinuity": 0,
+          "invalid": 0,
+          "badBcd": 0,
+          "parity": 0
+        },
+        "userBits": "00000000",
+        "ageMs": 2000,
+        "latencyMs": 0,
+        "words": "no audio inputs on this node (the audio hub is not running) \u2014 LTC cannot arrive here"
+      }
+    ],
+    "chases": [
+      {
+        "playlist": "pl_show",
+        "sources": [
+          "tc00000004",
+          "tc00000005"
+        ],
+        "active": "tc00000004",
+        "mode": "locked",
+        "engaged": true,
+        "state": "locked",
+        "text": "01:00:03:00",
+        "item": "it_a",
+        "rate": 1,
+        "delayMs": 0,
+        "freewheelMs": 500,
+        "freewheelLeftMs": null,
+        "onLoss": "hold",
+        "gap": "black",
+        "lastJump": null,
+        "words": "locked to Rehearsal"
+      }
+    ]
+  },
+  "playlists": [
+    {
+      "id": "pl_show",
+      "chase": {
+        "state": "locked",
+        "source": "tc00000004",
+        "text": "01:00:03:00",
+        "engaged": true
+      }
+    },
+    {
+      "id": "pl_other",
+      "chase": null
+    }
+  ]
+}
