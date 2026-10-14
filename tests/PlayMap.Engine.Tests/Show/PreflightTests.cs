@@ -235,6 +235,7 @@ public sealed class PreflightTests
             Assert.Equal(report with { Rows = kept.Rows }, kept);
             Assert.Equal(report.Rows, kept.Rows);
             Assert.Equal("no preflight report pf00000000", await later.Refused("PREFLIGHT REPORT pf00000000"));
+            Assert.Equal("PREFLIGHT REPORT [<id>]", await later.Refused($"PREFLIGHT REPORT {id} again"));
         }
         finally
         {

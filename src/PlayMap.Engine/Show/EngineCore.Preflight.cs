@@ -128,6 +128,8 @@ public sealed partial class EngineCore
     /// <summary>Off the lane: an older report is read from disk, and the lane never waits on a file.</summary>
     private async Task<CommandReply> PreflightReportAsync(VerbCall c)
     {
+        if (c.Args.Count > 1)
+            return CommandReply.Fail("PREFLIGHT REPORT [<id>]");
         PreflightReport? report;
         lock (_preflightGate)
             report = c.Args.Count == 0 ? _preflight : _reports.FirstOrDefault(r => r.Id == c.Args[0]);

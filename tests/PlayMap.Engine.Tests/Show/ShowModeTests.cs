@@ -21,6 +21,10 @@ public sealed class ShowModeTests
             var armed = JsonDocument.Parse(await before.Ok("SHOW ARM doors at eight")).RootElement;
             Assert.True(armed.GetProperty("armed").GetBoolean());
             Assert.Equal("Desk", armed.GetProperty("by").GetString());
+            // Words the verb does not take are refused, not ignored.
+            Assert.True(JsonDocument.Parse(await before.Ok("SHOW STATUS")).RootElement.GetProperty("armed").GetBoolean());
+            Assert.Equal("SHOW [STATUS]", await before.Refused("SHOW ARMED"));
+            Assert.Equal("LOCKS takes no words", await before.Refused("LOCKS mapping"));
             Assert.True(before.Show().GetProperty("armed").GetBoolean());
             record = await before.Engine.Lane.RunAsync(() => RecoveryRecord.Capture(before.Engine));
         }

@@ -14,7 +14,8 @@ public sealed partial class EngineCore
     {
         StartShow();
         StartPreflight();
-        routes.Lane("SHOW", _ => CommandReply.Success(JsonOut(WriteShow)));
+        routes.Lane("SHOW", c => c.Args.Count == 0 || (c.Args.Count == 1 && c.Args[0].Equals("STATUS", StringComparison.OrdinalIgnoreCase))
+            ? CommandReply.Success(JsonOut(WriteShow)) : CommandReply.Fail("SHOW [STATUS]"));
         routes.Lane("SHOW ARM", ShowArm);
         routes.Lane("SHOW DISARM", ShowDisarm);
         routes.Lane("SHOW SET", ShowSet);
@@ -24,7 +25,7 @@ public sealed partial class EngineCore
         routes.Lane("MASTER", Master);
         routes.Lane("LOCK", Lock);
         routes.Lane("UNLOCK", Unlock);
-        routes.Lane("LOCKS", _ => CommandReply.Success(JsonOut(WriteLocks)));
+        routes.Lane("LOCKS", c => c.Args.Count == 0 ? CommandReply.Success(JsonOut(WriteLocks)) : CommandReply.Fail("LOCKS takes no words"));
         routes.OffLane("PREFLIGHT", PreflightAsync);
         routes.OffLane("PREFLIGHT REPORT", PreflightReportAsync);
         routes.Index(new ShowIndex(this));
