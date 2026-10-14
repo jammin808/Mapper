@@ -185,7 +185,8 @@
     "name": "Test",
     "revision": 1,
     "path": null,
-    "dirty": false
+    "dirty": false,
+    "index": "8e7e7f3c410f0f81"
   },
   "faults": [],
   "ai": {
@@ -239,6 +240,10 @@
       "words": "no decoders open"
     },
     "sources": []
+  },
+  "clients": [],
+  "events": {
+    "seq": 0
   },
   "fx": {
     "budgetMs": 4,
