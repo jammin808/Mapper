@@ -232,3 +232,40 @@ its scene under white light — at most 25 pictures a second. A scan view draws 
 its confidence (red unsure, green sure) at the projector's raster when shown, or when the scan running now
 finishes; a scan's pictures are kept in memory until the node stops, so a scan from before a restart is refused
 with the reason.
+
+## Round 2
+
+Round 2 adds its packages' verbs, topics and STATE keys through the engine's hooks; nothing a first-round client reads moves.
+
+- **Rows.** Every round-2 row is in the catalogue from the start and answers `ERR <VERB> is not available on this node yet`
+  until its package routes it. `VERBS` lists every row but the node-to-node ones, each with `"available"`; MCP's `list_verbs`,
+  the assistant's prompt and `list_verbs`, and the context's `commands` list only the rows the node answers now.
+- **The door.** A verb that changes something, or a paired-only query (`RECORD`, `PRESENCE`, `THUMB`, `SELECT`, the board's
+  focus), needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and
+  the node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode, the blind draft, MinGo),
+  then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus, a selection) is never
+  journalled; a gesture (a drag, a nudge) is journalled once per gesture by its owner.
+- **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; ANCHORS — sync;
+  HEALTH — fleet; MIRROR — backup) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's lines (what it
+  says while it opens comes after the OK). An unknown topic is refused with the list this node serves. In-order lines are
+  bounded per session; a reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends (the connection and
+  its own replies stay). Latest-wins lines keep only the newest per key. `SUBSCRIBE OFF` ends every push. On the WebSocket,
+  `{"cmd":"SUBSCRIBE INDEX"}` answers its receipt, then `{"type":"push","topic":"INDEX","line":"…"}` frames.
+- **Events.** Show events (`item.start`, `item.end`, `air.blackout`, `air.freeze`, and each package's) carry the show-clock
+  instant they happened at; companion's `EVENTS` topic serves them.
+- **STATE.** New keys are appended at the end of their object, in this order:
+  top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`,
+  `selection`, `fx`, `audio`, `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`;
+  `air` — `master`, `panic`, `overlay`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`;
+  `playlists[]` — `chase`; `sync` — `group`, `feed`, `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`,
+  `words`, `latencyMs`, `lock`, `epoch`; `media` — `optimise`; `stage` — `site`, `controls`, `surveys`, `stacks`;
+  `stage.projectors[]` — `uncertainty`, `priors`, `stack`, `grade`, `quads`; `machine` — `present`, `gl`;
+  `project` — `index`. `null` means the node has none; an unknown number is `-1` and grey, never `0`. Each package's
+  STATE fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it.
+- **Each package's rows and keys**: [show](wire/show.md) · [blind](wire/blind.md) · [fleet](wire/fleet.md) ·
+  [backup](wire/backup.md) · [output](wire/output.md) · [d3d11](wire/d3d11.md) · [sync](wire/sync.md) ·
+  [decode](wire/decode.md) · [zerocopy](wire/zerocopy.md) · [optimise](wire/optimise.md) · [videoio](wire/videoio.md) ·
+  [control](wire/control.md) · [companion](wire/companion.md) · [fx](wire/fx.md) · [audio](wire/audio.md) ·
+  [content](wire/content.md) · [led](wire/led.md) · [facade](wire/facade.md) · [stacks](wire/stacks.md) ·
+  [align](wire/align.md) · [resolve](wire/resolve.md) · [phonescan](wire/phonescan.md) · [multiscan](wire/multiscan.md) ·
+  [wall](wire/wall.md).

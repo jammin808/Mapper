@@ -65,6 +65,10 @@ jobs:
           dotnet test tests/PlayMap.Devices.Tests -c Release --no-build
           dotnet test tests/PlayMap.Assistant.Tests -c Release --no-build
           dotnet test tests/PlayMap.Vision.Tests -c Release --no-build
+      - name: Test the Windows-only code (no GPU; WARP and the D3D11 paths)
+        run: |
+          dotnet test tests/PlayMap.Render.Tests -c Release --no-build --filter Category=Windows
+          dotnet test tests/PlayMap.Media.Tests -c Release --no-build --filter Category=Windows
       - name: Publish the portable exe
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
       - name: Upload the exe

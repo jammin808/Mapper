@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- libomtnet (MIT), vendored by wp2-videoio: empty until that package lands its source here. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.ThirdParty.Omt</RootNamespace>
+    <AssemblyName>PlayMap.ThirdParty.Omt</AssemblyName>
+  </PropertyGroup>
+
+</Project>
