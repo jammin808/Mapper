@@ -1,1 +1,76 @@
-[]
+[
+  {
+    "title": "Controllers",
+    "path": "clients",
+    "each": true,
+    "label": "name",
+    "light": [
+      {
+        "if": "paired",
+        "light": "green"
+      },
+      {
+        "light": "amber"
+      }
+    ],
+    "words": "{kind} over {channel} from {address}{module? · module {module}:}{where? · {where}:}",
+    "fields": [
+      {
+        "label": "Session",
+        "path": "session"
+      },
+      {
+        "label": "Paired",
+        "path": "paired"
+      },
+      {
+        "label": "Module",
+        "path": "module"
+      },
+      {
+        "label": "Showing",
+        "path": "where"
+      },
+      {
+        "label": "Pictures",
+        "path": "thumbs"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Index",
+        "line": "INDEX"
+      },
+      {
+        "label": "Who am I",
+        "line": "WHOAMI"
+      }
+    ]
+  },
+  {
+    "title": "Events",
+    "path": "events",
+    "light": [
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "last event #{seq}",
+    "fields": [
+      {
+        "label": "Last event",
+        "path": "seq"
+      },
+      {
+        "label": "Show index",
+        "path": "/project.index"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Recent events",
+        "line": "EVENTS"
+      }
+    ]
+  }
+]
