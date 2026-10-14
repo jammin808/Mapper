@@ -88,6 +88,28 @@ public sealed class IndexTests
         Assert.False((await rig.Run("INDEX ALL")).Ok);
     }
 
+    private sealed class FaultySection : IIndexContributor
+    {
+        public string Section => "companion-faulty";
+
+        public IndexPresetHint Hint { get; } = new("Faulty", "faulty", []);
+
+        public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w) =>
+            throw new NullReferenceException("a package's own bug");
+    }
+
+    [Fact]
+    public async Task ASectionThatFaultsSaysSoAndNeverTakesIndexOrStateDown()
+    {
+        await using var rig = new CompanionRig();
+        rig.Engine.Routes.Index(new FaultySection());
+        var index = CompanionRig.Json(await rig.Ok("INDEX"));
+        var section = index.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "companion-faulty");
+        Assert.Equal(0, section.GetProperty("rows").GetArrayLength());
+        Assert.Contains("a package's own bug", section.GetProperty("fault").GetString(), StringComparison.Ordinal);
+        Assert.Equal(index.GetProperty("sig").GetString(), rig.State().GetProperty("project").GetProperty("index").GetString());
+    }
+
     [Fact]
     public async Task ARenameMovesOnlyTheLabels()
     {

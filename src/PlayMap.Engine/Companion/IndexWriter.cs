@@ -247,8 +247,9 @@ public static class IndexWriter
             w.WritePropertyName("rows");
             doc.RootElement.WriteTo(w);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or InvalidDataException or ArgumentException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // One package's section never takes INDEX, or STATE's project.index, down with it: the section says why instead.
             w.WriteStartArray("rows");
             w.WriteEndArray();
             w.WriteString("fault", $"{section.Section}'s rows could not be written: {ex.Message}");
