@@ -17,6 +17,10 @@ it.
 
 ### wp2-output
 
+- NVIDIA NVAPI (`nvapi.h`, `nvapi_interface.h`; MIT, © 2019–2026 NVIDIA Corporation & affiliates): the sync-board structure
+  layouts, their version words and the interface ids in `src/PlayMap.Render/Sync/NvApiLayout.cs` follow the header. No header or
+  library is shipped: `nvapi64.dll` loads at run time from the user's NVIDIA driver.
+
 ### wp2-d3d11
 
 ### wp2-decode
