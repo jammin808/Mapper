@@ -195,6 +195,18 @@ internal sealed class AssistantToolbox
         return ToolOutcome.Ok(Cut(answer.ToJsonString(Compact)));
     }
 
+    /// <summary>A line the gate passed, refused here when this node would never run it: a node-to-node verb (no assistant's session
+    /// is a fleet peer), or a round-2 row this node does not answer yet — so nothing waits for a person that could only be refused.</summary>
+    private LineCheck OnThisNode(LineCheck check)
+    {
+        if (!check.Ok || check.Spec is not { } spec)
+            return check;
+        if (spec.Internal)
+            return LineCheck.Refused(check.Line, $"{spec.Name}: this line is node-to-node only");
+        var availability = _endpoint as IVerbAvailability ?? VerbAvailability.RoundOne;
+        return availability.IsAvailable(spec) ? check : LineCheck.Refused(check.Line, $"{spec.Name} is not available on this node yet");
+    }
+
     private ToolOutcome ListVerbs(JsonElement a)
     {
         var category = OptString(a, "category");
@@ -297,7 +309,7 @@ internal sealed class AssistantToolbox
             return ToolOutcome.Malformed(string.Create(CultureInfo.InvariantCulture, $"At most {AssistantTools.MaxLinesPerCall} lines in one call; split the job."));
         var reason = OptString(a, "reason") is { Length: > 0 } r ? r.Trim() : "(no reason given)";
         var project = LoadProject();
-        var checks = lines.Select(l => CommandGate.Check(l, project)).ToList();
+        var checks = lines.Select(l => OnThisNode(CommandGate.Check(l, project))).ToList();
         if (checks.Any(c => !c.Ok))
         {
             var refused = new JsonArray();
