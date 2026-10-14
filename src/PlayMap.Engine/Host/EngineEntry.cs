@@ -11,7 +11,7 @@ namespace PlayMap.Engine.Host;
 /// projector) — a desk that leaves is noted in the journal and the show plays on. The engine has no console: what it
 /// says goes to playmap.engine.log in the node's folder (bad arguments included), and the show's record to its
 /// journal.</summary>
-public static class EngineEntry
+public static partial class EngineEntry
 {
     /// <summary>Asked to stop, and stopped cleanly.</summary>
     public const int Stopped = 0;
@@ -32,6 +32,26 @@ public static class EngineEntry
     /// <summary>Runs the node with the exe's standard parts (<see cref="EngineParts.Standard"/>) until it is asked to
     /// stop, and answers the exit code. Blocks the calling thread for the node's life.</summary>
     public static int Run(string[] args) => Run(args, EngineParts.Standard());
+
+    /// <summary>The process's entry points beside the desk: "engine [headless] …" runs the node, and each package's own word (an
+    /// optimise worker) runs its process. True with the exit code when the first word is one of them; false leaves the command
+    /// line to the caller (the desk, or the node host's usage). Every exe that can be a node calls it first.</summary>
+    public static bool TryDispatch(string[] args, out int exit)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        if (args.Length > 0 && string.Equals(args[0], "engine", StringComparison.OrdinalIgnoreCase))
+        {
+            exit = Run(args);
+            return true;
+        }
+        int? dispatched = null;
+        DispatchOptimise(args, ref dispatched);
+        exit = dispatched ?? BadArguments;
+        return dispatched is not null;
+    }
+
+    /// <summary>wp2-optimise's worker process (Host/EngineEntry.Optimise.cs).</summary>
+    static partial void DispatchOptimise(string[] args, ref int? exit);
 
     /// <summary>Runs the node with these parts.</summary>
     public static int Run(string[] args, EngineParts parts)

@@ -11,6 +11,9 @@ namespace PlayMap.Engine;
 /// did or why it did nothing; nothing is defaulted, an unknown word is refused.</summary>
 public sealed partial class EngineCore
 {
+    private string? _verbsJson;
+    private ProjectStore? _intoStore;
+
     /// <summary>Patterns' Interactive fact keys (src/Patterns.Core/Services/Interactive.cs): a Patterns desk
     /// driving this node as a "Lines" device sends them on change and all of them on connect.</summary>
     private static readonly HashSet<string> PatternsFacts = new(StringComparer.Ordinal)
@@ -27,9 +30,57 @@ public sealed partial class EngineCore
         if (match is null)
             return CommandReply.Fail($"unknown verb '{line.Word(0)}' — HELP lists the vocabulary");
         var (spec, used) = match.Value;
-        if (spec.Mutates && !session.Paired)
-            return CommandReply.Fail("not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web");
+        if (Admission(spec, session) is { } closed)
+            return closed;
         var args = line.Words.Skip(used).ToList();
+        CommandReply? refused = null;
+        ProjectStore? lineStore = null;
+        GateLine(spec, line, session, ref refused, ref lineStore);
+        if (refused is not null)
+            return refused;
+        _lineStore = lineStore ?? _intoStore;
+        try
+        {
+            if (_routes.TryLane(spec.Name, out var handler))
+                return handler(new VerbCall(spec, args, line, session, ct));
+            return RouteRoundOne(spec, args, line, session, ct);
+        }
+        finally
+        {
+            _lineStore = null;
+        }
+    }
+
+    /// <summary>Runs one line on the lane with its document edits sent to <paramref name="store"/>, as the show's gate does for a
+    /// blind session: the spine's proof that every edit handler reads and writes through <see cref="Edits"/>, never the live store.</summary>
+    internal Task<CommandReply> RouteIntoAsync(ProjectStore store, WireLine line, SessionInfo session) =>
+        _lane.RunAsync(() =>
+        {
+            _intoStore = store;
+            try
+            {
+                return Route(line, session, CancellationToken.None);
+            }
+            finally
+            {
+                _intoStore = null;
+            }
+        });
+
+    /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, and a node-to-node verb
+    /// runs only from a fleet peer or the node itself. Null lets the line on to the show's gate.</summary>
+    private static CommandReply? Admission(VerbSpec spec, SessionInfo session)
+    {
+        if ((spec.Mutates || spec.PairedOnly) && !session.Paired)
+            return CommandReply.Fail("not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web");
+        if (spec.Internal && session.Transport is not ("fleet" or "system"))
+            return CommandReply.Fail($"{spec.Name}: this line is node-to-node only");
+        return null;
+    }
+
+    /// <summary>The first round's verbs, answered on the lane; a round-2 row no package routed is not available yet.</summary>
+    private CommandReply RouteRoundOne(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
+    {
         return spec.Name switch
         {
             "STATE" => CommandReply.Success(State().Json),
@@ -97,8 +148,8 @@ public sealed partial class EngineCore
             "ADD" => Add(args, line),
             "REMOVE" => Remove(args),
             "MOVE" => Move(args),
-            "UNDO" => FromEdit(Store.Undo()),
-            "REDO" => FromEdit(Store.Redo()),
+            "UNDO" => FromEdit(Edits.Undo()),
+            "REDO" => FromEdit(Edits.Redo()),
             "PROJECT GET" => CommandReply.Success(ProjectJson().Json),
             "PROJECT SAVE" => ProjectSave(args),
             "PROJECT OPEN" => ProjectOpen(args),
@@ -161,7 +212,9 @@ public sealed partial class EngineCore
             : CommandReply.Success($"{spec.Syntax} — {spec.Words} (risk {spec.Risk.ToString().ToLowerInvariant()})");
     }
 
-    private static string VerbsJson() => Net.Commands.VerbJson.All;
+    /// <summary>VERBS: every row but the node-to-node ones, each marked available or not on this node (the routes are fixed once the
+    /// engine is built, so the table is made once).</summary>
+    private string VerbsJson() => _verbsJson ??= Net.Commands.VerbJson.Build(this);
 
     private CommandReply NetworkAction(List<string> args, int needed, string syntax, Func<INetworkControl, List<string>, Task<string>> action)
     {
@@ -231,7 +284,7 @@ public sealed partial class EngineCore
 
     private Playlist? ResolvePlaylist(string? idOrName)
     {
-        var p = Store.Project;
+        var p = Edits.Project;
         if (idOrName is null)
             return p.FindPlaylist(Playback.FocusedId);
         return p.FindPlaylist(idOrName)

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Content;
@@ -61,32 +62,47 @@ public static class AssistantPrompt
         - propose_commands (lines, reason): the only way to change anything.
         """;
 
-    private static readonly Lazy<string> StaticPrompt = new(BuildStatic, LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly Lazy<string> StaticPrompt = new(() => BuildStatic(), LazyThreadSafetyMode.ExecutionAndPublication);
 
-    /// <summary>The static system prompt: identical bytes every time it is built (cached once per process).</summary>
+    private static readonly ConditionalWeakTable<IVerbAvailability, string> Made = new();
+
+    /// <summary>The static system prompt of a node that routes no round-2 row: identical bytes every time it is built (cached once
+    /// per process).</summary>
     public static string System => StaticPrompt.Value;
 
-    /// <summary>Builds the static prompt from the tables. Deterministic: verbs by category then name, generator
-    /// kinds by id, parameters in their schema's order, numbers in the invariant culture.</summary>
-    public static string BuildStatic()
+    /// <summary>The static prompt for a node's own vocabulary: only the rows it answers now. A node that answers exactly the first
+    /// round's rows (or says nothing) gets <see cref="System"/> itself; another's is made once per node (its routes are fixed).</summary>
+    public static string For(IVerbAvailability? availability)
+    {
+        if (availability is null || VerbCatalog.All.All(v => availability.IsAvailable(v) == VerbAvailability.RoundOne.IsAvailable(v)))
+            return System;
+        return Made.GetValue(availability, BuildStatic);
+    }
+
+    /// <summary>Builds the static prompt from the tables, listing the rows <paramref name="availability"/> answers (the first round's
+    /// when null). Deterministic: verbs by category then name, generator kinds by id, parameters in their schema's order, numbers
+    /// in the invariant culture.</summary>
+    public static string BuildStatic(IVerbAvailability? availability = null)
     {
         var sb = new StringBuilder(32 * 1024);
         sb.Append(Role.Trim()).Append("\n\n");
         sb.Append(Rules.Trim()).Append("\n\n");
         sb.Append(Tools.Trim()).Append("\n\n");
-        AppendVerbs(sb);
+        AppendVerbs(sb, availability ?? VerbAvailability.RoundOne);
         sb.Append('\n');
         AppendGenerators(sb);
         return sb.ToString().TrimEnd() + "\n";
     }
 
-    /// <summary>The vocabulary, one verb per line: syntax — words — risk, whether it changes the show, aliases.</summary>
-    public static void AppendVerbs(StringBuilder sb)
+    /// <summary>The vocabulary, one verb per line: syntax — words — risk, whether it changes the show, aliases. Only the rows the
+    /// node answers (a round-2 row once its package routed it), never a node-to-node one.</summary>
+    public static void AppendVerbs(StringBuilder sb, IVerbAvailability availability)
     {
         ArgumentNullException.ThrowIfNull(sb);
+        ArgumentNullException.ThrowIfNull(availability);
         sb.Append("THE VOCABULARY (one line per verb: syntax — what it does — risk)\n");
         sb.Append("Sources are written kind:id — media:md…, playlist:pl…, generator:gn…, canvas:cv…, live:…, timer:…, color:#RRGGBB, or none. Words with spaces go in \"double quotes\"; a JSON argument runs to the end of the line.\n");
-        foreach (var group in VerbCatalog.All.GroupBy(v => v.Category).OrderBy(g => (int)g.Key))
+        foreach (var group in VerbCatalog.All.Where(v => !v.Internal && availability.IsAvailable(v)).GroupBy(v => v.Category).OrderBy(g => (int)g.Key))
         {
             sb.Append('\n').Append(group.Key.ToString().ToUpperInvariant()).Append('\n');
             foreach (var v in group.OrderBy(v => v.Name, StringComparer.Ordinal))

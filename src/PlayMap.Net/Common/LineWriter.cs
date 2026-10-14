@@ -29,6 +29,7 @@ public sealed class LineWriter : IAsyncDisposable
     private readonly Queue<Item> _replies = new();
     private readonly string?[] _pushes = new string?[Kinds];
     private readonly string?[] _lastWritten = new string?[Kinds];
+    private readonly Dictionary<string, string> _keyed = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _signal = new(0, 1);
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _loop;
@@ -81,6 +82,33 @@ public sealed class LineWriter : IAsyncDisposable
         }
     }
 
+    /// <summary>Sets the latest push of a topic's key (INDEX, a thumbnail, HEALTH); an older one not yet written is replaced.</summary>
+    public void PushKeyed(string key, string line)
+    {
+        lock (_gate)
+        {
+            if (_closed)
+                return;
+            _keyed[key] = line;
+            Wake();
+        }
+    }
+
+    /// <summary>Queues a topic's line in order with the replies while fewer than <paramref name="bound"/> wait (and never more than half
+    /// the connection's limit); false (nothing queued, the connection kept) when the bound is reached, so the topic closes and the
+    /// connection's own replies are never cut by it.</summary>
+    public bool TrySay(string line, int bound)
+    {
+        lock (_gate)
+        {
+            if (_closed || _replies.Count >= Math.Min(bound, _maxQueued / 2))
+                return false;
+            _replies.Enqueue(new Item(line, null, null));
+            Wake();
+            return true;
+        }
+    }
+
     /// <summary>Waits (at most <paramref name="max"/>) until everything queued has been written — the last word
     /// before a close.</summary>
     public async Task FlushAsync(TimeSpan max)
@@ -90,7 +118,7 @@ public sealed class LineWriter : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (_replies.Count == 0 && !_writing && Array.TrueForAll(_pushes, p => p is null))
+                if (_replies.Count == 0 && !_writing && _keyed.Count == 0 && Array.TrueForAll(_pushes, p => p is null))
                     return;
             }
             await Task.Delay(5, CancellationToken.None);
@@ -161,6 +189,9 @@ public sealed class LineWriter : IAsyncDisposable
                             _pushes[k] = null;
                         }
                     }
+                    foreach (var keyed in _keyed.Values)
+                        batch.Add((keyed, null));
+                    _keyed.Clear();
                     _writing = batch.Count > 0;
                 }
                 if (batch.Count == 0)

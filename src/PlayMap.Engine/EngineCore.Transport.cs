@@ -86,7 +86,7 @@ public sealed partial class EngineCore
     {
         var name = args.Count > 0 ? string.Join(' ', args) : "Playlist";
         string id = "";
-        var r = Store.Apply($"new playlist {name}", p =>
+        var r = Edits.Apply($"new playlist {name}", p =>
         {
             id = p.NewId(Ids.Playlist);
             return p with { Playlists = p.Playlists.Add(new Playlist(id, name, [], false, null)) };
@@ -103,11 +103,11 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no playlist {args[0]}");
         if (!SourceRef.TryParse(args[1], out var source) || source.IsNone)
             return CommandReply.Fail("a source is media:<id>, playlist:<id>, generator:<id>, canvas:<id>, live:<id>, timer:<id> or color:#RRGGBB");
-        if ((ResolveSourceProblem(source) ?? PlaylistNesting.Problem(Store.Project, list.Id, source)) is { } problem)
+        if ((ResolveSourceProblem(source) ?? PlaylistNesting.Problem(Edits.Project, list.Id, source)) is { } problem)
             return CommandReply.Fail(problem);
         var label = args.Count > 2 ? string.Join(' ', args.Skip(2)) : SourceLabel(source);
         string id = "";
-        var r = Store.Apply($"add {label} to {list.Name}", p =>
+        var r = Edits.Apply($"add {label} to {list.Name}", p =>
         {
             id = p.NewId(Ids.PlaylistItem);
             var item = PlaylistItem.For(id, source, label) with
@@ -133,7 +133,7 @@ public sealed partial class EngineCore
         if (index < 0)
             return CommandReply.Fail($"{list.Name} has no item {args[1]}");
         var item = list.Items[index];
-        return FromEdit(Store.Apply($"remove {item.Label} from {list.Name}",
+        return FromEdit(Edits.Apply($"remove {item.Label} from {list.Name}",
             p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { Items = l.Items.RemoveAt(index) }) }));
     }
 
@@ -150,7 +150,7 @@ public sealed partial class EngineCore
         if (Math.Clamp(to, 0, list.Items.Length - 1) == index)
             return CommandReply.Fail("the item is already there");
         var id = list.Items[index].Id;
-        return FromEdit(Store.Apply($"move {list.Items[index].Label}",
+        return FromEdit(Edits.Apply($"move {list.Items[index].Label}",
             p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { Items = l.Items.Move(id, to) }) }));
     }
 
@@ -163,7 +163,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no playlist {args[0]}");
         if (Playback.Lane(list.Id) is { IsIdle: false } lane && lane.Clip.State == TransportState.Playing)
             return CommandReply.Fail($"{list.Name} is playing — stop it before deleting it");
-        return FromEdit(Store.Apply($"delete playlist {list.Name}", p => p with { Playlists = p.Playlists.RemoveId(list.Id) }));
+        return FromEdit(Edits.Apply($"delete playlist {list.Name}", p => p with { Playlists = p.Playlists.RemoveId(list.Id) }));
     }
 
     private CommandReply PlaylistGo(List<string> args)
@@ -231,7 +231,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no playlist {args[0]}");
         if (list.Loop == on)
             return CommandReply.Fail(on ? "already looping" : "already not looping");
-        return FromEdit(Store.Apply($"{list.Name} loop {(on ? "on" : "off")}", p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { Loop = on }) }));
+        return FromEdit(Edits.Apply($"{list.Name} loop {(on ? "on" : "off")}", p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { Loop = on }) }));
     }
 
     private CommandReply PlaylistSync(List<string> args)
@@ -246,7 +246,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail("a sync group is 1–40 letters, digits, '-' or '_'");
         if (string.Equals(list.SyncGroup, group, StringComparison.Ordinal))
             return CommandReply.Fail(group is null ? "not in a sync group" : $"already in {group}");
-        return FromEdit(Store.Apply($"{list.Name} sync {(group ?? "off")}", p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { SyncGroup = group }) }));
+        return FromEdit(Edits.Apply($"{list.Name} sync {(group ?? "off")}", p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { SyncGroup = group }) }));
     }
 
     private CommandReply PlaylistFocus(List<string> args)
@@ -283,7 +283,7 @@ public sealed partial class EngineCore
     /// <summary>Why a source cannot be used, or null when it can.</summary>
     private string? ResolveSourceProblem(SourceRef source)
     {
-        var p = Store.Project;
+        var p = Edits.Project;
         return source.Kind switch
         {
             SourceKind.Media when p.FindMedia(source.Id) is null => $"no media {source.Id}",
@@ -297,7 +297,7 @@ public sealed partial class EngineCore
 
     private string SourceLabel(SourceRef source)
     {
-        var p = Store.Project;
+        var p = Edits.Project;
         return source.Kind switch
         {
             SourceKind.Media => p.FindMedia(source.Id)?.Name ?? source.Id,

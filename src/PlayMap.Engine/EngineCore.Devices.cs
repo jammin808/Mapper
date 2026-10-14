@@ -35,9 +35,9 @@ public sealed partial class EngineCore
                     w.WriteEndArray();
                 }));
             case "DEVICE ADD":
-                return await _lane.RunAsync(() => DeviceAdd(args)).ConfigureAwait(false);
+                return await _lane.RunAsync(() => DeviceAdd(args, session)).ConfigureAwait(false);
             case "DEVICE REMOVE":
-                return await _lane.RunAsync(() => DeviceRemove(args)).ConfigureAwait(false);
+                return await _lane.RunAsync(() => DeviceRemove(args, session)).ConfigureAwait(false);
             case "DEVICE DISCOVER":
                 return await DeviceDiscoverAsync(args, ct).ConfigureAwait(false);
             default:
@@ -199,7 +199,7 @@ public sealed partial class EngineCore
 
     /// <summary>DEVICE ADD: a link in the project (undoable), its credential reference its own id, so
     /// <c>CREDENTIAL SET &lt;id&gt; &lt;password&gt;</c> gives it a password.</summary>
-    private CommandReply DeviceAdd(List<string> args)
+    private CommandReply DeviceAdd(List<string> args, SessionInfo session)
     {
         var projectorKey = Take(args, "PROJECTOR");
         var outputKey = Take(args, "OUTPUT");
@@ -222,7 +222,7 @@ public sealed partial class EngineCore
             && ProjectorProtocols.Parse(d.Protocol) == protocol))
             return CommandReply.Fail($"{host} is linked already — DEVICE LIST names it");
         string id = "";
-        var r = Store.Apply($"link {name}", proj =>
+        var r = EditsFor(session).Apply($"link {name}", proj =>
         {
             id = proj.NewId(Ids.Device);
             var link = new DeviceLink(id, name, ProjectorProtocols.Word(protocol), host, port, id, pj?.Id ?? "", output?.Id ?? "", 0, false);
@@ -262,14 +262,14 @@ public sealed partial class EngineCore
             throw new EditRefusedException($"no output {d.OutputId}");
     }
 
-    private CommandReply DeviceRemove(List<string> args)
+    private CommandReply DeviceRemove(List<string> args, SessionInfo session)
     {
         if (args.Count < 1)
             return CommandReply.Fail("DEVICE REMOVE <device>");
         var link = ResolveDevice(args[0]);
         if (link is null)
             return CommandReply.Fail($"no projector link {args[0]}");
-        return FromEdit(Store.Apply($"unlink {link.Name}", p => p.WithStage(s => s with { Devices = s.Devices.RemoveId(link.Id) })));
+        return FromEdit(EditsFor(session).Apply($"unlink {link.Name}", p => p.WithStage(s => s with { Devices = s.Devices.RemoveId(link.Id) })));
     }
 
     private async Task<CommandReply> DeviceDiscoverAsync(List<string> args, CancellationToken ct)

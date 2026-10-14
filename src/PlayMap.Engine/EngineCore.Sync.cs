@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text.Json;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Wire;
@@ -122,7 +124,42 @@ public sealed partial class EngineCore
         }
         if (record.FocusedPlaylist is not null)
             Playback.Focus(record.FocusedPlaylist);
+        LoadModuleRecovery(record.Modules ?? ImmutableSortedDictionary<string, string>.Empty);
         Journal.Add("recovery", $"recovered {project.Name} with {restored} playlist{(restored == 1 ? "" : "s")} at where the show is now");
         return $"recovered {project.Name}";
     });
+}
+
+/// <summary>wp2-sync's hooks into the engine (EngineCore.Modules.cs): the group's clock, anchors and vblank verdict.</summary>
+public sealed partial class EngineCore
+{
+    partial void RouteSync(VerbRoutes routes)
+    {
+        // wp2-sync fills this.
+    }
+
+    partial void TickSync(long leaderNs)
+    {
+        // wp2-sync fills this.
+    }
+
+    partial void SyncSync(Utf8JsonWriter w)
+    {
+        // wp2-sync fills this.
+    }
+
+    partial void ContextSync(List<ContextItem> items, List<ContextLink> links)
+    {
+        // wp2-sync fills this.
+    }
+
+    partial void RecoverySaveSync(IDictionary<string, string> into)
+    {
+        // wp2-sync fills this.
+    }
+
+    partial void RecoveryLoadSync(IReadOnlyDictionary<string, string> from)
+    {
+        // wp2-sync fills this.
+    }
 }

@@ -17,8 +17,9 @@ namespace PlayMap.Engine;
 /// "accepted". Pairing, refusals, faults and the journal follow the router's own rules.</summary>
 public sealed partial class EngineCore
 {
+    /// <summary>The first round's operations verbs; a round-2 row goes through its package's route (or is not available yet).</summary>
     private static readonly FrozenSet<string> OpsVerbs = VerbCatalog.All
-        .Where(v => v.Category is VerbCategory.Device or VerbCategory.Assistant || v.Name == "SCAN SURFACE")
+        .Where(v => v.Round == 1 && (v.Category is VerbCategory.Device or VerbCategory.Assistant || v.Name == "SCAN SURFACE"))
         .Select(v => v.Name)
         .ToFrozenSet(StringComparer.Ordinal);
 
@@ -49,13 +50,11 @@ public sealed partial class EngineCore
         CommandReply reply;
         try
         {
-            reply = spec.Mutates && !session.Paired
-                ? CommandReply.Fail("not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web")
-                : spec.Category switch
+            reply = Admission(spec, session) ?? Gate(spec, line, session) ?? spec.Category switch
                 {
                     VerbCategory.Device => await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
                     VerbCategory.Assistant => await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
-                    _ => await ScanSurfaceAsync(args, line, ct).ConfigureAwait(false),
+                    _ => await ScanSurfaceAsync(args, line, session, ct).ConfigureAwait(false),
                 };
         }
         catch (EditRefusedException refused)
@@ -71,7 +70,7 @@ public sealed partial class EngineCore
             Journal.Add("fault", $"{spec.Name}: {Redact(Journal.Describe(ex))}", session.ClientName, shown, false);
             return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
-        if (!reply.Silent && spec.Mutates)
+        if (!reply.Silent && IsJournalled(spec))
             Journal.Add(reply.Ok ? "verb" : "refused", Redact(reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : line.Raw) : reply.Payload ?? "refused"),
                 session.ClientName, shown, reply.Ok);
         return reply;

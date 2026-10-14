@@ -78,8 +78,12 @@ public sealed record ShowContext(
 
     /// <summary>The commands an assistant may propose: every mutating verb with its risk, node-to-node verbs left out; the ones
     /// that move a panic, the air, a transport or Show Mode first (the Eye keeps the first 64), the rest in catalogue order.</summary>
-    public static IReadOnlyList<ContextCommand> CommandsFromCatalog() =>
-        VerbCatalog.All.Where(v => v.Mutates && !v.Internal)
+    public static IReadOnlyList<ContextCommand> CommandsFromCatalog() => CommandsFromCatalog(AllRows.Instance);
+
+    /// <summary>The verbs an assistant may propose on a node: the rows it answers now that change something, never a node-to-node
+    /// one, the air's first.</summary>
+    public static IReadOnlyList<ContextCommand> CommandsFromCatalog(IVerbAvailability availability) =>
+        VerbCatalog.All.Where(v => v.Mutates && !v.Internal && availability.IsAvailable(v))
             .OrderBy(v => v.Show switch
             {
                 ShowClass.Panic => 0,
@@ -204,4 +208,12 @@ public sealed record ShowContext(
 
     private static long L(JsonElement e, string name) =>
         e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var v) ? v : 0;
+}
+
+/// <summary>Every row of the catalogue, whether a node answers it or not (the vocabulary as written).</summary>
+internal sealed class AllRows : IVerbAvailability
+{
+    public static readonly AllRows Instance = new();
+
+    public bool IsAvailable(VerbSpec spec) => true;
 }

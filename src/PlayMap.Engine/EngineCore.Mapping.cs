@@ -16,7 +16,7 @@ public sealed partial class EngineCore
     /// projector has is still applied — the operator asked — but the words say it got worse.</summary>
     private CommandReply SolveProjector(List<string> args)
     {
-        var pj = Store.Project.FindProjector(args[0]) ?? Store.Project.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
+        var pj = Edits.Project.FindProjector(args[0]) ?? Edits.Project.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
         if (pj is null)
             return CommandReply.Fail($"no projector {args[0]}");
         var locks = pj.Locks;
@@ -43,7 +43,7 @@ public sealed partial class EngineCore
         if (solution.Inliers.Count(x => x) < 4 || double.IsNaN(solution.RmsPx))
             return CommandReply.Fail($"{pj.Name}: no solve — {solution.Words}");
         var before = pj.SolveResidualPx;
-        var r = Store.Apply($"solve {pj.Name}", p => p.WithStage(st => st with
+        var r = Edits.Apply($"solve {pj.Name}", p => p.WithStage(st => st with
         {
             Projectors = st.Projectors.Update(pj.Id, x => x with
             {
@@ -134,8 +134,8 @@ public sealed partial class EngineCore
     /// (SURFACE SHOW makes it real, REMOVE drops it). A scan already applied is refused: UNDO takes it back.</summary>
     private CommandReply ApplyScan(ScanRecord scan)
     {
-        var existing = ScanMesh(Store.Project, scan);
-        if (existing is not null && Store.Project.Stage.Surfaces.Any(s => s.MeshId == existing.Id && s.Faces.IsEmpty && s.Tags.Contains("scan")))
+        var existing = ScanMesh(Edits.Project, scan);
+        if (existing is not null && Edits.Project.Stage.Surfaces.Any(s => s.MeshId == existing.Id && s.Faces.IsEmpty && s.Tags.Contains("scan")))
             return CommandReply.Fail($"{scan.Name} is applied already (mesh {existing.Id}) — UNDO takes it back");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the scan's mesh is written beside it");
@@ -144,7 +144,7 @@ public sealed partial class EngineCore
         if (outcome.Solution.Mesh is not { } mesh)
             return CommandReply.Fail($"{scan.Name} has no mesh — nothing was triangulated; scan again with the camera seeing more of the projection");
 
-        var p = Store.Project;
+        var p = Edits.Project;
         MeshAsset asset;
         try
         {
@@ -164,7 +164,7 @@ public sealed partial class EngineCore
         var cameraId = rig?.Id ?? p.NewId(Ids.Camera);
         string surfaceId = "";
         var suggestions = new List<(string Id, Scanning.PlaneSuggestion Plane)>();
-        var r = Store.Apply($"apply {scan.Name}", project =>
+        var r = Edits.Apply($"apply {scan.Name}", project =>
         {
             surfaceId = project.NewId(Ids.Surface);
             var taken = new HashSet<string>(project.AllIds(), StringComparer.Ordinal) { meshId, cameraId, surfaceId };
@@ -281,7 +281,7 @@ public sealed partial class EngineCore
     /// over the scanned surface, stopping at depth jumps; the region's mesh faces and its outline (pen-tool masks on
     /// the mesh's UVs) make the surface, named as the scan reads it unless a name is given. The scan's mesh joins the
     /// stage with it when it is not there yet; one undoable edit. Answers the surface's id.</summary>
-    private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, CancellationToken ct)
+    private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
         const string Syntax = "SCAN SURFACE <scan> <x> <y> [<name>] — x and y from 0 to 1 across and down the scan's smart-scan picture — or SCAN SURFACE <scan> REGION <region> [<name>]";
         var byRegion = args.Count >= 3 && args[1].Equals("REGION", StringComparison.OrdinalIgnoreCase);
@@ -348,7 +348,7 @@ public sealed partial class EngineCore
         {
             string surfaceId = "";
             var paths = 0;
-            var r = Store.Apply($"surface {name} from {scan.Name}", p =>
+            var r = EditsFor(session).Apply($"surface {name} from {scan.Name}", p =>
             {
                 var current = p.Stage.Scans.Find(scan.Id) ?? throw new EditRefusedException($"no scan {scan.Id}");
                 var asset = ScanMesh(p, current) ?? written ?? throw new EditRefusedException($"{scan.Name}'s mesh is not on the stage");

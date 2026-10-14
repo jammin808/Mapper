@@ -104,6 +104,7 @@ public static class ContextBuilder
             items.Add(new ContextItem("fault:" + f.Part, "fault", f.Part, Light.Red, f.Words));
 
         engine.AddOpsContext(items, links);
+        engine.AddModuleContext(items, links);
 
         var outputsWords = green > 0 ? $"{green} output{(green == 1 ? "" : "s")} green" : !p.Outputs.Any(o => o.Enabled) ? "no outputs on" : "outputs not measured";
         var headline = air.EffectiveBlackout ? "BLACKOUT · " + outputsWords
@@ -111,10 +112,11 @@ public static class ContextBuilder
             : $"{p.Name} · nothing playing · {outputsWords}";
         if (sync.Role == "follower")
             headline += $" · synced to {sync.Leader}";
+        headline = engine.ModuleHeadline(headline);
 
         var recent = engine.Journal.Recent(20).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
         var peers = s.Network.Peers().Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
         return new ShowContext(ShowBusConstants.KindPlayMap, s.Settings.NodeId, s.Settings.Name, s.Wall.UnixMs, headline,
-            items, links, recent, ShowContext.CommandsFromCatalog(), peers);
+            items, links, recent, ShowContext.CommandsFromCatalog(engine), peers);
     }
 }

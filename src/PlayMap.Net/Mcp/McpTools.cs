@@ -64,7 +64,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
             case "get_project":
                 return Text(endpoint.ProjectJson().Json, error: false);
             case "list_verbs":
-                return Text(VerbJson.All, error: false);
+                return Text(VerbJson.AvailableFor(endpoint), error: false);
             case "run_command":
                 return await RunAsync(Arg(p, "line"), Arg(p, "reason"), request.User, ct);
             default:
@@ -103,6 +103,8 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         if (line.Verb is "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "SUBSCRIBE")
             return Text(WireWords.WireOnly, error: true);
         var verb = VerbCatalog.Match(line)?.Spec;
+        if (verb is { Internal: true })
+            return Text($"{verb.Name}: this line is node-to-node only", error: true);
         // A line carrying its verb's secret words is decided like a high-risk one: an assistant's token never
         // runs on its own word while "AI may act" is off.
         if (VerbCatalog.RiskOf(line) == VerbRisk.High || VerbCatalog.HoldsSecret(line))

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -89,7 +90,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no generator kind '{args[0]}' — GENERATOR KINDS lists them");
         var name = args.Count > 1 ? string.Join(' ', args.Skip(1)) : kind.Name;
         string id = "";
-        var r = Store.Apply($"new generator {name}", p =>
+        var r = Edits.Apply($"new generator {name}", p =>
         {
             id = p.NewId(Ids.Generator);
             return p with { Generators = p.Generators.Add(new Generator(id, name, kind.Id, ParamSet.Empty)) };
@@ -101,7 +102,7 @@ public sealed partial class EngineCore
     {
         if (args.Count < 3)
             return CommandReply.Fail("GENERATOR SET <generator> <param> <value>");
-        var g = Store.Project.FindGenerator(args[0]) ?? Store.Project.Generators.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
+        var g = Edits.Project.FindGenerator(args[0]) ?? Edits.Project.Generators.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
         if (g is null)
             return CommandReply.Fail($"no generator {args[0]}");
         var kind = GeneratorCatalog.Find(g.Kind);
@@ -113,14 +114,14 @@ public sealed partial class EngineCore
             return CommandReply.Fail(why);
         if (kind.Value(g.Params, spec.Name) == normalised)
             return CommandReply.Fail($"{spec.Name} is already {normalised}");
-        return FromEdit(Store.Apply($"{g.Name} {spec.Name} {normalised}",
+        return FromEdit(Edits.Apply($"{g.Name} {spec.Name} {normalised}",
             p => p with { Generators = p.Generators.Update(g.Id, x => x with { Params = x.Params.With(spec.Name, normalised) }) },
             coalesceKey: $"gen {g.Id} {spec.Name}"));
     }
 
     private Output? ResolveOutput(string key)
     {
-        var p = Store.Project;
+        var p = Edits.Project;
         if (p.FindOutput(key) is { } o)
             return o;
         if (int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1 && n <= p.Outputs.Length)
@@ -137,7 +138,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no output {args[0]}");
         if (o.Enabled == on)
             return CommandReply.Fail($"{o.Name} is already {(on ? "on" : "off")}");
-        return FromEdit(Store.Apply($"{o.Name} {(on ? "on" : "off")}", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Enabled = on }) }));
+        return FromEdit(Edits.Apply($"{o.Name} {(on ? "on" : "off")}", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Enabled = on }) }));
     }
 
     private CommandReply OutputSource(List<string> args)
@@ -154,7 +155,7 @@ public sealed partial class EngineCore
         if (o.Source == source)
             return CommandReply.Fail($"{o.Name} already shows that");
         var mode = source.Kind == SourceKind.Canvas ? OutputMode.Canvas : o.Mode == OutputMode.Projector && source.IsNone ? OutputMode.Projector : OutputMode.Source;
-        return FromEdit(Store.Apply($"{o.Name} shows {SourceLabel(source)}", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Source = source, Mode = mode }) }));
+        return FromEdit(Edits.Apply($"{o.Name} shows {SourceLabel(source)}", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Source = source, Mode = mode }) }));
     }
 
     private CommandReply Identify(List<string> args)
@@ -204,7 +205,7 @@ public sealed partial class EngineCore
     {
         if (args.Count < 2)
             return CommandReply.Fail("SURFACE SOURCE <surface> <source>");
-        var s = Store.Project.FindSurface(args[0]) ?? Store.Project.Stage.Surfaces.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
+        var s = Edits.Project.FindSurface(args[0]) ?? Edits.Project.Stage.Surfaces.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
         if (s is null)
             return CommandReply.Fail($"no surface {args[0]}");
         if (!SourceRef.TryParse(args[1], out var source))
@@ -213,7 +214,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(problem);
         if (s.Content.Source == source)
             return CommandReply.Fail($"{s.Name} already shows that");
-        return FromEdit(Store.Apply($"{s.Name} shows {SourceLabel(source)}",
+        return FromEdit(Edits.Apply($"{s.Name} shows {SourceLabel(source)}",
             p => p.WithStage(st => st with { Surfaces = st.Surfaces.Update(s.Id, x => x with { Content = x.Content with { Source = source } }) })));
     }
 
@@ -221,12 +222,12 @@ public sealed partial class EngineCore
     {
         if (args.Count < 2 || !TryOnOff(args[1], out var on))
             return CommandReply.Fail("SURFACE SHOW <surface> ON|OFF");
-        var s = Store.Project.FindSurface(args[0]);
+        var s = Edits.Project.FindSurface(args[0]);
         if (s is null)
             return CommandReply.Fail($"no surface {args[0]}");
         if (s.Visible == on)
             return CommandReply.Fail($"{s.Name} is already {(on ? "shown" : "hidden")}");
-        return FromEdit(Store.Apply($"{s.Name} {(on ? "shown" : "hidden")}",
+        return FromEdit(Edits.Apply($"{s.Name} {(on ? "shown" : "hidden")}",
             p => p.WithStage(st => st with { Surfaces = st.Surfaces.Update(s.Id, x => x with { Visible = on }) })));
     }
 
@@ -239,7 +240,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no output {args[0]}");
         if (o.Warp == OutputWarp.None || (o.Warp.Pin.IsNone && (o.Warp.Lattice?.IsAtRest ?? true)))
             return CommandReply.Fail($"{o.Name}'s warp is already at rest");
-        return FromEdit(Store.Apply($"{o.Name} warp reset", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Warp = OutputWarp.None }) }));
+        return FromEdit(Edits.Apply($"{o.Name} warp reset", p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Warp = OutputWarp.None }) }));
     }
 
     private CommandReply WarpNode(List<string> args)
@@ -260,7 +261,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail("a node moves at most a whole output (±1)");
         var index = row * lattice.Columns + col;
         var moved = lattice with { Offsets = lattice.Offsets.SetItem(index, new Vec2d(dx, dy)) };
-        return FromEdit(Store.Apply($"{o.Name} warp node {col},{row}",
+        return FromEdit(Edits.Apply($"{o.Name} warp node {col},{row}",
             p => p with { Outputs = p.Outputs.Update(o.Id, x => x with { Warp = x.Warp with { Enabled = true, Lattice = moved } }) },
             coalesceKey: $"warp {o.Id} {col} {row}"));
     }
@@ -314,7 +315,7 @@ public sealed partial class EngineCore
     {
         if (args.Count < 1)
             return CommandReply.Fail("SCAN APPLY <scan>");
-        var scan = Store.Project.Stage.Scans.Find(args[0]);
+        var scan = Edits.Project.Stage.Scans.Find(args[0]);
         return scan is null ? CommandReply.Fail($"no scan {args[0]}") : ApplyScan(scan);
     }
 
@@ -333,7 +334,9 @@ public sealed partial class EngineCore
         string id = "";
         var kind = isUrl ? (location.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || location.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
             ? MediaKind.Embed : location.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? MediaKind.Web : MediaKind.Stream) : MediaKind.Video;
-        var r = Store.Apply($"import {name}", p =>
+        // The probe's result lands where the item was added (a blind draft keeps its own).
+        var store = Edits;
+        var r = store.Apply($"import {name}", p =>
         {
             id = p.NewId(Ids.Media);
             return p with { Media = p.Media.Add(new MediaItem(id, name, kind, location, "", 0, MediaInfo.Unknown, [])) };
@@ -352,7 +355,7 @@ public sealed partial class EngineCore
                 return;
             }
             var found = t.Result;
-            Store.Apply($"probed {name}", p => p with
+            store.Apply($"probed {name}", p => p with
             {
                 Media = p.Media.Update(mediaId, m => m with { Kind = found.Kind, Info = found.Info, ContentHash = found.ContentHash, SizeBytes = found.SizeBytes }),
             });
@@ -516,4 +519,33 @@ public sealed partial class EngineCore
     });
 
     private string SyncJson() => JsonOut(w => StateWriter.WriteSync(w, this));
+}
+
+/// <summary>wp2-content's hooks into the engine (EngineCore.Modules.cs). The package fills each body.</summary>
+public sealed partial class EngineCore
+{
+    partial void RouteContent(VerbRoutes routes)
+    {
+        // wp2-content fills this.
+    }
+
+    partial void TickContent(long leaderNs)
+    {
+        // wp2-content fills this.
+    }
+
+    partial void StateContent(Utf8JsonWriter w)
+    {
+        // wp2-content fills this.
+    }
+
+    partial void ContextContent(List<ContextItem> items, List<ContextLink> links)
+    {
+        // wp2-content fills this.
+    }
+
+    partial void ValidateContent(Project p, object entity, ref string? why)
+    {
+        // wp2-content fills this.
+    }
 }

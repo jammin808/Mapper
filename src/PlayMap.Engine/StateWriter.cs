@@ -56,6 +56,7 @@ public static class StateWriter
         w.WriteBoolean("identify", air.IdentifyUntilLeaderNs != 0);
         w.WriteBoolean("patternsBlackout", air.PatternsBlackout);
         w.WriteBoolean("followPatternsBlackout", air.FollowPatternsBlackout);
+        e.WriteAirExtras(w);
         w.WriteEndObject();
 
         WriteVideo(w, e, project.Project, now);
@@ -91,6 +92,7 @@ public static class StateWriter
             w.WriteEndObject();
         }
         w.WriteEndArray();
+        e.WriteMediaExtras(w);
         w.WriteEndObject();
 
         var stage = project.Project.Stage;
@@ -106,10 +108,12 @@ public static class StateWriter
             w.WriteBoolean("solved", p.SolveResidualPx > 0);
             w.WriteNumber("residualPx", Math.Round(p.SolveResidualPx, 2));
             w.WriteNumber("pins", p.Pins.Length);
+            e.WriteProjectorExtras(w, p);
             w.WriteEndObject();
         }
         w.WriteEndArray();
         w.WriteNumber("scans", stage.Scans.Length);
+        e.WriteStageExtras(w);
         w.WriteEndObject();
 
         w.WritePropertyName("scan");
@@ -132,6 +136,7 @@ public static class StateWriter
         w.WriteString("renderer", s.Outputs.RendererName);
         w.WriteNumber("memMb", Environment.WorkingSet / (1024 * 1024));
         w.WriteNumber("gcPauseMsTotal", Math.Round(GC.GetTotalPauseDuration().TotalMilliseconds, 1));
+        e.WriteMachineExtras(w);
         w.WriteEndObject();
 
         w.WriteStartObject("project");
@@ -143,6 +148,7 @@ public static class StateWriter
         else
             w.WriteString("path", e.ProjectPath);
         w.WriteBoolean("dirty", e.Dirty);
+        e.WriteProjectExtras(w);
         w.WriteEndObject();
 
         w.WriteStartArray("faults");
@@ -179,6 +185,9 @@ public static class StateWriter
 
         w.WritePropertyName("cameras");
         e.WriteCamerasState(w);
+
+        // Round 2's keys, each package's own, in the fixed order (docs/WIRE.md "Round 2").
+        e.WriteModuleState(w);
 
         w.WriteEndObject();
     }
@@ -305,6 +314,7 @@ public static class StateWriter
         // A loop of playlists playing each other (only an old file or a hand edit can hold one) draws black there.
         if (PlaylistNesting.Loop(e.Store.Project, list.Id) is { } loop)
             w.WriteString("problem", $"plays itself ({loop}) — black there");
+        e.WritePlaylistExtras(w, list);
         w.WriteEndObject();
     }
 
@@ -338,6 +348,7 @@ public static class StateWriter
             w.WriteString("projector", o.ProjectorId);
         var light = !o.Enabled ? "grey" : o.Kind == OutputKind.Virtual ? "grey" : health is null ? "grey" : !health.Open ? "red" : health.Dropped > 0 ? "amber" : "green";
         w.WriteString("light", light);
+        e.WriteOutputExtras(w, o);
         w.WriteEndObject();
     }
 
@@ -380,6 +391,7 @@ public static class StateWriter
         foreach (var g in e.Store.Project.Playlists.Select(l => l.SyncGroup).Where(g => g is not null).Distinct(StringComparer.Ordinal))
             w.WriteStringValue(g);
         w.WriteEndArray();
+        e.WriteSyncExtras(w);
         w.WriteEndObject();
     }
 

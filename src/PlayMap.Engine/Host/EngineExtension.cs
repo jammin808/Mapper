@@ -49,7 +49,12 @@ public sealed record ExtensionSetup(
     IOutputBackend Outputs,
     IScanDisplay Display,
     IScanBackend Scan,
-    ApprovalHook Approvals);
+    ApprovalHook Approvals)
+{
+    /// <summary>Hands the host a faults source (a control port refused, a runtime absent, a page's port in use): STATE's faults
+    /// and the context list its faults beside the host's own for the node's life.</summary>
+    public Action<INodeFaults>? AddFaults { get; init; }
+}
 
 /// <summary>Extensions made from a function, for parts that need nothing before the engine exists.</summary>
 public static class EngineExtension

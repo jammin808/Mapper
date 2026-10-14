@@ -195,7 +195,7 @@ internal sealed class AssistantToolbox
         return ToolOutcome.Ok(Cut(answer.ToJsonString(Compact)));
     }
 
-    private static ToolOutcome ListVerbs(JsonElement a)
+    private ToolOutcome ListVerbs(JsonElement a)
     {
         var category = OptString(a, "category");
         VerbCategory? only = null;
@@ -206,7 +206,8 @@ internal sealed class AssistantToolbox
             only = parsed;
         }
         var verbs = new JsonArray();
-        foreach (var v in VerbCatalog.All.Where(v => only is null || v.Category == only))
+        var availability = _endpoint as IVerbAvailability ?? VerbAvailability.RoundOne;
+        foreach (var v in VerbCatalog.All.Where(v => (only is null || v.Category == only) && !v.Internal && availability.IsAvailable(v)))
         {
             verbs.Add(new JsonObject
             {

@@ -9,7 +9,14 @@ namespace PlayMap.Engine.Scanning;
 /// <summary>One camera picture as a scan reads it: gray8, row-major, contiguous (no stride), with the monotonic
 /// instant it arrived (ns, <see cref="MonoClock"/> — the clock <see cref="IScanDisplay.ShowAsync"/> stamps
 /// presents with).</summary>
-public sealed record CameraFrame(byte[] Gray, int Width, int Height, long ArrivalNs, long Generation);
+public sealed record CameraFrame(byte[] Gray, int Width, int Height, long ArrivalNs, long Generation)
+{
+    /// <summary>Interleaved RGB when the camera delivers colour (wp2-align's photometry).</summary>
+    public byte[]? Rgb { get; init; }
+
+    /// <summary>16-bit grey when the camera averages or delivers more than 8 bits (phone, folder of TIFFs).</summary>
+    public ushort[]? Gray16 { get; init; }
+}
 
 /// <summary>A camera a scan captures through. The scan owns it for the scan's length and disposes it.</summary>
 public interface IScanCamera : IDisposable

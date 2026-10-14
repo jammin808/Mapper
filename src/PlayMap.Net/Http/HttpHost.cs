@@ -54,6 +54,10 @@ public sealed record HttpHostOptions
     public ILoggerFactory? LoggerFactory { get; init; }
 
     public string Version { get; init; } = "0.1.0";
+
+    /// <summary>Parts that serve pages and sockets under their own path (the phone's /scan); each admits its own requests before the
+    /// token gate (open, its own credential, refused, or deferred to the gate).</summary>
+    public IReadOnlyList<IWebModule> Modules { get; init; } = [];
 }
 
 /// <summary>PlayMap's web port (Kestrel, one port): plain HTTP and HTTPS side by side (a TLS handshake's first byte
@@ -232,6 +236,8 @@ public sealed class HttpHost : IAsyncDisposable
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.Zero });
         app.Use(GateAsync);
         Map(app);
+        foreach (var module in _options.Modules)
+            module.Map(app);
         if (_options.Mcp)
             app.MapMcp("/mcp");
         return app;
@@ -246,6 +252,20 @@ public sealed class HttpHost : IAsyncDisposable
         {
             await next(context);
             return;
+        }
+        if (ModuleOf(path) is { } module)
+        {
+            switch (module.Admit(context, _settings, out var why))
+            {
+                case WebAdmission.Open or WebAdmission.Capability:
+                    await next(context);
+                    return;
+                case WebAdmission.Refuse:
+                    await WriteErrorAsync(context, StatusCodes.Status403Forbidden, why.Length > 0 ? why : $"{module.Name} refused this request");
+                    return;
+                default:
+                    break;
+            }
         }
         var verdict = _gate.Check(context, _settings);
         if (verdict is not (GateVerdict.Open or GateVerdict.Token))
@@ -267,12 +287,26 @@ public sealed class HttpHost : IAsyncDisposable
         await next(context);
     }
 
+    /// <summary>The module whose path a request is under (the longest prefix), or null.</summary>
+    private IWebModule? ModuleOf(string path)
+    {
+        IWebModule? found = null;
+        foreach (var m in _options.Modules)
+        {
+            var prefix = m.PathPrefix.TrimEnd('/');
+            var under = path.Equals(prefix, StringComparison.Ordinal) || path.StartsWith(prefix + "/", StringComparison.Ordinal);
+            if (under && prefix.Length > 0 && (found is null || prefix.Length > found.PathPrefix.TrimEnd('/').Length))
+                found = m;
+        }
+        return found;
+    }
+
     private void Map(WebApplication app)
     {
         app.MapGet("/api/state", StateAsync);
         app.MapGet("/api/context", (HttpContext c) => WriteJsonAsync(c, StatusCodes.Status200OK, _endpoint.Context()));
         app.MapGet("/api/project", (HttpContext c) => WriteJsonAsync(c, StatusCodes.Status200OK, _endpoint.ProjectJson().Json));
-        app.MapGet("/api/verbs", (HttpContext c) => WriteJsonAsync(c, StatusCodes.Status200OK, VerbJson.All));
+        app.MapGet("/api/verbs", (HttpContext c) => WriteJsonAsync(c, StatusCodes.Status200OK, VerbJson.For(_endpoint)));
         app.MapPost("/api/cmd", CommandAsync);
         app.Map("/ws", WebSocketAsync);
         app.MapGet("/tls", TlsPageAsync);
