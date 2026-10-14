@@ -67,8 +67,8 @@ holds: "Wall (surface) is locked by Desk ('show night', 20:12) — UNLOCK sf1a2b
 
 | Area | What it holds |
 |---|---|
-| mapping | the stage (meshes, projectors, cameras, viewpoints, scans, stacks, calibration) and where each surface is (mesh, faces, transform, masks, visibility); each output's warp, masks, blend and projector |
-| layout | each output's display, raster, refresh, mode, plan, rotation, rectangle and whether it is on; outputs added or removed |
+| mapping | the stage (meshes, projectors, cameras, viewpoints, scans, stacks, calibration) and where each surface is (mesh, faces, transform, masks, visibility, pixel quad); each output's warp, masks, blend, projector, measured correction and the calibration it uses — everything a surface or an output holds that no other area names (the cautious side) |
+| layout | each output's display, raster, refresh, mode, plan, rotation, rectangle, latency and whether it is on; outputs added or removed |
 | content | canvases, generators, sends, presets; what each surface and output shows (source, opacity, effects) |
 | playlists | every playlist and item |
 | media | the media library |

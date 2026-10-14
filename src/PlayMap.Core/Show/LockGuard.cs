@@ -47,12 +47,12 @@ public static class LockGuard
         ArgumentNullException.ThrowIfNull(after);
         return area switch
         {
-            LockAreas.Mapping => StageChanged(before.Stage, after.Stage) || SurfacesChanged(before.Stage, after.Stage, GeometryOf, addedOrRemoved: true)
-                || OutputsChanged(before, after, MappingOf),
-            LockAreas.Layout => OutputsChanged(before, after, LayoutOf, addedOrRemoved: true),
+            LockAreas.Mapping => StageChanged(before.Stage, after.Stage) || SurfacesChanged(before.Stage, after.Stage, GeometryMoved, addedOrRemoved: true)
+                || OutputsChanged(before, after, MappingMoved),
+            LockAreas.Layout => OutputsChanged(before, after, LayoutMoved, addedOrRemoved: true),
             LockAreas.Content => before.Canvases != after.Canvases || before.Generators != after.Generators || before.Sends != after.Sends
-                || before.GeneratorPresets != after.GeneratorPresets || OutputsChanged(before, after, ContentOf)
-                || SurfacesChanged(before.Stage, after.Stage, PictureOf),
+                || before.GeneratorPresets != after.GeneratorPresets || OutputsChanged(before, after, ContentMoved)
+                || SurfacesChanged(before.Stage, after.Stage, PictureMoved),
             LockAreas.Playlists => before.Playlists != after.Playlists,
             LockAreas.Media => before.Media != after.Media,
             LockAreas.Devices => before.Stage.Devices != after.Stage.Devices,
@@ -66,7 +66,7 @@ public static class LockGuard
     private static bool StageChanged(Stage before, Stage after) =>
         !ReferenceEquals(before, after) && (before with { Devices = after.Devices, Surfaces = after.Surfaces }) != after;
 
-    private static bool SurfacesChanged(Stage before, Stage after, Func<Surface, object> projection, bool addedOrRemoved = false)
+    private static bool SurfacesChanged(Stage before, Stage after, Func<Surface, Surface, bool> moved, bool addedOrRemoved = false)
     {
         if (before.Surfaces == after.Surfaces)
             return false;
@@ -81,25 +81,32 @@ public static class LockGuard
                     return true;
                 continue;
             }
-            if (!ReferenceEquals(a, b) && !projection(b).Equals(projection(a)))
+            if (!ReferenceEquals(a, b) && moved(b, a))
                 return true;
         }
         return false;
     }
 
-    /// <summary>Where a surface is and what of the stage it covers: the mapping.</summary>
-    private static object GeometryOf(Surface s) =>
-        (s.MeshId, s.Transform, s.Faces, s.Masks, s.Visible, s.Pixel, s.Content.Mode, s.Content.Region, s.Content.ViewpointId);
+    /// <summary>A surface's mapping moved: anything but its name, colour, tags, own lock flag and picture changed (mesh, faces,
+    /// transform, masks, visibility, pixel quad, how its content is laid on it). A field no area names counts as mapping, the
+    /// cautious side.</summary>
+    private static bool GeometryMoved(Surface before, Surface after) =>
+        (after with
+        {
+            Name = before.Name, Color = before.Color, Tags = before.Tags, Locked = before.Locked, Opacity = before.Opacity, Fx = before.Fx,
+            Bindings = before.Bindings, Content = after.Content with { Source = before.Content.Source },
+        }) != before;
 
-    /// <summary>What a surface shows: the content.</summary>
-    private static object PictureOf(Surface s) => (s.Content.Source, s.Opacity, s.Fx, s.Bindings);
+    /// <summary>What a surface shows moved: the content.</summary>
+    private static bool PictureMoved(Surface before, Surface after) =>
+        !(before.Content.Source, before.Opacity, before.Fx, before.Bindings).Equals((after.Content.Source, after.Opacity, after.Fx, after.Bindings));
 
-    private static bool OutputsChanged(Project before, Project after, Func<Output, object> projection, bool addedOrRemoved = false)
+    private static bool OutputsChanged(Project before, Project after, Func<Output, Output, bool> moved, bool addedOrRemoved = false)
     {
         if (before.Outputs == after.Outputs)
             return false;
         if (before.Outputs.Length != after.Outputs.Length)
-            return addedOrRemoved || after.Outputs.Any(a => before.Outputs.Find(a.Id) is { } b && !projection(b).Equals(projection(a)));
+            return addedOrRemoved || after.Outputs.Any(a => before.Outputs.Find(a.Id) is { } b && moved(b, a));
         foreach (var a in after.Outputs)
         {
             var b = before.Outputs.Find(a.Id);
@@ -109,17 +116,33 @@ public static class LockGuard
                     return true;
                 continue;
             }
-            if (!ReferenceEquals(a, b) && !projection(b).Equals(projection(a)))
+            if (!ReferenceEquals(a, b) && moved(b, a))
                 return true;
         }
         return false;
     }
 
-    private static object MappingOf(Output o) => (o.Warp, o.Masks, o.Blend, o.ProjectorId);
+    /// <summary>An output's mapping moved: anything but its name, layout and content changed (warp, masks, blend, projector, the
+    /// measured correction and the calibration it uses). A field no area names counts as mapping, the cautious side.</summary>
+    private static bool MappingMoved(Output before, Output after) =>
+        (after with
+        {
+            Name = before.Name, Kind = before.Kind, DisplayKey = before.DisplayKey, Width = before.Width, Height = before.Height,
+            RefreshHz = before.RefreshHz, Mode = before.Mode, Plan = before.Plan, Rotation = before.Rotation, Enabled = before.Enabled,
+            SourceRect = before.SourceRect, LatencyMs = before.LatencyMs, Source = before.Source, Color = before.Color, Fx = before.Fx,
+        }) != before;
 
-    private static object LayoutOf(Output o) => (o.DisplayKey, o.Width, o.Height, o.RefreshHz, o.Mode, o.Plan, o.Rotation, o.Enabled, o.SourceRect, o.Kind);
+    /// <summary>An output's layout moved: its display, raster, refresh, mode, plan, rotation, rectangle, kind, latency or whether it
+    /// is on.</summary>
+    private static bool LayoutMoved(Output before, Output after) =>
+        !(before.DisplayKey, before.Width, before.Height, before.RefreshHz, before.Mode, before.Plan, before.Rotation, before.Enabled,
+            before.SourceRect, before.Kind, before.LatencyMs)
+            .Equals((after.DisplayKey, after.Width, after.Height, after.RefreshHz, after.Mode, after.Plan, after.Rotation, after.Enabled,
+                after.SourceRect, after.Kind, after.LatencyMs));
 
-    private static object ContentOf(Output o) => (o.Source, o.Color, o.Fx);
+    /// <summary>What an output shows moved: its source, colour trim or effects.</summary>
+    private static bool ContentMoved(Output before, Output after) =>
+        !(before.Source, before.Color, before.Fx).Equals((after.Source, after.Color, after.Fx));
 
     private static string? EntityWords(Project before, Project after, ShowLock l)
     {
