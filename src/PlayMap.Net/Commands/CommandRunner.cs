@@ -231,6 +231,15 @@ public static class VerbJson
             w.WriteStringValue(f);
         w.WriteEndArray();
         w.WriteBoolean("available", available);
+        // A controller's actions from data: the first form's typed parameters, every form's, and the key's press shape.
+        var forms = VerbParams.Forms(v);
+        w.WritePropertyName("params");
+        VerbParams.Write(w, forms[0]);
+        w.WriteStartArray("formParams");
+        foreach (var f in forms)
+            VerbParams.Write(w, f);
+        w.WriteEndArray();
+        w.WriteString("press", VerbParams.Press(v));
         w.WriteEndObject();
     }
 }
