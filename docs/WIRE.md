@@ -239,7 +239,9 @@ Round 2 adds its packages' verbs, topics and STATE keys through the engine's hoo
 
 - **Rows.** Every round-2 row is in the catalogue from the start and answers `ERR <VERB> is not available on this node yet`
   until its package routes it. `VERBS` lists every row but the node-to-node ones, each with `"available"`; MCP's `list_verbs`,
-  the assistant's prompt and `list_verbs`, and the context's `commands` list only the rows the node answers now.
+  the assistant's prompt and `list_verbs`, and the context's `commands` list only the rows the node answers now. An
+  assistant's line naming a row the node does not answer, or a node-to-node verb, is refused with these words by
+  `propose_commands` and MCP's `run_command` before anything runs or waits for a person.
 - **The door.** A verb that changes something, or a paired-only query (`RECORD`, `PRESENCE`, `THUMB`, `SELECT`, the board's
   focus), needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and
   the node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode, the blind draft, MinGo),
