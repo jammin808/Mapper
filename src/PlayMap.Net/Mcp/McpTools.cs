@@ -105,6 +105,9 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         var verb = VerbCatalog.Match(line)?.Spec;
         if (verb is { Internal: true })
             return Text($"{verb.Name}: this line is node-to-node only", error: true);
+        // A row the node does not answer is refused here, so nothing waits for a person that could only be refused.
+        if (verb is not null && runner.Endpoint is IVerbAvailability availability && !availability.IsAvailable(verb))
+            return Text($"{verb.Name} is not available on this node yet", error: true);
         // A line carrying its verb's secret words is decided like a high-risk one: an assistant's token never
         // runs on its own word while "AI may act" is off.
         if (VerbCatalog.RiskOf(line) == VerbRisk.High || VerbCatalog.HoldsSecret(line))

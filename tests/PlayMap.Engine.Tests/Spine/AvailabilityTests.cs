@@ -85,4 +85,25 @@ public sealed class AvailabilityTests
         foreach (var v in VerbCatalog.All.Where(v => v.Round == 2 && v != routed))
             Assert.DoesNotContain(v.Syntax, commands);
     }
+
+    [Fact]
+    public async Task McpRefusesARowTheNodeDoesNotAnswerBeforeAnythingQueues()
+    {
+        await using var rig = await HostRig.StartAsync();
+        using var http = rig.Http();
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(http.BaseAddress!, "/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+        }));
+        var unrouted = VerbCatalog.Find("PANIC")!;
+        Assert.Equal(VerbRisk.High, unrouted.Risk);
+
+        var result = await mcp.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = unrouted.Name, ["reason"] = "test" });
+
+        Assert.True(result.IsError);
+        Assert.Equal($"{unrouted.Name} is not available on this node yet", string.Concat(result.Content.OfType<TextContentBlock>().Select(t => t.Text)));
+        using var state = JsonDocument.Parse(rig.Engine.State().Json);
+        Assert.Equal(0, state.RootElement.GetProperty("ai").GetProperty("proposals").GetInt32());
+    }
 }
