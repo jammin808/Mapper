@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddCompanionParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-companion fills this.
+        extensions.Add(setup => new Companion.CompanionExtension(setup));
     }
 }

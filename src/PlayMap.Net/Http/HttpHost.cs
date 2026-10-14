@@ -20,6 +20,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Companion;
 using PlayMap.Net.Mcp;
 using PlayMap.Net.Tls;
 using PlayMap.Net.Wire;
@@ -370,7 +371,8 @@ public sealed class HttpHost : IAsyncDisposable
         app.MapGet("/tls.cer", TlsCertificateAsync);
         app.MapGet("/api/media", ManifestAsync);
         app.MapGet("/api/media/{hash}", MediaFileAsync);
-        app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /mcp"));
+        app.MapGet("/api/thumb", ThumbAsync);
+        app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /api/thumb, /mcp"));
     }
 
     /// <summary>STATE now; with <c>?since=&lt;seq&gt;</c> it waits (at most the long-poll time) for a newer one.</summary>
@@ -586,6 +588,44 @@ public sealed class HttpHost : IAsyncDisposable
         }
         context.Response.Headers["X-Content-SHA256"] = hash;
         await TypedResults.PhysicalFile(file.Path, "application/octet-stream", enableRangeProcessing: true).ExecuteAsync(context);
+    }
+
+    /// <summary>GET /api/thumb?ref=…&amp;w=96&amp;h=96&amp;fmt=jpeg: the picture's bytes with its ETag; If-None-Match with that ETag
+    /// answers 304; a picture there is none of answers 404 with the words why.</summary>
+    private async Task ThumbAsync(HttpContext context)
+    {
+        if (_endpoint is not IThumbSource source)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status404NotFound, "this node serves no pictures");
+            return;
+        }
+        var q = context.Request.Query;
+        var words = new List<string> { q["ref"].ToString() };
+        if (q["w"].ToString() is { Length: > 0 } w)
+            words.Add(w + "x" + (q["h"].ToString() is { Length: > 0 } h ? h : w));
+        if (q["fmt"].ToString() is { Length: > 0 } fmt)
+            words.Add(fmt);
+        if (!ThumbArgs.TryParse(words, out var request, out var why) || request!.Ref.Length == 0)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, why ?? "/api/thumb?ref=<media:…|generator:…|playlist:…|color:#RRGGBB>&w=96&h=96&fmt=jpeg|png");
+            return;
+        }
+        var held = context.Request.Headers.IfNoneMatch.ToString().Trim().Trim('"');
+        var result = await source.ThumbAsync(request with { IfNoneMatch = held.Length > 0 ? held : null }, Session(context, "http"), context.RequestAborted);
+        if (!result.Ok)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status404NotFound, result.Why ?? "no picture of it");
+            return;
+        }
+        context.Response.Headers.ETag = "\"" + result.Etag + "\"";
+        context.Response.Headers.CacheControl = "no-cache";
+        if (result.NotModified)
+        {
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
+            return;
+        }
+        context.Response.ContentType = result.Mime;
+        await context.Response.Body.WriteAsync(result.Bytes, context.RequestAborted);
     }
 
     private static async Task WriteJsonAsync(HttpContext context, int status, string json)

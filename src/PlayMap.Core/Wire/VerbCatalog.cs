@@ -395,14 +395,9 @@ public static class VerbCatalog
         // Controllers' side of the wire: index, events, presence (wp2-companion).
         V2("INDEX", "INDEX", "The show's structure for controllers (playlists and items, surfaces, projectors, outputs, devices, generators, and every package's section with its preset hint) with structure and label signatures", VerbCategory.Session, VerbRisk.Low, false),
         V2("EVENTS", "EVENTS [SINCE <seq>]", "The node's recent events (item start and end, armed, panic, faults, calibration moved…) for automations", VerbCategory.Session, VerbRisk.Low, false),
-        V2("RECORD", "RECORD ON|OFF", "This session hears every line an operator performs on the desk as ACTION lines (never a secret)", VerbCategory.Session, VerbRisk.Low, false) with { PairedOnly = true },
         V2("PRESENCE", "PRESENCE <json>", "A controller says what it is and what it shows (kind, module version, page)", VerbCategory.Session, VerbRisk.Low, false) with { PairedOnly = true },
         V2("WHOAMI", "WHOAMI", "This session as the node sees it: transport, role, paired, armed, and the verbs it may run now", VerbCategory.Session, VerbRisk.Low, false),
-        V2("SELECT", "SELECT <id>…|NONE", "What the desk has selected, for controllers that learn from it", VerbCategory.Session, VerbRisk.Low, false) with { PairedOnly = true, Ephemeral = true },
-        V2("THUMB", "THUMB <media:<id>|output:<id>|playlist:<id>> [<w>x<h>] [JPEG|PNG] [IF <etag>]", "A small picture for a key or a list, cached by content and ETag", VerbCategory.Media, VerbRisk.Low, false) with { PairedOnly = true },
-        V2("COMPANION PRESS", "COMPANION PRESS <page>/<row>/<column> [ON <companion>]", "Presses a button on a Companion this node links to (its HTTP API)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Perform },
-        V2("COMPANION VAR", "COMPANION VAR <name> <value> [ON <companion>]", "Sets a Companion custom variable", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Perform },
-        V2("COMPANION BRIGHTNESS", "COMPANION BRIGHTNESS <0-100> [<surface>] [ON <companion>]", "Dims Companion's surfaces (REST v2; the key from the credential store)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Perform },
+        V2("THUMB", "THUMB <media:<id>|generator:<id>|playlist:<id>|color:#RRGGBB> [<w>x<h>] [JPEG|PNG] [IF <etag>]", "A small picture for a key or a list, cached by content and ETag", VerbCategory.Media, VerbRisk.Low, false) with { PairedOnly = true },
 
         // Effects: ISF in chains (wp2-fx). FX BIND / FX UNBIND are aliases of MOD BIND / MOD UNBIND.
         V2("FX KINDS", "FX KINDS [<family>|<search>]", "Every effect kind (built-in and this show's ISF files) with its parameters and traits", VerbCategory.Effects, VerbRisk.Low, false),
