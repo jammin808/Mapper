@@ -87,7 +87,8 @@ public sealed unsafe partial class GlDevice : IDisposable
         // ES 3.2 has debug output in core; ES 3.0 and 3.1 through KHR_debug. Desktop from 4.3.
         HasDebugOutput = (es ? GlVersion >= 32 : GlVersion >= 43) || extensions.Contains("GL_KHR_debug");
         HasTimerQuery = !es || extensions.Contains("GL_EXT_disjoint_timer_query");
-        HasPolygonMode = !es || extensions.Contains("GL_ANGLE_polygon_mode") || extensions.Contains("GL_NV_polygon_mode");
+        // On ES glPolygonMode resolves only as glPolygonModeANGLE: the alias loader tries the ANGLE suffix, never NV.
+        HasPolygonMode = !es || extensions.Contains("GL_ANGLE_polygon_mode");
         HasReadBgra = !es || extensions.Contains("GL_EXT_read_format_bgra");
         MaxTextureSize = _gl.GetInteger(GLEnum.MaxTextureSize);
         Caps = GlCaps.From(GlDialects.Word(Dialect), major, minor, extensions);
@@ -125,8 +126,8 @@ public sealed unsafe partial class GlDevice : IDisposable
     /// <summary>GPU timer queries work (desktop core; ES through EXT_disjoint_timer_query): without them GPU times read 0.</summary>
     public bool HasTimerQuery { get; }
 
-    /// <summary>Wireframe drawing works (desktop core; ES through ANGLE_polygon_mode or NV_polygon_mode): without it the editor's
-    /// wireframe draws filled.</summary>
+    /// <summary>Wireframe drawing works (desktop core; ES through ANGLE_polygon_mode): without it, indexed triangles asked for as a
+    /// wireframe are not drawn (never filled over what they outline).</summary>
     public bool HasPolygonMode { get; }
 
     /// <summary>Pixels read back as BGRA in one call (desktop core; ES through EXT_read_format_bgra): without it a synchronous read

@@ -582,7 +582,8 @@ public sealed class RenderEngine : IDisposable
         if (st.Projector is not null && st.Projector.Width == width && st.Projector.Height == height)
             return;
         st.Projector?.Dispose();
-        st.Projector = Device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, depth: true);
+        // RGBA16F where the context renders float colour; RGBA8 on an ES context without EXT_color_buffer_float.
+        st.Projector = Device.CreateRenderTarget(width, height, Device.TargetFormat(TextureFormat.Rgba16F, out _), depth: true);
     }
 
     /// <summary>Outputs gone from the project (and with no window) are let go after a while.</summary>

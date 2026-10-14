@@ -96,10 +96,17 @@ internal static partial class Egl
 }
 
 /// <summary>An EGL context with no window and no surface (Mesa's surfaceless platform): every pass draws into its own
-/// framebuffers, so a headless renderer and the ES test leg need nothing else. Made, used and disposed on one thread.</summary>
+/// framebuffers, so a headless renderer and the ES test leg need nothing else. Made, used and disposed on one thread.
+///
+/// The surfaceless display is one per process (every eglGetPlatformDisplay call answers the same handle) and eglTerminate is not
+/// counted, so the display is initialised by the first live context and terminated only when the last one is disposed: one
+/// context going never pulls the display from under another on another thread.</summary>
 [SupportedOSPlatform("linux")]
 internal sealed class EglSurfacelessContext : IDisposable
 {
+    private static readonly Lock DisplayGate = new();
+    private static int _displayUsers;
+
     private nint _display;
     private nint _context;
 
@@ -117,19 +124,7 @@ internal sealed class EglSurfacelessContext : IDisposable
     /// library, the surfaceless platform or the context is not there.</summary>
     public static EglSurfacelessContext Create(GlDialect dialect, bool debug)
     {
-        nint display;
-        try
-        {
-            display = Egl.GetPlatformDisplay(Egl.PlatformSurfacelessMesa, 0, 0);
-        }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
-        {
-            throw new PlatformNotSupportedException($"EGL is not on this machine ({ex.Message})", ex);
-        }
-        if (display == 0)
-            throw new PlatformNotSupportedException($"EGL has no surfaceless platform here ({Egl.ErrorWords()})");
-        if (Egl.Initialize(display, out var major, out var minor) == 0)
-            throw new PlatformNotSupportedException($"EGL did not initialise ({Egl.ErrorWords()})");
+        var (display, major, minor) = AcquireDisplay();
         try
         {
             var es = dialect == GlDialect.Es300;
@@ -164,8 +159,42 @@ internal sealed class EglSurfacelessContext : IDisposable
         }
         catch
         {
-            _ = Egl.Terminate(display);
+            ReleaseDisplay(display);
             throw;
+        }
+    }
+
+    /// <summary>The process's surfaceless display, initialised (once, for its first user); its version.</summary>
+    private static (nint Display, int Major, int Minor) AcquireDisplay()
+    {
+        lock (DisplayGate)
+        {
+            nint display;
+            try
+            {
+                display = Egl.GetPlatformDisplay(Egl.PlatformSurfacelessMesa, 0, 0);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+                throw new PlatformNotSupportedException($"EGL is not on this machine ({ex.Message})", ex);
+            }
+            if (display == 0)
+                throw new PlatformNotSupportedException($"EGL has no surfaceless platform here ({Egl.ErrorWords()})");
+            // Initialising an initialised display only answers its version.
+            if (Egl.Initialize(display, out var major, out var minor) == 0)
+                throw new PlatformNotSupportedException($"EGL did not initialise ({Egl.ErrorWords()})");
+            _displayUsers++;
+            return (display, major, minor);
+        }
+    }
+
+    /// <summary>One user less; the last one terminates the display.</summary>
+    private static void ReleaseDisplay(nint display)
+    {
+        lock (DisplayGate)
+        {
+            if (--_displayUsers == 0)
+                _ = Egl.Terminate(display);
         }
     }
 
@@ -187,7 +216,7 @@ internal sealed class EglSurfacelessContext : IDisposable
         _ = Egl.MakeCurrent(_display, 0, 0, 0);
         _ = Egl.DestroyContext(_display, _context);
         _ = Egl.ReleaseThread();
-        _ = Egl.Terminate(_display);
+        ReleaseDisplay(_display);
         _context = 0;
         _display = 0;
     }

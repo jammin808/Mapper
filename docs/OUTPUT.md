@@ -21,7 +21,7 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
 - **The per-dialect format table** (`GlFormatTable`): BGRA uploads on ES go up as RGBA with the texture's red/blue swizzle (core
   ES 3.00, no copy); 16-bit unsigned textures fall back to 16-bit float without `EXT_texture_norm16`; float render targets need
   `EXT_color_buffer_float` (else 8-bit, with words); GPU timers need `EXT_disjoint_timer_query` (else GPU times read 0); wireframe
-  needs `ANGLE_polygon_mode`/`NV_polygon_mode` (else the editor draws filled); BGRA read-backs need `EXT_read_format_bgra` (else a
+  needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else a
   synchronous read swaps on the CPU and the streamed read-back refuses with words).
 - **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
