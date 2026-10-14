@@ -1,14 +1,15 @@
 using System.Globalization;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media.Hap;
+using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Engine.Host;
 
 namespace PlayMap.Engine.Decode;
 
 /// <summary>Preflight, section "decode": "The show needs N HAP layers at 4K60; this node sustains M" — amber when N > M, with the
-/// line that shows why (MEDIA INSPECT of the heaviest clip); red for each HAP R or HAP HDR item this node's GPU cannot sample,
-/// with the line that makes a version it can. A show with no HAP is one green row.</summary>
+/// line that shows why (MEDIA INSPECT of the heaviest clip); red for each HAP R or HAP HDR item the show plays that this node's
+/// GPU cannot sample, with the line that makes a version it can. A show with no HAP is one green row.</summary>
 public sealed class HapLayersCheck : IPreflightCheck
 {
     public string Section => "decode";
@@ -39,9 +40,11 @@ public sealed class HapLayersCheck : IPreflightCheck
             string.Create(c, $"{need} of {measured.Value}"), over ? note + " — " + measured.Words : note,
             over && demand.Heaviest.Length > 0 ? "MEDIA INSPECT " + demand.Heaviest : null));
 
+        // Only the items the show plays: a library item nothing shows is no reason the show is not ready.
+        var shown = demand.ItemIds.Select(project.FindMedia).OfType<MediaItem>().ToList();
         if (engine.Services.Media is MediaBackend media && media.RendererKnown)
         {
-            foreach (var item in project.Media)
+            foreach (var item in shown)
             {
                 if (media.HapRefusal(item) is { } words)
                     rows.Add(new PreflightRow("decode.hap-gpu:" + item.Id, node, Section, item.Name, Light.Red, "not on this GPU", words,
@@ -50,7 +53,7 @@ public sealed class HapLayersCheck : IPreflightCheck
         }
         else if (engine.DecodeFacts.Formats is { } formats)
         {
-            foreach (var item in project.Media)
+            foreach (var item in shown)
             {
                 if (HapCodecs.TryFromName(item.Info.VideoCodec, out var codec) && !HapCodecs.FfmpegDecodes(codec)
                     && HapCodecs.Missing(codec, formats) is { Length: > 0 } missing)

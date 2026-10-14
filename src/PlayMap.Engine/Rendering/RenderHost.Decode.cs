@@ -1,5 +1,6 @@
 using PlayMap.Core.Media;
 using PlayMap.Render.Engine;
+using PlayMap.Render.Gpu;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -8,9 +9,11 @@ namespace PlayMap.Engine.Rendering;
 /// thread; nothing allocates per frame.</summary>
 public sealed partial class RenderHost
 {
-    // The families the context samples (−1: no context) and what the engine was last told (−2: nothing yet).
+    // The families the context samples (−1: no context) and what the engine was last told (−2: nothing yet); the window-system
+    // binding the context came through (asked once per context, with it current).
     private volatile int _decodeFormats = -1;
     private int _decodeSent = -2;
+    private volatile string _decodeBinding = "";
 
     partial void ComposeDecode(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
@@ -18,11 +21,12 @@ public sealed partial class RenderHost
         if (formats == _decodeSent)
             return;
         _decodeSent = formats;
-        engine.DecodeRenderer(formats < 0 ? null : (BlockFormats)formats);
+        engine.DecodeRenderer(formats < 0 ? null : (BlockFormats)formats, _decodeBinding);
     }
 
     partial void OnContextDecode(RenderEngine renderer)
     {
+        _decodeBinding = GlDevice.CurrentBinding();
         _decodeFormats = (int)renderer.Device.BlockFormats;
     }
 

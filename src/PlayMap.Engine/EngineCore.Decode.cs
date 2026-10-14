@@ -58,8 +58,11 @@ public sealed partial class EngineCore
         var path = LocalPath(item);
         if (path is null)
             return CommandReply.Fail($"{item.Name} is not on this node");
+        // The reading of HAP HDR depends on the item's colour override as well as the bytes: both name the answer kept.
+        var key = item.ContentHash.Length == 0 ? "" : string.Create(CultureInfo.InvariantCulture,
+            $"{item.ContentHash}|{item.Color.Transfer}|{item.Color.WhiteNits:R}");
         HapInspection inspection;
-        if (!DecodeFacts.TryInspection(item.ContentHash, out inspection))
+        if (!DecodeFacts.TryInspection(key, out inspection))
         {
             try
             {
@@ -69,7 +72,7 @@ public sealed partial class EngineCore
             {
                 return CommandReply.Fail($"{item.Name} could not be read: {ex.Message}");
             }
-            DecodeFacts.Remember(item.ContentHash, inspection);
+            DecodeFacts.Remember(key, inspection);
         }
         return CommandReply.Success(InspectJson(item, inspection));
     }
@@ -283,10 +286,12 @@ public sealed partial class EngineCore
         }
         if (formats is { } f)
         {
-            foreach (var item in Store.Project.Media)
+            // Only what the show plays: a library item nothing shows is not the show's problem.
+            var project = Store.Project;
+            foreach (var id in HapDemand.Of(project).ItemIds)
             {
-                if (HapCodecs.TryFromName(item.Info.VideoCodec, out var codec) && !HapCodecs.FfmpegDecodes(codec)
-                    && HapCodecs.Missing(codec, f) is { Length: > 0 } missing && HapDemand.Of(Store.Project).Items > 0)
+                if (project.FindMedia(id) is { } item && HapCodecs.TryFromName(item.Info.VideoCodec, out var codec) && !HapCodecs.FfmpegDecodes(codec)
+                    && HapCodecs.Missing(codec, f) is { Length: > 0 } missing)
                     return (Light.Red, $"{item.Name}: {HapVideoSource.NotOnThisGpu(codec, missing)}");
             }
         }
@@ -313,11 +318,9 @@ public sealed partial class EngineCore
     {
         if (DecodeFacts.Formats is null)
             return;
-        // The window system the render context came through (GLFW: GLX on X11, EGL on Wayland, WGL, CGL).
-        var gl = OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cgl"
-            : string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")) && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")) ? "egl"
-            : "glx";
-        w.WriteString("gl", gl);
+        // The window-system binding the render context came through, as its own library answered on the render thread.
+        var gl = DecodeFacts.Binding;
+        w.WriteString("gl", gl.Length > 0 ? gl : "unknown");
     }
 
     partial void ContextDecode(List<ContextItem> items, List<ContextLink> links)
@@ -345,9 +348,9 @@ public sealed partial class EngineCore
 
     /// <summary>The render host's word that its context came (with the families it samples) or went: the media backend opens
     /// HAP for them and STATE says them.</summary>
-    internal void DecodeRenderer(BlockFormats? formats)
+    internal void DecodeRenderer(BlockFormats? formats, string binding = "")
     {
         Services.Media?.UseRenderer(formats ?? BlockFormats.None, null);
-        DecodeFacts.Renderer(formats);
+        DecodeFacts.Renderer(formats, binding);
     }
 }

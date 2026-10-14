@@ -64,6 +64,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
     private volatile Thread? _decodeThread;
     private readonly Lock _inputGate = new();
     private readonly Lock _ringGate = new();
+    private readonly Lock _formatsGate = new();
     private MediaInput? _input;
     private volatile MediaInfo _info;
     private volatile string _status = "opening";
@@ -71,6 +72,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
     private volatile bool _isOpen;
     private volatile bool _stop;
     private int _disposed;
+    private BlockFormats _formats;
 
     // ---- the ring (entries [head, head+count) are the decode thread's to read; the tail is the read thread's) -------------
     private Entry[] _ring = [];
@@ -143,6 +145,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
     {
         _path = path;
         _options = options ?? HapSourceOptions.Default;
+        _formats = _options.Formats;
         Key = key ?? path;
         _info = MediaInfo.Unknown;
         var queue = new QueueSettings
@@ -216,6 +219,45 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     public VideoFrameLease? Acquire(long mediaNs) => _queue.Acquire(mediaNs);
 
+    /// <summary>What the renderer samples now (its context came, or came back different). A clip whose blocks it cannot sample
+    /// stops with the words why — its health reads failed and it answers no frame — never handing the renderer a frame it
+    /// would draw black.</summary>
+    public void UseFormats(BlockFormats formats)
+    {
+        string missing;
+        lock (_formatsGate)
+        {
+            _formats = formats;
+            missing = _isOpen ? HapCodecs.Missing(_codec, formats) : "";
+        }
+        if (missing.Length > 0)
+            Refuse(NotOnThisGpu(_codec, missing));
+    }
+
+    private string Missing()
+    {
+        lock (_formatsGate)
+            return HapCodecs.Missing(_codec, _formats);
+    }
+
+    // Stops both threads and empties the queue with the words why; the threads end on their own and Dispose frees the rest.
+    private void Refuse(string why)
+    {
+        // Under the gate Dispose sets its flag under: a refusal either finishes before Dispose frees the events, or does nothing.
+        lock (_formatsGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || _stop)
+                return;
+            Fail(why);
+            _stop = true;
+            lock (_inputGate)
+                _input?.Interrupt();
+            _queue.Close();
+            _wake.Set();
+            _readWake.Set();
+        }
+    }
+
     public void Prepare(long mediaNs, bool playing, double rate) => _queue.Prepare(mediaNs, playing, rate);
 
     public bool IsReadyAt(long mediaNs) => _queue.IsReadyAt(mediaNs);
@@ -227,9 +269,12 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-        _stop = true;
+        lock (_formatsGate)
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            _stop = true;
+        }
         lock (_inputGate)
             _input?.Interrupt();
         _wake.Set();
@@ -301,7 +346,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
             var p = s->codecpar;
             if (!HapCodecs.TryFromTag(p->codec_tag, out _codec))
                 throw new MediaOpenException(MediaProblem.DecoderNotAvailable, System.IO.Path.GetFileName(_path) + " is not a HAP stream");
-            var missing = HapCodecs.Missing(_codec, _options.Formats);
+            var missing = Missing();
             if (missing.Length > 0)
                 throw new MediaOpenException(MediaProblem.DecoderNotAvailable, NotOnThisGpu(_codec, missing));
             _width = p->width;
@@ -321,7 +366,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
             _capBytes = (long)(Math.Max(1, _options.ReadAheadMb) * HapBudget.Mb);
             _alpha = _codec is HapCodec.HapAlpha or HapCodec.HapQAlpha or HapCodec.HapR;
             if (_codec == HapCodec.HapHdr)
-                _hdr = HapHdr.Read(_options.Color, (int)p->color_trc, WhiteTag(s));
+                _hdr = HapHdr.Read(_options.Color, (int)p->color_trc, WhiteTag(input.Format, s));
             _lastLayout = HapCodecs.Layout(_codec, HapCodecs.FirstTexture(_codec));
             // One more entry than the cap: the tail is where the next packet is read while the ring is full.
             _ring = new Entry[_capFrames + 1];
@@ -332,8 +377,15 @@ public sealed unsafe class HapVideoSource : IVideoSource
             _queue.SetStart(start);
             if (start > 0)
                 SeekFile(start);
-            _status = "ready";
-            _isOpen = true;
+            lock (_formatsGate)
+            {
+                // The renderer may have said what it samples while the clip was opening (UseFormats).
+                missing = HapCodecs.Missing(_codec, _formats);
+                if (missing.Length > 0)
+                    throw new MediaOpenException(MediaProblem.DecoderNotAvailable, NotOnThisGpu(_codec, missing));
+                _status = "ready";
+                _isOpen = true;
+            }
             _opened.TrySetResult(true);
             return true;
         }
@@ -355,9 +407,13 @@ public sealed unsafe class HapVideoSource : IVideoSource
             ? $"{HapCodecs.Words(codec)} needs BPTC textures, which this GPU's GL does not offer — optimise to HAP Q for this node"
             : $"this GPU's GL lacks {missing}; FFmpeg decodes {HapCodecs.Words(codec)} on the CPU";
 
-    private static double WhiteTag(AVStream* s)
+    /// <summary>The white level PlayMap's tag names (0 = none): the stream's own metadata, else the container's — QuickTime keeps
+    /// a tag of its own only for the whole file (written with <c>movflags use_metadata_tags</c>), never for one track.</summary>
+    internal static double WhiteTag(AVFormatContext* format, AVStream* s)
     {
         var e = ffmpeg.av_dict_get(s->metadata, HapHdr.WhiteTag, null, 0);
+        if (e is null && format is not null)
+            e = ffmpeg.av_dict_get(format->metadata, HapHdr.WhiteTag, null, 0);
         return e is not null && double.TryParse(FfmpegUtil.Text(e->value), NumberStyles.Float, CultureInfo.InvariantCulture, out var nits) ? nits : 0;
     }
 
@@ -638,7 +694,8 @@ public sealed unsafe class HapVideoSource : IVideoSource
             _ringBytes = 0;
         }
         _ended = false;
-        _status = "ready";
+        if (!_failed)
+            _status = "ready";
         _readWake.Set();
     }
 
@@ -751,7 +808,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
         }
         _corruptRun = 0;
         _stats.DecodeTime(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-        if (_status != "ready")
+        if (_status != "ready" && !_failed)
             _status = "ready";
         _queue.Publish(slot, _gap);
         _gap = false;
@@ -766,7 +823,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
         _lastRefusal = words;
         if (_corruptRun++ == 0)
             _corruptFirst = index;
-        if (_corruptRun >= CorruptRun)
+        if (_corruptRun >= CorruptRun && !_failed)
             _status = string.Create(CultureInfo.InvariantCulture, $"corrupt: {words} (frames {_corruptFirst}–{index})");
     }
 

@@ -72,6 +72,41 @@ public sealed class HapPreflightTests
     }
 
     [Fact]
+    public async Task AHapRItemNothingShowsIsNotTheShowsProblemUntilAnOutputShowsIt()
+    {
+        var shown = Hap("md_q", "hap_q");
+        var library = Hap("md_r", "hap_r");
+        await using var engine = new EngineCore(EngineServices.ForTests(), Show(shown) with { Media = [shown, library] });
+        engine.DecodeFacts.Record(DecodeFacts.Measure(16, 2.0, 1_760_000_000_000));
+        engine.DecodeFacts.Renderer(BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
+
+        var row = Assert.Single(await Check(engine));
+        Assert.Equal(("decode.hap-layers", Light.Green), (row.Id, row.Light));
+        string StateLight()
+        {
+            using var state = JsonDocument.Parse(engine.State().Json);
+            return state.RootElement.GetProperty("decode").GetProperty("platform").GetProperty("light").GetString()!;
+        }
+        string ContextLight()
+        {
+            using var context = JsonDocument.Parse(engine.Context());
+            return context.RootElement.GetProperty("items").EnumerateArray()
+                .Single(i => i.GetProperty("id").GetString() == "decode").GetProperty("light").GetString()!;
+        }
+        Assert.Equal("green", StateLight());
+        Assert.Equal("green", ContextLight());
+
+        // An output showing it makes it the show's: red in preflight, STATE and the context, with the line that fixes it.
+        Assert.True(WireGrammar.TryParse("OUTPUT SOURCE op_1 media:md_r", out var line, out var error), error?.Reason);
+        var routed = await engine.HandleAsync(line, Desk, CancellationToken.None);
+        Assert.True(routed.Ok, routed.Payload);
+        var red = Assert.Single(await Check(engine), r => r.Light == Light.Red);
+        Assert.Equal(("decode.hap-gpu:md_r", "MEDIA OPTIMISE md_r TO hap-q"), (red.Id, red.Fix));
+        Assert.Equal("red", StateLight());
+        Assert.Equal("red", ContextLight());
+    }
+
+    [Fact]
     public async Task AShowWithoutHapIsOneGreenRowAndABareNodeWritesTheDecodeBlock()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());

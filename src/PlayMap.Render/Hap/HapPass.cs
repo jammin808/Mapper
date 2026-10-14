@@ -69,10 +69,16 @@ public static class HapPass
     }
 }
 
-/// <summary>Compressed bytes this process has handed the GPU and the render-thread time it took (the upload term of the HAP
-/// layer budget). Totals only rise; a reader takes the difference of two looks.</summary>
+/// <summary>Compressed bytes this process has handed the GPU in uploads of at least <see cref="MinBytes"/>, and the render-thread
+/// time they took: the upload term of the HAP layer budget. A smaller upload is not counted, because its fixed cost per call
+/// says nothing about the rate a frame of a megabyte or more moves at (on a software rasteriser a tiny frame reads as a few
+/// MB/s); until one such upload has run the term is unmeasured (0). Totals only rise; a reader takes the difference of two
+/// looks.</summary>
 public static class HapUploadMeter
 {
+    /// <summary>The smallest upload that counts: 10⁶ bytes (a 1080p HAP frame is 1.04 MB).</summary>
+    public const long MinBytes = 1_000_000;
+
     private static long _bytes;
     private static long _ticks;
 
@@ -80,7 +86,7 @@ public static class HapUploadMeter
 
     public static TimeSpan Time => Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _ticks));
 
-    /// <summary>MB (10⁶ bytes) per second of upload time so far; 0 before any upload.</summary>
+    /// <summary>MB (10⁶ bytes) per second of counted upload time so far; 0 before any counted upload.</summary>
     public static double MbPerSecond
     {
         get
@@ -92,6 +98,8 @@ public static class HapUploadMeter
 
     internal static void Add(long bytes, long ticks)
     {
+        if (bytes < MinBytes)
+            return;
         Interlocked.Add(ref _bytes, bytes);
         Interlocked.Add(ref _ticks, ticks);
     }

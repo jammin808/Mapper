@@ -77,11 +77,11 @@ internal static unsafe class HapClips
     /// <summary>A clip of assembled frames. <paramref name="corrupt"/> names frames whose Snappy data is broken (their table
     /// still parses); <paramref name="refused"/> frames whose header lies about their length.</summary>
     public static string Assembled(HapCodec codec, int chunks = 4, int[]? corrupt = null, int[]? refused = null, int colorTrc = 0,
-        int width = Width, int height = Height, int count = Frames)
+        int width = Width, int height = Height, int count = Frames, string whiteTag = "")
     {
         TestMedia.Ensure();
         var name = string.Create(CultureInfo.InvariantCulture,
-            $"{HapCodecs.Name(codec)}_{chunks}_{string.Join('-', corrupt ?? [])}_{string.Join('-', refused ?? [])}_{colorTrc}_{width}x{height}x{count}.mov");
+            $"{HapCodecs.Name(codec)}_{chunks}_{string.Join('-', corrupt ?? [])}_{string.Join('-', refused ?? [])}_{colorTrc}_{width}x{height}x{count}_{whiteTag}.mov");
         return Made.GetOrAdd(name, n => new Lazy<string>(() =>
         {
             var frames = new byte[count][];
@@ -103,15 +103,17 @@ internal static unsafe class HapClips
                     frames[i] = frames[i][..^5];
             }
             var path = Path.Combine(TestMedia.Dir, n);
-            Mux(path, codec, width, height, Fps, frames, colorTrc);
+            Mux(path, codec, width, height, Fps, frames, colorTrc, whiteTag);
             return path;
         })).Value;
     }
 
     /// <summary>Writes frames as a QuickTime file of one HAP video track with the codec's fourcc, through libavformat (the
     /// fourccs FFmpeg does not map are written as given under unofficial compliance). A non-zero <paramref name="colorTrc"/>
-    /// writes a colr box with BT.2020 primaries and matrix and that transfer.</summary>
-    public static void Mux(string path, HapCodec codec, int width, int height, int fps, IReadOnlyList<byte[]> frames, int colorTrc = 0)
+    /// writes a colr box with BT.2020 primaries and matrix and that transfer; a non-empty <paramref name="whiteTag"/> writes
+    /// PlayMap's white-level tag as the file's metadata (QuickTime keeps custom tags only for the whole file).</summary>
+    public static void Mux(string path, HapCodec codec, int width, int height, int fps, IReadOnlyList<byte[]> frames, int colorTrc = 0,
+        string whiteTag = "")
     {
         AVFormatContext* oc = null;
         Check(ffmpeg.avformat_alloc_output_context2(&oc, null, "mov", path), "output");
@@ -133,8 +135,21 @@ internal static unsafe class HapClips
             st->time_base = new AVRational { num = 1, den = fps };
             st->avg_frame_rate = new AVRational { num = fps, den = 1 };
             oc->strict_std_compliance = ffmpeg.FF_COMPLIANCE_UNOFFICIAL;
+            AVDictionary* options = null;
+            if (whiteTag.Length > 0)
+            {
+                Check(ffmpeg.av_dict_set(&oc->metadata, HapHdr.WhiteTag, whiteTag, 0), "tag");
+                Check(ffmpeg.av_dict_set(&options, "movflags", "use_metadata_tags", 0), "movflags");
+            }
             Check(ffmpeg.avio_open(&oc->pb, path, ffmpeg.AVIO_FLAG_WRITE), "open");
-            Check(ffmpeg.avformat_write_header(oc, null), "header");
+            try
+            {
+                Check(ffmpeg.avformat_write_header(oc, &options), "header");
+            }
+            finally
+            {
+                ffmpeg.av_dict_free(&options);
+            }
             var packet = ffmpeg.av_packet_alloc();
             try
             {

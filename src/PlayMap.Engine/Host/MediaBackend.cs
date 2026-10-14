@@ -169,6 +169,14 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         var known = formats != BlockFormats.None;
         _formats = (int)(known ? formats : BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
         _rendererSaid = known;
+        if (known)
+        {
+            // A clip opened before the renderer said (or for a context that went) stops with the words why when its blocks
+            // cannot be sampled here, rather than reaching the renderer as frames it would draw black.
+            foreach (var d in OpenDecoders())
+                if (d.Source is HapVideoSource hap)
+                    hap.UseFormats(formats);
+        }
         foreach (var (id, check) in _checks)
             if (check.Key.Contains("|hap", StringComparison.Ordinal))
                 _checks.TryRemove(new KeyValuePair<string, Check>(id, check));

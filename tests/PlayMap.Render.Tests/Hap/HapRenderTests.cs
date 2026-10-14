@@ -326,6 +326,31 @@ public class HapRenderTests(GlFixture gl)
     }
 
     [Fact]
+    public void TheBindingIsWhatTheCurrentContextCameThroughNotTheEnvironment()
+    {
+        // The fixture's context is GLFW's on an X server (GLX); a thread with no context current gets no answer at all.
+        var bound = gl.Run(_ => GlDevice.CurrentBinding());
+        if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+            Assert.Equal("glx", bound);
+        else
+            Assert.Contains(bound, new[] { "egl", "glx", "wgl", "cgl" });
+        Assert.Equal("", GlDevice.CurrentBinding());
+    }
+
+    [Fact]
+    public void TheUploadMeterCountsOnlyUploadsOfAMegabyteOrMore()
+    {
+        // Every compressed upload of this process runs in this collection, so the totals move only by what this test adds.
+        var (bytes, time) = (HapUploadMeter.Bytes, HapUploadMeter.Time);
+        HapUploadMeter.Add(HapUploadMeter.MinBytes - 1, Stopwatch.Frequency);
+        Assert.Equal((bytes, time), (HapUploadMeter.Bytes, HapUploadMeter.Time));
+        HapUploadMeter.Add(HapUploadMeter.MinBytes, Stopwatch.Frequency / 1000);
+        Assert.Equal(bytes + HapUploadMeter.MinBytes, HapUploadMeter.Bytes);
+        Assert.True(HapUploadMeter.Time > time);
+        Assert.True(HapUploadMeter.MbPerSecond > 0);
+    }
+
+    [Fact]
     public void AContextLackingAFamilyRefusesWithWordsNeverABlackFrame()
     {
         var blocks = Encode(CompressionFormat.Bc7, Image(8, 8, 3), 8, 8);

@@ -24,10 +24,10 @@ core. It answers:
   answers FFmpeg's name, `texture` empty, and a fix line to a HAP version).
 - `budget.layers` is this clip as it is; `layers4k60` the same clip's costs scaled to 3840×2160 at 60 fps. The budget is
   min(disk ÷ peak MB/s per layer, cores × frame time ÷ decode ms per layer, upload ÷ texture MB/s per layer); a term not measured
-  is left out and the words say so. Disk is the rate this pass read at; upload is what this process's compressed uploads ran at so
-  far (none before a HAP frame has been drawn).
+  is left out and the words say so. Disk is the rate this pass read at; upload is what this process's compressed uploads of 1 MB or
+  more ran at so far (unmeasured before one has been drawn: a smaller frame's fixed cost per call says nothing about a 4K rate).
 - `hdr` is HAP HDR's reading in words (`"linear · white 203 nits (default)"`, `"pq (colr)"`, `"linear · white 100 nits (item)"`).
-- The answer is kept by content hash for the life of the process.
+- The answer is kept by content hash and the item's colour override for the life of the process.
 
 **Refusals**, with words: no such media; not a file; the file is not on this node; the show is armed ("MEDIA INSPECT reads the
 whole file from disk — disarm first, or inspect it on a node that is not playing"); the file cannot be read.
@@ -38,7 +38,8 @@ refuses a transfer other than `auto|sdr|pq|hlg|linear`, a white level outside 0 
 
 ## STATE
 
-Top level `decode` (after `cameras`), and `machine.gl` (`glx|egl|wgl|cgl`, present while a render context exists).
+Top level `decode` (after `cameras`), and `machine.gl` (`glx|egl|wgl|cgl`, present while a render context exists: the binding
+the context came through, as that binding's own library answered on the render thread; `unknown` when none did).
 
 ```json
 "decode":{"platform":{"blocks":{"bc1":true,"bc3":true,"bc4":true,"bc7":true,"bc6h":true,"staging":"copy","arenaMb":0,"arenaFreeMb":0},

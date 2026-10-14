@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using PlayMap.Core.Media;
 using Silk.NET.OpenGL;
 
@@ -14,6 +15,27 @@ public sealed unsafe partial class GlDevice
     public BlockFormats BlockFormats =>
         (Caps.Dxt1 ? BlockFormats.Bc1 : 0) | (Caps.Dxt5 ? BlockFormats.Bc3 : 0) | (Caps.Rgtc ? BlockFormats.Bc4 : 0)
         | (Caps.Bptc ? BlockFormats.Bc7 | BlockFormats.Bc6h : 0);
+
+    /// <summary>The window-system binding of the context current on the calling thread — "egl", "glx", "wgl" or "cgl" — asked of
+    /// the binding's own library (the one that names a current context), never guessed from the environment: GLFW on Linux
+    /// takes EGL under Wayland and GLX under X11, and an XWayland session sets both displays. "" when no binding answers.
+    /// Render thread, with the context current.</summary>
+    public static string CurrentBinding()
+    {
+        var egl = OperatingSystem.IsWindows() ? "libEGL.dll" : OperatingSystem.IsMacOS() ? "libEGL.dylib" : "libEGL.so.1";
+        if (HasCurrent(egl, "eglGetCurrentContext"))
+            return "egl";
+        if (OperatingSystem.IsWindows())
+            return HasCurrent("opengl32.dll", "wglGetCurrentContext") ? "wgl" : "";
+        if (OperatingSystem.IsMacOS())
+            return HasCurrent("/System/Library/Frameworks/OpenGL.framework/OpenGL", "CGLGetCurrentContext") ? "cgl" : "";
+        return HasCurrent("libGL.so.1", "glXGetCurrentContext") || HasCurrent("libGLX.so.0", "glXGetCurrentContext") ? "glx" : "";
+    }
+
+    // A library loaded to ask stays loaded: a binding library is never unloaded under a live context.
+    private static bool HasCurrent(string library, string function) =>
+        NativeLibrary.TryLoad(library, out var handle) && NativeLibrary.TryGetExport(handle, function, out var get)
+        && ((delegate* unmanaged<nint>)get)() != 0;
 
     /// <summary>The words that refuse a block format this context cannot sample (null when it can).</summary>
     public string? RefuseBlockFormat(TextureFormat format) => RefuseBlockFormat(Caps, format);

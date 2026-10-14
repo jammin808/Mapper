@@ -59,7 +59,7 @@ public static unsafe class HapInspect
         var isHap = HapCodecs.TryFromTag(p->codec_tag, out var codec);
         var name = isHap ? HapCodecs.Name(codec) : ffmpeg.avcodec_get_name(p->codec_id) ?? "";
         var texture = isHap ? HapCodecs.TextureWord(HapCodecs.Layout(codec, HapCodecs.FirstTexture(codec))) : "";
-        var hdr = isHap && codec == HapCodec.HapHdr ? HapHdr.Read(color, (int)p->color_trc, 0).Words : "";
+        var hdr = isHap && codec == HapCodec.HapHdr ? HapHdr.Read(color, (int)p->color_trc, HapVideoSource.WhiteTag(input.Format, s)).Words : "";
         var frame = new HapFrame();
         var chunkCounts = new List<int>();
         long frames = 0, bytes = 0, maxBytes = 0, refused = 0, snappy = 0, raw = 0;

@@ -20,6 +20,7 @@ public sealed class DecodeFacts
     private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<string, HapInspection> _inspections = new(StringComparer.Ordinal);
     private volatile int _formats = -1;
+    private string _binding = "";
     private volatile HapLayersMeasured? _layers;
     private Task<HapLayersMeasured>? _measuring;
 
@@ -31,11 +32,17 @@ public sealed class DecodeFacts
 
     public HapLayersMeasured? Layers => _layers;
 
-    /// <summary>The render context came (its families) or went (null).</summary>
-    public void Renderer(BlockFormats? formats)
+    /// <summary>The window-system binding of the render context ("egl", "glx", "wgl", "cgl"; "" when none answered or no
+    /// context exists).</summary>
+    public string Binding => Volatile.Read(ref _binding);
+
+    /// <summary>The render context came (its families and the binding it came through) or went (null).</summary>
+    public void Renderer(BlockFormats? formats, string binding = "")
     {
         var value = formats is { } f ? (int)f : -1;
-        if (Interlocked.Exchange(ref _formats, value) != value)
+        var bound = formats is null ? "" : binding;
+        var moved = !string.Equals(Interlocked.Exchange(ref _binding, bound), bound, StringComparison.Ordinal);
+        if (Interlocked.Exchange(ref _formats, value) != value || moved)
             Changed?.Invoke();
     }
 
@@ -74,19 +81,21 @@ public sealed class DecodeFacts
             string.Create(CultureInfo.InvariantCulture, $"4K HAP Q second stage {decodeMs:0.0} ms a frame on one core; ") + budget.Words);
     }
 
-    public bool TryInspection(string contentHash, out HapInspection inspection) => _inspections.TryGetValue(contentHash, out inspection!);
+    /// <summary>A kept MEDIA INSPECT answer by its key (the content hash and the colour override that read it; "" is never kept).</summary>
+    public bool TryInspection(string key, out HapInspection inspection) => _inspections.TryGetValue(key, out inspection!);
 
-    public void Remember(string contentHash, HapInspection inspection)
+    public void Remember(string key, HapInspection inspection)
     {
-        if (contentHash.Length > 0)
-            _inspections[contentHash] = inspection;
+        if (key.Length > 0)
+            _inspections[key] = inspection;
     }
 }
 
-/// <summary>How much HAP the show plays at once, in 4K60 HAP Q layers (what the second stage moves: texture bytes × rate), and
-/// the item that weighs most. Every output and surface showing a clip directly is one decoder; a playlist is one decoder at
-/// its heaviest item; a canvas counts each of its layers.</summary>
-public readonly record struct HapDemand(double Layers4K60, int Items, string Heaviest, double HeaviestLayers)
+/// <summary>How much HAP the show plays at once, in 4K60 HAP Q layers (what the second stage moves: texture bytes × rate), the
+/// item that weighs most, and every HAP item the show plays (<see cref="ItemIds"/>: what the BPTC rule of STATE, the context and
+/// preflight looks at — a library item no output, surface, canvas or playlist shows is not the show's). Every output and surface
+/// showing a clip directly is one decoder; a playlist is one decoder at its heaviest item; a canvas counts each of its layers.</summary>
+public readonly record struct HapDemand(double Layers4K60, int Items, string Heaviest, double HeaviestLayers, IReadOnlySet<string> ItemIds)
 {
     private static readonly double OneLayer = HapCodecs.FrameBytes(HapCodec.HapQ, 3840, 2160) * 60.0;
 
@@ -143,7 +152,7 @@ public readonly record struct HapDemand(double Layers4K60, int Items, string Hea
             Add(o.Source, 0);
         foreach (var s in project.Stage.Surfaces)
             Add(s.Content.Source, 0);
-        return new HapDemand(total, items.Count, heaviestId, heaviest);
+        return new HapDemand(total, items.Count, heaviestId, heaviest, items);
     }
 
     private static double Load(MediaItem? item, out string id)

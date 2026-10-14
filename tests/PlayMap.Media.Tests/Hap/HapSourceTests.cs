@@ -182,6 +182,23 @@ public class HapSourceTests
     }
 
     [Fact]
+    public async Task ARendererThatSaysLaterItCannotSampleTheBlocksStopsTheClipWithWords()
+    {
+        // Opened for the families assumed before the renderer said; the renderer then says it has no BPTC.
+        using var source = new HapVideoSource(HapClips.Assembled(HapCodec.HapR), All);
+        Assert.True(await source.Opened, source.Health.Status);
+        At(source, Rate.TimeOf(3)).Dispose();
+        source.UseFormats(BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc7);
+        Assert.True(source.Health.Ready);
+        source.UseFormats(BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
+        var h = source.Health;
+        Assert.False(h.Ready);
+        Assert.Equal("HAP R needs BPTC textures, which this GPU's GL does not offer — optimise to HAP Q for this node", h.Status);
+        Assert.Null(source.Acquire(Rate.TimeOf(4)));
+        Assert.False(source.IsReadyAt(Rate.TimeOf(4)));
+    }
+
+    [Fact]
     public async Task HapHdrReadsTheContainersTransfer()
     {
         using var pq = new HapVideoSource(HapClips.Assembled(HapCodec.HapHdr, 1, colorTrc: 16), All);
@@ -196,6 +213,17 @@ public class HapSourceTests
         Assert.Equal(TransferFunction.Linear, l2.Transfer);
         Assert.Equal(100 / 203.0, ((IHapPicture)l2).HdrScale, 9);
         Assert.Equal("linear · white 100 nits (item)", item.Health.Hap!.Hdr);
+
+        // PlayMap's white-level tag, kept as the file's metadata (QuickTime has no custom tags per track): the source and
+        // MEDIA INSPECT read it the same way.
+        var tagged = HapClips.Assembled(HapCodec.HapHdr, 1, whiteTag: "406");
+        using var byTag = new HapVideoSource(tagged, All);
+        Assert.True(await byTag.Opened, byTag.Health.Status);
+        using var l3 = At(byTag, 0);
+        Assert.Equal(2.0, ((IHapPicture)l3).HdrScale, 9);
+        Assert.Equal("linear · white 406 nits (tag)", byTag.Health.Hap!.Hdr);
+        Assert.Equal("linear · white 406 nits (tag)", HapInspect.Inspect(tagged).Hdr);
+        Assert.Equal("linear · white 100 nits (item)", HapInspect.Inspect(tagged, new ColorOverride("auto", 100, "auto", "auto")).Hdr);
     }
 
     [Fact]
