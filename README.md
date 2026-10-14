@@ -60,5 +60,5 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
 libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`).
 
-MIT licence. FFmpeg is LGPL/GPL depending on the build shipped beside the exe; see the licences of the models
-the vision module downloads before using them commercially.
+FFmpeg is LGPL/GPL depending on the build shipped beside the exe; see the licences of the models the vision
+module downloads before using them commercially.
