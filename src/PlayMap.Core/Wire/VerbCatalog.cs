@@ -414,7 +414,7 @@ public static class VerbCatalog
         V2("FX BYPASS", "FX BYPASS <slot>|<target>|ALL ON|OFF|TOGGLE", "Bypasses effects (ALL ON is the panic outcome 'effects off')", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX RESET", "FX RESET <slot>", "Sets an effect's parameters back to their defaults", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX IMPORT", "FX IMPORT <path>|<json>", "Adds an ISF effect to the show (content-addressed, carried with it); answers its asset id and the compile report", VerbCategory.Effects, VerbRisk.Review, true),
-        V2("FX CHECK", "FX CHECK <asset>|<json>", "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node's context and reports its issues by line", VerbCategory.Effects, VerbRisk.Low, false),
+        V2("FX CHECK", "FX CHECK <asset>|<kind>|<json>", "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node's context and reports its issues by line", VerbCategory.Effects, VerbRisk.Low, false),
 
         // Sound, the beat clock and the modulation bus (wp2-audio).
         V2("AUDIO INPUTS", "AUDIO INPUTS", "The sound inputs this node can listen to (devices, the system's sound, test signals)", VerbCategory.Audio, VerbRisk.Low, false),
