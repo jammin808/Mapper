@@ -111,6 +111,27 @@ public class HapSourceTests
     }
 
     [Fact]
+    public async Task WithoutALoopAClipThatEndsHoldsItsLastFrame()
+    {
+        // The media backend opens HAP this way: past the end the last frame holds, never the next iteration's first.
+        using var source = new HapVideoSource(HapClips.Assembled(HapCodec.HapQ, 2), All);
+        Assert.True(await source.Opened, source.Health.Status);
+        var last = HapClips.Frames - 1;
+        using (var lease = At(source, Rate.TimeOf(last) + 1000))
+            Assert.Equal(HapClips.Planes(HapCodec.HapQ, last)[0], HapClips.PlaneBytes(lease, 0));
+        foreach (var past in new[] { HapClips.Frames, HapClips.Frames + 3, 2 * HapClips.Frames })
+        {
+            using var lease = At(source, Rate.TimeOf(past));
+            Assert.Equal(last, Rate.FrameAt(lease.PtsNs));
+            Assert.Equal(HapClips.Planes(HapCodec.HapQ, last)[0], HapClips.PlaneBytes(lease, 0));
+        }
+        Assert.Equal("end", source.Health.Status);
+        // A consumer that wraps its own time back to the start seeks there.
+        using (var first = At(source, Rate.TimeOf(2) + 1000))
+            Assert.Equal(HapClips.Planes(HapCodec.HapQ, 2)[0], HapClips.PlaneBytes(first, 0));
+    }
+
+    [Fact]
     public async Task ReadAheadStaysWithinItsCaps()
     {
         // 30 fps × 250 ms: seven frames by time.

@@ -53,8 +53,8 @@ On this container (4 cores, llvmpipe, Debug build, a shared and loaded machine),
   (3.2 MB stored, about 790 000 elements a frame) 5.8–7.2 ms against 5.3–6.3 ms; noise (8.1 MB stored, nearly all literal)
   1.9–2.5 ms against 2.2–2.3 ms. The Debug build of the tests reads 9–35 ms;
 - a 4K HAP Q clip of 16 chunks plays 30 frames in 0.1–0.3 s through the source (stage p95 7–24 ms with every core shared);
-- every family uploads and samples on llvmpipe's core 3.3 context; whole frames match FFmpeg's CPU decode within hap.md M4's
-  bounds (HAP and HAP Alpha max diff ≤ 2 and PSNR ≥ 60 dB, HAP Q ≤ 4 and ≥ 50 dB).
+- every family uploads and samples on llvmpipe's core 3.3 context; whole frames match FFmpeg's CPU decode within the
+  per-family bounds (HAP and HAP Alpha max diff ≤ 2 and PSNR ≥ 60 dB, HAP Q ≤ 4 and ≥ 50 dB).
 
 **Why not Snappier at run time.** Snappier 1.3.1's `Snappy.Decompress(ReadOnlySpan<byte>, Span<byte>)` makes a decompressor
 object per call (80 bytes, measured), so a frame path through it allocates per chunk. The second stage is a decoder written from

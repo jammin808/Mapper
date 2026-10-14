@@ -14,8 +14,8 @@ namespace PlayMap.Render.Tests.Hap;
 
 /// <summary>HAP on llvmpipe (Mesa exposes S3TC, RGTC and BPTC in its 3.3 core context): (a) raw planes of every block family
 /// against BCnEncoder.NET's CPU decode; (b) the `hap` pass's YCoCg maths against its CPU twin; (c) whole frames FFmpeg's
-/// encoder made against FFmpeg's own CPU decode, with hap.md M4's bounds; an odd picture size shows no padding texel; a
-/// context lacking a family refuses with words.</summary>
+/// encoder made against FFmpeg's own CPU decode, within each family's bounds (HAP and HAP Alpha: max diff ≤ 2, PSNR ≥ 60 dB;
+/// HAP Q: ≤ 4, ≥ 50 dB); an odd picture size shows no padding texel; a context lacking a family refuses with words.</summary>
 [Collection("gl")]
 public class HapRenderTests(GlFixture gl)
 {
