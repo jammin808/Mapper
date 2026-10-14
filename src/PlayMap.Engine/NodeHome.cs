@@ -47,8 +47,9 @@ public sealed class NodeHome
             try
             {
                 var loaded = JsonSerializer.Deserialize<NodeSettings>(File.ReadAllText(SettingsPath), Json);
+                // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
                 if (loaded is not null && Ids.IsValid(loaded.NodeId))
-                    return loaded with { TrustedAddresses = loaded.TrustedAddresses.IsDefault ? [] : loaded.TrustedAddresses };
+                    return ProjectJson.Sanitize(loaded);
             }
             catch (JsonException)
             {
@@ -82,6 +83,9 @@ public sealed record RecoveryRecord(
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
+    /// <summary>Each package's runtime facts kept across a restart, one JSON object per package key.</summary>
+    public ImmutableSortedDictionary<string, string> Modules { get; init; } = ImmutableSortedDictionary<string, string>.Empty;
+
     public static RecoveryRecord Capture(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -97,7 +101,10 @@ public sealed record RecoveryRecord(
             })
             .ToImmutableArray();
         return new RecoveryRecord(wallNow, engine.ProjectPath, engine.ProjectPath is null || engine.Dirty ? ProjectJson.SerializeEntity(snap.Project.Project) : null,
-            snap.Air.Blackout, snap.Air.PatternKind, snap.Playback.FocusedId, lanes);
+            snap.Air.Blackout, snap.Air.PatternKind, snap.Playback.FocusedId, lanes)
+        {
+            Modules = engine.SaveModuleRecovery(),
+        };
     }
 
     public void Save(string path)

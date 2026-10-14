@@ -1,0 +1,10 @@
+namespace PlayMap.Engine.Host;
+
+/// <summary>wp2-facade's parts in the exe's composition (EngineParts.Standard), added in the spine's order.</summary>
+public sealed partial record EngineParts
+{
+    static partial void AddSiteParts(List<EngineExtensionFactory> extensions)
+    {
+        // wp2-facade fills this.
+    }
+}

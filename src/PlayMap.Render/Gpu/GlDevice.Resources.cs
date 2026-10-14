@@ -12,6 +12,8 @@ public sealed unsafe partial class GlDevice
         AssertOwner();
         ArgumentOutOfRangeException.ThrowIfLessThan(width, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(height, 1);
+        if (TextureFormats.IsBlockCompressed(format))
+            throw new ArgumentException($"{format} is block-compressed: it is made and filled only through the compressed upload path, never as a plain texture.", nameof(format));
         if (width > MaxTextureSize || height > MaxTextureSize)
             throw new GlException($"A {width}×{height} texture is larger than this GPU's {MaxTextureSize}.");
         var id = _gl.GenTexture();
@@ -97,6 +99,8 @@ public sealed unsafe partial class GlDevice
 
     public RenderTarget CreateRenderTarget(int width, int height, TextureFormat format, bool depth = false, TextureFilter filter = TextureFilter.Linear)
     {
+        if (!Caps.SupportsRenderTarget(format))
+            throw new ArgumentException($"This context cannot render to {format} ({Caps.Dialect}); the caller falls back to a format it can (RGBA16F for 16-bit unsigned).", nameof(format));
         var color = CreateTexture(width, height, format, filter);
         var fbo = _gl.GenFramebuffer();
         _liveFramebuffers.Add(fbo);
@@ -392,8 +396,11 @@ public sealed unsafe partial class GlDevice
 
     // ---- format tables ----
 
-    private static (GLEnum Internal, GLEnum Format, GLEnum Type) Describe(TextureFormat format) => format switch
+    /// <summary>Each format's internal format and its upload layout; a block format carries its compressed internal format and is
+    /// uploaded only through the compressed path (its layout is unused). Every value has its own arm.</summary>
+    internal static (GLEnum Internal, GLEnum Format, GLEnum Type) Describe(TextureFormat format) => format switch
     {
+        TextureFormat.Rgba8 => (GLEnum.Rgba8, GLEnum.Rgba, GLEnum.UnsignedByte),
         TextureFormat.R8 => (GLEnum.R8, GLEnum.Red, GLEnum.UnsignedByte),
         TextureFormat.Rg8 => (GLEnum.RG8, GLEnum.RG, GLEnum.UnsignedByte),
         TextureFormat.R16 => (GLEnum.R16, GLEnum.Red, GLEnum.UnsignedShort),
@@ -403,7 +410,18 @@ public sealed unsafe partial class GlDevice
         TextureFormat.Rgba16F => (GLEnum.Rgba16f, GLEnum.Rgba, GLEnum.HalfFloat),
         TextureFormat.R32F => (GLEnum.R32f, GLEnum.Red, GLEnum.Float),
         TextureFormat.Rg32F => (GLEnum.RG32f, GLEnum.RG, GLEnum.Float),
-        _ => (GLEnum.Rgba8, GLEnum.Rgba, GLEnum.UnsignedByte),
+        TextureFormat.Rgba32F => (GLEnum.Rgba32f, GLEnum.Rgba, GLEnum.Float),
+        TextureFormat.Rgba16 => (GLEnum.Rgba16, GLEnum.Rgba, GLEnum.UnsignedShort),
+        TextureFormat.Rgb10A2 => (GLEnum.Rgb10A2, GLEnum.Rgba, GLEnum.UnsignedInt2101010Rev),
+        TextureFormat.Bc1 => ((GLEnum)0x83F0, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGB_S3TC_DXT1_EXT
+        TextureFormat.Bc1Alpha => ((GLEnum)0x83F1, GLEnum.Rgba, GLEnum.UnsignedByte),   // COMPRESSED_RGBA_S3TC_DXT1_EXT
+        TextureFormat.Bc3 => ((GLEnum)0x83F3, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGBA_S3TC_DXT5_EXT
+        TextureFormat.Bc4 => ((GLEnum)0x8DBB, GLEnum.Red, GLEnum.UnsignedByte),         // COMPRESSED_RED_RGTC1
+        TextureFormat.Bc5 => ((GLEnum)0x8DBD, GLEnum.RG, GLEnum.UnsignedByte),          // COMPRESSED_RG_RGTC2
+        TextureFormat.Bc7 => ((GLEnum)0x8E8C, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGBA_BPTC_UNORM
+        TextureFormat.Bc6hSfloat => ((GLEnum)0x8E8E, GLEnum.Rgb, GLEnum.Float),         // COMPRESSED_RGB_BPTC_SIGNED_FLOAT
+        TextureFormat.Bc6hUfloat => ((GLEnum)0x8E8F, GLEnum.Rgb, GLEnum.Float),         // COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "a texture format with no description"),
     };
 
     private static (GLEnum Format, GLEnum Type) Describe(UploadFormat format) => format switch
@@ -417,6 +435,7 @@ public sealed unsafe partial class GlDevice
         UploadFormat.R32F => (GLEnum.Red, GLEnum.Float),
         UploadFormat.Rg32F => (GLEnum.RG, GLEnum.Float),
         UploadFormat.Rgba32F => (GLEnum.Rgba, GLEnum.Float),
+        UploadFormat.Rgba16 => (GLEnum.Rgba, GLEnum.UnsignedShort),
         _ => (GLEnum.Rgba, GLEnum.UnsignedByte),
     };
 
@@ -431,6 +450,7 @@ public sealed unsafe partial class GlDevice
         UploadFormat.R32F => 4,
         UploadFormat.Rg32F => 8,
         UploadFormat.Rgba32F => 16,
+        UploadFormat.Rgba16 => 8,
         _ => 4,
     };
 

@@ -349,6 +349,77 @@ public sealed partial class RenderHost : IRenderHost
 
     private void OnBlendSolved(BlendSolveResult result) => _stage?.Offer(result);
 
+    // ---- the packages' hooks (each in its package's RenderHost.<Word>.cs) ------------------------------------
+
+    /// <summary>What each package adds to the frame's inputs (levels, passes, measured stages, modulation), in this order, after the
+    /// host's own inputs and before the frame is drawn. Render thread; allocation-free once warm.</summary>
+    private void ComposeModules(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
+    {
+        ComposeShow(engine, snap, ref inputs); ComposeOutput(engine, snap, ref inputs); ComposeDecode(engine, snap, ref inputs);
+        ComposeVideoIo(engine, snap, ref inputs); ComposeFx(engine, snap, ref inputs); ComposeAudio(engine, snap, ref inputs);
+        ComposeContent(engine, snap, ref inputs); ComposeLed(engine, snap, ref inputs); ComposeAlign(engine, snap, ref inputs);
+        ComposeSite(engine, snap, ref inputs); ComposeWall(engine, snap, ref inputs);
+    }
+
+    /// <summary>Once the context exists (render thread): each package makes its GPU objects.</summary>
+    private void ContextModules(RenderEngine renderer)
+    {
+        OnContextShow(renderer); OnContextOutput(renderer); OnContextDecode(renderer); OnContextVideoIo(renderer); OnContextFx(renderer);
+        OnContextAudio(renderer); OnContextContent(renderer); OnContextLed(renderer); OnContextAlign(renderer); OnContextSite(renderer);
+        OnContextWall(renderer);
+    }
+
+    /// <summary>When the context goes (render thread): each package lets its GPU objects go.</summary>
+    private void ContextLostModules()
+    {
+        OnContextLostShow(); OnContextLostOutput(); OnContextLostDecode(); OnContextLostVideoIo(); OnContextLostFx(); OnContextLostAudio();
+        OnContextLostContent(); OnContextLostLed(); OnContextLostAlign(); OnContextLostSite(); OnContextLostWall();
+    }
+
+    partial void ComposeShow(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextShow(RenderEngine renderer);
+    partial void OnContextLostShow();
+
+    partial void ComposeOutput(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextOutput(RenderEngine renderer);
+    partial void OnContextLostOutput();
+
+    partial void ComposeDecode(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextDecode(RenderEngine renderer);
+    partial void OnContextLostDecode();
+
+    partial void ComposeVideoIo(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextVideoIo(RenderEngine renderer);
+    partial void OnContextLostVideoIo();
+
+    partial void ComposeFx(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextFx(RenderEngine renderer);
+    partial void OnContextLostFx();
+
+    partial void ComposeAudio(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextAudio(RenderEngine renderer);
+    partial void OnContextLostAudio();
+
+    partial void ComposeContent(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextContent(RenderEngine renderer);
+    partial void OnContextLostContent();
+
+    partial void ComposeLed(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextLed(RenderEngine renderer);
+    partial void OnContextLostLed();
+
+    partial void ComposeAlign(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextAlign(RenderEngine renderer);
+    partial void OnContextLostAlign();
+
+    partial void ComposeSite(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextSite(RenderEngine renderer);
+    partial void OnContextLostSite();
+
+    partial void ComposeWall(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextWall(RenderEngine renderer);
+    partial void OnContextLostWall();
+
     // ---- the render thread ------------------------------------------------------------------------------
 
     private void Main()
@@ -358,6 +429,7 @@ public sealed partial class RenderHost : IRenderHost
             _context = RenderContext.CreateHidden(_options.Device ?? GlDeviceOptions.Default);
             _renderer = new RenderEngine(_context, _options.Engine);
             _renderer.WarmUp();
+            ContextModules(_renderer);
             var d = _context.Device;
             _rendererName = string.Create(CultureInfo.InvariantCulture, $"OpenGL {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}");
             _windows = new OutputWindows(_context, _renderer);
@@ -467,6 +539,7 @@ public sealed partial class RenderHost : IRenderHost
             Identify = air.IdentifyUntilLeaderNs != 0 && leaderNs < air.IdentifyUntilLeaderNs,
             Impulse = _options.Impulses?.Current ?? EffectImpulse.None,
         };
+        ComposeModules(engine, snap, ref inputs);
         renderer.Render(in inputs);
         if (windows.Pacer is { } pacer && windows.WindowOf(pacer) is { } paced)
             _vblank.OnPresented(paced.LastSwapNs);
@@ -647,6 +720,9 @@ public sealed partial class RenderHost : IRenderHost
             _windows?.Dispose();
             _sources?.Dispose();
             _timer?.Dispose();
+            // The packages' GPU objects go before the renderer that made the context they live in.
+            if (_renderer is not null)
+                ContextLostModules();
             // The renderer first: its readbacks write into the views' rings until it is gone.
             _renderer?.Dispose();
             DisposePreviews();

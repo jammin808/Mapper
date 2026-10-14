@@ -363,7 +363,7 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
 
 /// <summary>The engine as the queue and the conversations reach it, bound once the engine exists: before that a
 /// line is refused with the reason, and STATE and the context are empty objects.</summary>
-internal sealed class DeferredEndpoint : IWireEndpoint
+internal sealed class DeferredEndpoint : IWireEndpoint, IVerbAvailability
 {
     private volatile EngineCore? _engine;
     private Action<long>? _stateChanged;
@@ -389,6 +389,9 @@ internal sealed class DeferredEndpoint : IWireEndpoint
         _engine is { } e ? e.HandleAsync(line, session, ct) : ValueTask.FromResult(CommandReply.Fail("the assistant is not attached to a node"));
 
     public (string Json, long Revision) State() => _engine?.State() ?? ("{}", 0);
+
+    /// <summary>The node's own vocabulary (its routed rows); the first round's before it is attached.</summary>
+    public bool IsAvailable(VerbSpec spec) => _engine?.IsAvailable(spec) ?? VerbAvailability.RoundOne.IsAvailable(spec);
 
     public string Context() => _engine?.Context() ?? "{}";
 

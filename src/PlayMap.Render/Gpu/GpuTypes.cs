@@ -15,6 +15,26 @@ public enum TextureFormat
     Rgba16F,
     R32F,
     Rg32F,
+
+    /// <summary>Four 32-bit float channels (particle state, accumulation).</summary>
+    Rgba32F,
+
+    /// <summary>Four 16-bit unsigned normalised channels (P216/PA16 unpack, deep sends).</summary>
+    Rgba16,
+
+    /// <summary>10-bit colour, 2-bit alpha (the 10-bit output picture).</summary>
+    Rgb10A2,
+
+    // Block-compressed (4×4 blocks; sampled only, never a render target). Present only when the context's extensions say so
+    // (GlCaps); an absent format refuses with words, it never falls back silently.
+    Bc1,
+    Bc1Alpha,
+    Bc3,
+    Bc4,
+    Bc5,
+    Bc7,
+    Bc6hUfloat,
+    Bc6hSfloat,
 }
 
 /// <summary>The layout of CPU pixels handed to an upload.</summary>
@@ -36,6 +56,9 @@ public enum UploadFormat
     Rg32F,
     /// <summary>32-bit floats, four channels.</summary>
     Rgba32F,
+
+    /// <summary>16-bit unsigned, four channels.</summary>
+    Rgba16,
 }
 
 public enum TextureFilter
@@ -239,4 +262,74 @@ public sealed class VertexArray : IDisposable
         _device.DeleteVertexArray(Id);
         Id = 0;
     }
+}
+
+/// <summary>What a texture format is, named per format (never by enum order: formats are appended, and a later uncompressed one must
+/// not read as a block format).</summary>
+public static class TextureFormats
+{
+    public static bool IsBlockCompressed(TextureFormat f) => f is TextureFormat.Bc1 or TextureFormat.Bc1Alpha or TextureFormat.Bc3
+        or TextureFormat.Bc4 or TextureFormat.Bc5 or TextureFormat.Bc7 or TextureFormat.Bc6hUfloat or TextureFormat.Bc6hSfloat;
+
+    /// <summary>Bytes per 4×4 block (8 for BC1 and BC4, 16 for BC3, BC5, BC7 and BC6H); 0 for an uncompressed format.</summary>
+    public static int BlockBytes(TextureFormat f) => f switch
+    {
+        TextureFormat.Bc1 or TextureFormat.Bc1Alpha or TextureFormat.Bc4 => 8,
+        TextureFormat.Bc3 or TextureFormat.Bc5 or TextureFormat.Bc7 or TextureFormat.Bc6hUfloat or TextureFormat.Bc6hSfloat => 16,
+        _ => 0,
+    };
+
+    /// <summary>Bytes of one level of a block-compressed texture (sizes round up to whole blocks).</summary>
+    public static long CompressedSize(TextureFormat f, int width, int height) =>
+        (long)((width + 3) / 4) * ((height + 3) / 4) * BlockBytes(f);
+}
+
+/// <summary>What the context in hand can sample and render to, from its version and extensions (never from
+/// GL_COMPRESSED_TEXTURE_FORMATS, which drivers under-report); filled once per context by the device.</summary>
+public sealed record GlCaps(bool Dxt1, bool Dxt5, bool Rgtc, bool Bptc, bool Norm16, bool FloatBlend, bool ColorBufferFloat,
+    string Dialect)
+{
+    public static readonly GlCaps None = new(false, false, false, false, false, false, false, "core330");
+
+    public bool IsCore => Dialect == "core330";
+
+    /// <summary>Pure, so tests feed fake extension lists. Desktop: RGTC is core from 3.0, BPTC from 4.2; ES needs the EXT names.
+    /// S3TC gives DXT1 and DXT5; EXT_texture_compression_dxt1 gives DXT1 only; ANGLE_texture_compression_dxt5 gives DXT5.</summary>
+    public static GlCaps From(string dialect, int major, int minor, IReadOnlySet<string> ext)
+    {
+        ArgumentNullException.ThrowIfNull(ext);
+        var core = dialect == "core330";
+        var s3tc = ext.Contains("GL_EXT_texture_compression_s3tc");
+        return new GlCaps(
+            Dxt1: s3tc || ext.Contains("GL_EXT_texture_compression_dxt1"),
+            Dxt5: s3tc || ext.Contains("GL_ANGLE_texture_compression_dxt5"),
+            Rgtc: (core && major >= 3) || ext.Contains("GL_ARB_texture_compression_rgtc") || ext.Contains("GL_EXT_texture_compression_rgtc"),
+            Bptc: (core && (major > 4 || (major == 4 && minor >= 2))) || ext.Contains("GL_ARB_texture_compression_bptc")
+                  || ext.Contains("GL_EXT_texture_compression_bptc"),
+            Norm16: core || ext.Contains("GL_EXT_texture_norm16"),
+            FloatBlend: core || ext.Contains("GL_EXT_float_blend"),
+            ColorBufferFloat: core || ext.Contains("GL_EXT_color_buffer_float"),
+            Dialect: dialect);
+    }
+
+    /// <summary>Can it be sampled? (Block formats only through the compressed upload path.)</summary>
+    public bool Supports(TextureFormat f) => f switch
+    {
+        TextureFormat.Bc1 or TextureFormat.Bc1Alpha => Dxt1,
+        TextureFormat.Bc3 => Dxt5,
+        TextureFormat.Bc4 or TextureFormat.Bc5 => Rgtc,
+        TextureFormat.Bc7 or TextureFormat.Bc6hUfloat or TextureFormat.Bc6hSfloat => Bptc,
+        TextureFormat.R16 or TextureFormat.Rg16 or TextureFormat.Rgba16 => Norm16,
+        _ => true,
+    };
+
+    /// <summary>Can it be a render target (and, for 32-bit float, be blended)? Block formats never are.</summary>
+    public bool SupportsRenderTarget(TextureFormat f, bool blended = false) => f switch
+    {
+        _ when TextureFormats.IsBlockCompressed(f) => false,
+        TextureFormat.R16 or TextureFormat.Rg16 or TextureFormat.Rgba16 => Norm16,
+        TextureFormat.R16F or TextureFormat.Rg16F or TextureFormat.Rgba16F => ColorBufferFloat,
+        TextureFormat.R32F or TextureFormat.Rg32F or TextureFormat.Rgba32F => ColorBufferFloat && (!blended || FloatBlend),
+        _ => true,
+    };
 }

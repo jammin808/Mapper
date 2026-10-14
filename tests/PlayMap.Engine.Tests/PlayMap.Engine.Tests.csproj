@@ -31,4 +31,10 @@
     <Compile Include="..\PlayMap.Devices.Tests\Simulators\PjLinkSimulator.cs" Link="Simulators\PjLinkSimulator.cs" />
   </ItemGroup>
 
+  <!-- The node without the desk (tools/PlayMap.Node), built with the tests so they can launch it; never referenced as an
+       assembly. NodeExe finds its output. -->
+  <ItemGroup Label="wp2-spine-engine">
+    <ProjectReference Include="..\..\tools\PlayMap.Node\PlayMap.Node.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

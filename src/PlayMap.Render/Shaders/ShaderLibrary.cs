@@ -1,6 +1,9 @@
+using System.Collections.Frozen;
+
 namespace PlayMap.Render.Shaders;
 
-/// <summary>Every shader the renderer runs, by name, in GLSL 3.30 core (desktop GL 3.3 and up, Mesa included).
+/// <summary>Every shader the renderer runs, by name, in GLSL 3.30 core (desktop GL 3.3 and up, Mesa included). A source carries
+/// no #version and no precision line: the device prepends its dialect's header (<see cref="Gpu.GlDialects.Header"/>).
 /// A Direct3D backend supplies the same names in HLSL with the same uniforms.
 ///
 /// The conventions every source keeps:
@@ -11,12 +14,13 @@ namespace PlayMap.Render.Shaders;
 /// <item>Matrices arrive in System.Numerics' row-vector layout; GLSL's <c>m * v</c> then computes <c>v * M</c>.</item>
 /// <item>Surface UVs have (0, 0) at the picture's top-left, v down, like every texture here.</item>
 /// </list></summary>
-public static class ShaderLibrary
+public static partial class ShaderLibrary
 {
-    private const string Header = "#version 330 core\n";
+    /// <summary>Programs the packages add, by name: (vertex, fragment), from each package's ShaderLibrary.&lt;Word&gt;.cs.</summary>
+    private static readonly FrozenDictionary<string, (string Vertex, string Fragment)> Added = BuildAdded();
 
     /// <summary>A triangle covering the target, made from gl_VertexID; vUv runs 0..1 across it, v down.</summary>
-    private const string FullscreenVs = Header + """
+    private const string FullscreenVs = """
         out vec2 vUv;
         void main() {
             vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -26,7 +30,7 @@ public static class ShaderLibrary
         """;
 
     /// <summary>A quad made from gl_VertexID (a 4-vertex strip) at a rectangle of the target, in pixels.</summary>
-    private const string QuadVs = Header + """
+    private const string QuadVs = """
         uniform vec4 uRect;
         uniform vec2 uTarget;
         uniform vec4 uUv;
@@ -39,7 +43,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string PresentFs = Header + """
+    private const string PresentFs = """
         in vec2 vUv;
         uniform sampler2D uTex;
         out vec4 oColor;
@@ -48,7 +52,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string BlitFs = Header + """
+    private const string BlitFs = """
         in vec2 vUv;
         uniform sampler2D uTex;
         uniform vec4 uSrc;
@@ -61,7 +65,7 @@ public static class ShaderLibrary
     /// <summary>Two pictures over the whole target, mixed in linear light: each decoded through the display
     /// gamma, weighted (uWeights = from, to), summed and encoded again — a fade hands over without the dark
     /// middle a mix of encoded values has, and a dip's weights reach black.</summary>
-    private const string MixFs = Header + """
+    private const string MixFs = """
         in vec2 vUv;
         uniform sampler2D uFrom;
         uniform sampler2D uTo;
@@ -76,7 +80,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string SolidFs = Header + """
+    private const string SolidFs = """
         uniform vec4 uColor;
         out vec4 oColor;
         void main() { oColor = uColor; }
@@ -85,7 +89,7 @@ public static class ShaderLibrary
     /// <summary>A layer or overlay: the source shaped for the blend the device is set to. Normal and add use
     /// the source alpha as the factor; multiply writes mix(1, s, k) for a DstColor × src blend; screen writes
     /// s·k for One + (1 − src) × dst; premultiplied scales the whole sample.</summary>
-    private const string QuadFs = Header + """
+    private const string QuadFs = """
         in vec2 vUv;
         uniform sampler2D uTex;
         uniform float uOpacity;
@@ -106,7 +110,7 @@ public static class ShaderLibrary
     /// range (uRange = y offset, y scale, c offset, c scale), converted with the matrix's Kr and Kb, then the
     /// transfer is brought to SDR: PQ and HLG are tone-mapped (BT.2020 primaries to BT.709 in linear light),
     /// linear is gamma-encoded.</summary>
-    private const string YuvFs = Header + """
+    private const string YuvFs = """
         in vec2 vUv;
         uniform sampler2D uY;
         uniform sampler2D uU;
@@ -176,7 +180,7 @@ public static class ShaderLibrary
         """;
 
     /// <summary>The stage: a surface's mesh from a camera (a projector, a viewpoint, the editor's eye).</summary>
-    private const string StageVs = Header + """
+    private const string StageVs = """
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aNormal;
         layout(location = 2) in vec2 aUv;
@@ -201,7 +205,7 @@ public static class ShaderLibrary
     /// <summary>A surface's light: its content by mode — 0 a texture through the UVs (uRegion = offset, scale),
     /// 1 projected from a viewpoint, 2 the sweep, 3 the outline, 4 the relight, 5 the editor's tint, 6 a flat
     /// colour — then the surface mask (UV space) and the opacity.</summary>
-    private const string StageFs = Header + """
+    private const string StageFs = """
         in vec3 vWorld;
         in vec3 vNormal;
         in vec2 vUv;
@@ -310,7 +314,7 @@ public static class ShaderLibrary
     /// Patterns' trims), gains × brightness, contrast about mid-grey, lift — and a dither under half a code
     /// (an exact code stays exact; a value between codes is spread). The rotation turns the result onto the
     /// display's raster.</summary>
-    private const string OutputVs = Header + """
+    private const string OutputVs = """
         layout(location = 0) in vec2 aPos;
         layout(location = 1) in vec2 aTex;
         uniform int uRotation;
@@ -327,7 +331,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string OutputFs = Header + """
+    private const string OutputFs = """
         in vec2 vTex;
         in vec2 vOut;
         uniform sampler2D uPicture;
@@ -341,6 +345,7 @@ public static class ShaderLibrary
         uniform vec4 uGain;
         uniform vec4 uTone;
         uniform float uFrame;
+        uniform float uAir;
         out vec4 oColor;
 
         float hash(vec2 p) {
@@ -370,13 +375,14 @@ public static class ShaderLibrary
             if (uTone.z != 0.0) c = c + uTone.z * (1.0 - c);
             c = clamp(c, 0.0, 1.0);
             if (uTone.w > 0.0) c += (hash(gl_FragCoord.xy + vec2(uFrame * 7.31, uFrame * 3.17)) - 0.5) * (uTone.w / 255.0);
+            c *= uAir;
             oColor = vec4(c, 1.0);
         }
         """;
 
     /// <summary>Particles: one instanced quad per sprite (centre, size, rotation; tint and alpha), the shape
     /// from a white atlas, written premultiplied for an over or an additive blend.</summary>
-    private const string SpriteVs = Header + """
+    private const string SpriteVs = """
         layout(location = 0) in vec4 aSprite;
         layout(location = 1) in vec4 aTint;
         uniform vec2 uTarget;
@@ -395,7 +401,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string SpriteFs = Header + """
+    private const string SpriteFs = """
         in vec2 vUv;
         in vec4 vTint;
         uniform sampler2D uTex;
@@ -406,7 +412,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string LinesVs = Header + """
+    private const string LinesVs = """
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec4 aColor;
         uniform mat4 uViewProj;
@@ -417,7 +423,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string LinesFs = Header + """
+    private const string LinesFs = """
         in vec4 vColor;
         out vec4 oColor;
         void main() { oColor = vColor; }
@@ -425,7 +431,7 @@ public static class ShaderLibrary
 
     // ---- generators ----
 
-    private const string CheckerFs = Header + """
+    private const string CheckerFs = """
         uniform float uCell;
         uniform vec4 uColorA;
         uniform vec4 uColorB;
@@ -441,7 +447,7 @@ public static class ShaderLibrary
 
     /// <summary>The motion tests (variant 0 bar, 1 box, 2 frame flash, 3 zone plate, 4 scrolling grid), all a
     /// pure function of the leader time and the show's frame index.</summary>
-    private const string MotionFs = Header + """
+    private const string MotionFs = """
         uniform vec2 uRes;
         uniform int uVariant;
         uniform float uTime;
@@ -511,7 +517,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string ColorCycleFs = Header + """
+    private const string ColorCycleFs = """
         uniform vec3 uColors[16];
         uniform int uCount;
         uniform float uTime;
@@ -531,7 +537,7 @@ public static class ShaderLibrary
     /// <summary>The sync marks: black, a white flash on the leader's grid (already through the flash guard:
     /// uLevel), and along the bottom a bar that grows from each mark to the next — a clock a camera can read
     /// to a frame.</summary>
-    private const string SyncMarksFs = Header + """
+    private const string SyncMarksFs = """
         uniform vec2 uRes;
         uniform float uLevel;
         uniform float uPhase;
@@ -548,7 +554,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string FractalCommon = Header + """
+    private const string FractalCommon = """
         uniform vec2 uRes;
         uniform vec2 uCenter;
         uniform float uUpp;
@@ -700,7 +706,7 @@ public static class ShaderLibrary
         }
         """;
 
-    private const string ReactiveCommon = Header + """
+    private const string ReactiveCommon = """
         uniform vec2 uRes;
         uniform float uT;
         uniform vec2 uRot;
@@ -841,14 +847,35 @@ public static class ShaderLibrary
         "reactive.pulse" => (FullscreenVs, PulseFs),
         "reactive.vortex" => (FullscreenVs, VortexFs),
         "reactive.starwarp" => (FullscreenVs, StarWarpFs),
-        _ => throw new ArgumentException($"No shader named '{name}'.", nameof(name)),
+        _ => Added.TryGetValue(name, out var added) ? added : throw new ArgumentException($"No shader named '{name}'.", nameof(name)),
     };
 
-    /// <summary>Every program name, for a warm-up that compiles them all before the show.</summary>
+    /// <summary>Every program name — the library's own, then the packages' — for a warm-up that compiles them all before the show.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
         "present", "blit", "solid", "quad", "mix", "yuv", "stage", "output", "sprite", "lines", "checker", "motion", "colorcycle", "syncmarks",
         "fractal.mandelbrot", "fractal.julia", "fractal.burningship", "fractal.newton", "fractal.warp",
         "reactive.plasma", "reactive.tunnel", "reactive.kaleidoscope", "reactive.pulse", "reactive.vortex", "reactive.starwarp",
+        .. Added.Keys.Order(StringComparer.Ordinal),
     ];
+
+    private static FrozenDictionary<string, (string Vertex, string Fragment)> BuildAdded()
+    {
+        var d = new Dictionary<string, (string Vertex, string Fragment)>(StringComparer.Ordinal);
+        AddShow(d); AddOutput(d); AddDecode(d); AddOptimise(d); AddVideoIo(d); AddFx(d); AddContent(d); AddLed(d); AddAlign(d); AddWall(d);
+        return d.ToFrozenDictionary(StringComparer.Ordinal);
+    }
+
+    // Each package adds its programs in its own file (ShaderLibrary.<Word>.cs). A name is the library's or one package's, never
+    // both: the library's own arm would hide a package's program silently, so ShaderConventionTests holds every name distinct.
+    static partial void AddShow(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddOutput(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddDecode(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddOptimise(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddVideoIo(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddFx(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddContent(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddLed(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddAlign(Dictionary<string, (string Vertex, string Fragment)> programs);
+    static partial void AddWall(Dictionary<string, (string Vertex, string Fragment)> programs);
 }

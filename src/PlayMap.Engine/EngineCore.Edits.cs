@@ -180,7 +180,7 @@ public sealed partial class EngineCore
     {
         if (args.Count < 1)
             return CommandReply.Fail("GET <id>");
-        var found = Locate(Store.Project, args[0]);
+        var found = Locate(Edits.Project, args[0]);
         return found is null
             ? CommandReply.Fail($"nothing has the id {args[0]}")
             : CommandReply.Success(JsonSerializer.Serialize(found.Entity, found.Type, ProjectFile.Compact));
@@ -195,13 +195,13 @@ public sealed partial class EngineCore
         var value = line.RestAfter(3);
         if (path.Equals("id", StringComparison.OrdinalIgnoreCase))
             return CommandReply.Fail("an id never changes");
-        var located = Locate(Store.Project, id);
+        var located = Locate(Edits.Project, id);
         if (located is null)
             return CommandReply.Fail($"nothing has the id {id}");
         if (located.Kind == "calibration" && !(path.Equals("name", StringComparison.OrdinalIgnoreCase) || path.Equals("pinned", StringComparison.OrdinalIgnoreCase)))
             return CommandReply.Fail("a calibration result is never edited — CALIBRATION RECALL makes a new one");
         // Drags coalesce: the same field of the same entity within the window is one undo step.
-        return FromEdit(Store.Apply($"set {located.Kind} {Label(located.Entity)} {path}", p =>
+        return FromEdit(Edits.Apply($"set {located.Kind} {Label(located.Entity)} {path}", p =>
         {
             var current = Locate(p, id) ?? throw new EditRefusedException($"nothing has the id {id}");
             var edited = SetPathTyped(current.Entity, current.Type, path, value);
@@ -247,7 +247,7 @@ public sealed partial class EngineCore
                 return CommandReply.Fail($"ADD {kind} <owner id> <json>, or \"parent\":\"<owner id>\" in the JSON");
         }
         string newId = "";
-        var r = Store.Apply($"add {kind}", p =>
+        var r = Edits.Apply($"add {kind}", p =>
         {
             (Project next, string id) result = kind switch
             {
@@ -515,6 +515,8 @@ public sealed partial class EngineCore
                         throw new EditRefusedException($"no projector {pj}");
                 break;
         }
+        if (ValidateModules(p, entity) is { } refused)
+            throw new EditRefusedException(refused);
     }
 
     private CommandReply Remove(List<string> args)
@@ -522,15 +524,15 @@ public sealed partial class EngineCore
         if (args.Count < 1)
             return CommandReply.Fail("REMOVE <id>");
         var id = args[0];
-        var located = Locate(Store.Project, id);
+        var located = Locate(Edits.Project, id);
         if (located is null)
             return CommandReply.Fail($"nothing has the id {id}");
         if (located.Kind == "playlist" && Playback.Lane(id) is { IsIdle: false } lane && lane.Clip.State == Core.Playback.TransportState.Playing)
             return CommandReply.Fail("that playlist is playing — stop it before removing it");
-        var users = UsersOf(Store.Project, id);
+        var users = UsersOf(Edits.Project, id);
         if (users.Count > 0)
             return CommandReply.Fail($"{located.Kind} {Label(located.Entity)} is in use by {string.Join(", ", users.Take(3))}{(users.Count > 3 ? "…" : "")} — remove those first");
-        return FromEdit(Store.Apply($"remove {located.Kind} {Label(located.Entity)}", p => (Locate(p, id) ?? throw new EditRefusedException($"nothing has the id {id}")).Remove(p)));
+        return FromEdit(Edits.Apply($"remove {located.Kind} {Label(located.Entity)}", p => (Locate(p, id) ?? throw new EditRefusedException($"nothing has the id {id}")).Remove(p)));
     }
 
     /// <summary>What refers to an id (so a removal never leaves a dangling reference on the air).</summary>
@@ -605,10 +607,10 @@ public sealed partial class EngineCore
     {
         if (args.Count < 2 || !int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
             return CommandReply.Fail("MOVE <id> <index>");
-        var located = Locate(Store.Project, args[0]);
+        var located = Locate(Edits.Project, args[0]);
         if (located is null)
             return CommandReply.Fail($"nothing has the id {args[0]}");
-        return FromEdit(Store.Apply($"move {located.Kind} {Label(located.Entity)}", p => located.MoveTo(p, index)));
+        return FromEdit(Edits.Apply($"move {located.Kind} {Label(located.Entity)}", p => located.MoveTo(p, index)));
     }
 
     private static string Label(object entity) => entity switch

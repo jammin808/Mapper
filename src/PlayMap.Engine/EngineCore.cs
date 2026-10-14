@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Show;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Playback;
@@ -29,10 +30,30 @@ public sealed record AirState(
 
     public bool PatternCovers(string outputId) =>
         PatternKind is not null && (PatternOutputs.IsDefaultOrEmpty || PatternOutputs.Contains(outputId, StringComparer.Ordinal));
+
+    /// <summary>The grand master over every output (wp2-show).</summary>
+    public AirFade Master { get; init; } = AirFade.Full;
+
+    /// <summary>A panic in force, or null (wp2-show).</summary>
+    public PanicAir? Panic { get; init; }
+
+    /// <summary>The edit overlay on the wall (wp2-wall).</summary>
+    public OverlayState Overlay { get; init; } = OverlayState.Off;
 }
 
 /// <summary>Everything the render thread needs for one frame, published as one immutable value.</summary>
-public sealed record EngineSnapshot(ProjectSnapshot Project, PlaybackSnapshot Playback, AirState Air);
+public sealed record EngineSnapshot(ProjectSnapshot Project, PlaybackSnapshot Playback, AirState Air)
+{
+    /// <summary>The blind draft, for the desk's draft view only (never an output) (wp2-blind).</summary>
+    public ProjectSnapshot? Draft { get; init; }
+
+    /// <summary>A blind commit scheduled at a leader instant: the render thread draws its root from that frame on (wp2-blind).</summary>
+    public PendingCommit? Pending { get; init; }
+}
+
+/// <summary>A blind commit waiting for its boundary: the root it publishes, the leader instant it takes effect, its label and how
+/// many changes it carries.</summary>
+public sealed record PendingCommit(Project Root, long EffectiveLeaderNs, string Label, int Changes);
 
 /// <summary>Actions the engine asks of the network edge (verbs that change links and sync).</summary>
 public interface INetworkControl
@@ -89,6 +110,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     private string? _projectPath;
     private bool _dirty;
 
+    /// <summary>The store this line's document edits go to while it runs on the lane (a session's blind draft), else null.</summary>
+    private ProjectStore? _lineStore;
+
     public EngineCore(EngineServices services, Project? project = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -106,14 +130,54 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             lastPlayback = snap;
             Republish();
             PublishAnchors(before, snap);
+            RaiseItemEvents(before, snap);
         };
         _lane.Faulted += ex => Journal.Add("fault", Journal.Describe(ex), ok: false);
+        RouteModules();
         _ticker = new Timer(_ => _lane.Post(Tick), null, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10));
     }
 
     public EngineServices Services { get; }
 
     public ProjectStore Store { get; }
+
+    /// <summary>Where this line's document edits go: the session's blind draft while it edits blind, else the live store. Set and
+    /// cleared inside the router on the lane only; transport, air, show state and runtime facts use <see cref="Store"/>.</summary>
+    internal ProjectStore Edits => _lineStore ?? Store;
+
+    /// <summary>An off-lane verb's document edit: posted to the lane, applied to the session's blind draft or the live store, answered
+    /// with the store's own result (refusals included).</summary>
+    public Task<EditResult> EditAsync(SessionInfo session, string label, Func<Project, Project> edit, string? coalesceKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return _lane.RunAsync(() => EditsFor(session).Apply(label, edit, coalesceKey));
+    }
+
+    /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).</summary>
+    private ProjectStore EditsFor(SessionInfo session) => DraftOf(session) ?? Store;
+
+    /// <summary>The blind draft a session's document edits go to, or null for the live store: the show's (wp2-blind), or a test's
+    /// stand-in for it.</summary>
+    private ProjectStore? DraftOf(SessionInfo session) => DraftForTests?.Invoke(session) ?? BlindStoreFor(session);
+
+    /// <summary>A test's stand-in for the show's blind draft: the store a session's document edits go to, on the lane and off it,
+    /// through the same router (null in a running node, where the show's gate decides).</summary>
+    internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
+
+    /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
+    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live).</summary>
+    private T EditsInto<T>(SessionInfo session, Func<T> handler)
+    {
+        _lineStore = DraftOf(session);
+        try
+        {
+            return handler();
+        }
+        finally
+        {
+            _lineStore = null;
+        }
+    }
 
     public PlaybackLanes Playback { get; }
 
@@ -157,9 +221,62 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         if (VerbCatalog.IsShownCopy(line))
             return ValueTask.FromResult(CommandReply.Fail("this is a shown copy — its secret words were kept back where it was shown; "
                 + "the line runs only from the record that holds them (APPROVE its proposal)"));
+        if (TryOffLane(line, session, ct, out var offLane))
+            return new ValueTask<CommandReply>(offLane);
         if (TryOps(line, session, ct, out var ops))
             return new ValueTask<CommandReply>(ops);
         return new ValueTask<CommandReply>(HandleOnLaneAsync(line, session, ct));
+    }
+
+    /// <summary>True with the answer under way when a package answers the line's verb off the lane.</summary>
+    private bool TryOffLane(WireLine line, SessionInfo session, CancellationToken ct, out Task<CommandReply> reply)
+    {
+        if (VerbCatalog.Match(line) is not { } m || !_routes.TryOffLane(m.Spec.Name, out var handler))
+        {
+            reply = Task.FromResult(CommandReply.Fail("not answered off the lane"));
+            return false;
+        }
+        reply = RunOffLaneAsync(m.Spec, handler, line.Words.Skip(m.Words).ToList(), line, session, ct);
+        return true;
+    }
+
+    /// <summary>A package's off-lane verb: pairing, the node-to-node rule and the show's gate (reading published state) first, then
+    /// its handler; faults and the journal follow the router's rules. Its document edits go through <see cref="EditAsync"/>.</summary>
+    private async Task<CommandReply> RunOffLaneAsync(VerbSpec spec, Func<VerbCall, Task<CommandReply>> handler, List<string> args, WireLine line,
+        SessionInfo session, CancellationToken ct)
+    {
+        CommandReply reply;
+        try
+        {
+            reply = Admission(spec, session) ?? Gate(spec, line, session) ?? await handler(new VerbCall(spec, args, line, session, ct)).ConfigureAwait(false);
+        }
+        catch (EditRefusedException refused)
+        {
+            reply = CommandReply.Fail(refused.Message);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            reply = CommandReply.Fail("cancelled — whether it took effect is not known; check STATE");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Journal.Add("fault", $"{spec.Name}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+        }
+        if (!reply.Silent && IsJournalled(spec))
+            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
+                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        return reply;
+    }
+
+    /// <summary>The show's gate for a line answered off the lane: its refusal, or null to run it (an off-lane handler sends its edits to
+    /// the session's draft itself, through <see cref="EditAsync"/>).</summary>
+    private CommandReply? Gate(VerbSpec spec, WireLine line, SessionInfo session)
+    {
+        CommandReply? refused = null;
+        ProjectStore? lineStore = null;
+        GateLine(spec, line, session, ref refused, ref lineStore);
+        return refused;
     }
 
     private async Task<CommandReply> HandleOnLaneAsync(WireLine line, SessionInfo session, CancellationToken ct)
@@ -186,7 +303,11 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     }
 
     private static bool IsJournalled(WireLine line) =>
-        VerbCatalog.Match(line) is { } m && m.Spec.Mutates;
+        VerbCatalog.Match(line) is { } m && IsJournalled(m.Spec);
+
+    /// <summary>A verb that changes something is journalled, except an ephemeral one (cursors, focus, selection); a gesture is
+    /// journalled by its owner once per gesture.</summary>
+    private static bool IsJournalled(VerbSpec spec) => spec.Mutates && !spec.Ephemeral;
 
     public (string Json, long Revision) State()
     {
@@ -228,13 +349,17 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         var next = edit(_air);
         if (next == _air)
             return;
+        var before = _air;
         _air = next with { Revision = _air.Revision + 1 };
         Republish();
+        RaiseAirEvents(before, _air);
     }
 
     private void Republish()
     {
-        _snapshot = new EngineSnapshot(Store.Current, Playback.Snapshot, _air);
+        var snapshot = new EngineSnapshot(Store.Current, Playback.Snapshot, _air);
+        SnapshotShow(ref snapshot);
+        _snapshot = snapshot;
         StateChanged?.Invoke(StateKey());
     }
 
@@ -245,6 +370,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         if (_air.IdentifyUntilLeaderNs != 0 && now >= _air.IdentifyUntilLeaderNs)
             SetAir(a => a with { IdentifyUntilLeaderNs = 0 });
         ExpireViews();
+        TickModules(now);
     }
 
     private long MediaDurationNs(string mediaId) => Store.Project.FindMedia(mediaId)?.Info.DurationNs ?? 0;

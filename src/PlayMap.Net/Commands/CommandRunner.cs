@@ -39,12 +39,12 @@ public sealed class CommandRunner(IWireEndpoint endpoint, ShowWallClock wall, IL
                 case "CONTEXT":
                     return CommandReply.Success(endpoint.Context());
                 case "VERBS":
-                    return CommandReply.Success(VerbJson.All);
+                    return CommandReply.Success(VerbJson.For(endpoint));
             }
         }
         if (match?.Spec.Name == "PING")
             return Pong(line, readAtUnixMs);
-        if (match is { Spec.Mutates: true } && !session.Paired)
+        if (match is { Spec: { } spec } && (spec.Mutates || spec.PairedOnly) && !session.Paired)
             return CommandReply.Fail(WireWords.NotPaired);
         return await HandleGuardedAsync(line, session, ct);
     }
@@ -164,15 +164,35 @@ public static class VerbJson
 {
     public static readonly string All = Build(VerbAvailability.RoundOne);
 
-    public static string Build(IVerbAvailability availability)
+    /// <summary>The rows an assistant may use on a node that routes no round-2 row: the first round's.</summary>
+    public static readonly string AllAvailable = Build(VerbAvailability.RoundOne, onlyAvailable: true);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IVerbAvailability, string> MadeAll = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IVerbAvailability, string> MadeAvailable = new();
+
+    /// <summary>VERBS as an endpoint answers it: every row, each marked by the endpoint's own availability when it says which rows it
+    /// routes, else by the first round's. An endpoint's routes are fixed once it is built, so its table is made once.</summary>
+    public static string For(IWireEndpoint endpoint) =>
+        endpoint is IVerbAvailability availability ? MadeAll.GetValue(availability, a => Build(a)) : All;
+
+    /// <summary>What an assistant is shown (MCP's list_verbs): only the rows the endpoint answers now.</summary>
+    public static string AvailableFor(IWireEndpoint endpoint) =>
+        endpoint is IVerbAvailability availability ? MadeAvailable.GetValue(availability, a => Build(a, onlyAvailable: true)) : AllAvailable;
+
+    public static string Build(IVerbAvailability availability, bool onlyAvailable = false)
     {
         ArgumentNullException.ThrowIfNull(availability);
         return JsonText.Write(w =>
         {
             w.WriteStartArray();
             foreach (var v in VerbCatalog.All)
-                if (!v.Internal)
-                    Write(w, v, availability.IsAvailable(v));
+            {
+                if (v.Internal)
+                    continue;
+                var available = availability.IsAvailable(v);
+                if (available || !onlyAvailable)
+                    Write(w, v, available);
+            }
             w.WriteEndArray();
         });
     }

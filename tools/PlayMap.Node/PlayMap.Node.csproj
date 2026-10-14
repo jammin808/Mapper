@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The node without the desk: a console exe that references only the engine, so tests and a controller's end-to-end
+       checks run "engine [headless] …" (and each package's own process) without building the Avalonia desk. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Node</RootNamespace>
+    <AssemblyName>PlayMap.Node</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PlayMap.Engine\PlayMap.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

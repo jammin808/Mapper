@@ -1,0 +1,175 @@
+{
+  "v": 1,
+  "seq": 0,
+  "id": "0badc0de",
+  "t": "playmap",
+  "name": "Test node",
+  "version": "0.1.0",
+  "at": 1760000000000,
+  "light": "grey",
+  "headline": "Wall \u00B7 nothing playing \u00B7 outputs not measured",
+  "air": {
+    "blackout": false,
+    "frozen": false,
+    "pattern": null,
+    "identify": false,
+    "patternsBlackout": false,
+    "followPatternsBlackout": true
+  },
+  "video": null,
+  "playlists": [],
+  "outputs": [
+    {
+      "id": "op_left",
+      "name": "Left",
+      "mode": "projector",
+      "kind": "virtual",
+      "display": "",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "enabled": true,
+      "open": false,
+      "fps": 0,
+      "dropped": 0,
+      "frameMsP95": 0,
+      "pattern": null,
+      "projector": "pj_left",
+      "light": "grey"
+    },
+    {
+      "id": "op_right",
+      "name": "Right",
+      "mode": "projector",
+      "kind": "virtual",
+      "display": "",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "enabled": true,
+      "open": false,
+      "fps": 0,
+      "dropped": 0,
+      "frameMsP95": 0,
+      "pattern": null,
+      "projector": "pj_right",
+      "light": "grey"
+    }
+  ],
+  "media": {
+    "items": 0,
+    "missing": 0,
+    "ready": true,
+    "transfers": []
+  },
+  "stage": {
+    "surfaces": 1,
+    "meshes": 1,
+    "projectors": [
+      {
+        "id": "pj_left",
+        "name": "Left",
+        "solved": false,
+        "residualPx": 0,
+        "pins": 0
+      },
+      {
+        "id": "pj_right",
+        "name": "Right",
+        "solved": false,
+        "residualPx": 0,
+        "pins": 0
+      }
+    ],
+    "scans": 0
+  },
+  "scan": null,
+  "sync": {
+    "role": "solo",
+    "leader": null,
+    "offsetMs": 0,
+    "rttMs": 0,
+    "driftPpm": 0,
+    "groups": []
+  },
+  "links": {
+    "patterns": {
+      "state": "off"
+    },
+    "stagewatch": {
+      "state": "off"
+    }
+  },
+  "peers": [],
+  "machine": {
+    "renderer": "none",
+    "memMb": 0,
+    "gcPauseMsTotal": 0
+  },
+  "project": {
+    "id": "pr_fixture",
+    "name": "Wall",
+    "revision": 1,
+    "path": null,
+    "dirty": false
+  },
+  "faults": [],
+  "ai": {
+    "mcp": false,
+    "clients": 0,
+    "proposals": 0,
+    "assistant": {
+      "enabled": true,
+      "provider": "openAiCompatible",
+      "model": "show-model",
+      "effort": "medium",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "runLowWithoutAsking": true,
+      "runReviewWithoutAsking": false,
+      "keySet": false,
+      "kept": true
+    }
+  },
+  "devices": [],
+  "solve": {
+    "id": "bs_fixture",
+    "kind": "blend",
+    "state": "done",
+    "progress": 1,
+    "words": "blend solved for 2 outputs: 2 projectors blended in 3D; the deepest overlap is 2. Left (Left), 480\u00D7270 map: 100% of its pixels land on the stage; 57% of those are shared with Right (up to 2 at once). Right (Right), 480\u00D7270 map: 100% of its pixels land on the stage; 57% of those are shared with Left (up to 2 at once).",
+    "outputs": [
+      {
+        "id": "op_left",
+        "name": "Left",
+        "projector": "pj_left",
+        "covered": 1,
+        "overlap": 0.567,
+        "shadow": 0,
+        "maxOverlap": 2,
+        "overlapsWith": [
+          "Right"
+        ],
+        "mapWidth": 480,
+        "mapHeight": 270,
+        "words": "Left (Left), 480\u00D7270 map: 100% of its pixels land on the stage; 57% of those are shared with Right (up to 2 at once)."
+      },
+      {
+        "id": "op_right",
+        "name": "Right",
+        "projector": "pj_right",
+        "covered": 1,
+        "overlap": 0.567,
+        "shadow": 0,
+        "maxOverlap": 2,
+        "overlapsWith": [
+          "Left"
+        ],
+        "mapWidth": 480,
+        "mapHeight": 270,
+        "words": "Right (Right), 480\u00D7270 map: 100% of its pixels land on the stage; 57% of those are shared with Left (up to 2 at once)."
+      }
+    ],
+    "problems": []
+  },
+  "cameras": []
+}

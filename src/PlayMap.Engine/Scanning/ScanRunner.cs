@@ -444,7 +444,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         var record = new ScanRecord(setup.Id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
             [.. setup.Parts.Select(p => p.Projector.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
             string.Join(" ", new[] { solution.Words }.Concat(notes)));
-        await engine.Lane.RunAsync(() => engine.Store.Apply($"scan {name}", p => p.WithStage(s => s with { Scans = s.Scans.Upsert(record) }))).ConfigureAwait(false);
+        await engine.EditAsync(EngineCore.SystemSession, $"scan {name}", p => p.WithStage(s => s with { Scans = s.Scans.Upsert(record) })).ConfigureAwait(false);
         var worst = captures.MinBy(c => c.Quality.Score)!.Quality;
         track.Quality(worst.Score / 100.0, string.Create(CultureInfo.InvariantCulture,
             $"{worst.Grade} — {worst.DecodedFraction * 100:0} % of the lit picture decoded, {regions.Count} region{(regions.Count == 1 ? "" : "s")} found"));

@@ -16,7 +16,8 @@ public class PromptTests
 
         Assert.Equal(a, b);
         Assert.Equal(a, AssistantPrompt.System);
-        foreach (var v in VerbCatalog.All)
+        // The prompt lists the rows the node answers: on a node that routes no round-2 row, the first round's.
+        foreach (var v in VerbCatalog.All.Where(VerbAvailability.RoundOne.IsAvailable))
         {
             Assert.Contains("- " + v.Syntax + " — " + v.Words + " — risk " + PlayMap.Core.Bus.ShowContext.RiskWord(v.Risk), a, StringComparison.Ordinal);
             foreach (var alias in v.Aliases)

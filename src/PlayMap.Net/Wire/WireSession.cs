@@ -34,6 +34,7 @@ internal sealed class WireSession : IAsyncDisposable
     private volatile bool _wantsState;
     private volatile bool _wantsContext;
     private volatile bool _wantsProject;
+    private readonly TopicSubscriptions _topics = new();
 
     public WireSession(WireServer server, Socket socket, NetworkStream stream, IPAddress? remote, string id)
     {
@@ -277,16 +278,25 @@ internal sealed class WireSession : IAsyncDisposable
                 _wantsState = false;
                 _wantsContext = false;
                 _wantsProject = false;
+                _topics.Dispose();
                 Writer.Say(WireGrammar.Ok(id, "pushes off"));
                 return;
-            default:
+            case "":
                 Writer.Say(WireGrammar.Err(id, WireWords.Subscribe));
+                return;
+            default:
+                // A package's topic (INDEX, EVENTS, ANCHORS …), asked of the endpoint.
+                Writer.Say(_topics.TryOpen(_server.Endpoint, line.Word(1), line.Words.Skip(2).ToList(), Info(), t => new WireTopicSink(Writer, t), out var words)
+                    ? WireGrammar.Ok(id, "subscribed " + words.ToLowerInvariant())
+                    : WireGrammar.Err(id, words));
+                _topics.Release();
                 return;
         }
     }
 
     public async ValueTask DisposeAsync()
     {
+        _topics.Dispose();
         await Writer.DisposeAsync();
         await _stream.DisposeAsync();
     }

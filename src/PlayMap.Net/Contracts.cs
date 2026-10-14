@@ -83,3 +83,51 @@ public sealed class SwitchApprovalPolicy(Func<bool> aiMayAct, IProposalSink? que
             $"{name} is high risk — an assistant may not run it while \"AI may act\" is off on this node; propose it to the operator instead");
     }
 }
+
+/// <summary>Push topics beyond STATE, CONTEXT and PROJECT that an endpoint serves (INDEX, EVENTS, THUMBS, ANCHORS, HEALTH, MIRROR —
+/// each its package's). The wire and WebSocket sessions ask it in SUBSCRIBE's default branch; an endpoint that does not implement
+/// it serves none.</summary>
+public interface IPushTopics
+{
+    IReadOnlyCollection<string> Topics { get; }
+
+    /// <summary>Opens a session's subscription: false with words when refused (not paired for a paired-only topic, an unknown
+    /// argument, an unknown topic). The subscription ends when disposed or when the session closes.</summary>
+    bool TryOpen(string topic, IReadOnlyList<string> args, SessionInfo session, IPushSink sink, out IDisposable? subscription, out string words);
+}
+
+/// <summary>A session's outgoing pushes: latest-wins per key (INDEX, THUMBS, HEALTH) or in order and bounded (EVENT, ANCHOR, MIRROR;
+/// an overflow closes the topic with an "overflow" line).</summary>
+public interface IPushSink
+{
+    /// <summary>The newest line for a key; an older one not yet written is replaced.</summary>
+    void Latest(string key, string line);
+
+    /// <summary>A line in order with the others; false when the session's bound is reached (the topic is then closed).</summary>
+    bool InOrder(string line);
+}
+
+/// <summary>How a web module takes a request before the node's token gate: open (static, no secret), its own credential, refused
+/// with words, or deferred to the token gate.</summary>
+public enum WebAdmission
+{
+    Defer,
+    Open,
+    Capability,
+    Refuse,
+}
+
+/// <summary>A part of the node that serves pages and sockets under a path of the web port (the phone's /scan).</summary>
+public interface IWebModule
+{
+    string Name { get; }
+
+    /// <summary>The path it serves under ("/scan"); requests outside it never reach the module.</summary>
+    string PathPrefix { get; }
+
+    /// <summary>Open (static, no secret), Capability (the module checks its own credential), Refuse (with words), or Defer (the
+    /// node's token gate decides).</summary>
+    WebAdmission Admit(Microsoft.AspNetCore.Http.HttpContext context, PlayMap.Core.Bus.NodeSettings settings, out string words);
+
+    void Map(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder routes);
+}

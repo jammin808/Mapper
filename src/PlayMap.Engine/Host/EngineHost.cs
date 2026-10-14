@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -125,7 +126,10 @@ public sealed class EngineHost : IAsyncDisposable
         IScanDisplay display = _render is null ? NoScanDisplay.Instance : _render;
         _scan = MakeScanBackend(new ScanBackendRequest(display, outputs, _home, running, mono, logs));
 
-        var setup = new ExtensionSetup(_options, _home, running, mono, wall, logs, _media, _network, outputs, display, _scan, approvals);
+        var setup = new ExtensionSetup(_options, _home, running, mono, wall, logs, _media, _network, outputs, display, _scan, approvals)
+        {
+            AddFaults = _faults.AddSource,
+        };
         foreach (var factory in _host.Parts.Extensions)
         {
             try
@@ -401,13 +405,22 @@ public sealed class EngineHost : IAsyncDisposable
     private sealed class HostFaults : INodeFaults
     {
         private readonly ConcurrentDictionary<string, NodeFault> _own = new(StringComparer.Ordinal);
+        private ImmutableArray<INodeFaults> _sources = [];
 
         public NetworkHost? Network { get; set; }
 
         public void Add(string part, string words) => _own[part] = new NodeFault(part, words);
 
+        /// <summary>An extension's faults, listed beside the host's own from now on.</summary>
+        public void AddSource(INodeFaults source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ImmutableInterlocked.Update(ref _sources, s => s.Add(source));
+        }
+
         public IReadOnlyList<NodeFault> Faults() =>
-            (Network?.Faults() ?? []).Concat(_own.Values).OrderBy(f => f.Part, StringComparer.Ordinal).ToList();
+            (Network?.Faults() ?? []).Concat(_own.Values).Concat(_sources.SelectMany(s => s.Faults()))
+                .OrderBy(f => f.Part, StringComparer.Ordinal).ToList();
     }
 }
 

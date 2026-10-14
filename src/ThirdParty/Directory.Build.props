@@ -1,0 +1,16 @@
+<Project>
+  <!-- Vendored third-party source lives here, outside the fences: these projects set their own runtime and language, import
+       nothing from the repository's root (no analyzers, no banned-API list, warnings stay warnings), and are referenced by the
+       package that needs them, never copied into a fenced project. Each keeps its licence beside it and its line in
+       THIRD-PARTY-NOTICES.md. -->
+  <PropertyGroup>
+    <PlayMapTfm Condition="'$(PlayMapTfm)' == ''">net10.0</PlayMapTfm>
+    <LangVersion>14</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RunAnalyzers>false</RunAnalyzers>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

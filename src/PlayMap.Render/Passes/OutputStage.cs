@@ -8,7 +8,7 @@ namespace PlayMap.Render.Passes;
 
 /// <summary>What the output stage applies after the picture: its corners in the pre-warp picture's texture
 /// space, the warp, the output mask, the blend map (weight and pedestal), the lens lookup, the trim, the
-/// display rotation and the dither amplitude.</summary>
+/// display rotation and the dither amplitude; then the air's gain.</summary>
 internal readonly record struct OutputStageInputs(
     GpuTexture Picture,
     Vector4 SourceRect,
@@ -19,14 +19,22 @@ internal readonly record struct OutputStageInputs(
     ColorTrim Trim,
     int RotationQuarters,
     float Dither,
-    long Frame);
+    long Frame)
+{
+    /// <summary>The air's gain multiplied last, after the pedestal and the dither, so 0 is true black (wp2-show's levels). Null = 1.</summary>
+    public float? Gain { get; init; }
+
+    /// <summary>The output's measured correction as the stage draws it (wp2-align: grid, blend and pedestal, gains, γ). Null = none.</summary>
+    public MeasuredStage? Measured { get; init; }
+}
 
 /// <summary>The last pass of an output: the pre-warp picture drawn through the warp mesh into the output's
 /// 8-bit picture. In float, in order: the lens lookup (when there is one), the picture (black outside it),
 /// × the output mask × the blend weight, + the black pedestal (masked), then the trim — gamma as an exponent,
 /// gains × brightness, contrast about mid-grey, lift — then a dither under half a code. A neutral trim and an
 /// identity warp give back the picture's own codes exactly. Rotation turns the result onto the display's
-/// raster by quarter turns, clockwise.</summary>
+/// raster by quarter turns, clockwise. Last, the air's gain multiplies every channel (1 when no levels are given), so a gain of 0
+/// is black whatever the pedestal and the dither.</summary>
 internal sealed class OutputStage
 {
     private readonly RenderServices _services;
@@ -64,6 +72,8 @@ internal sealed class OutputStage
         p.Set("uGain", (float)t.GainR * b, (float)t.GainG * b, (float)t.GainB * b, 1);
         p.Set("uTone", (float)t.Contrast, (float)t.Gamma, (float)t.Lift, input.Dither);
         p.Set("uFrame", input.Frame % 4096);
+        // Set on every draw: a uniform left unset reads 0, and that would black the output.
+        p.Set("uAir", input.Gain ?? 1f);
         d.DrawIndexed(p, input.Warp.Vao, PrimitiveKind.Triangles, input.Warp.IndexCount);
         target.Color.Version++;
     }

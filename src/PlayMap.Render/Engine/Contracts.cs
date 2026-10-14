@@ -140,6 +140,30 @@ public readonly record struct FrameInputs
     /// <summary>The sting firing now (<see cref="EffectImpulse.None"/> for none).</summary>
     public EffectImpulse Impulse { get; init; }
 
+    /// <summary>Per-output gain, safe-look override and hold (wp2-show). Null = gain 1, no override, no hold.</summary>
+    public IAirLevels? Levels { get; init; }
+
+    /// <summary>Modulation sources for bindings (wp2-audio's bus; wp2-fx's built-ins when audio is absent). Null = none.</summary>
+    public PlayMap.Core.Modulation.IModulationBus? Modulation { get; init; }
+
+    /// <summary>The analysed sound reactive content reads (wp2-audio). Null = none.</summary>
+    public PlayMap.Core.Modulation.IAudioFrames? Audio { get; init; }
+
+    /// <summary>The edit overlay (wp2-wall); off when <see cref="Armed"/>. Null = none.</summary>
+    public OverlayState? Overlay { get; init; }
+
+    /// <summary>Every session's cursor on the wall (wp2-wall); default = none.</summary>
+    public ImmutableArray<WallCursor> Cursors { get; init; }
+
+    /// <summary>The show is armed (the overlay stays off).</summary>
+    public bool Armed { get; init; }
+
+    /// <summary>Extra work at fixed points of the frame (effect chains, overlay, sends, LED sampling), in their Order; default = none.</summary>
+    public ImmutableArray<IFramePass> Passes { get; init; }
+
+    /// <summary>Each output's measured correction as the output stage draws it (wp2-align). Null = none.</summary>
+    public IMeasuredStages? Measured { get; init; }
+
     public double LeaderSeconds => LeaderNs / 1e9;
 
     /// <summary>True when the pattern override is up and covers the output.</summary>

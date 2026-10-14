@@ -35,9 +35,9 @@ public sealed partial class EngineCore
                     w.WriteEndArray();
                 }));
             case "DEVICE ADD":
-                return await _lane.RunAsync(() => DeviceAdd(args)).ConfigureAwait(false);
+                return await _lane.RunAsync(() => EditsInto(session, () => DeviceAdd(args))).ConfigureAwait(false);
             case "DEVICE REMOVE":
-                return await _lane.RunAsync(() => DeviceRemove(args)).ConfigureAwait(false);
+                return await _lane.RunAsync(() => EditsInto(session, () => DeviceRemove(args))).ConfigureAwait(false);
             case "DEVICE DISCOVER":
                 return await DeviceDiscoverAsync(args, ct).ConfigureAwait(false);
             default:
@@ -89,9 +89,10 @@ public sealed partial class EngineCore
     private static double IdentifySeconds(List<string> rest) =>
         rest.Count > 0 && double.TryParse(rest[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var s) ? Math.Clamp(s, 1, 60) : 5;
 
-    private DeviceLink? ResolveDevice(string key)
+    /// <summary>A link by id or name in <paramref name="project"/> (the live project when none is given: any thread).</summary>
+    private DeviceLink? ResolveDevice(string key, Project? project = null)
     {
-        var devices = Store.Project.Stage.Devices;
+        var devices = (project ?? Store.Project).Stage.Devices;
         return devices.Find(key) ?? devices.FirstOrDefault(d => d.Name.Equals(key, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -198,7 +199,7 @@ public sealed partial class EngineCore
     }
 
     /// <summary>DEVICE ADD: a link in the project (undoable), its credential reference its own id, so
-    /// <c>CREDENTIAL SET &lt;id&gt; &lt;password&gt;</c> gives it a password.</summary>
+    /// <c>CREDENTIAL SET &lt;id&gt; &lt;password&gt;</c> gives it a password. On the lane, reading and writing <see cref="Edits"/>.</summary>
     private CommandReply DeviceAdd(List<string> args)
     {
         var projectorKey = Take(args, "PROJECTOR");
@@ -211,7 +212,7 @@ public sealed partial class EngineCore
         var (host, port) = HostPort(args[2]);
         if (host.Length == 0 || port < 0)
             return CommandReply.Fail("a host is a name or an address, with :port (1–65535) when the protocol's own is not used");
-        var p = Store.Project;
+        var p = Edits.Project;
         var pj = projectorKey is null ? null : p.FindProjector(projectorKey) ?? p.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(projectorKey, StringComparison.OrdinalIgnoreCase));
         if (projectorKey is not null && pj is null)
             return CommandReply.Fail($"no projector {projectorKey}");
@@ -222,7 +223,7 @@ public sealed partial class EngineCore
             && ProjectorProtocols.Parse(d.Protocol) == protocol))
             return CommandReply.Fail($"{host} is linked already — DEVICE LIST names it");
         string id = "";
-        var r = Store.Apply($"link {name}", proj =>
+        var r = Edits.Apply($"link {name}", proj =>
         {
             id = proj.NewId(Ids.Device);
             var link = new DeviceLink(id, name, ProjectorProtocols.Word(protocol), host, port, id, pj?.Id ?? "", output?.Id ?? "", 0, false);
@@ -262,14 +263,15 @@ public sealed partial class EngineCore
             throw new EditRefusedException($"no output {d.OutputId}");
     }
 
+    /// <summary>DEVICE REMOVE, on the lane, reading and writing <see cref="Edits"/>.</summary>
     private CommandReply DeviceRemove(List<string> args)
     {
         if (args.Count < 1)
             return CommandReply.Fail("DEVICE REMOVE <device>");
-        var link = ResolveDevice(args[0]);
+        var link = ResolveDevice(args[0], Edits.Project);
         if (link is null)
             return CommandReply.Fail($"no projector link {args[0]}");
-        return FromEdit(Store.Apply($"unlink {link.Name}", p => p.WithStage(s => s with { Devices = s.Devices.RemoveId(link.Id) })));
+        return FromEdit(Edits.Apply($"unlink {link.Name}", p => p.WithStage(s => s with { Devices = s.Devices.RemoveId(link.Id) })));
     }
 
     private async Task<CommandReply> DeviceDiscoverAsync(List<string> args, CancellationToken ct)

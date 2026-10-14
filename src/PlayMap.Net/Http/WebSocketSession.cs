@@ -29,6 +29,8 @@ internal sealed class WebSocketSession(
     private static readonly byte[] Beat = "{\"type\":\"beat\"}"u8.ToArray();
     private static readonly byte[] StuckBeat = "{\"type\":\"beat\",\"live\":false}"u8.ToArray();
     private readonly SemaphoreSlim _send = new(1, 1);
+    private readonly TopicSubscriptions _topics = new();
+    private readonly PushQueue _pushes = new();
     private long _lastSentAt = Stopwatch.GetTimestamp();
 
     public async Task RunAsync(CancellationToken ct)
@@ -38,11 +40,12 @@ internal sealed class WebSocketSession(
         {
             var sender = SendLoopAsync(linked.Token);
             var receiver = ReceiveLoopAsync(linked.Token);
-            await Task.WhenAny(sender, receiver);
+            var pump = PushLoopAsync(linked.Token);
+            await Task.WhenAny(sender, receiver, pump);
             await linked.CancelAsync();
             try
             {
-                await Task.WhenAll(sender, receiver);
+                await Task.WhenAll(sender, receiver, pump);
             }
             catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or IOException or ObjectDisposedException)
             {
@@ -62,7 +65,23 @@ internal sealed class WebSocketSession(
         }
     }
 
-    public void Dispose() => _send.Dispose();
+    public void Dispose()
+    {
+        _topics.Dispose();
+        _pushes.Dispose();
+        _send.Dispose();
+    }
+
+    /// <summary>The package topics' lines this screen subscribed to, as push frames, in order.</summary>
+    private async Task PushLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
+        {
+            await _pushes.WaitAsync(ct);
+            foreach (var frame in _pushes.Drain())
+                await SendAsync(frame, ct);
+        }
+    }
 
     private async Task SendLoopAsync(CancellationToken ct)
     {
@@ -160,10 +179,35 @@ internal sealed class WebSocketSession(
         var text = args.Count == 0 ? verb : verb + " " + string.Join(' ', args.Select(WireGrammar.Quote));
         if (!WireGrammar.TryParse(text, out var line, out var error))
             return Encoding.UTF8.GetBytes(CommandRunner.ReceiptJson(id, CommandReply.Fail(error!.Reason)));
+        if (line.Verb == "SUBSCRIBE" && line.Count > 1 && Subscribe(line) is { } subscribed)
+        {
+            // The receipt first, then what the topic said while it opened.
+            await SendAsync(Encoding.UTF8.GetBytes(CommandRunner.ReceiptJson(id ?? line.RequestId, subscribed)), ct);
+            _topics.Release();
+            return null;
+        }
         if (line.Verb is "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "SUBSCRIBE")
             return Encoding.UTF8.GetBytes(CommandRunner.ReceiptJson(id ?? line.RequestId, CommandReply.Fail(WireWords.WireOnly)));
         var reply = await runner.RunAsync(line, session, ct, readAt);
         return Encoding.UTF8.GetBytes(CommandRunner.ReceiptJson(id ?? line.RequestId, reply));
+    }
+
+    /// <summary>SUBSCRIBE of a package's topic (STATE reaches every screen already): opened through the endpoint's topics, or OFF to
+    /// end them. Null for the session's own topics, which stay the wire's.</summary>
+    private CommandReply? Subscribe(WireLine line)
+    {
+        var topic = line.Word(1);
+        if (topic.Equals("OFF", StringComparison.OrdinalIgnoreCase))
+        {
+            _topics.Dispose();
+            return CommandReply.Success(effect: "topics off");
+        }
+        if (TopicSubscriptions.IsOwn(topic))
+            return null;
+        // The topic's owner decides who may open it (a paired-only topic refuses an unpaired screen with words).
+        return _topics.TryOpen(runner.Endpoint, topic, line.Words.Skip(2).ToList(), session, _pushes.SinkFor, out var words)
+            ? CommandReply.Success(effect: "subscribed " + words.ToLowerInvariant())
+            : CommandReply.Fail(words);
     }
 
     private static byte[] Error(string words) => JsonText.WriteBytes(w =>

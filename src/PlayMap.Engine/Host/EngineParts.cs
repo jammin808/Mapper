@@ -58,6 +58,12 @@ public sealed partial record EngineParts
         UseRenderHost(ref render);
         UseScanBackend(ref scan);
         AddExtensions(extensions);
+        // The round-2 packages' parts, in this order: an extension's Configure sees every earlier one's services (audio's capture
+        // hub before control's timecode reader).
+        AddShowParts(extensions); AddFleetParts(extensions); AddSyncParts(extensions); AddOutputParts(extensions); AddDecodeParts(extensions);
+        AddAudioParts(extensions); AddControlParts(extensions); AddOptimiseParts(extensions); AddVideoIoParts(extensions);
+        AddCompanionParts(extensions); AddFxParts(extensions); AddContentParts(extensions); AddLedParts(extensions);
+        AddSiteParts(extensions); AddWallParts(extensions); AddAlignParts(extensions); AddPhoneParts(extensions);
         return new EngineParts { RenderHost = render, ScanBackend = scan, Extensions = extensions };
     }
 
@@ -71,4 +77,23 @@ public sealed partial record EngineParts
     /// file); they attach in the order added.</summary>
     static partial void AddExtensions(List<EngineExtensionFactory> extensions);
 #pragma warning restore S3251
+
+    // Each round-2 package adds its extensions in its own file (Host/EngineParts.<Word>.cs).
+    static partial void AddShowParts(List<EngineExtensionFactory> extensions);
+    static partial void AddFleetParts(List<EngineExtensionFactory> extensions);
+    static partial void AddSyncParts(List<EngineExtensionFactory> extensions);
+    static partial void AddOutputParts(List<EngineExtensionFactory> extensions);
+    static partial void AddDecodeParts(List<EngineExtensionFactory> extensions);
+    static partial void AddOptimiseParts(List<EngineExtensionFactory> extensions);
+    static partial void AddVideoIoParts(List<EngineExtensionFactory> extensions);
+    static partial void AddControlParts(List<EngineExtensionFactory> extensions);
+    static partial void AddCompanionParts(List<EngineExtensionFactory> extensions);
+    static partial void AddFxParts(List<EngineExtensionFactory> extensions);
+    static partial void AddAudioParts(List<EngineExtensionFactory> extensions);
+    static partial void AddContentParts(List<EngineExtensionFactory> extensions);
+    static partial void AddLedParts(List<EngineExtensionFactory> extensions);
+    static partial void AddSiteParts(List<EngineExtensionFactory> extensions);
+    static partial void AddAlignParts(List<EngineExtensionFactory> extensions);
+    static partial void AddPhoneParts(List<EngineExtensionFactory> extensions);
+    static partial void AddWallParts(List<EngineExtensionFactory> extensions);
 }

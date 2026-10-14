@@ -76,6 +76,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private readonly Lock _settingsGate = new();
     private readonly Lock _backgroundGate = new();
     private readonly List<Task> _background = [];
+    private readonly List<IWebModule> _modules = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly HttpClient _http;
     private readonly MediaTransfer _transfer;
@@ -134,6 +135,20 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// <summary>The Stagewatch view this node shows as its timer (the operator's last redirect; "" = the default).</summary>
     public string StagewatchView => _stagewatchView;
 
+    /// <summary>A part that serves pages and sockets under its own path of the web port (the phone's /scan). Added before
+    /// <see cref="StartAsync"/>; one module per path.</summary>
+    public void AddWebModule(IWebModule module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        if (_web is not null)
+            throw new InvalidOperationException($"{module.Name} came after the web port opened — web modules are added before the node starts");
+        if (HttpHost.WhyNotAModulePath(module.PathPrefix) is { } why)
+            throw new ArgumentException($"{module.Name}: {why}", nameof(module));
+        if (_modules.Exists(m => string.Equals(m.PathPrefix, module.PathPrefix, StringComparison.Ordinal)))
+            throw new InvalidOperationException($"{module.PathPrefix} is served by another web module already");
+        _modules.Add(module);
+    }
+
     /// <summary>Opens the doors with the engine as their endpoint, then the hello and the links the settings name. A
     /// door that is refused stays closed and becomes a fault; with neither the wire nor the web port open there is no
     /// node to reach, and this throws <see cref="BindRefusedException"/> with both reasons.</summary>
@@ -160,6 +175,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             Approvals = _o.Approvals.Policy,
             LoggerFactory = logs,
             Version = StateWriter.Version,
+            Modules = [.. _modules],
         });
         try
         {

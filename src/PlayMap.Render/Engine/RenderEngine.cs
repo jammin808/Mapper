@@ -92,6 +92,8 @@ public sealed class RenderEngine : IDisposable
     private readonly List<string> _stale = [];
     private readonly List<string> _paceOrder = [];
     private Project? _project;
+    private System.Collections.Immutable.ImmutableArray<IFramePass> _passesGiven;
+    private IFramePass[] _passes = [];
     private IStageResources _resources = EmptyStageResources.Instance;
     private GeneratorFrame _generatorFrame;
     private long _leaderNs;
@@ -204,7 +206,14 @@ public sealed class RenderEngine : IDisposable
         _leaderNs = inputs.LeaderNs;
         var rate = FrameRateOf(inputs.Project.Settings.FrameRate);
         var seconds = inputs.LeaderSeconds;
-        _generatorFrame = new GeneratorFrame(seconds, (long)Math.Floor(Math.Max(0, seconds) * rate + 1e-6), rate, inputs.Impulse, inputs.Project.Settings.FlashGuard);
+        _generatorFrame = new GeneratorFrame(seconds, (long)Math.Floor(Math.Max(0, seconds) * rate + 1e-6), rate, inputs.Impulse, inputs.Project.Settings.FlashGuard)
+        {
+            LeaderNs = inputs.LeaderNs,
+            Modulation = inputs.Modulation,
+            Audio = inputs.Audio,
+        };
+        OrderPasses(inputs.Passes);
+        var passFrame = new PassFrame(Frame, inputs.LeaderNs, inputs.Project, _generatorFrame, Device, inputs.Blackout, inputs.Freeze);
         _caches.BeginFrame(Frame);
         _sources.BeginFrame(inputs.Project, inputs.Sources ?? NoSources.Instance, inputs.LeaderNs, Frame, in _generatorFrame);
         CollectPreviews();
@@ -233,17 +242,20 @@ public sealed class RenderEngine : IDisposable
                 st.HasPicture = true;
                 st.Raw = true;
             }
-            else if (!(inputs.Freeze && st.HasPicture && !st.Raw))
+            else if (!((inputs.Freeze || (inputs.Levels?.Hold(output.Id, inputs.LeaderNs) ?? false)) && st.HasPicture && !st.Raw))
             {
                 if (_options.GpuTiming)
                     (st.Timer ??= new GpuTimer(Device)).Begin();
-                DrawOutput(output, i, st, in inputs);
+                DrawOutput(output, i, st, in inputs, in passFrame);
                 st.Timer?.End();
                 st.HasPicture = true;
                 st.Raw = false;
             }
             st.RenderMs = (MonoClock.Instance.NowNs - start) / 1e6;
         }
+
+        foreach (var pass in _passes)
+            pass.FrameEnd(in passFrame);
 
         foreach (var id in _paceOrder)
         {
@@ -259,7 +271,16 @@ public sealed class RenderEngine : IDisposable
         EvictOutputs(outputs);
     }
 
-    private void DrawOutput(Output output, int index, OutputState st, in FrameInputs inputs)
+    /// <summary>The frame's passes in their order, sorted again only when a different set is handed in (no allocation per frame).</summary>
+    private void OrderPasses(System.Collections.Immutable.ImmutableArray<IFramePass> given)
+    {
+        if (given == _passesGiven)
+            return;
+        _passesGiven = given;
+        _passes = given.IsDefaultOrEmpty ? [] : [.. given.OrderBy(p => p.Order)];
+    }
+
+    private void DrawOutput(Output output, int index, OutputState st, in FrameInputs inputs, in PassFrame passFrame)
     {
         var project = inputs.Project;
         var projector = output.ProjectorId is { } pid ? project.FindProjector(pid) : null;
@@ -268,7 +289,12 @@ public sealed class RenderEngine : IDisposable
         var src = new Vector4(0, 0, 1, 1);
         try
         {
-            if (inputs.PatternCovers(output.Id))
+            if (inputs.Levels?.Override(output.Id, inputs.LeaderNs) is { IsNone: false } safe)
+            {
+                // The safe look a panic shows on this output, drawn like a pattern override.
+                picture = _sources.Resolve(safe, output.Width, output.Height, context);
+            }
+            else if (inputs.PatternCovers(output.Id))
             {
                 picture = _sources.Resolve(inputs.PatternOverride!, output.Width, output.Height, context);
             }
@@ -305,14 +331,34 @@ public sealed class RenderEngine : IDisposable
             Device.InvalidateState();
         }
 
+        foreach (var pass in _passes)
+            picture = pass.Picture(in passFrame, output, picture);
+
         var warp = _caches.Warp(_resources.Warp(output.Id));
         var mask = _resources.OutputMask(output.Id) is { } m ? _caches.Coverage(m) : null;
         var blend = _resources.Blend(output.Id) is { } b ? _caches.Blend(b) : null;
         var lens = _resources.LensPredistortion(output.Id) is { } l ? _caches.Lens(l) : null;
         _outputStage.Draw(st.Final!, new OutputStageInputs(picture, src, warp, mask, blend, lens, output.Color,
-            OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, Frame));
+            OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, Frame)
+        {
+            Gain = inputs.Levels?.Gain(output.Id, inputs.LeaderNs),
+            Measured = inputs.Measured?.For(output.Id),
+        });
         if (inputs.Identify)
             DrawIdentify(st, context, output.Width, output.Height);
+        foreach (var pass in _passes)
+            pass.Final(in passFrame, output, st.Final!);
+    }
+
+    /// <summary>A canvas's picture this frame, for a pass that taps it (a send, an LED map); null when the canvas is not drawn.
+    /// Render thread, during a frame.</summary>
+    public GpuTexture? CanvasPicture(string canvasId) => _sources.Canvas(canvasId);
+
+    /// <summary>A source's picture this frame at a size, for a pass that taps it. Render thread, during a frame.</summary>
+    public GpuTexture? SourcePicture(SourceRef source, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.IsNone ? null : _sources.Resolve(source, width, height, GeneratorContext.None);
     }
 
     /// <summary>A raw picture over the whole raster: the identity warp, no mask, blend or lens, a neutral trim,

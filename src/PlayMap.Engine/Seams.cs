@@ -22,6 +22,19 @@ public interface IMediaBackend
 
     /// <summary>The local file holding content with that hash, or null.</summary>
     string? PathForHash(string contentHash);
+
+    /// <summary>The renderer's device for decoders opened for it (wp2-output makes it; wp2-decode's backend uses it); null when the
+    /// render context goes.</summary>
+    void UseGpu(IGpuShare? share)
+    {
+        // A backend that decodes on the CPU only takes no device.
+    }
+
+    /// <summary>What the renderer samples and its upload arena (wp2-decode).</summary>
+    void UseRenderer(BlockFormats formats, IUploadArena? arena)
+    {
+        // A backend that decodes on the CPU only uploads through the renderer's own copy path.
+    }
 }
 
 /// <summary>A display the platform reports.</summary>
@@ -48,6 +61,11 @@ public interface IScanDisplay
     /// <summary>Shows an 8-bit grey frame at the output's raster size and completes once it has been presented,
     /// with the monotonic instant of that present (ns). Replaces the previous scan frame on that output.</summary>
     Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct);
+
+    /// <summary>An 8-bit RGB frame (interleaved) at the output's raster; completes at its present (ns) (wp2-align). A display that
+    /// shows grey only refuses with words.</summary>
+    Task<long> ShowRgbAsync(string outputId, ReadOnlyMemory<byte> rgb24, int width, int height, CancellationToken ct) =>
+        Task.FromException<long>(new NotSupportedException("this display shows no colour frames"));
 
     /// <summary>Hands every output back to the show.</summary>
     void Release();

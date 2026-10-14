@@ -251,7 +251,7 @@ public sealed class AssistantSession
             var started = _time.GetTimestamp();
             try
             {
-                var request = new AssistantRequest(AssistantPrompt.System, History, AssistantTools.Specs);
+                var request = new AssistantRequest(AssistantPrompt.For(_endpoint as IVerbAvailability), History, AssistantTools.Specs);
                 reply = await _provider.CompleteAsync(request, t => Emit(sink, new TextDelta(t)), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

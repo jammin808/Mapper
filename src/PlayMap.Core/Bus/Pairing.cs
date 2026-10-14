@@ -96,8 +96,9 @@ public sealed record Receipt(string Id, bool Ok, string Stage, string Effect, st
 }
 
 /// <summary>The node's own settings — machine-local, never in a project file (a project travels; a pairing
-/// token and a bind address do not).</summary>
-public sealed record NodeSettings(
+/// token and a bind address do not). Each round-2 package keeps its own settings in NodeSettings.&lt;Word&gt;.cs; an older file reads
+/// their defaults.</summary>
+public sealed partial record NodeSettings(
     /// <summary>Stable per install, 8 lowercase hex.</summary>
     string NodeId,
     string Name,
