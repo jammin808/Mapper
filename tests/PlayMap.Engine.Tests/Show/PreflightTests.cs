@@ -10,8 +10,9 @@ using PlayMap.Engine.Show;
 namespace PlayMap.Engine.Tests.Show;
 
 /// <summary>Preflight: each built-in check turns red (or amber) on an injected fault and green once it is fixed, with a fix line
-/// the catalogue reads; the budgets hold on a manual clock (a check past its budget is a grey row and the report is not
-/// complete); PREFLIGHT answers its id and publishes the report in STATE, the context and the journal; REPORT round-trips.</summary>
+/// the catalogue reads; the budgets hold on a manual clock (a check past its budget is a grey row, its show-ready step stays open
+/// and the report is not complete); PREFLIGHT answers its id and publishes the report in STATE, the context and the journal;
+/// REPORT round-trips, from memory and from the file kept beside the journal.</summary>
 public sealed class PreflightTests
 {
     /// <summary>Displays and media readiness a test sets.</summary>
@@ -108,6 +109,17 @@ public sealed class PreflightTests
             Assert.Equal(Light.Red, Assert.Single(await Check(new MediaCheck(), e)).Light);
             machine.Media = new MediaReadiness(true, true, true, true, "ready");
             Assert.Equal(Light.Green, Assert.Single(await Check(new MediaCheck(), e)).Light);
+            // The look a SAFE panic shows is media the show uses too.
+            var loop = new MediaItem("md00000002", "Safe loop", MediaKind.Video, "/shows/safe.mov", "", 1L << 20, MediaInfo.Unknown, []);
+            await e.Lane.RunAsync(() => e.Store.Apply("a safe look", p => p with
+            {
+                Media = p.Media.Add(loop),
+                Show = p.Show with { Panic = [new OutputPanicPlan("op_1", PanicOutcome.Safe, 1000, SourceRef.Media(loop.Id))] },
+            }));
+            machine.Media = new MediaReadiness(false, false, false, false, "missing");
+            var safeLook = (await Check(new MediaCheck(), e)).Single(r => r.Id == "media:md00000002");
+            Assert.Equal((Light.Red, "MEDIA FETCH md00000002"), (safeLook.Light, safeLook.Fix));
+            machine.Media = new MediaReadiness(true, true, true, true, "ready");
 
             // Devices: unreachable, standby, shutter closed, ready.
             const string dv = "dv00000001";
@@ -171,7 +183,7 @@ public sealed class PreflightTests
                 Media = machine,
                 ProjectFolder = folder,
                 JournalPath = Path.Combine(folder, "journal.jsonl"),
-                PreflightChecks = [new Hanging(TimeSpan.FromSeconds(5))],
+                PreflightChecks = [new Hanging(TimeSpan.FromHours(1))],
             });
             var events = new List<ShowEvent>();
             rig.Engine.EventRaised += e =>
@@ -188,10 +200,9 @@ public sealed class PreflightTests
             Assert.StartsWith($"a preflight is running ({id})", await rig.Refused("PREFLIGHT QUICK"), StringComparison.Ordinal);
             Assert.Equal("no fleet fan-out on this node — PREFLIGHT checks this node only", await rig.Refused("PREFLIGHT ALL"));
 
-            // Real time passes, the show clock does not: the hanging check is still within its budget.
-            await Task.Delay(200);
-            Assert.True(rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean());
-            rig.Advance(5000);
+            // The budget is an hour of the node's monotonic clock: only moving that clock ends the hanging check, so a runner that
+            // timed it on real time would still be waiting when this test gives up.
+            rig.Advance(3_600_000);
             Assert.True(await ShowRig.Eventually(() => !rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean()));
 
             var summary = rig.Show().GetProperty("preflight");
@@ -200,7 +211,9 @@ public sealed class PreflightTests
             var report = PreflightReports.Read(await rig.Ok($"PREFLIGHT REPORT {id}"))!;
             Assert.False(report.Complete);
             var late = report.Rows.Single(r => r.Section == "sync");
-            Assert.Equal((Light.Grey, "did not finish in 5 s"), (late.Light, late.Note));
+            Assert.Equal((Light.Grey, "did not finish in 3600 s"), (late.Light, late.Note));
+            // What was not checked is not ready: the check that did not finish keeps its step open.
+            Assert.Equal(PreflightReports.Ready([.. report.Rows.Where(r => r.Section != "sync")]).Done - 1, report.Ready.Done);
             Assert.Contains(report.Rows, r => r.Id == "outputs:op_1" && r.Light == Light.Green);
             Assert.Contains(report.Rows, r => r.Id == "media:md00000001" && r.Light == Light.Green);
             Assert.Equal(report.Rows.Count(r => r.Light == Light.Green), summary.GetProperty("green").GetInt32());
@@ -215,6 +228,13 @@ public sealed class PreflightTests
                 done = events.Single(e => e.Kind == "preflight.done");
             Assert.Contains($"\"id\":\"{id}\"", done.FieldsJson, StringComparison.Ordinal);
             Assert.Equal("FULL preflight (decoding every clip) is not on this node — PREFLIGHT QUICK reads the facts", await rig.Refused("PREFLIGHT FULL"));
+
+            // Another engine beside the same journal folder reads the report from its kept file.
+            await using var later = new ShowRig(services: s => s with { JournalPath = Path.Combine(folder, "journal-later.jsonl") });
+            var kept = PreflightReports.Read(await later.Ok($"PREFLIGHT REPORT {id}"))!;
+            Assert.Equal(report with { Rows = kept.Rows }, kept);
+            Assert.Equal(report.Rows, kept.Rows);
+            Assert.Equal("no preflight report pf00000000", await later.Refused("PREFLIGHT REPORT pf00000000"));
         }
         finally
         {
@@ -232,6 +252,13 @@ public sealed class PreflightTests
         Assert.Equal((3, 5), (ready.Done, ready.Of));
         Assert.Equal("media: Item — note", ready.FirstOpen);
         Assert.Equal(["sync and backup"], PreflightReports.NotApplying(rows));
+        // A check that did not finish leaves its step open, grey as it is; a grey row of a check that finished does not.
+        var unfinished = PreflightReports.Unfinished("FOH-A", "sync", "did not finish in 5 s");
+        Assert.True(PreflightReports.IsUnfinished(unfinished));
+        Assert.False(PreflightReports.IsUnfinished(rows[3]));
+        Assert.Equal(Light.Grey, unfinished.Light);
+        var open = PreflightReports.Ready([.. rows.Where(r => r.Section is "outputs" or "safety"), unfinished]);
+        Assert.Equal((4, 5, "sync and backup: sync — did not finish in 5 s"), (open.Done, open.Of, open.FirstOpen));
 
         var report = new PreflightReport("pf1a2b3c4d", 1_760_000_000_000, PreflightDepth.Quick, 1800, rows, ready, true);
         var json = MainState(report);

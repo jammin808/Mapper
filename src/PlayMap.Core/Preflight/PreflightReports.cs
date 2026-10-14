@@ -5,7 +5,8 @@ using PlayMap.Core.Bus;
 namespace PlayMap.Core.Preflight;
 
 /// <summary>A preflight report's sums and its words: the counts by light, the worst light, show-ready's five steps (a step with
-/// no rows does not apply, counts as done and says so), and the report as JSON — written and read back unchanged.</summary>
+/// no rows does not apply, counts as done and says so; a step whose check did not finish is open), and the report as JSON —
+/// written and read back unchanged.</summary>
 public static class PreflightReports
 {
     /// <summary>Show-ready's steps in order, each with the sections that decide it.</summary>
@@ -49,8 +50,27 @@ public static class PreflightReports
         return worst;
     }
 
-    /// <summary>Show-ready: a step is done when none of its rows is red or amber (a step with no rows does not apply and counts as
-    /// done); the first open step's words name the step and its first problem ("media: Intro is missing").</summary>
+    /// <summary>The row a check leaves when it did not finish (past its budget, or faulted): grey, "unknown", with the words why.
+    /// What was not checked is not known to be ready, so its step stays open.</summary>
+    public static PreflightRow Unfinished(string node, string section, string note)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        return new PreflightRow(section + UnfinishedSuffix, node, section, section, Light.Grey, "unknown", note, null);
+    }
+
+    /// <summary>True for the row of a check that did not finish.</summary>
+    public static bool IsUnfinished(PreflightRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Light == Light.Grey && row.Id.Length == row.Section.Length + UnfinishedSuffix.Length
+            && row.Id.StartsWith(row.Section, StringComparison.Ordinal) && row.Id.EndsWith(UnfinishedSuffix, StringComparison.Ordinal);
+    }
+
+    private const string UnfinishedSuffix = ":check";
+
+    /// <summary>Show-ready: a step is done when none of its rows is red or amber and every check of it finished (a step with no rows
+    /// does not apply and counts as done); the first open step's words name the step and its first problem ("media: Intro is
+    /// missing").</summary>
     public static ShowReady Ready(IReadOnlyList<PreflightRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -58,7 +78,7 @@ public static class PreflightReports
         var first = "";
         foreach (var (step, sections) in Steps)
         {
-            var problem = rows.FirstOrDefault(r => sections.Contains(r.Section, StringComparer.Ordinal) && r.Light is Light.Red or Light.Amber);
+            var problem = rows.FirstOrDefault(r => sections.Contains(r.Section, StringComparer.Ordinal) && (r.Light is Light.Red or Light.Amber || IsUnfinished(r)));
             if (problem is null)
             {
                 done++;

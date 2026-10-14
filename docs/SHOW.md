@@ -134,13 +134,14 @@ The node's own checks:
 | Section | Row | Light | Fix |
 |---|---|---|---|
 | outputs | each enabled display output: its display present (or a free one when it names none) | red when absent | `SET <op> displayKey "<present>"`, or `OUTPUT ENABLE <op> OFF` |
-| media | each file the show uses: present, readable, verified | red missing or unreadable, amber unverified | `MEDIA FETCH <md>` |
+| media | each file the show uses (the panic plans' safe looks included): present, readable, verified | red missing or unreadable, amber unverified | `MEDIA FETCH <md>` |
 | devices | each projector link: answers, on, shutter open | red unreachable or in standby, amber shutter closed | `DEVICE POWER <dv> ON`, `DEVICE SHUTTER <dv> OPEN` |
 | disk | free space on the media volume | red under twice the largest file, amber under 10 GB | — |
 | safety | armed; every SAFE plan's look in the show; the default plan | grey in rehearsal (amber with EXPECT-ARMED), red a missing look | `SHOW ARM`, `PANIC SET <op> BLACK` |
 
 Every package adds its own checks (`EngineServices.PreflightChecks`). **Show-ready** counts five steps — outputs, media, mapping,
-sync and backup, safety — a step done when none of its rows is red or amber; a step with no rows does not apply and counts as done.
+sync and backup, safety — a step done when none of its rows is red or amber and every check of it finished (a check past its
+budget leaves its step open: what was not checked is not known to be ready); a step with no rows does not apply and counts as done.
 `STATE.show.preflight` carries the sums and "4/5"; the context's `preflight` item its light and words.
 
 ## Threads

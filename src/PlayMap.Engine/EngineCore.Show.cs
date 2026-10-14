@@ -26,7 +26,7 @@ public sealed partial class EngineCore
         routes.Lane("UNLOCK", Unlock);
         routes.Lane("LOCKS", _ => CommandReply.Success(JsonOut(WriteLocks)));
         routes.OffLane("PREFLIGHT", PreflightAsync);
-        routes.Lane("PREFLIGHT REPORT", PreflightReport);
+        routes.OffLane("PREFLIGHT REPORT", PreflightReportAsync);
         routes.Index(new ShowIndex(this));
     }
 

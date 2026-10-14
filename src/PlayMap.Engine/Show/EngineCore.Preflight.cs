@@ -125,19 +125,20 @@ public sealed partial class EngineCore
         }
     }
 
-    private CommandReply PreflightReport(VerbCall c)
+    /// <summary>Off the lane: an older report is read from disk, and the lane never waits on a file.</summary>
+    private async Task<CommandReply> PreflightReportAsync(VerbCall c)
     {
         PreflightReport? report;
         lock (_preflightGate)
             report = c.Args.Count == 0 ? _preflight : _reports.FirstOrDefault(r => r.Id == c.Args[0]);
         if (report is null && c.Args.Count > 0)
-            report = ReadKeptReport(c.Args[0]);
+            report = await ReadKeptReportAsync(c.Args[0], c.Ct).ConfigureAwait(false);
         if (report is null)
             return CommandReply.Fail(c.Args.Count == 0 ? "no preflight has run on this node — PREFLIGHT runs one" : $"no preflight report {c.Args[0]}");
         return CommandReply.Success(JsonOut(w => PreflightReports.Write(w, report)));
     }
 
-    private PreflightReport? ReadKeptReport(string id)
+    private async Task<PreflightReport?> ReadKeptReportAsync(string id, CancellationToken ct)
     {
         if (Services.JournalPath is not { } journal || Path.GetDirectoryName(journal) is not { Length: > 0 } dir
             || id.Length != 10 || !id.StartsWith("pf", StringComparison.Ordinal) || !id.Skip(2).All(char.IsAsciiHexDigitLower))
@@ -145,7 +146,7 @@ public sealed partial class EngineCore
         var path = Path.Combine(dir, "preflight", id + ".json");
         try
         {
-            return File.Exists(path) ? PreflightReports.Read(File.ReadAllText(path)) : null;
+            return File.Exists(path) ? PreflightReports.Read(await File.ReadAllTextAsync(path, ct).ConfigureAwait(false)) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

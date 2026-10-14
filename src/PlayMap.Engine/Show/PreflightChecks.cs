@@ -73,8 +73,7 @@ public static class PreflightRunner
         return ([.. rows.SelectMany(r => r ?? [])], complete);
     }
 
-    private static PreflightRow Grey(string node, IPreflightCheck check, string note) =>
-        new($"{check.Section}:check", node, check.Section, check.Section, Light.Grey, "unknown", note, null);
+    private static PreflightRow Grey(string node, IPreflightCheck check, string note) => PreflightReports.Unfinished(node, check.Section, note);
 
     private static string Seconds(TimeSpan t) => t.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + " s";
 }
@@ -122,8 +121,8 @@ public sealed class OutputsCheck : IPreflightCheck
     }
 }
 
-/// <summary>Media present and readable: every file the show uses (a playlist's items, a layer, a surface, an output's source) is
-/// on this machine and decodable. Fix: fetch it from a peer.</summary>
+/// <summary>Media present and readable: every file the show uses (a playlist's items, a layer, a surface, an output's source, the
+/// safe look a panic shows) is on this machine and decodable. Fix: fetch it from a peer.</summary>
 public sealed class MediaCheck : IPreflightCheck
 {
     public string Section => "media";
@@ -160,7 +159,7 @@ public sealed class MediaCheck : IPreflightCheck
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
 
-    /// <summary>The media ids the show uses: playlist items, layers, surfaces and outputs, nested playlists and canvases included.</summary>
+    /// <summary>The media ids the show uses: playlist items, layers, surfaces, outputs and the panic plans' safe looks.</summary>
     public static HashSet<string> UsedMedia(Project p)
     {
         ArgumentNullException.ThrowIfNull(p);
@@ -180,6 +179,11 @@ public sealed class MediaCheck : IPreflightCheck
             Add(s.Content.Source);
         foreach (var o in p.Outputs)
             Add(o.Source);
+        foreach (var plan in p.Show.Panic)
+        {
+            if (plan.SafeLook is { } look)
+                Add(look);
+        }
         return used;
     }
 }
