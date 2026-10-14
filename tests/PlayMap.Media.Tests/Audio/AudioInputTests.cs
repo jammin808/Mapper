@@ -5,12 +5,12 @@ using PlayMap.Media.Audio.Windows;
 
 namespace PlayMap.Media.Tests.Audio;
 
-/// <summary>The sound inputs this edge provides: a sound file as a looped input, FFmpeg's capture devices (none on this machine, said
-/// in words), and WASAPI on Windows — enumerated on the CI runner, which has no endpoint, as an empty list with words and no throw.</summary>
+/// <summary>The sound inputs this edge provides: a sound file as a looped input, and FFmpeg's capture devices (none on this machine,
+/// said in words).</summary>
 public sealed class AudioInputTests
 {
     /// <summary>Counts what it is given.</summary>
-    private sealed class Counter : IAudioCaptureSink
+    internal sealed class Counter : IAudioCaptureSink
     {
         private long _frames;
 
@@ -67,7 +67,13 @@ public sealed class AudioInputTests
         var e = Assert.Throws<AudioUnavailableException>(() => ffmpeg.Open(FfmpegAudioInputs.PlatformFormats[0] + ":no-such-device-here", 48000, new Counter()));
         Assert.False(string.IsNullOrWhiteSpace(e.Message));
     }
+}
 
+/// <summary>WASAPI on Windows, run by the CI job's Windows category: enumeration on the runner (which has no audio endpoint) answers
+/// an empty list with words and never throws; a key that is not WASAPI's is refused with words. Elsewhere the type is Windows only
+/// (and no backend makes it).</summary>
+public sealed class WasapiInputsTests
+{
     /// <summary>WASAPI on Windows: enumeration answers a list (empty on the runner, which has no endpoint, with words) and never
     /// throws; a key that is not WASAPI's is refused with words. Elsewhere the type is Windows only and no backend makes it.</summary>
     [Fact]
@@ -92,7 +98,7 @@ public sealed class AudioInputTests
         if (list.Count == 0)
             Assert.False(string.IsNullOrWhiteSpace(wasapi.Words), "an empty list comes with words");
         Assert.All(list, i => Assert.StartsWith(WasapiAudioInputs.Prefix, i.Key, StringComparison.Ordinal));
-        var e = Assert.Throws<AudioUnavailableException>(() => wasapi.Open("wasapi:elsewhere", 48000, new Counter()));
+        var e = Assert.Throws<AudioUnavailableException>(() => wasapi.Open("wasapi:elsewhere", 48000, new AudioInputTests.Counter()));
         Assert.False(string.IsNullOrWhiteSpace(e.Message));
     }
 }

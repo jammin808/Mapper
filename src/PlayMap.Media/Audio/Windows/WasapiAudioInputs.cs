@@ -8,7 +8,7 @@ namespace PlayMap.Media.Audio.Windows;
 
 /// <summary>Windows' own sound inputs through WASAPI (NAudio.Wasapi): every active capture endpoint ("wasapi:in:&lt;id&gt;"), the
 /// sound a render endpoint plays ("wasapi:loop:&lt;id&gt;", shown as "System sound — &lt;device&gt;"; the default output is the
-/// "system" input), and everything but PlayMap ("wasapi:proc:exclude-self", process loopback, Windows 10 build 19041 or later),
+/// "system" input), and everything but PlayMap ("wasapi:proc:exclude-self", process loopback, Windows 11 / build 20348 or later),
 /// all in shared mode with a 20 ms buffer. A runner or a machine without endpoints lists nothing and says so; enumeration never
 /// throws.</summary>
 [SupportedOSPlatform("windows")]
@@ -46,7 +46,7 @@ public sealed class WasapiAudioInputs : IAudioInputs, IAudioInputsWords
                         IsDefault = d.ID == defaultOut,
                     });
             }
-            if (list.Count > 0 && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+            if (list.Count > 0 && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348))
                 list.Add(new AudioInputInfo(ExcludeSelf, "Everything but PlayMap", 2, [48000], Backend) { Kind = AudioInputKind.ProcessLoopback });
             _words = list.Count == 0 ? "Windows lists no active sound endpoint on this machine" : "";
         }
@@ -74,8 +74,8 @@ public sealed class WasapiAudioInputs : IAudioInputs, IAudioInputsWords
         {
             if (key == ExcludeSelf)
             {
-                if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-                    throw new AudioUnavailableException("everything but PlayMap needs Windows 10 build 19041 or later — System sound is the fallback");
+                if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348))
+                    throw new AudioUnavailableException("everything but PlayMap needs Windows 11 (build 20348) or later — System sound is the fallback");
                 return WasapiRecorderCapture.ExcludingSelf(sink);
             }
             var loop = key.StartsWith(Prefix + "loop:", StringComparison.Ordinal);
@@ -155,7 +155,7 @@ internal sealed class WasapiRecorderCapture : IAudioCapture
 
     /// <summary>Everything the machine plays except PlayMap's own process tree (activation completes on a COM worker; the open
     /// waits for it on the thread-pool thread that opens inputs, never the lane).</summary>
-    [SupportedOSPlatform("windows10.0.19041.0")]
+    [SupportedOSPlatform("windows10.0.20348.0")]
     public static WasapiRecorderCapture ExcludingSelf(IAudioCaptureSink sink)
     {
 #pragma warning disable VSTHRD002 // The caller is the runtime's thread-pool open, never the lane or a UI thread.
