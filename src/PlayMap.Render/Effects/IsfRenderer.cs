@@ -75,6 +75,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
     private UniformBinding[] _uniforms = [];
     private int _renderW;
     private int _renderH;
+    private bool _failedDrawing;
 
     public IsfRenderer(GlDevice device, FxCompileLane lane, GpuTexture black, GpuTexture grey)
     {
@@ -100,6 +101,13 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
             Rebuild(kind, source, files);
         _kind = kind;
         _slot = slot;
+        if (_failedDrawing)
+        {
+            // The slot's record changed: a fault met drawing is tried again (a compile fault stays until the files change).
+            _failedDrawing = false;
+            State = FxSlotState.Compiling;
+            Words = "compiling";
+        }
         _vars.Clear();
         Span<float> v = stackalloc float[4];
         foreach (var u in _uniforms)
@@ -125,6 +133,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
     private void Rebuild(FxKind kind, IsfProgramSource source, FxSource files)
     {
         DisposeBuffers();
+        _failedDrawing = false;
         _kind = kind;
         _source = source;
         _imports = files.Images;
@@ -335,7 +344,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         if (b.Front is not null && b.Width == w && b.Height == h)
             return;
         b.Dispose();
-        var format = b.Float ? TextureFormat.Rgba32F : TextureFormat.Rgba16F;
+        var format = BufferFormat(_device.Caps, b.Float);
         b.Front = _device.CreateRenderTarget(w, h, format);
         b.Back = b.Single ? b.Front : _device.CreateRenderTarget(w, h, format);
         b.Width = w;
@@ -344,6 +353,23 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         _device.Clear(0, 0, 0, 0);
         _device.BindTarget(b.Back);
         _device.Clear(0, 0, 0, 0);
+    }
+
+    /// <summary>A pass buffer's format: 32-bit float when the file asks for FLOAT, else 16-bit float, each where this context
+    /// can render to it (an ES context may not), else 8-bit.</summary>
+    internal static TextureFormat BufferFormat(GlCaps caps, bool wantsFloat)
+    {
+        if (wantsFloat && caps.SupportsRenderTarget(TextureFormat.Rgba32F))
+            return TextureFormat.Rgba32F;
+        return caps.SupportsRenderTarget(TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
+    }
+
+    /// <summary>A fault met while drawing (a target this context cannot make, a driver's refusal): the slot shows its input with
+    /// the words and is not drawn again until its record changes, so a failing draw is never retried every frame.</summary>
+    public void Fail(string words)
+    {
+        Fault(words);
+        _failedDrawing = true;
     }
 
     private void DisposeBuffers()

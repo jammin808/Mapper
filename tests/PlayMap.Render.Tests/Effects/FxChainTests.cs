@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using PlayMap.Core.Effects;
 using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
@@ -414,6 +415,45 @@ public sealed class FxChainTests(GlFixture gl)
             Assert.Contains("100000 × 100000", huge.Words, StringComparison.Ordinal);
             Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000002").State);
             Pixels.Near((215, 185, 155), Pixels.At(px, W, 10, 10), 1);
+        });
+    }
+
+    [Fact]
+    public void AFaultMetDrawingIsNotTriedAgainUntilTheSlotChangesAndBuffersFitTheContext()
+    {
+        gl.Run(c =>
+        {
+            var d = c.Device;
+            var caps = d.Caps;
+            Assert.Equal(TextureFormat.Rgba32F, IsfRenderer.BufferFormat(caps with { ColorBufferFloat = true }, wantsFloat: true));
+            Assert.Equal(TextureFormat.Rgba16F, IsfRenderer.BufferFormat(caps with { ColorBufferFloat = true }, wantsFloat: false));
+            Assert.Equal(TextureFormat.Rgba8, IsfRenderer.BufferFormat(caps with { ColorBufferFloat = false }, wantsFloat: true));
+
+            using var lane = new FxCompileLane(c);
+            using var black = FxRig.Picture(d, 1, 1, (_, _) => (0, 0, 0));
+            using var input = FxRig.Picture(d, W, H, (_, _) => (40, 70, 100));
+            using var renderer = new IsfRenderer(d, lane, black, black);
+            var catalog = FxCatalog.Builtin;
+            var kind = catalog.Find("fx.invert")!;
+            var source = catalog.Translation(kind.Id, FxChainRunner.DialectOf(d.Dialect))!;
+            var slot = FxRig.Slot("fx.invert");
+            renderer.Configure(slot, kind, source, catalog.Source(kind.Id)!);
+            var clock = FxTime.At(1_000_000_000, 0, 60, 1_760_000_000_000);
+            var waited = Stopwatch.StartNew();
+            long frame = 0;
+            while (renderer.Apply(++frame, in clock, input, W, H) is null)
+            {
+                lane.Collect(frame);
+                Assert.True(waited.Elapsed < FxRig.Patience, "the effect never compiled");
+                Thread.Sleep(2);
+            }
+
+            renderer.Fail("a target this context cannot make");
+            Assert.Null(renderer.Apply(++frame, in clock, input, W, H));
+            Assert.Equal((FxSlotState.Faulted, "a target this context cannot make"), (renderer.State, renderer.Words));
+            renderer.Configure(slot with { Mix = 0.5 }, kind, source, catalog.Source(kind.Id)!);
+            Assert.NotNull(renderer.Apply(frame + 1, in clock, input, W, H));
+            Assert.Equal(FxSlotState.Ok, renderer.State);
         });
     }
 

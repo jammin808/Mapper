@@ -121,7 +121,9 @@ public sealed class FxChainRunner : IDisposable
         var current = input;
         var w = input.Width;
         var h = input.Height;
-        var format = input.Format is TextureFormat.Rgba8 or TextureFormat.Rgba16F or TextureFormat.Rgba32F ? input.Format : TextureFormat.Rgba16F;
+        var format = input.Format is TextureFormat.Rgba8 or TextureFormat.Rgba16F or TextureFormat.Rgba32F && _device.Caps.SupportsRenderTarget(input.Format)
+            ? input.Format
+            : _device.Caps.SupportsRenderTarget(TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
         foreach (var slot in chain.Slots)
             current = ApplySlot(slot, owner, current, w, h, format, in frame);
         owner.Frame = _frame;
@@ -195,7 +197,8 @@ public sealed class FxChainRunner : IDisposable
         {
             state.Timer.Cancel();
             _device.InvalidateState();
-            state.Live.Set(FxSlotState.Faulted, ex.Message, _frame);
+            state.Renderer.Fail(ex.Message);
+            state.Live.Set(FxSlotState.Faulted, state.Renderer.Words, _frame);
             return current;
         }
     }
