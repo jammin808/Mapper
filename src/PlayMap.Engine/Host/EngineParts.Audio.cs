@@ -7,7 +7,7 @@ public sealed partial record EngineParts
 {
     static partial void AddAudioParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(setup => new AudioExtension(setup));
+        extensions.Add(AudioExtension.Factory);
     }
 }
 
@@ -16,6 +16,9 @@ public sealed partial record EngineParts
 /// choices kept in the node's settings. Disposed after the transports close, which closes every open input.</summary>
 internal sealed class AudioExtension(ExtensionSetup setup) : IEngineExtension
 {
+    /// <summary>The part as the exe's composition adds it.</summary>
+    public static readonly EngineExtensionFactory Factory = s => new AudioExtension(s);
+
     private AudioRuntime? _runtime;
 
     public string Name => "audio";

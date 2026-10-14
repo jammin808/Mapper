@@ -232,8 +232,9 @@ public sealed class AudioRuntime : IDisposable
         var moved = now.Silent != before.Silent || Math.Abs(now.SilentForS - before.SilentForS) >= 1
             || MathF.Abs(now.Level - before.Level) > 0.05f || MathF.Abs(now.Bass - before.Bass) > 0.05f
             || MathF.Abs(now.Mid - before.Mid) > 0.05f || MathF.Abs(now.High - before.High) > 0.05f;
-        if (force ? now != before : moved && (before.FrameLeaderNs == long.MinValue || now.FrameLeaderNs == long.MinValue
-            || now.FrameLeaderNs - before.FrameLeaderNs >= 250_000_000)))
+        var due = before.FrameLeaderNs == long.MinValue || now.FrameLeaderNs == long.MinValue
+            || now.FrameLeaderNs - before.FrameLeaderNs >= 250_000_000;
+        if (force ? now != before : moved && due)
         {
             _facts = now;
             changed = true;
