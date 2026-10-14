@@ -58,6 +58,9 @@ public sealed class RenderContext : IDisposable
     /// <summary>Whether output windows can be made on this context (a surfaceless context has no window system).</summary>
     public bool HasWindows => _window is not null;
 
+    /// <summary>A surfaceless context's EGL display still answers (always true for a windowed context).</summary>
+    internal bool DisplayLive => !OperatingSystem.IsLinux() || _surfaceless is not EglSurfacelessContext egl || egl.DisplayLive;
+
     /// <summary>Makes a hidden context of <see cref="GlDeviceOptions.Dialect"/> through the platform's windowing: OpenGL 3.3 core
     /// (forward-compatible; debug-flagged when debug output is asked), or OpenGL ES 3.0 — on EGL when <paramref name="preferEgl"/>
     /// and the platform has it, else the native API (GLX), with the words that say so.</summary>

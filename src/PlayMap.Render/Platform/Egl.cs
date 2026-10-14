@@ -120,6 +120,9 @@ internal sealed class EglSurfacelessContext : IDisposable
     /// <summary>"1.5 Mesa …": what the EGL library said it is.</summary>
     public string EglVersion { get; }
 
+    /// <summary>The display still answers (initialised): what another context going must never change.</summary>
+    public bool DisplayLive => _display != 0 && Egl.QueryString(_display, Egl.Vendor) != 0;
+
     /// <summary>Makes a context of the dialect (ES 3.0, or desktop 3.3 core) current on this thread; throws with words when the
     /// library, the surfaceless platform or the context is not there.</summary>
     public static EglSurfacelessContext Create(GlDialect dialect, bool debug)

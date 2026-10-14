@@ -52,22 +52,31 @@ public sealed record PlatformRequest(string Path = "auto", string Dialect = "aut
 public static class GpuPlatforms
 {
     /// <summary>The GL platform of the asked dialect (auto is desktop 3.3 core). ES on Linux comes up on EGL, else GLX with words
-    /// (<see cref="IGpuPlatform.Words"/>); "dxgi" is not a path this build presents on, so it is GL with words. Throws with
-    /// words when no context comes up at all.</summary>
+    /// (<see cref="IGpuPlatform.Words"/>); "dxgi" is not a path this build presents on, so it is GL with words; a path or dialect
+    /// word it does not know is the platform's choice, with words. Throws with words when no context comes up at all.</summary>
     public static IGpuPlatform Create(PlatformRequest request, GlDeviceOptions device)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(device);
-        var words = new List<string>(2);
-        if (request.Path.Trim().Equals("dxgi", StringComparison.OrdinalIgnoreCase))
+        var words = new List<string>(3);
+        var path = request.Path.Trim();
+        if (path.Equals("dxgi", StringComparison.OrdinalIgnoreCase))
             words.Add("the DXGI path is not in this build: outputs present through GL");
-        var dialect = GlDialects.Parse(request.Dialect) ?? GlDialect.Core330;
+        else if (!IsAuto(path) && !path.Equals("gl", StringComparison.OrdinalIgnoreCase))
+            words.Add($"present path '{request.Path}' is none of auto, gl, dxgi: outputs present through GL");
+        var asked = GlDialects.Parse(request.Dialect);
+        if (asked is null && !IsAuto(request.Dialect))
+            words.Add($"GL dialect '{request.Dialect}' is none of auto, core330, es300: the context is desktop 3.3 core");
+        var dialect = asked ?? GlDialect.Core330;
         var options = device with { Dialect = dialect };
         var context = request.Surfaceless ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
         if (context.Words.Length > 0)
             words.Add(context.Words);
         return new GlPlatform(context, string.Join("; ", words));
     }
+
+    /// <summary>A settings word that leaves the choice to the platform: empty, or "auto".</summary>
+    private static bool IsAuto(string? word) => string.IsNullOrWhiteSpace(word) || word.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Today's platform: one hidden GL context (GLFW over GLX, or EGL) and an <see cref="OutputWindow"/> per output sharing

@@ -145,6 +145,50 @@ public sealed class PresenterSeamTests(GlFixture gl)
         Assert.Contains("egl-surfaceless", platform.Share.Describe, StringComparison.Ordinal);
         var refused = Assert.Throws<PlatformNotSupportedException>(() => platform.CreatePresenter(new OutputPresenterOptions("x", null, false, 64, 36)));
         Assert.Contains("no window system", refused.Message, StringComparison.Ordinal);
+        Assert.Equal("", platform.Words);
+    }
+
+    [Fact]
+    public void ASurfacelessContextGoingLeavesAnotherOnTheSameDisplayWorking()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        // Every surfaceless context shares the process's one EGL display: the second one going (on its own thread) must not
+        // terminate the display under the first.
+        using var first = RenderContext.CreateSurfaceless(new GlDeviceOptions(true, false));
+        string? secondRenderer = null;
+        var thread = new Thread(() =>
+        {
+            using var second = RenderContext.CreateSurfaceless(new GlDeviceOptions(true, false));
+            secondRenderer = second.Device.Renderer;
+        }) { Name = "second surfaceless context" };
+        thread.Start();
+        thread.Join();
+        Assert.False(string.IsNullOrEmpty(secondRenderer));
+        Assert.True(first.DisplayLive, "the second context's going terminated the display the first one lives on");
+
+        first.MakeCurrent();
+        var d = first.Device;
+        using var target = d.CreateRenderTarget(4, 4, TextureFormat.Rgba8);
+        d.BindTarget(target);
+        d.Clear(0, 1, 0, 1);
+        var px = new byte[4 * 4 * 4];
+        d.ReadPixels(target, px);
+        Assert.Equal(0, px[2]);   // red
+        Assert.Equal(255, px[1]); // green
+        Assert.Equal(0, px[0]);   // blue
+        Assert.Empty(d.TakeErrors());
+    }
+
+    [Fact]
+    public void SettingsWordsThePlatformDoesNotKnowAreSaidNotIgnored()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        using var platform = GpuPlatforms.Create(new PlatformRequest("warp", "gles9", Surfaceless: true), new GlDeviceOptions(true, false));
+        Assert.Equal(GlDialect.Core330, platform.Context.Dialect);
+        Assert.Contains("present path 'warp' is none of auto, gl, dxgi", platform.Words, StringComparison.Ordinal);
+        Assert.Contains("GL dialect 'gles9' is none of auto, core330, es300", platform.Words, StringComparison.Ordinal);
     }
 
     [Fact]
