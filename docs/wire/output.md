@@ -30,6 +30,7 @@ An output is named by id, 1-based number or name; none, or `ALL`, is every enabl
 | Reason | Verbs | When |
 |---|---|---|
 | `no-render` | all three | the node has no render host |
+| `off` | APPLY, REJOIN | this node's `NodeSettings.Present.FrameLock` is off: its outputs free-run, measured |
 | `follower` | APPLY | this node follows a leader ("SYNC APPLY on <leader>") |
 | `armed` | APPLY, REJOIN | the show is armed and not blacked out |
 | `unknown-group` | APPLY | no playlist names that sync group |

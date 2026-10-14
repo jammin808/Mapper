@@ -67,7 +67,8 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   synced for the 10 s since the fall and the show is at a boundary (blacked out, or nothing playing). Otherwise `SYNC REJOIN`
   (armed: only while blacked out) or a new `SYNC APPLY`.
 - **Refused with a reason word**: `no-board`, `not-configured` (the one-time administrator step), `cable-into-switch` (the board's
-  RJ45 ports go board to board, never to Ethernet), `armed`.
+  RJ45 ports go board to board, never to Ethernet), `armed`. A node whose `frameLock` is off never joins: `SYNC APPLY` and
+  `SYNC REJOIN` refuse with `off`.
 - **Content time under the lock** (`LockCounter`): the board's 24-bit frame count is unwrapped (a jump over 2²³ is a fault, a value
   over 2²⁴ switches to 32 bits); the anchor `{count24, leaderNs, periodPs, effectiveAt24, seq}` maps any count to show time as
   `leaderNs + ((c − count24) mod 2²⁴) × periodPs / 1000` — the same integers on every node. A leader re-anchors every 60 s from its

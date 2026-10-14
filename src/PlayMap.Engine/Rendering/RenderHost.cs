@@ -33,7 +33,7 @@ public sealed record RenderHostOptions
     public Func<IFrameLockDriver>? FrameLock { get; init; }
 
     /// <summary>Outputs that fell out of the lock join again by themselves at an idle boundary (NodeSettings.Present.FrameLock "auto");
-    /// false ("off") joins only on SYNC APPLY and SYNC REJOIN.</summary>
+    /// false joins only on SYNC APPLY and SYNC REJOIN (which a node set "off" refuses: it never joins).</summary>
     public bool FrameLockAuto { get; init; } = true;
 
     /// <summary>The swap group and barrier SYNC APPLY joins (NodeSettings.Present).</summary>

@@ -117,6 +117,12 @@ public sealed partial class EngineCore
         }), $"reset {before.Count} output{(before.Count == 1 ? "" : "s")}");
     }
 
+    /// <summary>NodeSettings.Present.FrameLock "off": this node's outputs free-run, measured, and never join a lock.</summary>
+    private bool FrameLockOff => string.Equals(Services.Settings.Present.FrameLock.Trim(), "off", StringComparison.OrdinalIgnoreCase);
+
+    private const string FrameLockOffWords =
+        "this node's frame lock is off (NodeSettings.Present.FrameLock): its outputs present free, measured — set it to auto to join";
+
     /// <summary>A refusal by its reason word, kept for STATE (sync.lock.refused).</summary>
     private CommandReply LockRefuse(string verb, string reason, string words)
     {
@@ -130,6 +136,8 @@ public sealed partial class EngineCore
         const string verb = "SYNC APPLY";
         if (LockBackend is not { } backend)
             return LockRefuse(verb, "no-render", "this node has no render host: no output can join a lock");
+        if (FrameLockOff)
+            return LockRefuse(verb, "off", FrameLockOffWords);
         var sync = Services.Network.Sync();
         if (sync.Role == "follower")
             return LockRefuse(verb, "follower", $"the group's leader applies the lock — SYNC APPLY on {sync.Leader ?? "the leader"}");
@@ -203,6 +211,8 @@ public sealed partial class EngineCore
         const string verb = "SYNC REJOIN";
         if (LockBackend is not { } backend)
             return LockRefuse(verb, "no-render", "this node has no render host: nothing is in a lock");
+        if (FrameLockOff)
+            return LockRefuse(verb, "off", FrameLockOffWords);
         if (!backend.Intent.Apply)
             return LockRefuse(verb, "not-applied", "the lock is not applied: SYNC APPLY first");
         if (Services.ShowGate.Armed && !Air.EffectiveBlackout)

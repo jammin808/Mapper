@@ -115,6 +115,18 @@ public sealed class SyncVerbTests
     }
 
     [Fact]
+    public async Task ANodeWhoseFrameLockIsOffRefusesToJoin()
+    {
+        await using var rig = PresentRig.Start(PresentRig.With(PresentRig.Screen("op_a")), new ScriptedOutputs().WithFreeLocks("op_a"),
+            settings: s => s with { Present = s.Present with { FrameLock = "off" } });
+        var words = await Refused(rig, "SYNC APPLY", "off");
+        Assert.Contains("NodeSettings.Present.FrameLock", words, StringComparison.Ordinal);
+        await Refused(rig, "SYNC REJOIN op_a", "off");
+        Assert.Empty(rig.Outputs.Calls);
+        Assert.False(rig.State().GetProperty("sync").GetProperty("lock").GetProperty("applied").GetBoolean());
+    }
+
+    [Fact]
     public async Task LeaveAndRejoinRefuseWhatWouldChangeNothing()
     {
         await using var rig = Rig();

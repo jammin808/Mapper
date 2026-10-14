@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Show;
 using PlayMap.Core.Sync;
@@ -156,11 +157,14 @@ internal sealed class PresentRig : IAsyncDisposable
     public ScriptedOutputs Outputs { get; }
     public ArmedGate Gate { get; }
 
-    public static PresentRig Start(Project project, ScriptedOutputs? outputs = null, INetworkView? network = null, bool scripted = true)
+    public static PresentRig Start(Project project, ScriptedOutputs? outputs = null, INetworkView? network = null, bool scripted = true,
+        Func<NodeSettings, NodeSettings>? settings = null)
     {
         outputs ??= new ScriptedOutputs();
         var gate = new ArmedGate();
         var services = EngineServices.ForTests() with { ShowGate = gate };
+        if (settings is not null)
+            services = services with { Settings = settings(services.Settings) };
         if (scripted)
             services = services with { Outputs = outputs };
         if (network is not null)
