@@ -227,6 +227,34 @@ public sealed class LineWebSocketTests
     }
 
     [Fact]
+    public async Task AWebPageFromAnotherSiteIsRefusedTheLineChannelEvenOnATrustedAddress()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        var uri = new Uri("ws://127.0.0.1:" + host.Port + "/ws");
+
+        // A page the node did not serve: a browser says where it came from, and this address is trusted (it would pair at once).
+        using var page = new ClientWebSocket();
+        page.Options.AddSubProtocol(WebSocketLineChannel.SubProtocol);
+        page.Options.SetRequestHeader("Origin", "http://evil.example");
+        page.Options.CollectHttpResponseDetails = true;
+        await Assert.ThrowsAsync<WebSocketException>(() => page.ConnectAsync(uri, CancellationToken.None));
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, page.HttpStatusCode);
+        Assert.Equal(0, host.LineSockets);
+
+        // The node's own origin is let in, as is a controller that sends none (WsLines).
+        using var own = new ClientWebSocket();
+        own.Options.AddSubProtocol(WebSocketLineChannel.SubProtocol);
+        own.Options.SetRequestHeader("Origin", "http://127.0.0.1:" + host.Port);
+        await own.ConnectAsync(uri, CancellationToken.None);
+        Assert.Equal(WebSocketLineChannel.SubProtocol, own.SubProtocol);
+        await own.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await using var controller = await WsLines.ConnectAsync(host.Port);
+        Assert.Equal("OK @v1", await controller.AskAsync("@v1 BLACKOUT ON"));
+        Assert.Equal("BLACKOUT", Assert.Single(endpoint.Lines).Line.Verb);
+    }
+
+    [Fact]
     public async Task OnATrustedAddressItIsPairedAtOnceAndTheJsonSocketIsUnchanged()
     {
         var endpoint = new FakeEndpoint();

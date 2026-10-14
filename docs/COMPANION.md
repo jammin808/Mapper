@@ -21,12 +21,15 @@ The node also announces itself as `_playmap._tcp` on the local network, so Compa
 ## The door
 
 `/ws` with the subprotocol `playmap.lines.v1` runs the line session TCP 9941 runs — the same grammar, request ids, receipts,
-pushes, `PING` clock exchange and pairing — one text frame per line. Two things differ, both stricter:
+pushes, `PING` clock exchange and pairing — one text frame per line. Three things differ, all stricter:
 
-- The web's header token is not asked at the upgrade (a browser-based client cannot set one), so the line session itself gates the
+- The web's header token is not asked at the upgrade (a WebSocket client cannot always set one), so the line session itself gates the
   connection: until it proves the token (`NONCE`, then `AUTH-PROOF` — HMAC-SHA256 of the nonce and the HELLO name keyed by the token)
   it is answered nothing but pairing, and its greeting `STATE` waits for `OK paired`. The address's wrong-token lockout and
   `RequireHttps` hold before the upgrade, and a wrong proof counts against the address like a wrong header token.
+- A web page from another site never reaches it: an upgrade whose `Origin` is not this node's own is refused (403) before it opens,
+  since on a trusted address it would be paired at once. Controllers (Companion's module, scripts) send no `Origin`; pages the node
+  serves itself keep their origin and are let in.
 - Plain `AUTH <token>` is never taken there.
 
 The sessions behind each door are their own (`LineSessions`): either door serves lines when the other could not open.

@@ -286,9 +286,14 @@ public sealed class HttpHost : IAsyncDisposable
         }
         if (IsLineChannel(context))
         {
-            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but HTTPS and the address's
-            // lockout still hold before the upgrade.
+            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but a web page's origin, HTTPS and
+            // the address's lockout still hold before the upgrade.
             var from = context.Connection.RemoteIpAddress;
+            if (!SameOriginOrNone(context.Request))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, LineChannelOrigin);
+                return;
+            }
             if (_settings.RequireHttps && !context.Request.IsHttps && !NetAddress.IsLoopback(from))
             {
                 await WriteErrorAsync(context, StatusCodes.Status403Forbidden, WireWords.UseHttps);
@@ -320,6 +325,25 @@ public sealed class HttpHost : IAsyncDisposable
             new Claim(McpTools.LoopbackClaim, NetAddress.IsLoopback(remote) ? "1" : "0"),
         ], "playmap"));
         await next(context);
+    }
+
+    /// <summary>Why a web page from another site is refused the line channel.</summary>
+    internal const string LineChannelOrigin =
+        "the line channel is for controllers, not web pages — a page from another site may not drive this node (no Origin, or this node's own)";
+
+    /// <summary>A controller (Companion's module, a script) sends no Origin; a browser always does, and a page the node did not serve
+    /// must never reach the line wire — on a trusted address it would be paired at once. Only this node's own origin may.</summary>
+    private static bool SameOriginOrNone(HttpRequest request)
+    {
+        var origin = request.Headers.Origin;
+        if (origin.Count == 0)
+            return true;
+        return origin.Count == 1
+            && Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && string.Equals(uri.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)
+            && request.Host.HasValue
+            && string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A WebSocket upgrade on <c>/ws</c> that offers the line wire's subprotocol.</summary>

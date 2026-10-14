@@ -8,7 +8,8 @@ parameters in VERBS, and the network announcement. `docs/COMPANION.md` says how 
 - A WebSocket upgrade on `/ws` that offers `playmap.lines.v1` runs the same line session as TCP 9941: one UTF-8 text frame is one
   line of at most 64 KiB (a trailing `\n` is tolerated), and every frame the node sends is one line. Without the subprotocol `/ws`
   is the screens' JSON socket, unchanged.
-- The upgrade skips the web's header token; `RequireHttps` (403) and the address's wrong-token lockout (429) still hold before it.
+- The upgrade skips the web's header token; a browser page from another site (an `Origin` header that is not this node's own,
+  403), `RequireHttps` (403) and the address's wrong-token lockout (429) still hold before it. Controllers send no `Origin`.
 - Until the session pairs it answers only `NONCE`, `HELLO`, `AUTH-PROOF`, `AUTH` (refused: proofs only) and `PING`; anything else is
   `ERR not paired …`. The greeting `STATE` waits for `OK paired`. A node that asks no token, or trusts the address, is paired at once.
 - Wrong proofs count against the address in the web port's ledger (the same five a minute as a wrong header token).
