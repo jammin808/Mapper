@@ -334,7 +334,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     private void Republish()
     {
-        _snapshot = new EngineSnapshot(Store.Current, Playback.Snapshot, _air);
+        var snapshot = new EngineSnapshot(Store.Current, Playback.Snapshot, _air);
+        SnapshotShow(ref snapshot);
+        _snapshot = snapshot;
         StateChanged?.Invoke(StateKey());
     }
 

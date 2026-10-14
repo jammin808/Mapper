@@ -49,6 +49,7 @@ ENGINE_HOOKS = [
     ("RecoverySave{0}", "IDictionary<string, string> into", ["Show", "Fleet", "Sync", "Control", "Led"]),
     ("RecoveryLoad{0}", "IReadOnlyDictionary<string, string> from", ["Show", "Fleet", "Sync", "Control", "Led"]),
     ("GateLine", "VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore", ["Show"]),
+    ("SnapshotShow", "ref EngineSnapshot snapshot", ["Show"]),
 ]
 
 # Render host hooks (Engine/Rendering/RenderHost.cs) and shader program hooks (Render/Shaders/ShaderLibrary.cs).

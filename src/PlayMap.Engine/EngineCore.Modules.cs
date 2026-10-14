@@ -283,6 +283,10 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// show's stub.</summary>
     private partial ProjectStore? BlindStoreFor(SessionInfo session);
 
+    /// <summary>What the show package adds to each snapshot the lane publishes: the blind draft for the desk's draft view and a commit
+    /// waiting for its boundary (<see cref="EngineSnapshot.Draft"/>, <see cref="EngineSnapshot.Pending"/>). On the lane.</summary>
+    partial void SnapshotShow(ref EngineSnapshot snapshot);
+
     // The hooks. Every one is implemented in its package's stub file with an empty body that holds one comment line, so the stubs
     // land with the spine and each package fills its own.
     partial void RouteShow(VerbRoutes routes);

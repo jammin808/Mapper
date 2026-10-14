@@ -59,6 +59,11 @@ public sealed partial class EngineCore
         // wp2-show fills this.
     }
 
+    partial void SnapshotShow(ref EngineSnapshot snapshot)
+    {
+        // wp2-show fills this.
+    }
+
     private partial ProjectStore? BlindStoreFor(SessionInfo session) =>
         null; // wp2-show fills this (wp2-blind: the session's draft).
 }
