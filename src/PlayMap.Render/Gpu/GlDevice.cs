@@ -318,7 +318,8 @@ public sealed unsafe partial class GlDevice : IDisposable
             return;
         if (!HasPolygonMode)
         {
-            // ES without a polygon-mode extension: triangles draw filled (the editor's wireframe is the only caller).
+            // ES without a polygon-mode extension draws no wireframe: while it is asked for, indexed triangles are not drawn (the
+            // editor's selection outline is the only caller), so a filled pass never covers what it outlines.
             _wireframe = lines;
             return;
         }
@@ -412,6 +413,8 @@ public sealed unsafe partial class GlDevice : IDisposable
     public void DrawIndexed(ShaderProgram program, VertexArray vao, PrimitiveKind kind, int indexCount)
     {
         ArgumentNullException.ThrowIfNull(vao);
+        if (_wireframe == true && !HasPolygonMode && kind == PrimitiveKind.Triangles)
+            return;
         UseProgram(program);
         BindVertexArrayId(vao.Id);
         _gl.DrawElements(Primitive(kind), (uint)indexCount, GLEnum.UnsignedInt, null);

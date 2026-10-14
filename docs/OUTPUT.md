@@ -97,6 +97,11 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
+- **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here). Every
+  test passes on it except the two spine tests that assert a desktop core context by name
+  (`GlCapsTests.OnTheTestsCoreContextEveryBlockFamilyReadsTrue`, `ShaderConventionTests.EveryProgramCompilesAndLinksOnCore33`);
+  the leg runs with those two filtered out until they read the fixture's dialect, and it is not yet a step of the CI workflow.
+  On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
   CI job it says why it has no board ("no NVIDIA driver on this machine").
 - **Next round**: 10-bit output, device-lost rebuild, the PresentMon proof, the DRS stop-gap, scanline sampling; `SYNC MARKS`,

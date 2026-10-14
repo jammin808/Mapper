@@ -131,17 +131,17 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
     }
 }
 
-/// <summary>The same library on the desktop dialect (the GLX context every other GPU test uses).</summary>
+/// <summary>The same library on the dialect every other GPU test runs on: desktop 3.30 core, or ES 3.00 on the suite's ES leg.</summary>
 [Collection("gl")]
 public sealed class GlDialectCoreTests(GlFixture gl)
 {
     [Fact]
-    public void EveryLibraryProgramCompilesAndLinksOnCore330()
+    public void EveryLibraryProgramCompilesAndLinksOnTheSuitesDialect()
     {
         gl.Run(c =>
         {
-            Assert.Equal(GlDialect.Core330, c.Dialect);
-            Assert.True(c.Device.Caps.IsCore);
+            Assert.Equal(GlFixture.Dialect, c.Dialect);
+            Assert.Equal(GlFixture.Dialect == GlDialect.Core330, c.Device.Caps.IsCore);
             foreach (var name in ShaderLibrary.Names)
                 c.Device.Program(name);
             Assert.Empty(c.Device.TakeErrors());
