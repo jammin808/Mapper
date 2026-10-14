@@ -31,4 +31,7 @@ public sealed record FxAsset(string Id, string Name, FxFormat Format, string Pat
 
     /// <summary>The vertex file (.vs), or "" for the default full-screen vertex shader.</summary>
     public string VertexSource { get; init; } = "";
+
+    /// <summary>The pictures the file imports (ISF IMPORTED), by buffer name: PNG or JPEG bytes as base64.</summary>
+    public ImmutableSortedDictionary<string, string> Images { get; init; } = ImmutableSortedDictionary.Create<string, string>(StringComparer.Ordinal);
 }

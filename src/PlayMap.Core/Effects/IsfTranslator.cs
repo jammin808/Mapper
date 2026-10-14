@@ -34,15 +34,16 @@ public sealed partial record IsfLineMap(int FragmentBodyLine, int VertexBodyLine
             var line = raw.Trim();
             int source, n, col;
             string words;
+            bool error;
             if (MesaLine().Match(line) is { Success: true } m)
-                (source, n, col, words) = (Int(m.Groups[1].Value), Int(m.Groups[2].Value), Int(m.Groups[3].Value), m.Groups[5].Value);
+                (source, n, col, error, words) = (Int(m.Groups[1].Value), Int(m.Groups[2].Value), Int(m.Groups[3].Value), IsError(m.Groups[4].Value), m.Groups[5].Value);
             else if (NvidiaLine().Match(line) is { Success: true } v)
-                (source, n, col, words) = (Int(v.Groups[1].Value), Int(v.Groups[2].Value), 0, v.Groups[4].Value);
+                (source, n, col, error, words) = (Int(v.Groups[1].Value), Int(v.Groups[2].Value), 0, IsError(v.Groups[3].Value), v.Groups[4].Value);
             else if (AngleLine().Match(line) is { Success: true } a)
-                (source, n, col, words) = (Int(a.Groups[1].Value), Int(a.Groups[2].Value), 0, a.Groups[3].Value);
+                (source, n, col, error, words) = (Int(a.Groups[2].Value), Int(a.Groups[3].Value), 0, IsError(a.Groups[1].Value), a.Groups[4].Value);
             else
                 continue;
-            if (!line.Contains("error", StringComparison.OrdinalIgnoreCase) && !line.StartsWith("ERROR", StringComparison.Ordinal))
+            if (!error)
                 continue;
             words = words.Trim();
             if (stage.Length > 0)
@@ -61,15 +62,17 @@ public sealed partial record IsfLineMap(int FragmentBodyLine, int VertexBodyLine
         return nl > 0 ? t[..nl].Trim() : t;
     }
 
+    private static bool IsError(string kind) => kind.Equals("error", StringComparison.OrdinalIgnoreCase);
+
     private static int Int(string s) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
 
-    [GeneratedRegex(@"^(\d+):(\d+)\((\d+)\):\s*(error|warning)\s*:\s*(.*)$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:^|\s)(\d+):(\d+)\((\d+)\):\s*(error|warning)\s*:\s*(.*)$", RegexOptions.IgnoreCase)]
     private static partial Regex MesaLine();
 
-    [GeneratedRegex(@"^(\d+)\((\d+)\)\s*:\s*(error|warning)[^:]*:\s*(.*)$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:^|\s)(\d+)\((\d+)\)\s*:\s*(error|warning)[^:]*:\s*(.*)$", RegexOptions.IgnoreCase)]
     private static partial Regex NvidiaLine();
 
-    [GeneratedRegex(@"^(?:ERROR|WARNING):\s*(\d+):(\d+):\s*(.*)$")]
+    [GeneratedRegex(@"(ERROR|WARNING):\s*(\d+):(\d+):\s*(.*)$")]
     private static partial Regex AngleLine();
 }
 
