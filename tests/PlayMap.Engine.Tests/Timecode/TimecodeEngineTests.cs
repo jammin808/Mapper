@@ -147,4 +147,28 @@ public sealed class TimecodeEngineTests
         await rig.Ok("TIMECODE SOURCE REMOVE FOH");
         Assert.Empty(rig.Engine.Store.Project.Timecode.Sources);
     }
+
+    [Fact]
+    public async Task IndexListsTheChasesAndADisengagedChaseIsKeptForRecovery()
+    {
+        await using var rig = await ControlRig.StartAsync(Show());
+        await rig.Ok("TIMECODE SOURCE ADD Rehearsal INTERNAL");
+        await rig.Ok("TIMECODE CHASE Show Rehearsal");
+        await rig.Engine.StepChasesAsync();
+        var section = Assert.Single(rig.Engine.Routes.IndexSections, s => s.Section == "timecode");
+        Assert.Equal(("Timecode", "chase", "TIMECODE ENGAGE $(id) TOGGLE"), (section.Hint.Title, section.Hint.RowKind, section.Hint.Keys[0].DownLine));
+        var rows = JsonDocument.Parse(EngineCore.JsonOut(w => section.WriteRows(rig.Engine.Store.Project, rig.Engine.Snapshot, w))).RootElement;
+        var row = Assert.Single(rows.EnumerateArray());
+        Assert.Equal(("pl_show", "Show", "parked", "green"), (row.GetProperty("id").GetString(), row.GetProperty("label").GetString(),
+            row.GetProperty("state").GetString(), row.GetProperty("light").GetString()));
+
+        await rig.Ok("TIMECODE ENGAGE Show OFF");
+        var saved = rig.Engine.SaveModuleRecovery();
+        Assert.Equal("pl_show", saved["control.disengaged"]);
+        await using var again = await ControlRig.StartAsync(rig.Engine.Store.Project);
+        again.Engine.LoadModuleRecovery(saved);
+        await again.Engine.StepChasesAsync();
+        Assert.False(again.State().GetProperty("timecode").GetProperty("chases")[0].GetProperty("engaged").GetBoolean());
+        Assert.Equal("Show is already disengaged", await again.Refused("TIMECODE ENGAGE Show OFF"));
+    }
 }
