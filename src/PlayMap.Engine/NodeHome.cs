@@ -47,8 +47,9 @@ public sealed class NodeHome
             try
             {
                 var loaded = JsonSerializer.Deserialize<NodeSettings>(File.ReadAllText(SettingsPath), Json);
+                // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
                 if (loaded is not null && Ids.IsValid(loaded.NodeId))
-                    return loaded with { TrustedAddresses = loaded.TrustedAddresses.IsDefault ? [] : loaded.TrustedAddresses };
+                    return ProjectJson.Sanitize(loaded);
             }
             catch (JsonException)
             {

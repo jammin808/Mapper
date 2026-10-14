@@ -41,6 +41,35 @@ public sealed class NodeSettingsTests
     }
 
     [Fact]
+    public void APackageKeyWrittenAsNullReadsItsDefaults()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-settings-");
+        try
+        {
+            var home = new NodeHome(dir.FullName);
+            home.SaveSettings(NodeSettings.CreateDefault("Hand edited") with { Control = ControlSettings.Default with { OscPort = 9000 } });
+            var json = JsonNode.Parse(File.ReadAllText(home.SettingsPath))!.AsObject();
+            json["show"] = null;
+            json["led"] = null;
+            json["control"]!["surfacePorts"] = null;
+            File.WriteAllText(home.SettingsPath, json.ToJsonString());
+
+            var read = home.LoadSettings("unused");
+
+            Assert.Equal("Hand edited", read.Name);
+            Assert.Same(ShowSafetySettings.Default, read.Show);
+            Assert.Same(LedSettings.Default, read.Led);
+            Assert.False(read.Led.Output);
+            Assert.Equal(9000, read.Control.OscPort);
+            Assert.Empty(read.Control.SurfacePorts);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void AChangedValueComesBackAsSaved()
     {
         var dir = Directory.CreateTempSubdirectory("playmap-settings-");
