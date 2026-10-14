@@ -115,7 +115,8 @@ public static class ShowPolicy
             return Refuse("this client only reads — pair it (its token) to run lines");
         if (!facts.Armed)
             return Allowed;
-        if (role == ShowRole.Remote && facts.RemoteViewOnly)
+        // An approved assistant's line gets what a remote client gets and never more, so a read-only remote reads only for it too.
+        if ((role is ShowRole.Remote or ShowRole.Approved) && facts.RemoteViewOnly)
             return Refuse(Armed(spec, "would change the show, and remote clients only read while the show is armed",
                 "The desk can SHOW DISARM, or SHOW SET REMOTE-VIEW-ONLY OFF"));
         return role switch
@@ -199,7 +200,7 @@ public static class ShowPolicy
     }
 
     /// <summary>A person's approval of an assistant's line gets what a remote client gets, never more: no Show Mode words, no
-    /// media, no projector commands, and the air only towards dark.</summary>
+    /// media, no projector commands, no moving the show between machines, and the air only towards dark.</summary>
     private static ShowDecision Approved(VerbSpec spec, WireLine line, ShowClass cls, in ShowFacts facts)
     {
         const string WayOut = "Run it from the desk, or SHOW DISARM first";
@@ -207,7 +208,7 @@ public static class ShowPolicy
         {
             case ShowClass.Air when !TowardsDark(spec, line, facts.AirDark):
                 return Refuse(Armed(spec, "brings the air up, and an approved assistant's line only takes it towards dark", WayOut));
-            case ShowClass.Show or ShowClass.Media or ShowClass.DeviceSafe or ShowClass.Admin or ShowClass.Assistant:
+            case ShowClass.Show or ShowClass.Media or ShowClass.DeviceSafe or ShowClass.Fleet or ShowClass.Admin or ShowClass.Assistant:
                 return Refuse(Armed(spec, string.Concat(What(cls), ", and an approved assistant's line may only run the show"), WayOut));
             default:
                 var asRemote = Remote(spec, line, cls, facts);

@@ -48,7 +48,7 @@ an unknown prefix counts as mapping, the cautious side).
 | Fleet | FAILBACK with CONFIRM | FAILOVER only | P | R | A | A |
 | Admin (credentials) | A | R | R | R | R | A |
 
-`SHOW SET REMOTE-VIEW-ONLY ON` makes an armed remote read-only (PANIC still runs). PANIC is never refused for a paired person, armed
+`SHOW SET REMOTE-VIEW-ONLY ON` makes an armed remote read-only, and an approved assistant's line with it (PANIC still runs). PANIC is never refused for a paired person, armed
 or not, under a lock or not; from an assistant it waits for a person.
 
 **The words** say the rule and the way out: "Not while armed: WARP NODE moves the mapping on the air. SHOW DISARM on the desk

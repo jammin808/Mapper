@@ -46,6 +46,7 @@ public sealed class ShowPolicyTests
         { ShowClass.Project, "PROJECT OPEN show.playmap", "RRPRRA" },
         { ShowClass.Network, "LINK PATTERNS OFF", "RRPRAA" },
         { ShowClass.Fleet, "FAILBACK", "RRPRAA" },
+        { ShowClass.Fleet, "FAILOVER", "AAPRAA" },
         { ShowClass.Admin, "CREDENTIAL SET dv00000001 secret", "ARRRRA" },
         { ShowClass.Assistant, "APPROVE ap1", "AAPRAA" },
     };
@@ -145,6 +146,14 @@ public sealed class ShowPolicyTests
         Assert.Equal(ShowVerdict.Refuse, Decide("FREEZE OFF", ShowRole.Approved, true).Verdict);
         Assert.Equal(ShowVerdict.Allow, Decide("PLAYLIST NEXT pl_show", ShowRole.Approved, true).Verdict);
         Assert.Equal(ShowVerdict.Refuse, Decide("DEVICE SHUTTER dv00000001 CLOSE", ShowRole.Approved, true).Verdict);
+
+        // Never more than a remote: while remote clients only read, an approved line only reads too — PANIC aside.
+        var next = Decide("PLAYLIST NEXT pl_show", ShowRole.Approved, true, viewOnly: true);
+        Assert.Equal(ShowVerdict.Refuse, next.Verdict);
+        Assert.Contains("REMOTE-VIEW-ONLY OFF", next.Words, StringComparison.Ordinal);
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLACKOUT ON", ShowRole.Approved, true, viewOnly: true).Verdict);
+        Assert.Equal(ShowVerdict.Allow, Decide("PANIC", ShowRole.Approved, true, viewOnly: true).Verdict);
+        Assert.Equal(ShowVerdict.Allow, Decide("PLAYLIST NEXT pl_show", ShowRole.Approved, false, viewOnly: true).Verdict);
     }
 
     [Fact]
