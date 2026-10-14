@@ -1,1 +1,123 @@
-{}
+{
+  "fx": {
+    "budgetMs": 4,
+    "library": {
+      "builtin": 10,
+      "isf": 1,
+      "ffgl": 0,
+      "quarantined": 0
+    },
+    "compile": {
+      "lane": "shared-context",
+      "pending": 0,
+      "words": ""
+    },
+    "slots": [
+      {
+        "id": "fx00000001",
+        "owner": "op_fx",
+        "ownerKind": "output",
+        "index": 0,
+        "kind": "fx.invert",
+        "name": "Invert",
+        "state": "ok",
+        "gpuMs": 0,
+        "bypass": false,
+        "mix": 1,
+        "blend": "normal",
+        "scale": 1,
+        "deterministic": true,
+        "history": false,
+        "live": {},
+        "words": ""
+      },
+      {
+        "id": "fx00000002",
+        "owner": "op_fx",
+        "ownerKind": "output",
+        "index": 1,
+        "kind": "fx.blur",
+        "name": "Blur",
+        "state": "bypassed",
+        "gpuMs": 0,
+        "bypass": true,
+        "mix": 1,
+        "blend": "normal",
+        "scale": 1,
+        "deterministic": true,
+        "history": false,
+        "live": {},
+        "words": "bypassed"
+      },
+      {
+        "id": "fx00000003",
+        "owner": "op_fx",
+        "ownerKind": "output",
+        "index": 2,
+        "kind": "fx.feedback",
+        "name": "Feedback",
+        "state": "ok",
+        "gpuMs": 0,
+        "bypass": false,
+        "mix": 0.5,
+        "blend": "screen",
+        "scale": 1,
+        "deterministic": false,
+        "history": true,
+        "live": {},
+        "words": "integrates frame to frame: not frame-exact across nodes"
+      },
+      {
+        "id": "fx00000004",
+        "owner": "op_fx",
+        "ownerKind": "output",
+        "index": 3,
+        "kind": "isf:fa00000001",
+        "name": "Broken",
+        "state": "faulted",
+        "gpuMs": 0,
+        "bypass": false,
+        "mix": 1,
+        "blend": "normal",
+        "scale": 1,
+        "deterministic": true,
+        "history": false,
+        "live": {},
+        "words": "line 3: \u0060nowhere\u0027 undeclared"
+      },
+      {
+        "id": "fx00000005",
+        "owner": "ly_base",
+        "ownerKind": "layer",
+        "index": 0,
+        "kind": "fx.tile",
+        "name": "Tile",
+        "state": "idle",
+        "gpuMs": 0,
+        "bypass": false,
+        "mix": 1,
+        "blend": "normal",
+        "scale": 1,
+        "deterministic": true,
+        "history": false,
+        "live": {},
+        "words": "not drawn: this build draws effects on outputs only, not on a layer"
+      }
+    ],
+    "plugins": {
+      "enabled": false,
+      "inProcess": 0,
+      "words": "FFGL plugins are not hosted by this build"
+    }
+  },
+  "outputs": [
+    {
+      "id": "op_fx",
+      "fx": {
+        "slots": 4,
+        "costMs": 0,
+        "light": "amber"
+      }
+    }
+  ]
+}

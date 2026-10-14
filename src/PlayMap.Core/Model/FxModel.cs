@@ -21,5 +21,17 @@ public sealed record FxChain(ImmutableArray<FxSlot> Slots)
     public bool IsEmpty => Slots.IsDefaultOrEmpty;
 }
 
-/// <summary>An ISF file carried with the project, content-addressed and fetched by hash like media.</summary>
-public sealed record FxAsset(string Id, string Name, FxFormat Format, string Path, string ContentHash) : IEntity;
+/// <summary>An ISF file carried with the project: its name, where it was imported from, and its sources inline (an ISF file is a
+/// few kilobytes, so the show carries it whole and every node that opens the show has it). <see cref="ContentHash"/> is the
+/// SHA-256 of <see cref="Source"/> and <see cref="VertexSource"/> together (lowercase hex), the asset's identity across shows.</summary>
+public sealed record FxAsset(string Id, string Name, FxFormat Format, string Path, string ContentHash) : IEntity
+{
+    /// <summary>The fragment file (.fs), with its JSON header.</summary>
+    public string Source { get; init; } = "";
+
+    /// <summary>The vertex file (.vs), or "" for the default full-screen vertex shader.</summary>
+    public string VertexSource { get; init; } = "";
+
+    /// <summary>The pictures the file imports (ISF IMPORTED), by buffer name: PNG or JPEG bytes as base64.</summary>
+    public ImmutableSortedDictionary<string, string> Images { get; init; } = ImmutableSortedDictionary.Create<string, string>(StringComparer.Ordinal);
+}

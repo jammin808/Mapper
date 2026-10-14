@@ -46,6 +46,11 @@ Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages 
 
 ### wp2-fx
 
+- The ISF format (Interactive Shader Format, VIDVOX, specification under MIT): PlayMap reads and translates ISF files with its
+  own parser and translator; no ISF code is shipped. The built-in effects in `src/PlayMap.Render/Effects/Library` are PlayMap's
+  own (MIT). The opt-in corpus test compiles a checkout of the public ISF files the user names (`PLAYMAP_ISF_CORPUS`); none of
+  them is in the tree.
+
 ### wp2-audio
 
 ### wp2-content
