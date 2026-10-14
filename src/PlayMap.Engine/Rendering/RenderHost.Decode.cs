@@ -1,23 +1,42 @@
+using PlayMap.Core.Media;
 using PlayMap.Render.Engine;
+using PlayMap.Render.Gpu;
 
 namespace PlayMap.Engine.Rendering;
 
-/// <summary>wp2-decode's hooks into the render host: what it adds to each frame's inputs, and its GPU objects made when the
-/// context exists and let go when it goes (render thread).</summary>
+/// <summary>wp2-decode's hooks into the render host: the block families the context samples go to the engine (and through it
+/// to the media backend, which opens HAP for them) on the first frame after the context comes, and "none" when it goes. Render
+/// thread; nothing allocates per frame.</summary>
 public sealed partial class RenderHost
 {
+    // The families the context samples (−1: no context) and what the engine was last told (−2: nothing yet); the window-system
+    // binding the context came through (asked once per context, with it current).
+    private volatile int _decodeFormats = -1;
+    private int _decodeSent = -2;
+    private volatile string _decodeBinding = "";
+
     partial void ComposeDecode(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
-        // wp2-decode fills this.
+        var formats = _decodeFormats;
+        if (formats == _decodeSent)
+            return;
+        _decodeSent = formats;
+        engine.DecodeRenderer(formats < 0 ? null : (BlockFormats)formats, _decodeBinding);
     }
 
     partial void OnContextDecode(RenderEngine renderer)
     {
-        // wp2-decode fills this.
+        _decodeBinding = GlDevice.CurrentBinding();
+        _decodeFormats = (int)renderer.Device.BlockFormats;
     }
 
     partial void OnContextLostDecode()
     {
-        // wp2-decode fills this.
+        _decodeFormats = -1;
+        if (Volatile.Read(ref _engine) is { } engine)
+        {
+            _decodeSent = -1;
+            engine.DecodeRenderer(null);
+        }
     }
 }

@@ -24,4 +24,9 @@
     <ProjectReference Include="..\..\src\PlayMap.Media\PlayMap.Media.csproj" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-decode">
+    <!-- Snappier (BSD-3-Clause), test only: the reference Snappy codec the HAP second stage is checked and timed against. -->
+    <PackageReference Include="Snappier" Version="1.3.1" />
+  </ItemGroup>
+
 </Project>

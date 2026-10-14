@@ -24,4 +24,10 @@
     <ProjectReference Include="..\..\src\PlayMap.Render\PlayMap.Render.csproj" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-decode">
+    <!-- BCnEncoder.NET (MIT OR Unlicense), test only: writes the BC1/BC3/BC4/BC7/BC6H blocks the HAP tests upload and is the
+         CPU reference decoder they are compared with. -->
+    <PackageReference Include="BCnEncoder.Net" Version="2.3.0" />
+  </ItemGroup>
+
 </Project>

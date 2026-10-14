@@ -1,1 +1,75 @@
-[]
+[
+  {
+    "id": "decode.platform",
+    "title": "Decode",
+    "path": "decode.platform",
+    "light": "decode.platform.light",
+    "words": "decode.platform.words",
+    "fields": [
+      {
+        "label": "HAP layers at 4K60",
+        "path": "decode.platform.hapLayers4k60.value"
+      },
+      {
+        "label": "Limit",
+        "path": "decode.platform.hapLayers4k60.limit"
+      },
+      {
+        "label": "BC1 / BC3",
+        "path": "decode.platform.blocks.bc3"
+      },
+      {
+        "label": "BC4",
+        "path": "decode.platform.blocks.bc4"
+      },
+      {
+        "label": "BC7 / BC6H",
+        "path": "decode.platform.blocks.bc7"
+      },
+      {
+        "label": "Staging",
+        "path": "decode.platform.blocks.staging"
+      }
+    ],
+    "actions": [
+      "PREFLIGHT QUICK"
+    ]
+  },
+  {
+    "id": "decode.source",
+    "title": "Decoder",
+    "path": "decode.sources[]",
+    "key": "media",
+    "light": "light",
+    "words": "why",
+    "fields": [
+      {
+        "label": "Codec",
+        "path": "codec"
+      },
+      {
+        "label": "Path",
+        "path": "path"
+      },
+      {
+        "label": "Decode ms p95",
+        "path": "decodeMsP95"
+      },
+      {
+        "label": "Texture",
+        "path": "hap.texture"
+      },
+      {
+        "label": "Chunks",
+        "path": "hap.chunks"
+      },
+      {
+        "label": "Refused",
+        "path": "hap.corrupt"
+      }
+    ],
+    "actions": [
+      "MEDIA INSPECT {media}"
+    ]
+  }
+]

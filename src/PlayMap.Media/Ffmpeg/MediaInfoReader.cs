@@ -1,4 +1,5 @@
 using FFmpeg.AutoGen;
+using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Media.Frames;
 
@@ -24,6 +25,13 @@ internal static unsafe class MediaInfoReader
             var format = (AVPixelFormat)p->format;
             pixelFormat = format == AVPixelFormat.AV_PIX_FMT_NONE ? "" : FrameFormats.Name(format);
             alpha = (format != AVPixelFormat.AV_PIX_FMT_NONE && FrameFormats.HasAlpha(format)) || AlphaTagged(s);
+            if (HapCodecs.TryFromTag(p->codec_tag, out var hap))
+            {
+                // FFmpeg names five HAP fourccs "hap" and two (HAP R, HAP HDR) not at all: the fourcc names each one.
+                videoCodec = HapCodecs.Name(hap);
+                pixelFormat = HapCodecs.TextureWord(HapCodecs.Layout(hap, HapCodecs.FirstTexture(hap)));
+                alpha = hap is HapCodec.HapAlpha or HapCodec.HapQAlpha or HapCodec.HapR;
+            }
             duration = input.DurationNs(video);
         }
         if (audio >= 0)

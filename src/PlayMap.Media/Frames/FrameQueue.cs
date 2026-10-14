@@ -261,12 +261,16 @@ internal sealed class FrameQueue : IDisposable
     }
 
     /// <summary>Appends a frame (the queue takes the producer's reference). Refused — and released — while a
-    /// seek is pending or when it is not after the newest frame.</summary>
-    public bool Publish(FrameSlot slot)
+    /// seek is pending or when it is not after the newest frame. <paramref name="afterGap"/> says the producer skipped
+    /// frames between the newest queued one and this one (it caught up without decoding them): the queued frames are let
+    /// go first, so the queue only ever holds frames that follow one another and a request into the skipped stretch seeks.</summary>
+    public bool Publish(FrameSlot slot, bool afterGap = false)
     {
         var accepted = false;
         lock (_gate)
         {
+            if (afterGap && !_closed && !_seekPending)
+                Flush();
             if (!_closed && !_seekPending && _count < _ring.Length && (_count == 0 || slot.PtsNs > At(_count - 1).PtsNs))
             {
                 _ring[(_head + _count) % _ring.Length] = slot;
