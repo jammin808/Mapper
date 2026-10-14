@@ -97,18 +97,18 @@ public sealed record Receipt(string Id, bool Ok, string Stage, string Effect, st
 
 /// <summary>The node's own settings — machine-local, never in a project file (a project travels; a pairing
 /// token and a bind address do not). Each round-2 package keeps its own settings in NodeSettings.&lt;Word&gt;.cs; an older file reads
-/// their defaults.</summary>
+/// their defaults. The node's id, name and token are written first, so a file cut short still says who the node is.</summary>
 public sealed partial record NodeSettings(
     /// <summary>Stable per install, 8 lowercase hex.</summary>
-    string NodeId,
-    string Name,
+    [property: System.Text.Json.Serialization.JsonPropertyOrder(-3)] string NodeId,
+    [property: System.Text.Json.Serialization.JsonPropertyOrder(-2)] string Name,
     /// <summary>"" = all interfaces; an address = that interface only (fails closed when invalid).</summary>
     string Bind,
     int HttpPort,
     int WirePort,
     int SyncPort,
     /// <summary>The pairing token ("" = open: this node asks for no token).</summary>
-    string Token,
+    [property: System.Text.Json.Serialization.JsonPropertyOrder(-1)] string Token,
     bool TrustLoopback,
     /// <summary>Addresses whose lines count as paired without a proof — a Patterns desk driving this node as
     /// an Interactive "Lines" device cannot answer a NONCE (Patterns' OSC ALLOW list, the same idea).</summary>
