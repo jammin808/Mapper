@@ -157,7 +157,12 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             Assert.Equal("ycocg-bc3", hap.GetProperty("texture").GetString());
             Assert.Equal(0, hap.GetProperty("corrupt").GetInt64());
             Assert.Equal(0.003, hap.GetProperty("uploadMb").GetDouble());   // 16 × 12 blocks of 16 bytes
-            Assert.Equal("glx", state.RootElement.GetProperty("machine").GetProperty("gl").GetString());
+            // The binding the render context came through: GLFW on an X server (this rig's Xvfb) makes it with GLX.
+            var gl = state.RootElement.GetProperty("machine").GetProperty("gl").GetString();
+            if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+                Assert.Equal("glx", gl);
+            else
+                Assert.Contains(gl, new[] { "egl", "glx", "wgl", "cgl" });
             Assert.Equal("green", decode.GetProperty("platform").GetProperty("light").GetString());
 
             var inspect = await rig.Run("MEDIA INSPECT " + id);
