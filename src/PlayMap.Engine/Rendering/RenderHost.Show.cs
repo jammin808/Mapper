@@ -2,22 +2,23 @@ using PlayMap.Render.Engine;
 
 namespace PlayMap.Engine.Rendering;
 
-/// <summary>wp2-show's hooks into the render host: what it adds to each frame's inputs, and its GPU objects made when the
-/// context exists and let go when it goes (render thread).</summary>
+/// <summary>wp2-show's hooks into the render host: each frame takes the air's levels the lane built last (the master, a panic,
+/// a return from one); null leaves every output at full. The show makes no GPU objects of its own.</summary>
 public sealed partial class RenderHost
 {
     partial void ComposeShow(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
-        // wp2-show fills this.
+        if (engine.AirLevelsNow is { } levels)
+            inputs = inputs with { Levels = levels };
     }
 
     partial void OnContextShow(RenderEngine renderer)
     {
-        // wp2-show fills this.
+        // The show makes no GPU objects: its levels ride on uAir and the pattern-override path.
     }
 
     partial void OnContextLostShow()
     {
-        // wp2-show fills this.
+        // Nothing to let go: the show holds no GPU objects.
     }
 }

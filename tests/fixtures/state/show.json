@@ -1,1 +1,100 @@
-{}
+{
+  "air": {
+    "master": {
+      "level": 0.8,
+      "to": 0.8,
+      "untilLeaderNs": 0
+    },
+    "panic": {
+      "outcome": "black",
+      "hard": false,
+      "by": "Desk",
+      "since": 1760000000000,
+      "outputs": [
+        {
+          "id": "op_1",
+          "outcome": "black",
+          "level": 0.5,
+          "settled": false
+        }
+      ],
+      "devices": []
+    }
+  },
+  "show": {
+    "armed": true,
+    "by": "Desk",
+    "since": 1760000000000,
+    "words": "doors at eight",
+    "rules": {
+      "minGoMs": 300,
+      "minGoMsRehearsal": 0,
+      "remoteViewOnly": false,
+      "disarmFrom": "paired",
+      "expectArmed": true,
+      "defaultOutcome": "black",
+      "defaultFadeMs": 1000,
+      "panicLeadMs": 0
+    },
+    "blind": null,
+    "panic": {
+      "outcome": "black",
+      "hard": false,
+      "by": "Desk",
+      "since": 1760000000000,
+      "outputs": [
+        {
+          "id": "op_1",
+          "outcome": "black",
+          "level": 0.5,
+          "settled": false
+        }
+      ],
+      "devices": []
+    },
+    "locks": [
+      {
+        "target": "content",
+        "kind": "area",
+        "by": "Desk",
+        "at": 1760000000000,
+        "words": "show night",
+        "implicit": false
+      },
+      {
+        "target": "mapping",
+        "kind": "area",
+        "by": "Desk",
+        "at": 1760000000000,
+        "words": "",
+        "implicit": true
+      },
+      {
+        "target": "layout",
+        "kind": "area",
+        "by": "Desk",
+        "at": 1760000000000,
+        "words": "",
+        "implicit": true
+      }
+    ],
+    "refused": {
+      "last60s": 1,
+      "last": "Companion: FOH deck \u2014 SET op_1 width 1280 \u2014 Not while armed: SET changes the outputs on the air, and this client may only run the show while it is armed. The desk can SHOW DISARM."
+    },
+    "preflight": {
+      "id": "pf_fixture",
+      "at": 1760000000000,
+      "depth": "quick",
+      "light": "red",
+      "green": 3,
+      "amber": 0,
+      "red": 1,
+      "grey": 2,
+      "ready": "4/5",
+      "firstOpen": "outputs: Output 1 \u2014 this machine has no display for it",
+      "running": false
+    },
+    "minGoMs": 300
+  }
+}

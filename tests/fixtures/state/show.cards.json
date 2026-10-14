@@ -1,1 +1,206 @@
-[]
+[
+  {
+    "title": "Show",
+    "path": "show",
+    "light": [
+      {
+        "if": "panic",
+        "light": "red"
+      },
+      {
+        "if": "armed",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{armed?ARMED by {by}:rehearsal} \u00B7 MinGo {minGoMs} ms",
+    "fields": [
+      {
+        "label": "Armed",
+        "path": "armed"
+      },
+      {
+        "label": "By",
+        "path": "by"
+      },
+      {
+        "label": "Why",
+        "path": "words"
+      },
+      {
+        "label": "MinGo (ms)",
+        "path": "minGoMs"
+      },
+      {
+        "label": "Refused, last minute",
+        "path": "refused.last60s"
+      },
+      {
+        "label": "Last refusal",
+        "path": "refused.last"
+      }
+    ],
+    "actions": [
+      "SHOW ARM",
+      "SHOW DISARM",
+      "LOCKS",
+      "SHOW SET REMOTE-VIEW-ONLY ON"
+    ]
+  },
+  {
+    "title": "Panic",
+    "path": "show.panic",
+    "light": [
+      {
+        "if": "hard",
+        "light": "red"
+      },
+      {
+        "if": "outcome",
+        "light": "red"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "PANIC {outcome} by {by}",
+    "fields": [
+      {
+        "label": "Outcome",
+        "path": "outcome"
+      },
+      {
+        "label": "Hard",
+        "path": "hard"
+      },
+      {
+        "label": "By",
+        "path": "by"
+      },
+      {
+        "label": "Since",
+        "path": "since"
+      },
+      {
+        "label": "Outputs",
+        "path": "outputs"
+      },
+      {
+        "label": "Devices",
+        "path": "devices"
+      }
+    ],
+    "actions": [
+      "PANIC",
+      "PANIC CLEAR",
+      "PANIC HARD"
+    ]
+  },
+  {
+    "title": "Master",
+    "path": "air.master",
+    "light": [
+      {
+        "light": "green"
+      }
+    ],
+    "words": "master {level}",
+    "fields": [
+      {
+        "label": "Level",
+        "path": "level"
+      },
+      {
+        "label": "To",
+        "path": "to"
+      },
+      {
+        "label": "Until (leader ns)",
+        "path": "untilLeaderNs"
+      }
+    ],
+    "actions": [
+      "MASTER 100",
+      "MASTER 0 FADE 3000"
+    ]
+  },
+  {
+    "title": "Locks",
+    "path": "show.locks",
+    "light": [
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{count} locks",
+    "fields": [
+      {
+        "label": "Target",
+        "path": "0.target"
+      },
+      {
+        "label": "Kind",
+        "path": "0.kind"
+      },
+      {
+        "label": "By",
+        "path": "0.by"
+      },
+      {
+        "label": "Why",
+        "path": "0.words"
+      },
+      {
+        "label": "Implicit",
+        "path": "0.implicit"
+      }
+    ],
+    "actions": [
+      "LOCKS",
+      "UNLOCK ALL",
+      "LOCK AREA mapping"
+    ]
+  },
+  {
+    "title": "Preflight",
+    "path": "show.preflight",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{green} green \u00B7 {amber} amber \u00B7 {red} red \u00B7 show-ready {ready}",
+    "fields": [
+      {
+        "label": "Show-ready",
+        "path": "ready"
+      },
+      {
+        "label": "First open",
+        "path": "firstOpen"
+      },
+      {
+        "label": "Green",
+        "path": "green"
+      },
+      {
+        "label": "Amber",
+        "path": "amber"
+      },
+      {
+        "label": "Red",
+        "path": "red"
+      },
+      {
+        "label": "Running",
+        "path": "running"
+      }
+    ],
+    "actions": [
+      "PREFLIGHT",
+      "PREFLIGHT REPORT"
+    ]
+  }
+]
