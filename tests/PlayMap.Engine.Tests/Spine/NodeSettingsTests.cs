@@ -99,4 +99,57 @@ public sealed class NodeSettingsTests
             dir.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void AListWrittenAsNullReadsEmptyAndTheNodeStaysWhoItIs()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-settings-");
+        try
+        {
+            var home = new NodeHome(dir.FullName);
+            var saved = NodeSettings.CreateDefault("Stage left") with { TrustedAddresses = ["10.0.0.5"] };
+            home.SaveSettings(saved);
+            var json = JsonNode.Parse(File.ReadAllText(home.SettingsPath))!.AsObject();
+            json["trustedAddresses"] = null;
+            File.WriteAllText(home.SettingsPath, json.ToJsonString());
+
+            var read = home.LoadSettings("unused");
+
+            Assert.Equal(saved.NodeId, read.NodeId);
+            Assert.Equal(saved.Token, read.Token);
+            Assert.Empty(read.TrustedAddresses);
+            Assert.False(File.Exists(home.SettingsPath + ".damaged"));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AFileThatNoLongerReadsIsKeptAndTheNodeKeepsItsIdNameAndToken()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-settings-");
+        try
+        {
+            var home = new NodeHome(dir.FullName);
+            var saved = NodeSettings.CreateDefault("Stage left");
+            home.SaveSettings(saved);
+            var text = File.ReadAllText(home.SettingsPath);
+            // Cut short, as a full disk or a stray edit leaves a file.
+            File.WriteAllText(home.SettingsPath, text[..(text.Length / 2)]);
+
+            var read = home.LoadSettings("unused");
+
+            Assert.Equal(saved.NodeId, read.NodeId);
+            Assert.Equal("Stage left", read.Name);
+            Assert.Equal(saved.Token, read.Token);
+            Assert.True(File.Exists(home.SettingsPath + ".damaged"));
+            Assert.Equal(read.NodeId, home.LoadSettings("unused").NodeId);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
 }

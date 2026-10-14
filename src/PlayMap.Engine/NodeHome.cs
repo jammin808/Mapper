@@ -42,24 +42,102 @@ public sealed class NodeHome
     /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept.</summary>
     public NodeSettings LoadSettings(string defaultName)
     {
-        if (File.Exists(SettingsPath))
+        if (!File.Exists(SettingsPath))
         {
-            try
-            {
-                var loaded = JsonSerializer.Deserialize<NodeSettings>(File.ReadAllText(SettingsPath), Json);
-                // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
-                if (loaded is not null && Ids.IsValid(loaded.NodeId))
-                    return ProjectJson.Sanitize(loaded);
-            }
-            catch (JsonException)
-            {
-                // A damaged settings file is kept beside the new one so nothing is lost silently.
-                File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
-            }
+            var first = NodeSettings.CreateDefault(defaultName);
+            SaveSettings(first);
+            return first;
         }
-        var fresh = NodeSettings.CreateDefault(defaultName);
+        var text = File.ReadAllText(SettingsPath);
+        try
+        {
+            // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
+            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
+            if (loaded is not null && Ids.IsValid(loaded.NodeId))
+                return ProjectJson.Sanitize(loaded);
+        }
+        catch (JsonException)
+        {
+            // Falls through: the file is kept and the node keeps who it is.
+        }
+        // A file that does not read is kept beside the new one so nothing is lost silently, and the new one keeps the
+        // node's id, name and pairing token whenever the old one still says them: a typo never unpairs the show.
+        File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
+        var fresh = KeepIdentity(NodeSettings.CreateDefault(defaultName), text);
         SaveSettings(fresh);
         return fresh;
+    }
+
+    private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+
+    /// <summary>The settings' JSON with every null-valued key removed, at any depth, so it reads as missing.</summary>
+    private static System.Text.Json.Nodes.JsonNode? WithoutNulls(string text)
+    {
+        var root = System.Text.Json.Nodes.JsonNode.Parse(text, documentOptions: Lenient);
+        Prune(root);
+        return root;
+
+        static void Prune(System.Text.Json.Nodes.JsonNode? node)
+        {
+            if (node is System.Text.Json.Nodes.JsonObject obj)
+            {
+                foreach (var key in obj.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList())
+                    obj.Remove(key);
+                foreach (var kv in obj)
+                    Prune(kv.Value);
+            }
+            else if (node is System.Text.Json.Nodes.JsonArray arr)
+            {
+                foreach (var item in arr)
+                    Prune(item);
+            }
+        }
+    }
+
+    /// <summary>The node's id, name and pairing token from a settings file that no longer reads as a whole: from its
+    /// JSON when that parses, else from the text of the three keys.</summary>
+    private static NodeSettings KeepIdentity(NodeSettings fresh, string text)
+    {
+        string? id = null, name = null, token = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text, Lenient);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                {
+                    if (p.Value.ValueKind != JsonValueKind.String)
+                        continue;
+                    if (p.Name.Equals("nodeId", StringComparison.OrdinalIgnoreCase))
+                        id = p.Value.GetString();
+                    else if (p.Name.Equals("name", StringComparison.OrdinalIgnoreCase))
+                        name = p.Value.GetString();
+                    else if (p.Name.Equals("token", StringComparison.OrdinalIgnoreCase))
+                        token = p.Value.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            id = Quoted(text, "nodeId");
+            name = Quoted(text, "name");
+            token = Quoted(text, "token");
+        }
+        if (Ids.IsValid(id))
+            fresh = fresh with { NodeId = id! };
+        if (!string.IsNullOrWhiteSpace(name))
+            fresh = fresh with { Name = name };
+        if (token is not null)
+            fresh = fresh with { Token = token };
+        return fresh;
+
+        static string? Quoted(string text, string key)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text, "\"" + key + "\"\\s*:\\s*\"([^\"\\\\]*)\"",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1));
+            return m.Success ? m.Groups[1].Value : null;
+        }
     }
 
     public void SaveSettings(NodeSettings settings)
