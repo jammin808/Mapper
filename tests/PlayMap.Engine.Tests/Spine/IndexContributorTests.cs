@@ -37,23 +37,25 @@ public sealed class IndexContributorTests
     public async Task ASectionIsListedOnceAndASecondContributorForItThrows()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        var fx = new FakeSection("fx");
-        engine.Routes.Index(fx);
-        engine.Routes.Index(new FakeSection("led"));
+        // Section names no package uses, so the test holds whatever the merged packages contribute.
+        var first = new FakeSection("spine-test-a");
+        engine.Routes.Index(first);
+        engine.Routes.Index(new FakeSection("spine-test-b"));
 
-        Assert.Equal(["fx", "led"], engine.Routes.IndexSections.Select(s => s.Section).Order(StringComparer.Ordinal));
-        Assert.Single(engine.Routes.IndexSections, s => s.Section == "fx");
-        var twice = Assert.Throws<InvalidOperationException>(() => engine.Routes.Index(new FakeSection("fx")));
-        Assert.Contains("fx", twice.Message, StringComparison.Ordinal);
-        Assert.Same(fx, engine.Routes.IndexSections.Single(s => s.Section == "fx"));
+        Assert.Equal(["spine-test-a", "spine-test-b"],
+            engine.Routes.IndexSections.Select(s => s.Section).Where(s => s.StartsWith("spine-test-", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+        Assert.Single(engine.Routes.IndexSections, s => s.Section == "spine-test-a");
+        var twice = Assert.Throws<InvalidOperationException>(() => engine.Routes.Index(new FakeSection("spine-test-a")));
+        Assert.Contains("spine-test-a", twice.Message, StringComparison.Ordinal);
+        Assert.Same(first, engine.Routes.IndexSections.Single(s => s.Section == "spine-test-a"));
     }
 
     [Fact]
     public async Task RowsAreWrittenFromPublishedStateOffTheLane()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        engine.Routes.Index(new FakeSection("fx"));
-        var section = engine.Routes.IndexSections.Single();
+        engine.Routes.Index(new FakeSection("spine-test-rows"));
+        var section = engine.Routes.IndexSections.Single(s => s.Section == "spine-test-rows");
         var snapshot = engine.Snapshot;
 
         var json = await Task.Run(() =>

@@ -21,7 +21,11 @@ public sealed class PushTopicTests
         rig.Engine.Routes.Topic("FAKE", (_, _, _) => PushOpen.Refuse("never opened here"));
         await using var c = await rig.WireAsync();
 
-        Assert.Equal("ERR @u EVERYTHING is not a topic (STATE, CONTEXT, PROJECT, OFF, FAKE)", await c.AskAsync("@u SUBSCRIBE EVERYTHING"));
+        // The session's own topics first, then every topic the merged packages serve (FAKE among them).
+        var refused = await c.AskAsync("@u SUBSCRIBE EVERYTHING");
+        Assert.StartsWith("ERR @u EVERYTHING is not a topic (STATE, CONTEXT, PROJECT, OFF, ", refused, StringComparison.Ordinal);
+        Assert.EndsWith(")", refused, StringComparison.Ordinal);
+        Assert.Contains(", FAKE", refused, StringComparison.Ordinal);
     }
 
     [Fact]

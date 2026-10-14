@@ -32,7 +32,7 @@ public sealed class AvailabilityTests
                 continue;
             }
             Assert.True(rows.TryGetValue(v.Name, out var available), v.Name);
-            Assert.Equal(v.Round == 1, available);
+            Assert.Equal(v.Round == 1 || engine.Routes.IsRouted(v.Name), available);
         }
     }
 
@@ -63,8 +63,8 @@ public sealed class AvailabilityTests
     public async Task McpListVerbsAndTheContextsCommandsHoldOnlyWhatTheNodeAnswers()
     {
         await using var rig = await HostRig.StartAsync();
-        var routed = VerbCatalog.Find("SHOW ARM")!;
-        rig.Engine.Routes.Lane(routed.Name, _ => CommandReply.Success(effect: "armed"));
+        var routed = RoutesTests.Unrouted(rig.Engine, v => v.Mutates);
+        rig.Engine.Routes.Lane(routed.Name, _ => CommandReply.Success(effect: "done"));
         using var http = rig.Http();
         await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
         {
@@ -77,12 +77,13 @@ public sealed class AvailabilityTests
         var names = doc.RootElement.EnumerateArray().Select(r => r.GetProperty("name").GetString()!).ToHashSet(StringComparer.Ordinal);
         Assert.All(doc.RootElement.EnumerateArray(), r => Assert.True(r.GetProperty("available").GetBoolean()));
         foreach (var v in VerbCatalog.All)
-            Assert.Equal(!v.Internal && (v.Round == 1 || v == routed), names.Contains(v.Name));
+            Assert.Equal(!v.Internal && rig.Engine.IsAvailable(v), names.Contains(v.Name));
+        Assert.Contains(routed.Name, names);
 
         using var context = JsonDocument.Parse(rig.Engine.Context());
         var commands = context.RootElement.GetProperty("commands").EnumerateArray().Select(c => c.GetProperty("verb").GetString()).ToHashSet(StringComparer.Ordinal);
         Assert.Contains(routed.Syntax, commands);
-        foreach (var v in VerbCatalog.All.Where(v => v.Round == 2 && v != routed))
+        foreach (var v in VerbCatalog.All.Where(v => v.Round == 2 && !rig.Engine.IsAvailable(v)))
             Assert.DoesNotContain(v.Syntax, commands);
     }
 
@@ -96,8 +97,8 @@ public sealed class AvailabilityTests
             Endpoint = new Uri(http.BaseAddress!, "/mcp"),
             TransportMode = HttpTransportMode.StreamableHttp,
         }));
-        var unrouted = VerbCatalog.Find("PANIC")!;
-        Assert.Equal(VerbRisk.High, unrouted.Risk);
+        // A high-risk one, which "AI may act" off would otherwise queue for a person.
+        var unrouted = RoutesTests.Unrouted(rig.Engine, v => v.Risk == VerbRisk.High && v.Mutates);
 
         var result = await mcp.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = unrouted.Name, ["reason"] = "test" });
 

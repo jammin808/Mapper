@@ -4,7 +4,8 @@ namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>The packages' routes: an engine builds with every hook in place; a row is routed once, by its own name; a round-2 row
 /// no package routed answers "not available on this node yet"; a routed one reaches its handler with its words; pairing, the
-/// node-to-node rule and the journal follow the router's rules for a package's verb too.</summary>
+/// node-to-node rule and the journal follow the router's rules for a package's verb too. These run at every merge (PLAN §6.1), so
+/// they hold whatever the merged packages route: a test that routes a row of its own takes one no package routes yet.</summary>
 public sealed class RoutesTests
 {
     private static readonly SessionInfo Node = EngineCore.SystemSession;
@@ -16,17 +17,24 @@ public sealed class RoutesTests
         return await engine.HandleAsync(parsed, session, CancellationToken.None);
     }
 
+    /// <summary>A round-2 row no merged package routes on this engine, for a test that routes it itself. Once every row is routed the
+    /// integration pass replaces the tests that ask for one.</summary>
+    internal static VerbSpec Unrouted(EngineCore engine, Func<VerbSpec, bool> also) =>
+        VerbCatalog.All.FirstOrDefault(v => v.Round == 2 && !v.Internal && !engine.Routes.IsRouted(v.Name) && also(v))
+        ?? throw new InvalidOperationException("every such round-2 row is routed — the integration pass replaces this test");
+
     [Fact]
-    public async Task AnEngineBuildsAndNoRoundTwoRowIsRoutedYet()
+    public async Task AnEngineBuildsAndARowIsAvailableExactlyWhenItIsTodaysOrRouted()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
         foreach (var v in VerbCatalog.All)
         {
             Assert.False(engine.Routes.IsRouted(v.Name) && v.Round == 1, $"{v.Name} is a first-round row, answered by the router itself");
-            Assert.Equal(v.Round == 1, engine.IsAvailable(v));
+            Assert.Equal(v.Round == 1 || engine.Routes.IsRouted(v.Name), engine.IsAvailable(v));
         }
-        Assert.Empty(engine.Routes.Topics);
-        Assert.Empty(engine.Routes.IndexSections);
+        Assert.All(engine.Routes.Topics, t => Assert.DoesNotContain(t.ToUpperInvariant(), new[] { "STATE", "CONTEXT", "PROJECT", "OFF" }));
+        var sections = engine.Routes.IndexSections.Select(s => s.Section).ToList();
+        Assert.Equal(sections.Count, sections.Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]
@@ -34,7 +42,7 @@ public sealed class RoutesTests
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
         var revision = engine.Store.Current.Revision;
-        foreach (var v in VerbCatalog.All.Where(v => v.Round == 2))
+        foreach (var v in VerbCatalog.All.Where(v => v.Round == 2 && !engine.Routes.IsRouted(v.Name)))
         {
             var reply = await Run(engine, v.Name, Node);
             Assert.False(reply.Ok, v.Name);
@@ -62,22 +70,22 @@ public sealed class RoutesTests
     public async Task ARoutedLaneVerbGetsItsWordsAndIsJournalledAsTheRouterJournals()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        var spec = VerbCatalog.Find("SHOW ARM")!;
+        var spec = Unrouted(engine, v => v.Mutates && !v.Ephemeral && !v.Gesture);
         VerbCall? seen = null;
         engine.Routes.Lane(spec.Name, call =>
         {
             seen = call;
-            return CommandReply.Success(effect: "armed for the test");
+            return CommandReply.Success(effect: "done for the test");
         });
 
-        var reply = await Run(engine, "SHOW ARM ALL", Desk);
+        var reply = await Run(engine, spec.Name + " x1 y2", Desk);
 
         Assert.True(reply.Ok, reply.Payload);
         Assert.NotNull(seen);
         Assert.Equal(spec, seen.Spec);
-        Assert.Equal(["ALL"], seen.Args);
+        Assert.Equal(["x1", "y2"], seen.Args);
         Assert.Equal("desk", seen.Session.Transport);
-        Assert.Contains(engine.Journal.Recent(10), r => r.Text == "armed for the test");
+        Assert.Contains(engine.Journal.Recent(10), r => r.Text == "done for the test");
     }
 
     [Fact]
@@ -85,7 +93,8 @@ public sealed class RoutesTests
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
         var onLane = true;
-        engine.Routes.OffLane("PREFLIGHT", async call =>
+        var spec = Unrouted(engine, v => v.Mutates && !v.Ephemeral && !v.Gesture);
+        engine.Routes.OffLane(spec.Name, async call =>
         {
             // The lane is free while an off-lane verb waits: a lane task posted now completes before the verb answers.
             onLane = !await engine.Lane.RunAsync(() => true).WaitAsync(TimeSpan.FromSeconds(10));
@@ -93,7 +102,7 @@ public sealed class RoutesTests
             return r.Changed ? CommandReply.Success(effect: r.Effect) : CommandReply.Fail(r.Effect);
         });
 
-        var reply = await Run(engine, "PREFLIGHT QUICK", Desk);
+        var reply = await Run(engine, spec.Name + " x1", Desk);
 
         Assert.True(reply.Ok, reply.Payload);
         Assert.False(onLane);
@@ -117,15 +126,17 @@ public sealed class RoutesTests
         Assert.False(r2.Ok);
         Assert.Equal($"{mirror.Name}: this line is node-to-node only", r2.Payload);
 
+        // From a fleet peer the line passes the door (its own package answers it, or says it is not available yet).
         var r3 = await Run(engine, mirror.Name, Node with { Transport = "fleet" });
-        Assert.Equal($"{mirror.Name} is not available on this node yet", r3.Payload);
+        Assert.NotEqual($"{mirror.Name}: this line is node-to-node only", r3.Payload);
+        Assert.False(r3.Payload?.StartsWith("not paired", StringComparison.Ordinal) ?? false);
     }
 
     [Fact]
     public async Task AnEphemeralVerbIsNeverJournalled()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        var spec = VerbCatalog.All.First(v => v.Ephemeral && v.Mutates);
+        var spec = Unrouted(engine, v => v.Ephemeral && v.Mutates);
         engine.Routes.Lane(spec.Name, _ => CommandReply.Success(effect: "a cursor moved"));
         var before = engine.Journal.Recent(100).Count;
 
@@ -192,15 +203,15 @@ public sealed class RoutesTests
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
         var record = await engine.Lane.RunAsync(() => RecoveryRecord.Capture(engine));
-        Assert.Empty(record.Modules);
+        Assert.DoesNotContain("spine-test", record.Modules.Keys);
 
         var path = Path.Combine(Path.GetTempPath(), "playmap-recovery-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
-            (record with { Modules = record.Modules.Add("show", "{\"armed\":false}") }).Save(path);
+            (record with { Modules = record.Modules.Add("spine-test", "{\"armed\":false}") }).Save(path);
             var back = RecoveryRecord.Load(path);
             Assert.NotNull(back);
-            Assert.Equal("{\"armed\":false}", back.Modules["show"]);
+            Assert.Equal("{\"armed\":false}", back.Modules["spine-test"]);
             Assert.Equal("recovered " + engine.Store.Project.Name, await engine.RestoreAsync(back));
         }
         finally
