@@ -290,6 +290,17 @@ public sealed class ScanSimulator
     {
     }
 
+    /// <summary>A device knocked in its own axes (wp2-wall's re-solve tests and the "knock Projector 2" demo): turned by
+    /// <paramref name="rotation"/> (a rotation vector, radians) and moved by <paramref name="translation"/> (metres), both in the
+    /// device's frame (x right, y down, z along the lens); its optics unchanged.</summary>
+    public static SimDevice Bump(SimDevice device, Vec3d rotation, Vec3d translation)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        var c2w = device.Pose.CameraToWorld;
+        var turned = c2w * Mat3d.FromRotationVector(rotation);
+        return device with { Pose = new Pose(device.Pose.Position + c2w * translation, turned.ToRotationVector()) };
+    }
+
     /// <summary>A simulator on an already traced scene.</summary>
     public ScanSimulator(SimGeometry geometry, ScanPlan plan, SimOptions? options = null)
     {

@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddWallParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-wall fills this.
+        extensions.Add(_ => new Wall.WallExtension());
     }
 }

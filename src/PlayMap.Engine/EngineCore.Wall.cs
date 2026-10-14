@@ -4,42 +4,48 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine;
 
-/// <summary>wp2-wall's hooks into the engine (EngineCore.Modules.cs): its verbs, lane work, STATE keys, context items,
-/// checks and recovery facts. The package fills each body.</summary>
+/// <summary>wp2-wall's hooks into the engine (EngineCore.Modules.cs): the quad on the wall and the edit overlay
+/// (Wall/EngineCore.Quads.cs), the calibration score, ledger and re-solve (Wall/EngineCore.Calibration.cs).</summary>
 public sealed partial class EngineCore
 {
     partial void RouteWall(VerbRoutes routes)
     {
-        // wp2-wall fills this.
+        RouteQuads(routes);
+        RouteCalibration(routes);
     }
 
-    partial void TickWall(long leaderNs)
-    {
-        // wp2-wall fills this.
-    }
+    partial void TickWall(long leaderNs) => TickQuads();
 
     partial void StateWall(Utf8JsonWriter w)
     {
-        // wp2-wall fills this.
+        WriteCalibration(w);
+        WriteOnboarding(w);
     }
 
-    partial void AirWall(Utf8JsonWriter w)
-    {
-        // wp2-wall fills this.
-    }
+    partial void AirWall(Utf8JsonWriter w) => WriteOverlay(w);
 
     partial void ProjectorWall(Utf8JsonWriter w, Projector pj)
     {
-        // wp2-wall fills this.
+        var p = _snapshot.Project.Project;
+        w.WriteString("grade", GradeOf(p, pj.Id));
+        var quads = 0;
+        foreach (var s in p.Stage.Surfaces)
+            if (s.Pixel is { } q && string.Equals(q.ProjectorId, pj.Id, StringComparison.Ordinal))
+                quads++;
+        w.WriteNumber("quads", quads);
     }
 
     partial void ContextWall(List<ContextItem> items, List<ContextLink> links)
     {
-        // wp2-wall fills this.
+        ContextCalibration(items);
+        var o = _snapshot.Air.Overlay;
+        if (o.On)
+            items.Add(new ContextItem("overlay", "overlay", "Edit overlay", Light.Amber, "edit overlay on " + OverlayWhere(o)));
     }
 
     partial void ValidateWall(Project p, object entity, ref string? why)
     {
-        // wp2-wall fills this.
+        if (why is null && entity is Surface s)
+            why = ValidateQuad(p, s);
     }
 }

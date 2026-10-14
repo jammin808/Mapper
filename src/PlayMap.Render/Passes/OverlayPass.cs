@@ -1,0 +1,280 @@
+using PlayMap.Core.Content;
+using PlayMap.Core.Mapping;
+using PlayMap.Core.Model;
+using PlayMap.Core.Numerics;
+using PlayMap.Render.Engine;
+using PlayMap.Render.Gpu;
+
+namespace PlayMap.Render.Passes;
+
+/// <summary>The edit overlay on the wall: each pixel quad of the projector an output shows, outlined in its colour, with its corner
+/// handles (the selected one larger, ringed in white) and its lattice, drawn over the output's final raster after the output stage.
+/// Every point is taken through the output's own warp (corner pin and lattice) and quarter turns, as the picture is, so the lines
+/// sit on the content they edit; the blend, the mask, the trim and the air's gain never touch them. Nothing is drawn while the
+/// show is armed, on a black air, on an output the overlay does not name, or when it is off: then the output is byte for byte what
+/// it would be with no overlay at all. Geometry is rebuilt only when the project, the overlay or the output changes; a frame that
+/// reuses it allocates nothing.</summary>
+public sealed class OverlayPass : IFramePass
+{
+    private const int Floats = 6;
+    private const float Line = 2f;
+    private const float Edge = 1f;
+    private const float Handle = 11f;
+    private const float Selected = 17f;
+    private const int Segments = 32;
+
+    private static readonly VertexAttribute[] Layout =
+    [
+        new(0, 2, Floats * 4, 0),
+        new(1, 4, Floats * 4, 8),
+    ];
+
+    private sealed class Entry : IDisposable
+    {
+        public required GpuBuffer Buffer { get; init; }
+        public required VertexArray Vao { get; init; }
+        public Project? Project;
+        public OverlayState? State;
+        public Output? Output;
+        public int Count;
+        public long LastUsed;
+
+        public void Dispose()
+        {
+            Vao.Dispose();
+            Buffer.Dispose();
+        }
+    }
+
+    private readonly GlDevice _device;
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private readonly List<string> _stale = [];
+    private float[] _scratch = new float[Floats * 1024];
+    private int _count;
+    private OverlayState? _state;
+    private bool _armed;
+
+    public OverlayPass(GlDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        _device = device;
+    }
+
+    public string Name => "overlay";
+
+    /// <summary>Last of the passes: the overlay sits on top of everything an output shows.</summary>
+    public int Order => 10_000;
+
+    /// <summary>Builds of an output's overlay geometry so far (an unchanged overlay is built once).</summary>
+    public int Builds { get; private set; }
+
+    /// <summary>Takes the frame's overlay and whether the show is armed (render thread, before the frame).</summary>
+    public void Prepare(in FrameInputs inputs)
+    {
+        _state = inputs.Overlay;
+        _armed = inputs.Armed;
+    }
+
+    /// <summary>True when the overlay would draw on this output this frame.</summary>
+    public static bool Covers(OverlayState? state, bool armed, string outputId) =>
+        !armed && state is { On: true } s && (s.Outputs.IsDefaultOrEmpty || s.Outputs.Contains(outputId, StringComparer.Ordinal));
+
+    public void Final(in PassFrame frame, Output output, RenderTarget final)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(final);
+        if (frame.Blackout || !Covers(_state, _armed, output.Id) || output.Mode != OutputMode.Projector || output.ProjectorId is null)
+            return;
+        if (!_entries.TryGetValue(output.Id, out var e))
+        {
+            var buffer = _device.CreateBuffer(BufferKind.Vertex);
+            _device.SetBufferData<float>(buffer, new float[Floats * 3]);
+            e = new Entry { Buffer = buffer, Vao = _device.CreateVertexArray(Layout, buffer) };
+            _entries[output.Id] = e;
+        }
+        e.LastUsed = frame.Frame;
+        if (!ReferenceEquals(e.Project, frame.Project) || !ReferenceEquals(e.State, _state) || !ReferenceEquals(e.Output, output))
+        {
+            Build(frame.Project, _state!, output, final.Width, final.Height);
+            _device.SetBufferData<float>(e.Buffer, _scratch.AsSpan(0, _count * Floats), dynamic: false);
+            (e.Project, e.State, e.Output, e.Count) = (frame.Project, _state, output, _count);
+            Builds++;
+        }
+        if (e.Count == 0)
+            return;
+        _device.BindTarget(final);
+        _device.SetBlend(BlendMode.Normal);
+        _device.SetDepth(false, false);
+        _device.SetCull(CullMode.None);
+        var p = _device.Program("overlay.shapes");
+        p.Set("uTarget", (float)final.Width, (float)final.Height);
+        _device.Draw(p, e.Vao, PrimitiveKind.Triangles, e.Count);
+        final.Color.Version++;
+    }
+
+    public void FrameEnd(in PassFrame frame)
+    {
+        foreach (var (id, e) in _entries)
+            if (frame.Frame - e.LastUsed > 240)
+                _stale.Add(id);
+        foreach (var id in _stale)
+        {
+            _entries[id].Dispose();
+            _entries.Remove(id);
+        }
+        _stale.Clear();
+    }
+
+    /// <summary>The overlay's triangles for one output into the scratch array (final-raster pixels and a colour per vertex).</summary>
+    private void Build(Project project, OverlayState state, Output output, int width, int height)
+    {
+        _count = 0;
+        var field = new WarpField(output.Warp);
+        var quarters = (int)(((Math.Round(output.Rotation / 90.0) % 4) + 4) % 4);
+        Span<Vec2d> points = stackalloc Vec2d[Segments + 1];
+        foreach (var s in project.Stage.Surfaces)
+        {
+            if (s.Pixel is not { } quad || !s.Visible || !string.Equals(quad.ProjectorId, output.ProjectorId, StringComparison.Ordinal)
+                || PixelQuadShape.Of(quad) is not { } shape)
+                continue;
+            var c = ColorRgb.Parse(s.Color, new ColorRgb(0.24f, 0.76f, 0.95f));
+            if ((state.Layers & OverlayLayers.Outlines) != 0)
+            {
+                for (var edge = 0; edge < 4; edge++)
+                {
+                    for (var i = 0; i <= Segments; i++)
+                    {
+                        var t = i / (double)Segments;
+                        var (u, v) = edge switch { 0 => (t, 0.0), 1 => (1.0, t), 2 => (1 - t, 1.0), _ => (0.0, 1 - t) };
+                        points[i] = ToFinal(field, quarters, shape.Evaluate(u, v), width, height);
+                    }
+                    Polyline(points, Line + 2 * Edge, 0, 0, 0, 0.6f);
+                    Polyline(points, Line, c.R, c.G, c.B, 1);
+                }
+            }
+            if ((state.Layers & OverlayLayers.Lattice) != 0 && quad.Lattice is { } l)
+            {
+                for (var row = 0; row < l.Rows; row++)
+                {
+                    var v = row / (double)(l.Rows - 1);
+                    for (var i = 0; i <= Segments; i++)
+                        points[i] = ToFinal(field, quarters, shape.Evaluate(i / (double)Segments, v), width, height);
+                    Polyline(points, 1, c.R, c.G, c.B, 0.7f);
+                }
+                for (var col = 0; col < l.Columns; col++)
+                {
+                    var u = col / (double)(l.Columns - 1);
+                    for (var i = 0; i <= Segments; i++)
+                        points[i] = ToFinal(field, quarters, shape.Evaluate(u, i / (double)Segments), width, height);
+                    Polyline(points, 1, c.R, c.G, c.B, 0.7f);
+                }
+            }
+            if ((state.Layers & OverlayLayers.Handles) != 0)
+            {
+                for (var k = 0; k < 4; k++)
+                {
+                    var selected = state.Handle is { Kind: HandleKind.Corner } h && h.SurfaceId == s.Id && h.Column == k;
+                    HandleSquare(ToFinal(field, quarters, PixelQuadMath.Corner(quad, k), width, height), selected, c);
+                }
+                if ((state.Layers & OverlayLayers.Lattice) != 0 && quad.Lattice is { } lat)
+                    for (var row = 0; row < lat.Rows; row++)
+                        for (var col = 0; col < lat.Columns; col++)
+                        {
+                            var selected = state.Handle is { Kind: HandleKind.Node } h && h.SurfaceId == s.Id && h.Column == col && h.Row == row;
+                            var at = ToFinal(field, quarters, PixelQuadMath.Node(shape, col, row), width, height);
+                            if (selected)
+                                HandleSquare(at, true, c);
+                            else
+                                Square(at, 7, c.R, c.G, c.B, 1);
+                        }
+            }
+        }
+    }
+
+    /// <summary>A raster-normalised point on the output's final raster, in pixels: through the warp, then the quarter turns.</summary>
+    public static Vec2d ToFinal(WarpField field, int quarters, Vec2d raster, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        var a = field.Evaluate(raster.X, raster.Y);
+        var f = quarters switch
+        {
+            1 => new Vec2d(1 - a.Y, a.X),
+            2 => new Vec2d(1 - a.X, 1 - a.Y),
+            3 => new Vec2d(a.Y, 1 - a.X),
+            _ => a,
+        };
+        return new Vec2d(f.X * width, f.Y * height);
+    }
+
+    private void HandleSquare(Vec2d at, bool selected, ColorRgb c)
+    {
+        if (selected)
+        {
+            Square(at, Selected + 4, 1, 1, 1, 1);
+            Square(at, Selected, c.R, c.G, c.B, 1);
+        }
+        else
+        {
+            Square(at, Handle + 2, 0, 0, 0, 0.6f);
+            Square(at, Handle, c.R, c.G, c.B, 1);
+        }
+    }
+
+    private void Polyline(ReadOnlySpan<Vec2d> points, float width, float r, float g, float b, float a)
+    {
+        for (var i = 0; i + 1 < points.Length; i++)
+        {
+            var p0 = points[i];
+            var p1 = points[i + 1];
+            var d = p1 - p0;
+            var len = d.Length;
+            if (len < 1e-6)
+                continue;
+            // Each segment is lengthened by half the width at both ends, so neighbouring segments overlap at the joins.
+            var dir = d * (1 / len);
+            var across = -dir.Y;
+            var down = dir.X;
+            var n = new Vec2d(across, down) * (width / 2.0);
+            var a0 = p0 - dir * (width / 2.0);
+            var a1 = p1 + dir * (width / 2.0);
+            Quad(a0 + n, a1 + n, a1 - n, a0 - n, r, g, b, a);
+        }
+    }
+
+    private void Square(Vec2d at, float size, float r, float g, float b, float a)
+    {
+        var h = size / 2.0;
+        Quad(new Vec2d(at.X - h, at.Y - h), new Vec2d(at.X + h, at.Y - h), new Vec2d(at.X + h, at.Y + h), new Vec2d(at.X - h, at.Y + h), r, g, b, a);
+    }
+
+    private void Quad(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3, float r, float g, float b, float a)
+    {
+        Vertex(p0, r, g, b, a);
+        Vertex(p1, r, g, b, a);
+        Vertex(p2, r, g, b, a);
+        Vertex(p0, r, g, b, a);
+        Vertex(p2, r, g, b, a);
+        Vertex(p3, r, g, b, a);
+    }
+
+    private void Vertex(Vec2d p, float r, float g, float b, float a)
+    {
+        if ((_count + 1) * Floats > _scratch.Length)
+            Array.Resize(ref _scratch, _scratch.Length * 2);
+        var o = _count * Floats;
+        _scratch[o] = (float)p.X;
+        _scratch[o + 1] = (float)p.Y;
+        _scratch[o + 2] = r;
+        _scratch[o + 3] = g;
+        _scratch[o + 4] = b;
+        _scratch[o + 5] = a;
+        _count++;
+    }
+
+    public void Dispose()
+    {
+        foreach (var e in _entries.Values)
+            e.Dispose();
+        _entries.Clear();
+    }
+}

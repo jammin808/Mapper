@@ -32,6 +32,14 @@ public sealed record ScanOutcome(
 
     /// <summary>The worst solved projector's reprojection RMS (pixels), 0 when none solved.</summary>
     public double WorstResidualPx => Solution.Projectors.Where(p => p.Solved).Select(p => p.RmsPx).DefaultIfEmpty(0).Max();
+
+    /// <summary>What the calibration ledger scores a solved projector of this scan by (wp2-wall): its dense fit over its inlier
+    /// pairs, the share of its picture the decode judged good (the quality report's 0–100), and one camera view; null when the
+    /// scan did not solve that projector.</summary>
+    public Core.Calibration.Scoring.ScanScoreInputs? ScoreInputs(string projectorId) =>
+        Solution.Projectors.FirstOrDefault(p => p.Solved && string.Equals(p.ProjectorId, projectorId, StringComparison.Ordinal)) is { } x
+            ? new Core.Calibration.Scoring.ScanScoreInputs(projectorId, x.RmsPx, x.Inliers, Math.Clamp(x.Quality / 100.0, 0, 1), 1) { CameraId = CameraId }
+            : null;
 }
 
 /// <summary>A scan's folder beside the project ("scans/&lt;id&gt;"): scan.json (the solve without its geometry),
