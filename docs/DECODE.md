@@ -35,14 +35,17 @@ the blocks. All seven codecs play, including the two FFmpeg has no decoder for.
 - **Engine**: `MediaBackend` routes HAP items to `HapVideoSource` for the families the renderer samples (the render host says
   them on its first frame), to FFmpeg's CPU decoder for the five it reads when the GPU lacks a family (the source's `why` says
   so), and makes readiness refuse HAP R and HAP HDR on a GPU without BPTC ("HAP R needs BPTC textures, which this GPU's GL does
-  not offer — optimise to HAP Q for this node"). MEDIA INSPECT, STATE.decode, the context's `decode` item and the preflight check
+  not offer — optimise to HAP Q for this node"). A HAP source opened before the renderer said what it samples stops with those
+  words (its status, STATE's red light) when the renderer turns out to lack its family, rather than reaching it as frames it
+  would draw black. MEDIA INSPECT, STATE.decode, the context's `decode` item and the preflight check
   are in `docs/wire/decode.md`.
 
 ## HAP HDR
 
 The specification carries no colour metadata, so the reading is explicit and STATE says which rule applied: the item's override
-(`color.transfer`, `color.whiteNits`), then the container's `colr` nclx transfer (8 linear, 16 PQ, 18 HLG), then PlayMap's stream
-tag `playmap_white_nits`, then the default — linear light with 1.0 = 203 nits (BT.2408 reference white). Values below zero
+(`color.transfer`, `color.whiteNits`), then the container's `colr` nclx transfer (8 linear, 16 PQ, 18 HLG), then PlayMap's tag
+`playmap_white_nits` (the stream's metadata, else the file's: QuickTime keeps a custom tag only for the whole file, written
+with `movflags use_metadata_tags`), then the default — linear light with 1.0 = 203 nits (BT.2408 reference white). Values below zero
 (signed BC6H) are clamped. The pass tone-maps with the yuv program's own curve.
 
 ## Measured here
