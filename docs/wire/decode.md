@@ -29,7 +29,7 @@ core. It answers:
 - `hdr` is HAP HDR's reading in words (`"linear · white 203 nits (default)"`, `"pq (colr)"`, `"linear · white 100 nits (item)"`).
 - The answer is kept by content hash and the item's colour override for the life of the process.
 
-**Refusals**, with words: no such media; not a file; the file is not on this node; the show is armed ("MEDIA INSPECT reads the
+**Refusals**, with words: a word the verb does not take (`ON <node>` is not offered: ask that node); no such media; not a file; the file is not on this node; the show is armed ("MEDIA INSPECT reads the
 whole file from disk — disarm first, or inspect it on a node that is not playing"); the file cannot be read.
 
 **The colour override** is edited with the generic `SET`: `SET md… color.transfer "pq"`, `SET md… color.whiteNits 100`. The check

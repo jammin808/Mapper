@@ -135,6 +135,9 @@ public sealed class HapPreflightTests
         Assert.StartsWith("the show is armed: MEDIA INSPECT reads the whole file from disk", armed.Payload, StringComparison.Ordinal);
         var none = await Run("MEDIA INSPECT md_zz");
         Assert.Equal((false, "no media md_zz"), (none.Ok, none.Payload));
+        var onPeer = await Run("MEDIA INSPECT md_a ON 1a2b3c4d");
+        Assert.Equal((false, "MEDIA INSPECT takes one media, not 'ON 1a2b3c4d' — MEDIA INSPECT <media> (ask the node itself for its budget)"),
+            (onPeer.Ok, onPeer.Payload));
 
         await using var open = new EngineCore(EngineServices.ForTests(), Show(Hap("md_a", "hap_q")));
         Assert.True(WireGrammar.TryParse("MEDIA INSPECT md_a", out var l, out _));

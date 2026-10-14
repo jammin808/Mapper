@@ -48,6 +48,9 @@ public sealed partial class EngineCore
     {
         if (call.Args.Count < 1)
             return CommandReply.Fail("MEDIA INSPECT <media>");
+        // Fail closed: a word this verb does not take (ON <node> among them) is refused, never ignored into this node's answer.
+        if (call.Args.Count > 1)
+            return CommandReply.Fail($"MEDIA INSPECT takes one media, not '{string.Join(' ', call.Args.Skip(1))}' — MEDIA INSPECT <media> (ask the node itself for its budget)");
         var item = Store.Project.FindMedia(call.Args[0]);
         if (item is null)
             return CommandReply.Fail($"no media {call.Args[0]}");
