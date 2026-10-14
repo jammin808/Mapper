@@ -86,6 +86,13 @@ internal sealed class LineSessions : IAsyncDisposable
 
     private void OnStateChanged(long revision) => _stateThrottle.Arm();
 
+    /// <summary>The node's settings changed: every session tells the client table who it is now (paired or not).</summary>
+    public void Refresh()
+    {
+        foreach (var s in _sessions.Keys)
+            s.Refresh();
+    }
+
     private void OnProjectChanged(long revision) => _projectThrottle.Arm();
 
     /// <summary>Runs one connection's session to its end; the channel is the caller's to dispose.</summary>

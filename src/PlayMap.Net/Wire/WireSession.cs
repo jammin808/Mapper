@@ -139,6 +139,14 @@ internal sealed class WireSession : IAsyncDisposable
         _registered = true;
     }
 
+    /// <summary>The node's settings changed (a new token unpairs, a desk address is listed or not): the client table hears who this
+    /// session is now, so STATE never shows a pairing the session no longer has.</summary>
+    public void Refresh()
+    {
+        if (_registered)
+            Register();
+    }
+
     public void Abort() => _channel.Abort();
 
     /// <summary>The door is stopping: a WebSocket hears 1001, a TCP connection is cut.</summary>

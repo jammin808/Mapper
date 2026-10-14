@@ -161,7 +161,11 @@ public sealed class HttpHost : IAsyncDisposable
     public NodeSettings Settings => _settings;
 
     /// <summary>Takes a new token, trusted list, loopback trust or Require HTTPS at once; a new bind or port needs a restart.</summary>
-    public void UpdateSettings(NodeSettings settings) => _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    public void UpdateSettings(NodeSettings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _lines.Refresh();
+    }
 
     /// <summary>Opens the port. Throws <see cref="BindRefusedException"/> (nothing listens) when the bind address is
     /// not an address or the machine refuses it.</summary>

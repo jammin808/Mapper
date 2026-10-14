@@ -324,6 +324,27 @@ public sealed class DeskIdentityTests
         Assert.True(await Eventually.TrueAsync(() => endpoint.Gone.Contains(session.SessionId)));
     }
 
+    [Fact]
+    public async Task ANewTokenUnpairsAClientInTheTableAtOnce()
+    {
+        var endpoint = new RegistryEndpoint(new FakeEndpoint());
+        await using var server = new WireServer(TestSettings.Make(trustLoopback: false), endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 });
+        server.Start();
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        var nonce = (await c.ReadAsync())!;
+        Assert.StartsWith("NONCE ", nonce, StringComparison.Ordinal);
+        Assert.Equal("OK", await c.AskAsync("HELLO Companion:FOH"));
+        Assert.Equal("OK paired", await c.AskAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonce[6..], "Companion:FOH")));
+        Assert.True(await Eventually.TrueAsync(() => endpoint.Hellos.Any(h => h.Item1.Paired)));
+
+        // A new token unpairs the session at once (WireServer.UpdateSettings): the table hears it then, not at the session's next line.
+        server.UpdateSettings(TestSettings.Make(trustLoopback: false, token: "another-token-for-this-node"));
+        var (now, channel) = endpoint.Hellos.Last();
+        Assert.False(now.Paired);
+        Assert.Equal("companion", now.Transport);
+        Assert.Equal("tcp", channel);
+    }
+
     private sealed class RegistryEndpoint(FakeEndpoint inner) : IWireEndpoint, IClientRegistry
     {
         public System.Collections.Concurrent.ConcurrentQueue<(SessionInfo, string)> Hellos { get; } = new();

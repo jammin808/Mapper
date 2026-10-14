@@ -73,7 +73,11 @@ public sealed class WireServer : IAsyncDisposable
 
     /// <summary>Takes a new token, trusted list or loopback trust at once (a session paired with an old token is
     /// paired no longer). A new bind or port needs a restart.</summary>
-    public void UpdateSettings(NodeSettings settings) => _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    public void UpdateSettings(NodeSettings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _lines.Refresh();
+    }
 
     /// <summary>Opens the listener. Throws <see cref="BindRefusedException"/> (nothing listens) when the bind address
     /// is not an address or the machine refuses it.</summary>
