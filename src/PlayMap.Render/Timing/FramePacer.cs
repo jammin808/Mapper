@@ -130,9 +130,11 @@ public sealed class GpuTimer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
-        _queries = new uint[depth];
-        _pending = new bool[depth];
-        for (var i = 0; i < depth; i++)
+        // A context with no timer queries (ES without EXT_disjoint_timer_query) measures nothing: GPU times read 0.
+        var n = device.HasTimerQuery ? depth : 0;
+        _queries = new uint[n];
+        _pending = new bool[n];
+        for (var i = 0; i < n; i++)
             _queries[i] = device.CreateQuery();
     }
 
@@ -142,7 +144,7 @@ public sealed class GpuTimer : IDisposable
     public void Begin()
     {
         Collect();
-        if (_open >= 0 || _pending[_next])
+        if (_queries.Length == 0 || _open >= 0 || _pending[_next])
             return;
         _device.BeginTimeQuery(_queries[_next]);
         _open = _next;
@@ -166,7 +168,8 @@ public sealed class GpuTimer : IDisposable
             if (!_pending[i] || !_device.TryQueryResult(_queries[i], out var ns))
                 continue;
             _pending[i] = false;
-            LastMs = ns / 1e6;
+            if (ns >= 0)
+                LastMs = ns / 1e6;
         }
     }
 

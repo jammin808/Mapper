@@ -30,8 +30,10 @@ public sealed record PreviewRequest(string ViewId, PreviewRingWriter Ring, int W
 
 /// <summary>The renderer the engine drives: once a frame, <see cref="Render"/> draws every enabled output of
 /// the project snapshot — sources, canvases, the projector pass, the output stage — into the output's
-/// finished picture and presents it to the output's window, if one is attached; then <see cref="Preview"/>
-/// renders the views viewers asked for and reads them back without stalling.
+/// finished picture and presents it to the output's presenter (<see cref="IOutputPresenter"/>: a GL window today), if one is
+/// attached; then <see cref="Preview"/> renders the views viewers asked for and reads them back without stalling. Every output
+/// keeps a <see cref="PresentClock"/>: the pacing presenter's is fitted to its vblanks, the others count against their own
+/// refresh (<see cref="Present"/>).
 ///
 /// Threading: everything here runs on the render thread that made the <see cref="RenderContext"/>, with that
 /// context current; providers are called on it and must not block. Blackout is checked before any content
@@ -45,8 +47,13 @@ public sealed class RenderEngine : IDisposable
     {
         public RenderTarget? Final;
         public RenderTarget? Projector;
-        public OutputWindow? Window;
+        public IOutputPresenter? Window;
         public FramePacer Pacer = new(60);
+        /// <summary>The output's vblank truth and ledger: measured on the pacing presenter, counted against the output's own
+        /// refresh otherwise (offscreen included).</summary>
+        public PresentClock Clock = new(60, measured: false, PresentPath.Offscreen);
+        /// <summary>The refresh an offscreen output is measured against (its configured rate).</summary>
+        public double OffscreenHz;
         public GpuTimer? Timer;
         public bool HasPicture;
         /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
@@ -136,11 +143,11 @@ public sealed class RenderEngine : IDisposable
             Device.Program(name);
     }
 
-    /// <summary>Shows an output in a window. The first window attached paces the loop (its swap waits for
-    /// the vertical blank); the others swap at once, so one thread driving several windows waits once a frame.
+    /// <summary>Shows an output through a presenter (a window). The first presenter attached paces the loop (its present waits
+    /// for the vertical blank); the others present at once, so one thread driving several windows waits once a frame.
     /// The output's presents are measured against <paramref name="refreshHz"/>, its display's refresh (60 when the
     /// platform does not say).</summary>
-    public void Attach(string outputId, OutputWindow window, double refreshHz = 0)
+    public void Attach(string outputId, IOutputPresenter window, double refreshHz = 0)
     {
         ArgumentNullException.ThrowIfNull(window);
         var st = State(outputId);
@@ -148,16 +155,20 @@ public sealed class RenderEngine : IDisposable
         var hz = refreshHz > 1 && double.IsFinite(refreshHz) ? refreshHz : 60;
         if (Math.Abs(st.Pacer.NominalHz - hz) > 1e-6)
             st.Pacer = new FramePacer(hz);
+        st.Clock = new PresentClock(hz, measured: false, window.Path);
         if (!_paceOrder.Contains(outputId))
             _paceOrder.Add(outputId);
         RepickPacer();
     }
 
-    /// <summary>Stops presenting an output into its window (the caller disposes the window).</summary>
+    /// <summary>Stops presenting an output into its window (the caller disposes the window); it counts offscreen from now.</summary>
     public void Detach(string outputId)
     {
-        if (_outputs.TryGetValue(outputId, out var st))
+        if (_outputs.TryGetValue(outputId, out var st) && st.Window is not null)
+        {
             st.Window = null;
+            st.Clock = new PresentClock(st.OffscreenHz > 1 ? st.OffscreenHz : 60, measured: false, PresentPath.Offscreen);
+        }
         _paceOrder.Remove(outputId);
         RepickPacer();
     }
@@ -170,6 +181,7 @@ public sealed class RenderEngine : IDisposable
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null)
                 continue;
             st.Window.SetSwapInterval(first ? 1 : 0);
+            st.Clock.SetMeasured(first);
             first = false;
         }
     }
@@ -186,6 +198,18 @@ public sealed class RenderEngine : IDisposable
         Device.ReadPixels(st.Final, bgra);
         return true;
     }
+
+    /// <summary>An output's presentation now (numbers only); null for an output the renderer has not drawn.</summary>
+    public PresentSnapshot? Present(string outputId) =>
+        _outputs.TryGetValue(outputId, out var st) ? st.Clock.Snapshot(MonoClock.Instance.NowNs) : null;
+
+    /// <summary>The presenter an output shows through, or null (offscreen).</summary>
+    public IOutputPresenter? PresenterOf(string outputId) => _outputs.TryGetValue(outputId, out var st) ? st.Window : null;
+
+    /// <summary>Zeroes an output's presentation counters (PRESENT RESET); answers the totals that were there, or null for an output
+    /// the renderer has not drawn.</summary>
+    public PresentSnapshot? ResetPresent(string outputId) =>
+        _outputs.TryGetValue(outputId, out var st) ? st.Clock.Reset(MonoClock.Instance.NowNs) : null;
 
     public OutputStats Stats(string outputId)
     {
@@ -219,6 +243,10 @@ public sealed class RenderEngine : IDisposable
         CollectPreviews();
 
         var outputs = inputs.Project.Outputs;
+        var frameStart = MonoClock.Instance.NowNs;
+        foreach (var id in _paceOrder)
+            if (_outputs.TryGetValue(id, out var paced) && paced.Window is not null)
+                paced.Clock.BeginFrame(frameStart);
         for (var i = 0; i < outputs.Length; i++)
         {
             var output = outputs[i];
@@ -226,6 +254,8 @@ public sealed class RenderEngine : IDisposable
                 continue;
             var start = MonoClock.Instance.NowNs;
             var st = State(output.Id);
+            if (st.Window is null)
+                KeepOffscreenClock(st, output);
             st.LastFrame = Frame;
             EnsureFinal(st, output.Width, output.Height);
             if (inputs.Blackout)
@@ -261,8 +291,22 @@ public sealed class RenderEngine : IDisposable
         {
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null || st.Final is null)
                 continue;
-            st.Window.Present(st.Final.Color);
-            st.Pacer.OnPresented(st.Window.LastSwapNs);
+            var presented = st.Window.Present(st.Final.Color);
+            if (presented.Queued)
+                st.Pacer.OnPresented(presented.ReturnedNs);
+            st.Clock.OnPresented(in presented);
+        }
+        foreach (var id in _paceOrder)
+            if (_outputs.TryGetValue(id, out var st) && st.Window is not null)
+                st.Window.Observe(st.Clock);
+
+        // Offscreen outputs: their picture moved on now; each is counted against its own refresh.
+        var finished = PresentResult.Done(MonoClock.Instance.NowNs);
+        for (var i = 0; i < outputs.Length; i++)
+        {
+            var output = outputs[i];
+            if (output.Enabled && _outputs.TryGetValue(output.Id, out var st) && st.Window is null && st.LastFrame == Frame)
+                st.Clock.OnPresented(in finished);
         }
 
         _sources.EndFrame();
@@ -483,6 +527,17 @@ public sealed class RenderEngine : IDisposable
 
     private static void WriteToRing(PreviewRingWriter ring, ReadOnlySpan<byte> bgra, int width, int height, long stamp) =>
         ring.Write(bgra, width, height, width * 4, stamp);
+
+    /// <summary>An offscreen output's clock counts against its configured refresh (60 when it names none); a changed refresh starts
+    /// its count again.</summary>
+    private static void KeepOffscreenClock(OutputState st, Output output)
+    {
+        var hz = output.RefreshHz is > 1 and <= 1000 && double.IsFinite(output.RefreshHz) ? output.RefreshHz : 60;
+        if (Math.Abs(st.OffscreenHz - hz) < 1e-9 && st.Clock.Path == PresentPath.Offscreen)
+            return;
+        st.OffscreenHz = hz;
+        st.Clock = new PresentClock(hz, measured: false, PresentPath.Offscreen);
+    }
 
     private OutputState State(string outputId)
     {

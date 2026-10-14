@@ -12,7 +12,9 @@ public sealed record GlDeviceOptions(
     /// <summary>Subscribe to the driver's debug output when the context offers it.</summary>
     bool DebugOutput,
     /// <summary>Where notes go (debug messages that are not errors, shader warnings); null drops them.</summary>
-    Action<string>? Log = null)
+    Action<string>? Log = null,
+    /// <summary>The dialect the context maker asks for (the device then reads the one it got from GL_VERSION).</summary>
+    GlDialect Dialect = GlDialect.Core330)
 {
 #if DEBUG
     public static readonly GlDeviceOptions Default = new(true, true);
@@ -46,6 +48,7 @@ public sealed unsafe partial class GlDevice : IDisposable
     private readonly HashSet<uint> _liveRenderbuffers = [];
     private readonly HashSet<uint> _liveBuffers = [];
     private readonly HashSet<uint> _liveVertexArrays = [];
+    private readonly HashSet<uint> _swappedRedBlue = [];
     private readonly HashSet<uint> _livePrograms = [];
     private readonly uint[] _boundTextures = new uint[TextureUnits];
     private DebugProc? _debugProc;
@@ -74,13 +77,20 @@ public sealed unsafe partial class GlDevice : IDisposable
         Renderer = ReadString(GLEnum.Renderer);
         Vendor = ReadString(GLEnum.Vendor);
         Version = ReadString(GLEnum.Version);
+        Dialect = GlDialects.FromVersion(Version);
         var major = _gl.GetInteger(GLEnum.MajorVersion);
         var minor = _gl.GetInteger(GLEnum.MinorVersion);
-        GlVersion = major * 10 + minor;
-        HasDebugOutput = GlVersion >= 43 || _gl.IsExtensionPresent("GL_KHR_debug");
+        GlVersion = major > 0 ? major * 10 + minor : GlDialects.VersionNumber(Version);
+        var extensions = ReadExtensions();
+        Extensions = extensions;
+        var es = Dialect == GlDialect.Es300;
+        // ES 3.2 has debug output in core; ES 3.0 and 3.1 through KHR_debug. Desktop from 4.3.
+        HasDebugOutput = (es ? GlVersion >= 32 : GlVersion >= 43) || extensions.Contains("GL_KHR_debug");
+        HasTimerQuery = !es || extensions.Contains("GL_EXT_disjoint_timer_query");
+        HasPolygonMode = !es || extensions.Contains("GL_ANGLE_polygon_mode") || extensions.Contains("GL_NV_polygon_mode");
+        HasReadBgra = !es || extensions.Contains("GL_EXT_read_format_bgra");
         MaxTextureSize = _gl.GetInteger(GLEnum.MaxTextureSize);
-        Dialect = GlDialect.Core330;
-        Caps = GlCaps.From(GlDialects.Word(Dialect), major, minor, ReadExtensions());
+        Caps = GlCaps.From(GlDialects.Word(Dialect), major, minor, extensions);
         if (_options.DebugOutput && HasDebugOutput)
             EnableDebugOutput();
         _emptyVao = _gl.GenVertexArray();
@@ -108,6 +118,27 @@ public sealed unsafe partial class GlDevice : IDisposable
 
     /// <summary>What this context samples and renders to, read once from its version and extensions.</summary>
     public GlCaps Caps { get; }
+
+    /// <summary>The context's extension names.</summary>
+    public IReadOnlySet<string> Extensions { get; }
+
+    /// <summary>GPU timer queries work (desktop core; ES through EXT_disjoint_timer_query): without them GPU times read 0.</summary>
+    public bool HasTimerQuery { get; }
+
+    /// <summary>Wireframe drawing works (desktop core; ES through ANGLE_polygon_mode or NV_polygon_mode): without it the editor's
+    /// wireframe draws filled.</summary>
+    public bool HasPolygonMode { get; }
+
+    /// <summary>Pixels read back as BGRA in one call (desktop core; ES through EXT_read_format_bgra): without it a synchronous read
+    /// swaps red and blue on the CPU, and the streaming read-back path refuses with words.</summary>
+    public bool HasReadBgra { get; }
+
+    /// <summary>The format a target is made in here (the asked one, or its fallback on this context); <paramref name="words"/>
+    /// says why when it differs.</summary>
+    public TextureFormat TargetFormat(TextureFormat format, out string? words) => GlFormatTable.Target(Caps, format, out words);
+
+    /// <summary>The format a sampled texture is made in here (the asked one, or its fallback on this context).</summary>
+    public TextureFormat SampledFormat(TextureFormat format, out string? words) => GlFormatTable.Sampled(Caps, format, out words);
 
     /// <summary>The context's extensions, read one by one (glGetString(GL_EXTENSIONS) is an error on a core profile).</summary>
     private HashSet<string> ReadExtensions()
@@ -285,6 +316,12 @@ public sealed unsafe partial class GlDevice : IDisposable
     {
         if (_wireframe == lines)
             return;
+        if (!HasPolygonMode)
+        {
+            // ES without a polygon-mode extension: triangles draw filled (the editor's wireframe is the only caller).
+            _wireframe = lines;
+            return;
+        }
         _gl.PolygonMode(GLEnum.FrontAndBack, lines ? GLEnum.Line : GLEnum.Fill);
         _wireframe = lines;
     }
