@@ -161,6 +161,8 @@ public sealed class FxVerbTests
     public async Task BypassMoveAndRemoveAnswerWhatTheyChanged()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
+        Assert.Equal("the show has no effects", await Refused(engine, "FX BYPASS ALL ON"));
+        Assert.Equal("op_1 has no effects", await Refused(engine, "FX BYPASS op_1 ON"));
         var a = await Ok(engine, "FX ADD op_1 fx.invert");
         var b = await Ok(engine, "FX ADD op_1 fx.blur");
         var c = await Ok(engine, "FX ADD cv_main fx.tile");
@@ -184,6 +186,8 @@ public sealed class FxVerbTests
         Assert.Null(engine.Store.Project.FindFx(b));
         Assert.Contains($"no effect {b}", await Refused(engine, $"FX REMOVE {b}"), StringComparison.Ordinal);
 
+        Assert.Contains("no effect, layer, canvas, surface, output or playlist item nowhere", await Refused(engine, "FX BYPASS nowhere ON"), StringComparison.Ordinal);
+        Assert.Contains("no layer, canvas, surface, output or playlist item nowhere", await Refused(engine, "FX LIST nowhere"), StringComparison.Ordinal);
         using var list = JsonDocument.Parse(await Ok(engine, "FX LIST ALL"));
         Assert.Equal(["op_1", "cv_main"], list.RootElement.EnumerateArray().Select(o => o.GetProperty("owner").GetString()!).ToArray());
         using var one = JsonDocument.Parse(await Ok(engine, "FX LIST cv_main"));

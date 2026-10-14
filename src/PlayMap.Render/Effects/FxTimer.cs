@@ -3,11 +3,13 @@ using PlayMap.Render.Gpu;
 namespace PlayMap.Render.Effects;
 
 /// <summary>A slot's GPU time between two timestamps, three frames deep so reading never waits: the span lands two or three
-/// frames after it was drawn. Timestamps, unlike elapsed-time queries, may sit inside the output's own query.</summary>
+/// frames after it was drawn. Timestamps, unlike elapsed-time queries, may sit inside the output's own query. Timestamp queries
+/// are core in desktop GL 3.3 and not in GLES 3.0, so on an ES context nothing is measured and the time stays 0.</summary>
 internal sealed class FxTimer : IDisposable
 {
     private const int Depth = 3;
     private readonly GlDevice _device;
+    private readonly bool _measures;
     private readonly uint[] _start = new uint[Depth];
     private readonly uint[] _end = new uint[Depth];
     private readonly bool[] _pending = new bool[Depth];
@@ -17,6 +19,9 @@ internal sealed class FxTimer : IDisposable
     public FxTimer(GlDevice device)
     {
         _device = device;
+        _measures = device.Caps.IsCore;
+        if (!_measures)
+            return;
         for (var i = 0; i < Depth; i++)
         {
             _start[i] = device.CreateQuery();
@@ -29,6 +34,8 @@ internal sealed class FxTimer : IDisposable
 
     public void Begin()
     {
+        if (!_measures)
+            return;
         Collect();
         if (_pending[_next])
             return;
@@ -62,6 +69,8 @@ internal sealed class FxTimer : IDisposable
 
     public void Dispose()
     {
+        if (!_measures)
+            return;
         for (var i = 0; i < Depth; i++)
         {
             _device.DeleteQuery(_start[i]);

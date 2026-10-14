@@ -92,7 +92,7 @@ A show's own ISF files are kinds `isf:<asset id>` beside them (`FX IMPORT`).
 ## Measured, not governed
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
-waits, and reported in STATE (`gpuMs`); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
+waits, and reported in STATE (`gpuMs`; on a GLES context, which has no timestamp queries, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
 (`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it.
 
 Once warm, a frame with a chain allocates nothing on the frame path.

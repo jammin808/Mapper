@@ -39,6 +39,11 @@ internal static class FxSources
         }
         var fs = File.ReadAllText(path);
         var vsPath = Path.ChangeExtension(path, ".vs");
+        if (File.Exists(vsPath) && new FileInfo(vsPath).Length > MaxSourceBytes)
+        {
+            why = $"{Path.GetFileName(vsPath)} is larger than {MaxSourceBytes / 1024} KB";
+            return null;
+        }
         var vs = File.Exists(vsPath) ? File.ReadAllText(vsPath) : null;
         var images = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         var doc = IsfParser.Parse(fs);
