@@ -102,7 +102,8 @@ public sealed class LockCounter
         var d = Delta(count, a.Count24);
         if (d > _modulus / 2)
             return false;
-        leaderNs = a.LeaderNs + (long)(d * (ulong)a.PeriodPs / 1000);
+        // 128-bit product: on a 32-bit counter d reaches 2³¹, and 2³¹ × 16.7 ns in ps passes 2⁶⁴.
+        leaderNs = a.LeaderNs + (long)((UInt128)d * (ulong)a.PeriodPs / 1000);
         return true;
     }
 
@@ -117,9 +118,13 @@ public sealed class LockCounter
     }
 
     /// <summary>An anchor made on the leader at the vblank of <paramref name="count"/> (its fitted show time
-    /// <paramref name="vblankLeaderNs"/>, its period in ps), taking effect <paramref name="lead"/> refreshes later.</summary>
-    public static LockAnchor Make(uint count, long vblankLeaderNs, long periodPs, long seq, uint lead = DefaultLead) =>
-        new(count, vblankLeaderNs, periodPs, (count + lead) & Mask24, seq);
+    /// <paramref name="vblankLeaderNs"/>, its period in ps), taking effect <paramref name="lead"/> refreshes later — counted in
+    /// the board's width (<paramref name="wide"/>: 32 bits, else 24).</summary>
+    public static LockAnchor Make(uint count, long vblankLeaderNs, long periodPs, long seq, uint lead = DefaultLead, bool wide = false) =>
+        new(count, vblankLeaderNs, periodPs, wide ? count + lead : (count + lead) & Mask24, seq);
+
+    /// <summary>The count after <paramref name="count"/> in this counter's width (24 bits, or 32 once proved wide).</summary>
+    public uint Next(uint count) => Wide ? count + 1 : (count + 1) & Mask24;
 
     /// <summary>The anchor's record for the group's lock feed (stable keys).</summary>
     public static string Json(LockAnchor a) => string.Create(CultureInfo.InvariantCulture,

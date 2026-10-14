@@ -249,6 +249,8 @@ public sealed class FrameLockMachine
         _joinedSeq = f.Intent.Seq;
         _joinStartedNs = f.MonoNs;
         _good = 0;
+        // A join's count is judged from the join on: a count that stood still before it is no stall of this join.
+        _lastAdvanceNs = f.MonoNs;
         Reason = LockReasons.None;
         Words = $"joining swap group {f.Intent.SwapGroup}, barrier {f.Intent.Barrier}";
         return LockActions.Join | LockActions.Bind | LockActions.OverridePresent;

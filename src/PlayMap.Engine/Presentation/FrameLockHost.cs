@@ -303,7 +303,8 @@ internal sealed class FrameLockHost : IDisposable
             if (!_anchorOffered && present is { } p && p.LastVblankNs > 0 && _counter.DueForReanchor(pacer.Count, p.RefreshHz))
             {
                 var vblankLeaderNs = leaderNowNs - (monoNow - p.LastVblankNs);
-                _counter.Offer(LockCounter.Make(pacer.Count, vblankLeaderNs, (long)Math.Round(1e12 / p.RefreshHz), ++_anchorSeq));
+                _counter.Offer(LockCounter.Make(pacer.Count, vblankLeaderNs, (long)Math.Round(1e12 / p.RefreshHz), ++_anchorSeq,
+                    wide: _counter.Wide));
             }
         }
     }
@@ -317,7 +318,7 @@ internal sealed class FrameLockHost : IDisposable
             return false;
         bool ok;
         lock (_gate)
-            ok = _counter.TryLeaderNsAt((pacer.Count + 1) & LockCounter.Mask24, out leaderNs);
+            ok = _counter.TryLeaderNsAt(_counter.Next(pacer.Count), out leaderNs);
         _timeSource = ok ? "count" : "clock";
         return ok;
     }

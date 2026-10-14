@@ -124,6 +124,38 @@ public sealed class LockCounterTests(ITestOutputHelper log)
     }
 
     [Fact]
+    public void AWideCounterMapsFarCountsExactlyAndItsAnchorsWaitForTheirOwnCount()
+    {
+        const long period60Ps = 16_666_666_667;
+        var counter = new LockCounter();
+        counter.Read(0x0FFFFFFE);
+        Assert.True(counter.Wide);
+        var anchor = LockCounter.Make(0x0FFFFFFE, T0, period60Ps, seq: 1, wide: counter.Wide);
+        Assert.Equal(0x0FFFFFFEu + LockCounter.DefaultLead, anchor.EffectiveAt24);
+        counter.Offer(anchor);
+
+        // 2³¹ refreshes on (414 days at 60 Hz) the count times the period passes 2⁶⁴ ps: still exact.
+        Assert.True(counter.TryLeaderNsAt(0x0FFFFFFEu + (1u << 31), out var far));
+        Assert.Equal(T0 + (long)((UInt128)(1UL << 31) * period60Ps / 1000), far);
+        Assert.Equal(0x0FFFFFFFu, counter.Next(0x0FFFFFFE));
+        Assert.Equal(0u, counter.Next(uint.MaxValue));
+        Assert.Equal(0u, new LockCounter().Next(Mask));
+
+        // A newer anchor made on the wide counter waits for its own 32-bit count, not a 24-bit one already passed.
+        counter.Read(0x0FFFFFFF);
+        var next = LockCounter.Make(0x0FFFFFFF, T0 + 16_666_667, period60Ps, seq: 2, wide: true);
+        counter.Offer(next);
+        Assert.Equal(next, counter.Pending);
+        counter.Read(0x10000000);
+        Assert.Equal(1, counter.Active!.Value.Seq);
+        Assert.True(counter.TryLeaderNsAt(0x10000000, out var before));
+        Assert.Equal(T0 + 33_333_333, before); // two periods on, from the active anchor
+        for (var c = 0x10000001u; c <= next.EffectiveAt24; c++)
+            counter.Read(c);
+        Assert.Equal(2, counter.Active!.Value.Seq);
+    }
+
+    [Fact]
     public void AStaleAnchorAnswersNothingAndAnOlderOneIsDropped()
     {
         var counter = new LockCounter();

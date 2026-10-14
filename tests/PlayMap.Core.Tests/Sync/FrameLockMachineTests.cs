@@ -15,21 +15,26 @@ public sealed class FrameLockMachineTests
         public long Now = 10_000_000_000;
         public uint Count = 0xFFFFC0; // near the 24-bit wrap: the lock runs across it
         public bool Board = true, Configured = true, Synced = true, Cable, Armed, Blackout, Boundary = true, Bound = true;
-        public bool Stall, TimedOut, Busy, DisplayChanged, Settled = true, CountValid = true, Rejoin, Auto = true;
+        public bool Stall, TimedOut, Busy, DisplayChanged, Settled = true, CountValid = true, Rejoin, Auto = true, House, JoinRefused;
         public LockIntent Intent = LockIntent.None;
         public readonly List<(LockState State, LockActions Actions)> Seen = [];
+
+        /// <summary>Every transition a step made: from, to, and the reason word it set (empty when the step set none).</summary>
+        public readonly HashSet<(LockState From, LockState To, string Cause)> Edges = [];
 
         public LockActions Tick()
         {
             Now += (long)Math.Ceiling(Period);
             if (!Stall)
                 Count = (Count + 1) & 0xFFFFFF;
-            var facts = new LockFacts(Now, Period, Settled, Board, Configured, Synced, Synced, false, Cable, true, Bound, CountValid, Count,
+            var facts = new LockFacts(Now, Period, Settled, Board, Configured, Synced, Synced, House, Cable, true, Bound, CountValid, Count,
                 TimedOut, Busy, DisplayChanged, Armed, Blackout, Boundary, Intent)
-            { RejoinAsked = Rejoin, AutoRejoin = Auto };
+            { RejoinAsked = Rejoin, AutoRejoin = Auto, JoinRefused = JoinRefused, JoinWords = JoinRefused ? "the swap chain is busy" : null };
+            var (from, reasonBefore) = (Machine.State, Machine.Reason);
             var actions = Machine.Step(in facts);
             Rejoin = false;
             Seen.Add((Machine.State, actions));
+            Edges.Add((from, Machine.State, from != Machine.State || Machine.Reason != reasonBefore ? Machine.Reason : ""));
             return actions;
         }
 
@@ -420,49 +425,93 @@ public sealed class FrameLockMachineTests
     }
 
     [Fact]
-    public void TheScriptCoversAtLeastTwentyFiveTransitions()
+    public void AJoinOnACountThatStoodStillBeforeItIsJudgedFromTheJoin()
     {
-        // Every distinct (from, to) edge the scripts above drive, gathered once more in one long run.
-        var rig = new Rig();
-        var edges = new HashSet<(LockState, LockState)>();
-        var before = rig.Machine.State;
-        void Step()
+        var rig = new Rig { Stall = true };
+        rig.Ticks(30);
+        rig.Apply();
+        Assert.Equal(LockActions.Join | LockActions.Bind | LockActions.OverridePresent, rig.Tick());
+        // Two periods since the join: the count has not yet stood still for three of the join's own refreshes.
+        rig.Ticks(2);
+        Assert.Equal(LockState.Joining, rig.Machine.State);
+        Assert.Equal(LeaveAll | LockActions.Alarm, rig.Tick());
+        Assert.Equal(LockReasons.CountStalled, rig.Machine.Reason);
+    }
+
+    [Fact]
+    public void TheScriptsCoverAtLeastTwentyFiveDistinctTransitions()
+    {
+        // Each (from, to, reason) a script drives, gathered over short scripts that each start from a fresh output.
+        var edges = new HashSet<(LockState From, LockState To, string Cause)>();
+        void Run(Action<Rig> script)
         {
-            rig.Tick();
-            edges.Add((before, rig.Machine.State));
-            before = rig.Machine.State;
+            var rig = new Rig();
+            script(rig);
+            edges.UnionWith(rig.Edges);
         }
-        void Steps(int n)
+        void Fall(Rig r, Action<Rig> fault, int ticks)
         {
-            for (var i = 0; i < n; i++)
-                Step();
+            fault(r);
+            r.Ticks(ticks);
+            Assert.Equal(LockState.FellOut, r.Machine.State);
         }
-        Step();                                         // free → free
-        rig.Settled = false; Step(); rig.Settled = true; Step();
-        rig.Cable = true; rig.Apply(1); Step();         // refused
-        rig.Cable = false; rig.Apply(2); Step();        // free → joining
-        Steps(FrameLockMachine.ConfirmRefreshes);       // joining → framelocked
-        rig.Stall = true; Steps(3); rig.Stall = false;  // framelocked → fell-out
-        rig.Rejoin = true; Step();                      // fell-out → joining
-        rig.Intent = LockIntent.None; Step();           // joining → free
-        rig.Apply(3); Step(); Steps(FrameLockMachine.ConfirmRefreshes);
-        rig.Intent = LockIntent.None; Step();           // framelocked → free
-        rig.Apply(4); Step(); rig.Busy = true; Step(); rig.Busy = false; // joining → fell-out
-        rig.Intent = LockIntent.None; Step();           // fell-out → free
-        rig.Settled = false; Step(); rig.Apply(5); Step(); Steps(FrameLockMachine.ConfirmRefreshes); rig.Settled = true;
-        Assert.Equal(LockState.Framelocked, rig.Machine.State);
-        (LockState, LockState)[] expected =
+        void HouseLock(Rig r)
+        {
+            r.House = true;
+            r.Apply();
+            r.Ticks(1 + FrameLockMachine.ConfirmRefreshes);
+            Assert.Equal(LockState.HouseLocked, r.Machine.State);
+            r.Tick();
+        }
+
+        // Free, and every refusal by its reason.
+        Run(r => { r.Ticks(2); r.Settled = false; r.Tick(); r.Settled = true; r.Tick(); });
+        Run(r => { r.Tick(); r.Cable = true; r.Apply(); r.Tick(); });
+        Run(r => { r.Tick(); r.Board = false; r.Apply(); r.Tick(); });
+        Run(r => { r.Tick(); r.Configured = false; r.Apply(); r.Tick(); });
+        Run(r => { r.Tick(); r.Armed = true; r.Apply(); r.Tick(); });
+        // Joining: locks, house-locks; times out, refused by the driver, the count stalls, the wait times out; released.
+        Run(r => { r.Lock(); r.Tick(); });
+        Run(r => { r.Tick(); r.Lock(); });
+        Run(HouseLock);
+        Run(r => { r.Bound = false; r.Apply(); r.Ticks(5 * 60 + 2); });
+        Run(r => { r.Apply(); r.Tick(); r.JoinRefused = true; r.Tick(); });
+        Run(r => { r.Apply(); r.Ticks(5); r.Stall = true; r.Ticks(3); });
+        Run(r => { r.Apply(); r.Tick(); r.TimedOut = true; r.Tick(); });
+        Run(r => { r.Tick(); r.Apply(); r.Tick(); r.Intent = LockIntent.None; r.Tick(); });
+        Run(r => { r.Settled = false; r.Apply(); r.Tick(); r.Intent = LockIntent.None; r.Tick(); });
+        // Locked: each way of falling out, and released.
+        Run(r => { r.Lock(); Fall(r, x => x.TimedOut = true, 1); });
+        Run(r => { r.Lock(); Fall(r, x => x.Stall = true, 3); });
+        Run(r => { r.Lock(); Fall(r, x => x.Synced = false, 4); });
+        Run(r => { r.Lock(); Fall(r, x => x.Busy = true, 1); });
+        Run(r => { r.Lock(); Fall(r, x => x.DisplayChanged = true, 1); });
+        Run(r => { r.Lock(); r.Intent = LockIntent.None; r.Tick(); });
+        Run(r => { r.Lock(); r.Settled = false; r.Intent = LockIntent.None; r.Tick(); });
+        Run(r => { HouseLock(r); Fall(r, x => x.TimedOut = true, 1); });
+        Run(r => { HouseLock(r); r.Intent = LockIntent.None; r.Tick(); });
+        // Fell out: stays (armed), a rejoin refused while armed, a rejoin, released settled and unsettled.
+        Run(r => { r.Lock(); Fall(r, x => x.Busy = true, 1); r.Busy = false; r.Armed = true; r.Tick(); r.Rejoin = true; r.Tick(); });
+        Run(r => { r.Lock(); Fall(r, x => x.Busy = true, 1); r.Busy = false; r.Rejoin = true; r.Tick(); });
+        Run(r => { r.Lock(); Fall(r, x => x.Busy = true, 1); r.Intent = LockIntent.None; r.Tick(); });
+        Run(r => { r.Lock(); Fall(r, x => x.Busy = true, 1); r.Settled = false; r.Intent = LockIntent.None; r.Tick(); });
+
+        const LockState Fu = LockState.FreeUnknown, Fm = LockState.FreeMeasured, Jn = LockState.Joining, Fl = LockState.Framelocked,
+            Hl = LockState.HouseLocked, Fo = LockState.FellOut;
+        (LockState, LockState, string)[] expected =
         [
-            (LockState.FreeMeasured, LockState.FreeMeasured), (LockState.FreeMeasured, LockState.FreeUnknown),
-            (LockState.FreeUnknown, LockState.FreeMeasured), (LockState.FreeMeasured, LockState.Joining),
-            (LockState.Joining, LockState.Joining), (LockState.Joining, LockState.Framelocked),
-            (LockState.Framelocked, LockState.Framelocked), (LockState.Framelocked, LockState.FellOut),
-            (LockState.FellOut, LockState.Joining), (LockState.Joining, LockState.FreeMeasured),
-            (LockState.Framelocked, LockState.FreeMeasured), (LockState.Joining, LockState.FellOut),
-            (LockState.FellOut, LockState.FreeMeasured), (LockState.FreeUnknown, LockState.Joining),
+            (Fu, Fm, ""), (Fm, Fu, ""), (Fm, Fm, ""), (Fu, Jn, ""), (Fm, Jn, ""), (Jn, Jn, ""), (Jn, Fl, ""), (Jn, Hl, ""), (Fl, Fl, ""),
+            (Hl, Hl, ""),
+            (Fm, Fm, LockReasons.CableIntoSwitch), (Fm, Fm, LockReasons.NoBoard), (Fm, Fm, LockReasons.NotConfigured), (Fm, Fm, LockReasons.Armed),
+            (Jn, Fo, LockReasons.JoinTimeout), (Jn, Fo, LockReasons.JoinRefused), (Jn, Fo, LockReasons.CountStalled), (Jn, Fo, LockReasons.Stall),
+            (Jn, Fm, ""), (Jn, Fu, ""),
+            (Fl, Fo, LockReasons.Stall), (Fl, Fo, LockReasons.CountStalled), (Fl, Fo, LockReasons.BoardUnsynced),
+            (Fl, Fo, LockReasons.DeviceBusy), (Fl, Fo, LockReasons.DisplayChanged), (Fl, Fm, ""), (Fl, Fu, ""),
+            (Hl, Fo, LockReasons.Stall), (Hl, Fm, ""),
+            (Fo, Fo, ""), (Fo, Fo, LockReasons.Armed), (Fo, Jn, ""), (Fo, Fm, ""), (Fo, Fu, ""),
         ];
         foreach (var edge in expected)
             Assert.Contains(edge, edges);
-        Assert.True(rig.Seen.Count >= 25, $"{rig.Seen.Count} scripted steps");
+        Assert.True(edges.Count >= 25, $"{edges.Count} distinct transitions");
     }
 }
