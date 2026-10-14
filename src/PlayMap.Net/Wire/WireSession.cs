@@ -1,53 +1,63 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Companion;
 
 namespace PlayMap.Net.Wire;
 
 /// <summary>One connection's life on the line wire (docs/WIRE.md "A connection's life"). Lines are read and run
 /// one at a time, so replies leave in the order their lines came; the session's writer is its only voice.
 /// Pairing is the connection's: a proof answers this connection's nonce, a nonce answers one proof, and the token
-/// a proof matched is compared with the node's token on every verb (a new token unpairs at once).</summary>
+/// a proof matched is compared with the node's token on every verb (a new token unpairs at once). On the web port's line
+/// channel (a WebSocket) nothing but NONCE, HELLO, AUTH-PROOF and PING is answered until it pairs, the greeting STATE waits
+/// for "OK paired", plain AUTH is never taken, and wrong proofs count against the address in the web port's ledger.</summary>
 internal sealed class WireSession : IAsyncDisposable
 {
     private static readonly TimeSpan LastWordWait = TimeSpan.FromSeconds(2);
 
-    private readonly WireServer _server;
-    private readonly Socket _socket;
-    private readonly NetworkStream _stream;
+    /// <summary>The desk's HELLO name: the desk role needs more than the name (<see cref="IsDesk"/>).</summary>
+    public const string DeskName = "PlayMapDesk";
+
+    /// <summary>The verbs a WebSocket line channel answers before it pairs (plain AUTH only to say it takes proofs): everything else
+    /// waits for the proof.</summary>
+    private static readonly HashSet<string> BeforePairing = new(StringComparer.Ordinal) { "NONCE", "HELLO", "AUTH-PROOF", "AUTH", "PING" };
+
+    private readonly LineSessions _server;
+    private readonly ILineChannel _channel;
     private readonly IPAddress? _remote;
     private readonly string _address;
     private readonly bool _loopback;
     private readonly string _id;
-    private readonly LineReader _reader;
+    private readonly bool _strict;
     private string _nonce = Pairing.NewNonce();
     private string _helloName = "";
     private bool _saidHello;
+    private bool _greetOnPairing;
+    private bool _registered;
     private string? _pairedToken;
     private int _wrong;
     private bool _close;
+    private int _closeCode = 1000;
     private volatile bool _wantsState;
     private volatile bool _wantsContext;
     private volatile bool _wantsProject;
     private readonly TopicSubscriptions _topics = new();
 
-    public WireSession(WireServer server, Socket socket, NetworkStream stream, IPAddress? remote, string id)
+    public WireSession(LineSessions server, ILineChannel channel, string id)
     {
         _server = server;
-        _socket = socket;
-        _stream = stream;
-        _remote = remote;
-        _address = NetAddress.Text(remote);
-        _loopback = NetAddress.IsLoopback(remote);
+        _channel = channel;
+        _remote = channel.Remote;
+        _address = NetAddress.Text(_remote);
+        _loopback = NetAddress.IsLoopback(_remote);
         _id = id;
+        _strict = channel.Kind == "ws";
         var limits = server.Options.Limits;
-        _reader = new LineReader(stream, limits.MaxLineBytes, TimeSpan.FromSeconds(limits.LineSeconds));
-        Writer = new LineWriter(stream, limits.MaxQueuedReplies, TimeSpan.FromSeconds(limits.WriteSeconds), Abort);
+        Writer = new LineWriter(channel.Output, limits.MaxQueuedReplies, TimeSpan.FromSeconds(limits.WriteSeconds), channel.Abort);
     }
 
     public LineWriter Writer { get; }
@@ -72,30 +82,71 @@ internal sealed class WireSession : IAsyncDisposable
         }
     }
 
-    /// <summary>Who this is for the command router and the journal: the desk says "PlayMapDesk", Stagewatch's VT link
-    /// says "Stagewatch", an address on the trusted list that never said hello is a Patterns "Lines" device.</summary>
+    /// <summary>Who this is for the command router and the journal. A name is a claim, and a claim only narrows: "Companion:…"
+    /// is a controller; "Stagewatch" is Stagewatch's VT link; an address on the trusted list that never said hello is a Patterns
+    /// "Lines" device; "PlayMapDesk" is the desk only when <see cref="IsDesk"/> holds; anything else is the door's own transport.</summary>
     private SessionInfo Info()
     {
         var transport = _helloName switch
         {
-            "PlayMapDesk" => "desk",
+            DeskName when IsDesk() => "desk",
             "Stagewatch" => "stagewatch",
+            var n when IsCompanionName(n) => "companion",
             _ when !_saidHello && NetAddress.IsListed(_remote, _server.Settings) => "patterns-device",
-            _ => "wire",
+            _ => _strict ? "ws" : "wire",
         };
         return new SessionInfo(_id, transport, _address, _loopback, _helloName, Paired);
     }
 
-    public void Abort()
+    /// <summary>"Companion" or "Companion:&lt;label&gt;".</summary>
+    public static bool IsCompanionName(string name) =>
+        name == "Companion" || name.StartsWith("Companion:", StringComparison.Ordinal);
+
+    /// <summary>The desk is the operator, so its role comes from what a client cannot simply claim: the HELLO name on the TCP wire
+    /// (never the web port), and the node's token proved on this connection (AUTH-PROOF, or plain AUTH from this machine) — trust
+    /// of an address alone never makes a desk — from this machine or from an address the node lists as a desk
+    /// (<see cref="CompanionSettings.DeskAddresses"/>). A node that asks no token has no secret to prove, so there only this
+    /// machine's desk is the desk.</summary>
+    private bool IsDesk()
     {
-        try
-        {
-            _socket.Close(0);
-        }
-        catch (ObjectDisposedException)
-        {
-            // Closed already.
-        }
+        if (_strict || _helloName != DeskName)
+            return false;
+        var settings = _server.Settings;
+        var token = Pairing.Normalise(settings.Token);
+        if (token.Length == 0)
+            return _loopback;
+        var proved = _pairedToken is not null && string.Equals(_pairedToken, token, StringComparison.Ordinal);
+        return proved && (_loopback || IsDeskAddress(_remote, settings));
+    }
+
+    private static bool IsDeskAddress(IPAddress? remote, NodeSettings settings)
+    {
+        if (remote is null || settings.Companion.DeskAddresses.IsDefaultOrEmpty)
+            return false;
+        var a = NetAddress.Normal(remote);
+        foreach (var t in settings.Companion.DeskAddresses)
+            if (IPAddress.TryParse(t.Trim(), out var desk) && NetAddress.Normal(desk).Equals(a))
+                return true;
+        return false;
+    }
+
+    /// <summary>Tells the node's client table who this is now (after HELLO, and after pairing changes what it may do).</summary>
+    private void Register()
+    {
+        if (!_saidHello || _server.Endpoint is not IClientRegistry registry)
+            return;
+        registry.Hello(Info(), _channel.Kind);
+        _registered = true;
+    }
+
+    public void Abort() => _channel.Abort();
+
+    /// <summary>The door is stopping: a WebSocket hears 1001, a TCP connection is cut.</summary>
+    public async Task StopAsync()
+    {
+        await _channel.CloseAsync(1001, "the node is stopping");
+        if (!_strict)
+            _channel.Abort();   // TCP has no close words: the reader wakes on the cut
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -107,7 +158,7 @@ internal sealed class WireSession : IAsyncDisposable
             string? raw;
             try
             {
-                raw = await _reader.ReadLineAsync(ct);
+                raw = await _channel.ReadLineAsync(ct);
             }
             catch (InvalidDataException ex)
             {
@@ -121,7 +172,10 @@ internal sealed class WireSession : IAsyncDisposable
             await HandleAsync(raw, ct);
         }
         if (_close)
+        {
             await Writer.FlushAsync(LastWordWait);
+            await _channel.CloseAsync(_closeCode, "closed");
+        }
     }
 
     private async Task HandleAsync(string raw, CancellationToken ct)
@@ -146,6 +200,12 @@ internal sealed class WireSession : IAsyncDisposable
             return;
         }
         var id = line.RequestId;
+        if (_strict && !Paired && !BeforePairing.Contains(line.Verb))
+        {
+            // The web port's line channel skips the web's token check, so until it pairs it answers only what pairing needs.
+            Writer.Say(WireGrammar.Err(id, WireWords.NotPaired));
+            return;
+        }
         try
         {
             if (!HandleSession(line, id, readAt))
@@ -178,8 +238,17 @@ internal sealed class WireSession : IAsyncDisposable
                 _helloName = Pairing.HelloName(line.RestAfter(1));
                 _saidHello = true;
                 Writer.Say(WireGrammar.Ok(id));
-                Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
-                _wantsState = true;
+                if (_strict && !Paired)
+                {
+                    // STATE is the node's: an unpaired line channel hears it right after "OK paired".
+                    _greetOnPairing = true;
+                }
+                else
+                {
+                    Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
+                    _wantsState = true;
+                }
+                Register();
                 return true;
             case "AUTH-PROOF":
                 Authenticate(line, id, proof: true);
@@ -219,6 +288,15 @@ internal sealed class WireSession : IAsyncDisposable
         if (token.Length == 0)
         {
             Writer.Say(WireGrammar.Ok(id, WireWords.Open));
+            Greet();
+            return;
+        }
+        if (_server.LockedOut?.Invoke(_address) == true)
+        {
+            // The address spent its wrong tokens on this door: the proof is not even looked at.
+            Writer.Say(WireGrammar.Err(id, WireWords.TooManyWrongTokens + " — closed"));
+            _closeCode = WebSocketLineChannel.WrongProofsClose;
+            _close = true;
             return;
         }
         bool right;
@@ -229,7 +307,7 @@ internal sealed class WireSession : IAsyncDisposable
         }
         else
         {
-            if (!(_loopback && _server.Options.PlainAuthOnLoopback))
+            if (_strict || !(_loopback && _server.Options.PlainAuthOnLoopback))
             {
                 Writer.Say(WireGrammar.Err(id, WireWords.UseProof));
                 return;
@@ -241,11 +319,15 @@ internal sealed class WireSession : IAsyncDisposable
             _pairedToken = token;
             _wrong = 0;
             Writer.Say(WireGrammar.Ok(id, WireWords.Paired));
+            Greet();
+            Register();
             return;
         }
+        _server.WrongProof?.Invoke(_address);
         if (++_wrong >= _server.Options.Limits.WrongProofsBeforeClose)
         {
             Writer.Say(WireGrammar.Err(id, WireWords.WrongToken + " — closed"));
+            _closeCode = WebSocketLineChannel.WrongProofsClose;
             _close = true;
             _server.Log.LogWarning("The line wire closed a connection from {Address} after {Count} wrong tokens.", _address, _wrong);
             return;
@@ -253,6 +335,16 @@ internal sealed class WireSession : IAsyncDisposable
         Writer.Say(WireGrammar.Err(id, WireWords.WrongToken));
         if (proof && !Paired)
             Writer.Say("NONCE " + _nonce);
+    }
+
+    /// <summary>The greeting STATE an unpaired line channel's HELLO waited for, right after "OK paired".</summary>
+    private void Greet()
+    {
+        if (!_greetOnPairing)
+            return;
+        _greetOnPairing = false;
+        Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
+        _wantsState = true;
     }
 
     private void Subscribe(WireLine line, string? id)
@@ -297,7 +389,8 @@ internal sealed class WireSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _topics.Dispose();
+        if (_registered && _server.Endpoint is IClientRegistry registry)
+            registry.Gone(_id);
         await Writer.DisposeAsync();
-        await _stream.DisposeAsync();
     }
 }

@@ -22,6 +22,7 @@ using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
 using PlayMap.Net.Mcp;
 using PlayMap.Net.Tls;
+using PlayMap.Net.Wire;
 
 namespace PlayMap.Net.Http;
 
@@ -85,6 +86,8 @@ public sealed class HttpHost : IAsyncDisposable
     private long _sessions;
     private int _webSockets;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _mcpSessions = new(StringComparer.Ordinal);
+    private readonly LineSessions _lines;
+    private int _lineSockets;
     private int _disposed;
 
     public HttpHost(NodeSettings settings, IWireEndpoint endpoint, ShowWallClock wall, HttpHostOptions? options = null)
@@ -100,6 +103,12 @@ public sealed class HttpHost : IAsyncDisposable
         _runner = new CommandRunner(endpoint, wall, _log);
         _isAnimating = _options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
         _isLive = () => endpoint is not INodeActivity a || a.IsLive;
+        _lines = new LineSessions(() => _settings, endpoint, wall, new WireServerOptions { IsAnimating = _options.IsAnimating, PlainAuthOnLoopback = false },
+            _log, "l")
+        {
+            WrongProof = _gate.NoteWrongFrom,
+            LockedOut = _gate.IsLocked,
+        };
     }
 
     public int Port { get; private set; }
@@ -111,8 +120,11 @@ public sealed class HttpHost : IAsyncDisposable
     /// <summary>Whether MCP is served at <c>/mcp</c>.</summary>
     public bool ServesMcp => _options.Mcp;
 
-    /// <summary>WebSockets open on <c>/ws</c> now.</summary>
+    /// <summary>WebSockets open on <c>/ws</c> now (screens; the line channel's controllers are counted apart).</summary>
     public int WebSockets => Volatile.Read(ref _webSockets);
+
+    /// <summary>Line-wire sessions open on <c>/ws</c> with the <c>playmap.lines.v1</c> subprotocol now.</summary>
+    public int LineSockets => Volatile.Read(ref _lineSockets);
 
     /// <summary>MCP clients heard from in the last minute (an MCP client over HTTP holds nothing open, so it counts while
     /// it keeps asking; a session that says goodbye stops counting at once).</summary>
@@ -172,6 +184,7 @@ public sealed class HttpHost : IAsyncDisposable
             throw new BindRefusedException($"the web port could not listen on {(bind is null ? "every interface" : bind.ToString())} port {port} — it stays closed ({ex.Message})", ex);
         }
         _app = app;
+        _lines.Start();
         Port = new Uri(app.Urls.First()).Port;
         _log.LogInformation("The web port listens on {Port}{Tls}.", Port, ServesTls ? " (HTTP and HTTPS)" : "");
     }
@@ -270,6 +283,24 @@ public sealed class HttpHost : IAsyncDisposable
                     break;
             }
         }
+        if (IsLineChannel(context))
+        {
+            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but HTTPS and the address's
+            // lockout still hold before the upgrade.
+            var from = context.Connection.RemoteIpAddress;
+            if (_settings.RequireHttps && !context.Request.IsHttps && !NetAddress.IsLoopback(from))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, WireWords.UseHttps);
+                return;
+            }
+            if (NetAddress.TokenNeeded(_settings) && !NetAddress.IsTrusted(from, _settings) && _gate.IsLocked(NetAddress.Text(from)))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status429TooManyRequests, WireWords.TooManyWrongTokens);
+                return;
+            }
+            await next(context);
+            return;
+        }
         var verdict = _gate.Check(context, _settings);
         if (verdict is not (GateVerdict.Open or GateVerdict.Token))
         {
@@ -289,6 +320,11 @@ public sealed class HttpHost : IAsyncDisposable
         ], "playmap"));
         await next(context);
     }
+
+    /// <summary>A WebSocket upgrade on <c>/ws</c> that offers the line wire's subprotocol.</summary>
+    private static bool IsLineChannel(HttpContext context) =>
+        context.Request.Path.Value == "/ws" && context.WebSockets.IsWebSocketRequest
+        && context.WebSockets.WebSocketRequestedProtocols.Contains(WebSocketLineChannel.SubProtocol, StringComparer.Ordinal);
 
     /// <summary>The node's own paths: a web module admits requests before the token gate, so it never serves under one of these
     /// (an open module there would open the node's own routes).</summary>
@@ -419,6 +455,11 @@ public sealed class HttpHost : IAsyncDisposable
             await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "/ws is a WebSocket");
             return;
         }
+        if (IsLineChannel(context))
+        {
+            await LineChannelAsync(context);
+            return;
+        }
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
         using var session = new WebSocketSession(socket, _runner, _changes, _isAnimating, _isLive, Session(context, "ws"), _options.BeatEvery, _log);
@@ -430,6 +471,33 @@ public sealed class HttpHost : IAsyncDisposable
         finally
         {
             Interlocked.Decrement(ref _webSockets);
+        }
+    }
+
+    /// <summary>The line wire over the web port: the same session as TCP 9941, stricter before it pairs.</summary>
+    private async Task LineChannelAsync(HttpContext context)
+    {
+        using var socket = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext
+        {
+            SubProtocol = WebSocketLineChannel.SubProtocol,
+            KeepAliveInterval = TimeSpan.FromSeconds(15),
+        });
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
+        var channel = new WebSocketLineChannel(socket, context.Connection.RemoteIpAddress);
+        Interlocked.Increment(ref _lineSockets);
+        try
+        {
+            await _lines.ServeAsync(channel, stop.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or System.Net.WebSockets.WebSocketException or IOException or ObjectDisposedException)
+        {
+            // A controller that went away mid-line: its session is over.
+            _log.LogDebug(ex, "A line channel on the web port ended.");
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _lineSockets);
+            await channel.DisposeAsync();
         }
     }
 
@@ -542,6 +610,7 @@ public sealed class HttpHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         _endpoint.StateChanged -= OnStateChanged;
+        await _lines.DisposeAsync();
         await _stop.CancelAsync();
         if (_app is not null)
         {

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -39,40 +38,24 @@ public sealed record WireServerOptions
 /// closed when it cannot (fail closed).</summary>
 public sealed class WireServer : IAsyncDisposable
 {
-    private readonly IWireEndpoint _endpoint;
-    private readonly ShowWallClock _wall;
     private readonly WireServerOptions _options;
     private readonly ILogger _log;
-    private readonly CommandRunner _runner;
     private readonly ConnectionLedger _ledger = new();
-    private readonly ConcurrentDictionary<WireSession, Task> _sessions = new();
     private readonly CancellationTokenSource _stop = new();
-    private readonly TrailingThrottle _stateThrottle;
-    private readonly TrailingThrottle _projectThrottle;
-    private readonly Func<bool> _isAnimating;
-    private readonly object _pushGate = new();
+    private readonly LineSessions _lines;
     private volatile NodeSettings _settings;
     private Socket? _listener;
     private Task? _acceptLoop;
-    private Task? _animateLoop;
-    private string _lastState = "";
-    private string _lastContext = "";
-    private string _lastProject = "";
-    private long _sessionCount;
-    private long _skipped;
     private int _disposed;
 
     public WireServer(NodeSettings settings, IWireEndpoint endpoint, ShowWallClock wall, WireServerOptions? options = null, ILogger? log = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
-        _wall = wall ?? throw new ArgumentNullException(nameof(wall));
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(wall);
         _options = options ?? new WireServerOptions();
         _log = log ?? NullLogger.Instance;
-        _runner = new CommandRunner(endpoint, wall, _log);
-        _isAnimating = _options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
-        _stateThrottle = new TrailingThrottle(_options.PushThrottle, PushState, _log, _stop.Token);
-        _projectThrottle = new TrailingThrottle(_options.PushThrottle, PushProject, _log, _stop.Token);
+        _lines = new LineSessions(() => _settings, endpoint, wall, _options, _log, "w");
     }
 
     /// <summary>The port the wire listens on (after <see cref="Start"/>).</summary>
@@ -81,22 +64,12 @@ public sealed class WireServer : IAsyncDisposable
     public int Connections => _ledger.Open;
 
     /// <summary>Lines that made the endpoint fault since start.</summary>
-    public long Faults => _runner.Faults;
+    public long Faults => _lines.Runner.Faults;
 
     /// <summary>STATE pushes skipped because they would have repeated the last one word for word.</summary>
-    public long PushesSkipped => Interlocked.Read(ref _skipped);
+    public long PushesSkipped => _lines.PushesSkipped;
 
     public NodeSettings Settings => _settings;
-
-    internal WireServerOptions Options => _options;
-
-    internal CommandRunner Runner => _runner;
-
-    internal ShowWallClock Wall => _wall;
-
-    internal IWireEndpoint Endpoint => _endpoint;
-
-    internal ILogger Log => _log;
 
     /// <summary>Takes a new token, trusted list or loopback trust at once (a session paired with an old token is
     /// paired no longer). A new bind or port needs a restart.</summary>
@@ -112,16 +85,10 @@ public sealed class WireServer : IAsyncDisposable
         var port = _options.Port ?? _settings.WirePort;
         _listener = NetAddress.Listen(_settings.Bind, port);
         Port = ((IPEndPoint)_listener.LocalEndPoint!).Port;
-        _endpoint.StateChanged += OnStateChanged;
-        _endpoint.ProjectChanged += OnProjectChanged;
+        _lines.Start();
         _acceptLoop = Task.Run(() => AcceptAsync(_listener, _stop.Token), CancellationToken.None);
-        _animateLoop = Task.Run(() => AnimateAsync(_stop.Token), CancellationToken.None);
         _log.LogInformation("The line wire listens on port {Port}.", Port);
     }
-
-    private void OnStateChanged(long revision) => _stateThrottle.Arm();
-
-    private void OnProjectChanged(long revision) => _projectThrottle.Arm();
 
     private async Task AcceptAsync(Socket listener, CancellationToken ct)
     {
@@ -160,15 +127,12 @@ public sealed class WireServer : IAsyncDisposable
             await RefuseBusyAsync(client, limits.BusyWords(_ledger.From(address)));
             return;
         }
-        WireSession? session = null;
+        TcpLineChannel? channel = null;
         try
         {
             client.NoDelay = true;
-            var stream = new NetworkStream(client, ownsSocket: true);
-            session = new WireSession(this, client, stream, remote, "w" + Interlocked.Increment(ref _sessionCount).ToString(System.Globalization.CultureInfo.InvariantCulture));
-            var run = session.RunAsync(ct);
-            _sessions[session] = run;
-            await run;
+            channel = new TcpLineChannel(client, new NetworkStream(client, ownsSocket: true), remote, limits);
+            await _lines.ServeAsync(channel, ct);
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException)
         {
@@ -182,15 +146,10 @@ public sealed class WireServer : IAsyncDisposable
         }
         finally
         {
-            if (session is not null)
-            {
-                _sessions.TryRemove(session, out _);
-                await session.DisposeAsync();
-            }
+            if (channel is not null)
+                await channel.DisposeAsync();
             else
-            {
                 client.Dispose();
-            }
             _ledger.Release(address);
         }
     }
@@ -217,103 +176,6 @@ public sealed class WireServer : IAsyncDisposable
         }
     }
 
-    private async Task AnimateAsync(CancellationToken ct)
-    {
-        while (await Waits.DelayAsync(_options.AnimatingPushEvery, ct))
-        {
-            try
-            {
-                if (_isAnimating() && HasListeners())
-                    _stateThrottle.Arm();
-            }
-            catch (Exception ex)
-            {
-                // An activity probe that faults says nothing this second; the next second asks again.
-                _log.LogWarning(ex, "The node's activity probe faulted.");
-            }
-        }
-    }
-
-    private bool HasListeners()
-    {
-        foreach (var s in _sessions.Keys)
-            if (s.WantsState || s.WantsContext)
-                return true;
-        return false;
-    }
-
-    private void PushState()
-    {
-        lock (_pushGate)
-        {
-            var wantsState = false;
-            var wantsContext = false;
-            foreach (var s in _sessions.Keys)
-            {
-                wantsState |= s.WantsState;
-                wantsContext |= s.WantsContext;
-            }
-            string? stateLine = null;
-            string? contextLine = null;
-            if (wantsState)
-            {
-                var json = _endpoint.State().Json;
-                if (string.Equals(json, _lastState, StringComparison.Ordinal))
-                {
-                    Interlocked.Increment(ref _skipped);
-                }
-                else
-                {
-                    _lastState = json;
-                    stateLine = "STATE " + json;
-                }
-            }
-            if (wantsContext)
-            {
-                var context = _endpoint.Context();
-                if (!string.Equals(context, _lastContext, StringComparison.Ordinal))
-                {
-                    _lastContext = context;
-                    contextLine = "CONTEXT " + context;
-                }
-            }
-            foreach (var s in _sessions.Keys)
-            {
-                if (stateLine is not null && s.WantsState)
-                    s.Writer.Push(PushKind.State, stateLine);
-                if (contextLine is not null && s.WantsContext)
-                    s.Writer.Push(PushKind.Context, contextLine);
-            }
-        }
-    }
-
-    private void PushProject()
-    {
-        lock (_pushGate)
-        {
-            var any = false;
-            foreach (var s in _sessions.Keys)
-                any |= s.WantsProject;
-            if (!any)
-                return;
-            var line = ProjectLine();
-            if (string.Equals(line, _lastProject, StringComparison.Ordinal))
-                return;
-            _lastProject = line;
-            foreach (var s in _sessions.Keys)
-                if (s.WantsProject)
-                    s.Writer.Push(PushKind.Project, line);
-        }
-    }
-
-    /// <summary>"PROJECT {"revision":N,"project":{…}}" — the push carries the revision beside the document, because
-    /// the document itself does not (readers compare revisions, never contents).</summary>
-    internal string ProjectLine()
-    {
-        var (json, revision) = _endpoint.ProjectJson();
-        return "PROJECT " + ProjectEnvelope(json, revision);
-    }
-
     public static string ProjectEnvelope(string projectJson, long revision) =>
         "{\"revision\":" + revision.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"project\":" +
         (string.IsNullOrWhiteSpace(projectJson) ? "null" : projectJson) + "}";
@@ -322,25 +184,20 @@ public sealed class WireServer : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _endpoint.StateChanged -= OnStateChanged;
-        _endpoint.ProjectChanged -= OnProjectChanged;
         await _stop.CancelAsync();
         _listener?.Dispose();
-        foreach (var s in _sessions.Keys)
-            s.Abort();
-        var waits = new List<Task>(_sessions.Values);
+        await _lines.DisposeAsync();
         if (_acceptLoop is not null)
-            waits.Add(_acceptLoop);
-        if (_animateLoop is not null)
-            waits.Add(_animateLoop);
-        try
         {
-            await Task.WhenAll(waits).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
-        }
-        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException or IOException or SocketException or ObjectDisposedException)
-        {
-            // Closing: a connection that ends badly while the server stops is not news.
-            _log.LogDebug(ex, "The line wire stopped with a connection still closing.");
+            try
+            {
+                await _acceptLoop.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is TimeoutException or OperationCanceledException or SocketException or ObjectDisposedException)
+            {
+                // Closing: the accept loop ends with the listener.
+                _log.LogDebug(ex, "The line wire stopped with its accept loop still closing.");
+            }
         }
         _stop.Dispose();
     }

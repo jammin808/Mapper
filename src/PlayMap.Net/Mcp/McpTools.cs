@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Companion;
 
 namespace PlayMap.Net.Mcp;
 
@@ -13,7 +15,8 @@ namespace PlayMap.Net.Mcp;
 /// context, project, the vocabulary) and one tool that runs a line of the vocabulary — through the same path as the
 /// wire, so a verb means the same from an assistant as from Patterns. A low or review verb runs on the assistant's
 /// word; a high-risk verb (and any verb the catalogue does not know, which counts as high) runs only when the
-/// approval policy allows it, and is otherwise queued for a person or refused with the reason — never run.</summary>
+/// approval policy allows it, and is otherwise queued for a person or refused with the reason — never run. Show Mode is asked
+/// before either: what it refuses is refused with its words, and what it holds for a person waits on the node's own list.</summary>
 public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogger log)
 {
     public const string AddressClaim = "playmap.address";
@@ -108,9 +111,21 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         // A row the node does not answer is refused here, so nothing waits for a person that could only be refused.
         if (verb is not null && runner.Endpoint is IVerbAvailability availability && !availability.IsAvailable(verb))
             return Text($"{verb.Name} is not available on this node yet", error: true);
+        var address = user?.FindFirst(AddressClaim)?.Value ?? "?";
+        var loopback = user?.FindFirst(LoopbackClaim)?.Value == "1";
+        var session = new SessionInfo("m" + Interlocked.Increment(ref _sessions).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "mcp", address, loopback, "MCP", Paired: true);
+        // Show Mode is asked first: a line it refuses is never queued for a person nor run; a line it holds for a person goes to the
+        // node, whose gate keeps it on the node's own list of proposals (never run).
+        var show = verb is not null && runner.Endpoint is ILineDecisions decisions ? decisions.Decide(verb, line, session) : new ShowDecision(ShowVerdict.Allow, null);
+        if (show.Verdict is ShowVerdict.Refuse or ShowVerdict.BlindOnly)
+        {
+            log.LogInformation("Show Mode refused an assistant's {Verb} over MCP.", verb!.Name);
+            return Text(show.Words ?? $"{verb.Name} is refused by Show Mode now", error: true);
+        }
         // A line carrying its verb's secret words is decided like a high-risk one: an assistant's token never
         // runs on its own word while "AI may act" is off.
-        if (VerbCatalog.RiskOf(line) == VerbRisk.High || VerbCatalog.HoldsSecret(line))
+        if (show.Verdict == ShowVerdict.Allow && (VerbCatalog.RiskOf(line) == VerbRisk.High || VerbCatalog.HoldsSecret(line)))
         {
             var verdict = await policy.DecideAsync(verb, line.Raw, reason, ct);
             switch (verdict.Decision)
@@ -133,10 +148,6 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
                     return Text(verdict.Words, error: true);
             }
         }
-        var address = user?.FindFirst(AddressClaim)?.Value ?? "?";
-        var loopback = user?.FindFirst(LoopbackClaim)?.Value == "1";
-        var session = new SessionInfo("m" + Interlocked.Increment(ref _sessions).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "mcp", address, loopback, "MCP", Paired: true);
         var reply = await runner.RunAsync(line, session, ct);
         log.LogInformation("An assistant ran {Verb} over MCP: {Outcome} ({Reason}).", verb?.Name ?? line.Verb, reply.Ok ? "ok" : "refused", reason);
         return Text(CommandRunner.ReceiptJson(line.RequestId, reply), error: !reply.Ok);
