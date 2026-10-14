@@ -53,6 +53,12 @@ Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages 
 
 ### wp2-audio
 
+- NAudio.Wasapi 3.1.0 and NAudio.Core 3.1.0 (MIT, © Mark Heath), WASAPI capture, the system's sound and one process's sound on
+  Windows — https://github.com/naudio/NAudio. Referenced from the one `net10.0` target (the package targets `net9.0`); every call is
+  under `[SupportedOSPlatform("windows")]`.
+- Patterns' level formula (`Spectrum.Analyse`, MIT, same author) is ported in `Core/Audio/AudioAnalyser`; the onset detector is
+  written from the published SuperFlux description (Böck and Widmer, 2013); no aubio, BTrack or Ableton Link code is used.
+
 ### wp2-content
 
 ### wp2-led
