@@ -29,6 +29,14 @@ internal sealed class FrameCountdown : IDisposable
             _done.Set();
     }
 
+    /// <summary>One real block on the event, so its lock object exists before the first frame (the event makes it lazily on the
+    /// first wait that blocks).</summary>
+    public void Warm()
+    {
+        _done.Reset();
+        _done.Wait(1);
+    }
+
     public void Wait()
     {
         while (Left > 0)

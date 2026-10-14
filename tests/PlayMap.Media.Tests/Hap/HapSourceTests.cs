@@ -137,17 +137,19 @@ public class HapSourceTests
     [Fact]
     public async Task NothingAllocatesPerFrameOnceWarm()
     {
-        using var source = new HapVideoSource(HapClips.Ffmpeg("hap_q", 8, "snappy"));
+        using var source = new HapVideoSource(HapClips.Ffmpeg("hap_q", 8, "snappy"), HapSourceOptions.Default with { Loop = true });
         Assert.True(await source.Opened, source.Health.Status);
         for (var n = 0; n < 40; n++)
             At(source, Rate.TimeOf(n)).Dispose();
         var decode = source.DecodeThreadAllocatedBytes;
         var read = source.ReadThreadAllocatedBytes;
         Assert.True(decode > 0 && read > 0);
-        for (var n = 40; n < 110; n++)
+        // 160 more frames, across the loop point. One object a frame would be 160 × 24 bytes at the least; what a thread may
+        // still make once (a lock's wait event the first time two threads meet on it) is a few hundred bytes, once.
+        for (var n = 40; n < 200; n++)
             At(source, Rate.TimeOf(n)).Dispose();
-        Assert.Equal(decode, source.DecodeThreadAllocatedBytes);
-        Assert.Equal(read, source.ReadThreadAllocatedBytes);
+        Assert.InRange(source.DecodeThreadAllocatedBytes - decode, 0, 1024);
+        Assert.InRange(source.ReadThreadAllocatedBytes - read, 0, 1024);
     }
 
     [Fact]

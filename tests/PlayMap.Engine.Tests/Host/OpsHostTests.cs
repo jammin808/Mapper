@@ -61,10 +61,11 @@ public sealed class OpsHostTests
     [Fact]
     public async Task ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd()
     {
-        // The exe's composition carries the operations parts (the render side adds no extension).
+        // The exe's composition carries the operations parts first (the render side adds no extension); round-2 packages add theirs
+        // after them through their own AddParts hooks.
         var standard = EngineParts.Standard();
         Assert.NotNull(standard.ScanBackend);
-        Assert.Equal(3, standard.Extensions.Count);
+        Assert.True(standard.Extensions.Count >= 3, $"{standard.Extensions.Count} parts");
 
         await using var node = await HostRig.StartAsync("Scan node", parts: OpsParts.With(EngineParts.Bare, Quick()));
         var engine = node.Engine;

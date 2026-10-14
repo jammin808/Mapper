@@ -1,1 +1,48 @@
-{}
+{
+  "decode": {
+    "platform": {
+      "blocks": {
+        "bc1": true,
+        "bc3": true,
+        "bc4": true,
+        "bc7": true,
+        "bc6h": true,
+        "staging": "copy",
+        "arenaMb": 0,
+        "arenaFreeMb": 0
+      },
+      "hapLayers4k60": null,
+      "light": "green",
+      "words": "1 decoder \u00B7 1 HAP on the GPU"
+    },
+    "sources": [
+      {
+        "key": "md_fixture",
+        "media": "md_fixture",
+        "name": "Counted",
+        "codec": "hap_q",
+        "path": "hap-gpu",
+        "zeroCopy": true,
+        "decodeMsP95": 0,
+        "busMbPerFrame": 0.003,
+        "dropped": 0,
+        "late": 0,
+        "status": "ready",
+        "why": "",
+        "light": "green",
+        "hap": {
+          "texture": "ycocg-bc3",
+          "chunks": 1,
+          "rawShare": 0,
+          "secondStage": "snappy",
+          "stageMsP95": 0,
+          "uploadMb": 0.003,
+          "staging": "copy",
+          "corrupt": 0,
+          "lastRefusal": "",
+          "hdr": null
+        }
+      }
+    ]
+  }
+}

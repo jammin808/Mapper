@@ -119,6 +119,9 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     /// reason is in <see cref="Health"/>.Status).</summary>
     public Task<bool> Opened => _opened.Task;
 
+    /// <summary>True once <see cref="Dispose"/> has run (the node's list of open decoders drops it).</summary>
+    public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
     public SourceHealth Health => _stats.Health(_isOpen && !_failed, _status, _decoderName, _hardware);
 
     public VideoFrameLease? Acquire(long mediaNs) => _queue.Acquire(mediaNs);

@@ -1,10 +1,14 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Media;
 using PlayMap.Media.Ffmpeg;
+using PlayMap.Media.Hap;
+using PlayMap.Media.Sources;
 using PlayMap.Net;
 
 using LibraryImport = PlayMap.Media.MediaImport;
@@ -17,7 +21,11 @@ namespace PlayMap.Engine.Host;
 /// decoder. Beside it, the node's hash index: every verified file in the node's media store, the project's folder and
 /// the library's own paths, by SHA-256 — what PathForHash answers, what the web port serves to peers (Net's
 /// <see cref="IMediaStore"/>) and what a fetched file lands in. Without FFmpeg the node still imports (hash, size,
-/// a kind from the name) and says why nothing decodes; it never stops for it.</summary>
+/// a kind from the name) and says why nothing decodes; it never stops for it.
+/// <para>HAP plays on the GPU: an item whose codec is one of the HAP family opens a <see cref="HapVideoSource"/> when the
+/// renderer samples its block family (<see cref="UseRenderer"/>), else FFmpeg's CPU decoder for the five codecs it reads (with
+/// the words why), and its readiness says when this node cannot show it at all (HAP R and HAP HDR without BPTC). Every clip
+/// decoder opened here is listed with its facts (<see cref="OpenDecoders"/>) until it is disposed.</para></summary>
 public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
 {
     public const string HashCacheFile = "hash-cache.json";
@@ -53,6 +61,10 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     private volatile string? _indexedFolder;
     private int _reindexQueued;
     private int _saidFfmpeg;
+    private volatile int _formats = (int)(BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
+    private volatile bool _rendererSaid;
+    private readonly Lock _openGate = new();
+    private readonly List<OpenDecoder> _open = [];
 
     public MediaBackend(NodeHome home, ILogger log)
     {
@@ -136,13 +148,97 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             return null;
         try
         {
-            return MediaSources.Open(item with { Location = path }, null, MediaSourceOptions.Default);
+            var located = item with { Location = path };
+            var why = "";
+            if (item.Kind == MediaKind.Video && HapRoute(item, out why) is { } hap)
+                return Track(item, new HapVideoSource(path, hap, item.Id), "");
+            var source = MediaSources.Open(located, null, MediaSourceOptions.Default);
+            return source is FfmpegVideoSource clip ? Track(item, clip, why) : source;
         }
         catch (Exception ex) when (ex is NotSupportedException or FfmpegUnavailableException or IOException or ArgumentException)
         {
             _log.LogWarning(ex, "{Item} would not open.", item.Name);
             return null;
         }
+    }
+
+    /// <summary>The renderer's block families and upload arena (null when its context goes: then the families every desktop GL
+    /// has are assumed until it says again). Readiness of HAP items is looked at again.</summary>
+    public void UseRenderer(BlockFormats formats, IUploadArena? arena)
+    {
+        var known = formats != BlockFormats.None;
+        _formats = (int)(known ? formats : BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
+        _rendererSaid = known;
+        foreach (var (id, check) in _checks)
+            if (check.Key.Contains("|hap", StringComparison.Ordinal))
+                _checks.TryRemove(new KeyValuePair<string, Check>(id, check));
+        Changed?.Invoke();
+    }
+
+    /// <summary>The block families HAP sources open for (the renderer's, once it has said).</summary>
+    public BlockFormats Formats => (BlockFormats)_formats;
+
+    /// <summary>True once a render context has told this backend what it samples.</summary>
+    public bool RendererKnown => _rendererSaid;
+
+    /// <summary>The clip decoders open now, oldest first, with the item each plays and why it is not on a better path.</summary>
+    public IReadOnlyList<OpenDecoder> OpenDecoders()
+    {
+        lock (_openGate)
+        {
+            _open.RemoveAll(d => d.Source is FfmpegVideoSource { IsDisposed: true } or HapVideoSource { IsDisposed: true });
+            return [.. _open];
+        }
+    }
+
+    private IVideoSource Track(MediaItem item, IVideoSource source, string why)
+    {
+        lock (_openGate)
+        {
+            _open.RemoveAll(d => d.Source is FfmpegVideoSource { IsDisposed: true } or HapVideoSource { IsDisposed: true });
+            _open.Add(new OpenDecoder(item.Id, item.Name, item.Info.VideoCodec, source, why));
+        }
+        return source;
+    }
+
+    // HAP options for an item this node plays on the GPU, or null with the words why FFmpeg decodes it instead (or "").
+    private HapSourceOptions? HapRoute(MediaItem item, out string why)
+    {
+        why = "";
+        var generic = string.Equals(item.Info.VideoCodec, "hap", StringComparison.Ordinal);
+        if (!HapCodecs.TryFromName(item.Info.VideoCodec, out var codec) && !generic)
+            return null;
+        var settings = _engine?.Services.Settings.Decode ?? DecodeSettings.Default;
+        var formats = Formats;
+        var missing = generic ? "" : HapCodecs.Missing(codec, formats);
+        var ffmpegCan = generic || HapCodecs.FfmpegDecodes(codec);
+        if (ffmpegCan && (missing.Length > 0 || string.Equals(settings.Hap, "ffmpeg", StringComparison.OrdinalIgnoreCase)))
+        {
+            why = missing.Length > 0 ? HapVideoSource.NotOnThisGpu(codec, missing) : "decode.hap is ffmpeg: FFmpeg decodes HAP on the CPU";
+            return null;
+        }
+        // HAP R and HAP HDR have no CPU decoder: the source opens and refuses with the words when the GPU lacks BPTC.
+        return new HapSourceOptions
+        {
+            Formats = formats,
+            QueueFrames = Math.Clamp(settings.HapQueueFrames, 2, 64),
+            ReadAheadMs = Math.Clamp(settings.HapReadAheadMs, 1, 10_000),
+            ReadAheadMb = Math.Clamp(settings.HapReadAheadMb, 1, 4096),
+            Workers = Math.Max(0, settings.HapWorkers),
+            // A library item shown directly loops on the leader's clock: the decoder reads across the loop point.
+            Loop = true,
+            Color = item.Color,
+        };
+    }
+
+    /// <summary>The words that say this node cannot show a HAP item at all (HAP R or HAP HDR without BPTC), or null.</summary>
+    public string? HapRefusal(MediaItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (!HapCodecs.TryFromName(item.Info.VideoCodec, out var codec) || HapCodecs.FfmpegDecodes(codec))
+            return null;
+        var missing = HapCodecs.Missing(codec, Formats);
+        return missing.Length > 0 ? HapVideoSource.NotOnThisGpu(codec, missing) : null;
     }
 
     /// <summary>What the last check found for this item, or — the first time it is asked, or when the item changed — what
@@ -210,7 +306,7 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         Changed?.Invoke();
     }
 
-    private static string Key(MediaItem item) => item.Kind + "|" + item.ContentHash + "|" + item.Location;
+    private static string Key(MediaItem item) => item.Kind + "|" + item.ContentHash + "|" + item.Location + "|" + item.Info.VideoCodec;
 
     /// <summary>The bytes this item names on this machine: the indexed file with its hash (verified bytes), else the
     /// item's own location when something is there; null when neither.</summary>
@@ -255,7 +351,16 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
                 words = ffmpeg;
                 SayFfmpeg(ffmpeg);
             }
-            readiness = new MediaReadiness(found.Present, found.HashVerified, found.Decodable, found.FirstFrameReady, words.Length == 0 ? "ready" : words);
+            var decodable = found.Decodable;
+            var firstFrame = found.FirstFrameReady;
+            if (HapRefusal(item) is { } refusal)
+            {
+                // The file decodes, but this node's GPU cannot sample its blocks and no CPU decoder exists for them.
+                decodable = false;
+                firstFrame = false;
+                words = refusal;
+            }
+            readiness = new MediaReadiness(found.Present, found.HashVerified, decodable, firstFrame, words.Length == 0 ? "ready" : words);
             if (found.HashVerified && stat is not null)
                 _index[Hex(item.ContentHash)] = new Indexed(path, stat.Value, Path.GetFileName(path));
         }
@@ -461,6 +566,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     }
 
     private readonly record struct FileStat(long Length, DateTime WrittenUtc);
+
+    /// <summary>A clip decoder this backend opened: the item it plays, its codec, the source, and why it is not on a better path.</summary>
+    public sealed record OpenDecoder(string ItemId, string Name, string Codec, IVideoSource Source, string Why);
 
     private sealed record Check(string Key, MediaReadiness Readiness, string? Path, FileStat? Stat, bool Pending);
 

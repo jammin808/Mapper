@@ -171,6 +171,9 @@ public sealed unsafe class HapVideoSource : IVideoSource
     /// <see cref="Health"/>.Status).</summary>
     public Task<bool> Opened => _opened.Task;
 
+    /// <summary>True once <see cref="Dispose"/> has run (the node's list of open decoders drops it).</summary>
+    public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
     /// <summary>The read-ahead caps this clip got: frames by time, bytes by the byte cap.</summary>
     public HapReadAhead ReadAhead => _plan;
 
@@ -586,9 +589,10 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     private void DecodeLoop()
     {
-        // One real block before the first frame (the event makes its lock object on the first wait that blocks).
+        // One real block on each event before the first frame (an event makes its lock object on the first wait that blocks).
         _wake.Reset();
         _wake.Wait(2);
+        _countdown.Warm();
         while (!_stop)
         {
             _wake.Reset();
