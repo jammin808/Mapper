@@ -72,11 +72,11 @@ public sealed class FxCompileLane : IDisposable
         _dialect = context.Device.Dialect;
         _gl = context.Gl;
         Mode = "render-thread";
-        if (!sharedContext)
+        // A context with no window to share from (a surfaceless one) compiles on the render thread.
+        if (!sharedContext || context.Window is not { } primary)
             return;
         try
         {
-            var primary = context.Window;
             var options = WindowOptions.Default with
             {
                 IsVisible = false,
@@ -89,8 +89,9 @@ public sealed class FxCompileLane : IDisposable
                 PreferredDepthBufferBits = 0,
                 PreferredStencilBufferBits = 0,
             };
-            var window = Window.Create(options);
-            window.Initialize();
+            // Made as output windows are, under the hint gate and on the primary's API: a shared context asked across APIs (a
+            // GLX window sharing with an EGL one) is refused by the window system.
+            var window = RenderContext.MakeWindow(options, context.EglWindows);
             context.MakeCurrent();
             _window = window;
             _thread = new Thread(Loop) { IsBackground = true, Name = "fx compile" };

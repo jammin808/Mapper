@@ -69,7 +69,8 @@
         "reason": "",
         "fellOut": 0,
         "rejoins": 0
-      }
+      },
+      "fx": null
     },
     {
       "id": "op_right",
@@ -115,7 +116,8 @@
         "reason": "",
         "fellOut": 0,
         "rejoins": 0
-      }
+      },
+      "fx": null
     }
   ],
   "media": {
@@ -237,5 +239,25 @@
       "words": "no decoders open"
     },
     "sources": []
+  },
+  "fx": {
+    "budgetMs": 4,
+    "library": {
+      "builtin": 10,
+      "isf": 0,
+      "ffgl": 0,
+      "quarantined": 0
+    },
+    "compile": {
+      "lane": "shared-context",
+      "pending": 0,
+      "words": ""
+    },
+    "slots": [],
+    "plugins": {
+      "enabled": false,
+      "inProcess": 0,
+      "words": "FFGL plugins are not hosted by this build"
+    }
   }
 }
