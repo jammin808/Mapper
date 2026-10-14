@@ -60,6 +60,8 @@ public sealed partial class EngineCore : IShowDecisions
         _showGate = new EngineShowGate(this);
         if (Services.ShowGate is LateShowGate late)
             _ = late.Bind(_showGate);
+        // A degrade gain (IOutputGains) is part of the air from the start, before any master or panic moves it.
+        RebuildLevels();
     }
 
     /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line

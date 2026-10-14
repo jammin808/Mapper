@@ -89,7 +89,7 @@ public sealed class PanicTests
         await rig.Ok("PANIC REWIND FADE 1000");
         var end = rig.Now + 1_000_000_000;
         rig.Advance(990);
-        await Task.Delay(50);
+        await rig.Ticked();
         var lane = rig.Engine.Playback.Lane("pl_show")!;
         Assert.Equal(TransportState.Playing, lane.Clip.State);
 
@@ -198,7 +198,7 @@ public sealed class PanicTests
         Assert.Equal(0.5, rig.Engine.AirGain("op_1", t + 500_000_000), Tolerance);
         Assert.Equal(0.5, rig.Engine.AirAudioGain(t + 500_000_000), Tolerance);
         rig.Advance(1500);
-        await Task.Delay(60);
+        await rig.Ticked();
         var lane = rig.Engine.Playback.Lane("pl_show")!;
         Assert.Equal(TransportState.Playing, lane.Clip.State);
         // CLEAR fades up into the show as it is now.
@@ -222,7 +222,7 @@ public sealed class PanicTests
         Assert.Equal(0.0, rig.Engine.AirGain("op_1", t + 3_000_000_000), Tolerance);
 
         rig.Advance(2500);
-        await Task.Delay(60);
+        await rig.Ticked();
         Assert.Equal(TransportState.Playing, rig.Engine.Playback.Lane("pl_show")!.Clip.State);
         rig.Advance(500);
         Assert.True(await ShowRig.Eventually(() => rig.Engine.Playback.Lane("pl_show")!.Clip.State == TransportState.Cued));
@@ -235,11 +235,59 @@ public sealed class PanicTests
     {
         await using var rig = new ShowRig();
         await rig.Ok("PANIC FX-OFF AT +500");
-        await Task.Delay(60);
+        rig.Advance(499);
+        await rig.Ticked();
         Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Line == "FX BYPASS ALL ON");
         Assert.Equal("scheduled", rig.State().GetProperty("air").GetProperty("panic").GetProperty("devices")[0].GetProperty("stage").GetString());
-        rig.Advance(500);
+        rig.Advance(1);
         Assert.True(await ShowRig.Eventually(() => rig.Engine.Journal.Recent(50).Any(r => r.Line == "FX BYPASS ALL ON" && r.Who == "PlayMap")));
+    }
+
+    /// <summary>A stack's degrade gain: half on op_1.</summary>
+    private sealed class HalfOnLeft : IOutputGains
+    {
+        public float GainOf(string outputId) => outputId == "op_1" ? 0.5f : 1f;
+    }
+
+    [Fact]
+    public async Task ADegradeGainIsOnTheAirFromTheStartAndTheMasterMultipliesIt()
+    {
+        await using var rig = new ShowRig(services: s => s with { OutputGains = new HalfOnLeft() });
+        Assert.NotNull(rig.Engine.AirLevelsNow);
+        Assert.Equal(0.5, rig.Engine.AirGain("op_1", rig.Now), Tolerance);
+        Assert.Equal(1.0, rig.Engine.AirGain("op_2", rig.Now), Tolerance);
+        // Sound is master × panic: a dimmed blend group keeps the show's sound.
+        Assert.Equal(1.0, rig.Engine.AirAudioGain(rig.Now), Tolerance);
+        await rig.Ok("MASTER 50");
+        Assert.Equal(0.25, rig.Engine.AirGain("op_1", rig.Now), Tolerance);
+    }
+
+    [Fact]
+    public async Task ClearingAnOutputDropsTheLinesItsPanicStillWaitedForAndKeepsAnotherOutputsOwn()
+    {
+        var p = ShowRig.OneScreen();
+        var two = p with
+        {
+            Outputs = p.Outputs.Add(p.Outputs[0] with { Id = "op_2", Name = "Right" }),
+            Show = p.Show with
+            {
+                Panic = [new OutputPanicPlan("op_1", PanicOutcome.FxOff, 0, null), new OutputPanicPlan("op_2", PanicOutcome.Black, 1000, null)],
+            },
+        };
+        await using var rig = new ShowRig(two);
+        await rig.Ok("PANIC AT +500");
+        JsonElement Devices() => rig.State().GetProperty("air").GetProperty("panic").GetProperty("devices");
+        Assert.Equal(("fx", "scheduled"), (Devices()[0].GetProperty("id").GetString(), Devices()[0].GetProperty("stage").GetString()));
+
+        // op_1 cleared before its instant: its effects line never goes, and nothing is sent to take it back; op_2 stays in panic.
+        await rig.Ok("PANIC CLEAR ON op_1");
+        Assert.Empty(Devices().EnumerateArray());
+        rig.Advance(1500);
+        await rig.Ticked();
+        Assert.Equal(0.0, rig.Engine.AirGain("op_2", rig.Now), Tolerance);
+        Assert.Equal(1.0, rig.Engine.AirGain("op_1", rig.Now), Tolerance);
+        Assert.Empty(Devices().EnumerateArray());
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Line is "FX BYPASS ALL ON" or "FX BYPASS ALL OFF");
     }
 
     [Fact]

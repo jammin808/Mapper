@@ -48,10 +48,22 @@ public sealed class ShowRefusals
         }
     }
 
-    private void Trim(long nowUnixMs)
+    /// <summary>Lets refusals older than the window go; true when any did (the count STATE shows has moved).</summary>
+    public bool Expire(long nowUnixMs)
     {
+        lock (_gate)
+            return Trim(nowUnixMs);
+    }
+
+    private bool Trim(long nowUnixMs)
+    {
+        var any = false;
         while (_at.Count > 0 && nowUnixMs - _at.Peek() > WindowMs)
+        {
             _at.Dequeue();
+            any = true;
+        }
+        return any;
     }
 }
 

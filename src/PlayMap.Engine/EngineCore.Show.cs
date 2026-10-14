@@ -30,7 +30,13 @@ public sealed partial class EngineCore
         routes.Index(new ShowIndex(this));
     }
 
-    partial void TickShow(long leaderNs) => TickPanic(leaderNs);
+    partial void TickShow(long leaderNs)
+    {
+        // STATE.show.refused counts the last minute: when a refusal leaves the window, STATE moves with it.
+        if (_refusals.Expire(Services.Wall.UnixMs))
+            FactsChanged();
+        TickPanic(leaderNs);
+    }
 
     partial void StateShow(Utf8JsonWriter w)
     {

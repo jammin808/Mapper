@@ -141,6 +141,23 @@ public sealed class ShowModeTests
         Assert.Equal("{\"by\":\"Desk\"}", seen[0].FieldsJson);
     }
 
+    [Fact]
+    public async Task ARefusalLeavesTheLastMinuteAndStateMovesWithIt()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("SHOW ARM");
+        await rig.Refused("SET op_1 width 1280", ShowRig.Remote);
+        Assert.Equal(1, rig.Show().GetProperty("refused").GetProperty("last60s").GetInt32());
+        await rig.Ticked();
+        var revision = rig.Engine.State().Revision;
+        rig.Advance(60_001);
+        // The count leaves the window on the lane's tick, and STATE's revision moves so a subscriber hears it.
+        Assert.True(await ShowRig.Eventually(() => rig.Engine.State().Revision != revision));
+        var refused = rig.Show().GetProperty("refused");
+        Assert.Equal(0, refused.GetProperty("last60s").GetInt32());
+        Assert.StartsWith("Remote desk — SET op_1 width 1280 — Not while armed: ", refused.GetProperty("last").GetString(), StringComparison.Ordinal);
+    }
+
     /// <summary>A node linked to Patterns and Stagewatch, both live.</summary>
     private sealed class Linked : INetworkView
     {

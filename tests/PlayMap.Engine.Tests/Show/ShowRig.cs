@@ -69,8 +69,16 @@ internal sealed class ShowRig : IAsyncDisposable
 
     public JsonElement Context() => JsonDocument.Parse(Engine.Context()).RootElement.Clone();
 
-    /// <summary>Waits until the lane's own ticks (every 10 ms) have seen the manual clock where it is now.</summary>
+    /// <summary>Waits for a condition the lane's own ticks (every 10 ms) or a line's background work make true.</summary>
     public static Task<bool> Eventually(Func<bool> condition) => OpsRig.Eventually(condition);
+
+    /// <summary>Waits until a tick of the lane has seen the manual clock where it is now: every panic step and line due by now
+    /// has run, so what has not happened did not happen.</summary>
+    public async Task Ticked()
+    {
+        var now = Now;
+        Assert.True(await Eventually(() => Engine.ShowTickedNs >= now), "the lane did not tick");
+    }
 
     public ValueTask DisposeAsync() => Engine.DisposeAsync();
 }

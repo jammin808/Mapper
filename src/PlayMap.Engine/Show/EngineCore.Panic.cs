@@ -24,6 +24,7 @@ public sealed partial class EngineCore
     private volatile AirLevels? _levels;
     private bool _airSettledNoted = true;
     private long _panicSeq;
+    private long _showTickedNs = long.MinValue;
 
     /// <summary>A transport outcome waiting for its fade's end: the playlist and what happens to it.</summary>
     private sealed record PanicStep(long AtLeaderNs, string PlaylistId, PanicOutcome Outcome);
@@ -35,6 +36,9 @@ public sealed partial class EngineCore
 
     /// <summary>The air's levels the render thread reads now (null: every output at full, nothing held or overridden).</summary>
     internal IAirLevels? AirLevelsNow => _levels;
+
+    /// <summary>The leader instant the lane's last tick saw: every panic step and line due by then has run (any thread).</summary>
+    internal long ShowTickedNs => Volatile.Read(ref _showTickedNs);
 
     /// <summary>The air's sound gain at a leader instant (master × panic), from the same fades as the picture.</summary>
     public float AirAudioGain(long leaderNs) => _levels?.AudioGain(leaderNs) ?? 1f;
@@ -163,14 +167,17 @@ public sealed partial class EngineCore
         var still = remaining.IsEmpty ? null : panic with { Outputs = remaining, Seq = ++_panicSeq };
         _returns = [.. _returns.Where(r => !returns.Any(n => n.OutputId == r.OutputId)), .. returns];
         DropStepsNotShownBy(p, remaining);
-        if (remaining.IsEmpty)
+        // A line an output still in panic needs stays as it is; a line the cleared outputs were still waiting to send is dropped
+        // (it never went, so nothing is sent to take it back).
+        var untouched = PanicLineKeys(p, remaining);
+        foreach (var due in _panicLinesDue.Where(d => !untouched.Contains(d.Key)).ToList())
         {
-            foreach (var due in _panicLinesDue)
-                _panicLines.TryRemove(due.Key, out _);
-            _panicLinesDue.Clear();
+            _panicLinesDue.Remove(due);
+            _panicLines.TryRemove(due.Key, out _);
+            untouched.Add(due.Key);
         }
         SetAir(a => a with { Panic = still });
-        RunPanicLines(p, cleared, clear: true, now);
+        RunPanicLines(p, cleared, clear: true, now, untouched);
         RebuildLevels();
         RaiseEvent("panic.clear", now, w =>
         {
@@ -458,23 +465,52 @@ public sealed partial class EngineCore
     /// <summary>The lines a panic sends as the node itself, through the gate like any other: every projector linked to a SHUTTER
     /// output closes (opens on clear); FX-OFF bypasses every effect (and lets them back on clear). Each answer is kept as that
     /// device's or the effects' stage in STATE.</summary>
-    private void RunPanicLines(Project p, IEnumerable<OutputPanicAir> entries, bool clear, long at)
+    private void RunPanicLines(Project p, IEnumerable<OutputPanicAir> entries, bool clear, long at, IReadOnlySet<string>? untouched = null)
     {
-        var fxSent = false;
+        var sent = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in entries)
         {
             if (e.Outcome == PanicOutcome.Shutter && p.FindOutput(e.OutputId) is { } o)
             {
-                foreach (var d in p.Stage.Devices.Where(d => d.OutputId == o.Id || (o.ProjectorId is { Length: > 0 } pj && d.ProjectorId == pj)))
-                    SendSystemLineAt(at, $"DEVICE SHUTTER {d.Id} {(clear ? "OPEN" : "CLOSE")}", d.Id);
+                foreach (var d in LinkedDevices(p, o))
+                {
+                    if (untouched?.Contains(d.Id) != true && sent.Add(d.Id))
+                        SendSystemLineAt(at, $"DEVICE SHUTTER {d.Id} {(clear ? "OPEN" : "CLOSE")}", d.Id);
+                }
             }
-            else if (e.Outcome == PanicOutcome.FxOff && !fxSent)
+            else if (e.Outcome == PanicOutcome.FxOff && untouched?.Contains(FxLineKey) != true && sent.Add(FxLineKey))
             {
-                fxSent = true;
-                SendSystemLineAt(at, clear ? "FX BYPASS ALL OFF" : "FX BYPASS ALL ON", "fx");
+                SendSystemLineAt(at, clear ? "FX BYPASS ALL OFF" : "FX BYPASS ALL ON", FxLineKey);
             }
         }
     }
+
+    /// <summary>The key of the effects' line in a panic's lines (a device's key is its id).</summary>
+    private const string FxLineKey = "fx";
+
+    /// <summary>The keys of the lines these outputs' panic holds: each projector linked to a SHUTTER output, and the effects' line
+    /// for FX-OFF.</summary>
+    private static HashSet<string> PanicLineKeys(Project p, IEnumerable<OutputPanicAir> entries)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in entries)
+        {
+            if (e.Outcome == PanicOutcome.Shutter && p.FindOutput(e.OutputId) is { } o)
+            {
+                foreach (var d in LinkedDevices(p, o))
+                    keys.Add(d.Id);
+            }
+            else if (e.Outcome == PanicOutcome.FxOff)
+            {
+                keys.Add(FxLineKey);
+            }
+        }
+        return keys;
+    }
+
+    /// <summary>The projectors linked to an output: by the output itself or by the projector it drives.</summary>
+    private static IEnumerable<DeviceLink> LinkedDevices(Project p, Output o) =>
+        p.Stage.Devices.Where(d => d.OutputId == o.Id || (o.ProjectorId is { Length: > 0 } pj && d.ProjectorId == pj));
 
     /// <summary>A panic's line now, or waiting for the panic's instant on the show clock (a projector's shutter cannot be scheduled
     /// in the projector, so the node sends it when the instant comes).</summary>
@@ -538,6 +574,7 @@ public sealed partial class EngineCore
         if (settled && !_airSettledNoted)
             FactsChanged();
         _airSettledNoted = settled;
+        Volatile.Write(ref _showTickedNs, now);
     }
 
     /// <summary>Builds the render thread's levels from the air now (null when nothing differs from full).</summary>
