@@ -34,6 +34,9 @@ public sealed class ShaderConventionTests(GlFixture gl)
         {
             var version = Assert.Throws<ArgumentException>(() => c.Device.CreateProgram("t1", "#version 330 core\n" + Vs, Fs));
             Assert.Contains("own #version", version.Message, StringComparison.Ordinal);
+            // Behind a comment it is still the source's own header, refused with the same words rather than a compile error.
+            var behind = Assert.Throws<ArgumentException>(() => c.Device.CreateProgram("t4", Vs, "// an effect\n# version 300 es\n" + Fs));
+            Assert.Contains("own #version", behind.Message, StringComparison.Ordinal);
             var precision = Assert.Throws<ArgumentException>(() => c.Device.CreateProgram("t2", Vs, "precision highp float;\n" + Fs));
             Assert.Contains("precision statement", precision.Message, StringComparison.Ordinal);
             using var ok = c.Device.CreateProgram("t3", Vs, Fs);

@@ -504,21 +504,17 @@ public sealed unsafe partial class GlDevice : IDisposable
         return new ShaderProgram(this, id, name);
     }
 
-    /// <summary>A program source is dialect-free: its first non-blank line is not a #version, and no line is a precision statement
-    /// (the device writes both for the context it compiles on).</summary>
+    /// <summary>A program source is dialect-free: no line is a #version directive (wherever it stands, after a comment too) and no
+    /// line is a precision statement (the device writes both for the context it compiles on).</summary>
     internal static void RefuseHeader(string name, string stage, string source)
     {
-        var first = true;
         foreach (var raw in source.Split('\n'))
         {
             var line = raw.Trim();
-            if (line.Length == 0)
-                continue;
-            if (first && line.StartsWith("#version", StringComparison.Ordinal))
-                throw new ArgumentException($"Program '{name}' ({stage}) starts with its own #version — sources carry none; the device writes the dialect's header.", nameof(source));
+            if (line.StartsWith('#') && line[1..].TrimStart().StartsWith("version", StringComparison.Ordinal))
+                throw new ArgumentException($"Program '{name}' ({stage}) holds its own #version — sources carry none; the device writes the dialect's header.", nameof(source));
             if (line.StartsWith("precision ", StringComparison.Ordinal))
                 throw new ArgumentException($"Program '{name}' ({stage}) holds a precision statement — sources carry none; the device writes the dialect's header.", nameof(source));
-            first = false;
         }
     }
 
