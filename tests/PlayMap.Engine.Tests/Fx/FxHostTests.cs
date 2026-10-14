@@ -32,14 +32,15 @@ public sealed class FxHostTests
         return doc.RootElement.GetProperty("fx").GetProperty("slots").EnumerateArray().Single(s => s.GetProperty("id").GetString() == id).Clone();
     }
 
-    /// <summary>Waits until STATE shows the slot past compiling; answers its STATE object.</summary>
-    private static async Task<JsonElement> Settled(HostRig rig, string id)
+    /// <summary>Waits until STATE shows the slot past compiling (or as <paramref name="until"/> asks), counting renderer frames;
+    /// answers its STATE object.</summary>
+    private static async Task<JsonElement> Settled(HostRig rig, string id, Func<JsonElement, bool>? until = null)
     {
         var waited = Stopwatch.StartNew();
         while (true)
         {
             var slot = SlotIn(rig.Engine, id);
-            if (slot.GetProperty("state").GetString() is not ("compiling" or "idle"))
+            if (until?.Invoke(slot) ?? slot.GetProperty("state").GetString() is not ("compiling" or "idle"))
                 return slot;
             Assert.True(waited.Elapsed < HostRig.Patience, $"{id} stayed {slot.GetProperty("state").GetString()}");
             await rig.Host.FramesAsync(1).WaitAsync(HostRig.Patience);
@@ -86,8 +87,18 @@ public sealed class FxHostTests
         using (var state = JsonDocument.Parse(rig.Engine.State().Json))
         {
             Assert.Equal("shared-context", state.RootElement.GetProperty("fx").GetProperty("compile").GetProperty("lane").GetString());
-            Assert.Equal("green", state.RootElement.GetProperty("outputs")[0].GetProperty("fx").GetProperty("light").GetString());
+            // The light follows the measured cost against the budget (llvmpipe's GPU time moves with the machine's load).
+            var chain = state.RootElement.GetProperty("outputs")[0].GetProperty("fx");
+            var (cost, budget) = (chain.GetProperty("costMs").GetDouble(), state.RootElement.GetProperty("fx").GetProperty("budgetMs").GetDouble());
+            Assert.Equal(cost > 2 * budget ? "red" : cost > budget ? "amber" : "green", chain.GetProperty("light").GetString());
         }
+
+        // Under blackout the renderer does not reach the chain, and STATE says so rather than keeping the last frame's word.
+        await rig.Ok("BLACKOUT ON");
+        var black = await Settled(rig, id, s => s.GetProperty("state").GetString() == "idle");
+        Assert.Equal("not drawn: the air is black", black.GetProperty("words").GetString());
+        await rig.Ok("BLACKOUT OFF");
+        Assert.Equal("ok", (await Settled(rig, id, s => s.GetProperty("state").GetString() == "ok")).GetProperty("state").GetString());
 
         await rig.Ok($"FX BYPASS {id} ON");
         px = await rig.ReadUntil("op_t", p => HostRig.At(p, 64, 10, 10) == (40, 70, 100));
@@ -119,6 +130,15 @@ public sealed class FxHostTests
 
         var row = Assert.Single(await new FxPreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None));
         Assert.Equal((Light.Red, "faulted", $"FX BYPASS {add.Payload} ON"), (row.Light, row.Value, row.Fix));
+
+        // A file with issues before any compile is not compiled here, and its report says so for this node's own dialect.
+        var issues = "/*{ \"INPUTS\": [ { \"NAME\": \"inputImage\", \"TYPE\": \"image\" } ] }*/\nvoid main() { gl_FragColor = IMG_PIXEL(inputImage); }\n";
+        var checkIssues = await rig.Run("FX CHECK " + JsonSerializer.Serialize(new Dictionary<string, string> { ["fs"] = issues }));
+        Assert.True(checkIssues.Ok, checkIssues.Payload);
+        using var report = JsonDocument.Parse(checkIssues.Payload!);
+        var glsl = report.RootElement.GetProperty("dialects").GetProperty("glsl330");
+        Assert.Equal((JsonValueKind.Null, "not compiled: the file's issues come first"), (glsl.GetProperty("ok").ValueKind, glsl.GetProperty("words").GetString()));
+        Assert.Equal("this node's context compiles the other dialect", report.RootElement.GetProperty("dialects").GetProperty("es300").GetProperty("words").GetString());
     }
 
     [Fact]

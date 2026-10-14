@@ -18,7 +18,8 @@ playlist item (id or name). A `<slot>` is an effect's id (`fx…`) or `<target>#
 | `FX IMPORT` | `FX IMPORT <path>\|<json>` | JSON `{id, kind, check}`: the asset id, its kind `isf:<id>` and the check report | review | yes |
 | `FX CHECK` | `FX CHECK <asset>\|<kind>\|<json>` | JSON report (below) | low | no |
 
-`FX IMPORT` reads a `.fs` file with the `.vs` beside it and its `IMPORTED` pictures relative to it, or the JSON form
+`FX IMPORT` reads a `.fs` file with the `.vs` beside it and its `IMPORTED` pictures relative to it (inside its folder, PNG or
+JPEG files only; an imported picture is at most 4096 × 4096 when it is decoded), or the JSON form
 `{"name","fs","vs"?,"images"?:{name: base64}}`. The show carries the file whole (an `fxAssets` entry with its sources and pictures,
 content hash SHA-256); the same file twice is refused with the asset it already is. `FX IMPORT` and `FX CHECK` answer off the
 control lane.
@@ -38,8 +39,9 @@ parameter its kind does not have.
  "dialects": {"glsl330": {"ok": false, "words": "…"}, "es300": {"ok": null, "words": "this node's context compiles the other dialect"}}}
 ```
 
-`ok` is true when the file reads, translates without issues and did not fail to compile here; a dialect this node cannot compile
-is `null` with words (with no renderer: "no GL context on this node").
+`ok` is true when the file reads, translates without issues and did not fail to compile here; a dialect not compiled here is
+`null` with words: "this node's context compiles the other dialect", "not compiled: the file's issues come first", or, with no
+renderer, "no GL context on this node". The compile waits at most 10 s for the lane.
 
 ## STATE
 
@@ -55,7 +57,10 @@ is `null` with words (with no renderer: "no GL context on this node").
 
 A slot's `state` is what the renderer observed: `compiling` from `FX ADD` until the renderer draws it, then `ok`, or `faulted`
 with the compiler's words at the file's line ("line 3: `nowhere' undeclared"). `idle` names why it is not drawn ("not drawn: its
-output is off", "not drawn: this build draws effects on outputs only, not on a layer", "no renderer on this node"). A history
+output is off", "not drawn: the air is black", "not drawn: a test pattern or safe look covers its output", "not drawn: its output
+shows a scan frame or has no size", "not drawn: this build draws effects on outputs only, not on a layer", "no renderer on this
+node"); a held picture (freeze) keeps the slot's last state. A slot that is not drawn keeps its program, so it draws on the first
+frame back. A history
 effect is `"deterministic": false` with the words "integrates frame to frame: not frame-exact across nodes". The fixture is
 `tests/fixtures/state/fx.json`; the desk's cards are `fx.cards.json`.
 

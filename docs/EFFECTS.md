@@ -17,7 +17,9 @@ trims, dither): an effect never sits after the warp, where it would break the bl
 after the air's gain, so a fade to black is black.
 
 What the air shows instead of the show never passes through a chain: a test pattern over an output, a panic's safe look,
-blackout, a raw scan frame and the identify card. A slot that is bypassed, or at mix 0, hands its input on **bit for bit**.
+blackout, a raw scan frame and the identify card. Meanwhile the chain's slots are `idle` in STATE with the reason, and they keep
+their programs and buffers, so the chain draws on the first frame back. A slot that is bypassed, or at mix 0, hands its input on
+**bit for bit**. An edit elsewhere in the show (another file imported, another slot changed) never restarts a slot on the air.
 
 ## ISF support
 
@@ -41,7 +43,9 @@ blackout, a raw scan frame and the identify card. A slot that is bypassed, or at
   in their own GLSL: an `int` returned from a `float` function, an `int`/`float` comparison, an `int` given to a `uint`).
 - Orientation: PlayMap's pictures are stored top row first; ISF draws bottom-left first. Every picture handed to ISF carries a
   flip flag, ISF's own buffers none, and the mix pass turns the result the right way up.
-- Imported pictures (`IMPORTED`) travel with the show inside the asset (PNG or JPEG) and are decoded on the compile lane.
+- Imported pictures (`IMPORTED`) travel with the show inside the asset (PNG or JPEG) and are decoded on the compile lane, at
+  most 4096 × 4096 (the size is read from the file's header first). `FX IMPORT` of a path takes pictures only from inside the
+  file's own folder.
 - Sound inputs read silence this round (`audio` is a 0.5 grey, `audioFFT` black); the audio package brings the live textures.
 
 ## Time, and what is frame-exact

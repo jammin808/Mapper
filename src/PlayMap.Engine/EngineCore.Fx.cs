@@ -267,7 +267,7 @@ public sealed partial class EngineCore
                 {
                     var (min, max, current) = field.Equals("mix", StringComparison.OrdinalIgnoreCase) ? (0.0, 1.0, slot.Mix) : (0.25, 1.0, slot.Scale);
                     if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) || !double.IsFinite(v))
-                        return CommandReply.Fail($"{field.ToLowerInvariant()} is a number from {min} to {max}");
+                        return CommandReply.Fail(string.Create(CultureInfo.InvariantCulture, $"{field.ToLowerInvariant()} is a number from {min} to {max}"));
                     var next = Math.Round(Math.Clamp(by ? current + v * (max - min) : v, min, max), 6);
                     if (Math.Abs(next - current) < 1e-9)
                         return CommandReply.Fail($"{FxLabel(slot)}'s {field.ToLowerInvariant()} is already {current.ToString("0.###", CultureInfo.InvariantCulture)}");
@@ -277,7 +277,7 @@ public sealed partial class EngineCore
                 }
             case "blend":
                 {
-                    if (by || !Enum.TryParse<FxBlend>(value, ignoreCase: true, out var blend) || !Enum.IsDefined(blend) || int.TryParse(value, out _))
+                    if (by || !Enum.TryParse<FxBlend>(value, ignoreCase: true, out var blend) || !Enum.IsDefined(blend) || int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
                         return CommandReply.Fail("blend is normal, add, multiply, screen or difference");
                     if (blend == slot.Blend)
                         return CommandReply.Fail($"{FxLabel(slot)}'s blend is already {blend.ToString().ToLowerInvariant()}");
@@ -491,14 +491,20 @@ public sealed partial class EngineCore
         var glsl = doc.Valid ? IsfTranslator.Translate(doc, bundle.Vertex, IsfDialect.Glsl330) : null;
         var es = doc.Valid ? IsfTranslator.Translate(doc, bundle.Vertex, IsfDialect.Es300) : null;
         FxCompileReport? compiled = null;
-        var esContext = false;
-        if (doc.Valid && Fx.Pass is { } pass && glsl is { Issues.IsEmpty: true })
+        var pass = Fx.Pass;
+        var esContext = pass?.Lane.Dialect == IsfDialect.Es300;
+        if (doc.Valid && pass is not null && glsl is { Issues.IsEmpty: true })
         {
-            esContext = pass.Lane.Dialect == IsfDialect.Es300;
             var src = esContext ? es! : glsl;
-            var check = pass.Lane.CheckAsync("check " + bundle.Name, src.Vertex, src.Fragment);
-            var done = await Task.WhenAny(check, Task.Delay(TimeSpan.FromSeconds(10), ct)).ConfigureAwait(false);
-            compiled = done == check ? await check.ConfigureAwait(false) : new FxCompileReport(false, "the compile lane did not answer in 10 s", pass.Lane.Mode);
+            try
+            {
+                compiled = await pass.Lane.CheckAsync("check " + bundle.Name, src.Vertex, src.Fragment)
+                    .WaitAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                compiled = new FxCompileReport(false, "the compile lane did not answer in 10 s", pass.Lane.Mode);
+            }
         }
         return FxSources.Report(doc, glsl, es, compiled, esContext, Fx.LaneMode);
     }

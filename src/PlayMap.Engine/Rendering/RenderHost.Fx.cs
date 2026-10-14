@@ -32,7 +32,8 @@ public sealed partial class RenderHost
             _fxPasses = inputs.Passes.IsDefaultOrEmpty ? [fx] : inputs.Passes.Add(fx);
         }
         inputs = inputs with { Passes = _fxPasses };
-        fx.UnixMs = engine.Services.Wall.UnixMs;
+        // DATE reads the frame's leader instant as wall time, not the moment this frame is composed.
+        fx.UnixMs = engine.Services.Wall.UnixMs + (inputs.LeaderNs - engine.LeaderNowNs) / 1_000_000;
         fx.Prepare(in inputs);
         var version = fx.Stats.Version;
         if (version != _fxVersion)
@@ -52,5 +53,9 @@ public sealed partial class RenderHost
         _fxEngine?.Fx.Attach(null);
         _fx?.Dispose();
         _fx = null;
+        // Nothing keeps the disposed pass: a context made again attaches its own pass and builds the frame's passes anew.
+        _fxEngine = null;
+        _fxGiven = default;
+        _fxPasses = default;
     }
 }
