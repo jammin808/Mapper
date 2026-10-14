@@ -10,6 +10,15 @@ namespace PlayMap.Render.Generators;
 /// and whether the photosensitivity guard is on.</summary>
 public readonly record struct GeneratorFrame(double Seconds, long ShowFrame, double FrameRate, EffectImpulse Impulse, bool FlashGuard)
 {
+    /// <summary>The frame's leader instant in nanoseconds (the same instant as <see cref="Seconds"/>, unrounded).</summary>
+    public long LeaderNs { get; init; }
+
+    /// <summary>Modulation sources a generator's bindings read (null = none).</summary>
+    public PlayMap.Core.Modulation.IModulationBus? Modulation { get; init; }
+
+    /// <summary>The analysed sound a reactive generator reads (null = none).</summary>
+    public PlayMap.Core.Modulation.IAudioFrames? Audio { get; init; }
+
     public static GeneratorFrame At(double seconds, double frameRate = 60, bool flashGuard = true) =>
         new(seconds, (long)Math.Floor(Math.Max(0, seconds) * frameRate + 1e-6), frameRate, EffectImpulse.None, flashGuard);
 }

@@ -79,6 +79,8 @@ public sealed unsafe partial class GlDevice : IDisposable
         GlVersion = major * 10 + minor;
         HasDebugOutput = GlVersion >= 43 || _gl.IsExtensionPresent("GL_KHR_debug");
         MaxTextureSize = _gl.GetInteger(GLEnum.MaxTextureSize);
+        Dialect = GlDialect.Core330;
+        Caps = GlCaps.From(GlDialects.Word(Dialect), major, minor, ReadExtensions());
         if (_options.DebugOutput && HasDebugOutput)
             EnableDebugOutput();
         _emptyVao = _gl.GenVertexArray();
@@ -100,6 +102,27 @@ public sealed unsafe partial class GlDevice : IDisposable
 
     public bool HasDebugOutput { get; }
     public int MaxTextureSize { get; }
+
+    /// <summary>The GLSL dialect this context compiles; every program source gets its header (<see cref="CreateProgram"/>).</summary>
+    public GlDialect Dialect { get; }
+
+    /// <summary>What this context samples and renders to, read once from its version and extensions.</summary>
+    public GlCaps Caps { get; }
+
+    /// <summary>The context's extensions, read one by one (glGetString(GL_EXTENSIONS) is an error on a core profile).</summary>
+    private HashSet<string> ReadExtensions()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var count = _gl.GetInteger(GLEnum.NumExtensions);
+        for (var i = 0u; i < count; i++)
+        {
+            var p = _gl.GetString(GLEnum.Extensions, i);
+            if (p != null)
+                names.Add(Marshal.PtrToStringUTF8((nint)p) ?? "");
+        }
+        names.Remove("");
+        return names;
+    }
 
     /// <summary>Errors seen since the last <see cref="TakeErrors"/> (error flags and debug-output errors).</summary>
     public int ErrorCount => _errors.Count;
@@ -441,15 +464,21 @@ public sealed unsafe partial class GlDevice : IDisposable
         return p;
     }
 
-    /// <summary>A program from source (the library's or a test's).</summary>
+    /// <summary>A program from source (the library's, a generator's, an effect's or a test's). A source carries no #version and no
+    /// precision line: the context's dialect header is prepended here, and a source that brings its own is refused with words.</summary>
     public ShaderProgram CreateProgram(string name, string vertexSource, string fragmentSource)
     {
+        ArgumentNullException.ThrowIfNull(vertexSource);
+        ArgumentNullException.ThrowIfNull(fragmentSource);
+        RefuseHeader(name, "vertex", vertexSource);
+        RefuseHeader(name, "fragment", fragmentSource);
         AssertOwner();
-        var vs = CompileShader(GLEnum.VertexShader, vertexSource, name);
+        var header = GlDialects.Header(Dialect);
+        var vs = CompileShader(GLEnum.VertexShader, header + vertexSource, name);
         uint fs;
         try
         {
-            fs = CompileShader(GLEnum.FragmentShader, fragmentSource, name);
+            fs = CompileShader(GLEnum.FragmentShader, header + fragmentSource, name);
         }
         catch (GlException)
         {
@@ -473,6 +502,24 @@ public sealed unsafe partial class GlDevice : IDisposable
         _livePrograms.Add(id);
         Check("program " + name);
         return new ShaderProgram(this, id, name);
+    }
+
+    /// <summary>A program source is dialect-free: its first non-blank line is not a #version, and no line is a precision statement
+    /// (the device writes both for the context it compiles on).</summary>
+    internal static void RefuseHeader(string name, string stage, string source)
+    {
+        var first = true;
+        foreach (var raw in source.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0)
+                continue;
+            if (first && line.StartsWith("#version", StringComparison.Ordinal))
+                throw new ArgumentException($"Program '{name}' ({stage}) starts with its own #version — sources carry none; the device writes the dialect's header.", nameof(source));
+            if (line.StartsWith("precision ", StringComparison.Ordinal))
+                throw new ArgumentException($"Program '{name}' ({stage}) holds a precision statement — sources carry none; the device writes the dialect's header.", nameof(source));
+            first = false;
+        }
     }
 
     private uint CompileShader(GLEnum type, string source, string name)
