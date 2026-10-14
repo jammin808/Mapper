@@ -58,7 +58,8 @@ public sealed class MainStateFixtureTests
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
                 await File.WriteAllTextAsync(path, state);
             Assert.True(File.Exists(path), "main.json is written by this test: run it once with PLAYMAP_WRITE_FIXTURES=1");
-            Assert.Equal(await File.ReadAllTextAsync(path), state);
+            // A checkout may turn the file's line ends; the content is what is compared.
+            Assert.Equal((await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"), state);
         }
         finally
         {
