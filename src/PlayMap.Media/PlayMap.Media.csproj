@@ -23,4 +23,10 @@
     <InternalsVisibleTo Include="PlayMap.Media.Tests" />
   </ItemGroup>
 
+  <!-- WASAPI capture, the system's sound and one process's sound on Windows (MIT); it targets net9.0 and every call is guarded
+       by OperatingSystem.IsWindows(). -->
+  <ItemGroup Label="wp2-audio">
+    <PackageReference Include="NAudio.Wasapi" Version="3.1.0" />
+  </ItemGroup>
+
 </Project>

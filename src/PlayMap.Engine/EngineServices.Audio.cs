@@ -11,4 +11,8 @@ public sealed partial record EngineServices
 
     /// <summary>The capture hub: audio's parts configure before control's, and control resolves it at start (its own input when absent).</summary>
     public PlayMap.Core.Audio.IAudioInputs? AudioInputs { get; init; }
+
+    /// <summary>The node's sound and beat as the host built them (its backends, its paced test inputs, the node's own choices);
+    /// null: the engine makes its own with the test inputs only, pumped by its tick.</summary>
+    public Audio.AudioRuntime? AudioRuntime { get; init; }
 }

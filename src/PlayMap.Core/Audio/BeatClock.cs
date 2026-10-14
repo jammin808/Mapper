@@ -96,13 +96,22 @@ public sealed record TempoTimeline(ImmutableArray<TempoAnchor> Anchors, int Beat
     public TempoTimeline WithMeter(int beatsPerBar, int barsPerPhrase) => this with { BeatsPerBar = beatsPerBar, BarsPerPhrase = barsPerPhrase };
 
     /// <summary>The next instant at or after <paramref name="fromNs"/> where the beat count is a whole multiple of
-    /// <paramref name="beats"/> (1 = a beat, a bar's beats = a bar line …), on the line of the anchor in force then.</summary>
+    /// <paramref name="beats"/> (1 = a beat, a bar's beats = a bar line …), on the line of whichever anchor is in force then (a
+    /// change scheduled before the line moves it).</summary>
     public long NextBoundary(long fromNs, int beats)
     {
-        var a = At(fromNs);
-        var b = a.BeatAt(fromNs);
-        var next = Math.Ceiling(b / beats - 1e-9) * beats;
-        return Math.Max(fromNs, a.InstantOf(next));
+        var t = fromNs;
+        for (var i = 0; i <= Anchors.Length; i++)
+        {
+            var a = At(t);
+            var next = Math.Ceiling(a.BeatAt(t) / beats - 1e-9) * beats;
+            var at = Math.Max(t, a.InstantOf(next));
+            var later = Anchors.Where(x => x.LeaderNs > t && x.LeaderNs <= at).Select(x => x.LeaderNs).DefaultIfEmpty(long.MinValue).Min();
+            if (later == long.MinValue)
+                return at;
+            t = later;
+        }
+        return t;
     }
 
     /// <summary>Drops anchors no instant at or after <paramref name="nowNs"/> reads (keeps the one in force and every later one).</summary>

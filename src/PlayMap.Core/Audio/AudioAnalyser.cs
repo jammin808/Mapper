@@ -137,6 +137,9 @@ public sealed class AudioAnalyser
     /// <summary>The level below which the input is silent (and the floor auto-gain divides by), in dBFS.</summary>
     public double GateDb { get; set; } = -60;
 
+    /// <summary>On: the …N twins are auto-gained. Off (a fixed gain): they equal the plain values.</summary>
+    public bool AutoGain { get; set; } = true;
+
     /// <summary>Samples taken since the stream opened (the next sample's index).</summary>
     public long Samples => _samples;
 
@@ -228,10 +231,10 @@ public sealed class AudioAnalyser
         if (f.Onset)
             f.LastOnsetSample = f.CentreSample - Hop / 2;
         f.Flux = _onsets.SlowPeak <= 1e-9 ? 0f : Clamp01(_onsets.Strength / _onsets.SlowPeak);
-        AutoGain(f);
+        Twins(f);
     }
 
-    private void AutoGain(AnalysisFrame f)
+    private void Twins(AnalysisFrame f)
     {
         var floor = Math.Pow(10, GateDb / 20);
         f.LevelN = Normalise(0, f.Level, floor);
@@ -246,7 +249,7 @@ public sealed class AudioAnalyser
     {
         var peak = Math.Max(value, _peaks[i] * _peakDecay);
         _peaks[i] = peak;
-        return Clamp01(value / Math.Max(floor, peak));
+        return AutoGain ? Clamp01(value / Math.Max(floor, peak)) : value;
     }
 
     private void Spectrum(float[] into)
