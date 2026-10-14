@@ -69,7 +69,7 @@ public sealed partial class EngineCore
             var plan = p.Show.Panic.FirstOrDefault(x => x.OutputId == o.Id);
             var oc = outcome ?? plan?.Outcome ?? rules.DefaultOutcome;
             var ms = fadeMs ?? plan?.FadeMs ?? rules.DefaultFadeMs;
-            entries.Add(PanicEntry(o, oc, ms, plan?.SafeLook, ReturnLevel(o.Id, now), start, notes));
+            entries.Add(PanicEntry(o, oc, ms, plan?.SafeLook, ReturnLevel(o.Id, start), start, notes));
         }
         var panic = current is null
             ? new PanicAir(outcome ?? entries[0].Outcome, c.Session.ClientName, Services.Wall.UnixMs, now, false, [.. entries], ++_panicSeq)

@@ -288,6 +288,12 @@ public static class VerbCatalog
         V2("LOCK", "LOCK <id> [<words>] | LOCK AREA mapping|layout|content|playlists|media|devices|network [<words>]", "Locks an entity or an area: no verb, undo or assistant changes it; playback and reading go on (not an undo step)", VerbCategory.Show, VerbRisk.Review, true),
         V2("UNLOCK", "UNLOCK <id> | UNLOCK AREA <area> | UNLOCK ALL", "Lifts a lock (ALL: every lock this show holds)", VerbCategory.Show, VerbRisk.Review, true),
         V2("LOCKS", "LOCKS", "Every lock with who set it and why, and the areas an armed show adds", VerbCategory.Show, VerbRisk.Low, false),
+        V2("BLIND", "BLIND [STATUS]", "The blind draft: whose, how many changes, when it commits", VerbCategory.Show, VerbRisk.Low, false),
+        V2("BLIND ON", "BLIND ON", "Blind editing for this session: its edits go to a draft, off the air, until BLIND COMMIT", VerbCategory.Show, VerbRisk.Low, true),
+        V2("BLIND OFF", "BLIND OFF", "Leaves blind editing (refused while the draft holds changes: COMMIT or DISCARD them)", VerbCategory.Show, VerbRisk.Low, true),
+        V2("BLIND DIFF", "BLIND DIFF", "What the draft changes, entity by entity, in field words, with conflicts", VerbCategory.Show, VerbRisk.Low, false),
+        V2("BLIND COMMIT", "BLIND COMMIT [NOW|NEXT [<playlist>]|ON GO [<playlist>]|AT +<ms>|<unix ms>] [FORCE]", "Lands the draft on the air as one undo step at a show boundary, frame-exact; FORCE overrides the conflicts it names", VerbCategory.Show, VerbRisk.High, true),
+        V2("BLIND DISCARD", "BLIND DISCARD", "Drops the draft", VerbCategory.Show, VerbRisk.Review, true),
         V2("PREFLIGHT", "PREFLIGHT [QUICK] [ALL]", "Checks the node is ready for the show from facts: outputs on present displays, media present and readable, linked projectors reachable, free disk, the show's safety; each row carries the line that fixes it; answers the report's id (ALL: every node of the group, refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Low, true),
         V2("PREFLIGHT REPORT", "PREFLIGHT REPORT [<id>]", "The last preflight report, or one by id", VerbCategory.Show, VerbRisk.Low, false),
 

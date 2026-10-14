@@ -66,6 +66,9 @@ public sealed partial class EngineCore : IShowDecisions
     /// an assistant may only propose waits on this node's list for a person.</summary>
     private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session)
     {
+        // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
+        if (!IsAvailable(spec))
+            return null;
         var d = DecideShow(spec, line, session);
         switch (d.Verdict)
         {
