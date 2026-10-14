@@ -5,9 +5,11 @@ using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Host;
+using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
+using PlayMap.Render.Sync;
 using PlayMap.Render.Timing;
 
 namespace PlayMap.Engine.Rendering;
@@ -23,6 +25,21 @@ public sealed record RenderHostOptions
 
     /// <summary>The GPU device's checks (null: the build's default — error checks in debug builds only).</summary>
     public GlDeviceOptions? Device { get; init; }
+
+    /// <summary>The platform asked for: the present path and the GL dialect (NodeSettings.Present), or no window system at all.</summary>
+    public PlatformRequest Platform { get; init; } = PlatformRequest.Default;
+
+    /// <summary>The framelock tier (null: this machine's — NVAPI on Windows, none elsewhere). The host owns and disposes it.</summary>
+    public Func<IFrameLockDriver>? FrameLock { get; init; }
+
+    /// <summary>Outputs that fell out of the lock join again by themselves at an idle boundary (NodeSettings.Present.FrameLock "auto");
+    /// false joins only on SYNC APPLY and SYNC REJOIN (which a node set "off" refuses: it never joins).</summary>
+    public bool FrameLockAuto { get; init; } = true;
+
+    /// <summary>The swap group and barrier SYNC APPLY joins (NodeSettings.Present).</summary>
+    public uint SwapGroup { get; init; } = 1;
+
+    public uint SwapBarrier { get; init; } = 1;
 
     public RenderEngineOptions Engine { get; init; } = new();
 
@@ -119,8 +136,12 @@ public sealed partial class RenderHost : IRenderHost
     private readonly Lock _frameMsGate = new();
     private FramePacer _loopPacer = new(60);
     private readonly HeadlessPacing _headless = new();
-    private readonly FramePacer _vblank = new(60);
     private readonly Func<string, long> _presentOf;
+    private readonly double[] _presentMs = new double[FrameRing];
+    private readonly double[] _presentMsSorted = new double[FrameRing];
+#pragma warning disable CA2213 // Disposed by TearDown on the render thread (it leaves every joined output there).
+    private readonly FrameLockHost _lock;
+#pragma warning restore CA2213
 
     private volatile bool _stopping;
     private volatile string? _startFailure;
@@ -132,6 +153,7 @@ public sealed partial class RenderHost : IRenderHost
     private TimerView? _timer;
 
     // Render thread.
+    private IGpuPlatform? _platform;
     private RenderContext? _context;
     private RenderEngine? _renderer;
     private OutputWindows? _windows;
@@ -162,12 +184,17 @@ public sealed partial class RenderHost : IRenderHost
         public double Fps;
         public long Dropped;
         public double FrameMsP95;
+        public bool HasPresent;
+        public PresentSnapshot Present;
     }
 
     private RenderHost(RenderHostOptions options)
     {
         _options = options;
         _presentOf = PresentOf;
+        _lock = new FrameLockHost(options.FrameLock?.Invoke() ?? FrameLockDrivers.ForThisMachine(), options.FrameLockAuto);
+        _lock.Changed += OnLockChanged;
+        _lock.FellOut += OnFellOut;
         _scan = new ScanFrames(() => Volatile.Read(ref _engine)?.Store.Project);
         _thread = new Thread(Main) { IsBackground = true, Name = "render", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
@@ -211,7 +238,15 @@ public sealed partial class RenderHost : IRenderHost
     {
         ArgumentNullException.ThrowIfNull(request);
         var log = request.Logs.CreateLogger("PlayMap.Render");
-        var host = TryCreate(RenderHostOptions.Default with { Windows = !request.Options.Headless }, out var why);
+        var present = request.Settings.Present;
+        var host = TryCreate(RenderHostOptions.Default with
+        {
+            Windows = !request.Options.Headless,
+            Platform = new PlatformRequest(present.Path, present.Dialect),
+            FrameLockAuto = !string.Equals(present.FrameLock, "off", StringComparison.OrdinalIgnoreCase),
+            SwapGroup = (uint)Math.Max(1, present.SwapGroup),
+            SwapBarrier = (uint)Math.Max(0, present.SwapBarrier),
+        }, out var why);
         if (host is not null)
         {
             log.LogInformation("The render host is up: {Renderer}, {Windows}.", host.RendererName,
@@ -242,6 +277,7 @@ public sealed partial class RenderHost : IRenderHost
         if (engine.LastBlendSolve is { } solved)
             _stage.Offer(solved);
         Volatile.Write(ref _engine, engine);
+        engine.Services.Media?.UseGpu(_platform?.Share);
         engine.Previews.AttachRenderer(this);
         _scan.SetOpen(null);
         _wake.Set();
@@ -426,13 +462,16 @@ public sealed partial class RenderHost : IRenderHost
     {
         try
         {
-            _context = RenderContext.CreateHidden(_options.Device ?? GlDeviceOptions.Default);
-            _renderer = new RenderEngine(_context, _options.Engine);
+            _platform = GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
+            _context = _platform.Context;
+            _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
             _renderer.WarmUp();
             ContextModules(_renderer);
             var d = _context.Device;
-            _rendererName = string.Create(CultureInfo.InvariantCulture, $"OpenGL {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}");
-            _windows = new OutputWindows(_context, _renderer);
+            _rendererName = d.Dialect == GlDialect.Es300
+                ? string.Create(CultureInfo.InvariantCulture, $"OpenGL ES {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}")
+                : string.Create(CultureInfo.InvariantCulture, $"OpenGL {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}");
+            _windows = new OutputWindows(_platform, _renderer);
             RefreshDisplays();
         }
         // The thread's boundary: whatever stopped the context from coming up is the reason TryCreate gives.
@@ -523,8 +562,19 @@ public sealed partial class RenderHost : IRenderHost
 
         _sources!.BeginFrame(snap, renderer.Frame + 1);
         _scan.BeginFrame(project, air.EffectiveBlackout);
-        var lead = windows.Pacer is not null ? Math.Max(0, _vblank.PredictNextVblank(monoNow) - monoNow) : 0;
-        var leaderNs = engine.LeaderNowNs + lead + _options.DisplayLatencyNs;
+        // Show time is a pure function of the vblank the frame is for: under the lock, the anchor's time of the pacer's next count
+        // (the same on every node); otherwise the leader's now plus the time to the pacer's next vblank.
+        long leaderNs;
+        if (_lock.TryNextLeaderNs(windows.Pacer, out var lockedNs))
+        {
+            leaderNs = lockedNs + _options.DisplayLatencyNs;
+        }
+        else
+        {
+            var next = windows.Pacer is { } pacing ? renderer.NextVblankNs(pacing, monoNow) : null;
+            var lead = next is { } n ? Math.Max(0, n - monoNow) : 0;
+            leaderNs = engine.LeaderNowNs + lead + _options.DisplayLatencyNs;
+        }
         var inputs = new FrameInputs
         {
             Project = air.PatternKind is { } kind ? PatternProject(project, kind) : project,
@@ -541,8 +591,10 @@ public sealed partial class RenderHost : IRenderHost
         };
         ComposeModules(engine, snap, ref inputs);
         renderer.Render(in inputs);
-        if (windows.Pacer is { } pacer && windows.WindowOf(pacer) is { } paced)
-            _vblank.OnPresented(paced.LastSwapNs);
+        lock (_frameMsGate)
+            _presentMs[(int)(renderer.Frame % FrameRing)] = renderer.LastPresentMs;
+        _lock.Step(renderer, project, windows.Pacer, MonoClock.Instance.NowNs, engine.LeaderNowNs, engine.Services.ShowGate.Armed,
+            air.EffectiveBlackout, air.EffectiveBlackout || !Playing(snap.Playback));
         // The frame's present is stamped once, at the same point of every frame: its outputs drawn (a scan frame on an
         // output with no window finished on the GPU first), before the previews and before any reader runs between
         // frames — so what previews cost never moves it, and no readback of the frame can come before it.
@@ -555,6 +607,15 @@ public sealed partial class RenderHost : IRenderHost
         RenderPreviews(renderer, project, monoNow);
         if (UpdateHealth(renderer, windows))
             WindowsChanged(engine);
+    }
+
+    /// <summary>Whether any playlist is playing (the lock's boundary: an output that fell out rejoins only when none is, or blacked out).</summary>
+    private static bool Playing(Playback.PlaybackSnapshot playback)
+    {
+        foreach (var (_, p) in playback.Playlists)
+            if (p.Clip.State == Core.Playback.TransportState.Playing)
+                return true;
+        return false;
     }
 
     /// <summary>When a scan frame was presented on an output: its window's swap, else (no window) the instant
@@ -645,7 +706,6 @@ public sealed partial class RenderHost : IRenderHost
                     var s = renderer.Stats(h.OutputId);
                     h.Open = true;
                     h.Fps = s.Fps;
-                    h.Dropped = s.Dropped;
                     h.FrameMsP95 = s.FrameMsP95;
                 }
                 else
@@ -654,8 +714,15 @@ public sealed partial class RenderHost : IRenderHost
                     var pacer = _headless.Of(h.OutputId) ?? _loopPacer;
                     h.Open = false;
                     h.Fps = pacer.Fps;
-                    h.Dropped = pacer.Missed;
                     h.FrameMsP95 = pacer.FrameMsP95;
+                }
+                // Dropped is the display side's count against the output's own refresh: the late presents of the last 10 s, once
+                // they pass the 0.5 % budget (0 within it) — what lights the output amber.
+                if (renderer.Present(h.OutputId) is { } present)
+                {
+                    h.Present = present;
+                    h.HasPresent = true;
+                    h.Dropped = present.LateOverBudget;
                 }
                 if (windows.DisplayOf(h.OutputId) is { } display)
                     h.Display = display;
@@ -717,6 +784,8 @@ public sealed partial class RenderHost : IRenderHost
         _scan.Dispose();
         try
         {
+            // Every output leaves the lock before its window goes.
+            _lock.Dispose();
             _windows?.Dispose();
             _sources?.Dispose();
             _timer?.Dispose();
@@ -726,7 +795,10 @@ public sealed partial class RenderHost : IRenderHost
             // The renderer first: its readbacks write into the views' rings until it is gone.
             _renderer?.Dispose();
             DisposePreviews();
-            _context?.Dispose();
+            if (_platform is not null)
+                _platform.Dispose();
+            else
+                _context?.Dispose();
         }
         catch (Exception ex) when (ex is GlException or InvalidOperationException or ObjectDisposedException)
         {
@@ -753,6 +825,7 @@ public sealed partial class RenderHost : IRenderHost
         {
             engine.Previews.AttachRenderer(null);
             engine.BlendSolved -= OnBlendSolved;
+            engine.Services.Media?.UseGpu(null);
         }
         _wake.Set();
         await _exited.Task.ConfigureAwait(false);

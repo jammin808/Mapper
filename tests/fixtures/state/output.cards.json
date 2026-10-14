@@ -1,1 +1,184 @@
-[]
+[
+  {
+    "title": "Presentation",
+    "path": "outputs[].present",
+    "light": "outputs[].present.light",
+    "words": "outputs[].present.words",
+    "fields": [
+      {
+        "label": "Refresh",
+        "path": "outputs[].present.refreshHz",
+        "unit": "Hz"
+      },
+      {
+        "label": "Against",
+        "path": "outputs[].present.nominalHz",
+        "unit": "Hz"
+      },
+      {
+        "label": "Missed (60 s)",
+        "path": "outputs[].present.missed60s",
+        "unit": ""
+      },
+      {
+        "label": "Late (10 s)",
+        "path": "outputs[].present.late10s",
+        "unit": ""
+      },
+      {
+        "label": "Path",
+        "path": "outputs[].present.path",
+        "unit": ""
+      },
+      {
+        "label": "Latency",
+        "path": "outputs[].latencyMs",
+        "unit": "ms"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Stats",
+        "line": "OUTPUT STATS $(id)"
+      },
+      {
+        "label": "Reset counters",
+        "line": "PRESENT RESET $(id)"
+      }
+    ]
+  },
+  {
+    "title": "Frame lock",
+    "path": "outputs[].lock",
+    "light": "outputs[].lock.state",
+    "words": "outputs[].lock.words",
+    "fields": [
+      {
+        "label": "State",
+        "path": "outputs[].lock.state",
+        "unit": ""
+      },
+      {
+        "label": "Reason",
+        "path": "outputs[].lock.reason",
+        "unit": ""
+      },
+      {
+        "label": "Fell out",
+        "path": "outputs[].lock.fellOut",
+        "unit": ""
+      },
+      {
+        "label": "Rejoins",
+        "path": "outputs[].lock.rejoins",
+        "unit": ""
+      }
+    ],
+    "actions": [
+      {
+        "label": "Rejoin",
+        "line": "SYNC REJOIN $(id)"
+      },
+      {
+        "label": "Leave",
+        "line": "SYNC LEAVE $(id)"
+      }
+    ]
+  },
+  {
+    "title": "Group lock",
+    "path": "sync.lock",
+    "light": "sync.lock.state",
+    "words": "sync.lock.words",
+    "fields": [
+      {
+        "label": "Board",
+        "path": "sync.lock.board",
+        "unit": ""
+      },
+      {
+        "label": "Driver",
+        "path": "sync.lock.driver",
+        "unit": ""
+      },
+      {
+        "label": "Locked",
+        "path": "sync.lock.locked",
+        "unit": ""
+      },
+      {
+        "label": "Show time",
+        "path": "sync.lock.time",
+        "unit": ""
+      },
+      {
+        "label": "Latency",
+        "path": "sync.latencyMs",
+        "unit": "ms"
+      },
+      {
+        "label": "Refused",
+        "path": "sync.lock.refused.words",
+        "unit": ""
+      }
+    ],
+    "actions": [
+      {
+        "label": "Apply",
+        "line": "SYNC APPLY"
+      },
+      {
+        "label": "Leave",
+        "line": "SYNC LEAVE"
+      },
+      {
+        "label": "Rejoin",
+        "line": "SYNC REJOIN"
+      }
+    ]
+  },
+  {
+    "title": "Present path",
+    "path": "machine.present",
+    "light": null,
+    "words": "machine.present.why",
+    "fields": [
+      {
+        "label": "API",
+        "path": "machine.present.api",
+        "unit": ""
+      },
+      {
+        "label": "Adapter",
+        "path": "machine.present.adapter",
+        "unit": ""
+      },
+      {
+        "label": "Path",
+        "path": "machine.present.path",
+        "unit": ""
+      },
+      {
+        "label": "Dialect",
+        "path": "machine.present.dialect",
+        "unit": ""
+      },
+      {
+        "label": "Context",
+        "path": "machine.present.context",
+        "unit": ""
+      },
+      {
+        "label": "Present p95",
+        "path": "machine.present.presentMsP95",
+        "unit": "ms"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Stats",
+        "line": "OUTPUT STATS ALL"
+      }
+    ]
+  }
+]

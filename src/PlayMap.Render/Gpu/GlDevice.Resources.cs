@@ -19,7 +19,7 @@ public sealed unsafe partial class GlDevice
         var id = _gl.GenTexture();
         _liveTextures.Add(id);
         BindTextureId(0, id);
-        var (internalFormat, pixelFormat, type) = Describe(format);
+        var (internalFormat, pixelFormat, type) = GlFormatTable.Describe(Dialect, format);
         _gl.TexImage2D(GLEnum.Texture2D, 0, (int)internalFormat, (uint)width, (uint)height, 0, pixelFormat, type, null);
         var f = filter == TextureFilter.Nearest ? (int)GLEnum.Nearest : (int)GLEnum.Linear;
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureMinFilter, f);
@@ -37,6 +37,7 @@ public sealed unsafe partial class GlDevice
     {
         ArgumentNullException.ThrowIfNull(texture);
         BindTextureId(0, texture.Id);
+        _swappedRedBlue.Remove(texture.Id);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleR, (int)GLEnum.Red);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleG, (int)GLEnum.Red);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleB, (int)GLEnum.Red);
@@ -60,8 +61,7 @@ public sealed unsafe partial class GlDevice
     {
         ArgumentNullException.ThrowIfNull(texture);
         AssertOwner();
-        var (format, type) = Describe(source);
-        BindTextureId(0, texture.Id);
+        var (format, type) = UploadLayout(texture, source);
         _gl.PixelStore(GLEnum.UnpackRowLength, rowPixels);
         _gl.TexSubImage2D(GLEnum.Texture2D, 0, 0, 0, (uint)texture.Width, (uint)texture.Height, format, type, (void*)pixels);
         _gl.PixelStore(GLEnum.UnpackRowLength, 0);
@@ -73,8 +73,7 @@ public sealed unsafe partial class GlDevice
     internal void UploadFromUnpackBuffer(GpuTexture texture, uint buffer, nint offset, UploadFormat source, int rowPixels)
     {
         AssertOwner();
-        var (format, type) = Describe(source);
-        BindTextureId(0, texture.Id);
+        var (format, type) = UploadLayout(texture, source);
         _gl.BindBuffer(GLEnum.PixelUnpackBuffer, buffer);
         _gl.PixelStore(GLEnum.UnpackRowLength, rowPixels);
         _gl.TexSubImage2D(GLEnum.Texture2D, 0, 0, 0, (uint)texture.Width, (uint)texture.Height, format, type, (void*)offset);
@@ -84,10 +83,30 @@ public sealed unsafe partial class GlDevice
         Check("upload pbo");
     }
 
+    /// <summary>Binds the texture on unit 0 and answers the upload layout of a CPU format on this dialect; a BGRA upload on ES
+    /// swaps red and blue through the texture's swizzle (set once, and put back when an RGBA upload follows).</summary>
+    private (GLEnum Format, GLEnum Type) UploadLayout(GpuTexture texture, UploadFormat source)
+    {
+        var (format, type, swap) = GlFormatTable.Upload(Dialect, source);
+        BindTextureId(0, texture.Id);
+        if (swap && _swappedRedBlue.Add(texture.Id))
+        {
+            _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleR, (int)GLEnum.Blue);
+            _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleB, (int)GLEnum.Red);
+        }
+        else if (!swap && _swappedRedBlue.Remove(texture.Id))
+        {
+            _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleR, (int)GLEnum.Red);
+            _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureSwizzleB, (int)GLEnum.Blue);
+        }
+        return (format, type);
+    }
+
     internal void DeleteTexture(uint id)
     {
         if (_disposed || !_liveTextures.Remove(id))
             return;
+        _swappedRedBlue.Remove(id);
         AssertOwner();
         for (var i = 0; i < _boundTextures.Length; i++)
             if (_boundTextures[i] == id)
@@ -152,7 +171,14 @@ public sealed unsafe partial class GlDevice
             throw new ArgumentException("The buffer is smaller than the target.", nameof(bgra));
         BindTarget(target);
         fixed (byte* p = bgra)
-            _gl.ReadPixels(0, 0, (uint)target.Width, (uint)target.Height, GLEnum.Bgra, GLEnum.UnsignedByte, p);
+            _gl.ReadPixels(0, 0, (uint)target.Width, (uint)target.Height, HasReadBgra ? GLEnum.Bgra : GLEnum.Rgba, GLEnum.UnsignedByte, p);
+        if (!HasReadBgra)
+        {
+            // ES without EXT_read_format_bgra reads RGBA: red and blue change places here.
+            var n = target.Width * target.Height * 4;
+            for (var i = 0; i < n; i += 4)
+                (bgra[i], bgra[i + 2]) = (bgra[i + 2], bgra[i]);
+        }
         Check("read");
     }
 
@@ -284,7 +310,8 @@ public sealed unsafe partial class GlDevice
 
     internal void EndTimeQuery() => _gl.EndQuery(GLEnum.TimeElapsed);
 
-    /// <summary>The query's nanoseconds when the GPU has it; false when not yet (never waits).</summary>
+    /// <summary>The query's nanoseconds when the GPU has it; false when not yet (never waits). On ES a result taken across a
+    /// disjoint event (GL_GPU_DISJOINT_EXT: the GPU's clock jumped) is no measurement: it answers true with −1.</summary>
     internal bool TryQueryResult(uint id, out long nanoseconds)
     {
         nanoseconds = 0;
@@ -294,7 +321,7 @@ public sealed unsafe partial class GlDevice
             return false;
         long ns = 0;
         _gl.GetQueryObject(id, GLEnum.QueryResult, &ns);
-        nanoseconds = ns;
+        nanoseconds = Dialect == GlDialect.Es300 && _gl.GetInteger((GLEnum)0x8FBB) != 0 ? -1 : ns;
         return true;
     }
 
@@ -331,6 +358,8 @@ public sealed unsafe partial class GlDevice
     /// <summary>Queues a read of a target into a pack buffer (BGRA, top row first); returns at once.</summary>
     internal void ReadIntoPackBuffer(RenderTarget target, uint buffer)
     {
+        if (!HasReadBgra)
+            throw new NotSupportedException("this ES context reads no BGRA (EXT_read_format_bgra is absent): streamed read-backs are off here");
         BindTarget(target);
         _gl.BindBuffer(GLEnum.PixelPackBuffer, buffer);
         _gl.ReadPixels(0, 0, (uint)target.Width, (uint)target.Height, GLEnum.Bgra, GLEnum.UnsignedByte, null);
@@ -396,48 +425,9 @@ public sealed unsafe partial class GlDevice
 
     // ---- format tables ----
 
-    /// <summary>Each format's internal format and its upload layout; a block format carries its compressed internal format and is
-    /// uploaded only through the compressed path (its layout is unused). Every value has its own arm.</summary>
-    internal static (GLEnum Internal, GLEnum Format, GLEnum Type) Describe(TextureFormat format) => format switch
-    {
-        TextureFormat.Rgba8 => (GLEnum.Rgba8, GLEnum.Rgba, GLEnum.UnsignedByte),
-        TextureFormat.R8 => (GLEnum.R8, GLEnum.Red, GLEnum.UnsignedByte),
-        TextureFormat.Rg8 => (GLEnum.RG8, GLEnum.RG, GLEnum.UnsignedByte),
-        TextureFormat.R16 => (GLEnum.R16, GLEnum.Red, GLEnum.UnsignedShort),
-        TextureFormat.Rg16 => (GLEnum.RG16, GLEnum.RG, GLEnum.UnsignedShort),
-        TextureFormat.R16F => (GLEnum.R16f, GLEnum.Red, GLEnum.HalfFloat),
-        TextureFormat.Rg16F => (GLEnum.RG16f, GLEnum.RG, GLEnum.HalfFloat),
-        TextureFormat.Rgba16F => (GLEnum.Rgba16f, GLEnum.Rgba, GLEnum.HalfFloat),
-        TextureFormat.R32F => (GLEnum.R32f, GLEnum.Red, GLEnum.Float),
-        TextureFormat.Rg32F => (GLEnum.RG32f, GLEnum.RG, GLEnum.Float),
-        TextureFormat.Rgba32F => (GLEnum.Rgba32f, GLEnum.Rgba, GLEnum.Float),
-        TextureFormat.Rgba16 => (GLEnum.Rgba16, GLEnum.Rgba, GLEnum.UnsignedShort),
-        TextureFormat.Rgb10A2 => (GLEnum.Rgb10A2, GLEnum.Rgba, GLEnum.UnsignedInt2101010Rev),
-        TextureFormat.Bc1 => ((GLEnum)0x83F0, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGB_S3TC_DXT1_EXT
-        TextureFormat.Bc1Alpha => ((GLEnum)0x83F1, GLEnum.Rgba, GLEnum.UnsignedByte),   // COMPRESSED_RGBA_S3TC_DXT1_EXT
-        TextureFormat.Bc3 => ((GLEnum)0x83F3, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGBA_S3TC_DXT5_EXT
-        TextureFormat.Bc4 => ((GLEnum)0x8DBB, GLEnum.Red, GLEnum.UnsignedByte),         // COMPRESSED_RED_RGTC1
-        TextureFormat.Bc5 => ((GLEnum)0x8DBD, GLEnum.RG, GLEnum.UnsignedByte),          // COMPRESSED_RG_RGTC2
-        TextureFormat.Bc7 => ((GLEnum)0x8E8C, GLEnum.Rgba, GLEnum.UnsignedByte),        // COMPRESSED_RGBA_BPTC_UNORM
-        TextureFormat.Bc6hSfloat => ((GLEnum)0x8E8E, GLEnum.Rgb, GLEnum.Float),         // COMPRESSED_RGB_BPTC_SIGNED_FLOAT
-        TextureFormat.Bc6hUfloat => ((GLEnum)0x8E8F, GLEnum.Rgb, GLEnum.Float),         // COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT
-        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "a texture format with no description"),
-    };
-
-    private static (GLEnum Format, GLEnum Type) Describe(UploadFormat format) => format switch
-    {
-        UploadFormat.Bgra8 => (GLEnum.Bgra, GLEnum.UnsignedByte),
-        UploadFormat.R8 => (GLEnum.Red, GLEnum.UnsignedByte),
-        UploadFormat.Rg8 => (GLEnum.RG, GLEnum.UnsignedByte),
-        UploadFormat.R16 => (GLEnum.Red, GLEnum.UnsignedShort),
-        UploadFormat.Rg16 => (GLEnum.RG, GLEnum.UnsignedShort),
-        UploadFormat.RgbaHalf => (GLEnum.Rgba, GLEnum.HalfFloat),
-        UploadFormat.R32F => (GLEnum.Red, GLEnum.Float),
-        UploadFormat.Rg32F => (GLEnum.RG, GLEnum.Float),
-        UploadFormat.Rgba32F => (GLEnum.Rgba, GLEnum.Float),
-        UploadFormat.Rgba16 => (GLEnum.Rgba, GLEnum.UnsignedShort),
-        _ => (GLEnum.Rgba, GLEnum.UnsignedByte),
-    };
+    /// <summary>Each format's internal format and its upload layout on desktop GL (<see cref="GlFormatTable"/> holds the table
+    /// per dialect); a block format carries its compressed internal format and is uploaded only through the compressed path.</summary>
+    internal static (GLEnum Internal, GLEnum Format, GLEnum Type) Describe(TextureFormat format) => GlFormatTable.Describe(GlDialect.Core330, format);
 
     /// <summary>Bytes per pixel of a CPU layout.</summary>
     public static int BytesPerPixel(UploadFormat format) => format switch

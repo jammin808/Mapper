@@ -35,7 +35,16 @@
       "frameMsP95": 0,
       "pattern": null,
       "projector": "pj_left",
-      "light": "grey"
+      "light": "grey",
+      "latencyMs": 0,
+      "present": null,
+      "lock": {
+        "state": "free-unknown",
+        "words": "no render host on this node",
+        "reason": "",
+        "fellOut": 0,
+        "rejoins": 0
+      }
     },
     {
       "id": "op_right",
@@ -53,7 +62,16 @@
       "frameMsP95": 0,
       "pattern": null,
       "projector": "pj_right",
-      "light": "grey"
+      "light": "grey",
+      "latencyMs": 0,
+      "present": null,
+      "lock": {
+        "state": "free-unknown",
+        "words": "no render host on this node",
+        "reason": "",
+        "fellOut": 0,
+        "rejoins": 0
+      }
     }
   ],
   "media": {
@@ -90,7 +108,20 @@
     "offsetMs": 0,
     "rttMs": 0,
     "driftPpm": 0,
-    "groups": []
+    "groups": [],
+    "latencyMs": 0,
+    "lock": {
+      "state": "free-unknown",
+      "driver": "none",
+      "board": null,
+      "words": "no render host on this node",
+      "applied": false,
+      "locked": 0,
+      "fellOut": 0,
+      "rejoins": 0,
+      "time": "clock",
+      "refused": null
+    }
   },
   "links": {
     "patterns": {
@@ -104,7 +135,8 @@
   "machine": {
     "renderer": "none",
     "memMb": 0,
-    "gcPauseMsTotal": 0
+    "gcPauseMsTotal": 0,
+    "present": null
   },
   "project": {
     "id": "pr_fixture",

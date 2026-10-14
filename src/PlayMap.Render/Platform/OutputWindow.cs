@@ -28,7 +28,7 @@ public sealed record OutputWindowOptions(
 /// wait (the pacing window, <see cref="SetSwapInterval"/> 1) and the others swap at once (0); the engine
 /// picks the pacer. A window never makes the primary context lose its state: the present switches to the
 /// window's context and back.</summary>
-public sealed class OutputWindow : IDisposable
+public sealed class OutputWindow : IOutputPresenter
 {
     private readonly RenderContext _primary;
     private readonly IWindow _window;
@@ -45,6 +45,8 @@ public sealed class OutputWindow : IDisposable
     public int Height => _window.FramebufferSize.Y;
     public bool IsClosing => _window.IsClosing;
 
+    public PresentPath Path => PresentPath.GlWindow;
+
     /// <summary>The monotonic instant the last swap returned — with vsync, just after the vertical blank it
     /// waited for (the frame pacer's raw sample).</summary>
     public long LastSwapNs { get; private set; }
@@ -55,6 +57,7 @@ public sealed class OutputWindow : IDisposable
     {
         ArgumentNullException.ThrowIfNull(primary);
         ArgumentNullException.ThrowIfNull(options);
+        var shared = primary.Window ?? throw new PlatformNotSupportedException("this context has no window system (EGL surfaceless): it opens no output windows");
         var (x, y, w, h) = (options.X, options.Y, options.Width, options.Height);
         if (options.MonitorIndex >= 0)
         {
@@ -70,7 +73,7 @@ public sealed class OutputWindow : IDisposable
         }
         // The present program is compiled in the primary context before the window's context exists.
         primary.Device.Program("present");
-        var api = primary.Window.API;
+        var api = shared.API;
         var wo = WindowOptions.Default with
         {
             Title = options.Title,
@@ -80,15 +83,14 @@ public sealed class OutputWindow : IDisposable
             WindowState = WindowState.Normal,
             TopMost = options.Borderless,
             API = api,
-            SharedContext = primary.Window.GLContext,
+            SharedContext = shared.GLContext,
             ShouldSwapAutomatically = false,
             VSync = options.VSync,
             IsVisible = true,
             PreferredDepthBufferBits = 0,
             PreferredStencilBufferBits = 0,
         };
-        var window = Silk.NET.Windowing.Window.Create(wo);
-        window.Initialize();
+        var window = RenderContext.MakeWindow(wo, primary.EglWindows);
         var output = new OutputWindow(primary, window);
         window.MakeCurrent();
         output._vao = primary.Device.CreateContextVertexArray();
@@ -115,7 +117,7 @@ public sealed class OutputWindow : IDisposable
 
     /// <summary>Shows a finished picture: switches to the window's context, draws it over the window,
     /// swaps, and returns to the primary context.</summary>
-    public void Present(GpuTexture picture)
+    public PresentResult Present(GpuTexture picture)
     {
         ArgumentNullException.ThrowIfNull(picture);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -126,10 +128,11 @@ public sealed class OutputWindow : IDisposable
         _window.SwapBuffers();
         LastSwapNs = MonoClock.Instance.NowNs;
         _primary.MakeCurrent();
+        return PresentResult.Done(LastSwapNs);
     }
 
     /// <summary>Shows black (an output with nothing drawn yet).</summary>
-    public void PresentBlack()
+    public PresentResult PresentBlack()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _window.MakeCurrent();
@@ -137,6 +140,7 @@ public sealed class OutputWindow : IDisposable
         _window.SwapBuffers();
         LastSwapNs = MonoClock.Instance.NowNs;
         _primary.MakeCurrent();
+        return PresentResult.Done(LastSwapNs);
     }
 
     public void Dispose()

@@ -24,13 +24,17 @@ public sealed class GlFixture : IDisposable
 
     public RenderContext Context => _context ?? throw new InvalidOperationException("No context.");
 
+    /// <summary>The dialect this run's context speaks: desktop 3.30 core, or ES 3.00 when PLAYMAP_GL_DIALECT says es300.</summary>
+    public static GlDialect Dialect => GlDialects.Parse(Environment.GetEnvironmentVariable("PLAYMAP_GL_DIALECT")) ?? GlDialect.Core330;
+
     public GlDevice Device => Context.Device;
 
     private void Loop()
     {
         try
         {
-            _context = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: true));
+            // PLAYMAP_GL_DIALECT=es300 runs the whole suite as its OpenGL ES 3.00 leg (the same window system, an ES context).
+            _context = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: true, Dialect: Dialect));
             _ready.SetResult();
         }
         catch (Exception ex)
