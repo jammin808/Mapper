@@ -21,6 +21,13 @@ it.
 
 ### wp2-decode
 
+Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages (never in the exe):
+
+- Snappier 1.3.1 (BSD-3-Clause), the reference Snappy codec the second stage is checked and timed against —
+  https://github.com/brantburnett/Snappier.
+- BCnEncoder.NET 2.3.0 (MIT OR Unlicense), writes the BC1/BC3/BC4/BC7/BC6H blocks the HAP tests upload and decodes them on the CPU
+  for comparison — https://github.com/Nominom/BCnEncoder.NET.
+
 ### wp2-zerocopy
 
 ### wp2-optimise
