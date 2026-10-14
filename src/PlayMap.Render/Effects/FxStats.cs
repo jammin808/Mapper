@@ -16,7 +16,7 @@ public enum FxSlotState
 
 /// <summary>One slot as the render thread last drew it, read from any thread: each field is written whole by the render thread
 /// (a reader may see one frame's state beside the last frame's time, never a torn value).</summary>
-public sealed class FxSlotLive(string slotId)
+public sealed class FxSlotLive(string slotId, FxStats owner)
 {
     private int _state;
     private string _words = "";
@@ -41,10 +41,14 @@ public sealed class FxSlotLive(string slotId)
 
     internal void Set(FxSlotState state, string words, long frame)
     {
+        var moved = Volatile.Read(ref _state) != (int)state || !string.Equals(Volatile.Read(ref _words), words, StringComparison.Ordinal)
+            || Volatile.Read(ref _frame) == 0;
         Volatile.Write(ref _state, (int)state);
         if (!ReferenceEquals(Volatile.Read(ref _words), words))
             Volatile.Write(ref _words, words);
         Volatile.Write(ref _frame, frame);
+        if (moved)
+            owner.Moved();
     }
 
     internal void Touch(long frame) => Volatile.Write(ref _frame, frame);
@@ -60,6 +64,7 @@ public sealed class FxStats
 {
     private readonly ConcurrentDictionary<string, FxSlotLive> _slots = new(StringComparer.Ordinal);
     private long _frame;
+    private long _version;
 
     /// <summary>The renderer's last frame (0 before the first).</summary>
     public long Frame => Volatile.Read(ref _frame);
@@ -68,9 +73,18 @@ public sealed class FxStats
 
     public int Count => _slots.Count;
 
-    internal FxSlotLive For(string slotId) => _slots.GetOrAdd(slotId, static id => new FxSlotLive(id));
+    /// <summary>Moves whenever a slot's state or words move (or a slot is met or forgotten): the host republishes STATE then.</summary>
+    public long Version => Volatile.Read(ref _version);
 
-    internal void Forget(string slotId) => _slots.TryRemove(slotId, out _);
+    internal FxSlotLive For(string slotId) => _slots.GetOrAdd(slotId, static (id, self) => new FxSlotLive(id, self), this);
+
+    internal void Forget(string slotId)
+    {
+        if (_slots.TryRemove(slotId, out _))
+            Moved();
+    }
+
+    internal void Moved() => Interlocked.Increment(ref _version);
 
     internal void SetFrame(long frame) => Volatile.Write(ref _frame, frame);
 }

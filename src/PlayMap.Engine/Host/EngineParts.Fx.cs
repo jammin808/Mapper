@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddFxParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-fx fills this.
+        extensions.Add(_ => new Fx.FxExtension());
     }
 }

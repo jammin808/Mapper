@@ -112,6 +112,9 @@ public sealed class FxCompileLane : IDisposable
     /// with it and counts the frames that go on meanwhile.</summary>
     public Action<string>? BeforeCompile { get; set; }
 
+    /// <summary>The ISF dialect this lane's context compiles.</summary>
+    public PlayMap.Core.Effects.IsfDialect Dialect => FxChainRunner.DialectOf(_dialect);
+
     /// <summary>Jobs asked for and not yet handed over.</summary>
     public int Pending => _pending.Count;
 

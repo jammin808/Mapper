@@ -404,19 +404,17 @@ public static class VerbCatalog
         V2("COMPANION VAR", "COMPANION VAR <name> <value> [ON <companion>]", "Sets a Companion custom variable", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("COMPANION BRIGHTNESS", "COMPANION BRIGHTNESS <0-100> [<surface>] [ON <companion>]", "Dims Companion's surfaces (REST v2; the key from the credential store)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Perform },
 
-        // Effects: ISF and FFGL in chains (wp2-fx). FX BIND / FX UNBIND are aliases of MOD BIND / MOD UNBIND.
-        V2("FX KINDS", "FX KINDS [<family>|<search>]", "Every effect kind (built-in, this show's ISF, FFGL plugins) with its parameters, cost and traits", VerbCategory.Effects, VerbRisk.Low, false),
+        // Effects: ISF in chains (wp2-fx). FX BIND / FX UNBIND are aliases of MOD BIND / MOD UNBIND.
+        V2("FX KINDS", "FX KINDS [<family>|<search>]", "Every effect kind (built-in and this show's ISF files) with its parameters and traits", VerbCategory.Effects, VerbRisk.Low, false),
         V2("FX LIST", "FX LIST <target>|ALL", "The effect chain of a layer, canvas, surface, output or playlist item, with each slot's state", VerbCategory.Effects, VerbRisk.Low, false),
-        V2("FX ADD", "FX ADD <target> <kind> [AT <index>] [<name>]", "Adds an effect to a chain; answers its slot id", VerbCategory.Effects, VerbRisk.Review, true),
+        V2("FX ADD", "FX ADD <target> <kind> [AT <position>] [<name>]", "Adds an effect to a chain (positions count from 1); answers its slot id", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX REMOVE", "FX REMOVE <slot>", "Removes an effect", VerbCategory.Effects, VerbRisk.Review, true),
-        V2("FX MOVE", "FX MOVE <slot> <index>", "Moves an effect in its chain", VerbCategory.Effects, VerbRisk.Review, true),
+        V2("FX MOVE", "FX MOVE <slot> <position>", "Moves an effect to a position in its chain (from 1)", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX SET", "FX SET <slot> <param>|mix|blend|scale|name <value> | FX SET <slot> <param> BY <delta>", "Sets an effect's parameter, mix, blend or scale", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX BYPASS", "FX BYPASS <slot>|<target>|ALL ON|OFF|TOGGLE", "Bypasses effects (ALL ON is the panic outcome 'effects off')", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX RESET", "FX RESET <slot>", "Sets an effect's parameters back to their defaults", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX IMPORT", "FX IMPORT <path>|<json>", "Adds an ISF effect to the show (content-addressed, carried with it); answers its asset id and the compile report", VerbCategory.Effects, VerbRisk.Review, true),
-        V2("FX CHECK", "FX CHECK <asset>|<json>", "Compiles an ISF source for GLSL 3.30 and ES 3.00 and reports its issues by line", VerbCategory.Effects, VerbRisk.Low, false),
-        V2("FX PLUGINS", "FX PLUGINS [RESCAN]", "The FFGL plugins this node found, each with its trust and probe state", VerbCategory.Effects, VerbRisk.Low, false),
-        V2("FX TRUST", "FX TRUST <plugin> IN-PROCESS|OFF", "Lets an FFGL plugin run inside the render process, or not (this machine only, never from an assistant)", VerbCategory.Effects, VerbRisk.High, true) with { Show = ShowClass.Admin },
+        V2("FX CHECK", "FX CHECK <asset>|<json>", "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node's context and reports its issues by line", VerbCategory.Effects, VerbRisk.Low, false),
 
         // Sound, the beat clock and the modulation bus (wp2-audio).
         V2("AUDIO INPUTS", "AUDIO INPUTS", "The sound inputs this node can listen to (devices, the system's sound, test signals)", VerbCategory.Audio, VerbRisk.Low, false),
