@@ -5,6 +5,6 @@ public static partial class ShaderLibrary
 {
     static partial void AddOutput(Dictionary<string, (string Vertex, string Fragment)> programs)
     {
-        // wp2-output fills this.
+        // Presentation adds no program: a presenter draws the finished picture with the library's "present" program.
     }
 }
