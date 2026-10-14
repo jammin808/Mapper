@@ -73,6 +73,11 @@ public readonly record struct LockFacts(
 
     /// <summary>The node may rejoin on its own (NodeSettings.Present.FrameLock "auto"); "off" never joins.</summary>
     public bool AutoRejoin { get; init; } = true;
+
+    /// <summary>The driver refused the join the last step asked for, with <see cref="JoinWords"/>.</summary>
+    public bool JoinRefused { get; init; }
+
+    public string? JoinWords { get; init; }
 }
 
 /// <summary>Why an output is not locked, as a stable word a test or a controller can act on.</summary>
@@ -89,6 +94,7 @@ public static class LockReasons
     public const string DeviceBusy = "device-busy";
     public const string DisplayChanged = "display-changed";
     public const string JoinTimeout = "join-timeout";
+    public const string JoinRefused = "join-refused";
 }
 
 /// <summary>One output's lock machine (pure): facts in, a state, words and the driver actions out.
@@ -104,8 +110,8 @@ public static class LockReasons
 /// changed → Unbind, Leave, RestorePresent, Alarm; <see cref="LockState.FellOut"/> with the reason. The output keeps presenting
 /// on its own vblank: nothing here ever waits.</item>
 /// <item><b>Rejoin.</b> Fell out and armed → stays (never on its own while armed; SYNC REJOIN only while blacked out). Disarmed,
-/// the board synced for 10 s and the show at a boundary (blackout, or nothing playing) → joins again by itself (auto). Otherwise
-/// only SYNC REJOIN.</item>
+/// the board synced for the 10 s since the fall and the show at a boundary (blackout, or nothing playing) → joins again by itself
+/// (auto). Otherwise only SYNC REJOIN (or a new SYNC APPLY).</item>
 /// <item><b>Release.</b> The intent no longer applies → Unbind, Leave, RestorePresent; free.</item>
 /// </list></summary>
 public sealed class FrameLockMachine
@@ -125,6 +131,8 @@ public sealed class FrameLockMachine
     private long _joinStartedNs;
     private long _refusedSeq = long.MinValue;
     private long _joinedSeq = long.MinValue;
+    private long _fellOutAtNs;
+    private long _lastStepNs;
 
     public LockState State { get; private set; } = LockState.FreeUnknown;
 
@@ -151,6 +159,7 @@ public sealed class FrameLockMachine
     /// <summary>One step: the facts of now in, the actions for the caller to perform out.</summary>
     public LockActions Step(in LockFacts f)
     {
+        _lastStepNs = f.MonoNs;
         Track(in f);
         switch (State)
         {
@@ -249,6 +258,8 @@ public sealed class FrameLockMachine
     {
         if (!f.Intent.Apply)
             return Release(in f);
+        if (f.JoinRefused)
+            return Fall(LockReasons.JoinRefused, $"the driver did not join: {f.JoinWords} — presenting free");
         if (Breaks(in f, joining: true, out var reason, out var words))
             return Fall(reason, words);
         if (_good >= ConfirmRefreshes && f.BoardSynced && f.BarrierBound)
@@ -301,7 +312,9 @@ public sealed class FrameLockMachine
         // Never on its own while armed: a lock that comes back mid-show may step the picture.
         if (f.Armed || !f.AutoRejoin)
             return LockActions.None;
-        if (_syncedSinceNs >= 0 && f.MonoNs - _syncedSinceNs >= RejoinSyncedNs && f.AtBoundary && Precondition(in f, out _, out _))
+        // Ten seconds of a synced board since the fall, so a lock that keeps breaking does not flap in and out.
+        if (_syncedSinceNs >= 0 && f.MonoNs - Math.Max(_syncedSinceNs, _fellOutAtNs) >= RejoinSyncedNs && f.AtBoundary
+            && Precondition(in f, out _, out _))
         {
             Rejoins++;
             return StartJoin(in f);
@@ -320,6 +333,7 @@ public sealed class FrameLockMachine
 
     private LockActions Fall(string reason, string words)
     {
+        _fellOutAtNs = _lastStepNs;
         State = LockState.FellOut;
         LockedSinceNs = -1;
         FellOutCount++;

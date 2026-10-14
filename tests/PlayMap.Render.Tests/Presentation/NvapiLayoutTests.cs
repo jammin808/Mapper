@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using PlayMap.Render.Platform.Windows;
 using PlayMap.Render.Sync;
 
 namespace PlayMap.Render.Tests.Presentation;

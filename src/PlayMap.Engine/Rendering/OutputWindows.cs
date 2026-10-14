@@ -54,7 +54,7 @@ public static class DisplayMatch
 }
 
 /// <summary>The output windows, on the render thread: every enabled output of kind Display or Window whose
-/// display assignment matches a monitor gets a window there — borderless over the whole monitor for a
+/// display assignment matches a monitor gets a presenter there (the platform's: a GL window today) — borderless over the whole monitor for a
 /// Display, a movable window of the output's raster (capped to the monitor) for a Window; Ndi and Virtual
 /// outputs never get one. <see cref="Sync"/> diffs the project against the windows by output id, monitor and
 /// mode, attaching new windows to the renderer and detaching (then disposing) the ones that went. A window
@@ -67,20 +67,20 @@ internal sealed class OutputWindows : IDisposable
     private sealed class Entry
     {
         public required WindowKey Key { get; init; }
-        public OutputWindow? Window { get; set; }
+        public IOutputPresenter? Window { get; set; }
         public string Display { get; init; } = "";
         public string? Problem { get; set; }
     }
 
-    private readonly RenderContext _context;
+    private readonly IGpuPlatform _platform;
     private readonly RenderEngine _engine;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _gone = [];
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
-    public OutputWindows(RenderContext context, RenderEngine engine)
+    public OutputWindows(IGpuPlatform platform, RenderEngine engine)
     {
-        _context = context;
+        _platform = platform;
         _engine = engine;
     }
 
@@ -90,7 +90,7 @@ internal sealed class OutputWindows : IDisposable
     /// <summary>Windows open now.</summary>
     public int Open { get; private set; }
 
-    public OutputWindow? WindowOf(string outputId) =>
+    public IOutputPresenter? WindowOf(string outputId) =>
         _entries.TryGetValue(outputId, out var e) ? e.Window : null;
 
     public string? DisplayOf(string outputId) =>
@@ -116,7 +116,7 @@ internal sealed class OutputWindows : IDisposable
                     continue;
                 changed |= Close(output.Id, e);
             }
-            changed |= OpenWindow(output, want.Key, want.Display, want.RefreshHz);
+            changed |= OpenWindow(output, want.Key, want.Display, want.RefreshHz, want.Monitor);
         }
         foreach (var id in _entries.Keys)
             if (!_seen.Contains(id))
@@ -132,7 +132,7 @@ internal sealed class OutputWindows : IDisposable
     {
         if (Open == 0)
             return false;
-        _context.PumpEvents();
+        _platform.PumpEvents();
         var closed = false;
         foreach (var (id, e) in _entries)
         {
@@ -150,7 +150,7 @@ internal sealed class OutputWindows : IDisposable
         return closed;
     }
 
-    private static (WindowKey Key, string Display, int RefreshHz)? Want(Output output, IReadOnlyList<MonitorInfo> monitors)
+    private static (WindowKey Key, string Display, int RefreshHz, MonitorInfo Monitor)? Want(Output output, IReadOnlyList<MonitorInfo> monitors)
     {
         if (!output.Enabled || output.Kind is not (OutputKind.Display or OutputKind.Window) || output.Width < 1 || output.Height < 1)
             return null;
@@ -159,20 +159,20 @@ internal sealed class OutputWindows : IDisposable
         var key = output.Kind == OutputKind.Display
             ? new WindowKey(m.Index, m.X, m.Y, m.Width, m.Height, output.Kind, output.Name)
             : new WindowKey(m.Index, m.X, m.Y, Math.Min(output.Width, Math.Max(1, m.Width)), Math.Min(output.Height, Math.Max(1, m.Height)), output.Kind, output.Name);
-        return (key, DisplayMatch.KeyOf(m, monitors), m.RefreshHz);
+        return (key, DisplayMatch.KeyOf(m, monitors), m.RefreshHz, m);
     }
 
     /// <param name="refreshHz">The display's refresh: what the window's presents are measured against.</param>
-    private bool OpenWindow(Output output, WindowKey key, string display, int refreshHz)
+    private bool OpenWindow(Output output, WindowKey key, string display, int refreshHz, MonitorInfo monitor)
     {
         var entry = new Entry { Key = key, Display = display };
         _entries[output.Id] = entry;
         try
         {
             var options = key.Kind == OutputKind.Display
-                ? new OutputWindowOptions(output.Name, key.Monitor, Borderless: true, VSync: true)
-                : new OutputWindowOptions(output.Name, key.Monitor, Borderless: false, VSync: true, Width: key.Width, Height: key.Height, X: 32, Y: 32);
-            entry.Window = OutputWindow.Create(_context, options);
+                ? new OutputPresenterOptions(output.Name, monitor, Borderless: true, Width: 1280, Height: 720)
+                : new OutputPresenterOptions(output.Name, monitor, Borderless: false, Width: key.Width, Height: key.Height, X: 32, Y: 32);
+            entry.Window = _platform.CreatePresenter(options);
             _engine.Attach(output.Id, entry.Window, refreshHz);
             Open++;
             RepickPacer();
@@ -181,7 +181,7 @@ internal sealed class OutputWindows : IDisposable
         catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or ArgumentException or Render.Gpu.GlException)
         {
             entry.Problem = $"its window could not open on {display}: {ex.Message}";
-            _context.MakeCurrent();
+            _platform.Context.MakeCurrent();
             return false;
         }
     }

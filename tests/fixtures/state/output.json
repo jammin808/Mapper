@@ -1,1 +1,191 @@
-{}
+{
+  "v": 1,
+  "seq": 0,
+  "id": "0badc0de",
+  "t": "playmap",
+  "name": "Test node",
+  "version": "0.1.0",
+  "at": 1760000000000,
+  "light": "green",
+  "headline": "Test \u00B7 nothing playing \u00B7 outputs not measured",
+  "air": {
+    "blackout": false,
+    "frozen": false,
+    "pattern": null,
+    "identify": false,
+    "patternsBlackout": false,
+    "followPatternsBlackout": true
+  },
+  "video": null,
+  "playlists": [],
+  "outputs": [
+    {
+      "id": "op_left",
+      "name": "Left",
+      "mode": "source",
+      "kind": "virtual",
+      "display": "",
+      "width": 64,
+      "height": 36,
+      "refreshHz": 60,
+      "enabled": true,
+      "open": false,
+      "fps": 60,
+      "dropped": 0,
+      "frameMsP95": 16.67,
+      "pattern": null,
+      "projector": null,
+      "light": "grey",
+      "latencyMs": 33,
+      "present": {
+        "path": "offscreen",
+        "mode": "offscreen",
+        "evidence": "none",
+        "refreshHz": 60,
+        "nominalHz": 60,
+        "ppm": 0,
+        "settled": false,
+        "missedVblanks": 0,
+        "missed60s": 0,
+        "held": 0,
+        "delayFrames": 0,
+        "latencyResidualMs": 0,
+        "statsAgeMs": 4.2,
+        "words": "60 Hz target \u00B7 offscreen \u00B7 0 missed in 60 s",
+        "presented": 600,
+        "late10s": 0,
+        "phase": "nominal",
+        "light": "green"
+      },
+      "lock": {
+        "state": "framelocked",
+        "words": "framelocked: swap group 1, barrier 1",
+        "reason": "",
+        "fellOut": 0,
+        "rejoins": 0
+      }
+    },
+    {
+      "id": "op_right",
+      "name": "Right",
+      "mode": "source",
+      "kind": "virtual",
+      "display": "",
+      "width": 64,
+      "height": 36,
+      "refreshHz": 60,
+      "enabled": true,
+      "open": false,
+      "fps": 60,
+      "dropped": 0,
+      "frameMsP95": 16.67,
+      "pattern": null,
+      "projector": null,
+      "light": "grey",
+      "latencyMs": 33,
+      "present": {
+        "path": "offscreen",
+        "mode": "offscreen",
+        "evidence": "none",
+        "refreshHz": 60,
+        "nominalHz": 60,
+        "ppm": 0,
+        "settled": false,
+        "missedVblanks": 0,
+        "missed60s": 0,
+        "held": 0,
+        "delayFrames": 0,
+        "latencyResidualMs": 0,
+        "statsAgeMs": 4.2,
+        "words": "60 Hz target \u00B7 offscreen \u00B7 0 missed in 60 s",
+        "presented": 600,
+        "late10s": 0,
+        "phase": "nominal",
+        "light": "green"
+      },
+      "lock": {
+        "state": "framelocked",
+        "words": "framelocked: swap group 1, barrier 1",
+        "reason": "",
+        "fellOut": 0,
+        "rejoins": 0
+      }
+    }
+  ],
+  "media": {
+    "items": 0,
+    "missing": 0,
+    "ready": true,
+    "transfers": []
+  },
+  "stage": {
+    "surfaces": 0,
+    "meshes": 0,
+    "projectors": [],
+    "scans": 0
+  },
+  "scan": null,
+  "sync": {
+    "role": "solo",
+    "leader": null,
+    "offsetMs": 0,
+    "rttMs": 0,
+    "driftPpm": 0,
+    "groups": [],
+    "latencyMs": 33,
+    "lock": {
+      "state": "framelocked",
+      "driver": "fake",
+      "board": "Quadro Sync II (P2061)",
+      "words": "2 outputs framelocked on the Quadro Sync II (P2061)",
+      "applied": true,
+      "locked": 2,
+      "fellOut": 0,
+      "rejoins": 0,
+      "time": "clock",
+      "refused": null
+    }
+  },
+  "links": {
+    "patterns": {
+      "state": "off"
+    },
+    "stagewatch": {
+      "state": "off"
+    }
+  },
+  "peers": [],
+  "machine": {
+    "renderer": "OpenGL 4.5 llvmpipe",
+    "memMb": 0,
+    "gcPauseMsTotal": 0,
+    "present": {
+      "api": "gl",
+      "adapter": "OpenGL 4.5 llvmpipe",
+      "path": "offscreen",
+      "experimental": false,
+      "why": "",
+      "resets": 0,
+      "presentMsP95": 0.21,
+      "dialect": "core330",
+      "context": "glx"
+    }
+  },
+  "project": {
+    "id": "pr_fixture",
+    "name": "Test",
+    "revision": 1,
+    "path": null,
+    "dirty": false
+  },
+  "faults": [],
+  "ai": {
+    "mcp": false,
+    "clients": 0,
+    "proposals": 0,
+    "assistant": null
+  },
+  "devices": [],
+  "solve": null,
+  "cameras": []
+}
