@@ -132,7 +132,8 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
 
             await rig.Ok($"OUTPUT SOURCE op_1 media:{id}");
             // A library item shown directly loops on the leader's clock: frame n covers [n, n + 1) × 40 ms of each 3 s.
-            foreach (var frame in new[] { 25, 62, 13, 74 })
+            // The last request is not the end: a clip that reached its end says "end" (a fact the fixture would carry).
+            foreach (var frame in new[] { 25, 62, 74, 13 })
             {
                 rig.Clock.NowNs = 6_000_000_000 + (long)((frame + 0.5) * 40_000_000);
                 var px = await rig.ReadUntil("op_1", p => Clips.IndexIn(p, 64) == frame);

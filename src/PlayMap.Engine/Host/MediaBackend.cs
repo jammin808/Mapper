@@ -225,8 +225,7 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             ReadAheadMs = Math.Clamp(settings.HapReadAheadMs, 1, 10_000),
             ReadAheadMb = Math.Clamp(settings.HapReadAheadMb, 1, 4096),
             Workers = Math.Max(0, settings.HapWorkers),
-            // A library item shown directly loops on the leader's clock: the decoder reads across the loop point.
-            Loop = true,
+            // No loop of its own: a clip that ends holds its last frame, and a consumer that wraps its time seeks back.
             Color = item.Color,
         };
     }

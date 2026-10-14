@@ -69,9 +69,10 @@ and timed beside.
 
 - The persistently mapped upload arena (`UploadArena`, `LeaseRetention`): this round's stretch item, not started (wp2-zerocopy's
   item 4 picks it up); `decode.uploadArenaMb` is read by nothing yet and STATE says `staging: copy`.
-- `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens with its loop on (a library item
-  shown directly is gapless; a playlist clip with in and out points loops through a seek), and a HAP source that could not open
-  is not retried. Needs a spine amendment (below).
+- `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens without a loop of its own, so a
+  clip that ends holds its last frame and a looping item (a library item shown directly, a looping playlist clip) wraps through a
+  seek — the frame before the loop point holds for the seek's few milliseconds instead of the loop being gapless — and a HAP
+  source that could not open is not retried. Needs a spine amendment (below).
 - Interop fixtures of HAP R/HDR from other encoders (lab), direct sampling of BC textures with no `hap` pass, raw HAP straight from
   disk into the arena, sRGB block formats, the desk's codec chips.
 - MEDIA INSPECT's results kept in `NodeHome/inspect/` across restarts (kept in memory this round) and `ON <node>`.
