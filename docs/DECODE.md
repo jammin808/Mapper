@@ -48,8 +48,10 @@ tag `playmap_white_nits`, then the default — linear light with 1.0 = 203 nits 
 ## Measured here
 
 On this container (4 cores, llvmpipe, Debug build, a shared and loaded machine), recorded by the `Category=Perf` tests:
-- the second stage of a 4K HAP Q frame on one core: 9–35 ms with the decoder here, 6–14 ms with Snappier (Release), depending on
-  the machine's load;
+- the second stage of a 4K HAP Q frame on one core, both decoders compiled optimised, on FFmpeg-encoded 16-chunk frames (a
+  machine at load 6–10): a flat test pattern (0.73 MB stored) 1.1–1.8 ms here against 1.4–1.8 ms with Snappier; a Mandelbrot
+  (3.2 MB stored, about 790 000 elements a frame) 5.8–7.2 ms against 5.3–6.3 ms; noise (8.1 MB stored, nearly all literal)
+  1.9–2.5 ms against 2.2–2.3 ms. The Debug build of the tests reads 9–35 ms;
 - a 4K HAP Q clip of 16 chunks plays 30 frames in 0.1–0.3 s through the source (stage p95 7–24 ms with every core shared);
 - every family uploads and samples on llvmpipe's core 3.3 context; whole frames match FFmpeg's CPU decode within hap.md M4's
   bounds (HAP and HAP Alpha max diff ≤ 2 and PSNR ≥ 60 dB, HAP Q ≤ 4 and ≥ 50 dB).
@@ -76,7 +78,8 @@ and timed beside.
 - Interop fixtures of HAP R/HDR from other encoders (lab), direct sampling of BC textures with no `hap` pass, raw HAP straight from
   disk into the arena, sRGB block formats, the desk's codec chips.
 - MEDIA INSPECT's results kept in `NodeHome/inspect/` across restarts (kept in memory this round) and `ON <node>`.
-- A faster second stage (wider copies, or Snappier once it decodes without allocating).
+- A faster second stage on element-dense frames (a table-driven tag decode, as Snappier's): it trails Snappier by up to a
+  fifth there.
 
 ## Spine amendments asked for
 

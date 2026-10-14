@@ -9,8 +9,9 @@ namespace PlayMap.Media.Hap;
 /// tag 10: length 1–64 and a 16-bit offset; tag 11: length 1–64 and a 32-bit offset). A reference reaching before the start
 /// of the output, a zero offset, an element running past either buffer, or a stream that ends short of its preamble's
 /// length refuses the block.
-/// <para>Short literals and references move eight or sixteen bytes at a time where both buffers have the slack; the bytes
-/// written past an element's end are inside the output and are overwritten by the elements that follow.</para></summary>
+/// <para>Literals and references move eight or sixteen bytes at a time where both buffers have the slack (a reference of 16
+/// bytes or fewer at a distance of eight or more is two moves, inline); the bytes written past an element's end are inside the
+/// output and are overwritten by the elements that follow. Where the output has no slack left, bytes move one at a time.</para></summary>
 internal static unsafe class SnappyBlock
 {
     /// <summary>Decodes a whole block into <paramref name="output"/>; true when it decoded to exactly its preamble's length
@@ -55,6 +56,14 @@ internal static unsafe class SnappyBlock
                         Unsafe.WriteUnaligned(op, Unsafe.ReadUnaligned<ulong>(ip));
                         Unsafe.WriteUnaligned(op + 8, Unsafe.ReadUnaligned<ulong>(ip + 8));
                     }
+                    else if (len <= 64 && ipEnd - ip >= 64 && opEnd - op >= 64)
+                    {
+                        for (nint i = 0; i < len; i += 16)
+                        {
+                            Unsafe.WriteUnaligned(op + i, Unsafe.ReadUnaligned<ulong>(ip + i));
+                            Unsafe.WriteUnaligned(op + i + 8, Unsafe.ReadUnaligned<ulong>(ip + i + 8));
+                        }
+                    }
                     else
                     {
                         Buffer.MemoryCopy(ip, op, opEnd - op, len);
@@ -92,7 +101,17 @@ internal static unsafe class SnappyBlock
                 }
                 if (off == 0 || off > op - dst || len > opEnd - op)
                     return false;
-                Copy(op, off, len, opEnd);
+                if (off >= 8 && len <= 16 && opEnd - op >= 16)
+                {
+                    // The common short reference: two eight-byte moves; the second reads bytes the first has just written.
+                    var from = op - off;
+                    Unsafe.WriteUnaligned(op, Unsafe.ReadUnaligned<ulong>(from));
+                    Unsafe.WriteUnaligned(op + 8, Unsafe.ReadUnaligned<ulong>(from + 8));
+                }
+                else
+                {
+                    Copy(op, off, len, opEnd);
+                }
                 op += len;
             }
             written = (int)(op - dst);
@@ -101,27 +120,31 @@ internal static unsafe class SnappyBlock
     }
 
     // A back-reference: len bytes from off bytes behind op. With an offset of eight or more each eight-byte read lies wholly
-    // in bytes already written; a shorter offset repeats a pattern of that period, copied in runs that double so each run's
-    // source is wholly behind its destination and the period's phase holds.
+    // in bytes already written; a shorter offset repeats a pattern of that period (see below). Without eight bytes of slack
+    // past the reference, bytes move one at a time, each read after the byte it repeats was written.
     private static void Copy(byte* op, nint off, nint len, byte* opEnd)
     {
         var from = op - off;
-        if (off >= 8 && opEnd - op >= len + 8)
+        if (opEnd - op >= len + 8)
         {
-            for (nint i = 0; i < len; i += 8)
-                Unsafe.WriteUnaligned(op + i, Unsafe.ReadUnaligned<ulong>(from + i));
+            if (off >= 8)
+            {
+                for (nint i = 0; i < len; i += 8)
+                    Unsafe.WriteUnaligned(op + i, Unsafe.ReadUnaligned<ulong>(from + i));
+                return;
+            }
+            // A period shorter than eight: the first bytes one at a time up to a distance d (the smallest multiple of the period
+            // that is at least eight), then eight-byte steps from d behind, which lie wholly in bytes already written and keep the
+            // period's phase.
+            var d = off * ((8 + off - 1) / off);
+            var head = Math.Min(d, len);
+            for (nint i = 0; i < head; i++)
+                op[i] = from[i];
+            for (var i = head; i < len; i += 8)
+                Unsafe.WriteUnaligned(op + i, Unsafe.ReadUnaligned<ulong>(op + i - d));
             return;
         }
-        var p = op;
-        var left = len;
-        var run = off;
-        while (left > 0)
-        {
-            var n = Math.Min(run, left);
-            Buffer.MemoryCopy(from, p, n, n);
-            p += n;
-            left -= n;
-            run = (nint)(p - from);
-        }
+        for (nint i = 0; i < len; i++)
+            op[i] = from[i];
     }
 }

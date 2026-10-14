@@ -39,6 +39,51 @@ public class SnappyBlockTests
     }
 
     [Fact]
+    public void EveryShortPeriodAndLengthRepeatsAsTheFormatSays()
+    {
+        // Hand-made blocks (a compressor never writes most of these): a 9-byte literal, then a back-reference of every
+        // length 1–64 at every distance 1–9, then (or not) a literal after it, so references run with and without slack
+        // behind them. The expected bytes follow the format's own meaning, one byte at a time.
+        byte[] head = [11, 22, 33, 44, 55, 66, 77, 88, 99];
+        byte[] tail = [.. Enumerable.Range(0, 20).Select(i => (byte)(200 + i))];
+        foreach (var withTail in new[] { false, true })
+        {
+            for (var off = 1; off <= 9; off++)
+            {
+                for (var len = 1; len <= 64; len++)
+                {
+                    var expected = new List<byte>(head);
+                    for (var i = 0; i < len; i++)
+                        expected.Add(expected[^off]);
+                    if (withTail)
+                        expected.AddRange(tail);
+                    var block = new List<byte>();
+                    for (var n = (uint)expected.Count; ; n >>= 7)
+                    {
+                        block.Add((byte)(n < 0x80 ? n : (n & 0x7F) | 0x80));
+                        if (n < 0x80)
+                            break;
+                    }
+                    block.Add((byte)((head.Length - 1) << 2));
+                    block.AddRange(head);
+                    block.Add((byte)(((len - 1) << 2) | 2));
+                    block.Add((byte)off);
+                    block.Add(0);
+                    if (withTail)
+                    {
+                        block.Add((byte)((tail.Length - 1) << 2));
+                        block.AddRange(tail);
+                    }
+                    var output = new byte[expected.Count];
+                    Assert.True(SnappyBlock.TryDecompress(block.ToArray(), output, out var written), $"distance {off}, length {len}");
+                    Assert.Equal(expected.Count, written);
+                    Assert.True(expected.SequenceEqual(output), $"distance {off}, length {len}, tail {withTail}");
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void MalformedBlocksAreRefused()
     {
         var data = Sample(4096, 9, 8);
