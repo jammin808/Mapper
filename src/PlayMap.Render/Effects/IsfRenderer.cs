@@ -19,6 +19,9 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         public RenderTarget? Front;
         public RenderTarget? Back;
         public bool Float;
+
+        /// <summary>No pass reads it (the output's own buffer): one target, written in place.</summary>
+        public bool Single;
         public int Width;
         public int Height;
 
@@ -27,7 +30,8 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         public void Dispose()
         {
             Front?.Dispose();
-            Back?.Dispose();
+            if (!ReferenceEquals(Back, Front))
+                Back?.Dispose();
             Front = Back = null;
         }
     }
@@ -52,7 +56,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
     private readonly GpuTexture _grey;
     private readonly Dictionary<string, double> _vars = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Buffer> _named = new(StringComparer.Ordinal);
-    private readonly Buffer _output = new();
+    private readonly Buffer _output = new() { Single = true };
     private FxKind? _kind;
     private FxSlot? _slot;
     private string _key = "";
@@ -311,7 +315,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         b.Dispose();
         var format = b.Float ? TextureFormat.Rgba32F : TextureFormat.Rgba16F;
         b.Front = _device.CreateRenderTarget(w, h, format);
-        b.Back = _device.CreateRenderTarget(w, h, format);
+        b.Back = b.Single ? b.Front : _device.CreateRenderTarget(w, h, format);
         b.Width = w;
         b.Height = h;
         _device.BindTarget(b.Front);

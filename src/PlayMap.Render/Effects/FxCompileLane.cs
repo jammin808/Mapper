@@ -94,8 +94,9 @@ public sealed class FxCompileLane : IDisposable
             Mode = "shared-context";
             _thread.Start();
         }
-        // A platform that cannot make a second context keeps the effects: they compile on the render thread, one a frame.
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
+        // The boundary of the second context: whatever the platform throws making it (a windowing library's own exception
+        // included), the effects stay — they compile on the render thread, one a frame — and the renderer starts.
+        catch (Exception ex)
         {
             context.MakeCurrent();
             Words = "no second GL context (" + ex.Message + "): effects compile on the render thread, one a frame";
