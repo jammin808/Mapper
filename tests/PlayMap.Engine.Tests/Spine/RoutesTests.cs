@@ -166,12 +166,25 @@ public sealed class RoutesTests
     [Fact]
     public async Task APackagesValidateCheckRefusesAnEditWithItsWords()
     {
-        // The hook runs at the end of the generic check: with every stub empty, a valid edit passes untouched.
         await using var engine = new EngineCore(EngineServices.ForTests());
         var output = engine.Store.Project.Outputs[0].Id;
-        Assert.True((await Run(engine, $"SET {output} name \"Left\"", Desk)).Ok);
+        // With every stub empty, a valid edit passes untouched.
         Assert.Null(engine.ValidateModules(engine.Store.Project, engine.Store.Project.Outputs[0]));
+        Assert.True((await Run(engine, $"SET {output} name \"Left\"", Desk)).Ok);
+
+        // A package's check runs at the end of the generic one, inside the edit: its words refuse SET and ADD, and nothing moves.
+        engine.ValidateForTests = (_, e) => e is PlayMap.Core.Model.Output { Name: "Forbidden" } ? "no output is called Forbidden on this stage" : null;
+        var revision = engine.Store.Current.Revision;
+        var set = await Run(engine, $"SET {output} name \"Forbidden\"", Desk);
+        var add = await Run(engine, "ADD output {\"name\":\"Forbidden\"}", Desk);
+
+        Assert.False(set.Ok);
+        Assert.Equal("no output is called Forbidden on this stage", set.Payload);
+        Assert.False(add.Ok);
+        Assert.Equal("no output is called Forbidden on this stage", add.Payload);
+        Assert.Equal(revision, engine.Store.Current.Revision);
         Assert.Equal("Left", engine.Store.Project.FindOutput(output)!.Name);
+        Assert.True((await Run(engine, $"SET {output} name \"Right\"", Desk)).Ok);
     }
 
     [Fact]

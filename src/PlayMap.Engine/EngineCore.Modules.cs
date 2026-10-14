@@ -250,10 +250,14 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         return headline;
     }
 
+    /// <summary>A test's stand-in for a package's Validate hook (null in a running node), so the spine's test sees the generic check
+    /// reach the packages' checks and their words refuse the edit.</summary>
+    internal Func<Project, object, string?>? ValidateForTests { get; set; }
+
     /// <summary>Each package's check of an entity it owns, at the end of the generic Validate (null = fine).</summary>
     internal string? ValidateModules(Project p, object entity)
     {
-        string? why = null;
+        var why = ValidateForTests?.Invoke(p, entity);
         ValidateShow(p, entity, ref why); ValidateFleet(p, entity, ref why); ValidateOutput(p, entity, ref why);
         ValidateDecode(p, entity, ref why); ValidateOptimise(p, entity, ref why); ValidateVideoIo(p, entity, ref why);
         ValidateControl(p, entity, ref why); ValidateFx(p, entity, ref why); ValidateAudio(p, entity, ref why);
