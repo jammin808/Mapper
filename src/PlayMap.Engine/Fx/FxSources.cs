@@ -17,7 +17,9 @@ internal static class FxSources
     public const int MaxImageBytes = 4 * 1024 * 1024;
 
     /// <summary>The bundle from "{"name","fs","vs"?,"images"?:{name:base64}}" or a path to a .fs file (its .vs beside it, its
-    /// imports relative to it); null with the reason when it cannot be read.</summary>
+    /// imports relative to it and inside its folder, each a PNG or JPEG file); null with the reason when it cannot be read. A
+    /// file's IMPORTED paths never reach outside its own folder, so no import carries another file of this machine into the
+    /// show.</summary>
     public static FxBundle? Read(string text, out string why)
     {
         why = "";
@@ -41,25 +43,41 @@ internal static class FxSources
         var images = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         var doc = IsfParser.Parse(fs);
         var total = 0L;
+        var folder = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) ?? ".";
+        var inside = folder.EndsWith(System.IO.Path.DirectorySeparatorChar) ? folder : folder + System.IO.Path.DirectorySeparatorChar;
+        var pathCase = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         foreach (var imp in doc.Imported)
         {
-            var file = System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) ?? ".", imp.Path));
+            var file = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, imp.Path));
+            if (!file.StartsWith(inside, pathCase))
+            {
+                why = $"{Path.GetFileName(path)} imports {imp.Path}, which is outside its folder";
+                return null;
+            }
             if (!File.Exists(file))
             {
                 why = $"{Path.GetFileName(path)} imports {imp.Path}, which is not beside it";
                 return null;
             }
-            var bytes = File.ReadAllBytes(file);
-            total += bytes.Length;
+            total += new FileInfo(file).Length;
             if (total > MaxImageBytes)
             {
                 why = $"the imported pictures are larger than {MaxImageBytes / (1024 * 1024)} MB";
+                return null;
+            }
+            var bytes = File.ReadAllBytes(file);
+            if (!IsPicture(bytes))
+            {
+                why = $"{Path.GetFileName(path)} imports {imp.Path}, which is not a PNG or JPEG file";
                 return null;
             }
             images[imp.Name] = Convert.ToBase64String(bytes);
         }
         return new FxBundle(System.IO.Path.GetFileNameWithoutExtension(path), fs, vs, images.ToImmutable(), path);
     }
+
+    /// <summary>The file starts as a PNG (89 50 4E 47) or a JPEG (FF D8 FF) does.</summary>
+    private static bool IsPicture(ReadOnlySpan<byte> bytes) => bytes is [0x89, 0x50, 0x4E, 0x47, ..] or [0xFF, 0xD8, 0xFF, ..];
 
     private static FxBundle? FromJson(string json, out string why)
     {
@@ -112,7 +130,8 @@ internal static class FxSources
     }
 
     /// <summary>The report: whether the file reads, its role, inputs, passes, persistent buffers and issues by line, and per
-    /// dialect whether it compiled on this node (null where this node has no such context, with words).</summary>
+    /// dialect whether it compiled on this node (null with words where it was not compiled: no such context here, or issues
+    /// to put right before a compile). <paramref name="compiledIsEs"/> says which dialect this node's context compiles.</summary>
     public static (bool Ok, string Json) Report(IsfDocument doc, IsfProgramSource? glsl, IsfProgramSource? es, FxCompileReport? compiled,
         bool compiledIsEs, string laneMode)
     {
@@ -147,21 +166,22 @@ internal static class FxSources
             }
             w.WriteEndArray();
             w.WriteStartObject("dialects");
-            Dialect(w, "glsl330", compiledIsEs ? null : compiled, laneMode);
-            Dialect(w, "es300", compiledIsEs ? compiled : null, laneMode);
+            Dialect(w, "glsl330", compiledIsEs ? null : compiled, laneMode, mine: !compiledIsEs);
+            Dialect(w, "es300", compiledIsEs ? compiled : null, laneMode, mine: compiledIsEs);
             w.WriteEndObject();
             w.WriteEndObject();
         }
         return (ok, System.Text.Encoding.UTF8.GetString(ms.ToArray()));
     }
 
-    private static void Dialect(Utf8JsonWriter w, string name, FxCompileReport? compiled, string laneMode)
+    private static void Dialect(Utf8JsonWriter w, string name, FxCompileReport? compiled, string laneMode, bool mine)
     {
         w.WriteStartObject(name);
         if (compiled is null)
         {
             w.WriteNull("ok");
-            w.WriteString("words", laneMode == "none" ? "no GL context on this node" : "this node's context compiles the other dialect");
+            w.WriteString("words", laneMode == "none" ? "no GL context on this node"
+                : mine ? "not compiled: the file's issues come first" : "this node's context compiles the other dialect");
         }
         else
         {
