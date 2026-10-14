@@ -108,4 +108,5 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   CI job it says why it has no board ("no NVIDIA driver on this machine").
 - **Next round**: 10-bit output, device-lost rebuild, the PresentMon proof, the DRS stop-gap, scanline sampling; `SYNC MARKS`,
   `SYNC CERTIFY`, `SYNC REPORT`, the frame code and certificate, `LATENCY MEASURE`; the IGCL and GLX swap-group tiers; the board
-  helper; the D3D12 present barrier; HDR; macOS. The whole Render suite as a second leg on GLES, and OML sync control on Linux.
+  helper; the D3D12 present barrier; HDR; macOS. The ES leg as a CI step (once the two spine tests read the fixture's dialect), and
+  OML sync control on Linux.
