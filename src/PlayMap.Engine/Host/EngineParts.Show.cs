@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddShowParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-show fills this.
+        // No part: the show lives in the engine, and the services' gate (EngineServices.ShowGate) is bound to it at construction.
     }
 }

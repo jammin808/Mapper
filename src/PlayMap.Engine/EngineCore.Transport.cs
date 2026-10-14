@@ -5,21 +5,28 @@ using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine;
 
-/// <summary>The clip verbs (Patterns' meaning) and the playlist verbs.</summary>
+/// <summary>The clip verbs (Patterns' meaning) and the playlist verbs, behind the GO fence (MinGo and EXPECT).</summary>
 public sealed partial class EngineCore
 {
+    /// <summary>The leader time of the last accepted GO on each playlist (lane only).</summary>
+    private readonly Dictionary<string, long> _lastGo = new(StringComparer.Ordinal);
+
     private CommandReply Video(string verb, List<string> args)
     {
         var on = TakeOn(args);
         var (at, atError) = TakeAt(args);
         if (atError is not null)
             return CommandReply.Fail(atError);
+        var isGo = verb is "VIDEO PLAY" or "VIDEO RESTART";
+        var expect = isGo ? TakeExpect(args) : null;
         var list = ResolvePlaylist(on);
         if (list is null)
             return CommandReply.Fail(on is null ? "No video is on air — no playlist is focused" : $"no playlist {on}");
         var now = at!.Value;
         if (verb is "VIDEO PLAY" or "VIDEO PAUSE" or "VIDEO STOP" or "VIDEO RESTART" && args.Count > 0)
-            return CommandReply.Fail($"{verb} takes no words after it (ON <playlist> and AT … aside)");
+            return CommandReply.Fail($"{verb} takes no words after it (ON <playlist>, AT … and EXPECT … aside)");
+        if (isGo && GoFence(list, expect, Playback.Lane(list.Id) is { IsIdle: false } playing ? list.Items.IndexOfId(playing.At(LeaderNowNs).ItemId ?? "") : -1, "item on air") is { } fenced)
+            return CommandReply.Fail(fenced);
         Func<ClipTransport, TransportResult>? op = verb switch
         {
             "VIDEO PLAY" => t => t.Play(now),
@@ -40,6 +47,8 @@ public sealed partial class EngineCore
                 _ => $"{verb} is not a clip verb",
             });
         var (ok, words) = Playback.Transport(list, op, now);
+        if (ok && isGo)
+            NoteGo(list);
         return ok ? CommandReply.Success(effect: $"{list.Name}: {words}") : CommandReply.Fail(words);
     }
 
@@ -171,6 +180,7 @@ public sealed partial class EngineCore
         var (at, atError) = TakeAt(args);
         if (atError is not null)
             return CommandReply.Fail(atError);
+        var expect = TakeExpect(args);
         if (args.Count < 1)
             return CommandReply.Fail("PLAYLIST GO <playlist> [<item>|#<n>] [AT …]");
         var list = ResolvePlaylist(args[0]);
@@ -192,7 +202,11 @@ public sealed partial class EngineCore
             if (index < 0)
                 return CommandReply.Fail($"{list.Name} is at its last item");
         }
+        if (GoFence(list, expect, index, "next item") is { } fenced)
+            return CommandReply.Fail(fenced);
         var (ok, words) = Playback.Go(list, index, at!.Value);
+        if (ok)
+            NoteGo(list);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -215,12 +229,61 @@ public sealed partial class EngineCore
         var (at, atError) = TakeAt(args);
         if (atError is not null)
             return CommandReply.Fail(atError);
+        var expect = TakeExpect(args);
         var list = ResolvePlaylist(args.Count > 0 ? args[0] : null);
         if (list is null)
             return CommandReply.Fail(args.Count > 0 ? $"no playlist {args[0]}" : "no playlist is focused");
+        var lane = Playback.Lane(list.Id);
+        var target = lane is null || lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, lane.Index, step);
+        if (GoFence(list, expect, target, step > 0 ? "next item" : "previous item") is { } fenced)
+            return CommandReply.Fail(fenced);
         var (ok, words) = Playback.Step(list, step, at!.Value);
+        if (ok)
+            NoteGo(list);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
+
+    /// <summary>"EXPECT it_b" or "EXPECT #2" anywhere in the words: the item the caller's key showed, removed from the list.</summary>
+    private static string? TakeExpect(List<string> args)
+    {
+        for (var i = 0; i < args.Count - 1; i++)
+        {
+            if (args[i].Equals("EXPECT", StringComparison.OrdinalIgnoreCase))
+            {
+                var key = args[i + 1];
+                args.RemoveRange(i, 2);
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The GO fence: a GO within the show's MinGo of the last one on the same playlist is refused (double-GO protection,
+    /// on the lane's leader time), and EXPECT refuses when the item that would play is not the one the caller's key showed.</summary>
+    private string? GoFence(Playlist list, string? expect, int index, string which)
+    {
+        if (expect is not null)
+        {
+            var wanted = ItemIndex(list, expect);
+            if (wanted < 0 || wanted != index)
+            {
+                var actual = index >= 0 && index < list.Items.Length ? $"'{list.Items[index].Label}'" : "nothing";
+                var named = wanted >= 0 ? $"'{list.Items[wanted].Label}'" : $"'{expect}'";
+                return $"the {which} on {list.Name} is now {actual}, not {named} — the key was out of date";
+            }
+        }
+        var ms = MinGoMsNow;
+        var now = LeaderNowNs;
+        if (ms > 0 && _lastGo.TryGetValue(list.Id, out var last) && now >= last && now - last < ms * 1_000_000L)
+        {
+            return string.Create(CultureInfo.InvariantCulture,
+                $"double GO protection: {(now - last) / 1e9:0.00} s since the last GO on {list.Name} ({ms / 1000.0:0.00} s {(_showMode.Armed ? "armed" : "in rehearsal")})");
+        }
+        return null;
+    }
+
+    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here).</summary>
+    private void NoteGo(Playlist list) => _lastGo[list.Id] = LeaderNowNs;
 
     private CommandReply PlaylistLoop(List<string> args)
     {
