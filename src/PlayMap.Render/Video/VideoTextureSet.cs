@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Hap;
 using PlayMap.Render.Gpu;
+using PlayMap.Render.Hap;
 
 namespace PlayMap.Render.Video;
 
@@ -9,11 +12,17 @@ namespace PlayMap.Render.Video;
 /// generation is already on the GPU is not uploaded again. Planes stream through pixel-unpack buffers (any
 /// row stride; the decoder's buffer is free as soon as the copy returns).
 ///
+/// HAP pictures arrive block-compressed: each plane fills a compressed texture at the coded size (tight rows of 4×4 blocks),
+/// and the `hap` pass turns them into the RGBA16F picture at the visible size (YCoCg → RGB, the alpha plane, HAP HDR's reading).
+/// A block format this context cannot sample is refused with words (<see cref="Refusal"/>, and a NotSupportedException), never
+/// shown as a black frame.
+///
 /// Owned by the render thread; the caller disposes the lease after <see cref="Update"/>.</summary>
 public sealed class VideoTextureSet : IDisposable
 {
     private readonly GlDevice _device;
     private readonly PixelUnpackRing? _ring;
+    private CompressedUploadRing? _blocks;
     private readonly GpuTexture?[] _planes = new GpuTexture?[3];
     private RenderTarget? _converted;
     private PixelLayout _layout;
@@ -25,6 +34,7 @@ public sealed class VideoTextureSet : IDisposable
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
+        Caps = device.Caps;
         if (streaming)
             _ring = new PixelUnpackRing(device);
     }
@@ -41,6 +51,15 @@ public sealed class VideoTextureSet : IDisposable
     /// <summary>Whether the picture carries alpha that means something.</summary>
     public bool HasAlpha { get; private set; }
 
+    /// <summary>What the context samples (the device's; tests stand in a context that lacks a family).</summary>
+    internal GlCaps Caps { get; set; }
+
+    /// <summary>The picture after its conversion pass (YUV and HAP layouts), or null.</summary>
+    internal RenderTarget? Converted => _converted;
+
+    /// <summary>Why the last picture could not be put on the GPU (a block format this context lacks), or null.</summary>
+    public string? Refusal { get; private set; }
+
     /// <summary>Puts the lease's picture on the GPU unless its generation is already there. True when it uploaded.</summary>
     public bool Update(VideoFrameLease lease)
     {
@@ -48,6 +67,8 @@ public sealed class VideoTextureSet : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (Picture is not null && lease.Generation == Generation)
             return false;
+        if (HapCodecs.IsBlockLayout(lease.Layout))
+            return UpdateBlocks(lease);
         var planes = lease.Planes;
         if (lease.Width < 1 || lease.Height < 1 || planes.Count < PlaneCount(lease.Layout))
             return false;
@@ -64,6 +85,64 @@ public sealed class VideoTextureSet : IDisposable
         Generation = lease.Generation;
         Uploads++;
         return true;
+    }
+
+    private bool UpdateBlocks(VideoFrameLease lease)
+    {
+        var (first, second) = HapPass.Formats(lease.Layout);
+        var why = GlDevice.RefuseBlockFormat(Caps, first) ?? (second is { } s ? GlDevice.RefuseBlockFormat(Caps, s) : null);
+        if (why is not null)
+        {
+            Refusal = why;
+            throw new NotSupportedException(why);
+        }
+        var planes = lease.Planes;
+        var count = second is null ? 1 : 2;
+        if (lease.Width < 1 || lease.Height < 1 || planes.Count < count)
+            return false;
+        EnsureBlocks(lease.Layout, lease.Width, lease.Height, first, second);
+        for (var i = 0; i < count; i++)
+        {
+            var plane = planes[i];
+            var tex = _planes[i]!;
+            var bytes = (long)plane.Stride * plane.Height;
+            if (plane.Data == 0 || bytes != TextureFormats.CompressedSize(tex.Format, tex.Width, tex.Height))
+                throw new ArgumentException("A block plane is missing or not the size of its picture.", nameof(lease));
+            if (_blocks is not null)
+            {
+                _blocks.Upload(tex, plane.Data, (int)bytes);
+            }
+            else
+            {
+                var t0 = Stopwatch.GetTimestamp();
+                _device.UploadCompressed(tex, plane.Data, (int)bytes);
+                HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
+            }
+        }
+        var scale = lease is IHapPicture hap ? hap.HdrScale : 1;
+        HapPass.Draw(_device, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
+        HasAlpha = lease.HasAlpha;
+        Refusal = null;
+        Generation = lease.Generation;
+        Uploads++;
+        return true;
+    }
+
+    private void EnsureBlocks(PixelLayout layout, int width, int height, TextureFormat first, TextureFormat? second)
+    {
+        if (Picture is not null && layout == _layout && width == _width && height == _height)
+            return;
+        DisposeTextures();
+        _layout = layout;
+        _width = width;
+        _height = height;
+        _planes[0] = _device.CreateCompressedTexture(width, height, first);
+        if (second is { } s)
+            _planes[1] = _device.CreateCompressedTexture(width, height, s);
+        _converted = _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, filter: TextureFilter.Linear);
+        Picture = _converted.Color;
+        if (_ring is not null)
+            _blocks ??= new CompressedUploadRing(_device);
     }
 
     private void UploadPlane(GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
@@ -213,6 +292,7 @@ public sealed class VideoTextureSet : IDisposable
             return;
         DisposeTextures();
         _ring?.Dispose();
+        _blocks?.Dispose();
         _disposed = true;
     }
 }
