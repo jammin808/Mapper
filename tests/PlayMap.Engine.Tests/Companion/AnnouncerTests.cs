@@ -21,6 +21,11 @@ public sealed class AnnouncerTests
         Assert.Equal("1", record.Txt["proto"]);
         Assert.Equal("/ws", record.Txt["ws"]);
         Assert.Equal("9941", record.Txt["wire"]);
+
+        // A node name past a TXT string's 255 bytes is cut to fit, so the records are always writable.
+        var longName = Announcer.RecordFor(settings with { Name = new string('é', 300) }, 9940, 9941)!;
+        Assert.InRange(System.Text.Encoding.UTF8.GetByteCount("name=" + longName.Txt["name"]), 200, 255);
+        Assert.NotNull(DnsRecord.Txt("x._playmap._tcp.local", [.. longName.Txt.Select(k => k.Key + "=" + k.Value)], 120, flush: true));
     }
 
     [Fact]

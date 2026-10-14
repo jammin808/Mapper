@@ -79,13 +79,23 @@ internal sealed class Announcer : INodeFaults, IAsyncDisposable
             return null;
         var txt = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["id"] = settings.NodeId,
-            ["name"] = settings.Name,
+            ["id"] = Fit("id", settings.NodeId),
+            ["name"] = Fit("name", settings.Name),
             ["proto"] = "1",
             ["ws"] = "/ws",
             ["wire"] = wirePort.ToString(CultureInfo.InvariantCulture),
         };
         return new ServiceRecord(settings.Name, ServiceType, httpPort, txt);
+    }
+
+    /// <summary>A TXT string ("key=value") is at most 255 bytes (RFC 6763 §6.1): a longer value is cut at a character boundary.</summary>
+    private static string Fit(string key, string value)
+    {
+        var room = 255 - System.Text.Encoding.UTF8.GetByteCount(key) - 1;
+        var v = value;
+        while (System.Text.Encoding.UTF8.GetByteCount(v) > room)
+            v = char.IsLowSurrogate(v[^1]) && v.Length > 1 ? v[..^2] : v[..^1];
+        return v;
     }
 
     private static MdnsOptions OptionsFor(ExtensionSetup setup)

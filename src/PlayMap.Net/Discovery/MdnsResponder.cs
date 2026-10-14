@@ -199,7 +199,7 @@ public sealed class MdnsResponder : IServiceAnnouncer
                 return;   // a conflict after this probes its new name on its own
             }
         }
-        catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+        catch (Exception ex) when (ex is SocketException or ObjectDisposedException or ArgumentException)
         {
             _log.LogDebug(ex, "mDNS: announcing {Instance} stopped.", entry.Record.Instance);
         }
@@ -239,7 +239,15 @@ public sealed class MdnsResponder : IServiceAnnouncer
                 _log.LogDebug(ex, "mDNS: a packet that is not DNS was dropped.");
                 continue;
             }
-            Take(message, (IPEndPoint)r.RemoteEndPoint);
+            try
+            {
+                Take(message, (IPEndPoint)r.RemoteEndPoint);
+            }
+            catch (ArgumentException ex)
+            {
+                // A record of ours that cannot be written (a TXT string past 255 bytes) is that answer's: the responder keeps listening.
+                _log.LogWarning(ex, "mDNS: an answer could not be written.");
+            }
         }
     }
 
