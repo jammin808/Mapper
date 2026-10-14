@@ -41,14 +41,20 @@ public sealed class PreflightTests
     /// <summary>A check that never finishes by itself (it ends only when cancelled).</summary>
     private sealed class Hanging(TimeSpan budget) : IPreflightCheck
     {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string Section => "sync";
 
         public PreflightDepth MinDepth => PreflightDepth.Quick;
 
         public TimeSpan Budget => budget;
 
+        /// <summary>Completes once the runner has started this check (its budget runs from then).</summary>
+        public Task Started => _started.Task;
+
         public async Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct)
         {
+            _started.TrySetResult();
             await Task.Delay(Timeout.Infinite, ct);
             return [];
         }
@@ -174,6 +180,7 @@ public sealed class PreflightTests
     {
         var machine = new Machine();
         machine.Screens.Add(new DisplayInfo("DP-1", "Main", 0, 0, 1920, 1080, 60, true));
+        var hanging = new Hanging(TimeSpan.FromHours(1));
         var folder = Directory.CreateTempSubdirectory("playmap-preflight-").FullName;
         try
         {
@@ -183,7 +190,7 @@ public sealed class PreflightTests
                 Media = machine,
                 ProjectFolder = folder,
                 JournalPath = Path.Combine(folder, "journal.jsonl"),
-                PreflightChecks = [new Hanging(TimeSpan.FromHours(1))],
+                PreflightChecks = [hanging],
             });
             var events = new List<ShowEvent>();
             rig.Engine.EventRaised += e =>
@@ -202,6 +209,7 @@ public sealed class PreflightTests
 
             // The budget is an hour of the node's monotonic clock: only moving that clock ends the hanging check, so a runner that
             // timed it on real time would still be waiting when this test gives up.
+            await hanging.Started.WaitAsync(TimeSpan.FromSeconds(30));
             rig.Advance(3_600_000);
             Assert.True(await ShowRig.Eventually(() => !rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean()));
 

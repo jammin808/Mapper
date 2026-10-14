@@ -12,6 +12,8 @@ namespace PlayMap.Engine.Show;
 /// grey row with its words, and the report is complete only when every check finished.</summary>
 public static class PreflightRunner
 {
+    private const long NotStarted = long.MinValue;
+
     /// <summary>How often the runner looks at the clock while checks run (the budget itself is on the monotonic clock).</summary>
     public static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(10);
 
@@ -21,11 +23,19 @@ public static class PreflightRunner
         ArgumentNullException.ThrowIfNull(checks);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(mono);
-        var start = mono.NowNs;
-        var runs = checks.Where(c => c.MinDepth <= context.Depth).Select(c =>
+        var chosen = checks.Where(c => c.MinDepth <= context.Depth).ToList();
+        // Each check's budget runs from when that check starts, never from when it was queued: on a busy machine a check
+        // the thread pool has not reached yet is not late.
+        var started = new long[chosen.Count];
+        Array.Fill(started, NotStarted);
+        var runs = chosen.Select((c, i) =>
         {
             var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            return (Check: c, Cts: cts, Task: Task.Run(() => c.RunAsync(context, cts.Token), CancellationToken.None));
+            return (Check: c, Cts: cts, Task: Task.Run(() =>
+            {
+                Volatile.Write(ref started[i], mono.NowNs);
+                return c.RunAsync(context, cts.Token);
+            }, CancellationToken.None));
         }).ToList();
         var rows = new IReadOnlyList<PreflightRow>?[runs.Count];
         var complete = true;
@@ -48,7 +58,7 @@ public static class PreflightRunner
                         rows[i] = [Grey(node, check, "could not check: " + (task.Exception?.InnerException?.Message ?? "cancelled"))];
                         complete = false;
                     }
-                    else if (mono.NowNs - start >= check.Budget.Ticks * 100)
+                    else if (Volatile.Read(ref started[i]) is var at && at != NotStarted && mono.NowNs - at >= check.Budget.Ticks * 100)
                     {
                         await cts.CancelAsync().ConfigureAwait(false);
                         rows[i] = [Grey(node, check, $"did not finish in {Seconds(check.Budget)}")];

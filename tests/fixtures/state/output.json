@@ -14,7 +14,13 @@
     "pattern": null,
     "identify": false,
     "patternsBlackout": false,
-    "followPatternsBlackout": true
+    "followPatternsBlackout": true,
+    "master": {
+      "level": 1,
+      "to": 1,
+      "untilLeaderNs": 0
+    },
+    "panic": null
   },
   "video": null,
   "playlists": [],
@@ -187,5 +193,30 @@
   },
   "devices": [],
   "solve": null,
-  "cameras": []
+  "cameras": [],
+  "show": {
+    "armed": false,
+    "by": "",
+    "since": 0,
+    "words": "",
+    "rules": {
+      "minGoMs": 300,
+      "minGoMsRehearsal": 0,
+      "remoteViewOnly": false,
+      "disarmFrom": "paired",
+      "expectArmed": false,
+      "defaultOutcome": "black",
+      "defaultFadeMs": 1000,
+      "panicLeadMs": 0
+    },
+    "blind": null,
+    "panic": null,
+    "locks": [],
+    "refused": {
+      "last60s": 0,
+      "last": ""
+    },
+    "preflight": null,
+    "minGoMs": 0
+  }
 }
