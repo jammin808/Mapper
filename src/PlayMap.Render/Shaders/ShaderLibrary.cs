@@ -866,7 +866,8 @@ public static partial class ShaderLibrary
         return d.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
-    // Each package adds its programs in its own file (ShaderLibrary.<Word>.cs); a name the library already has is refused there.
+    // Each package adds its programs in its own file (ShaderLibrary.<Word>.cs). A name is the library's or one package's, never
+    // both: the library's own arm would hide a package's program silently, so ShaderConventionTests holds every name distinct.
     static partial void AddShow(Dictionary<string, (string Vertex, string Fragment)> programs);
     static partial void AddOutput(Dictionary<string, (string Vertex, string Fragment)> programs);
     static partial void AddDecode(Dictionary<string, (string Vertex, string Fragment)> programs);

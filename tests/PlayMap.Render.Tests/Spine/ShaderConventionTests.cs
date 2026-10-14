@@ -26,6 +26,13 @@ public sealed class ShaderConventionTests(GlFixture gl)
     }
 
     [Fact]
+    public void EveryProgramNameIsTheLibrarysOrOnePackagesNeverBoth()
+    {
+        var twice = ShaderLibrary.Names.GroupBy(n => n, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        Assert.Empty(twice);
+    }
+
+    [Fact]
     public void TheDeviceRefusesASourceThatBringsItsOwnHeader()
     {
         const string Vs = "void main() { gl_Position = vec4(0.0); }\n";
