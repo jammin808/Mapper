@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
-using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Companion;
 using PlayMap.Net.Companion;
@@ -10,8 +9,8 @@ namespace PlayMap.Engine;
 
 /// <summary>wp2-companion's hooks into the engine: INDEX, EVENTS, WHOAMI, PRESENCE and THUMB; the INDEX, EVENTS and THUMBS topics;
 /// STATE.clients, STATE.events and project.index; a context item per Companion client. The controllers' table is filled by the line
-/// sessions (<see cref="IClientRegistry"/>); MCP asks Show Mode through <see cref="ILineDecisions"/>.</summary>
-public sealed partial class EngineCore : IClientRegistry, IThumbSource, ILineDecisions
+/// sessions (<see cref="IClientRegistry"/>).</summary>
+public sealed partial class EngineCore : IClientRegistry, IThumbSource
 {
     private CompanionParts? _companion;
 
@@ -66,8 +65,6 @@ public sealed partial class EngineCore : IClientRegistry, IThumbSource, ILineDec
 
     ValueTask<ThumbResult> IThumbSource.ThumbAsync(ThumbRequest request, SessionInfo session, CancellationToken ct) =>
         Companion.Thumbs.ThumbAsync(request, ct);
-
-    ShowDecision ILineDecisions.Decide(VerbSpec spec, WireLine line, SessionInfo session) => Services.ShowGate.Decide(spec, line, session);
 
     /// <summary>EVENTS [SINCE &lt;seq&gt;].</summary>
     private CommandReply EventsReply(VerbCall call)

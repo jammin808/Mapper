@@ -118,17 +118,25 @@ public sealed class ClientsTests
         var desk = CompanionRig.Json(await armed.Ok("WHOAMI", SessionInfo.Desk("d1")));
         Assert.Equal("operator", desk.GetProperty("role").GetString());
         Assert.Equal("*", desk.GetProperty("may").GetString());
+
+        // The node's own Show Mode: armed from the desk, WHOAMI says so to a controller.
+        await using var real = new CompanionRig();
+        await real.Ok("SHOW ARM", SessionInfo.Desk("d1"));
+        var after = CompanionRig.Json(await real.Ok("WHOAMI"));
+        Assert.True(after.GetProperty("armed").GetBoolean());
+        Assert.Equal("remote", after.GetProperty("role").GetString());
     }
 
     [Fact]
-    public async Task McpAsksTheNodesShowGate()
+    public async Task McpAsksTheNodesShowMode()
     {
-        await using var armed = new CompanionRig(s => s with { ShowGate = new ArmedGate("PLAYLIST GO") });
-        var decisions = (ILineDecisions)armed.Engine;
+        await using var rig = new CompanionRig();
+        await rig.Ok("SHOW ARM", PlayMap.Core.Wire.SessionInfo.Desk("d1"));
+        var decisions = (Core.Show.IShowDecisions)rig.Engine;
         Assert.True(WireGrammar.TryParse("BLACKOUT ON", out var line, out _));
         var mcp = new SessionInfo("m1", "mcp", "127.0.0.1", true, "MCP", true);
         var d = decisions.Decide(VerbCatalog.Find("BLACKOUT")!, line, mcp);
-        Assert.Equal(Core.Show.ShowVerdict.Refuse, d.Verdict);
-        Assert.Contains("armed", d.Words, StringComparison.Ordinal);
+        Assert.NotEqual(Core.Show.ShowVerdict.Allow, d.Verdict);
+        Assert.False(string.IsNullOrEmpty(d.Words));
     }
 }

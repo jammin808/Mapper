@@ -1,4 +1,3 @@
-using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Net.Companion;
@@ -36,13 +35,6 @@ public sealed record ThumbResult(bool Ok, string? Etag, string? Mime, int Width,
 public interface IThumbSource
 {
     ValueTask<ThumbResult> ThumbAsync(ThumbRequest request, SessionInfo session, CancellationToken ct);
-}
-
-/// <summary>Show Mode's answer for a line before a caller outside the engine runs or queues it (MCP's run_command): Allow, Refuse with
-/// words, or Propose (the line waits for a person). The engine implements it from its show gate.</summary>
-public interface ILineDecisions
-{
-    ShowDecision Decide(VerbSpec spec, WireLine line, SessionInfo session);
 }
 
 /// <summary>THUMB's words after the verb: <c>&lt;ref&gt; [&lt;w&gt;x&lt;h&gt;] [JPEG|PNG] [IF &lt;etag&gt;]</c> (96×96 JPEG when left out).</summary>

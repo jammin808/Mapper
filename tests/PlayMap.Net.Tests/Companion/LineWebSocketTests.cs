@@ -332,7 +332,7 @@ public sealed class DeskIdentityTests
 /// or waits for a person.</summary>
 public sealed class McpShowModeTests
 {
-    private sealed class ArmedEndpoint(FakeEndpoint inner) : IWireEndpoint, ILineDecisions
+    private sealed class ArmedEndpoint(FakeEndpoint inner) : IWireEndpoint, IShowDecisions
     {
         public int Asked;
 

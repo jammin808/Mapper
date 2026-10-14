@@ -7,7 +7,6 @@ using ModelContextProtocol.Server;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
-using PlayMap.Net.Companion;
 
 namespace PlayMap.Net.Mcp;
 
@@ -117,7 +116,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
             "mcp", address, loopback, "MCP", Paired: true);
         // Show Mode is asked first: a line it refuses is never queued for a person nor run; a line it holds for a person goes to the
         // node, whose gate keeps it on the node's own list of proposals (never run).
-        var show = verb is not null && runner.Endpoint is ILineDecisions decisions ? decisions.Decide(verb, line, session) : new ShowDecision(ShowVerdict.Allow, null);
+        var show = verb is not null && runner.Endpoint is IShowDecisions decisions ? decisions.Decide(verb, line, session) : new ShowDecision(ShowVerdict.Allow, null);
         if (show.Verdict is ShowVerdict.Refuse or ShowVerdict.BlindOnly)
         {
             log.LogInformation("Show Mode refused an assistant's {Verb} over MCP.", verb!.Name);
