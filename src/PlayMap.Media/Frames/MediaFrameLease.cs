@@ -1,4 +1,5 @@
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Hap;
 
 namespace PlayMap.Media.Frames;
 
@@ -11,8 +12,9 @@ namespace PlayMap.Media.Frames;
 /// high bits; Yuv420P/Yuv422P/Yuv444P Y, U, V (chroma halved both ways, horizontally, or not at all); Yuv420P10 Y,
 /// U, V of 16-bit little-endian samples with 10 significant low bits. <see cref="VideoFrameLease.Matrix"/>,
 /// <see cref="VideoFrameLease.Range"/> and <see cref="VideoFrameLease.Transfer"/> come from the frame's own tags
-/// (RGBA layouts are full range).</para></summary>
-public sealed class MediaFrameLease : VideoFrameLease
+/// (RGBA layouts are full range). Block-compressed (HAP) layouts: one plane of 4×4 blocks with tight rows (Width and Height
+/// count blocks), two for HAP Q Alpha (the YCoCg BC3 plane, then the BC4 alpha plane).</para></summary>
+public sealed class MediaFrameLease : VideoFrameLease, IHapPicture
 {
     private readonly LeasePool _home;
     private FrameSlot? _slot;
@@ -32,6 +34,8 @@ public sealed class MediaFrameLease : VideoFrameLease
     public override ColorRange Range => Slot.Range;
     public override TransferFunction Transfer => Slot.Transfer;
     public override bool HasAlpha => Slot.HasAlpha;
+
+    public double HdrScale => Slot.HdrScale;
 
     /// <summary>When the frame was handed over by the decoder, on the process's monotonic clock (ns): a live
     /// source's latency is measured from here to the frame that draws it.</summary>

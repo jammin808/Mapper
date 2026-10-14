@@ -4,7 +4,8 @@ using PlayMap.Core.Media;
 namespace PlayMap.Media.Frames;
 
 /// <summary>The plane geometry of a layout at a size. Strides are 64-byte aligned (an upload never straddles a
-/// cache line it did not need). Plane sample widths: RGBA layouts count pixels; NV12/P010's second plane counts
+/// cache line it did not need), except a block-compressed plane's, whose rows are tight and whose Width and Height count 4×4
+/// blocks. Plane sample widths: RGBA layouts count pixels; NV12/P010's second plane counts
 /// interleaved UV pairs; planar chroma counts chroma samples. Two-byte layouts (P010, Yuv420P10) use 16-bit
 /// little-endian samples; RgbaHalf uses four IEEE halves per pixel.</summary>
 internal sealed class FrameLayout : IEquatable<FrameLayout>
@@ -58,6 +59,21 @@ internal sealed class FrameLayout : IEquatable<FrameLayout>
                 Add(cw, ch, cw * 2);
                 Add(cw, ch, cw * 2);
                 break;
+            case PixelLayout.Bc1:
+            case PixelLayout.Bc4:
+                AddBlocks(width, height, 8);
+                break;
+            case PixelLayout.Bc3:
+            case PixelLayout.Bc3YCoCg:
+            case PixelLayout.Bc7:
+            case PixelLayout.Bc6hUfloat:
+            case PixelLayout.Bc6hSfloat:
+                AddBlocks(width, height, 16);
+                break;
+            case PixelLayout.Bc3YCoCgBc4:
+                AddBlocks(width, height, 16);
+                AddBlocks(width, height, 8);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(layout), layout, "unknown layout");
         }
@@ -99,6 +115,25 @@ internal sealed class FrameLayout : IEquatable<FrameLayout>
         TotalBytes += (nuint)_stride[i] * (nuint)rows;
     }
 
+    // A block-compressed plane: Width and Height count 4×4 blocks, rows are tight (HAP's chunks fill a plane contiguously and
+    // a compressed upload takes tight rows); the plane still starts on an aligned offset.
+    private void AddBlocks(int width, int height, int blockBytes)
+    {
+        var i = Planes++;
+        var blocksWide = (width + 3) / 4;
+        var blocksHigh = (height + 3) / 4;
+        _sampleWidth[i] = blocksWide;
+        _rows[i] = blocksHigh;
+        _rowBytes[i] = blocksWide * blockBytes;
+        _stride[i] = blocksWide * blockBytes;
+        var start = (TotalBytes + Alignment - 1) / Alignment * Alignment;
+        _offset[i] = start;
+        TotalBytes = start + (nuint)_stride[i] * (nuint)blocksHigh;
+    }
+
+    /// <summary>True for the block-compressed layouts, whose planes count 4×4 blocks with tight rows.</summary>
+    public bool IsBlocks => PlayMap.Core.Media.Hap.HapCodecs.IsBlockLayout(Layout);
+
     public bool Equals(FrameLayout? other) =>
         other is not null && other.Layout == Layout && other.Width == Width && other.Height == Height;
 
@@ -131,6 +166,9 @@ internal sealed unsafe class FrameSlot
     public ColorRange Range;
     public TransferFunction Transfer;
     public bool HasAlpha;
+
+    /// <summary>A HAP HDR frame's factor to SDR reference white (1 for everything else).</summary>
+    public double HdrScale = 1;
 
     /// <summary>Acquired by a consumer at least once (a frame trimmed unseen while playing was dropped).</summary>
     public bool Shown;
@@ -179,6 +217,7 @@ internal sealed unsafe class FrameSlot
         Range = ColorRange.Limited;
         Transfer = TransferFunction.Sdr;
         HasAlpha = false;
+        HdrScale = 1;
         Shown = false;
         CountedLate = false;
     }

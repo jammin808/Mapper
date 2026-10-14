@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;
+using PlayMap.Media.Hap;
 
 namespace PlayMap.Media;
 
@@ -72,6 +73,13 @@ public static unsafe class MediaProbe
             var frames = kind == MediaKind.Video ? FrameCount(input, video, info) : kind == MediaKind.Image ? 1 : 0;
             var stream = video >= 0 ? video : audio;
             input.KeepOnly(stream);
+            if (video >= 0 && HapProbe.TryCodec(input.Stream(video), out var hap))
+            {
+                // HAP plays through PlayMap's own decoder (the second stage here, the blocks on the GPU), so the probe proves
+                // the frame that way, for the two codecs FFmpeg cannot decode as for the five it can.
+                var (hapProblem, hapMessage) = HapProbe.DecodeFirst(input, video, hap);
+                return new ProbeResult(kind, info, hapProblem == MediaProblem.None, hapProblem, hapMessage, "hap", frames);
+            }
             var (problem, message, decoder, format) = DecodeFirst(input, stream);
             if (kind != MediaKind.Audio && format != AVPixelFormat.AV_PIX_FMT_NONE)
             {
