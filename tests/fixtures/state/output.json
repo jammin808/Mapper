@@ -175,7 +175,8 @@
       "presentMsP95": 0.21,
       "dialect": "core330",
       "context": "glx"
-    }
+    },
+    "gl": "glx"
   },
   "project": {
     "id": "pr_fixture",
@@ -218,5 +219,23 @@
     },
     "preflight": null,
     "minGoMs": 0
+  },
+  "decode": {
+    "platform": {
+      "blocks": {
+        "bc1": true,
+        "bc3": true,
+        "bc4": true,
+        "bc7": true,
+        "bc6h": true,
+        "staging": "copy",
+        "arenaMb": 0,
+        "arenaFreeMb": 0
+      },
+      "hapLayers4k60": null,
+      "light": "green",
+      "words": "no decoders open"
+    },
+    "sources": []
   }
 }

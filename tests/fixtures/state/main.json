@@ -234,5 +234,23 @@
     },
     "preflight": null,
     "minGoMs": 0
+  },
+  "decode": {
+    "platform": {
+      "blocks": {
+        "bc1": false,
+        "bc3": false,
+        "bc4": false,
+        "bc7": false,
+        "bc6h": false,
+        "staging": "none",
+        "arenaMb": 0,
+        "arenaFreeMb": 0
+      },
+      "hapLayers4k60": null,
+      "light": "green",
+      "words": "no decoders open; no renderer yet"
+    },
+    "sources": []
   }
 }
