@@ -1,6 +1,6 @@
 # Third-party notices
 
-PlayMap's own code is MIT (see LICENSE). What it ships or loads from others is listed here, each under the package that brought
+What PlayMap ships or loads from others is listed here, each under the package that brought
 it, with its licence and the notice its licence asks for. Restrictive runtimes (NDI, FFmpeg, ANGLE) load from the user's own
 install and are never shipped; vendored source lives under `src/ThirdParty`, outside the analyzers' fences, with its licence beside
 it.
@@ -48,7 +48,7 @@ Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages 
 
 - The ISF format (Interactive Shader Format, VIDVOX, specification under MIT): PlayMap reads and translates ISF files with its
   own parser and translator; no ISF code is shipped. The built-in effects in `src/PlayMap.Render/Effects/Library` are PlayMap's
-  own (MIT). The opt-in corpus test compiles a checkout of the public ISF files the user names (`PLAYMAP_ISF_CORPUS`); none of
+  own. The opt-in corpus test compiles a checkout of the public ISF files the user names (`PLAYMAP_ISF_CORPUS`); none of
   them is in the tree.
 
 ### wp2-audio

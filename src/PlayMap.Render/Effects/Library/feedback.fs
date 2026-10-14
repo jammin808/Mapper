@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Trails: each frame keeps the brighter of the picture and the last frame faded by decay, zoomed about the centre. It integrates from frame to frame, so two nodes agree only from the same start.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Time"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

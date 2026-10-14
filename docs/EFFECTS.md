@@ -72,7 +72,7 @@ the same lane, off the control lane, with a 10 s bound.
 
 ## The built-in library
 
-Ten effects written for PlayMap as ISF files (MIT), embedded in the renderer, each with a pixel test at 64 × 36:
+Ten effects written for PlayMap as ISF files, embedded in the renderer, each with a pixel test at 64 × 36:
 
 | Kind | Family | What it does |
 |---|---|---|

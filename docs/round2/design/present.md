@@ -656,7 +656,7 @@ The verbs are MCP tools through the catalog, unchanged. The STATE resource carri
 
 None of these blocks this WP. It lands first.
 
-**Third party** (MIT-compatible; restrictive runtimes loaded at run time):
+**Third party** (permissive; restrictive runtimes loaded at run time):
 
 | What | Version | Licence | How |
 |---|---|---|---|

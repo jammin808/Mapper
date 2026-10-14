@@ -32,7 +32,7 @@
     <InternalsVisibleTo Include="PlayMap.Render.Tests" />
   </ItemGroup>
 
-  <!-- wp2-fx: the built-in effect library, ISF files written for PlayMap (MIT), embedded by file name. -->
+  <!-- wp2-fx: the built-in effect library, ISF files written for PlayMap, embedded by file name. -->
   <ItemGroup Label="wp2-fx">
     <EmbeddedResource Include="Effects\Library\*.fs" LogicalName="PlayMap.Render.Effects.Library.%(Filename)%(Extension)" />
   </ItemGroup>

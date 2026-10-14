@@ -126,7 +126,7 @@ channel `Default`/`Highlight` values for the non-colour channels (a pixel bar's 
 | **LightAct** | 3D LED mapping, KiNET | [U] not verified |
 | **TouchDesigner pattern** | pixel positions from an OBJ polyline, sample a TOP at those points, smoothing, send sACN | https://jmarsico.github.io/rsma2019/tutorials/td_dmx/ (2019) |
 
-## 7. .NET libraries (for reference; MIT-compatible)
+## 7. .NET libraries (for reference)
 
 | Package | Version / date | Licence | Notes | Status |
 |---|---|---|---|---|

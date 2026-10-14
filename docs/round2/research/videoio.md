@@ -74,8 +74,8 @@ All `[V]` from `/home/user/mapper` at `be9b24c` ("Merge the render host…").
   changes the shared-memory or handle protocol**, so a native implementation written against 2.007 stays
   compatible [I].
 - Licence: **BSD 2-Clause**, "Copyright (c) 2020, Lynn Jarvis" (repository LICENSE); file headers say
-  "Copyright (c) 2014-2026" [V `LICENSE`, `SpoutSenderNames.h`]. Reimplementing the protocol in C# is fine under
-  MIT. Credit Spout in THIRDPARTY-NOTICES because the layouts come from reading its code [I].
+  "Copyright (c) 2014-2026" [V `LICENSE`, `SpoutSenderNames.h`]. Reimplementing the protocol in C# is fine.
+  Credit Spout in THIRDPARTY-NOTICES because the layouts come from reading its code [I].
 - Spout is a Windows texture-sharing system "in a similar way to Syphon for the Mac" [V `README.md`]. The SDK has
   SpoutGL (OpenGL + DX interop), SpoutDX (D3D11), SpoutDX9, and SpoutDX12 (D3D11On12) [V directory listing].
 
@@ -489,7 +489,7 @@ Copyright (C) 2023-2026 Vizrt NDI AB" [V]. **PlayMap may transcribe the struct a
   or PA16, **16-bit limited range** (pad 10- or 12-bit values with zero low bits). Receive with
   `color_format_best` to get P216/PA16. The SDK does not tone-map HDR to SDR when 8-bit is requested.
 
-### 5.5 Licence, runtime, redistribution and trademark (can an MIT app load the user's runtime?)
+### 5.5 Licence, runtime, redistribution and trademark (can PlayMap load the user's runtime?)
 
 - The SDK licence (NDI SDK License Agreement) grants a "nonexclusive royalty-free license … for the sole purpose
   of developing Products". **"Products" covers software on general-purpose computers** where the user can change
@@ -513,7 +513,7 @@ Copyright (C) 2023-2026 Vizrt NDI AB" [V]. **PlayMap may transcribe the struct a
   4. ask NDI before using "NDI" in a product name;
   5. if you ship the DLLs, keep them in the app folder, never the system path;
   6. AAC, H.264 and H.265 licensing is your responsibility.
-- **Answer [I, not legal advice]:** yes. An MIT app can load a runtime the user installed: Windows via
+- **Answer [I, not legal advice]:** yes. PlayMap can load a runtime the user installed: Windows via
   `NDI_RUNTIME_DIR_V6` or winget `NDI.NDIRuntime`, macOS `/usr/local/lib/libndi.dylib`, Linux `libndi.so.6` in the
   linker path. No NDI binary ships with PlayMap, and the headers are MIT. PlayMap is a PC software "Product", so
   royalty-free terms apply. The branding obligations (1–4) should be met anyway: they are cheap, and the developer
@@ -542,7 +542,7 @@ Copyright (C) 2023-2026 Vizrt NDI AB" [V]. **PlayMap may transcribe the struct a
 | Package / code | Licence | State | Verdict |
 |---|---|---|---|
 | `NDILibDotNetCoreBase` 2024.7.22.1 (Elias Puurunen) | MIT | targets net8.0; last release Jul 2024 (pre-6.3) [V nuspec] | Usable reference, stale |
-| NDI SDK sample `NDILibDotNet2` | NDI SDK licence [U] | ships inside the SDK | Do not copy into an MIT repo |
+| NDI SDK sample `NDILibDotNet2` | NDI SDK licence [U] | ships inside the SDK | Do not copy into PlayMap |
 | NuGet `Ndi` 0.1.3 | — | unrelated: a DI container [V nuspec] | Name trap |
 | **Patterns.Ndi** (in-house, MIT) | MIT [V] | runtime discovery, sender, receiver, P216 converter; uses `recv_capture_v2` [V] | **Port into PlayMap**, then move to `recv_capture_v3` + FrameSync |
 
@@ -569,7 +569,7 @@ Copyright (C) 2023-2026 Vizrt NDI AB" [V]. **PlayMap may transcribe the struct a
   https://downloads.blackmagicdesign.com/EULA/DeckLink/DeckLink-End-User-License-Agreement.pdf]. The `Include`
   headers carry a permissive, Boost-style notice [V-x debian-legal thread, 2017, an older source]. Projects vendor
   those headers on this basis, for example `blackmagic-output` [V-x https://github.com/nick-shaw/blackmagic-output/].
-  **Conclusion [I]:** C# interop generated from the `Include` IDL or headers can live in the MIT repo with the
+  **Conclusion [I]:** C# interop generated from the `Include` IDL or headers can live in PlayMap's repo with the
   header notice. Do not copy samples. The driver comes from the user's Desktop Video install.
 - **FFmpeg**: `decklink` is in `EXTERNAL_LIBRARY_NONFREE_LIST` in FFmpeg's `configure` (with `libfdk_aac`,
   `libfdk_xhe_aac`, `libmpeghdec`) [V raw configure, master, 13 Oct 2026], so any FFmpeg with DeckLink is
@@ -617,8 +617,8 @@ DirectShow filters on Windows) already work through PlayMap's `CaptureSource` (`
   - **SIPSorcery 10.0.17** (WebRTC in pure C#, targets net10.0): BSD-3-Clause **plus an "Additional Use
     Restriction"** that forbids use, modification or distribution inside Israel and the Occupied Territories, and
     says it overrides the BSD terms where they conflict. `SIPSorceryMedia.FFmpeg` is LGPL-2.1 [V
-    https://raw.githubusercontent.com/sipsorcery-org/sipsorcery/master/LICENSE.md, 13 Oct 2026]. A field-of-use
-    restriction cannot pass through an unrestricted MIT product. **Do not ship SIPSorcery** [I].
+    https://raw.githubusercontent.com/sipsorcery-org/sipsorcery/master/LICENSE.md, 13 Oct 2026]. Shipping it
+    would bind every PlayMap user to that field-of-use restriction. **Do not ship SIPSorcery** [I].
   - **MediaMTX** (Go, single binary; RTSP, SRT, WebRTC WHIP/WHEP): **MIT** [V
     https://raw.githubusercontent.com/bluenviron/mediamtx/main/LICENSE]. Suitable as an optional sidecar process.
     Its WHIP/WHEP support is from memory [U].
@@ -794,7 +794,7 @@ public sealed record VideoSend(string Id, string Name, SendKind Kind,      // Sp
 | libomtnet source + libvmx binaries | yes | MIT notices; build libvmx per RID in CI |
 | NDI | **no** binaries; MIT headers transcribed | user installs the runtime; ndi.video link next to every NDI picker; ® and "NDI® is a registered trademark of Vizrt NDI AB" in the About box and docs; no "NDI" in product names; plugin assembly `PlayMap.Video.Ndi` inert without a runtime |
 | DeckLink interop | yes (generated from `Include` IDL) | keep the header notice; marks only as "PlayMap compatible with Blackmagic Design DeckLink"; never FFmpeg `--enable-decklink` |
-| AJA shim | later | MIT; no `ajacc` |
+| AJA shim | later | keep libajantv2's MIT notice; no `ajacc` |
 | Syphon shim + framework | macOS engine only | BSD-3 notice |
 | WebRTC | none in-process | FFmpeg `whip` muxer (already shipped); MediaMTX as an optional user-enabled sidecar (MIT); never SIPSorcery |
 
@@ -804,7 +804,7 @@ public sealed record VideoSend(string Id, string Name, SendKind Kind,      // Sp
 |---|---|---|
 | OMT | **Full**: build libvmx with clang (installed), loopback send→receive on 127.0.0.1, Discovery Server on :6399 (no avahi-daemon here), quality voting, tally and redirect, alpha (UYVA/PA16), 16-bit, preview mode, `CompressedOnly` recording; cross-check VMX bitstreams with FFmpeg's 8-bit `vmix` decoder; header byte-layout golden tests | Windows and macOS discovery back-ends |
 | Spout | layout tests (280-byte struct, 256-byte name slots, sorted order, `name_1` renaming, stale-name cleanup) against an `ISharedMemory` fake; frame-count semaphore logic against a fake | Win32 maps and mutexes, D3D11 open/copy, WGL interop: a `windows-latest` CI job (WARP adapter; whether WARP allows shared KMT textures is [U]) or a lab PC |
-| NDI | binding tests against a **fake `libndi.so.6`** (a ~200-line C file under MIT, compiled with clang in the test) that exports `NDIlib_*`, loops video and checks struct marshalling, async-send buffer lifetime and FrameSync calls | the real runtime (licence acceptance; not in CI) |
+| NDI | binding tests against a **fake `libndi.so.6`** (a ~200-line C file of PlayMap's own, compiled with clang in the test) that exports `NDIlib_*`, loops video and checks struct marshalling, async-send buffer lifetime and FrameSync calls | the real runtime (licence acceptance; not in CI) |
 | DeckLink, AJA | capture state machine against fake COM objects (ComWrappers) or a fake C ABI | real cards |
 | Syphon | — | macOS |
 | GL send path | `PixelPackRing` + UYVY/P216 pack shader, pixel-exact against golden images on llvmpipe | D3D11 staging ring (Windows) |
@@ -821,7 +821,7 @@ lists per docs/COMPETITIVE.md, not re-verified):
 3. Per-output and multiview sends.
 
 **Superior** (each is achievable with the verified facts above) [I]:
-1. **OMT-native mapper**: MIT, managed, on Linux too. No competitor was found shipping OMT (§4.1). Supports alpha
+1. **OMT-native mapper**: through the vendored, managed libomtnet (MIT), on Linux too. No competitor was found shipping OMT (§4.1). Supports alpha
    and 16-bit, tally and redirect.
 2. **Pipeline taps**: send pre-warp, post-warp raster or multiview per output, in the same picker for every
    protocol.

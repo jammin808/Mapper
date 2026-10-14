@@ -710,7 +710,7 @@ The verbs are tools through the catalog. An assistant reads `SYNC STATUS` and `S
 | What | Licence | How |
 |---|---|---|
 | NVAPI (`nvapi64.dll`) | Interface IDs and struct layouts from the **MIT** NVAPI SDK headers (`nvapi_interface.h`, `nvapi.h`, R615, read 13 Oct 2026 [A1, A2]). No header text is copied, only numbers and layouts, which a test asserts | The NVIDIA driver's DLL, loaded at run time |
-| IGCL (`ControlLib.dll`) | Intel's header licence is not MIT, so the P/Invoke is written from the published API docs and no header is copied [P §6.4] | Intel driver, loaded at run time (S2) |
+| IGCL (`ControlLib.dll`) | Intel's header is under Intel's own licence, so the P/Invoke is written from the published API docs and no header is copied [P §6.4] | Intel driver, loaded at run time (S2) |
 | `configureSync.exe` / NVIDIA Control Panel | — | Named in words, never run by the engine |
 | FFmpeg 9 | (existing) | Only for the clip path through Media |
 

@@ -360,7 +360,7 @@ Dates are the page's own date where it shows one, otherwise "n.d.". Everything w
 
 ### 6.4 Intel
 
-- **IGCL** (Intel Graphics Control Library, header © 2025, Intel-licensed, so not to be copied into MIT code; write P/Invoke from the published docs) [V, raw.githubusercontent.com/intel/drivers.gpu.control-library/master/include/igcl_api.h; intel.github.io/drivers.gpu.control-library/api.html]:
+- **IGCL** (Intel Graphics Control Library, header © 2025, Intel-licensed, so not to be copied into PlayMap; write P/Invoke from the published docs) [V, raw.githubusercontent.com/intel/drivers.gpu.control-library/master/include/igcl_api.h; intel.github.io/drivers.gpu.control-library/api.html]:
   - `ctlGetSetDisplayGenlock(hDevices, ctl_genlock_args_t*, count, hFailureDeviceAdapter*)` with operations `CTL_GENLOCK_OPERATION_GET_TIMING_DETAILS 0`, `VALIDATE 1`, `ENABLE 2`, `DISABLE 3`, `GET_TOPOLOGY 4`.
   - Topology `{ NumGenlockDisplays, IsPrimaryGenlockSystem, CommonTargetMode, pGenlockDisplayInfo[{hDisplayOutput, IsPrimary}], pGenlockModeList }`, plus `IsGenlockEnabled` and `IsGenlockPossible`.
   - `ctlGetVblankTimestamp(hDisplayOutput, ctl_vblank_ts_args_t{ NumOfTargets, VblankTS[] /* µs */ })`.

@@ -219,12 +219,12 @@ badges them "live" (§9) **V** (local spec).
     payload, never announces itself; "built from observed network traffic and contains no Ableton source code";
     dual **MIT / Apache-2.0**; "'Ableton' and 'Link' are trademarks… used here only to describe protocol
     compatibility" [A35] **V**.
-- **May an MIT app implement the protocol independently?** (legal reasoning, **U**, not legal advice): copyright
+- **May PlayMap implement the protocol independently?** (legal reasoning, **U**, not legal advice): copyright
   covers the C++ code, not the protocol's behaviour; a clean-room implementation from observed traffic (as
   `link-bpm` did for the tempo) is generally possible, but (1) a full participant must also implement the
   measurement exchange and timeline negotiation, which are undocumented, (2) reading or porting the GPL source
   taints the work (the Rust port is GPL for that reason), and (3) the name and logo are trademarks governed by
-  Ableton's guidelines. **Safe routes for an MIT exe:** (a) talk to a separate, user-installed GPL program over a
+  Ableton's guidelines. **Safe routes that keep GPL code out of the exe:** (a) talk to a separate, user-installed GPL program over a
   socket (Carabiner — "mere aggregation"/separate programs, **U** as legal conclusion); (b) a passive tempo-only
   clean-room listener; (c) a commercial licence from Ableton for in-process Link.
 

@@ -10,7 +10,7 @@ Stagewatch at `/home/user/jammin808/stagewatch` `5744bae`, Patterns at `/home/us
   I read the page or file) or not (**U**, unverified). **V-h** means I read the search engine's extract of the page,
   not the whole page. Statements marked *(computed)* I worked out myself; *(inference)* and *(design)* are mine.
 - libltc is LGPL-3.0-or-later. I read its decoder to learn the method. Nothing from it is to be copied. The same goes
-  for Stagewatch's decoder: Stagewatch has no licence file, and PlayMap is MIT.
+  for Stagewatch's decoder: Stagewatch has no licence file.
 
 ## 1. The findings in brief
 

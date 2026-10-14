@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Square cells of one colour each, the colour at the cell's centre; size in pixels.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Look"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

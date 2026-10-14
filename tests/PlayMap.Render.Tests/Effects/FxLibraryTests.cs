@@ -39,7 +39,7 @@ public sealed class FxLibraryTests(GlFixture gl)
             kinds.Select(k => k.Id).ToArray());
         Assert.All(kinds, k => Assert.True(k.Document.Valid && k.Document.Issues.IsEmpty && k.Role == IsfRole.Filter, k.Id));
         Assert.Equal(["fx.feedback"], kinds.Where(k => k.Traits.HistoryDependent).Select(k => k.Id).ToArray());
-        Assert.All(kinds, k => Assert.Contains("PlayMap (MIT)", k.Document.Credit, StringComparison.Ordinal));
+        Assert.All(kinds, k => Assert.Equal("PlayMap", k.Document.Credit));
     }
 
     [Fact]

@@ -74,7 +74,7 @@ Test patterns, raw scan frames, blackout and the identify card **never** pass th
 - `PATTERN` over an output with an output chain shows exact pattern codes;
 - the frame path stays allocation-free once warm (the existing `FramePathAllocatedBytes` assertion).
 
-M5. **Built-in library v1.** 36 effects written for PlayMap as ISF files (§3.8), embedded, MIT. They include five geometry-aware effects (`PM_POSITION`/`PM_NORMAL`/`PM_EDGE`) and six transitions.
+M5. **Built-in library v1.** 36 effects written for PlayMap as ISF files (§3.8), embedded. They include five geometry-aware effects (`PM_POSITION`/`PM_NORMAL`/`PM_EDGE`) and six transitions.
 - *Check:* each has a pixel test at 64×36 or 128×72.
 
 M6. **Verbs, STATE and CONTEXT** (§4).
@@ -444,7 +444,7 @@ A source this node does not have reads 0.5. STATE says `"unbound source audio:ba
 
 **Smoothing.** `SmoothSeconds` is a one-pole filter applied **only to live sources**. Deterministic sources are never smoothed, which keeps them pure functions of time.
 
-### 3.8 The built-in library (written for PlayMap, embedded ISF, MIT)
+### 3.8 The built-in library (written for PlayMap, embedded ISF)
 
 All of these are `fx.*` kinds. Each is an ISF v2 file under `src/PlayMap.Render/Fx/Library/` and embedded as a resource. Users can **duplicate and edit** one (it becomes a project asset). Files may use the `PM_*` extensions, and stay valid ISF.
 
@@ -685,7 +685,7 @@ public int FxMemoryCapMb { get; init; } = 1024;
 **New. Render:**
 - `src/PlayMap.Render/Fx/FxHost.cs`, `FxChainRunner.cs`, `FxMixPass.cs`, `IsfRenderer.cs`, `FxCompileLane.cs`, `AudioTextures.cs`, `SurfaceGBuffer.cs`, `FxTimers.cs`
 - `src/PlayMap.Render/Fx/Ffgl/FfglLibrary.cs`, `FfglInstance.cs`, `FfglStateGuard.cs`, `FfglRenderer.cs`, `FfglRemoteRenderer.cs` (S1), `FfglInterop.Windows.cs` (S2, compile-only)
-- `src/PlayMap.Render/Fx/Ffgl/shim/playmap_ffglshim.c` (MIT; built by CI for Linux packages and by the tests)
+- `src/PlayMap.Render/Fx/Ffgl/shim/playmap_ffglshim.c` (built by CI for Linux packages and by the tests)
 - `src/PlayMap.Render/Fx/Library/*.fs` (36 + 6 transitions + `pm.glsl`), embedded via `<EmbeddedResource>`
 
 **New. Engine:**
@@ -702,7 +702,7 @@ public int FxMemoryCapMb { get; init; } = 1024;
 - `tests/PlayMap.Render.Tests/FxChainTests.cs`, `IsfRenderTests.cs`, `FxLibraryTests.cs`, `IsfCorpusTests.cs` (opt-in), `FfglHostTests.cs` (opt-in on `PLAYMAP_FFGL_SDK` + g++), `SurfaceGBufferTests.cs`
 - `tests/PlayMap.Engine.Tests/FxVerbTests.cs`, `FfglProbeTests.cs`
 - `tests/PlayMap.App.Tests/FxDeskTests.cs`
-- `tests/fixtures/ffgl/pm_crash_plugin.cpp` (our test plugin, MIT)
+- `tests/fixtures/ffgl/pm_crash_plugin.cpp` (our test plugin)
 
 **Touched (small hunks):**
 - `Core/Model/Content.cs` (Layer, Canvas `Fx`), `StageModel.cs` (Surface `Fx`), `OutputModel.cs` (Output `Fx`), `PlaylistModel.cs` (PlaylistItem `Fx`), `Project.cs` (assets, presets, `AllIds`, `FindFx`), `Ids.cs`, `ProjectJson.cs` (null chain → Empty)
@@ -736,7 +736,7 @@ public int FxMemoryCapMb { get; init; } = 1024;
 
 **Third-party:**
 - **FFGL SDK headers.** BSD-3, transcribed constants. Test-time build of the SDK's samples from a user-supplied checkout (`PLAYMAP_FFGL_SDK`); never shipped.
-- **GLEW.** Not shipped; PlayMap's own shim replaces it (MIT). If a user has `libGLEW.so.2.x`, it is used instead.
+- **GLEW.** Not shipped; PlayMap's own shim replaces it. If a user has `libGLEW.so.2.x`, it is used instead.
 - **SkiaSharp**, already a dependency, decodes imported images.
 - **Optional, Windows build-time only, S3 alternative:** glslang (BSD-3/Apache-2.0) + SPIRV-Cross (Apache-2.0) as native DLLs, *only if* the managed fix-ups miss the 97 % target.
 - **No GPL/LGPL code.** The ISF-Files corpus (MIT, mixed credits, 6 Shadertoy ports) is **not** shipped; it is an opt-in test input.

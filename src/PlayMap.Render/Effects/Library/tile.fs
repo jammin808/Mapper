@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "The whole picture repeated in a grid of tiles across and down.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Geometry"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

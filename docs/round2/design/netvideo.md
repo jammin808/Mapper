@@ -36,7 +36,7 @@ The render thread scales the tap and packs it into the wire format in a shader. 
 
 OMT is libomtnet, vendored as source with three bug fixes found here, plus libvmx built per RID. It is tested end to end in CI.
 
-NDI loads the **user-installed** runtime through MIT-transcribed headers. It is tested against a fake `libndi.so.6` built in CI. No NDI binary ships.
+NDI loads the **user-installed** runtime through layouts transcribed from NDI's MIT-licensed headers. It is tested against a fake `libndi.so.6` built in CI. No NDI binary ships.
 
 ---
 
@@ -61,7 +61,7 @@ NDI loads the **user-installed** runtime through MIT-transcribed headers. It is 
 | **Loss.** Most tools show black or the last frame and log a line [V §9.5] | Loss policy per input (`hold`, `black` or `fallback:<source>`) with stale and lost thresholds. A **backup URI** takes over automatically; switching back is a person's word. Every switch goes to the journal and into STATE, the context and Companion | **Beat**: defined outcomes, in words |
 | **Jitter.** Showing the latest frame causes judder when the sender's clock nearly matches the display's. NDI ships FrameSync as a time-base corrector for this [NDI `FrameSync.h`, A6] | Pacing `latest` (lowest latency, for cameras and scans), `smooth` (a timestamp jitter buffer that PlayMap owns, both protocols, pure and tested), or `locked` (the same buffer with the leader's published offset, so main and backup show **the same frame** of the same sender) | **Beat**: `locked` makes network inputs mirror-deterministic, which COMPETITIVE §5c says none of us do today |
 | **Failover downstream.** Watchout keeps runners going when the controller dies. NDI has `send_set_failover` [V §9.5, header] | `SEND FAILOVER <send> PEER <node>` resolves the same send on the backup node through the Show Bus and sets NDI failover, so third-party receivers follow PlayMap's backup | **Beat**: tied to PlayMap's redundancy |
-| **Licence.** NDI's SDK terms changed in Aug 2025 (6.2.1). Avolites and ETC dropped NDI [V §5.5] | No NDI binary ships. The runtime is the user's. Headers are MIT-transcribed. The ndi.video link sits beside every NDI picker. ® and the trademark sentence appear in About and the docs. A CI test fails if any NDI binary lands in the published output | **Match**, with a check that keeps it true |
+| **Licence.** NDI's SDK terms changed in Aug 2025 (6.2.1). Avolites and ETC dropped NDI [V §5.5] | No NDI binary ships. The runtime is the user's. Layouts are transcribed from NDI's MIT-licensed headers, notice kept. The ndi.video link sits beside every NDI picker. ® and the trademark sentence appear in About and the docs. A CI test fails if any NDI binary lands in the published output | **Match**, with a check that keeps it true |
 | **Discovery visibility.** Pickers list names only [U] | `STATE.videoio.discovered` lists each source's protocol, host and address, when it was last seen, whether it is in the library, and **which Show Bus peer it belongs to**. A Patterns node's NDI feed shows as "Patterns · Program" | **Beat**: the network is labelled by the show, not by hostnames |
 | **Health and preflight.** Competitors flag "no signal" after the fact [V §9.5] | `VIDEOIO CHECK` and the showsafety preflight run these checks: runtime present and its version, libvmx and its CPU path, mDNS daemon, IPv6/IPv4 path, port bind, send-name collisions, bandwidth against the NIC (counting OMT receivers), and each on-air input delivering for the soak | **Beat** |
 
@@ -143,7 +143,7 @@ PlayMap.App             Inputs section, Source browser, Sends in the Outputs dra
 ```
 
 **Why three edge assemblies.**
-- `PlayMap.Video.Ndi` holds only MIT-transcribed layouts and does nothing without a runtime. That makes the licence separation visible in the tree.
+- `PlayMap.Video.Ndi` holds only layouts transcribed from NDI's MIT-licensed headers and does nothing without a runtime. That makes the licence separation visible in the tree.
 - `PlayMap.Video.Omt` owns the libvmx native asset.
 - texshare adds `PlayMap.Video.Spout` beside them.
 
@@ -840,7 +840,7 @@ public sealed record VideoIoSettings
 | `src/PlayMap.App/Views/SourceBrowser.axaml(.cs)`, `ViewModels/InputsViewModel.cs`, `ViewModels/SendsViewModel.cs` | desk |
 | `tests/PlayMap.Video.Tests/` | pool, jitter, worker, discovery, PackReference, URI |
 | `tests/PlayMap.Video.Omt.Tests/` | real loopback, server, tally, preview, no-avahi and IPv4 paths |
-| `tests/PlayMap.Video.Ndi.Tests/` + `tests/native/fake_ndi.c` (MIT, ours; MSBuild target builds `libndi.so.6` with clang) | binding tests |
+| `tests/PlayMap.Video.Ndi.Tests/` + `tests/native/fake_ndi.c` (ours; MSBuild target builds `libndi.so.6` with clang) | binding tests |
 | `docs/VIDEO.md`, `THIRDPARTY-NOTICES.md` (rows) | papers |
 
 **Touched (small hunks):**
@@ -923,7 +923,7 @@ public sealed record VideoIoSettings
 
 ### 7.2 Simulated, and how
 
-**NDI**, with `tests/native/fake_ndi.c`: about 450 lines, MIT, ours, built with clang by an MSBuild target into the test output as `libndi.so.6`. It exports the `NDIlib_*` functions PlayMap binds.
+**NDI**, with `tests/native/fake_ndi.c`: about 450 lines, ours, built with clang by an MSBuild target into the test output as `libndi.so.6`. It exports the `NDIlib_*` functions PlayMap binds.
 - A sender registry, so `find` returns in-process senders plus injected ones.
 - `recv_capture_v3` returns copies of frames sent to that name, with `timestamp` = submit time in 100 ns and the frame's `p_metadata`.
 - `send_send_video_async_v2` **checksums the buffer at submit and again at the next sync event**, and counts a violation if it changed (proves M6's lifetime rule).

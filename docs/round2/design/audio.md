@@ -831,7 +831,7 @@ render host reads `engine.Services.Audio?.Bus` when it builds `FrameInputs`.
 | **led** | — (LEDs sample sources, so they react automatically) | — |
 | **present** | per-output display latency (P in the playout delay) | the render host's single `DisplayLatencyNs` |
 
-### 6.2 Third-party (MIT-compatible; restrictive runtimes outside the exe)
+### 6.2 Third-party (permissive; restrictive runtimes outside the exe)
 
 | Package | Version | Licence | Use |
 |---|---|---|---|

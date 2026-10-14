@@ -14,7 +14,7 @@ public sealed record FxSource(string Fragment, string? Vertex, ImmutableSortedDi
     public string Hash { get; } = FxCatalog.ContentHash(Fragment, Vertex);
 }
 
-/// <summary>Every effect kind a show can use: the built-in library (ISF files written for PlayMap, embedded, MIT) and the show's
+/// <summary>Every effect kind a show can use: the built-in library (ISF files written for PlayMap, embedded) and the show's
 /// own ISF files ("isf:&lt;asset id&gt;"). Immutable; one per set of assets, made again only when the show's assets change, so
 /// the render thread and the lane read the same kinds without locks. Translations are made once per kind and dialect. The last
 /// few catalogues are kept, so readers of different projects in one process (two engines, a draft beside the published show)

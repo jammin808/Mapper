@@ -91,7 +91,7 @@ These are real alternatives a buyer will weigh. Most were not researched in dept
 | VYV Photon | Keeps a calibration history and applies a new result only within a reference gate | [VYV guide](https://www.vyv.ca/en/docs/calibration/automatic-calibration-and-real-time-alignment-guide/) (unverified) |
 | QLab 5 | The most common "mapper" in theatre, through video surfaces with geometry and masks. Exact mapping features not re-verified | [QLab docs](https://qlab.app/docs/v5/fundamentals/workspace/) |
 | Unreal nDisplay | Mesh projection policy, MPCDI, EasyBlend and VIOSO policies. Powerful, engineering-heavy, no built-in camera calibration | [Epic](https://dev.epicgames.com/documentation/en-us/unreal-engine/projection-policies-in-ndisplay-in-unreal-engine) |
-| **Open source** | MapMap: Qt5, GPLv3, unmaintained since 2022. VPT 8: free, Max-based, last major release 2018. SAT Splash (multi-projector camera calibration and blending) and ofxPiMapper (openFrameworks, Raspberry Pi) are the natural peers for an MIT product and possible sources of test scenes (sources needed) | [MapMap](https://github.com/mapmapteam/mapmap), [VPT on CDM](https://cdm.link/video-projection-tool-for-mac-windows-projection-mapping-more-powerful-adds-mixing/) |
+| **Open source** | MapMap: Qt5, GPLv3, unmaintained since 2022. VPT 8: free, Max-based, last major release 2018. SAT Splash (multi-projector camera calibration and blending) and ofxPiMapper (openFrameworks, Raspberry Pi) are the closest in features and possible sources of test scenes (sources needed) | [MapMap](https://github.com/mapmapteam/mapmap), [VPT on CDM](https://cdm.link/video-projection-tool-for-mac-windows-projection-mapping-more-powerful-adds-mixing/) |
 
 ## 4. Competitive matrix
 
@@ -120,7 +120,7 @@ These are real alternatives a buyer will weigh. Most were not researched in dept
 
 | | Control and integration | UX | AI | Price and lock-in |
 |---|---|---|---|---|
-| **PlayMap built** | Wire, HTTP/WS, MCP, Show Bus, Patterns and Stagewatch links | Desk merged, demo engine only so far | Risk-gated assistant (Claude or local), recipes; never used on a live show | MIT, single exe, no dongle |
+| **PlayMap built** | Wire, HTTP/WS, MCP, Show Bus, Patterns and Stagewatch links | Desk merged, demo engine only so far | Risk-gated assistant (Claude or local), recipes; never used on a live show | Single exe, no dongle |
 | **PlayMap designed** | Every parameter a dotted path; desk uses the same verbs | PLAY / MAP / SCAN; right-click mirrors verbs | Click-to-surface, depth previs, drift watch | Same |
 | **MadMapper** | MIDI, OSC, DMX/Art-Net/sACN, LED and laser output, Syphon/Spout/NDI ([features](https://madmapper.com/madmapper/features)); OSCQuery, Ableton Link and MTC/LTC not re-checked | Surface-first; on-wall video cursor | Unknown | See §3. Projector control reported as a paid add-on; MiniMad hardware player (price unknown) |
 | **Resolume Arena** | OSC, MIDI, DMX, REST, Companion module | Clip grid instrument | Local MCP servers and segmentation/depth features reported in 7.26–7.28 blog posts ([7.26](https://resolume.com/blog/34484)) | Perpetual |
@@ -200,7 +200,7 @@ The output path is a specific risk. On Windows, the documented route to reliable
 | **Panasonic / Epson / Christie autocal** | The projector in the rental truck may already self-align | Read, reset or push projector internal geometry; never fight it silently. Pushing our warp into projector warp engines is a mid-term item (ROADMAP M27) |
 | **Lightform** | Its final release removed cloud-dependent features, including login, when the company closed ([Lightform](https://lightform.com/?p=3093)) | Local-first, and say so |
 | **ETC Augment3d** | A phone was enough; the physical output was the feedback | Phone first; the projector is the AR display |
-| **Open source (MapMap, Splash)** | An unmaintained open project is a dead project | Sustainability plan (ROADMAP §5): second maintainer, docs, paid support option |
+| **Open source (MapMap, Splash)** | An unmaintained project is a dead project | Sustainability plan (ROADMAP §5): second maintainer, docs, paid support option |
 
 ## 8. Where the critic lenses disagreed, and what we decided
 

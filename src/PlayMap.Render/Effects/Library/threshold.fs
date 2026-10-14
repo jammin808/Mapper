@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "White where the picture's luma is above the level, black below; softness widens the edge between them.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Colour"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

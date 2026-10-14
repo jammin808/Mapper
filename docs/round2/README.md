@@ -17,6 +17,7 @@ first five minutes, and calibration you can explain, keep and repair.
 
 Decisions taken for this round: the full plan; ISF effects now and the FFGL host next round; the Patterns-side Eye patch is
 prepared by the fleet package for Patterns' maintainers and not applied; AI proposals wait on PlayMap's own approval list
-(Stagewatch forwarding stays off).
+(Stagewatch forwarding stays off). PlayMap's own code names no licence; the Companion module's licence (its manifest requires
+one) is the owner's decision before that package is built. Third-party notices are kept in `THIRD-PARTY-NOTICES.md`.
 
 Prototype measurements the designs mention (benches under `bench/`) were run while designing and are not kept here.

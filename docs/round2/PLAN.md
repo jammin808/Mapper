@@ -518,7 +518,7 @@ responder.
    multiply, screen, difference) and scale; patterns, raw scan frames, blackout and identify never pass through; allocation-free
    once warm. (5 h)
 4. `FX KINDS/LIST/ADD/REMOVE/MOVE/SET/BYPASS/IMPORT/CHECK`, `STATE.fx`, context; a built-in library v1 of 10 effects written for
-   PlayMap as ISF (MIT), each with a pixel test. (5 h)
+   PlayMap as ISF, each with a pixel test. (5 h)
 
 ⟂ *(≈ 27 h; + preflight 0.5 h)*
 

@@ -200,5 +200,5 @@ same zoom gets 0 %: the whole image is one value.** A Mandelbulb DE raymarch (12
      no extra work.
 9. **Licences.** Implement from the maths and the papers only. Copy nothing from flam3, Fractorium, Kalles Fraktaler
    or Shadertoy (CC BY-NC-SA by default) **(U)**. FSR 1 is MIT and may be ported with its notice. The MediaPipe
-   model is Apache-2.0 and is fetched at run time by Vision's model store. Ableton Link (beat sync) is not
-   MIT-compatible **(U)** and stays out.
+   model is Apache-2.0 and is fetched at run time by Vision's model store. Ableton Link (beat sync) is GPLv2+ or
+   proprietary (audio research §4.2) and stays out.

@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Turns the hue, scales the saturation and lifts or lowers the lightness.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Colour"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

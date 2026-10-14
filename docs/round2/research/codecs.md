@@ -70,7 +70,7 @@ Prototype sources written for this report (research code only, not product code)
   - `ee877fd` 2022-04-29 (Malcolm Bechard, Derivative): BC6U/BC6S sections.
   - `5526371` 2022-05-05: "Hap H" renamed to **"Hap HDR"**.
   - `c7abb0c` 2022-05-06: reference code supports BC6.
-- Licence of the spec and reference code: 2-clause BSD ("Free BSD"), © 2012–2013 Tom Butterworth and Vidvox LLC [V, `LICENSE`, `README.md`]. It is compatible with PlayMap's MIT licence if the notice is kept.
+- Licence of the spec and reference code: 2-clause BSD ("Free BSD"), © 2012–2013 Tom Butterworth and Vidvox LLC [V, `LICENSE`, `README.md`]. PlayMap may use it if the notice is kept.
 - Test material listed in the README: Odd Dimensions, 16K, FFmpeg, TouchDesigner (1.5 GB), AVF Batch Converter, QuickTime and DirectShow sample packs on `d3omao0uy1rjjh.cloudfront.net` [V README; packs not downloaded].
 
 ### 2.2 Section header [V spec]
@@ -708,7 +708,7 @@ The headless test suite needs only llvmpipe and FFmpeg 9 [M]:
 
 ### 9.8 Licence hygiene
 
-| Can be used or ported into MIT PlayMap (keep notices) | Reference only, do not copy |
+| Can be used or ported into PlayMap (keep notices) | Reference only, do not copy |
 |---|---|
 | Vidvox HAP spec and reference (BSD-2); Snappier (BSD-3) or our own Snappy; GPURealTimeBC6H (MIT/PD); DirectXTex shaders (MIT); BCnEncoder.NET (MIT/Unlicense); bc7e (Apache-2.0); stb_dxt-class algorithms (public domain) | FFmpeg `hapdec.c`, `texturedsp*.c`, `notchlc.c`, `dxv.c` (LGPL; this build is GPL); mpv (GPL/LGPL); the Demolition FFmpeg fork; NotchLC internals (needs a clean room or the Notch SDK); Betsy until its licence is checked [U] |
 

@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Folds the picture onto itself: the left half over the right, the top half over the bottom, or both.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Geometry"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

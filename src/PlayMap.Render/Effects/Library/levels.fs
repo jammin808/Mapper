@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Input black and white points, a gamma, and output black and white points, on every channel.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Colour"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

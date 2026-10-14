@@ -184,7 +184,7 @@ These are the biggest adoption risks and no code fixes them. Rental houses and i
 
 | Item | Why | When |
 |---|---|---|
-| Second maintainer and a documented release process | An MIT single-maintainer project has a bus factor of one; MapMap shows what unmaintained looks like | Before the first pro release |
+| Second maintainer and a documented release process | A single-maintainer project has a bus factor of one; MapMap shows what unmaintained looks like | Before the first pro release |
 | Documentation site with workflows, the hardware list and the network guide | Bring-your-own-hardware needs a buyer's guide | Round 4 |
 | Support offer (paid SLA option), training and a certification path | What rental houses and integrators actually buy | After Round 4 |
 | Funding model | Pays for the lab, signing certificates and support | Decide before Round 4 |

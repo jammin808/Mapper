@@ -772,12 +772,12 @@ public string PersonMatteModel { get; init; } = "mediapipe-selfie-landscape";   
 | **phonescan** | depth feeds for S6 |
 | **fleet** | `STING`/`MORPH` with `AT` to every node of a group (fan-out) |
 
-**Third-party (all MIT-compatible; nothing new is linked at build time except as noted):**
+**Third-party (all permissive; nothing new is linked at build time except as noted):**
 - **AMD FidelityFX FSR 1**: MIT (2021) [R §3]. The GLSL is ported into `Fsr1Shaders.cs` with the notice in `THIRDPARTY-NOTICES.md`.
 - **MediaPipe Selfie Segmentation** (S1): Apache-2.0 [R §4]. The model file is fetched at run time by Vision's `ModelStore` (an ONNX export; its SHA-256 is pinned in the catalogue), never bundled.
 - **ONNX Runtime**: already a Vision dependency (MIT).
 - **No code** from flam3, Fractorium, Kalles Fraktaler, mathr's programs or Shadertoy. Algorithms are written from the papers and articles cited in the research.
-- **Ableton Link is not used** (licence **U**: not MIT-compatible). S4's show tempo is PlayMap's own.
+- **Ableton Link is not used** (GPLv2+ or a commercial licence from Ableton; never linked into PlayMap). S4's show tempo is PlayMap's own.
 - **.NET:** `System.Numerics.BigInteger`, `System.Half` and `System.Numerics.Vector3` (runtime only; Core stays runtime-only).
 
 ---

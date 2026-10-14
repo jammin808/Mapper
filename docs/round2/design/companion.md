@@ -662,13 +662,16 @@ public int CompanionTcpPort { get; init; } = 16759;
 ```json
 { "type":"connection","id":"jammin808-playmap","name":"jammin808-playmap","shortname":"playmap",
   "description":"PlayMap media server and projection mapping: playlists, surfaces, projectors, calibration, fleet health and AI proposals as live keys with thumbnails; finds the node by itself; safe in Show Mode",
-  "version":"1.0.0","license":"MIT","repository":"https://github.com/jammin808/Mapper",
+  "version":"1.0.0","repository":"https://github.com/jammin808/Mapper",
   "bugs":"https://github.com/jammin808/Mapper/issues","maintainers":[{"name":"jammin808"}],"legacyIds":[],
   "runtime":{"type":"node22","api":"nodejs-ipc","apiVersion":"2.2.1","entrypoint":"../dist/main.js"},
   "manufacturer":"jammin808","products":["PlayMap"],
   "keywords":["playmap","projection mapping","media server","playlist","projector","patterns"],
   "bonjourQueries":{"node":{"type":"playmap","protocol":"tcp"}} }
 ```
+
+The manifest also requires `license` (an SPDX id). It is added when the owner names the module's licence, before this
+package is built.
 
 **Config:**
 
@@ -863,7 +866,8 @@ The module lives in `integrations/companion-module-playmap/`:
     `@types/ws`, `@types/node ^22`;
   - `package-lock.json`.
 - Config files: `tsconfig.json` (`erasableSyntaxOnly: true`, so tests run under Node's type stripping),
-  `tsconfig.build.json`, `companion/manifest.json`, `companion/HELP.md`, `LICENSE` (MIT).
+  `tsconfig.build.json`, `companion/manifest.json`, `companion/HELP.md`. The module's licence (a `LICENSE` file and
+  the manifest's required SPDX `license`) is the owner's decision, taken before this package is built.
 - `src/**` as in §3.3; `tools/gen-verbs.ts`.
 - `test/harness.ts`: the module run through `InstanceWrapper` from `@companion-module/host` with a recording
   `ModuleHostContext`. It records:

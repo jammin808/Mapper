@@ -332,7 +332,7 @@ In .NET this is `delegate* unmanaged[Stdcall]<uint, nint, nint, nint>` on Window
 - **What this means (E):**
   - Data relocations are resolved at `dlopen` time, even with `RTLD_LAZY`. A Linux host must therefore make the `__glew*` symbols resolvable before it loads a plugin. There are two ways:
     - (a) `dlopen("libGLEW.so.2.x", RTLD_GLOBAL)`, then call `glewExperimental = GL_TRUE; glewInit()` with the context current. This needs the user's libGLEW (Ubuntu `libglew2.2`, not present here).
-    - (b) PlayMap ships a tiny MIT C shim (`libplaymap_ffglshim.so`). It defines the `__glew*` pointers (the ~250 GL 2.0–4.6 entry points GLEW declares) and fills them from `glXGetProcAddressARB` or `eglGetProcAddress` when the host calls `pm_ffgl_shim_init()`. Load it `RTLD_GLOBAL` before the plugin, and load `libGL.so.1` `RTLD_GLOBAL` for the 1.1 functions.
+    - (b) PlayMap ships a tiny C shim of its own (`libplaymap_ffglshim.so`). It defines the `__glew*` pointers (the ~250 GL 2.0–4.6 entry points GLEW declares) and fills them from `glXGetProcAddressARB` or `eglGetProcAddress` when the host calls `pm_ffgl_shim_init()`. Load it `RTLD_GLOBAL` before the plugin, and load `libGL.so.1` `RTLD_GLOBAL` for the 1.1 functions.
   - Option (b) makes **host tests on Linux with the SDK's own samples feasible on Mesa llvmpipe** (GL 4.5 core here). No sample was run in this session; I did build only.
   - FFGL plugins in the wild are Windows `.dll` and macOS `.bundle`. Linux FFGL is a test vehicle and a niche (E).
 

@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "A Gaussian blur in two passes, across then down; radius in pixels of the picture.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Blur"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

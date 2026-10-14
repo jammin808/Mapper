@@ -9,7 +9,7 @@
     <Version>0.1.0</Version>
     <Authors>jammin808</Authors>
     <Product>PlayMap</Product>
-    <Copyright>© 2026 jammin808 — MIT License</Copyright>
+    <Copyright>© 2026 jammin808</Copyright>
     <InvariantGlobalization>false</InvariantGlobalization>
     <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
     <!-- The hot paths (frames, meshes, scans) are written to allocate nothing per frame; the

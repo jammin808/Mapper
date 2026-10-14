@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Turns every colour into its opposite; amount mixes from the picture to its negative.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Colour"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

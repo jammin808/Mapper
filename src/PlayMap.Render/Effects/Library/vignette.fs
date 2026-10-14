@@ -2,7 +2,7 @@
     "ISFVSN": "2",
     "VSN": "1.0",
     "DESCRIPTION": "Darkens toward the corners: amount, where the darkening starts (size, from the centre) and how soft its edge is.",
-    "CREDIT": "PlayMap (MIT)",
+    "CREDIT": "PlayMap",
     "CATEGORIES": ["Look"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },
