@@ -389,6 +389,37 @@ public sealed class FrameLockMachineTests
     }
 
     [Fact]
+    public void ADriverThatRefusedTheJoinFallsOutWithItsWords()
+    {
+        var rig = new Rig();
+        rig.Apply();
+        rig.Tick();
+        rig.Now += (long)Math.Ceiling(Period);
+        var actions = rig.Machine.Step(new LockFacts(rig.Now, Period, true, true, true, true, true, false, false, false, false, false, 0,
+            false, false, false, false, false, true, rig.Intent) { JoinRefused = true, JoinWords = "the swap chain is busy" });
+        Assert.Equal(LeaveAll | LockActions.Alarm, actions);
+        Assert.Equal(LockReasons.JoinRefused, rig.Machine.Reason);
+        Assert.Contains("the swap chain is busy", rig.Machine.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AutoRejoinWaitsTenSecondsAfterTheFallEvenWithTheBoardSyncedAllAlong()
+    {
+        var rig = new Rig();
+        rig.Ticks(20 * 60);
+        rig.Lock();
+        rig.TimedOut = true;
+        rig.Tick();
+        rig.TimedOut = false;
+        Assert.Equal(LockState.FellOut, rig.Machine.State);
+        rig.Ticks(10 * 60 - 2);
+        Assert.Equal(LockState.FellOut, rig.Machine.State);
+        rig.Ticks(2);
+        Assert.Equal(LockState.Joining, rig.Machine.State);
+        Assert.Equal(1, rig.Machine.Rejoins);
+    }
+
+    [Fact]
     public void TheScriptCoversAtLeastTwentyFiveTransitions()
     {
         // Every distinct (from, to) edge the scripts above drive, gathered once more in one long run.
