@@ -111,6 +111,17 @@ public sealed class IndexTests
     }
 
     [Fact]
+    public async Task AProjectHoldingAnIdTwiceStillWritesIndexAndState()
+    {
+        var media = new MediaItem("md00000001", "One", MediaKind.Video, "/nowhere/one.mp4", "sha256:" + new string('a', 64), 1000,
+            MediaInfo.Unknown with { DurationNs = 4_000_000_000 }, []);
+        await using var rig = new CompanionRig(project: Project.CreateDefault("Twice") with { Media = [media, media with { Name = "Again" }] });
+        var index = CompanionRig.Json(await rig.Ok("INDEX"));
+        Assert.Equal(2, index.GetProperty("media").GetProperty("count").GetInt32());
+        Assert.Equal(index.GetProperty("sig").GetString(), rig.State().GetProperty("project").GetProperty("index").GetString());
+    }
+
+    [Fact]
     public async Task ARenameMovesOnlyTheLabels()
     {
         await using var rig = new CompanionRig();

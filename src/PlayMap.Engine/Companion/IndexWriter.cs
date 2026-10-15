@@ -48,7 +48,10 @@ public static class IndexWriter
     private static void WriteBody(Utf8JsonWriter w, Project project, EngineSnapshot snapshot, List<IIndexContributor> sections,
         StringBuilder sig, StringBuilder labels)
     {
-        var lengths = project.Media.ToDictionary(m => m.Id, m => m, StringComparer.Ordinal);
+        // A project read from a file is not trusted to hold each id once: the first wins, and INDEX (STATE's project.index) never throws.
+        var lengths = new Dictionary<string, MediaItem>(project.Media.Length, StringComparer.Ordinal);
+        foreach (var m in project.Media)
+            lengths.TryAdd(m.Id, m);
         w.WriteStartArray("playlists");
         foreach (var list in project.Playlists)
         {
