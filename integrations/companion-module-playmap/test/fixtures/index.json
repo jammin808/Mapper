@@ -1,0 +1,364 @@
+{
+  "v": 1,
+  "revision": 8,
+  "sig": "9f1c2ab07d3e4410",
+  "labels": "77aa0c1e93b2d5f0",
+  "playlists": [
+    {
+      "id": "pl00000001",
+      "name": "Show",
+      "loop": false,
+      "syncGroup": null,
+      "items": [
+        {
+          "id": "it00000007",
+          "label": "Intro",
+          "source": "generator:gn00000008",
+          "kind": "generator",
+          "lengthMs": null
+        },
+        {
+          "id": "it00000002",
+          "label": "Red",
+          "source": "color:#FF0000",
+          "kind": "color",
+          "lengthMs": null
+        },
+        {
+          "id": "it00000003",
+          "label": "Blue",
+          "source": "color:#0000FF",
+          "kind": "color",
+          "lengthMs": null
+        }
+      ]
+    },
+    {
+      "id": "pl00000004",
+      "name": "Loops",
+      "loop": false,
+      "syncGroup": null,
+      "items": [
+        {
+          "id": "it00000005",
+          "label": "Green",
+          "source": "color:#00FF00",
+          "kind": "color",
+          "lengthMs": null
+        }
+      ]
+    }
+  ],
+  "surfaces": [],
+  "projectors": [],
+  "outputs": [
+    {
+      "id": "op_1",
+      "name": "Output 1",
+      "kind": "display",
+      "projector": null,
+      "enabled": true
+    }
+  ],
+  "devices": [],
+  "generators": [
+    {
+      "id": "gn_testcard",
+      "name": "Test card",
+      "kind": "pattern.testcard",
+      "params": [
+        {
+          "name": "variant",
+          "kind": "choice",
+          "choices": [
+            "rig",
+            "pixel",
+            "levels"
+          ]
+        },
+        {
+          "name": "identity",
+          "kind": "bool"
+        },
+        {
+          "name": "mark",
+          "kind": "bool"
+        },
+        {
+          "name": "label",
+          "kind": "text"
+        }
+      ]
+    },
+    {
+      "id": "gn00000008",
+      "name": "White",
+      "kind": "pattern.flat",
+      "params": [
+        {
+          "name": "color",
+          "kind": "color"
+        },
+        {
+          "name": "level",
+          "kind": "number",
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "name": "border",
+          "kind": "bool"
+        }
+      ]
+    }
+  ],
+  "canvases": [
+    {
+      "id": "cv_main",
+      "name": "Main canvas",
+      "layers": [
+        {
+          "id": "ly_base",
+          "name": "Test card"
+        }
+      ]
+    }
+  ],
+  "media": {
+    "count": 0
+  },
+  "sections": [
+    {
+      "section": "calibration",
+      "hint": {
+        "title": "Calibration",
+        "rowKind": "projector",
+        "keys": [
+          {
+            "label": "Re-solve",
+            "line": "CALIBRATION RESOLVE $(id)",
+            "feedback": "calibration.grade",
+            "press": "instant"
+          },
+          {
+            "label": "Fallback",
+            "line": "CALIBRATION FALLBACK $(id)",
+            "feedback": "calibration.fallback",
+            "press": "hold"
+          },
+          {
+            "label": "History",
+            "line": "CALIBRATION HISTORY $(id)",
+            "feedback": null,
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "fx",
+      "hint": {
+        "title": "Effects",
+        "rowKind": "fx",
+        "keys": [
+          {
+            "label": "Bypass",
+            "line": "FX BYPASS $(id) TOGGLE",
+            "feedback": "fx.bypass",
+            "press": "instant"
+          },
+          {
+            "label": "Mix \u002B",
+            "line": "FX SET $(id) mix BY 0.05",
+            "feedback": "fx.mix",
+            "press": "hold"
+          },
+          {
+            "label": "Mix \u2212",
+            "line": "FX SET $(id) mix BY -0.05",
+            "feedback": "fx.mix",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "present",
+      "hint": {
+        "title": "Outputs: present and lock",
+        "rowKind": "output",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "OUTPUT STATS $(id)",
+            "feedback": "outputs.$(id).present.light",
+            "press": "instant"
+          },
+          {
+            "label": "Rejoin",
+            "line": "SYNC REJOIN $(id)",
+            "feedback": "outputs.$(id).lock.state",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "op_1",
+          "kind": "output",
+          "label": "Output 1",
+          "parent": null,
+          "light": "grey",
+          "state": "free-unknown"
+        }
+      ]
+    },
+    {
+      "section": "show",
+      "hint": {
+        "title": "Show",
+        "rowKind": "show",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "SHOW ARM",
+          "kind": "show",
+          "label": "ARM",
+          "parent": "show",
+          "light": "grey",
+          "state": "rehearsal"
+        },
+        {
+          "id": "SHOW DISARM",
+          "kind": "show",
+          "label": "DISARM",
+          "parent": "show",
+          "light": "green",
+          "state": "rehearsal"
+        },
+        {
+          "id": "PANIC",
+          "kind": "panic",
+          "label": "PANIC",
+          "parent": "show",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "PANIC BLACK",
+          "kind": "panic",
+          "label": "PANIC BLACK",
+          "parent": "show",
+          "light": "grey",
+          "state": "black"
+        },
+        {
+          "id": "PANIC HARD",
+          "kind": "panic",
+          "label": "PANIC HARD",
+          "parent": "show",
+          "light": "grey",
+          "state": "hard"
+        },
+        {
+          "id": "PANIC CLEAR",
+          "kind": "panic",
+          "label": "CLEAR",
+          "parent": "show",
+          "light": "grey",
+          "state": "not in panic"
+        },
+        {
+          "id": "MASTER 0",
+          "kind": "master",
+          "label": "MASTER 0",
+          "parent": "show",
+          "light": "grey",
+          "state": "100"
+        },
+        {
+          "id": "MASTER 100",
+          "kind": "master",
+          "label": "MASTER 100",
+          "parent": "show",
+          "light": "green",
+          "state": "100"
+        },
+        {
+          "id": "MASTER",
+          "kind": "encoder",
+          "label": "MASTER",
+          "parent": "show",
+          "light": "green",
+          "state": "100"
+        }
+      ]
+    },
+    {
+      "section": "tempo",
+      "hint": {
+        "title": "Tempo",
+        "rowKind": "tempo",
+        "keys": [
+          {
+            "label": "Tap",
+            "line": "TEMPO TAP",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "Resync",
+            "line": "TEMPO RESYNC BAR",
+            "feedback": "audio.beat",
+            "press": "instant"
+          },
+          {
+            "label": "Half",
+            "line": "TEMPO HALF",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "Double",
+            "line": "TEMPO DOUBLE",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "BPM \u002B",
+            "line": "TEMPO SET \u002B1",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "BPM \u2212",
+            "line": "TEMPO SET -1",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "tempo",
+          "kind": "tempo",
+          "label": "120 BPM",
+          "parent": "",
+          "light": "grey",
+          "state": "manual"
+        }
+      ]
+    }
+  ]
+}

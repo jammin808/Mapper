@@ -107,7 +107,7 @@ public sealed partial class EngineCore : IClientRegistry, IThumbSource
                 w.WriteEndArray();
             }
             w.WriteNumber("minGoMs", gate.MinGoMs);
-            w.WriteNumber("proto", 1);
+            w.WriteNumber("proto", Controllers.LineProtocol);
             w.WriteEndObject();
         }));
     }

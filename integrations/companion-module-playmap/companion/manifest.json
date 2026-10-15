@@ -1,0 +1,26 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
+	"id": "jammin808-playmap",
+	"name": "jammin808-playmap",
+	"shortname": "playmap",
+	"description": "PlayMap media server and projection mapping: playlists, outputs, projectors, calibration and every package's keys as live keys with thumbnails; finds the node by itself; safe in Show Mode",
+	"version": "1.0.0",
+	"license": "GPL-3.0-only",
+	"repository": "https://github.com/jammin808/Mapper",
+	"bugs": "https://github.com/jammin808/Mapper/issues",
+	"maintainers": [{ "name": "jammin808" }],
+	"legacyIds": [],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "2.2.1",
+		"entrypoint": "../dist/main.js"
+	},
+	"manufacturer": "jammin808",
+	"products": ["PlayMap"],
+	"keywords": ["playmap", "projection mapping", "media server", "playlist", "projector", "patterns"],
+	"bonjourQueries": {
+		"node": { "type": "playmap", "protocol": "tcp" }
+	}
+}

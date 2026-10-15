@@ -1,0 +1,354 @@
+{
+  "v": 1,
+  "seq": 8030048,
+  "id": "0badc0de",
+  "t": "playmap",
+  "name": "Test node",
+  "version": "0.1.0",
+  "at": 1760000001000,
+  "light": "red",
+  "headline": "Show \u00B7 playing Red, 0:09 left \u00B7 outputs not measured",
+  "air": {
+    "blackout": false,
+    "frozen": false,
+    "pattern": null,
+    "identify": false,
+    "patternsBlackout": false,
+    "followPatternsBlackout": true,
+    "master": {
+      "level": 1,
+      "to": 1,
+      "untilLeaderNs": 0
+    },
+    "panic": null,
+    "overlay": {
+      "on": false,
+      "outputs": [],
+      "layers": [
+        "cursor",
+        "outlines",
+        "handles",
+        "lattice"
+      ],
+      "handle": null,
+      "grid": false,
+      "cursors": 0,
+      "armed": false
+    }
+  },
+  "video": {
+    "file": "Red",
+    "role": "playlist",
+    "tag": "Show",
+    "position": 1,
+    "length": 10,
+    "remaining": 9,
+    "positionText": "0:01",
+    "lengthText": "0:10",
+    "remainingText": "0:09",
+    "text": "Show Red \u00B7 0:01 / 0:10 \u00B7 0:09 left",
+    "chip": "Show 0:09",
+    "playing": true,
+    "ended": false,
+    "loops": false,
+    "out": true,
+    "call": "",
+    "key": "#FF0000",
+    "positionMs": 1000,
+    "lengthMs": 10000,
+    "remainingMs": 9000,
+    "paused": false,
+    "rate": 1,
+    "seekable": true,
+    "seq": 2
+  },
+  "playlists": [
+    {
+      "id": "pl00000001",
+      "name": "Show",
+      "focused": true,
+      "state": "playing",
+      "index": 1,
+      "item": {
+        "id": "it00000002",
+        "label": "Red",
+        "source": "color:#FF0000"
+      },
+      "positionMs": 1000,
+      "lengthMs": 10000,
+      "remainingMs": 9000,
+      "rate": 1,
+      "loop": false,
+      "syncGroup": null,
+      "seq": 2,
+      "next": {
+        "id": "it00000003",
+        "label": "Blue"
+      },
+      "items": 3
+    },
+    {
+      "id": "pl00000004",
+      "name": "Loops",
+      "focused": false,
+      "state": "idle",
+      "index": -1,
+      "item": null,
+      "positionMs": null,
+      "lengthMs": null,
+      "remainingMs": null,
+      "rate": 1,
+      "loop": false,
+      "syncGroup": null,
+      "seq": 0,
+      "next": {
+        "id": "it00000005",
+        "label": "Green"
+      },
+      "items": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "op_1",
+      "name": "Output 1",
+      "mode": "canvas",
+      "kind": "display",
+      "display": "",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "enabled": true,
+      "open": false,
+      "fps": 0,
+      "dropped": 0,
+      "frameMsP95": 0,
+      "pattern": null,
+      "projector": null,
+      "light": "grey",
+      "latencyMs": 0,
+      "present": null,
+      "lock": {
+        "state": "free-unknown",
+        "words": "no render host on this node",
+        "reason": "",
+        "fellOut": 0,
+        "rejoins": 0
+      },
+      "fx": null
+    }
+  ],
+  "media": {
+    "items": 0,
+    "missing": 0,
+    "ready": true,
+    "transfers": []
+  },
+  "stage": {
+    "surfaces": 0,
+    "meshes": 0,
+    "projectors": [],
+    "scans": 0
+  },
+  "scan": null,
+  "sync": {
+    "role": "solo",
+    "leader": null,
+    "offsetMs": 0,
+    "rttMs": 0,
+    "driftPpm": 0,
+    "groups": [],
+    "latencyMs": 0,
+    "lock": {
+      "state": "free-unknown",
+      "driver": "none",
+      "board": null,
+      "words": "no render host on this node",
+      "applied": false,
+      "locked": 0,
+      "fellOut": 0,
+      "rejoins": 0,
+      "time": "clock",
+      "refused": null
+    }
+  },
+  "links": {
+    "patterns": {
+      "state": "off"
+    },
+    "stagewatch": {
+      "state": "off"
+    }
+  },
+  "peers": [
+    {
+      "t": "playmap",
+      "id": "a1b2c3d4",
+      "name": "Stage left",
+      "light": "amber",
+      "headline": "Stage left \u00B7 output 2 dropping frames",
+      "live": true
+    }
+  ],
+  "machine": {
+    "renderer": "none",
+    "memMb": 141,
+    "gcPauseMsTotal": 0,
+    "present": null
+  },
+  "project": {
+    "id": "pr00000006",
+    "name": "Test node",
+    "revision": 8,
+    "path": null,
+    "dirty": true,
+    "index": "9f1c2ab07d3e4410"
+  },
+  "faults": [
+    {
+      "part": "mdns",
+      "words": "the network announcement could not open: port 5353 is taken"
+    }
+  ],
+  "ai": {
+    "mcp": false,
+    "clients": 0,
+    "proposals": 0,
+    "assistant": null
+  },
+  "devices": [],
+  "solve": null,
+  "cameras": [],
+  "show": {
+    "armed": false,
+    "by": "",
+    "since": 0,
+    "words": "",
+    "rules": {
+      "minGoMs": 300,
+      "minGoMsRehearsal": 0,
+      "remoteViewOnly": false,
+      "disarmFrom": "paired",
+      "expectArmed": false,
+      "defaultOutcome": "black",
+      "defaultFadeMs": 1000,
+      "panicLeadMs": 0
+    },
+    "blind": null,
+    "panic": null,
+    "locks": [],
+    "refused": {
+      "last60s": 0,
+      "last": ""
+    },
+    "preflight": null,
+    "minGoMs": 0
+  },
+  "decode": {
+    "platform": {
+      "blocks": {
+        "bc1": false,
+        "bc3": false,
+        "bc4": false,
+        "bc7": false,
+        "bc6h": false,
+        "staging": "none",
+        "arenaMb": 0,
+        "arenaFreeMb": 0
+      },
+      "hapLayers4k60": null,
+      "light": "green",
+      "words": "no decoders open; no renderer yet"
+    },
+    "sources": []
+  },
+  "clients": [],
+  "events": {
+    "seq": 2
+  },
+  "fx": {
+    "budgetMs": 4,
+    "library": {
+      "builtin": 10,
+      "isf": 0,
+      "ffgl": 0,
+      "quarantined": 0
+    },
+    "compile": {
+      "lane": "none",
+      "pending": 0,
+      "words": "no renderer on this node"
+    },
+    "slots": [],
+    "plugins": {
+      "enabled": false,
+      "inProcess": 0,
+      "words": "FFGL plugins are not hosted by this build"
+    }
+  },
+  "audio": {
+    "level": 0,
+    "bpm": 120,
+    "beat": null,
+    "bar": null,
+    "phrase": null,
+    "phase": null,
+    "bass": 0,
+    "mid": 0,
+    "high": 0,
+    "peakDb": -120,
+    "silent": true,
+    "input": {
+      "key": "",
+      "name": "",
+      "channels": "1\u002B2",
+      "rateHz": 0,
+      "state": "off",
+      "words": "",
+      "backend": "",
+      "asked": "",
+      "here": false,
+      "silentForS": 0
+    },
+    "tempo": {
+      "source": "manual",
+      "lock": "manual",
+      "confidence": 1,
+      "bpm": 120,
+      "beatsPerBar": 4,
+      "barsPerPhrase": 8,
+      "inUse": false,
+      "epochUnixMs": null,
+      "anchor": null
+    },
+    "latencyMs": {
+      "input": -1,
+      "analysis": 10.7,
+      "total": -1,
+      "acoustic": 0
+    }
+  },
+  "modulation": {
+    "bindings": 0,
+    "bypassed": false,
+    "live": 0,
+    "shared": 0,
+    "pure": 0,
+    "unbound": [],
+    "held": [],
+    "flashLimited": -1
+  },
+  "calibration": {
+    "moved": [],
+    "task": null,
+    "targets": []
+  },
+  "onboarding": {
+    "stage": "none",
+    "startedAt": null,
+    "litAt": null,
+    "quadAt": null,
+    "contentAt": null,
+    "seconds": -1
+  }
+}
