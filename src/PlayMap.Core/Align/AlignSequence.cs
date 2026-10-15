@@ -1,3 +1,5 @@
+using System.Globalization;
+using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 
 namespace PlayMap.Core.Align;
@@ -10,7 +12,15 @@ public sealed record CameraShot(byte[] Gray, int Width, int Height);
 public interface IAlignShooter
 {
     Task<CameraShot> ShootAsync(int output, byte[]? frame, CancellationToken ct);
+
+    /// <summary>Shows each output's colour frame at once (interleaved RGB at its raster; null shows black) and answers the camera's
+    /// colour picture; null when the display or the camera has no colour.</summary>
+    Task<CameraShotRgb?> ShootRgbAsync(IReadOnlyList<byte[]?> frames, CancellationToken ct) => Task.FromResult<CameraShotRgb?>(null);
 }
+
+/// <summary>What the colour step found: each output's colour, the white match (null when none was made), whether the camera held its
+/// exposure, and the words.</summary>
+public sealed record AlignColour(IReadOnlyList<ProjectorColour> Colours, WhiteMatch? Match, bool Stable, string Words, int Shots);
 
 /// <summary>An output as the sequence shows to it: its id, raster and its projector's prior.</summary>
 public sealed record AlignOutputSpec(string Id, string Name, int Width, int Height, ProjectorPrior Prior);
@@ -90,6 +100,114 @@ public static class AlignSequence
         return (black, captures);
     }
 
+    /// <summary>How many colour pictures the colour step takes: black, the stability probe, and each output's red, green, blue and white.</summary>
+    public static int ColourShots(int outputs) => 2 + 4 * outputs;
+
+    /// <summary>
+    /// WHITE (autoalign §3.5, the diagonal half): every output black, then each output's full red, green, blue and white alone, each
+    /// measured over the core of its footprint in camera-linear RGB; first, the camera's stability probe — the first output's white
+    /// alone and then with every other output white too (a lone output: on the left of its raster only): where its core sees it, a
+    /// camera that holds its exposure reads the same light, one that sets its own does not. A camera that moved its exposure, or that has no colour, matches nothing (the words
+    /// say why; the geometry stands).
+    /// </summary>
+    public static async Task<AlignColour> ColourAsync(IAlignShooter shooter, IReadOnlyList<AlignOutputSpec> outputs, IReadOnlyList<AlignCapture> captures,
+        Action<AlignStepProgress>? progress, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(shooter);
+        ArgumentNullException.ThrowIfNull(outputs);
+        ArgumentNullException.ThrowIfNull(captures);
+        var total = ColourShots(outputs.Count);
+        var done = 0;
+        void Step(int output, string words)
+        {
+            done++;
+            progress?.Invoke(new AlignStepProgress("color", output, (double)done / total, words));
+        }
+        var frames = new byte[]?[outputs.Count];
+        async Task<CameraShotRgb?> Shoot(int j, byte[]? frame)
+        {
+            Array.Clear(frames);
+            if (j >= 0)
+                frames[j] = frame;
+            return await shooter.ShootRgbAsync(frames, ct).ConfigureAwait(false);
+        }
+        if (await Shoot(-1, null).ConfigureAwait(false) is not { } black)
+            return new AlignColour([], null, false, "the camera or the display shows no colour — colour was not matched", 0);
+        Step(-1, "every output black");
+        var footprints = captures.Select(c => c.Footprint).ToList();
+        var cores = captures.Select(c => Photometry.Core(c.Footprint, footprints)).ToList();
+
+        // The stability probe: the first output's white alone, then again with every other output white too (alone in the group: on
+        // the left of its raster only). Its core sees none of the others' light, so a camera that holds its exposure reads the same.
+        var first = outputs[0];
+        var whiteFirst = await Shoot(0, SolidRgb(first.Width, first.Height, 255, 255, 255, 1)).ConfigureAwait(false);
+        Step(0, $"{first.Name} white");
+        bool[] probe;
+        CameraShotRgb? second;
+        if (outputs.Count >= 2)
+        {
+            Array.Clear(frames);
+            for (var j = 0; j < outputs.Count; j++)
+                frames[j] = SolidRgb(outputs[j].Width, outputs[j].Height, 255, 255, 255, 1);
+            second = await shooter.ShootRgbAsync(frames, ct).ConfigureAwait(false);
+            Step(-1, "every output white: is the camera's exposure held?");
+            probe = cores[0];
+        }
+        else
+        {
+            second = await Shoot(0, SolidRgb(first.Width, first.Height, 255, 255, 255, 0.5)).ConfigureAwait(false);
+            Step(0, $"{first.Name} white on its left half: is the camera's exposure held?");
+            var map = captures[0].Map;
+            probe = new bool[cores[0].Length];
+            for (var i = 0; i < probe.Length; i++)
+                probe[i] = cores[0][i] && map.ProjectorX[i] is var x && float.IsFinite(x) && x < 0.4 * map.ProjectorWidth;
+        }
+        var a = ColourMatch.Luminance(ColourMatch.Mean(whiteFirst!.Rgb, probe) - ColourMatch.Mean(black.Rgb, probe));
+        var b = ColourMatch.Luminance(ColourMatch.Mean(second!.Rgb, probe) - ColourMatch.Mean(black.Rgb, probe));
+        var drift = a > 0 ? Math.Abs(b - a) / a : double.PositiveInfinity;
+        if (!(drift <= 0.03))
+        {
+            return new AlignColour([], null, false, string.Create(CultureInfo.InvariantCulture,
+                $"the camera sets its own exposure (the same white read {drift * 100:0} % apart) — set it to manual exposure and white balance, then ALIGN RUN with COLOR WHITE; the geometry stands"), done);
+        }
+
+        var colours = new List<ProjectorColour>(outputs.Count);
+        for (var j = 0; j < outputs.Count; j++)
+        {
+            var o = outputs[j];
+            var k = ColourMatch.Mean(black.Rgb, cores[j]);
+            var shots = new Vec3d[4];
+            (byte R, byte G, byte B, string Name)[] primaries = [(255, 0, 0, "red"), (0, 255, 0, "green"), (0, 0, 255, "blue"), (255, 255, 255, "white")];
+            for (var p = 0; p < 4; p++)
+            {
+                var (r, g, bl, name) = primaries[p];
+                var shot = j == 0 && p == 3 ? whiteFirst : await Shoot(j, SolidRgb(o.Width, o.Height, r, g, bl, 1)).ConfigureAwait(false);
+                if (!(j == 0 && p == 3))
+                    Step(j, $"{o.Name} {name}");
+                shots[p] = ColourMatch.Mean(shot!.Rgb, cores[j]);
+            }
+            colours.Add(new ProjectorColour(k, shots[0], shots[1], shots[2], shots[3]));
+        }
+        var (match, words) = ColourMatch.White(colours);
+        return new AlignColour(colours, match, true, words, done);
+    }
+
+    /// <summary>A colour frame of one RGB over the left <paramref name="share"/> of a raster, black beyond.</summary>
+    public static byte[] SolidRgb(int width, int height, byte r, byte g, byte b, double share)
+    {
+        var f = new byte[width * height * 3];
+        var lit = (int)Math.Round(width * Math.Clamp(share, 0, 1));
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < lit; x++)
+            {
+                var i = (y * width + x) * 3;
+                f[i] = r;
+                f[i + 1] = g;
+                f[i + 2] = b;
+            }
+        return f;
+    }
+
     /// <summary>A frame of one level at a raster.</summary>
     public static byte[] Solid(int width, int height, byte level)
     {
@@ -114,6 +232,17 @@ public sealed class SimShooter(MultiProjectorSim sim) : IAlignShooter
     private readonly int[] _shown = new int[sim.Projectors.Count];
 
     public int Shots => _shots;
+
+    public Task<CameraShotRgb?> ShootRgbAsync(IReadOnlyList<byte[]?> frames, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ct.ThrowIfCancellationRequested();
+        for (var j = 0; j < frames.Count && j < _shown.Length; j++)
+            if (frames[j] is not null)
+                _shown[j]++;
+        _shots++;
+        return Task.FromResult<CameraShotRgb?>(new CameraShotRgb(sim.CaptureRgb(frames), sim.CameraWidth, sim.CameraHeight));
+    }
 
     public Task<CameraShot> ShootAsync(int output, byte[]? frame, CancellationToken ct)
     {

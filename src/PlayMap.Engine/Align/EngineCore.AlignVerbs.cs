@@ -204,17 +204,31 @@ public sealed partial class EngineCore
 
     private CommandReply AlignRun(VerbCall c)
     {
-        const string syntax = "ALIGN RUN <group> [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]";
+        const string syntax = "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]";
         var args = c.Args.ToList();
         var steps = TakeOption(args, "STEPS");
         var fitWord = TakeOption(args, "FIT");
-        if (args.Count != 1 || steps == "" || fitWord == "")
+        var colourWord = TakeOption(args, "COLOR");
+        if (args.Count != 1 || steps == "" || fitWord == "" || colourWord == "")
             return CommandReply.Fail(syntax);
-        if (steps is not null && !steps.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+        var colour = false;
+        if (steps is not null)
         {
-            var set = steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToUpperInvariant()).ToHashSet(StringComparer.Ordinal);
-            if (!set.SetEquals(["SCAN", "SOLVE"]))
-                return CommandReply.Fail($"STEPS {steps.ToUpperInvariant()}: this round a run scans and solves together (STEPS SCAN,SOLVE or ALL); colour, verify and the projectors' own settings are next round");
+            var set = steps.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+                ? ["SCAN", "SOLVE", "COLOR"]
+                : steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToUpperInvariant()).ToHashSet(StringComparer.Ordinal);
+            if (!set.Contains("SCAN") || !set.Contains("SOLVE") || set.Any(x => x is not ("SCAN" or "SOLVE" or "COLOR")))
+                return CommandReply.Fail($"STEPS {steps.ToUpperInvariant()}: a run scans and solves (STEPS SCAN,SOLVE), and may match colour (,COLOR) — or ALL; a step on its own and the projectors' own settings are next round");
+            colour = set.Contains("COLOR");
+        }
+        if (colourWord is not null)
+        {
+            if (colourWord.Equals("WHITE", StringComparison.OrdinalIgnoreCase))
+                colour = true;
+            else if (colourWord.Equals("OFF", StringComparison.OrdinalIgnoreCase))
+                colour = false;
+            else
+                return CommandReply.Fail($"COLOR {colourWord.ToUpperInvariant()}: WHITE or OFF (FULL is next round)");
         }
         var p = Edits.Project;
         if (AlignNamed(p, args[0]) is not { } group)
@@ -264,14 +278,14 @@ public sealed partial class EngineCore
         var projectors = outputs.Select(o => o.ProjectorId is { } pid ? p.FindProjector(pid) : null).ToList();
         try
         {
-            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder));
+            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder) { Colour = colour });
         }
         catch (InvalidOperationException ex)
         {
             return CommandReply.Fail(ex.Message);
         }
         var shots = Core.Align.AlignSequence.Shots([.. outputs.Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name, o.Width, o.Height,
-            Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]);
+            Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0);
         var words = string.Create(CultureInfo.InvariantCulture,
             $"{runId} measures {group.Name} through {group.CameraId} ({shots} pictures, FIT {fit.ToString().ToUpperInvariant()}); nothing changes on the air until ALIGN ACCEPT {runId}");
         return new CommandReply(true, JsonOut(w =>

@@ -37,6 +37,26 @@ public sealed record SimProjector(Intrinsics Intrinsics, Pose Pose)
     public double Black { get; init; } = 0.002;
 
     public double CornerFalloff { get; init; }
+
+    /// <summary>The camera-linear RGB of each full primary (columns red, green, blue) per unit of <see cref="White"/>; null is grey
+    /// light (the identity), the same in every channel as the grey picture.</summary>
+    public Mat3d? Response { get; init; }
+
+    /// <summary>A projector's colour response at a correlated colour temperature (4 000–25 000 K, the CIE daylight locus) with sRGB's
+    /// primaries, its white's luminance one; <paramref name="redShift"/> moves the red primary's x (a lamp's own red).</summary>
+    public static Mat3d ResponseAt(double kelvin, double redShift = 0)
+    {
+        var t = Math.Clamp(kelvin, 4000, 25000);
+        var xw = t <= 7000
+            ? -4.6070e9 / (t * t * t) + 2.9678e6 / (t * t) + 0.09911e3 / t + 0.244063
+            : -2.0064e9 / (t * t * t) + 1.9018e6 / (t * t) + 0.24748e3 / t + 0.237040;
+        var yw = -3.000 * xw * xw + 2.870 * xw - 0.275;
+        static Vec3d Xyz(double x, double y) => new(x / y, 1, (1 - x - y) / y);
+        var p = Mat3d.FromColumns(Xyz(0.64 + redShift, 0.33), Xyz(0.30, 0.60), Xyz(0.15, 0.06));
+        var scale = p.Inverse() * Xyz(xw, yw);
+        var primaries = Mat3d.FromColumns(Xyz(0.64 + redShift, 0.33) * scale.X, Xyz(0.30, 0.60) * scale.Y, Xyz(0.15, 0.06) * scale.Z);
+        return Mat3d.FromColumns(ColourMatch.FromXyz(primaries.Column(0)), ColourMatch.FromXyz(primaries.Column(1)), ColourMatch.FromXyz(primaries.Column(2)));
+    }
 }
 
 /// <summary>A simulated camera: optics with the full Brown lens (k1, k2, k3 and both tangential terms), pose, the room's light, noise
@@ -52,6 +72,10 @@ public sealed record SimCamera(Intrinsics Intrinsics, LensDistortion Lens, Pose 
     public double Exposure { get; init; } = 1;
 
     public ulong Seed { get; init; } = 1;
+
+    /// <summary>The camera sets its own exposure for each picture (a webcam left on automatic): the picture's mean light is brought to a
+    /// fixed share of full scale, whatever the projectors show.</summary>
+    public bool AutoExposure { get; init; }
 }
 
 /// <summary>How a ready-made layout is built: the projectors' rasters and light, their overlap and throw, how far each is turned off
@@ -98,6 +122,15 @@ public sealed record SimLayout
 
     /// <summary>Per projector raster (in order; the last repeats); empty takes <see cref="ProjectorWidth"/> × <see cref="ProjectorHeight"/>.</summary>
     public IReadOnlyList<(int Width, int Height)> Rasters { get; init; } = [];
+
+    /// <summary>Each projector's colour temperature (K), in order (the last repeats); empty is grey light.</summary>
+    public IReadOnlyList<double> Kelvins { get; init; } = [];
+
+    /// <summary>Each projector's light level, a factor on its white (the last repeats).</summary>
+    public IReadOnlyList<double> Levels { get; init; } = [1];
+
+    /// <summary>The camera sets its own exposure per picture.</summary>
+    public bool AutoExposure { get; init; }
 
     internal (int Width, int Height) RasterOf(int j) =>
         Rasters.Count == 0 ? (ProjectorWidth, ProjectorHeight) : Rasters[Math.Min(j, Rasters.Count - 1)];
@@ -241,7 +274,8 @@ public sealed class MultiProjectorSim
     }
 
     /// <summary>A layout named the way a simulated camera's source names it: "[flat-screen|bulged-screen|curved-screen]:tile&lt;c&gt;x&lt;r&gt;[:o&lt;pct&gt;]"
-    /// or "…:stack&lt;n&gt;"; anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
+    /// or "…:stack&lt;n&gt;", with ":k&lt;kelvin&gt;,…" (each projector's colour temperature), ":lvl&lt;level&gt;,…" (its light, 0–1) and
+    /// ":autoexposure" (a camera that sets its own exposure); anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
     /// projectors' own, in order; the camera's raster is given.</summary>
     public static MultiProjectorSim FromSource(string source, IReadOnlyList<(int Width, int Height)> rasters, int cameraWidth, int cameraHeight)
     {
@@ -271,8 +305,26 @@ public sealed class MultiProjectorSim
                 stack = n;
             else if (p.StartsWith('o') && int.TryParse(p[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pct) && pct is >= 5 and <= 60)
                 layout = layout with { Overlap = pct / 100.0 };
+            else if (p.StartsWith('k') && Numbers(p[1..]) is { Count: > 0 } kelvins && kelvins.All(t => t is >= 4000 and <= 25000))
+                layout = layout with { Kelvins = kelvins };
+            else if (p.StartsWith("lvl", StringComparison.Ordinal) && Numbers(p[3..]) is { Count: > 0 } levels && levels.All(l => l is > 0 and <= 1))
+                layout = layout with { Levels = levels };
+            else if (p == "autoexposure")
+                layout = layout with { AutoExposure = true };
         }
         return stack > 0 ? Stack(stack, layout) : Tiles(columns, rows, layout);
+    }
+
+    private static List<double>? Numbers(string list)
+    {
+        var values = new List<double>();
+        foreach (var word in list.Split(','))
+        {
+            if (!double.TryParse(word, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+                return null;
+            values.Add(v);
+        }
+        return values;
     }
 
     private static SimProjector Aimed(SimLayout o, int j, Vec3d centre, double tileW, ref Pcg32 rng, double zoom, Vec3d extraTurn)
@@ -289,9 +341,10 @@ public sealed class MultiProjectorSim
         return new SimProjector(k, new Pose(eye, r.NearestRotation().ToRotationVector()))
         {
             Gamma = SimLayout.Pick(o.Gammas, j, 2.2),
-            White = SimLayout.Pick(o.Whites, j, 0.55),
+            White = SimLayout.Pick(o.Whites, j, 0.55) * SimLayout.Pick(o.Levels, j, 1),
             Black = o.Black,
             CornerFalloff = o.CornerFalloff,
+            Response = o.Kelvins.Count == 0 ? null : SimProjector.ResponseAt(SimLayout.Pick(o.Kelvins, j, 6500), j % 2 == 1 ? 0.01 : 0),
         };
     }
 
@@ -300,7 +353,7 @@ public sealed class MultiProjectorSim
         var k = Intrinsics.FromFieldOfView(o.CameraWidth, o.CameraHeight, o.CameraFovDegrees);
         var distance = coveredWidth / 2 / (0.8 * Math.Tan(o.CameraFovDegrees * Math.PI / 360));
         var eye = new Vec3d(o.CameraOffset.X, o.CameraOffset.Y, distance + o.CameraOffset.Z);
-        return new SimCamera(k, o.CameraLens, Pose.LookAt(eye, Vec3d.Zero, Vec3d.UnitY)) { NoiseSigma = o.NoiseSigma, Seed = o.Seed };
+        return new SimCamera(k, o.CameraLens, Pose.LookAt(eye, Vec3d.Zero, Vec3d.UnitY)) { NoiseSigma = o.NoiseSigma, Seed = o.Seed, AutoExposure = o.AutoExposure };
     }
 
     // ---- capture ------------------------------------------------------------------------------------------------------------
@@ -321,6 +374,7 @@ public sealed class MultiProjectorSim
         var picture = new byte[_n];
         var cam = Camera;
         var inv = 1 / cam.EncodeGamma;
+        var exposure = cam.AutoExposure ? AutoExposure(j => shown[j] is { } f ? (f, 1) : (null, 1)) : cam.Exposure;
         Parallel.For(0, CameraHeight, y =>
         {
             var rng = new Pcg32(cam.Seed * 0x9E3779B97F4A7C15UL + capture, (ulong)y * 2 + 1);
@@ -337,12 +391,113 @@ public sealed class MultiProjectorSim
                     var s = shown[j] is { } frame ? Sample(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k]) : 0;
                     light += p.Black + (p.White - p.Black) * _fall[j][k] * s;
                 }
-                var e = Math.Clamp(light * cam.Exposure, 0, 1);
+                var e = Math.Clamp(light * exposure, 0, 1);
                 var v = 255 * Math.Pow(e, inv) + cam.NoiseSigma * rng.NextGaussian();
                 picture[k] = (byte)Math.Clamp(Math.Round(v), 0, 255);
             }
         });
         return picture;
+    }
+
+    /// <summary>The camera's colour picture (interleaved RGB) while each projector shows its frame (interleaved RGB at its raster; null
+    /// shows black): each channel the room's light plus every projector's black and its primaries' light through its response.</summary>
+    public byte[] CaptureRgb(IReadOnlyList<byte[]?> shown)
+    {
+        ArgumentNullException.ThrowIfNull(shown);
+        if (shown.Count != Projectors.Count)
+            throw new ArgumentException("One frame (or null) per projector.", nameof(shown));
+        for (var j = 0; j < shown.Count; j++)
+        {
+            var k = Projectors[j].Intrinsics;
+            if (shown[j] is { } f && f.Length != k.Width * k.Height * 3)
+                throw new ArgumentException($"Projector {j}'s frame is not its raster in RGB.", nameof(shown));
+        }
+        var capture = (ulong)Interlocked.Increment(ref _captures);
+        var picture = new byte[_n * 3];
+        var cam = Camera;
+        var inv = 1 / cam.EncodeGamma;
+        var exposure = cam.AutoExposure ? AutoExposure(j => shown[j] is { } f ? (f, 3) : (null, 3)) : cam.Exposure;
+        var responses = Projectors.Select(p => p.Response ?? Mat3d.Identity).ToArray();
+        Parallel.For(0, CameraHeight, y =>
+        {
+            var rng = new Pcg32(cam.Seed * 0x9E3779B97F4A7C15UL + capture, (ulong)y * 2 + 1);
+            for (var x = 0; x < CameraWidth; x++)
+            {
+                var k = y * CameraWidth + x;
+                var light = new Vec3d(cam.Ambient, cam.Ambient, cam.Ambient);
+                for (var j = 0; j < Projectors.Count; j++)
+                {
+                    var qx = _qx[j][k];
+                    if (float.IsNaN(qx))
+                        continue;
+                    var p = Projectors[j];
+                    var drive = shown[j] is { } frame
+                        ? new Vec3d(SampleRgb(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k], 0),
+                            SampleRgb(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k], 1),
+                            SampleRgb(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k], 2))
+                        : Vec3d.Zero;
+                    var lit = responses[j] * drive * ((p.White - p.Black) * _fall[j][k]);
+                    light += lit + new Vec3d(p.Black, p.Black, p.Black);
+                }
+                for (var c = 0; c < 3; c++)
+                {
+                    var e = Math.Clamp((c == 0 ? light.X : c == 1 ? light.Y : light.Z) * exposure, 0, 1);
+                    var v = 255 * Math.Pow(e, inv) + cam.NoiseSigma * rng.NextGaussian();
+                    picture[k * 3 + c] = (byte)Math.Clamp(Math.Round(v), 0, 255);
+                }
+            }
+        });
+        return picture;
+    }
+
+    /// <summary>The exposure a camera on automatic picks for a picture: its mean grey light (rows summed in order) brought toward 0.25,
+    /// within a webcam's reach of 0.6–1.6 times its set exposure.</summary>
+    private double AutoExposure(Func<int, (byte[]? Frame, int Channels)> frameOf)
+    {
+        var rows = new double[CameraHeight];
+        Parallel.For(0, CameraHeight, y =>
+        {
+            double sum = 0;
+            for (var x = 0; x < CameraWidth; x++)
+            {
+                var k = y * CameraWidth + x;
+                var light = Camera.Ambient;
+                for (var j = 0; j < Projectors.Count; j++)
+                {
+                    var qx = _qx[j][k];
+                    if (float.IsNaN(qx))
+                        continue;
+                    var p = Projectors[j];
+                    var (frame, channels) = frameOf(j);
+                    var s = frame is null ? 0 : channels == 1
+                        ? Sample(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k])
+                        : SampleRgb(frame, p.Intrinsics.Width, p.Intrinsics.Height, _luts[j], qx, _qy[j][k], 1);
+                    light += p.Black + (p.White - p.Black) * _fall[j][k] * s;
+                }
+                sum += light;
+            }
+            rows[y] = sum;
+        });
+        var mean = rows.Sum() / _n;
+        return Camera.Exposure * Math.Clamp(0.25 / Math.Max(mean, 1e-4), 0.6, 1.6);
+    }
+
+    /// <summary>One channel of an interleaved RGB frame's light at a continuous projector point, bilinear.</summary>
+    private static double SampleRgb(byte[] frame, int w, int h, float[] lut, float qx, float qy, int channel)
+    {
+        var fx = qx - 0.5;
+        var fy = qy - 0.5;
+        var x0 = (int)Math.Floor(fx);
+        var y0 = (int)Math.Floor(fy);
+        var tx = fx - x0;
+        var ty = fy - y0;
+        var xa = Math.Clamp(x0, 0, w - 1);
+        var xb = Math.Clamp(x0 + 1, 0, w - 1);
+        var ya = Math.Clamp(y0, 0, h - 1);
+        var yb = Math.Clamp(y0 + 1, 0, h - 1);
+        var top = lut[frame[(ya * w + xa) * 3 + channel]] * (1 - tx) + lut[frame[(ya * w + xb) * 3 + channel]] * tx;
+        var bottom = lut[frame[(yb * w + xa) * 3 + channel]] * (1 - tx) + lut[frame[(yb * w + xb) * 3 + channel]] * tx;
+        return top * (1 - ty) + bottom * ty;
     }
 
     /// <summary>The light a frame emits at a continuous projector point: its four nearest pixels' light, bilinear.</summary>

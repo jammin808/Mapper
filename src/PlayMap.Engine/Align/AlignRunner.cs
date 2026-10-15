@@ -32,7 +32,11 @@ public sealed record AlignRunView(string Id, string GroupId, string State, strin
 /// <summary>What a run is given: the group, its outputs in order with their projectors (or null), the camera (null: the bare simulator),
 /// where the canvas goes, the folder its files go under, and its id.</summary>
 public sealed record AlignRunSetup(string RunId, AlignGroup Group, IReadOnlyList<Output> Outputs, IReadOnlyList<Projector?> Projectors, CameraRig? Rig,
-    CanvasFit Fit, double Aspect, string ProjectFolder);
+    CanvasFit Fit, double Aspect, string ProjectFolder)
+{
+    /// <summary>The colour step: WHITE matches every output's white and level (diagonal gains in linear light).</summary>
+    public bool Colour { get; init; }
+}
 
 /// <summary>The alignment runner as the engine's verbs see it: one run at a time, off the control lane.</summary>
 public interface IAlignBackend
@@ -252,13 +256,20 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 var eta = p.Progress > 0.02 ? stepEta() * (1 - p.Progress) / p.Progress : -1;
                 Step(setup, p.Step, p.Output, 0.9 * p.Progress, eta, p.Words, total);
             }, ct).ConfigureAwait(false);
+            AlignColour? colour = null;
+            if (setup.Colour)
+            {
+                var colourShots = AlignSequence.ColourShots(specs.Count);
+                colour = await AlignSequence.ColourAsync(shooter, specs, captures, p => Step(setup, p.Step, p.Output, 0.9, -1, p.Words, colourShots), ct)
+                    .ConfigureAwait(false);
+            }
             Step(setup, "solve", -1, 0.9, -1, "fitting the screen, the canvas, each output's warp and blend", total);
             var group = setup.Group;
             var corners = group.Target.CameraCorners.IsDefaultOrEmpty ? [] : group.Target.CameraCorners.ToList();
             var input = new AlignSolveInput(black.Width, black.Height, black.Gray, captures, setup.Fit, setup.Aspect, corners, group.Target.MarginPct, group.Options);
             var result = await Task.Run(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
-            Finish(setup, started, result, captures);
+            Finish(setup, started, result, captures, colour);
         }
         catch (OperationCanceledException)
         {
@@ -331,7 +342,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             [.. outputs.Select(o => o with { Light = state == "failed" ? "red" : "grey" })], null));
     }
 
-    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures)
+    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour)
     {
         if (!result.Ok)
         {
@@ -358,11 +369,14 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 new MeasuredWarp(o.Warp.Grid.Columns, o.Warp.Grid.Rows, dataPath + "/" + warpName, Pfm.Hash(warpBytes), Math.Round(o.Warp.HeldOutRmsPx, 3)),
                 null,
                 new MeasuredBlend(o.Blend.Width, o.Blend.Height, dataPath + "/" + blendName, Pfm.Hash(blendBytes)),
-                new MeasuredColor(1, 1, 1, Math.Round(o.Gamma, 3), 1),
+                colour?.Match is { } match && j < match.Gains.Count
+                    ? new MeasuredColor(Math.Round(match.Gains[j].R, 4), Math.Round(match.Gains[j].G, 4), Math.Round(match.Gains[j].B, 4), Math.Round(o.Gamma, 3), 1)
+                    : new MeasuredColor(1, 1, 1, Math.Round(o.Gamma, 3), 1),
                 Math.Round(o.Warp.HeldOutRmsPx, 3), "", "", setup.RunId, finished);
             outs.Add(new AlignRunOutput(o.OutputId, setup.Outputs[j].Name, measured, o.Gamma, o.DecodedShare, o.Warp.HeldOutRmsPx, o.FitRmsPx));
         }
         var words = string.Create(CultureInfo.InvariantCulture, $"staged {score.Grade} {score.Value:0}: ") + result.Words
+            + (colour is null ? "" : "; colour: " + colour.Words)
             + string.Create(CultureInfo.InvariantCulture, $" — ALIGN ACCEPT {setup.RunId} applies it");
         var record = new AlignRunRecord(setup.RunId, setup.Group.Id, "staged", started, finished, setup.Rig?.Id ?? "sim", setup.Fit.ToString().ToLowerInvariant(),
             words, outs.ToImmutable(), score, result.SeamPx, result.CoverageShare, result.WhiteP5OverP95, result.Planar?.RmsPx ?? double.NaN);
