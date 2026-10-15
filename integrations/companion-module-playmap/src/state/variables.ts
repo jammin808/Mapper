@@ -97,7 +97,7 @@ const FIXED: Record<string, string> = {
 const BANK_FIELDS = {
 	pl: ['id', 'name', 'state', 'item', 'next', 'remaining', 'progress'],
 	op: ['id', 'name', 'light', 'fps', 'dropped'],
-	pj: ['id', 'name', 'light', 'residual_px'],
+	pj: ['id', 'name', 'light', 'residual_px', 'power', 'shutter'],
 	sf: ['id', 'name'],
 	peer: ['name', 'light', 'headline'],
 } as const
@@ -118,7 +118,8 @@ export function variableDefinitions(model: NodeModel, bankSize: number): Compani
 	for (const o of index?.outputs ?? [])
 		for (const f of ['light', 'fps']) defs[idVar('op', o.id, f)] = { name: `${o.name}: ${f}` }
 	for (const pj of index?.projectors ?? [])
-		for (const f of ['light', 'residual_px', 'score']) defs[idVar('pj', pj.id, f)] = { name: `${pj.name}: ${f}` }
+		for (const f of ['light', 'residual_px', 'score', 'power', 'shutter'])
+			defs[idVar('pj', pj.id, f)] = { name: `${pj.name}: ${f}` }
 	for (const sf of index?.surfaces ?? []) defs[idVar('sf', sf.id, 'name')] = { name: `${sf.name}: name` }
 	// The machines this node hears come from STATE, not INDEX: their definitions move when the set of peers does.
 	for (const peer of list(model.state, P.peers)) {
@@ -126,6 +127,17 @@ export function variableDefinitions(model: NodeModel, bankSize: number): Compani
 		if (id) defs[idVar('peer', id, 'light')] = { name: `${str(field(peer, P.peerName), id)}: light` }
 	}
 	return defs
+}
+
+/** The projector box linked to a projector (STATE.devices): its power and shutter as the box reports them. */
+export function deviceOf(state: unknown, projectorId: string): unknown {
+	return projectorId ? list(state, P.devices).find((d) => field(d, P.dvProjector) === projectorId) : undefined
+}
+
+/** A scan runs while its state is not an end (done, failed, cancelled) — STATE keeps the last scan after it ends. */
+export function scanRunning(state: unknown): boolean {
+	if (at(state, P.scan) == null) return false
+	return !['done', 'failed', 'cancelled', 'idle', ''].includes(str(at(state, P.scanState)))
 }
 
 /** A projector's light from its solve: green under 1.5 px, amber under 4, red past it, grey unsolved. */
@@ -216,12 +228,12 @@ export function variablesOf(
 					(transfers.reduce((sum: number, t) => sum + num(field(t, P.transferProgress)), 0) / transfers.length) * 100,
 				) / 100
 			: 0
-	const scanning = at(s, P.scan) != null
-	v.scan_state = s ? (scanning ? str(at(s, P.scanState), 'running') : 'idle') : ''
-	const of = num(at(s, P.scanOf))
-	v.scan_stage = scanning ? `${num(at(s, P.scanPattern))}/${of}` : ''
-	v.scan_progress = scanning && of > 0 ? Math.round((num(at(s, P.scanPattern)) / of) * 100) / 100 : 0
-	v.scan_words = str(at(s, P.scanWords))
+	const scan = at(s, P.scan)
+	const of = num(at(s, P.scanPatterns))
+	v.scan_state = s ? (scan != null ? str(at(s, P.scanState), 'running') : 'idle') : ''
+	v.scan_stage = scan != null && of > 0 ? `${num(at(s, P.scanPattern))}/${of}` : ''
+	v.scan_progress = scanRunning(s) ? Math.round(num(at(s, P.scanProgress)) * 100) / 100 : 0
+	v.scan_words = str(at(s, P.scanMessage))
 	v.sync_role = str(at(s, P.syncRole))
 	v.sync_leader = str(at(s, P.syncLeader))
 	v.sync_uncertainty_ms = num(at(s, P.syncOffsetMs))
@@ -261,6 +273,9 @@ export function variablesOf(
 		v[`pj_${n}_name`] = str(field(pj, P.pjName))
 		v[`pj_${n}_light`] = pj ? projectorLight(pj) : ''
 		v[`pj_${n}_residual_px`] = num(field(pj, P.pjResidualPx))
+		const box = deviceOf(s, str(field(pj, P.pjId)))
+		v[`pj_${n}_power`] = str(field(box, P.dvPower))
+		v[`pj_${n}_shutter`] = str(field(box, P.dvShutter))
 		const sf = model.index?.surfaces[n - 1]
 		v[`sf_${n}_id`] = sf?.id ?? ''
 		v[`sf_${n}_name`] = sf?.name ?? ''
@@ -285,6 +300,9 @@ export function variablesOf(
 		v[idVar('pj', pj.id, 'light')] = p ? projectorLight(p) : 'grey'
 		v[idVar('pj', pj.id, 'residual_px')] = num(field(p, P.pjResidualPx))
 		v[idVar('pj', pj.id, 'score')] = projectorScore(model, pj.id)
+		const box = deviceOf(s, pj.id)
+		v[idVar('pj', pj.id, 'power')] = str(field(box, P.dvPower))
+		v[idVar('pj', pj.id, 'shutter')] = str(field(box, P.dvShutter))
 	}
 	for (const sf of model.index?.surfaces ?? []) v[idVar('sf', sf.id, 'name')] = sf.name
 	for (const peer of list(s, P.peers)) {

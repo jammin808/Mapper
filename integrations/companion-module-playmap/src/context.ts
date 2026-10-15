@@ -1,4 +1,4 @@
-import type { DropdownChoice } from '@companion-module/base'
+import type { DropdownChoice, JsonValue } from '@companion-module/base'
 import type { VerbRow } from './catalog/verbs.ts'
 import type { PlayMapConfig } from './config.ts'
 import type { Encoders } from './encoders.ts'
@@ -41,6 +41,8 @@ export interface Ctx {
 	choices(prefix: string | undefined): DropdownChoice[]
 	/** The press shape of a line's verb. */
 	pressOf(line: string): 'instant' | 'hold' | 'double'
+	/** One of this connection's variables as last published ('' for one it does not have). */
+	variable(id: string): JsonValue
 	minGoMs(): number
 	checkFeedbacks(...types: string[]): void
 	checkFeedbacksById(...ids: string[]): void

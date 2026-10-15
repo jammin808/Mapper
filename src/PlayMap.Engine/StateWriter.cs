@@ -352,6 +352,8 @@ public static class StateWriter
         w.WriteEndObject();
     }
 
+    /// <summary>STATE.scan from a scan backend other than the runner: its summary, then the runner's own names for the same facts
+    /// (patterns shown of all, progress 0–1, the words), so a reader finds one shape whichever backend scans.</summary>
     public static void WriteScan(Utf8JsonWriter w, ScanProgress? scan)
     {
         ArgumentNullException.ThrowIfNull(w);
@@ -370,6 +372,9 @@ public static class StateWriter
         w.WriteNumber("of", scan.Of);
         w.WriteNumber("quality", Math.Round(scan.Quality, 1));
         w.WriteString("words", scan.Words);
+        w.WriteNumber("patterns", scan.Of);
+        w.WriteNumber("progress", scan.Of > 0 ? Math.Round((double)scan.Pattern / scan.Of, 3) : 0);
+        w.WriteString("message", scan.Words);
         w.WriteEndObject();
     }
 

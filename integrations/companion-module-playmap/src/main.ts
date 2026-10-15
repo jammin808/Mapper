@@ -23,10 +23,10 @@ import { FEEDBACK_SLICES, feedbackDefinitions } from './feedbacks.ts'
 import { Confirms, GoGuard, Receipts, type PressResult } from './guards.ts'
 import { NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
 import { LivePage } from './live.ts'
-import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets } from './presets.ts'
+import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets, withPresets } from './presets.ts'
 import { NodeModel } from './state/model.ts'
 import { P, at, field, list, num as numOf, str } from './state/paths.ts'
-import { changedValues, variableDefinitions, variablesOf } from './state/variables.ts'
+import { changedValues, scanRunning, variableDefinitions, variablesOf } from './state/variables.ts'
 import { Thumbs } from './thumbs.ts'
 import { KNOWN_LINE_PROTOCOL, MODULE_VERSION } from './version.ts'
 import { Words } from './words.ts'
@@ -69,6 +69,42 @@ export interface PlayMapTestHooks {
 /** A PlayMap node as a Companion connection: one link (the web port's line channel, or the TCP wire), STATE and INDEX diffed into
  * variables and the feedback types they move, actions generated from the node's vocabulary, presets keyed by entity id. The node is
  * the only authority: a key's light is STATE, never the press. */
+/** The ids among a line's words that name an entry of STATE (an object whose id is that word), in the order STATE holds them. */
+function entitiesNamed(state: unknown, words: ReadonlySet<string>): string[] {
+	const found: string[] = []
+	walkEntries(state, (id) => {
+		if (words.has(id) && !found.includes(id)) found.push(id)
+	})
+	return found
+}
+
+/** STATE's entries for these ids, as one text (what an accepted line watches move). */
+function entriesOf(state: unknown, ids: readonly string[]): string {
+	if (ids.length === 0) return ''
+	const wanted = new Set(ids)
+	const parts: string[] = []
+	walkEntries(state, (id, entry) => {
+		if (wanted.has(id)) parts.push(JSON.stringify(entry))
+	})
+	return parts.join('\n')
+}
+
+/** Every object in STATE with a string id, walked without recursion (STATE is bounded to 64 levels when taken). */
+function walkEntries(state: unknown, visit: (id: string, entry: object) => void): void {
+	const stack: unknown[] = [state]
+	while (stack.length > 0) {
+		const v = stack.pop()
+		if (v === null || typeof v !== 'object') continue
+		if (Array.isArray(v)) {
+			for (let i = v.length - 1; i >= 0; i--) stack.push(v[i])
+			continue
+		}
+		const id = (v as { id?: unknown }).id
+		if (typeof id === 'string' && id) visit(id, v)
+		for (const child of Object.values(v as Record<string, unknown>).reverse()) stack.push(child)
+	}
+}
+
 /** An EVENTS SINCE replay that is not answered is asked again this often, this many times in all, before the gap is given up. */
 const REPLAY_RETRY_MS = 2000
 const REPLAY_TRIES = 3
@@ -205,7 +241,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		try {
 			const reply = await session.ask(line)
 			if (this.#destroyed) return notSentAfterStop
-			return this.receipts.replied(controlId, verb, reply, numOf(at(this.model.state, P.seq)))
+			const words = new Set(line.trim().split(/\s+/u).slice(1))
+			const ids = reply.accepted ? entitiesNamed(this.model.state, words) : []
+			const watch = reply.accepted ? { ids, before: entriesOf(this.model.state, ids) } : null
+			return this.receipts.replied(controlId, verb, reply, numOf(at(this.model.state, P.seq)), watch)
 		} catch (e) {
 			// A press in flight when the connection stopped answers its caller and touches nothing of a stopped instance.
 			if (this.#destroyed) return notSentAfterStop
@@ -246,6 +285,11 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			default:
 				return []
 		}
+	}
+
+	/** One of this connection's variables as last published ('' for one it does not have). */
+	variable(id: string): JsonValue {
+		return this.#lastVars[id] ?? ''
 	}
 
 	pressOf(line: string): 'instant' | 'hold' | 'double' {
@@ -384,6 +428,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 					throw e
 				}
 				this.setActionDefinitions(definitions)
+				this.#definePresets()
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe('SUBSCRIBE INDEX')
@@ -536,7 +581,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.model.setState(json)
 		const s = this.model.state
 		if (this.events.baseline === 0 && this.events.lastSeq === 0) this.events.baseline = numOf(at(s, P.eventsSeq))
-		this.receipts.stateMoved(numOf(at(s, P.seq)))
+		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
 		this.encoders.stateMoved()
 		// A node whose INDEX moved says so in STATE; if no INDEX push follows (a node without SUBSCRIBE INDEX), it is asked.
 		const sig = str(at(s, P.projectIndex))
@@ -627,8 +672,21 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			id: str(field(p, P.peerId)),
 			name: str(field(p, P.peerName)),
 		}))
-		const structure = presetStructure(this.model.index, this.config, { peers, pressOf: (l) => this.pressOf(l) })
-		const presets = referencedPresets(presetDefinitions(this.config), structure)
+		// A preset whose action this node's vocabulary lacks (a row its VERBS does not list) is left out, and the structure with it:
+		// the host would keep it with its action unknown, a key that does nothing.
+		const known = new Set(Object.keys(actionDefinitions(this)))
+		const usable = Object.fromEntries(
+			Object.entries(presetDefinitions(this.config)).filter(([, preset]) =>
+				[...JSON.stringify(preset).matchAll(/"actionId":"([^"]+)"/gu)].every(
+					([, id]) => id === undefined || id.startsWith('internal:') || known.has(id),
+				),
+			),
+		)
+		const structure = withPresets(
+			presetStructure(this.model.index, this.config, { peers, pressOf: (l) => this.pressOf(l) }),
+			new Set(Object.keys(usable)),
+		)
+		const presets = referencedPresets(usable, structure)
 		const presetsKey = JSON.stringify(presets)
 		const structureKey = JSON.stringify(structure)
 		if (presetsKey === this.#presetsKey && structureKey === this.#structureKey) return
@@ -700,6 +758,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 
 		const moved = new Set(this.#forced)
 		this.#forced.clear()
+		if (Object.keys(changed).length > 0) moved.add('variables')
 		for (const [slice, value] of Object.entries(this.#sliceValues(nodeNow))) {
 			if (this.#slices.get(slice) !== value) moved.add(slice)
 			this.#slices.set(slice, value)
@@ -745,7 +804,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			peers: j(at(s, P.peers)),
 			faults: j(at(s, P.faults)),
 			media: j([at(s, P.mediaReady), list(s, P.transfers).length]),
-			scan: j(at(s, P.scan) != null),
+			scan: j([scanRunning(s), at(s, P.scanState)]),
+			devices: j(at(s, P.devices)),
 			ai: j(at(s, P.proposals)),
 			calibration: j(at(s, P.calTargets)),
 			state: j([at(s, P.seq), at(s, P.at)]),

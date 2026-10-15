@@ -206,3 +206,39 @@ void test('each receipt follows the control that pressed, whatever order the rep
 		await node.stop()
 	}
 })
+
+void test('an accepted line naming an entity stays pending through unrelated STATE until that entity’s entry moves', async () => {
+	const accepted = '{"stage":"accepted","effect":"powering on"}'
+	const { node, m } = await linked({ DEVICE: () => `OK ${accepted}` })
+	try {
+		await ready(m)
+		await wear(m, 'key-3')
+		const state = copy(fixture('state.json')) as { seq: number; headline: string; devices: Record<string, unknown>[] }
+		const box = state.devices[0]
+		assert.ok(box)
+		const result = fields(
+			await m.press('v_device_power', { device: String(box.id), state: 'ON', confirm: 'none' }, 'key-3'),
+		)
+		assert.equal(result.stage, 'accepted')
+		await m.host.until(() => receipt(m, 'key-3', 'pending') === true, 'amber while accepted')
+
+		// Another fact moves (STATE's seq with it): the box has not powered on yet, so the key stays amber.
+		const unrelated = copy(state)
+		unrelated.seq = state.seq + 5
+		unrelated.headline = 'something else moved'
+		node.pushState(unrelated)
+		await m.host.until(() => m.host.variables.get('headline') === 'something else moved', 'that STATE read')
+		assert.equal(m.instance.receipts.stage('key-3'), 'pending', 'an unrelated fact clears nothing')
+
+		// The box's own entry moves: its power shows, the amber goes.
+		const powered = copy(unrelated)
+		powered.seq += 1
+		Object.assign(powered.devices[0] ?? {}, { power: 'warming' })
+		node.pushState(powered)
+		await m.host.until(() => receipt(m, 'key-3', 'pending') === false, 'cleared when the box moved')
+		assert.equal(m.instance.receipts.stage('key-3'), null)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})

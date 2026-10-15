@@ -7,6 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
@@ -517,6 +518,41 @@ void test('past 32 items the Live page pages: slot n of page 2 is item 32 + n, a
 
 		await m.press('live_page_prev', { rule: '' })
 		await values(m, { p1: 'Intro', p8: 'Clip 8', p9: 'Clip 9' }, 'back on page 1')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a node whose VERBS lacks a row a preset presses gets no such preset, and the host warns of none', async () => {
+	const from = logs.length
+	const node = await new FakeNode().start()
+	const all = JSON.parse(readFileSync(new URL('../src/catalog/verbs.json', import.meta.url), 'utf8')) as {
+		name: string
+	}[]
+	node.handlers.set(
+		'VERBS',
+		() => 'OK ' + JSON.stringify(all.filter((r) => !['PANIC CLEAR', 'OUTPUT IDENTIFY'].includes(r.name))),
+	)
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(
+			() => m.host.actions.size > 0 && !m.host.actions.has('v_panic_clear'),
+			'the node’s vocabulary taken',
+		)
+		await m.host.until(() => !('show_panic_clear' in m.host.presets), 'the presets sent again')
+		assert.ok(!('output_key' in m.host.presets), 'no Output key: OUTPUT IDENTIFY is not this node’s')
+		assert.ok('show_go' in m.host.presets, 'the rest stay')
+		const named = JSON.stringify(m.host.structure)
+		assert.ok(!named.includes('"show_panic_clear"') && !named.includes('"output_key"'), 'the structure names neither')
+		const warnings = logs
+			.slice(from)
+			.filter((l) => (l.level === 'warn' || l.level === 'error') && /PresetDefinitionsManager/u.test(l.source ?? ''))
+		assert.deepEqual(
+			warnings.map((l) => l.message),
+			[],
+			'the host’s preset sanitiser changed nothing',
+		)
 	} finally {
 		await m.stop()
 		await node.stop()

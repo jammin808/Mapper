@@ -61,36 +61,28 @@ const COMPANION_51_FUNCTIONS: ReadonlySet<string> = new Set([
 /** Words of the expression language that take brackets and are not functions (control flow, since 5.0). */
 const KEYWORDS: ReadonlySet<string> = new Set(['if', 'for', 'while', 'switch', 'return'])
 
-/** The node's event kinds (design §3.5.4): what an event_pulse kind may name. */
+/** The event kinds the node raises (every RaiseEvent in src/PlayMap.Engine): what an event_pulse kind may name. Design §3.5.4
+ * lists more (scan.*, proposal.*, peer.*, device.*, media.*), which no node raises yet — a recipe on one would never fire. */
 const EVENT_KINDS: ReadonlySet<string> = new Set([
 	'item.start',
 	'item.end',
-	'playlist.end',
-	'playlist.cued',
 	'air.blackout',
 	'air.freeze',
-	'air.pattern',
 	'show.armed',
 	'show.disarmed',
-	'show.blind',
-	'show.commit',
 	'panic',
+	'panic.clear',
+	'lock',
+	'refused',
+	'preflight.done',
 	'fault.raised',
 	'fault.cleared',
-	'scan.started',
-	'scan.done',
-	'scan.failed',
-	'calibration.moved',
+	'calibration.staged',
 	'calibration.recalled',
-	'proposal.new',
-	'proposal.decided',
-	'peer.lost',
-	'peer.found',
-	'device.fault',
-	'device.power',
-	'media.ready',
-	'media.missing',
-	'deck.identify',
+	'align.accepted',
+	'chase.locked',
+	'chase.lost',
+	'sync.fellout',
 ])
 
 /** Companion 5.1's trigger events (research §3.6): a module reaches triggers only through its feedbacks and variables. */
@@ -439,7 +431,7 @@ void test('the keys breathe as the design draws them: an armed frame on oscillat
 	}
 })
 
-void test('the recipes are the ones the design lists: page variables, references to GO, PANIC and BLACKOUT, a scan.done trigger', async () => {
+void test('the recipes are the ones the design lists: page variables, references to GO, PANIC and BLACKOUT, a beep when a scan is done', async () => {
 	const missing: string[] = []
 	const pages = new Set(
 		variablesIn(HELP)
@@ -458,7 +450,9 @@ void test('the recipes are the ones the design lists: page variables, references
 			missing.push(`a button reference mirroring ${key} on every page`)
 
 	const kinds = new Set(ticked(paragraph('Triggers from the show.')))
-	for (const kind of ['item.end', 'fault.raised', 'scan.done'])
-		if (!kinds.has(kind)) missing.push(`a trigger on ${kind}`)
+	for (const kind of ['item.end', 'fault.raised']) if (!kinds.has(kind)) missing.push(`a trigger on ${kind}`)
+	// A scan's end is no event the node raises; its state variable moving to done is.
+	if (!/`scan_state` changing to "done"/u.test(paragraph('Triggers from the show.')))
+		missing.push('a trigger on scan_state moving to done')
 	assert.deepEqual(missing, [], 'HELP.md lacks recipes the design lists')
 })

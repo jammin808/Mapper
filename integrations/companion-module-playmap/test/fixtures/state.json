@@ -170,7 +170,10 @@
     "pattern": 12,
     "of": 40,
     "quality": 0.9,
-    "words": "pattern 12 of 40 on Left"
+    "words": "pattern 12 of 40 on Left",
+    "patterns": 40,
+    "progress": 0.3,
+    "message": "pattern 12 of 40 on Left"
   },
   "sync": {
     "role": "solo",
@@ -234,7 +237,7 @@
   "project": {
     "id": "pr00000006",
     "name": "Test node",
-    "revision": 8,
+    "revision": 9,
     "path": null,
     "dirty": true,
     "index": "9f1c2ab07d3e4410"
@@ -251,7 +254,33 @@
     "proposals": 0,
     "assistant": null
   },
-  "devices": [],
+  "devices": [
+    {
+      "id": "dv00000007",
+      "name": "Left box",
+      "protocol": "pjlink",
+      "host": "10.0.0.20",
+      "port": 0,
+      "projector": "",
+      "output": "",
+      "light": "grey",
+      "headline": "projector control is not on this node",
+      "liveness": "unknown",
+      "online": false,
+      "power": "unknown",
+      "shutter": null,
+      "input": null,
+      "frozen": null,
+      "lampHours": [],
+      "errors": [],
+      "faultsRead": false,
+      "model": "",
+      "serial": "",
+      "problem": "",
+      "credential": false,
+      "last": null
+    }
+  ],
   "solve": null,
   "cameras": [],
   "show": {

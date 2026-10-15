@@ -150,8 +150,8 @@ structure after 3 s, while keys relabel at once through value feedbacks; a `proj
 **Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself or that carries no secret), with typed
 options from `params` — entity dropdowns from INDEX, literal choices, keyword parameters, a form chooser for a row with several — and the
 line written by the node's grammar. Every press returns its receipt as the action's result (`ok`, `stage`, `effect`, `error`) on the node's
-first reply, and lights a corner dot on its key: amber while sent or accepted, cleared when STATE moves past it, red for 2 s on `ERR` with
-the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
+first reply, and lights a corner dot on its key: amber while sent or accepted — an accepted line until STATE's entries for the ids it
+names move (or, naming none, until STATE moves past it), at most 10 s — red for 2 s on `ERR` with the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
 answer as the result). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence: it must start with
 a verb of the node, never the session's words, a secret's or pairing's, nor carry one (`BIND ADD … TO AUTH …`); a refusal names only
@@ -170,7 +170,10 @@ holds a second GO of a playlist within `min_go_ms`; the node keeps its own minim
 
 **Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default) and typed values a layered key binds through
 `$(this:value)` style overrides: label, light, state word, progress, time left, picture, score, any STATE path, a Live slot, a section
-key's value, the focused playlist. `event_pulse` is true for `hold_ms` after an `EVENT` of its kind, on the node's clock. `verb_locked`
+key's value, the focused playlist. `event_pulse` is true for `hold_ms` after an `EVENT` of its kind, on the node's clock. A projector's power and shutter are its box's
+(`STATE.devices`, linked by projector); a scan runs while its state is not an end; an entity STATE no longer lists but INDEX does keeps
+its name, dimmed, and reads REMOVED only when INDEX drops it too. `variable` binds a key to one of the connection's variables (Show
+Mode's ARMED or REHEARSAL, the master's 0-100). `verb_locked`
 reads WHOAMI's `may`.
 
 **Presets** are fixed for a config and never change with the show; only the structure does. Template groups are keyed by entity id

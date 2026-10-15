@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "revision": 8,
+  "revision": 9,
   "sig": "9f1c2ab07d3e4410",
   "labels": "77aa0c1e93b2d5f0",
   "playlists": [
@@ -11,9 +11,9 @@
       "syncGroup": null,
       "items": [
         {
-          "id": "it00000007",
+          "id": "it00000008",
           "label": "Intro",
-          "source": "generator:gn00000008",
+          "source": "generator:gn00000009",
           "kind": "generator",
           "lengthMs": null
         },
@@ -60,7 +60,14 @@
       "enabled": true
     }
   ],
-  "devices": [],
+  "devices": [
+    {
+      "id": "dv00000007",
+      "name": "Left box",
+      "protocol": "pjlink",
+      "projector": null
+    }
+  ],
   "generators": [
     {
       "id": "gn_testcard",
@@ -91,7 +98,7 @@
       ]
     },
     {
-      "id": "gn00000008",
+      "id": "gn00000009",
       "name": "White",
       "kind": "pattern.flat",
       "params": [

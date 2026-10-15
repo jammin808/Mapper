@@ -29,6 +29,8 @@ public sealed partial class CompanionModuleFixtureTests
         var red = await rig.Ok($"PLAYLIST ADD {show} color:#FF0000 Red");
         await rig.Ok($"PLAYLIST ADD {show} color:#0000FF Blue");
         await rig.Ok($"PLAYLIST ADD {loops} color:#00FF00 Green");
+        // A projector box linked (no projector control on this node: its power unknown, its shutter not reported).
+        await rig.Ok("DEVICE ADD \"Left box\" pjlink 10.0.0.20");
         await rig.Ok($"PLAYLIST GO {show} {red}");
         rig.Clock.AdvanceMs(1000);
 
@@ -129,6 +131,6 @@ public sealed partial class CompanionModuleFixtureTests
     }
 
     /// <summary>A show entity's id: its two-letter kind and eight lowercase hex digits (playlists, items, generators, the project).</summary>
-    [GeneratedRegex(@"\b(pl|it|gn|pr)[0-9a-f]{8}\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(pl|it|gn|pr|dv)[0-9a-f]{8}\b", RegexOptions.CultureInvariant)]
     private static partial Regex ShowId();
 }

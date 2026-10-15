@@ -10,7 +10,7 @@ import { RULES, fillHint } from './live.ts'
 import { colourOf, rgbOf } from './palette/playmap.ts'
 import { clockText } from './state/model.ts'
 import { P, at, bool, field, list, num, str } from './state/paths.ts'
-import { projectorLight, projectorScore } from './state/variables.ts'
+import { projectorLight, projectorScore, scanRunning } from './state/variables.ts'
 
 /** What each feedback type depends on: a push or a module change that moves one of these rechecks only the types that read it. */
 export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
@@ -44,9 +44,9 @@ export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
 	event_pulse: ['events'],
 	slot_empty: ['live', 'playlists', 'outputs', 'projectors', 'peers', 'faults', 'index', 'show'],
 	slot_hint: ['live'],
-	label: ['playlists', 'outputs', 'projectors', 'index', 'link'],
-	light: ['playlists', 'outputs', 'projectors', 'peers', 'index', 'link'],
-	state_word: ['playlists', 'outputs', 'projectors', 'index', 'link'],
+	label: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
+	light: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
+	state_word: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
 	progress: ['playlists', 'clock'],
 	remaining: ['playlists', 'clock'],
 	thumb: ['thumbs', 'playlists'],
@@ -57,6 +57,7 @@ export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
 	receipt_word: ['receipts'],
 	focus: ['playlists', 'clock', 'thumbs', 'index'],
 	echo: [],
+	variable: ['variables'],
 	section_label: ['index'],
 }
 
@@ -112,6 +113,14 @@ export function entityView(ctx: Ctx, ref: string): { label: string; light: strin
 	}
 	const pj = model.projector(id)
 	if (pj) return dim({ label: str(field(pj, P.pjName)), light: projectorLight(pj), state: str(field(pj, P.pjGrade)) })
+	// A projector box: its light and its power as STATE has them.
+	const box = list(model.state, P.devices).find((d) => field(d, P.dvId) === id)
+	if (box)
+		return dim({
+			label: str(field(box, P.dvName)),
+			light: str(field(box, P.dvLight), 'grey'),
+			state: str(field(box, P.dvPower)),
+		})
 	const peer = list(model.state, P.peers).find((p) => field(p, P.peerId) === id)
 	if (peer)
 		return dim({
@@ -119,8 +128,12 @@ export function entityView(ctx: Ctx, ref: string): { label: string; light: strin
 			light: bool(field(peer, P.peerLive)) ? str(field(peer, P.peerLight), 'grey') : 'grey',
 			state: str(field(peer, P.peerHeadline)),
 		})
+	// Not in STATE (the link dropped, or STATE not heard yet): INDEX still names it, so a key says what it is, dimmed — never REMOVED.
 	const index = model.index
 	for (const e of [
+		...(index?.playlists ?? []),
+		...(index?.outputs ?? []),
+		...(index?.projectors ?? []),
 		...(index?.surfaces ?? []),
 		...(index?.devices ?? []),
 		...(index?.generators ?? []),
@@ -346,7 +359,7 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			name: 'Scan: running',
 			options: [],
 			defaultStyle: style(colourOf('scan', 'running')),
-			callback: () => linkLive() && at(ctx.model.state, P.scan) != null,
+			callback: () => linkLive() && scanRunning(ctx.model.state),
 		},
 		proposal_waiting: {
 			type: 'boolean',
@@ -592,6 +605,13 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			name: 'Value: the text given (a template value on a key)',
 			options: [{ type: 'textinput', id: 'text', label: 'Text', default: '' }],
 			callback: (fb) => text(fb.options.text),
+		},
+		variable: {
+			type: 'value',
+			name: "Value: one of this connection's variables",
+			description: 'A key bound to it follows the variable without naming the connection (show_mode, master …)',
+			options: [{ type: 'textinput', id: 'variable', label: 'Variable', default: 'show_mode' }],
+			callback: (fb) => ctx.variable(text(fb.options.variable)),
 		},
 		section_label: {
 			type: 'value',

@@ -96,7 +96,7 @@ $(playmap:video_remaining_s) <= 10 && $(playmap:video_playing) ? '#E0342E' : '#1
 
 **GO, PANIC and BLACKOUT on every page.** Copy the GO, PANIC and BLACKOUT keys, then _Paste as reference_ on each page: one key each, pressed and lit everywhere.
 
-**Triggers from the show.** A trigger with the condition _PlayMap: Event: happened just now_ (`event_pulse`, kind `item.end`) turns the page or presses a key when an item ends; kind `fault.raised` pages the technician; kind `scan.done` sounds a beep; _PlayMap: Show: armed_ (`show_armed`) sends every surface to the Show page when the show is armed. `event_last_kind` changing is a `variable_changed` trigger.
+**Triggers from the show.** A trigger with the condition _PlayMap: Event: happened just now_ (`event_pulse`, kind `item.end`) turns the page or presses a key when an item ends; kind `fault.raised` pages the technician; `scan_state` changing to "done" (a `variable_changed` trigger) sounds a beep; _PlayMap: Show: armed_ (`show_armed`) sends every surface to the Show page when the show is armed. `event_last_kind` changing is a `variable_changed` trigger.
 
 **Round a rate for a label.**
 

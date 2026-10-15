@@ -283,7 +283,7 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 			() => m.instance.linked() && 'generator_param_key' in m.host.presets,
 			"linked, with INDEX's generator keys",
 		)
-		const white = { generator: 'gn00000008', param: 'level' }
+		const white = { generator: 'gn00000009', param: 'level' }
 		const generatorLines = (): string[] => node.sent().filter((l) => l.startsWith('GENERATOR SET '))
 		let marks = 0
 		/** A relative turn on another dial, made after the turns before it: once the node hears it, it heard whatever they sent. */
@@ -298,7 +298,7 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 		await turn(m, 'generator_param_key', -2, white)
 		await turn(m, 'generator_param_key', 4, white)
 		await mark()
-		assert.deepEqual(generatorLines(), ['GENERATOR SET gn00000008 level BY 5'])
+		assert.deepEqual(generatorLines(), ['GENERATOR SET gn00000009 level BY 5'])
 
 		// A turn to the left by 3 detents of 1, then a key whose step is 0.25 turned right by 3.
 		await turn(m, 'generator_param_key', -3, white)
@@ -306,8 +306,8 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 		await turn(m, 'generator_param_key', 3, white, '0.25')
 		await mark()
 		assert.deepEqual(generatorLines().slice(1), [
-			'GENERATOR SET gn00000008 level BY -3',
-			'GENERATOR SET gn00000008 level BY 0.75',
+			'GENERATOR SET gn00000009 level BY -3',
+			'GENERATOR SET gn00000009 level BY 0.75',
 		])
 
 		// Turns further apart than 30 ms are a line each: a relative verb keeps no shadow and no range, it sends the step.
@@ -316,8 +316,8 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 		await turn(m, 'generator_param_key', 2, white)
 		await mark()
 		assert.deepEqual(generatorLines().slice(3), [
-			'GENERATOR SET gn00000008 level BY 2',
-			'GENERATOR SET gn00000008 level BY 2',
+			'GENERATOR SET gn00000009 level BY 2',
+			'GENERATOR SET gn00000009 level BY 2',
 		])
 
 		// A surface that gives no $(this:delta) turns by one detent: rotate_right +1, rotate_left -1.
@@ -326,8 +326,8 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 		await turn(m, 'generator_param_key', -1, white, undefined, true)
 		await mark()
 		assert.deepEqual(generatorLines().slice(5), [
-			'GENERATOR SET gn00000008 level BY 1',
-			'GENERATOR SET gn00000008 level BY -1',
+			'GENERATOR SET gn00000009 level BY 1',
+			'GENERATOR SET gn00000009 level BY -1',
 		])
 	} finally {
 		await m.stop()

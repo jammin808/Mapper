@@ -569,7 +569,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		notes: 'Armed (red) or rehearsal — read from the node, never guessed.',
 		keywords: ['show', 'armed', 'rehearsal', 'mode'],
 		locals: [],
-		label: { feedbackId: 'state_path', options: { path: 'show.armed' } },
+		label: { feedbackId: 'variable', options: { variable: 'show_mode' } },
 		grounds: [{ feedbackId: 'show_armed', options: {}, colour: colourOf('show', 'armed') }],
 		breathe: [
 			{
@@ -792,7 +792,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		notes: 'Turn: MASTER by 5 per detent from the value STATE shows (plus turns not yet confirmed), within 0-100.',
 		keywords: ['master', 'encoder', 'dial'],
 		locals: [],
-		label: { feedbackId: 'state_path', options: { path: 'air.master.level' } },
+		label: { feedbackId: 'variable', options: { variable: 'master' } },
 		press: 'instant',
 		steps: encoderSteps('enc_master', { step: '5' }),
 		receipt: true,
@@ -1357,6 +1357,29 @@ export function compositeDefinitions(): CompanionGraphicsCompositeElementDefinit
 }
 
 /** The presets the structure names (a preset no group shows yet is left out until one does; a definition itself never changes). */
+/** The structure with only the presets given: a group naming none of them, and a section left with no group, go. */
+export function withPresets(
+	structure: readonly CompanionPresetSection[],
+	ids: ReadonlySet<string>,
+): CompanionPresetSection[] {
+	const out: CompanionPresetSection[] = []
+	for (const section of structure) {
+		const definitions = section.definitions as readonly (string | CompanionPresetGroup)[]
+		const names = definitions.filter((d): d is string => typeof d === 'string' && ids.has(d))
+		const groups = definitions.flatMap((d): CompanionPresetGroup[] => {
+			if (typeof d === 'string') return []
+			if (d.type === 'simple') {
+				const presets = d.presets.filter((id) => ids.has(id))
+				return presets.length > 0 ? [{ ...d, presets }] : []
+			}
+			return ids.has(d.presetId) ? [d] : []
+		})
+		if (groups.length > 0) out.push({ ...section, definitions: groups })
+		else if (names.length > 0) out.push({ ...section, definitions: names })
+	}
+	return out
+}
+
 export function referencedPresets(
 	presets: CompanionPresetDefinitions,
 	structure: readonly CompanionPresetSection[],

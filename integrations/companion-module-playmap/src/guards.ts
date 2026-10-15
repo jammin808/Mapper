@@ -10,8 +10,16 @@ interface Receipt {
 	stage: ReceiptStage
 	words: string
 	until: number
-	/** For an accepted line: the STATE seq it was accepted under; a STATE past it shows the effect. */
+	/** For an accepted line: the STATE seq it was accepted under, and what STATE said of the entities its line names then. */
 	seq: number | null
+	watch: Watch | null
+}
+
+/** What an accepted line is watched by: the ids its line names that STATE holds, and STATE's entries for them when accepted. Its
+ * effect has shown when those entries move; a line naming none of STATE's entities has, when any later STATE comes. */
+export interface Watch {
+	readonly ids: readonly string[]
+	readonly before: string
 }
 
 /** What a press's action answers (an action result for `storeResult` and `internal:logicIf`): resolved on the node's first reply,
@@ -43,23 +51,29 @@ export class Receipts {
 	}
 
 	sent(controlId: string): void {
-		this.#by.set(controlId, { stage: 'pending', words: '', until: this.#now() + PENDING_MS, seq: null })
+		this.#by.set(controlId, { stage: 'pending', words: '', until: this.#now() + PENDING_MS, seq: null, watch: null })
 		this.#schedule()
 		this.#changed()
 	}
 
-	/** The node's one reply to a press, with the STATE seq heard when it came. */
-	/** The node's first reply to a key's line. `verb` names it: a line's first words once the fence has passed it, else the row's
-	 * name only — a receipt never repeats words that may hold a secret. */
-	replied(controlId: string, verb: string, reply: Reply, stateSeq: number): PressResult {
+	/** The node's first reply to a key's line, with the STATE seq heard when it came and, for an accepted line, what watches it.
+	 * `verb` names the line: its first words once the fence has passed it, else the row's name only — a receipt never repeats words
+	 * that may hold a secret. */
+	replied(controlId: string, verb: string, reply: Reply, stateSeq: number, watch: Watch | null = null): PressResult {
 		let result: PressResult
 		if (!reply.ok) {
-			this.#by.set(controlId, { stage: 'failed', words: reply.payload, until: this.#now() + FAILED_MS, seq: null })
+			this.#by.set(controlId, {
+				stage: 'failed',
+				words: reply.payload,
+				until: this.#now() + FAILED_MS,
+				seq: null,
+				watch: null,
+			})
 			this.lastRefusal = reply.payload
 			this.lastReceipt = `refused: ${verb} — ${reply.payload}`
 			result = { ok: false, stage: 'refused', effect: '', error: reply.payload, reply: reply.payload }
 		} else if (reply.accepted) {
-			this.#by.set(controlId, { stage: 'pending', words: '', until: this.#now() + PENDING_MS, seq: stateSeq })
+			this.#by.set(controlId, { stage: 'pending', words: '', until: this.#now() + PENDING_MS, seq: stateSeq, watch })
 			const effect = acceptedEffect(reply.payload)
 			this.lastReceipt = `accepted: ${verb}${effect ? ' — ' + effect : ''}`
 			result = { ok: true, stage: 'accepted', effect, error: '', reply: reply.payload }
@@ -73,10 +87,10 @@ export class Receipts {
 		return result
 	}
 
-	/** The press never reached the node (no link, no answer in time, refused by the module's own guard). */
-	/** A key's line that never left the module. `verb` names it as `replied` says. */
+	/** A key's line that never left the module (no link, no answer in time, refused by the module's own guard). `verb` names it
+	 * as `replied` says. */
 	notSent(controlId: string, verb: string, why: string): PressResult {
-		this.#by.set(controlId, { stage: 'failed', words: why, until: this.#now() + FAILED_MS, seq: null })
+		this.#by.set(controlId, { stage: 'failed', words: why, until: this.#now() + FAILED_MS, seq: null, watch: null })
 		this.lastRefusal = why
 		this.lastReceipt = `not sent: ${verb} — ${why}`
 		this.#schedule()
@@ -84,15 +98,26 @@ export class Receipts {
 		return { ok: false, stage: 'not-sent', effect: '', error: why, reply: '' }
 	}
 
-	/** A STATE push: every accepted line whose effect it now carries is cleared. */
-	stateMoved(seq: number): void {
+	/** A STATE push: every accepted line whose effect it now shows is cleared — the entries of the entities it names moved (`look`
+	 * gives STATE's entries for ids now), or, for a line naming none, STATE moved past the seq it was accepted under. Unrelated facts
+	 * moving clear nothing; 10 s clears it whatever STATE says. */
+	stateMoved(seq: number, look: (ids: readonly string[]) => string): void {
 		let moved = false
-		for (const [id, r] of this.#by)
-			if (r.seq !== null && seq > r.seq) {
+		for (const [id, r] of this.#by) {
+			if (r.seq === null) continue
+			const shown = r.watch && r.watch.ids.length > 0 ? look(r.watch.ids) !== r.watch.before : seq > r.seq
+			if (shown) {
 				this.#by.delete(id)
 				moved = true
 			}
+		}
 		if (moved) this.#changed()
+	}
+
+	/** Whether any accepted line waits on STATE (so a push need only look when one does). */
+	get watching(): boolean {
+		for (const r of this.#by.values()) if (r.seq !== null) return true
+		return false
 	}
 
 	stage(controlId: string): ReceiptStage | null {

@@ -157,7 +157,7 @@ void test("the STATE fixture becomes the node, show, air, focus, fault, bank and
 				headline: 'Show · playing Red, 0:09 left · outputs not measured',
 				project: 'Test node',
 				project_dirty: true,
-				revision: 8,
+				revision: 9,
 				renderer: 'none',
 				clients: 0,
 				show_mode: 'REHEARSAL',
@@ -540,7 +540,9 @@ void test('every variable design 4.6 names is defined, positional banks to bank_
 			...[SHOW.playlist, SHOW.loops].flatMap((id) =>
 				['name', 'state', 'item', 'next', 'remaining', 'progress'].map((f) => `pl.${id}.${f}`),
 			),
-			...['light', 'score'].map((f) => `pj.pj00000009.${f}`),
+			...['light', 'score', 'power', 'shutter'].map((f) => `pj.pj00000009.${f}`),
+			'pj_1_power',
+			'pj_1_shutter',
 			...['light', 'fps'].map((f) => `op.op_1.${f}`),
 			'sf.sf0000000a.name',
 			'peer.a1b2c3d4.light',
@@ -548,17 +550,10 @@ void test('every variable design 4.6 names is defined, positional banks to bank_
 		const missing = named.filter((id) => !m.host.variableDefs.has(id))
 		assert.deepEqual(missing, [], 'every variable design 4.6 names is defined')
 		// The rest of design 4.6's list reads facts the node does not publish in STATE: the AI's top proposal (STATE has the
-		// count), a projector's power, shutter and temperature (devices are context items), a surface's shown flag, and the
-		// recorder (RECORD is next round). None of them is defined, so no key reads a value the node never gave.
-		const unpublished = [
-			'ai_top',
-			'ai_top_risk',
-			'pj_1_power',
-			'pj_1_shutter',
-			'pj_1_temp_c',
-			'sf_1_shown',
-			'recording',
-		]
+		// count), a projector's temperature (its box reports light-source hours, not a temperature), a surface's shown flag, and the
+		// recorder (RECORD is next round). None of them is defined, so no key reads a value the node never gave. A projector's power
+		// and shutter are its box's, from STATE.devices.
+		const unpublished = ['ai_top', 'ai_top_risk', 'pj_1_temp_c', 'sf_1_shown', 'recording']
 		assert.deepEqual(
 			unpublished.filter((id) => m.host.variableDefs.has(id)),
 			[],
