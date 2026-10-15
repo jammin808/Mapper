@@ -227,8 +227,9 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
 
             // Scan frames reached the camera view (thinned in time), and the still came back after; the smart scan and
             // the confidence are drawn at the projector's raster when the desk asks.
+            // The camera view is published off the scan's thread, thinned in time: wait for it rather than read it at once.
+            Assert.True(await OpsRig.Eventually(() => rig.Picture("scan-camera") is { Sequence: > 2 }), "the camera view never came");
             var seen = rig.Picture("scan-camera")!.Value;
-            Assert.True(seen.Sequence > 2, $"{seen.Sequence} camera pictures");
             Assert.Equal((320, 240), (seen.Width, seen.Height));
             await rig.Ok($"VIEW review SHOW scan:{scanId}:smart 1280x720");
             Assert.True(await OpsRig.Eventually(() => rig.Picture("review") is { Width: 256, Height: 160 }), "the smart scan never came");

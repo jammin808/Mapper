@@ -39,3 +39,48 @@ From the polish pass (merged into main):
 - Transitions on a manual GO/NEXT/PREV still cut (the lane would need to keep the outgoing item and sync followers agree on the window) → showsafety/framelock or playback follow-up.
 - Desk has no screens for STATE solve, cameras, ai.assistant; FakeEngineLink doesn't answer ASSISTANT verbs → desk packages.
 - Gate change: AI-proposed lines with secret words (LINK … token) now pass the gate marked, always wait for a person, are high-risk on MCP, and are shown redacted (was: refused outright).
+
+Round 2 W1 notes:
+- wp2-fx: chains on layers/surfaces/playlist items are stored but not drawn — spine amendment needed: layer and surface picture call points (IFramePass or SourceResolver/StageRenderer hooks) plus the item's start time as an item chain's origin; PassFrame should say per output whether a pattern/safe look is up. Do as a spine-lane commit after wp2-output merges; then wire FxPass's IFxAttachPoints.Layer/Surface (small).
+- wp2-fx edited Assistant.Tests/CatalogueTests to read a named list of trimmed rows (TrimmedRows) — every package that trims rows must add to it.
+- wp2-fx needs audio's MOD BIND route for effect bindings (stretch, next round).
+- wp2-show: McpTools and AssistantTools should ask IShowDecisions (new Core seam, implemented by the engine) before running/queueing a line (companion owns McpTools). WireSession infers transport "desk" from HELLO name PlayMapDesk — any paired client claiming that name is treated as the operator (companion to harden). A backup mirroring mapping while armed (W3 backup) needs a way past the armed lock for fleet sessions. STATE.show refusal count and panic levels only update when STATE's revision moves (stale between). Pinned-count tests break as packages extend: OpsHostTests (extension count 3), CatalogueTests (209 round-2 rows; fx changed it to a TrimmedRows list; show kept BLIND rows unrouted to keep 209), VerbSyntaxTests (SHOW SET forms), EngineRouterTests (show/fx/output changed key list to a prefix check) — reconcile at merge.
+- wp2-decode spine amendments: VideoFrameLease needs a virtual white level/HDR scale (today via IHapPicture in Core/Media/Hap); a clip-source interface (SetLoop, Opened) that EngineSources uses instead of type-checking FfmpegVideoSource (HAP sources don't loop natively — they wrap by seeking, holding the pre-loop frame a few ms; a failed HAP open is not retried); a shared GLSL include for PQ/HLG/tone map (hap program carries its own copy). SnappyBlock (own allocation-free decoder) is 2x slower than Snappier in Debug — measure in Release. Upload arena (stretch) not built.
+- wp2-output spine amendments: headless outputs show red because their window is not open — their light should come from present.light (StateWriter/ContextBuilder); ShaderConventionTests and GlCapsTests should read GlFixture.Dialect and build.yml needs an ES-leg step (PLAYMAP_GL_DIALECT=es300, 2 spine tests filtered today); decide companion's base INDEX 'outputs' section vs output's 'present'. OML sync control not built. outputs[].dropped now = late presents in last 10 s past 0.5% budget.
+
+## Integrator notes from the fx merge (facts for every later package)
+
+- Every GLFW window (output windows, the effects compile lane's shared context, any future second context such as a Spout/NDI
+  reader thread or a D3D11 interop window) is made through `RenderContext.MakeWindow(options, primary.EglWindows)`: it holds
+  the process-wide hint gate and asks for the primary's API. A window asked across APIs, or made while another thread holds the
+  EGL hint, makes `glfwCreateWindow` return NULL, and Silk.NET then calls `glfwSetWindowPos` on it, which aborts the whole
+  process (Ubuntu's GLFW asserts). Regression test: `tests/PlayMap.Render.Tests/Effects/FxLaneContextTests.cs`.
+- Never run `--blame-crash` with dumps on this box (a mini dump is ~3 GB and starves the disk gate); read stacks with
+  `dotnet-dump analyze <dmp> -c "clrstack -all"` and delete the dump at once.
+- PlayMap's own code names no licence (the owner deleted LICENSE and asked that MIT be named nowhere for PlayMap). Never
+  write MIT or any licence for PlayMap's own code, built-in content or modules; never add a LICENSE file or licence metadata
+  for it. The Companion module's licence (its `LICENSE` and the manifest's required SPDX `license`) is an open owner
+  decision, to be asked before wp2-companion-module is built. Third-party notices stay.
+- wp2-companion (merged d3f8e9c): spine amendments wanted — SessionInfo.Channel (worked around via the client table),
+  JournalRow.Transport/Session (RECORD next round), ExtensionSetup carrying the TLS identity (mDNS TXT tls/fp), a dispose hook
+  for engine modules. Open for others: AssistantTools does not ask IShowDecisions (McpTools does) → assistant owner;
+  ShowPolicy.RoleOf makes any client whose HELLO name is in Operators an operator (claim-based, like the old desk rule) →
+  show/blind owner, harden like the desk (proof + address); the controllers preflight has no row with a fix line (no verb pairs
+  a client or restarts the announcement) → owner decision. A remote desk now needs Companion.DeskAddresses.
+- Integrator (after companion): the web port refuses foreign Origins on /api, /ws, /mcp and, for tokenless admission, hosts
+  that are not the node's (WebSettings.Hosts lists venue names). Render-thread facts go through FactsSignal (its own thread and
+  a semaphore; never the thread pool from the render thread — queueing there can add a worker and allocate). Preflight runner
+  reports each finished check (EngineCore.PreflightCheckFinished) for tests that move the clock.
+- wp2-audio: open — ComposeAudio runs after ComposeFx (the fx pass sees Modulation null; integrator to order audio first);
+  generators draw bound numbers at their base until content's renderers evaluate Generator.Bindings through the frame's
+  Modulation (then change the "drawn at its base" words in EngineCore.Audio.cs and Audio/EngineCore.Mod.cs, regenerate
+  audio.json; ReactiveRealBusTests audio×content); with bindings the drawn project is rebuilt every frame (allocates; content's
+  zero-allocation overlay replaces it); TEMPO METER applies at once (meter into TempoAnchor when anchors are shared);
+  AudioInputHub.Open holds its lock while a device opens (control calls Open/Dispose off its lane); the fallback AudioRuntime
+  needs the spine dispose hook. LtcThroughCaptureHubTests: written by whichever of control/audio merges second (control).
+  Source names: beat = phase in the beat, bar = bar phase (fx binds bar). WASAPI only compiled: watch the Windows CI job.
+- wp2-wall: open — PROJECTOR SOLVE's "who" is the verb name (round-one router gives no session); the overlay follows corner
+  pin and lattice but not the lens pre-distortion (needs the warp mesh and lens lookup in frame passes, or an Over mode in
+  OutputStage); onboarding.contentAt is stamped on the lane (needs a first-content callback from the render host);
+  air.overlay.cursorP95Ms not measured; wall.json rounds solver numbers to 3 decimals (watch Windows CI);
+  OpsHostTests.ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd failed once under load (watch it).
