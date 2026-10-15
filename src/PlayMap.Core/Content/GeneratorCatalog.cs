@@ -273,6 +273,32 @@ public static class GeneratorCatalog
         new("fractal.burningship", "fractal", "Burning ship", "The burning ship fractal", true, FractalParams(-0.5, -0.5)),
         new("fractal.newton", "fractal", "Newton", "Newton's method on z³ − 1, coloured by root", true, FractalParams(0, 0)),
         new("fractal.warp", "fractal", "Domain warp", "Folded noise: lava, ocean, smoke, aurora", true, FractalParams(0, 0)),
+        new("fractal.mandelbulb", "fractal", "Mandelbulb", "The 3D Mandelbulb, raymarched, the camera orbiting it", true,
+            RaymarchParams(2.6, 0.4,
+            [
+                ParamSpec.Num("power", 8, 2, 16, "Power of the bulb"),
+                ParamSpec.Int("iterations", 8, 3, 16, "Iterations"),
+            ], "#0B0C2A,#1E3A8A,#3EC1F3,#FFFFFF,#FFB020")),
+        new("fractal.mandelbox", "fractal", "Mandelbox", "The Mandelbox's folded boxes and spheres, raymarched", true,
+            RaymarchParams(7, 1.5,
+            [
+                ParamSpec.Num("scale", -1.8, -3, 3, "Scale"),
+                ParamSpec.Num("foldLimit", 1, 0.2, 2, "Box fold limit"),
+                ParamSpec.Num("minRadius", 0.5, 0.05, 1.5, "Sphere fold inner radius"),
+                ParamSpec.Num("fixedRadius", 1, 0.2, 2, "Sphere fold outer radius"),
+                ParamSpec.Int("iterations", 12, 3, 20, "Iterations"),
+            ], "#10002B,#5A189A,#FF6EC7,#FFD6F5,#FFFFFF")),
+        new("fractal.kifs", "fractal", "KIFS", "A kaleidoscopic folded fractal (tetrahedron, octahedron or Menger sponge), raymarched", true,
+            RaymarchParams(3.2, 0.6,
+            [
+                ParamSpec.Pick("fold", "tetra", "The fold", "tetra", "octa", "menger"),
+                ParamSpec.Num("scale", 2, 1.2, 3, "Scale"),
+                ParamSpec.Num("offsetX", 1, -2, 2, "Offset x"),
+                ParamSpec.Num("offsetY", 1, -2, 2, "Offset y"),
+                ParamSpec.Num("offsetZ", 1, -2, 2, "Offset z"),
+                ParamSpec.Num("twist", 0.15, -3.2, 3.2, "Turn about the vertical each iteration, radians"),
+                ParamSpec.Int("iterations", 10, 3, 20, "Iterations"),
+            ], "#03071E,#0077B6,#48CAE4,#CAF0F8,#FFB703")),
 
         // ---- Particles (Patterns' simulation and presets) ----
         new("particles.field", "particles", "Particles", "A deterministic particle field: snow, confetti, starfield, embers…", true,
@@ -296,6 +322,12 @@ public static class GeneratorCatalog
             ParamSpec.Col("background", "#000000", "Background"),
             ParamSpec.Int("seed", 20260829, 0, int.MaxValue, "Seed: the same seed draws the same field on every node"),
         ]),
+        new(ParticleFlowSettings.KindId, "particles", "Particle flow",
+            "A GPU particle field in a curl-noise flow: up to millions of particles, the same on every node once one life has run", true,
+            FlowParams(image: false)),
+        new(ParticleFlowSettings.ImageKindId, "particles", "Particle picture",
+            "A GPU particle field born where a picture is bright, drifting along its contours, coloured by it: any source dissolves into particles", true,
+            FlowParams(image: true)),
 
         // ---- Reactive scenes (Patterns' set) ----
         new("reactive.scene", "reactive", "Reactive scene", "Plasma, tunnel, kaleidoscope, pulse, vortex, star warp", true,
@@ -307,6 +339,7 @@ public static class GeneratorCatalog
             ParamSpec.Num("rotation", 0.2, -3, 3, "Rotation"),
             ParamSpec.Num("brightness", 1, 0.2, 1.6, "Brightness"),
             ParamSpec.Cols("colors", "#FF2D95,#7B2FF7,#00D4FF", "Palette"),
+            Sound,
         ]),
 
         // ---- Surface-aware effects: they read the stage's 3D (position, normal, edges), so they land on the
@@ -358,6 +391,79 @@ public static class GeneratorCatalog
         ParamSpec.Num("juliaRe", -0.8, -2, 2, "Julia constant, real part"),
         ParamSpec.Num("juliaIm", 0.156, -2, 2, "Julia constant, imaginary part"),
         ParamSpec.Cols("colors", "#000764,#206BCB,#EDFFFF,#FFAA00,#000200", "Palette (2–5 colours)"),
+        Sound,
+    ];
+
+    /// <summary>The GPU particle kinds' parameters: the flow's, and the picture's (born on the picture, drifting on it, coloured by it).</summary>
+    private static IReadOnlyList<ParamSpec> FlowParams(bool image) =>
+    [
+        ParamSpec.Int("count", ParticleFlowSettings.DefaultCount, 1024, ParticleFlowSettings.MaxCount, "Particles (a software renderer draws 64 k)"),
+        ParamSpec.Int("seed", 20261015, 0, int.MaxValue, "Seed: the same seed draws the same field on every node"),
+        ParamSpec.Pick("emitter", image ? "picture" : "area", "Where they are born (picture: where the source picture is bright)",
+            "area", "point", "line", "ring", "disc", "top", "bottom", "left", "right", "edges", "picture"),
+        ParamSpec.Num("x", 0.5, 0, 1, "Emitter centre across (0–1)"),
+        ParamSpec.Num("y", 0.5, 0, 1, "Emitter centre down (0–1)"),
+        ParamSpec.Num("size", 0.3, 0, 2, "Emitter size, picture heights"),
+        ParamSpec.Num("threshold", 0.2, 0, 1, "Picture emitter: the weight below which nothing is born"),
+        ParamSpec.Pick("weight", "luma", "Picture emitter: what of the picture births weigh by", "luma", "alpha", "edges"),
+        ParamSpec.Flag("invert", false, "Picture emitter: born where it is dark instead"),
+        ParamSpec.Num("rate", 1, 0, 1, "Share of the slots alive"),
+        ParamSpec.Num("lifeMin", 2, 0.1, 30, "Shortest life, seconds"),
+        ParamSpec.Num("lifeMax", ParticleFlowSettings.DefaultLifeMaxSeconds, 0.1, 30, "Longest life, seconds (the field settles within it)"),
+        ParamSpec.Num("speedMin", 0.02, 0, 5, "Slowest birth speed, picture heights a second"),
+        ParamSpec.Num("speedMax", 0.08, 0, 5, "Fastest birth speed"),
+        ParamSpec.Num("direction", 270, -360, 360, "Birth direction in degrees (90 = down)"),
+        ParamSpec.Num("spread", 360, 0, 360, "Spread in degrees"),
+        ParamSpec.Num("gravity", 0, -5, 5, "Gravity, picture heights a second²"),
+        ParamSpec.Num("wind", 0, -5, 5, "Wind, picture heights a second²"),
+        ParamSpec.Num("drag", 0.5, 0, 10, "Drag, a share of the speed lost a second"),
+        ParamSpec.Num("curl", image ? 0.2 : 0.6, 0, 5, "Curl-noise flow strength"),
+        ParamSpec.Num("curlScale", 2, 0.1, 20, "Curl-noise cells a picture height"),
+        ParamSpec.Num("curlSpeed", 0.2, 0, 5, "How fast the flow drifts"),
+        ParamSpec.Int("curlOctaves", 2, 1, 3, "Curl-noise octaves"),
+        ParamSpec.Num("flow", image ? 0.3 : 0, -5, 5, "Drift along the picture's contours (negative: against them)"),
+        ParamSpec.Pick("flowMode", "along", "Along the picture's contours, or across them (up its brightness)", "along", "across"),
+        ParamSpec.Num("vortex", 0, -5, 5, "Vortex strength round its centre"),
+        ParamSpec.Num("vortexX", 0.5, 0, 1, "Vortex centre across (0–1)"),
+        ParamSpec.Num("vortexY", 0.5, 0, 1, "Vortex centre down (0–1)"),
+        ParamSpec.Num("attract", 0, -5, 5, "Attractor strength (negative repels)"),
+        ParamSpec.Num("attractX", 0.5, 0, 1, "Attractor across (0–1)"),
+        ParamSpec.Num("attractY", 0.5, 0, 1, "Attractor down (0–1)"),
+        ParamSpec.Num("attractRadius", 0.3, 0.01, 2, "Attractor reach, picture heights"),
+        ParamSpec.Pick("edges", "pass", "At the picture's edge", "pass", "bounce", "wrap", "kill"),
+        ParamSpec.Num("restitution", 0.6, 0, 1, "Speed kept by a bounce"),
+        ParamSpec.Pick("sprite", "circle", "Sprite shape", "circle", "square", "star", "streak", "bokeh"),
+        ParamSpec.Num("sizeMin", 1.5, 0.5, 64, "Smallest size, pixels at 1080 lines"),
+        ParamSpec.Num("sizeMax", 3, 0.5, 64, "Largest size, pixels at 1080 lines"),
+        ParamSpec.Pick("sizeOverLife", "shrink", "Size over a life", "constant", "grow", "shrink", "pulse"),
+        ParamSpec.Cols("colors", "#3EC1F3,#7B2FF7,#FF2D95,#FFD166", "Colours (2–5)"),
+        image ? ParamSpec.Pick("colorBy", "source", "What picks the colour (source: the picture where it was born)", "life", "speed", "random", "source")
+            : ParamSpec.Pick("colorBy", "life", "What picks the colour", "life", "speed", "random"),
+        ParamSpec.Num("opacity", 0.8, 0, 1, "Opacity"),
+        ParamSpec.Flag("glow", true, "Add light (additive blend)"),
+        ParamSpec.Col("background", "#000000", "Background"),
+    ];
+
+    /// <summary>How far the sound moves a scene (0 = not at all: a project from before round 2 draws as it did).</summary>
+    private static ParamSpec Sound => ParamSpec.Num("sound", 0, 0, 1, "How much this node's sound moves it (bass and level; bounded so it never flashes)");
+
+    private static IReadOnlyList<ParamSpec> RaymarchParams(double distance, double height, ParamSpec[] shape, string colors) =>
+    [
+        .. shape,
+        ParamSpec.Num("speed", 1, 0, 5, "Orbit speed"),
+        ParamSpec.Num("distance", distance, 0.5, 15, "Camera distance"),
+        ParamSpec.Num("height", height, -10, 10, "Camera height"),
+        ParamSpec.Num("fov", 45, 10, 120, "Field of view, degrees"),
+        ParamSpec.Int("steps", 96, 16, 256, "March steps"),
+        ParamSpec.Num("detail", 1, 0.25, 8, "Surface detail, pixels (smaller is finer)"),
+        ParamSpec.Num("glow", 0.4, 0, 2, "Glow near the surface"),
+        ParamSpec.Num("ao", 0.6, 0, 1, "Ambient occlusion"),
+        ParamSpec.Num("fog", 0.2, 0, 1, "Fog with distance"),
+        ParamSpec.Num("brightness", 1, 0.2, 1.6, "Brightness"),
+        ParamSpec.Num("renderScale", 0.75, 0.25, 1, "Render scale (the picture is drawn smaller and filtered up)"),
+        ParamSpec.Cols("colors", colors, "Palette (2–5 colours)"),
+        ParamSpec.Col("background", "#000000", "Background"),
+        Sound,
     ];
 }
 

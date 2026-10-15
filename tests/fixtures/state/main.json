@@ -65,7 +65,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     },
     {
       "id": "op_right",
@@ -93,7 +94,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     }
   ],
   "media": {
@@ -170,7 +172,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "fd5c349f8f4c730f"
+    "index": "d6546ae7cd14e0e1"
   },
   "faults": [],
   "ai": {
@@ -422,6 +424,36 @@
     "held": [],
     "flashLimited": -1
   },
+  "content": {
+    "budgetMs": 6,
+    "governor": "advise",
+    "light": "grey",
+    "costMs": 0,
+    "renderer": "none",
+    "sting": null,
+    "generators": [
+      {
+        "id": "gn_testcard",
+        "kind": "pattern.testcard",
+        "name": "Test card",
+        "state": "idle",
+        "progress": 0,
+        "time": "pure",
+        "originNs": 0,
+        "timeS": 0,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "grey",
+        "words": "no renderer on this node",
+        "warnings": []
+      }
+    ]
+  },
   "calibration": {
     "moved": [],
     "task": null,
@@ -473,5 +505,9 @@
     "quadAt": null,
     "contentAt": null,
     "seconds": -1
+  },
+  "align": {
+    "run": null,
+    "groups": []
   }
 }

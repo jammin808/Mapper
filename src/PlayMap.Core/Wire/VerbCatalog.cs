@@ -431,14 +431,13 @@ public static class VerbCatalog
         V2("MOD BYPASS", "MOD BYPASS ON|OFF|TOGGLE [<entity>|ALL]", "Holds every modulated number at its base value", VerbCategory.Modulation, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("MOD PEEK", "MOD PEEK <entity>", "The live value of each modulated number of an entity", VerbCategory.Modulation, VerbRisk.Low, false),
 
-        // Particles, fractals, reactive: looks, morphs, stings (wp2-content).
+        // Particles, fractals, reactive: time, inputs, looks, stings (wp2-content).
         V2("GENERATOR GET", "GENERATOR GET <generator>", "A generator with its effective values, bindings, inputs, morph, cost and state", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RESET", "GENERATOR RESET <generator> [<param>|ALL]", "Parameters back to their defaults", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source|flow|matte <source>|NONE", "A picture a generator reads (particles emit from it)", VerbCategory.Content, VerbRisk.Review, true),
+        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source <source>|NONE", "A picture a generator reads (a particle flow emits where it is bright)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR PRESETS", "GENERATOR PRESETS [<kind>|<family>]", "Curated and saved looks", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RECALL", "GENERATOR RECALL <generator> <preset>", "Applies a look (one undo step)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR SAVE", "GENERATOR SAVE <generator> <name>", "Saves the generator's look in the show; answers its id", VerbCategory.Content, VerbRisk.Low, true),
-        V2("GENERATOR MORPH", "GENERATOR MORPH <generator> <preset> [OVER <0.1-600 s>] [AT +<ms>|<unix ms>] [CURVE LINEAR|EASE]", "Crossfades a generator to a look on the show clock", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR RETIME", "GENERATOR RETIME <generator>|ALL [AT +<ms>|<unix ms>]", "Restarts a generator's own time (particles re-seed from that instant)", VerbCategory.Content, VerbRisk.Review, true),
         V2("STING", "STING <preset> [<100-5000 ms>] [AT +<ms>|<unix ms>]", "Fires a sting every generator answers, on the show clock", VerbCategory.Content, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("STING CLEAR", "STING CLEAR", "Stops the sting", VerbCategory.Content, VerbRisk.Low, true) with { Show = ShowClass.Perform },
@@ -474,18 +473,15 @@ public static class VerbCatalog
         V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
-        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
-        V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT|CYLINDER]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
-        V2("ALIGN PLAN", "ALIGN PLAN <group>", "A dry run: camera, outputs, devices and their own processing, steps and time; nothing reaches the wall or a projector", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN RUN", "ALIGN RUN <group> [ONLY <output>…] [STEPS NEUTRAL,SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]", "Measures the outputs through the camera and stages a correction (warp, blend, colour) with its score; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN PLAN, SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
+        V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
+        V2("ALIGN RUN", "ALIGN RUN <group> [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ) with its score; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("ALIGN STATUS", "ALIGN STATUS", "The running or last run", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run and restores what it changed on the projectors", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
-        V2("ALIGN SCORE", "ALIGN SCORE <run>|<group>", "A run's score and every term with its words and fix", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>", "Applies a staged run to its outputs as one edit; the previous corrections become the fallbacks", VerbCategory.Align, VerbRisk.Review, true),
+        V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run; the outputs are the show's again", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+        V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>|<group>", "Applies a staged run to its outputs as one edit; the corrections they had become their fallbacks", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN REVERT", "ALIGN REVERT <group>", "Back to each output's fallback correction", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CORNERS", "ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> | ALIGN CORNERS <group> CLEAR", "The screen's corners in the camera picture (0–1), for an exact canvas", VerbCategory.Align, VerbRisk.Review, true),
-        V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs", VerbCategory.Align, VerbRisk.Review, true),
-        V2("DEVICE NATIVE", "DEVICE NATIVE <device>", "A projector's own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard", VerbCategory.Device, VerbRisk.Low, false),
+        V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
 
         // The phone as a scan camera, fully local; many views into one scan (wp2-phonescan; SCAN SOLVE/VIEWS/DROP by wp2-multiscan).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },

@@ -19,6 +19,8 @@ public sealed class CatalogueTests
         "FX PLUGINS", "FX TRUST", // wp2-fx: FFGL is next round
         "RECORD", "SELECT", "COMPANION PRESS", "COMPANION VAR", "COMPANION BRIGHTNESS", // wp2-companion: the action feed, selection and the node → Companion link are next round
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
+        "ALIGN PLAN", "ALIGN SCORE", "DEVICE NATIVE", // wp2-align: the dry run, the score's own verb and the projectors' own processing are wp2-resolve's
+        "GENERATOR MORPH", // wp2-content: morphs are next round
     ];
 
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>

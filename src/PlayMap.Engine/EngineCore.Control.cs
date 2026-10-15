@@ -147,6 +147,8 @@ public sealed partial class EngineCore
     {
         if (!WireGrammar.TryParse(text, out var line, out var error))
             return CommandReply.Fail("the binding's line does not read: " + error?.Reason);
+        if (RefusedAsStopping(session))
+            return RefusedStopping(line, session, journalLine);
         if (VerbCatalog.Match(line) is { } m && (_routes.TryOffLane(m.Spec.Name, out _) || IsOpsVerb(m.Spec)))
             return await HandleAsync(line, session, ct).ConfigureAwait(false);
         CommandReply reply;

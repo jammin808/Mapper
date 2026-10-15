@@ -106,9 +106,12 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     private volatile EngineSnapshot _snapshot;
     private AirState _air = AirState.Initial;
     private long _factsRevision;
-    private (long Key, string Json) _stateCache = (-1, "");
+    private long _motion;
+    private long _movedAtNs = long.MinValue;
+    private ((long State, long Quantum, long Motion) Key, string Json) _stateCache = ((-1, 0, 0), "");
     private string? _projectPath;
     private bool _dirty;
+    private int _stopping;
 
     /// <summary>The store this line's document edits go to while it runs on the lane (a session's blind draft), else null.</summary>
     private ProjectStore? _lineStore;
@@ -205,11 +208,55 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// <summary>True while any playlist plays (the wire pushes STATE at least every second then).</summary>
     public bool IsAnimating => Playback.Snapshot.Playlists.Values.Any(p => p.Clip.State == Core.Playback.TransportState.Playing);
 
+    /// <summary>What every line hears once the node has begun to stop (<see cref="BeginStop"/>).</summary>
+    internal const string StoppingWords = "the node is stopping — it takes no more lines";
+
+    /// <summary>True once the node has begun to stop: no line from outside the node runs on it from then on.</summary>
+    internal bool Stopping => Volatile.Read(ref _stopping) != 0;
+
+    /// <summary>The node stops taking lines. From this call on, every line that enters — through <see cref="HandleAsync"/> (the wire,
+    /// the web port, MCP, OSC, the assistant, an approval) or fired by a binding (<see cref="RunBindingLineAsync"/>) — and every line
+    /// still waiting for the lane is refused with <see cref="StoppingWords"/>. The host calls it as it begins to stop, before it closes
+    /// any door or part, so no line source it closes later (a binding, an OSC socket, a link) can start work on a part it has closed
+    /// already. The node's own work still runs: its own lines (<see cref="SystemSession"/>: a panic's shutters and effects, sent on
+    /// the panic's instant while the projector links are still open — a panic put back after a restart takes its shutters as
+    /// closed), and its last work (the recovery record, the journal), which goes to the lane and the journal directly, never as a
+    /// line. Thread-safe; a second call changes nothing.</summary>
+    internal void BeginStop() => Interlocked.Exchange(ref _stopping, 1);
+
+    /// <summary>True when a line from this session is refused because the node has begun to stop: any line but the node's own.</summary>
+    private bool RefusedAsStopping(SessionInfo session) =>
+        Stopping && !string.Equals(session.Transport, SystemSession.Transport, StringComparison.Ordinal);
+
+    /// <summary>A line that arrived once the node began to stop: refused with the words, and journalled as any refusal of its verb is
+    /// (when <paramref name="journal"/>: a binding's gesture is journalled by its owner, once) — an operations line with every
+    /// secret the node holds masked, as <see cref="RunOpsAsync"/> keeps it.</summary>
+    private CommandReply RefusedStopping(WireLine line, SessionInfo session, bool journal)
+    {
+        if (journal && VerbCatalog.Match(line) is { } m && IsJournalled(m.Spec))
+        {
+            var shown = IsOpsVerb(m.Spec) && !_routes.TryOffLane(m.Spec.Name, out _) ? OpsShown(m.Spec, line) : VerbCatalog.Redacted(line);
+            Journal.Add("refused", StoppingWords, session.ClientName, shown, false);
+        }
+        return CommandReply.Fail(StoppingWords);
+    }
+
     /// <summary>Network facts and output health changed (the edges call this; STATE's revision moves).</summary>
     public void FactsChanged()
     {
         Interlocked.Increment(ref _factsRevision);
         StateChanged?.Invoke(StateKey());
+    }
+
+    /// <summary>Something STATE shows moved with time outside the project, the playback and the air (a rolling source's frame, a
+    /// chase's code): STATE is written afresh on its next read, and its revision stays where it is, so pushes do not rise to that
+    /// rate; the transports count the node as animating a while after (<see cref="PlayMap.Net.INodeActivity.IsAnimating"/>), so
+    /// its listeners hear it at least once a second. Called on the lane's tick only when what is shown moved, so STATE is not
+    /// written again while it stands still.</summary>
+    private void Moved()
+    {
+        Interlocked.Increment(ref _motion);
+        Volatile.Write(ref _movedAtNs, Services.Mono.NowNs);
     }
 
     public ValueTask<CommandReply> HandleAsync(WireLine line, SessionInfo session, CancellationToken ct)
@@ -218,6 +265,8 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         if (ct.IsCancellationRequested)
             return ValueTask.FromResult(CommandReply.Fail("cancelled"));
+        if (RefusedAsStopping(session))
+            return ValueTask.FromResult(RefusedStopping(line, session, journal: true));
         // A shown copy (its secret words replaced by the marker) stands for a line kept elsewhere: it never runs.
         if (VerbCatalog.IsShownCopy(line))
             return ValueTask.FromResult(CommandReply.Fail("this is a shown copy — its secret words were kept back where it was shown; "
@@ -314,8 +363,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         var key = StateKey();
         // Positions move with time while anything plays: the cache then also keys on a 20 ms quantum of the
-        // leader's clock, so a reader never gets a position older than one frame at 50 Hz.
-        var cacheKey = IsAnimating || _air.IdentifyUntilLeaderNs != 0 ? HashCode.Combine(key, LeaderNowNs / 20_000_000) : key;
+        // leader's clock, so a reader never gets a position older than one frame at 50 Hz. What moves on its own
+        // with nothing playing (a rolling timecode) keys it through Moved, once per change of what it shows.
+        var quantum = IsAnimating || _air.IdentifyUntilLeaderNs != 0 ? LeaderNowNs / 20_000_000 : long.MinValue;
+        var cacheKey = (key, quantum, Interlocked.Read(ref _motion));
         lock (_stateGate)
         {
             if (_stateCache.Key != cacheKey)
@@ -378,6 +429,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        BeginStop();
         StopSolving();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();

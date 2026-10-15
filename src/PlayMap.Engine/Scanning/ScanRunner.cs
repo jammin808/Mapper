@@ -101,6 +101,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     private volatile ScanView? _view;
     private volatile ScanProgress? _current;
 
+    /// <summary>Set under the gate once <see cref="StopAsync"/> has begun: no scan starts from then on.</summary>
+    private bool _stopped;
+
     public ScanRunner(IScanDisplay? display, ScanRunnerOptions? options = null)
     {
         _display = display;
@@ -112,6 +115,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 
     /// <summary>STATE.scan's row: the running or last scan (null before the first).</summary>
     public ScanView? View => _view;
+
+    /// <summary>What <see cref="StartAsync"/> says once the runner has begun to stop.</summary>
+    public const string StoppingWords = "the node is stopping — no scan starts";
 
     /// <summary>The id of the scan running now (null when none is).</summary>
     public string? RunningId => _view is { IsRunning: true } v ? v.Id : null;
@@ -159,16 +165,20 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
-        EngineCore engine;
         CancellationTokenSource cts;
-        Setup setup;
+        Track track;
+        Task<Task<string>> start;
+        Task<string> run;
         lock (_gate)
         {
+            if (_stopped)
+                return Task.FromException<string>(new InvalidOperationException(StoppingWords));
             if (_engine is null)
                 return Task.FromException<string>(new InvalidOperationException("the scan runner is not bound to an engine"));
             if (_running is not null)
                 return Task.FromException<string>(new InvalidOperationException("a scan is already running — SCAN CANCEL stops it"));
-            engine = _engine;
+            var engine = _engine;
+            Setup setup;
             try
             {
                 setup = ReadSetup(engine, cameraId, projectorIds, mode);
@@ -180,12 +190,21 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
             cts = new CancellationTokenSource();
             _running = cts;
-        }
-        var track = new Track(this, setup);
-        track.Step("starting", "starting", "getting ready");
-        var run = Task.Run(() => RunAsync(engine, setup, track, cts.Token), CancellationToken.None);
-        lock (_gate)
+            var token = cts.Token;
+            track = new Track(this, setup);
+            // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
+            start = new Task<Task<string>>(() => RunAsync(engine, setup, track, token));
+            run = start.Unwrap();
             _task = run;
+        }
+        try
+        {
+            track.Step("starting", "starting", "getting ready");
+        }
+        finally
+        {
+            start.Start(TaskScheduler.Default);
+        }
         return Finish(run, track, cts);
     }
 
@@ -864,15 +883,17 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return (Core.Numerics.Vec3d.Distance(a.Position, b.Position), angle);
     }
 
-    /// <summary>Stops the scan running now, if any, and waits until it has ended (its outputs are back on the show and
-    /// its words published), then takes its feeds off the node's views and lets every camera go. The node calls this
-    /// before the parts a scan uses go (the projectors' links, the engine).</summary>
+    /// <summary>Stops the runner: from the moment it begins no scan starts (<see cref="StartAsync"/> refuses with
+    /// <see cref="StoppingWords"/>); the scan running now, if any, is stopped and waited for until it has ended (its outputs
+    /// are back on the show and its words published); then its feeds come off the node's views and every camera is let go.
+    /// The node calls this before the parts a scan uses go (the projectors' links, the engine).</summary>
     public async Task StopAsync()
     {
         Task? task;
         CancellationTokenSource? running;
         lock (_gate)
         {
+            _stopped = true;
             running = _running;
             task = _task;
         }

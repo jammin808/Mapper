@@ -224,16 +224,23 @@ public readonly record struct FractalView(double CenterX, double CenterY, double
     public static FractalView Of(FractalSettings o, double time, int iterationCap = 1024, EffectSurge surge = default)
     {
         ArgumentNullException.ThrowIfNull(o);
-        var speed = o.Speed;
+        return Of(o, FractalNumbers.Of(o), time, iterationCap, surge);
+    }
+
+    /// <summary>The view with the numbers a binding may move taken from <paramref name="n"/> (the rest from the settings).</summary>
+    public static FractalView Of(FractalSettings o, in FractalNumbers n, double time, int iterationCap = 1024, EffectSurge surge = default)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        var speed = n.Speed;
         var pulse = 1 + 0.08 * Math.Sin(time * speed * 0.6) + surge.Zoom * 0.6;
-        var span = BaseSpan / (o.Zoom * Math.Max(0.5, pulse));
+        var span = BaseSpan / (n.Zoom * Math.Max(0.5, pulse));
         var morph = surge.Morph;
-        var cr = o.JuliaRe + 0.06 * Math.Sin(time * speed) + morph * 0.22 * Math.Sin(time * 1.7 + 0.5);
-        var ci = o.JuliaIm + 0.06 * Math.Cos(time * speed * 0.77) + morph * 0.22 * Math.Cos(time * 1.3);
+        var cr = n.JuliaRe + 0.06 * Math.Sin(time * speed) + morph * 0.22 * Math.Sin(time * 1.7 + 0.5);
+        var ci = n.JuliaIm + 0.06 * Math.Cos(time * speed * 0.77) + morph * 0.22 * Math.Cos(time * 1.3);
         var offset = time * speed * 0.05 + surge.Speed * 0.15 + surge.Hue;
         var bright = 1 + surge.Glow * 0.8;
         var iterations = Math.Max(1, Math.Min(o.Iterations, iterationCap));
-        return new FractalView(o.CenterX, o.CenterY, span, cr, ci, iterations, offset, bright, time)
+        return new FractalView(n.CenterX, n.CenterY, span, cr, ci, iterations, offset, bright, time)
         {
             Angle = surge.Rotate * Math.PI / 2,
             Warp = morph,
@@ -262,6 +269,16 @@ public readonly record struct FractalView(double CenterX, double CenterY, double
             (dx, dy) = (dx * c - dy * s, dx * s + dy * c);
         }
         return (CenterX + dx * upp, CenterY + dy * upp);
+    }
+}
+
+/// <summary>The numbers of a 2D fractal a binding may move, read every frame: its settings' values unless a binding moves them.</summary>
+public readonly record struct FractalNumbers(double Zoom, double CenterX, double CenterY, double Speed, double JuliaRe, double JuliaIm)
+{
+    public static FractalNumbers Of(FractalSettings o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        return new(o.Zoom, o.CenterX, o.CenterY, o.Speed, o.JuliaRe, o.JuliaIm);
     }
 }
 

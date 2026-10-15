@@ -93,7 +93,9 @@ public enum ChaseState { Disengaged, Waiting, Acquiring, Locked, Parked, Outside
 
 /// <summary>What a chase's lane should show: a region anchored (its item at media <see cref="MediaNs"/> at leader instant
 /// <see cref="AtLeaderNs"/>, advancing at <see cref="Rate"/> while running), a gap (black until the next region's start at
-/// <see cref="NextAtLeaderNs"/>), idle (black), or no change; and the words.</summary>
+/// <see cref="NextAtLeaderNs"/>), a hold between items (the region before's last frame at <see cref="MediaNs"/>, held from
+/// <see cref="AtLeaderNs"/>, the instant the shown code left that region — long.MinValue when the code stands still and names none;
+/// a reverse hold has no region and holds where the lane is), idle (black), or no change; and the words.</summary>
 public sealed record ChasePlan(ChaseState State, ChaseAction Action, int Region, long MediaNs, long AtLeaderNs, double Rate, bool Running,
     int NextRegion, long NextAtLeaderNs, long TcNs, string Words);
 
@@ -136,8 +138,10 @@ public static class ChaseLogic
                 return (plan, new ChaseMemory(ChaseState.Parked, long.MinValue, p));
             }
             case "reverse":
+                // The code is the one running backwards (its line), not where the last forward line would have it.
                 return (new ChasePlan(ChaseState.Reverse, ChaseAction.Hold, -1, 0, nowLeaderNs, 0, false, -1, long.MaxValue,
-                    memory.LastLine?.TcAt(nowLeaderNs) ?? 0, "timecode running backwards — holding"), memory with { State = ChaseState.Reverse });
+                    line?.TcAt(nowLeaderNs - settings.DelayNs) ?? memory.LastLine?.TcAt(nowLeaderNs) ?? 0, "timecode running backwards — holding"),
+                    memory with { State = ChaseState.Reverse });
             case "dropout" or "lost" or "silent" or "unavailable" when memory.LastLine is { Running: true } last:
             {
                 var since = memory.State == ChaseState.Freewheel || memory.FreewheelSinceNs != long.MinValue ? memory.FreewheelSinceNs : nowLeaderNs;
@@ -198,7 +202,10 @@ public static class ChaseLogic
             {
                 var prev = next < 0 ? regions[^1] : regions[next - 1];
                 var lastFrame = prev.OutNs > prev.InNs ? prev.OutNs - 1 : prev.InNs;
-                return new ChasePlan(state, ChaseAction.Hold, Array(regions, prev), lastFrame, nowLeaderNs, 0, false, next, nextAt, shownNow,
+                // Held from the instant the shown code left the item: the same on every node, however late a node begins holding. Code
+                // that stands still names no such instant.
+                var heldFrom = line.Running && line.Rate > 0 && prev.EndNs != long.MaxValue ? line.At(prev.EndNs) + settings.DelayNs : long.MinValue;
+                return new ChasePlan(state, ChaseAction.Hold, Array(regions, prev), lastFrame, heldFrom, 0, false, next, nextAt, shownNow,
                     "between items — holding the last frame");
             }
             return new ChasePlan(state == ChaseState.Locked ? ChaseState.Outside : state, ChaseAction.Gap, -1, 0, nowLeaderNs, 0, false, next, nextAt, shownNow,

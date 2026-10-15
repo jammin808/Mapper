@@ -29,8 +29,9 @@ internal readonly record struct OutputStageInputs(
 }
 
 /// <summary>The last pass of an output: the pre-warp picture drawn through the warp mesh into the output's
-/// 8-bit picture. In float, in order: the lens lookup (when there is one), the picture (black outside it),
-/// × the output mask × the blend weight, + the black pedestal (masked), then the trim — gamma as an exponent,
+/// 8-bit picture. In float, in order: the camera-measured warp and the lens lookup (when there are), the picture (black outside it),
+/// × the output mask × the blend weight, + the black pedestal (masked) — or, with a measured blend, the same in light through the
+/// output's measured γ (<see cref="MeasuredStage"/>) — then the trim — gamma as an exponent,
 /// gains × brightness, contrast about mid-grey, lift — then a dither under half a code. A neutral trim and an
 /// identity warp give back the picture's own codes exactly. Rotation turns the result onto the display's
 /// raster by quarter turns, clockwise. Last, the air's gain multiplies every channel (1 when no levels are given), so a gain of 0
@@ -58,8 +59,10 @@ internal sealed class OutputStage
         d.SetCull(CullMode.None);
         d.Clear(0, 0, 0, 1);
         var p = d.Program("output");
+        var measured = input.Measured;
         p.SetInt("uRotation", input.RotationQuarters);
-        p.Set("uSrc", input.SourceRect);
+        // The measured grid holds the canvas's own uv: it replaces the output's region of the picture.
+        p.Set("uSrc", measured?.WarpGrid is null ? input.SourceRect : new Vector4(0, 0, 1, 1));
         d.BindSampler(p, "uPicture", 0, input.Picture);
         p.SetInt("uHasLens", input.Lens is null ? 0 : 1);
         d.BindSampler(p, "uLens", 1, input.Lens ?? _services.White);
@@ -72,6 +75,15 @@ internal sealed class OutputStage
         p.Set("uGain", (float)t.GainR * b, (float)t.GainG * b, (float)t.GainB * b, 1);
         p.Set("uTone", (float)t.Contrast, (float)t.Gamma, (float)t.Lift, input.Dither);
         p.Set("uFrame", input.Frame % 4096);
+        p.SetInt("uHasMeasuredGrid", measured?.WarpGrid is null ? 0 : 1);
+        d.BindSampler(p, "uMeasuredGrid", 4, measured?.WarpGrid ?? _services.White);
+        p.SetInt("uHasMeasuredBlend", measured?.Blend is null ? 0 : 1);
+        d.BindSampler(p, "uMeasuredBlend", 5, measured?.Blend ?? _services.White);
+        p.SetInt("uMatch", measured is { Match: true } ? 1 : 0);
+        p.Set("uMeasuredGains", measured?.Gains ?? Vector4.One);
+        // Set on every draw, as uAir: a γ left unset reads 0.
+        p.Set("uMeasuredGamma", measured?.Gamma ?? MeasuredStage.ContentGamma);
+        p.Set("uMeasuredPedestal", measured?.Pedestal ?? 0f);
         // Set on every draw: a uniform left unset reads 0, and that would black the output.
         p.Set("uAir", input.Gain ?? 1f);
         d.DrawIndexed(p, input.Warp.Vao, PrimitiveKind.Triangles, input.Warp.IndexCount);

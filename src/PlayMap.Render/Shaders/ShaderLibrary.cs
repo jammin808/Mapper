@@ -309,11 +309,14 @@ public static partial class ShaderLibrary
         """;
 
     /// <summary>The output stage: the pre-warp picture through the warp mesh (positions in normalised output
-    /// units, y down; texture coordinates into the picture), through the lens lookup when there is one, times
-    /// the output mask and the blend weight, plus the black pedestal, then the trim — gamma (an exponent, as
-    /// Patterns' trims), gains × brightness, contrast about mid-grey, lift — and a dither under half a code
-    /// (an exact code stays exact; a value between codes is spread). The rotation turns the result onto the
-    /// display's raster.</summary>
+    /// units, y down; texture coordinates into the picture), through the camera-measured warp when there is one (its grid of
+    /// canvas uv read bilinearly in float with texel fetches, so it is exact on every dialect; a point the camera did not see is
+    /// black), through the lens lookup when there is one, times the output mask and the blend weight, plus the black pedestal,
+    /// then the trim — gamma (an exponent, as Patterns' trims), gains × brightness, contrast about mid-grey, lift — and a dither
+    /// under half a code (an exact code stays exact; a value between codes is spread). A measured blend works in light: the
+    /// content's light (its 2.2, times the measured gains) becomes ped + (1 − ped)·weight·light, back to the signal through the
+    /// output's own γ; without one, a measured γ or gains alone still turn the content's 2.2 into the output's γ, and without
+    /// either the picture passes as it is. The rotation turns the result onto the display's raster.</summary>
     private const string OutputVs = """
         layout(location = 0) in vec2 aPos;
         layout(location = 1) in vec2 aTex;
@@ -346,6 +349,14 @@ public static partial class ShaderLibrary
         uniform vec4 uTone;
         uniform float uFrame;
         uniform float uAir;
+        uniform sampler2D uMeasuredGrid;
+        uniform int uHasMeasuredGrid;
+        uniform sampler2D uMeasuredBlend;
+        uniform int uHasMeasuredBlend;
+        uniform int uMatch;
+        uniform vec4 uMeasuredGains;
+        uniform float uMeasuredGamma;
+        uniform float uMeasuredPedestal;
         out vec4 oColor;
 
         float hash(vec2 p) {
@@ -354,21 +365,48 @@ public static partial class ShaderLibrary
             return fract((p3.x + p3.y) * p3.z);
         }
 
+        vec4 texels(sampler2D s, vec2 p) {
+            ivec2 size = textureSize(s, 0);
+            vec2 c = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+            ivec2 i0 = ivec2(floor(c));
+            ivec2 i1 = min(i0 + ivec2(1), size - ivec2(1));
+            vec2 f = c - vec2(i0);
+            vec4 a = texelFetch(s, i0, 0);
+            vec4 b = texelFetch(s, ivec2(i1.x, i0.y), 0);
+            vec4 d = texelFetch(s, ivec2(i0.x, i1.y), 0);
+            vec4 e = texelFetch(s, i1, 0);
+            return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+        }
+
         void main() {
             vec2 tc = vTex;
             bool inside = true;
+            if (uHasMeasuredGrid == 1) {
+                vec4 g = texels(uMeasuredGrid, vTex * vec2(textureSize(uMeasuredGrid, 0) - ivec2(1)));
+                tc = g.xy;
+                inside = g.z >= 0.5;
+            }
             if (uHasLens == 1) {
                 tc = texture(uLens, tc).xy;
-                inside = tc.x >= 0.0 && tc.y >= 0.0;
+                inside = inside && tc.x >= 0.0 && tc.y >= 0.0;
             }
             inside = inside && tc.x >= 0.0 && tc.y >= 0.0 && tc.x <= 1.0 && tc.y <= 1.0;
             vec3 c = vec3(0.0);
             if (inside) c = texture(uPicture, uSrc.xy + tc * uSrc.zw).rgb;
             float m = 1.0;
             if (uHasMask == 1) m = texture(uMask, vOut).r;
-            vec2 bw = vec2(1.0, 0.0);
-            if (uHasBlend == 1) bw = texture(uBlend, vOut).rg;
-            c = c * (m * bw.x) + vec3(bw.y * m);
+            if (uHasMeasuredBlend == 1) {
+                vec3 b = texels(uMeasuredBlend, vOut * vec2(textureSize(uMeasuredBlend, 0)) - 0.5).xyz;
+                vec3 lin = pow(max(c, 0.0), vec3(2.2)) * uMeasuredGains.rgb * uMeasuredGains.w;
+                float ped = b.y * uMeasuredPedestal;
+                lin = vec3(ped) + (1.0 - ped) * b.x * lin;
+                c = pow(max(lin, 0.0), vec3(1.0 / uMeasuredGamma)) * m;
+            } else {
+                if (uMatch == 1) c = pow(pow(max(c, 0.0), vec3(2.2)) * uMeasuredGains.rgb * uMeasuredGains.w, vec3(1.0 / uMeasuredGamma));
+                vec2 bw = vec2(1.0, 0.0);
+                if (uHasBlend == 1) bw = texture(uBlend, vOut).rg;
+                c = c * (m * bw.x) + vec3(bw.y * m);
+            }
             if (uTone.y != 1.0) c = pow(max(c, 0.0), vec3(uTone.y));
             c *= uGain.rgb;
             if (uTone.x != 1.0) c = (c - 0.5) * uTone.x + 0.5;

@@ -53,6 +53,19 @@ public sealed partial class EngineCore
             w.WriteString("name", k.Name);
             w.WriteString("words", k.Words);
             w.WriteBoolean("animated", k.Animated);
+            var traits = GeneratorTraits.Of(k.Id);
+            w.WriteStartObject("traits");
+            w.WriteString("time", GeneratorTraits.Word(traits.Time));
+            w.WriteNumber("periodSeconds", traits.PeriodSeconds);
+            w.WriteNumber("maxLifeSeconds", traits.MaxLifeSeconds);
+            w.WriteBoolean("readsAudio", traits.ReadsAudio);
+            w.WriteBoolean("mayFlash", traits.MayFlash);
+            w.WriteBoolean("drawsBindings", traits.DrawsBindings);
+            w.WriteEndObject();
+            w.WriteStartArray("inputs");
+            foreach (var input in InputsOf(k.Id))
+                w.WriteStringValue(input);
+            w.WriteEndArray();
             w.WriteStartArray("params");
             foreach (var p in k.Params)
             {
@@ -84,24 +97,38 @@ public sealed partial class EngineCore
     private CommandReply GeneratorNew(List<string> args)
     {
         if (args.Count < 1)
-            return CommandReply.Fail("GENERATOR NEW <kind> [<name>]");
+            return CommandReply.Fail("GENERATOR NEW <kind> [<name>] [PRESET <preset>]");
         var kind = GeneratorCatalog.FindLoose(args[0]);
         if (kind is null)
             return CommandReply.Fail($"no generator kind '{args[0]}' — GENERATOR KINDS lists them");
+        var presetName = TakePreset(args);
+        var parameters = ParamSet.Empty;
+        if (presetName is not null)
+        {
+            // A look the kind has (saved in the show or curated), written whole as RECALL writes it.
+            if (LookFor(kind, presetName, out var why) is not { } look)
+                return CommandReply.Fail(why);
+            parameters = look.Params;
+            presetName = look.Name;
+        }
         var name = args.Count > 1 ? string.Join(' ', args.Skip(1)) : kind.Name;
+        // Its own time starts now: the same instant on every node that applies this edit.
+        var origin = LeaderNowNs;
         string id = "";
         var r = Edits.Apply($"new generator {name}", p =>
         {
             id = p.NewId(Ids.Generator);
-            return p with { Generators = p.Generators.Add(new Generator(id, name, kind.Id, ParamSet.Empty)) };
+            return p with { Generators = p.Generators.Add(new Generator(id, name, kind.Id, parameters) { OriginNs = origin }) };
         });
-        return r.Changed ? CommandReply.Success(id, $"made {kind.Name} generator {name}") : FromEdit(r);
+        return r.Changed
+            ? CommandReply.Success(id, $"made {kind.Name} generator {name}{(presetName is null ? "" : " from " + presetName)}")
+            : FromEdit(r);
     }
 
     private CommandReply GeneratorSet(List<string> args)
     {
         if (args.Count < 3)
-            return CommandReply.Fail("GENERATOR SET <generator> <param> <value>");
+            return CommandReply.Fail("GENERATOR SET <generator> <param> <value> | GENERATOR SET <generator> <param> BY <delta>");
         var g = Edits.Project.FindGenerator(args[0]) ?? Edits.Project.Generators.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
         if (g is null)
             return CommandReply.Fail($"no generator {args[0]}");
@@ -109,9 +136,21 @@ public sealed partial class EngineCore
         var spec = kind?.Param(args[1]);
         if (kind is null || spec is null)
             return CommandReply.Fail($"{g.Name} has no parameter {args[1]}{(kind is null ? "" : " — it has " + string.Join(", ", kind.Params.Select(p => p.Name)))}");
-        var value = string.Join(' ', args.Skip(2));
-        if (!spec.TryNormalise(value, out var normalised, out var why))
-            return CommandReply.Fail(why);
+        string normalised;
+        if (args.Count == 4 && args[2].Equals("BY", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!double.TryParse(args[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var delta) || !double.IsFinite(delta) || delta == 0)
+                return CommandReply.Fail("BY takes a step count other than 0 (a number: 1 is a hundredth of the range)");
+            if (Stepped(kind, spec, g.Params, delta, out var stepWhy) is not { } stepped)
+                return CommandReply.Fail(stepWhy);
+            normalised = stepped;
+        }
+        else
+        {
+            var value = string.Join(' ', args.Skip(2));
+            if (!spec.TryNormalise(value, out normalised, out var why))
+                return CommandReply.Fail(why);
+        }
         if (kind.Value(g.Params, spec.Name) == normalised)
             return CommandReply.Fail($"{spec.Name} is already {normalised}");
         return FromEdit(Edits.Apply($"{g.Name} {spec.Name} {normalised}",
@@ -521,31 +560,17 @@ public sealed partial class EngineCore
     private string SyncJson() => JsonOut(w => StateWriter.WriteSync(w, this));
 }
 
-/// <summary>wp2-content's hooks into the engine (EngineCore.Modules.cs). The package fills each body.</summary>
+/// <summary>wp2-content's hooks into the engine (EngineCore.Modules.cs): its verbs and INDEX sections, the tick that lets a finished
+/// sting leave STATE, STATE.content, the context's content item and a generator's inputs checked on every edit.</summary>
 public sealed partial class EngineCore
 {
-    partial void RouteContent(VerbRoutes routes)
-    {
-        // wp2-content fills this.
-    }
+    partial void RouteContent(VerbRoutes routes) => RouteContentVerbs(routes);
 
-    partial void TickContent(long leaderNs)
-    {
-        // wp2-content fills this.
-    }
+    partial void TickContent(long leaderNs) => TickStings(leaderNs);
 
-    partial void StateContent(Utf8JsonWriter w)
-    {
-        // wp2-content fills this.
-    }
+    partial void StateContent(Utf8JsonWriter w) => WriteContentState(w);
 
-    partial void ContextContent(List<ContextItem> items, List<ContextLink> links)
-    {
-        // wp2-content fills this.
-    }
+    partial void ContextContent(List<ContextItem> items, List<ContextLink> links) => AddContentContext(items);
 
-    partial void ValidateContent(Project p, object entity, ref string? why)
-    {
-        // wp2-content fills this.
-    }
+    partial void ValidateContent(Project p, object entity, ref string? why) => ValidateGenerator(entity, ref why);
 }

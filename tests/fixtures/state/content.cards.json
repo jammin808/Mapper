@@ -1,1 +1,135 @@
-[]
+[
+  {
+    "title": "Content",
+    "path": "content",
+    "light": {
+      "path": "content.light",
+      "red": [
+        "red"
+      ],
+      "amber": [
+        "amber"
+      ],
+      "green": [
+        "green"
+      ]
+    },
+    "words": "content.renderer",
+    "fields": [
+      {
+        "label": "Generators",
+        "path": "content.generators.length"
+      },
+      {
+        "label": "Cost (ms, p95)",
+        "path": "content.costMs"
+      },
+      {
+        "label": "Budget (ms)",
+        "path": "content.budgetMs"
+      },
+      {
+        "label": "Governor",
+        "path": "content.governor"
+      },
+      {
+        "label": "Sting",
+        "path": "content.sting.preset"
+      },
+      {
+        "label": "Sting progress",
+        "path": "content.sting.progress"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Explosion",
+        "line": "STING Explosion"
+      },
+      {
+        "label": "Flash",
+        "line": "STING Flash"
+      },
+      {
+        "label": "Stop the sting",
+        "line": "STING CLEAR"
+      },
+      {
+        "label": "Stings",
+        "line": "STING LIST"
+      },
+      {
+        "label": "Retime every generator",
+        "line": "GENERATOR RETIME ALL"
+      }
+    ]
+  },
+  {
+    "title": "Generator",
+    "path": "content.generators[]",
+    "light": {
+      "path": "light"
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Settled",
+        "path": "progress"
+      },
+      {
+        "label": "Time class",
+        "path": "time"
+      },
+      {
+        "label": "Own time (s)",
+        "path": "timeS"
+      },
+      {
+        "label": "GPU (ms)",
+        "path": "gpuMs"
+      },
+      {
+        "label": "GPU p95 (ms)",
+        "path": "gpuMsP95"
+      },
+      {
+        "label": "Count",
+        "path": "count"
+      },
+      {
+        "label": "On the air",
+        "path": "onAir"
+      },
+      {
+        "label": "Warnings",
+        "path": "warnings"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Retime",
+        "line": "GENERATOR RETIME $(id)"
+      },
+      {
+        "label": "Reset",
+        "line": "GENERATOR RESET $(id)"
+      },
+      {
+        "label": "Get",
+        "line": "GENERATOR GET $(id)"
+      }
+    ]
+  }
+]

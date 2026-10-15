@@ -23,6 +23,9 @@ public sealed partial class EngineCore
 
     private CommandReply Route(WireLine line, SessionInfo session, CancellationToken ct)
     {
+        // A line still waiting for the lane when the node began to stop is refused like one that arrives after it.
+        if (RefusedAsStopping(session))
+            return CommandReply.Fail(StoppingWords);
         if (TryFact(line, out var fact))
             return fact;
         var match = VerbCatalog.Match(line);
