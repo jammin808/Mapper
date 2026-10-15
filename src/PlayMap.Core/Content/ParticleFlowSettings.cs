@@ -11,8 +11,14 @@ public enum FlowEdges { Pass, Bounce, Wrap, Kill }
 /// <summary>How a particle's size runs over its life.</summary>
 public enum FlowSizeOverLife { Constant, Grow, Shrink, Pulse }
 
-/// <summary>What a particle's colour is chosen by.</summary>
-public enum FlowColorBy { Life, Speed, Random }
+/// <summary>What a particle's colour is chosen by (source: the picture's colour where it was born).</summary>
+public enum FlowColorBy { Life, Speed, Random, Source }
+
+/// <summary>What of a picture a picture emitter weighs births by.</summary>
+public enum FlowWeight { Luma, Alpha, Edges }
+
+/// <summary>Which way a picture moves particles: along its contours, or across them (up its brightness).</summary>
+public enum FlowMode { Along, Across }
 
 /// <summary>A GPU particle field's settings that fix its shape (the slots, the schedule and the emitter): a change re-anchors the
 /// field. The forces and the look are numbers the renderer reads every frame (and a binding may move). The field lives in picture
@@ -21,6 +27,21 @@ public sealed record ParticleFlowSettings(int Count, uint Seed, FlowEmitter Emit
     FlowEdges Edges, FlowSizeOverLife SizeOverLife, FlowColorBy ColorBy, ParticleShape Shape, bool Glow, string Colors, string Background)
 {
     public const string KindId = "particles.flow";
+
+    /// <summary>The same field born on a picture, drifting on it and coloured by it.</summary>
+    public const string ImageKindId = "particles.image";
+
+    /// <summary>What a picture emitter weighs births by.</summary>
+    public FlowWeight Weight { get; init; }
+
+    /// <summary>Born where the picture is dark instead.</summary>
+    public bool Invert { get; init; }
+
+    public FlowMode FlowMode { get; init; }
+
+    /// <summary>True for the two GPU particle kinds.</summary>
+    public static bool IsKind(string? kindId) =>
+        string.Equals(kindId, KindId, StringComparison.OrdinalIgnoreCase) || string.Equals(kindId, ImageKindId, StringComparison.OrdinalIgnoreCase);
 
     public const int DefaultCount = 262_144;
     public const int MaxCount = 4_194_304;
@@ -49,10 +70,10 @@ public sealed record ParticleFlowSettings(int Count, uint Seed, FlowEmitter Emit
     }
 
     /// <summary>The settings a parameter set gives, the count capped at <paramref name="maxCount"/>.</summary>
-    public static ParticleFlowSettings Resolve(ParamSet set, int maxCount = MaxCount)
+    public static ParticleFlowSettings Resolve(ParamSet set, int maxCount = MaxCount, string kindId = KindId)
     {
         ArgumentNullException.ThrowIfNull(set);
-        var kind = GeneratorCatalog.Find(KindId)!;
+        var kind = GeneratorCatalog.Find(IsKind(kindId) ? kindId : KindId)!;
         var lifeMin = ParamValues.Number(set, kind, "lifeMin");
         var lifeMax = Math.Max(lifeMin, ParamValues.Number(set, kind, "lifeMax"));
         return new ParticleFlowSettings(
@@ -67,6 +88,14 @@ public sealed record ParticleFlowSettings(int Count, uint Seed, FlowEmitter Emit
             Enum.Parse<ParticleShape>(ParamValues.Choice(set, kind, "sprite"), ignoreCase: true),
             ParamValues.Flag(set, kind, "glow"),
             ParamValues.Text(set, kind, "colors"),
-            ParamValues.Text(set, kind, "background"));
+            ParamValues.Text(set, kind, "background"))
+        {
+            Weight = Enum.Parse<FlowWeight>(ParamValues.Choice(set, kind, "weight"), ignoreCase: true),
+            Invert = ParamValues.Flag(set, kind, "invert"),
+            FlowMode = Enum.Parse<FlowMode>(ParamValues.Choice(set, kind, "flowMode"), ignoreCase: true),
+        };
     }
+
+    /// <summary>True when the field reads its source picture: born on it, moved by it or coloured by it.</summary>
+    public bool ReadsPicture(double flow) => Emitter == FlowEmitter.Picture || ColorBy == FlowColorBy.Source || flow != 0;
 }

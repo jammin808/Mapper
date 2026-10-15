@@ -147,6 +147,69 @@ public sealed class GeneratorVerbTests
     }
 
     [Fact]
+    public async Task PresetsListTheCuratedAndSavedLooksOfAKindOrAFamily()
+    {
+        await using var rig = new ContentRig();
+        using (var bulbs = JsonDocument.Parse((await rig.Ok("GENERATOR PRESETS mandelbulb")).Payload!))
+        {
+            var rows = bulbs.RootElement.EnumerateArray().ToList();
+            Assert.Equal(4, rows.Count);
+            Assert.All(rows, r => Assert.Equal("fractal.mandelbulb", r.GetProperty("kind").GetString()));
+            Assert.All(rows, r => Assert.True(r.GetProperty("curated").GetBoolean()));
+            Assert.Contains(rows, r => r.GetProperty("name").GetString() == "Golden bulb" && r.GetProperty("pack").GetString() == "Bulbs");
+        }
+        using (var particles = JsonDocument.Parse((await rig.Ok("GENERATOR PRESETS particles")).Payload!))
+        {
+            var kinds = particles.RootElement.EnumerateArray().Select(r => r.GetProperty("kind").GetString()).Distinct().ToList();
+            Assert.Equal(["particles.field", "particles.flow", "particles.image"], kinds);
+        }
+        Assert.Contains("no generator kind or family 'clouds'", await rig.Refused("GENERATOR PRESETS clouds"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RecallWritesALookWholeInOneUndoStepAndSaveKeepsOne()
+    {
+        await using var rig = new ContentRig();
+        var id = (await rig.Ok("GENERATOR NEW particles.flow Sparks")).Payload!;
+        await rig.Ok($"GENERATOR SET {id} curl 2");
+        var before = rig.Engine.Store.Project.FindGenerator(id)!.Params;
+        var r = await rig.Ok($"GENERATOR RECALL {id} Galaxy swirl");
+        Assert.Equal("Sparks → Galaxy swirl", r.Effect);
+        var g = rig.Engine.Store.Project.FindGenerator(id)!;
+        Assert.Equal(GeneratorLooks.Find("particles.flow", "Galaxy swirl")!.Params, g.Params);
+        Assert.Contains("already looks like Galaxy swirl", await rig.Refused($"GENERATOR RECALL {id} galaxy swirl"), StringComparison.Ordinal);
+        Assert.Contains("is a look for Mandelbulb, not Particle flow", await rig.Refused($"GENERATOR RECALL {id} Golden bulb"), StringComparison.Ordinal);
+        Assert.Contains("no look 'Haze' for Particle flow", await rig.Refused($"GENERATOR RECALL {id} Haze"), StringComparison.Ordinal);
+        // One undo step back to what it was.
+        await rig.Ok("UNDO");
+        Assert.Equal(before, rig.Engine.Store.Project.FindGenerator(id)!.Params);
+
+        // SAVE keeps the look whole, as a show entity; RECALL takes it by name or id; a second look of one name is refused.
+        var saved = (await rig.Ok($"GENERATOR SAVE {id} Hot sparks")).Payload!;
+        var preset = rig.Engine.Store.Project.FindGeneratorPreset(saved)!;
+        Assert.StartsWith("gp", saved, StringComparison.Ordinal);
+        Assert.Equal(("Hot sparks", "particles.flow"), (preset.Name, preset.Kind));
+        Assert.Equal("2", preset.Params.Get("curl"));
+        Assert.Equal(GeneratorCatalog.Find("particles.flow")!.Params.Count, preset.Params.Values.Count);
+        Assert.Contains("already keeps a Particle flow look named Hot sparks", await rig.Refused($"GENERATOR SAVE {id} hot sparks"), StringComparison.Ordinal);
+        await rig.Ok($"GENERATOR RECALL {id} Embers");
+        await rig.Ok($"GENERATOR RECALL {id} Hot sparks");
+        Assert.Equal("2", rig.Engine.Store.Project.FindGenerator(id)!.Params.Get("curl"));
+        await rig.Ok($"GENERATOR RECALL {id} Embers");
+        await rig.Ok($"GENERATOR RECALL {id} {saved}");
+        Assert.Equal(preset.Params, rig.Engine.Store.Project.FindGenerator(id)!.Params);
+        using (var list = JsonDocument.Parse((await rig.Ok("GENERATOR PRESETS particles.flow")).Payload!))
+            Assert.Contains(list.RootElement.EnumerateArray(), x => x.GetProperty("id").GetString() == saved && !x.GetProperty("curated").GetBoolean());
+
+        // A kind whose looks ride its preset parameter recalls by setting it.
+        var field = (await rig.Ok("GENERATOR NEW particles.field")).Payload!;
+        await rig.Ok($"GENERATOR RECALL {field} Snow");
+        Assert.Equal("Snow", rig.Engine.Store.Project.FindGenerator(field)!.Params.Get("preset"));
+        var julia = (await rig.Ok("GENERATOR NEW julia")).Payload!;
+        Assert.Contains("is a look for Particle flow, not Julia", await rig.Refused($"GENERATOR RECALL {julia} Hot sparks"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AGeneratorsInputsAreCheckedOnEveryEdit()
     {
         await using var rig = new ContentRig();

@@ -19,7 +19,7 @@ public sealed record GeneratorTraits(TimeClass Time, double PeriodSeconds, doubl
         var id = kindId?.ToLowerInvariant() ?? "";
         return id switch
         {
-            "particles.flow" => new(TimeClass.Bounded, 0, ParticleFlowSettings.DefaultLifeMaxSeconds, false, true, true),
+            "particles.flow" or "particles.image" => new(TimeClass.Bounded, 0, ParticleFlowSettings.DefaultLifeMaxSeconds, false, true, true),
             // The CPU field restarts from its seed whenever a number changes, so a number rewritten every frame is not drawn live.
             "particles.field" => new(TimeClass.Bounded, 0, 0, false, true, false),
             "reactive.scene" => new(TimeClass.Pure, 0, 0, true, true, true),

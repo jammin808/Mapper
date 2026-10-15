@@ -284,7 +284,7 @@ internal sealed class GeneratorHost : IDisposable
                 return new ParticleGenerator(s, kind, width, height, context);
             case "reactive.scene":
                 return new ReactiveGenerator(s, kind, width, height, context);
-            case ParticleFlowSettings.KindId:
+            case ParticleFlowSettings.KindId or ParticleFlowSettings.ImageKindId:
                 return new FlowGenerator(s, kind, width, height, context);
         }
         if (Fractal3DSettings.IsKind(kind.Id))

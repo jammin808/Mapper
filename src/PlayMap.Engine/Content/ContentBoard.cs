@@ -198,8 +198,8 @@ internal sealed class ContentBoard
     public static double HorizonSeconds(Generator g)
     {
         ArgumentNullException.ThrowIfNull(g);
-        return g.Kind.Equals(ParticleFlowSettings.KindId, StringComparison.OrdinalIgnoreCase)
-            ? ParticleFlowSettings.Resolve(g.Params).LifeMaxSeconds
+        return ParticleFlowSettings.IsKind(g.Kind)
+            ? ParticleFlowSettings.Resolve(g.Params, kindId: g.Kind).LifeMaxSeconds
             : GeneratorTraits.Of(g.Kind).MaxLifeSeconds;
     }
 

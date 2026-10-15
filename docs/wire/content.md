@@ -10,6 +10,9 @@ Particles, fractals and reactive scenes (`docs/CONTENT.md`). A `<generator>` is 
 | `GENERATOR RETIME` | `GENERATOR RETIME <generator>\|ALL [AT +<ms>\|<unix ms>]` | JSON `{originNs, atUnixMs, generators:[id…]}`; the generator's own time counts from that instant (a particle field settles anew from there) | review | yes |
 | `GENERATOR INPUT` | `GENERATOR INPUT <generator> source <source>\|NONE` | effect words: what it reads now | review | yes |
 | `GENERATOR RESET` | `GENERATOR RESET <generator> [<param>\|ALL]` | effect words | review | yes |
+| `GENERATOR PRESETS` | `GENERATOR PRESETS [<kind>\|<family>]` | JSON `[{id: "gp…"\|null, name, kind, pack, curated}]`: the curated looks (thirty for the round-2 kinds; the particle presets and fractal scenes for the older kinds) and the looks the show keeps | low | no |
+| `GENERATOR RECALL` | `GENERATOR RECALL <generator> <preset>` | effect words "Sparks → Galaxy swirl"; the look's parameters written whole, one undo step (a kind with a `preset` parameter takes the look's name there); a saved look by id or name first, then a curated one | review | yes |
+| `GENERATOR SAVE` | `GENERATOR SAVE <generator> <name>` | the look's id (`gp…`): its parameters kept whole in the show (as the operator set them, for a kind with a `preset` parameter) | low | yes |
 | `GENERATOR GET` | `GENERATOR GET <generator>` | JSON `{id, name, kind, params, effective, bindings, inputs, originNs, morph:null, traits:{time, periodSeconds, maxLifeSeconds, readsAudio, mayFlash, drawsBindings}, state, progress, time, timeS, gpuMs, live, words}` | low | no |
 | `STING` | `STING <preset> [<100-5000 ms>] [AT +<ms>\|<unix ms>]` | JSON `{preset, atUnixMs, lengthMs, progress}`; applied when the channel every generator reads holds it | review | no (the air; journalled) |
 | `STING CLEAR` | `STING CLEAR` | effect words | low | no (the air) |
@@ -30,7 +33,9 @@ Round-one rows content answers with more (their syntax is the spine's):
 that would not change ("curlOctaves is already 3", "… already counts its time from that instant", "… is already at its
 defaults", "… already reads canvas Main"); an input a kind does not read ("Julia reads no picture", "Sparks reads source, not
 matte"); an input that would show the generator itself ("Sparks would read canvas Main, which shows Sparks: a loop"); a sting not
-in the list (the answer lists them), a length outside 100–5000 ms, a malformed `AT`; `STING CLEAR` with none running.
+in the list (the answer lists them), a length outside 100–5000 ms, a malformed `AT`; `STING CLEAR` with none running; a look of
+another kind ("Golden bulb is a look for Mandelbulb, not Particle flow"), an unknown look (the answer lists the kind's), a recall
+that would change nothing ("Sparks already looks like Galaxy swirl"), a second kept look of one name for a kind.
 
 **Generic edits.** `ADD generator {json}` refuses an input its kind does not read. `SET gn… originNs …`, `inputs` and `bindings` are
 plain fields of the generator.
@@ -100,7 +105,10 @@ What shipped (for the integration docs pass):
 - **Bindings drawn live**: a generator's bindings (audio's `MOD BIND`/`GENERATOR BIND`) are evaluated on the render thread through
   the frame's bus for `particles.flow`, the fractals, `reactive.scene` and the moving patterns; the CPU particle field, the still
   patterns and the surface effects draw them at their base (audio's words say so per kind).
-- Not built this round (rows trimmed): `GENERATOR PRESETS/RECALL/SAVE/MORPH` (looks and morphs), `particles.image`, deep zoom.
+- **Stretch reached:** `particles.image` (the field born where a source is bright — by luma, alpha or edges, inverted on request —
+  drifting along its contours or across them, coloured by the picture where it was born) and the looks: `GENERATOR PRESETS`,
+  `RECALL`, `SAVE` with thirty curated looks (`GeneratorLooks`).
+- Not built this round (row trimmed): `GENERATOR MORPH`; deep zoom (stretch 7).
 - **Spine amendments wanted:** the router hands `GENERATOR KINDS` no words (its `[<family>]` filter is unread);
   `GeneratorFrame`/`FrameInputs` have no content field, so content's per-frame facts (item times, the pictures a generator reads,
   the observed stats) ride the frame's modulation as a `ContentFrame` that forwards the node's bus whole — a `FrameInputs.Content`

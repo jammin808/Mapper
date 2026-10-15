@@ -173,3 +173,40 @@ public sealed class ContentCoreTests
         Assert.InRange(bright - view.Brightness, -FlashGuard.MaxAudioBrightnessSwing - 1e-6, FlashGuard.MaxAudioBrightnessSwing + 1e-6);
     }
 }
+
+/// <summary>The curated looks: thirty for the round-2 kinds, each setting only parameters its kind has, at values that are already
+/// normalised; the older kinds' looks are their preset tables.</summary>
+public sealed class GeneratorLookTests
+{
+    [Fact]
+    public void EveryCuratedLookSetsItsKindsParametersAtNormalisedValues()
+    {
+        Assert.Equal(30, GeneratorLooks.Curated.Count);
+        Assert.Equal(GeneratorLooks.Curated.Count, GeneratorLooks.Curated.Select(l => (l.Kind, l.Name)).Distinct().Count());
+        foreach (var look in GeneratorLooks.Curated)
+        {
+            var kind = GeneratorCatalog.Find(look.Kind);
+            Assert.True(kind is not null, look.Kind);
+            foreach (var (name, value) in look.Params.Values)
+            {
+                var spec = kind.Param(name);
+                Assert.True(spec is not null, $"{look.Name}: {kind.Name} has no {name}");
+                Assert.True(spec.TryNormalise(value, out var normalised, out var why), $"{look.Name} {name}: {why}");
+                Assert.Equal(normalised, value);
+            }
+        }
+        Assert.Equal(GeneratorLooks.Curated.Count, GeneratorCatalog.All.Sum(k => GeneratorLooks.Curated.Count(l => l.Kind == k.Id)));
+    }
+
+    [Fact]
+    public void TheOlderKindsLooksAreTheirPresetTables()
+    {
+        Assert.Equal(ParticlePresets.All.Count, GeneratorLooks.For("particles.field").Count());
+        Assert.Equal("Snow", GeneratorLooks.Find("particles.field", "snow")!.Params.Get("preset"));
+        var julia = GeneratorLooks.For("fractal.julia").ToList();
+        Assert.NotEmpty(julia);
+        Assert.All(julia, l => Assert.Equal(FractalKind.Julia, FractalPresets.Find(l.Name)!.Kind));
+        Assert.Equal("fractal.kifs", GeneratorLooks.FindAny("Menger sponge")!.Kind);
+        Assert.Empty(GeneratorLooks.For("pattern.grid"));
+    }
+}

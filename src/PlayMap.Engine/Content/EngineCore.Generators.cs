@@ -22,6 +22,9 @@ public sealed partial class EngineCore
         routes.Lane("GENERATOR RESET", c => GeneratorReset(c.Args));
         routes.Lane("GENERATOR INPUT", c => GeneratorInput(c.Args));
         routes.Lane("GENERATOR RETIME", c => GeneratorRetime(c.Args));
+        routes.Lane("GENERATOR PRESETS", c => GeneratorPresets(c.Args));
+        routes.Lane("GENERATOR RECALL", c => GeneratorRecall(c.Args));
+        routes.Lane("GENERATOR SAVE", c => GeneratorSave(c.Args));
         routes.Lane("STING", c => Sting(c.Args));
         routes.Lane("STING CLEAR", _ => StingClear());
         routes.Lane("STING LIST", _ => CommandReply.Success(StingListJson()));
@@ -193,7 +196,7 @@ public sealed partial class EngineCore
 
     /// <summary>The pictures a kind reads, by input name.</summary>
     internal static IReadOnlyList<string> InputsOf(string kindId) =>
-        kindId.Equals(ParticleFlowSettings.KindId, StringComparison.OrdinalIgnoreCase) ? ["source"] : [];
+        ParticleFlowSettings.IsKind(kindId) ? ["source"] : [];
 
     private CommandReply GeneratorInput(List<string> args)
     {
@@ -295,6 +298,132 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }), $"{label} count{(moving.Count == 1 ? "s" : "")} its time from {when} (Unix ms); a particle field settles anew from there");
     }
+
+    // ---- GENERATOR PRESETS, RECALL, SAVE ----
+
+    /// <summary>The kinds a PRESETS filter names: a kind (its id or short name), a family, or every kind.</summary>
+    private static IReadOnlyList<GeneratorKind>? KindsNamed(string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return GeneratorCatalog.All;
+        if (GeneratorCatalog.FindLoose(filter) is { } kind)
+            return [kind];
+        var family = GeneratorCatalog.All.Where(k => k.Family.Equals(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        return family.Count > 0 ? family : null;
+    }
+
+    private CommandReply GeneratorPresets(List<string> args)
+    {
+        var kinds = KindsNamed(args.Count > 0 ? string.Join(' ', args) : null);
+        if (kinds is null)
+            return CommandReply.Fail($"no generator kind or family '{string.Join(' ', args)}' — GENERATOR KINDS lists them");
+        var saved = Edits.Project.GeneratorPresets;
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartArray();
+            foreach (var kind in kinds)
+            {
+                foreach (var look in GeneratorLooks.For(kind.Id))
+                {
+                    w.WriteStartObject();
+                    w.WriteNull("id");
+                    w.WriteString("name", look.Name);
+                    w.WriteString("kind", kind.Id);
+                    w.WriteString("pack", look.Pack);
+                    w.WriteBoolean("curated", true);
+                    w.WriteEndObject();
+                }
+                foreach (var look in saved.Where(x => x.Kind.Equals(kind.Id, StringComparison.OrdinalIgnoreCase)))
+                {
+                    w.WriteStartObject();
+                    w.WriteString("id", look.Id);
+                    w.WriteString("name", look.Name);
+                    w.WriteString("kind", look.Kind);
+                    w.WriteString("pack", "saved");
+                    w.WriteBoolean("curated", false);
+                    w.WriteEndObject();
+                }
+            }
+            w.WriteEndArray();
+        }));
+    }
+
+    /// <summary>A look by name for a kind: a saved one (its id, or its name) first, then a curated one; null with the reason, which
+    /// names the kind a look of another kind is for.</summary>
+    private (string Name, ParamSet Params)? LookFor(GeneratorKind kind, string key, out string why)
+    {
+        why = "";
+        var saved = Edits.Project.FindGeneratorPreset(key)
+            ?? Edits.Project.GeneratorPresets.FirstOrDefault(x => x.Name.Equals(key, StringComparison.OrdinalIgnoreCase)
+                && x.Kind.Equals(kind.Id, StringComparison.OrdinalIgnoreCase))
+            ?? Edits.Project.GeneratorPresets.FirstOrDefault(x => x.Name.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (saved is not null)
+        {
+            if (!saved.Kind.Equals(kind.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                why = $"{saved.Name} is a look for {GeneratorCatalog.Find(saved.Kind)?.Name ?? saved.Kind}, not {kind.Name}";
+                return null;
+            }
+            return (saved.Name, saved.Params);
+        }
+        if (GeneratorLooks.Find(kind.Id, key) is { } look)
+            return (look.Name, look.Params);
+        if (GeneratorLooks.FindAny(key) is { } other)
+        {
+            why = $"{other.Name} is a look for {GeneratorCatalog.Find(other.Kind)?.Name ?? other.Kind}, not {kind.Name}";
+            return null;
+        }
+        var names = GeneratorLooks.For(kind.Id).Select(l => l.Name).ToList();
+        why = names.Count == 0 ? $"no look '{key}': {kind.Name} has no curated looks (GENERATOR SAVE keeps one)"
+            : $"no look '{key}' for {kind.Name} — {string.Join(", ", names)}";
+        return null;
+    }
+
+    private CommandReply GeneratorRecall(List<string> args)
+    {
+        if (args.Count < 2)
+            return CommandReply.Fail("GENERATOR RECALL <generator> <preset>");
+        // The generator is the first word (an id or a one-word name); the look is the rest.
+        var g = FindGenerator(args[0]);
+        if (g is null)
+            return CommandReply.Fail($"no generator {args[0]}");
+        if (GeneratorCatalog.Find(g.Kind) is not { } kind)
+            return CommandReply.Fail($"this node has no generator kind {g.Kind}");
+        if (LookFor(kind, string.Join(' ', args.Skip(1)), out var why) is not { } look)
+            return CommandReply.Fail(why);
+        if (SameLook(g.Params, look.Params))
+            return CommandReply.Fail($"{g.Name} already looks like {look.Name}");
+        return FromEdit(Edits.Apply($"{g.Name} → {look.Name}",
+            p => p with { Generators = p.Generators.Update(g.Id, x => x with { Params = look.Params }) }));
+    }
+
+    private CommandReply GeneratorSave(List<string> args)
+    {
+        if (args.Count < 2)
+            return CommandReply.Fail("GENERATOR SAVE <generator> <name>");
+        var g = FindGenerator(args[0]);
+        if (g is null)
+            return CommandReply.Fail($"no generator {args[0]}");
+        if (GeneratorCatalog.Find(g.Kind) is not { } kind)
+            return CommandReply.Fail($"this node has no generator kind {g.Kind}");
+        var name = string.Join(' ', args.Skip(1));
+        if (Edits.Project.GeneratorPresets.FirstOrDefault(x => x.Kind.Equals(kind.Id, StringComparison.OrdinalIgnoreCase)
+            && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } kept)
+            return CommandReply.Fail($"the show already keeps a {kind.Name} look named {kept.Name} ({kept.Id})");
+        // A kind whose looks ride its preset parameter keeps what the operator set (the preset fills the rest); every other kind's
+        // look is written whole, so it recalls the same picture whatever the catalogue's defaults become.
+        var parameters = kind.Param("preset") is not null ? g.Params : kind.Params.Aggregate(ParamSet.Empty, (set, p) => set.With(p.Name, kind.Value(g.Params, p.Name)));
+        string id = "";
+        var r = Edits.Apply($"save look {name}", p =>
+        {
+            id = p.NewId(Ids.GeneratorPreset);
+            return p with { GeneratorPresets = p.GeneratorPresets.Add(new GeneratorPreset(id, name, kind.Id, parameters)) };
+        });
+        return r.Changed ? CommandReply.Success(id, $"kept {g.Name}'s look as {name}") : FromEdit(r);
+    }
+
+    private static bool SameLook(ParamSet a, ParamSet b) =>
+        a.Values.Count == b.Values.Count && a.Values.All(kv => b.Values.TryGetValue(kv.Key, out var v) && string.Equals(v, kv.Value, StringComparison.Ordinal));
 
     // ---- STING ----
 

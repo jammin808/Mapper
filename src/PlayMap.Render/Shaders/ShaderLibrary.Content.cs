@@ -54,6 +54,10 @@ public static partial class ShaderLibrary
         uniform vec4 uSurge;
         uniform int uEdges;
         uniform float uRestitution;
+        uniform int uWeight;
+        uniform int uInvert;
+        uniform vec2 uFlow;
+        uniform int uColorSource;
         layout(location = 0) out vec4 o0;
         layout(location = 1) out vec4 o1;
 
@@ -98,6 +102,27 @@ public static partial class ShaderLibrary
             return dot(c, vec3(0.2126, 0.7152, 0.0722));
         }
 
+        // The picture's brightness slope at a point, per picture height (central differences a 256th apart).
+        vec2 slope(vec2 uv) {
+            vec2 e = vec2(1.0 / 256.0, 0.0);
+            return vec2(luma(uv + e.xy) - luma(uv - e.xy), luma(uv + e.yx) - luma(uv - e.yx)) * 128.0;
+        }
+
+        // What births weigh by: brightness, alpha or edges, inverted when asked.
+        float weightAt(vec2 uv) {
+            float w;
+            if (uWeight == 1) w = texture(uPicture, uv).a;
+            else if (uWeight == 2) w = clamp(length(slope(uv)) * 0.03, 0.0, 1.0);
+            else w = luma(uv);
+            return uInvert == 1 ? 1.0 - w : w;
+        }
+
+        // A colour packed whole into one float: 8 bits a channel, exact below 2^24.
+        float packRgb(vec3 c) {
+            vec3 b = floor(clamp(c, 0.0, 1.0) * 255.0 + 0.5);
+            return b.r + b.g * 256.0 + b.b * 65536.0;
+        }
+
         vec2 emitAt(uint h, float aspect, out bool ok) {
             ok = true;
             float r1 = u01(pcg(h ^ 0x68E31DA4u));
@@ -125,7 +150,7 @@ public static partial class ShaderLibrary
                 for (int t = 0; t < 8; t++) {
                     uint ht = pcg(h + uint(t) * 0x9E3779B9u);
                     vec2 q = vec2(u01(pcg(ht ^ 0x1B873593u)), u01(pcg(ht ^ 0xCC9E2D51u)));
-                    float l = luma(q);
+                    float l = weightAt(q);
                     if (l > uThreshold && u01(pcg(ht ^ 0xE6546B64u)) < l) return vec2(q.x * aspect, q.y);
                 }
                 ok = false;
@@ -154,8 +179,10 @@ public static partial class ShaderLibrary
                 if (!ok) { o0 = vec4(0.0); o1 = vec4(0.0); return; }
                 float speed = mix(uBirth.x, uBirth.y, u01(pcg(birth ^ 0x7FEB352Du)));
                 float ang = uBirth.z + (u01(pcg(birth ^ 0x846CA68Bu)) - 0.5) * uBirth.w;
+                float key = u01(pcg(birth ^ 0x3C6EF372u));
+                if (uColorSource == 1 && uHasPicture == 1) key = packRgb(texture(uPicture, vec2(p.x / uAspect, p.y)).rgb);
                 o0 = vec4(p, 0.0, float(life) * uDt);
-                o1 = vec4(cos(ang) * speed, sin(ang) * speed, u01(pcg(birth ^ 0x3C6EF372u)), u01(pcg(birth ^ 0xA54FF53Au)));
+                o1 = vec4(cos(ang) * speed, sin(ang) * speed, key, u01(pcg(birth ^ 0xA54FF53Au)));
                 return;
             }
             vec4 s0 = texelFetch(uS0, texel, 0);
@@ -174,6 +201,10 @@ public static partial class ShaderLibrary
             v += a * uDt;
             v *= max(0.0, 1.0 - uForces.z * uDt);
             vec2 flow = uForces.w * 0.1 * curl(p);
+            if (uHasPicture == 1 && uFlow.x != 0.0) {
+                vec2 g = slope(vec2(p.x / uAspect, p.y));
+                flow += uFlow.x * 0.05 * (uFlow.y < 0.5 ? vec2(-g.y, g.x) : g);
+            }
             p += (v + flow) * uDt * uSurge.x;
             float age = s0.z + uDt;
             float alive = s0.w;
@@ -246,7 +277,9 @@ public static partial class ShaderLibrary
             float size = mix(uSize.x, uSize.y, s1.w) * life * uGrow * uTarget.y;
             float key = uColorBy == 0 ? u : uColorBy == 1 ? clamp(length(s1.xy) / max(uSpeedRef, 1e-4), 0.0, 1.0) : s1.z;
             float fade = smoothstep(0.0, 0.08, u) * (1.0 - smoothstep(0.85, 1.0, u));
-            vTint = vec4(ramp(key), uOpacity * fade);
+            vec3 rgb = ramp(key);
+            if (uColorBy == 3) rgb = vec3(mod(s1.z, 256.0), mod(floor(s1.z / 256.0), 256.0), floor(s1.z / 65536.0)) / 255.0;
+            vTint = vec4(rgb, uOpacity * fade);
             vec2 c = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) - 0.5;
             vUv = vec2(uAtlas.x + (c.x + 0.5) * uAtlas.y, c.y + 0.5);
             vec2 px = vec2(s0.x / uAspect * uTarget.x, s0.y * uTarget.y) + c * max(size, 0.5);

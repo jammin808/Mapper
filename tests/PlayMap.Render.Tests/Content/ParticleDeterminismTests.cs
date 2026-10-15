@@ -142,6 +142,71 @@ public class ParticleDeterminismTests(GlFixture gl)
     }
 
     [Fact]
+    public void APictureFieldTakesItsColoursFromThePictureAndItsEdgesWhenAsked()
+    {
+        const int size = 64;
+        var source = System.Collections.Immutable.ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal,
+            [new KeyValuePair<string, SourceRef>("source", SourceRef.Canvas("cv_halves"))]);
+        var coloured = Scene.Gen("particles.image", ParamSet.Empty.With("count", 16384).With("lifeMin", 0.5).With("lifeMax", 1).With("flow", 0.0), "gn_col")
+            with { Inputs = source };
+        var edges = Scene.Gen("particles.image", ParamSet.Empty.With("count", 16384).With("weight", "edges").With("threshold", 0.3)
+            .With("lifeMin", 0.5).With("lifeMax", 1).With("colorBy", "life"), "gn_edge") with { Inputs = source };
+        var (cs0, cs1, es0) = gl.Run(c =>
+        {
+            using var halves = HalvesTexture(c.Device, 256);
+            using var disk = DiskTexture(c.Device, 256, 0.2f);
+            using var services = new RenderServices(c.Device);
+            using var host = new GeneratorHost(services);
+            ContentGl.Settle(host, coloured, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(halves) });
+            var rc = (FlowGenerator)host.RendererOf(coloured.Id, size, size)!;
+            ContentGl.Settle(host, edges, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(disk) });
+            var re = (FlowGenerator)host.RendererOf(edges.Id, size, size)!;
+            return (ContentGl.ReadState(c.Device, rc.State!, 0), ContentGl.ReadState(c.Device, rc.State!, 1), ContentGl.ReadState(c.Device, re.State!, 0));
+        });
+        // Born on the white-and-red picture at a bright point: a newborn's packed colour is the picture's there (white left, red right).
+        var newborn = 0;
+        for (var i = 0; i < cs0.Length; i += 4)
+        {
+            if (cs0[i + 3] <= 0 || cs0[i + 2] > 0.5f / ParticleSchedule.StepsPerSecond || Math.Abs(cs0[i] - 0.5) < 0.02)
+                continue;
+            newborn++;
+            var packed = (int)cs1[i + 2];
+            var rgb = (packed & 255, (packed >> 8) & 255, packed >> 16);
+            Assert.Equal(cs0[i] < 0.5 ? (255, 255, 255) : (255, 0, 0), rgb);
+        }
+        Assert.True(newborn > 0);
+        // Weighed by edges: born on the disk's rim, nowhere inside or outside it.
+        var rim = 0;
+        for (var i = 0; i < es0.Length; i += 4)
+        {
+            if (es0[i + 3] <= 0 || es0[i + 2] > 0.5f / ParticleSchedule.StepsPerSecond)
+                continue;
+            rim++;
+            var r = Math.Sqrt((es0[i] - 0.5) * (es0[i] - 0.5) + (es0[i + 1] - 0.5) * (es0[i + 1] - 0.5));
+            Assert.InRange(r, 0.2 - 3.0 / 256, 0.2 + 3.0 / 256);
+        }
+        Assert.True(rim > 0);
+    }
+
+    /// <summary>White on the left half, red on the right.</summary>
+    private static GpuTexture HalvesTexture(GlDevice d, int side)
+    {
+        var px = new byte[side * side * 4];
+        for (var y = 0; y < side; y++)
+            for (var x = 0; x < side; x++)
+            {
+                var o = (y * side + x) * 4;
+                px[o] = 255;
+                px[o + 1] = x < side / 2 ? (byte)255 : (byte)0;
+                px[o + 2] = x < side / 2 ? (byte)255 : (byte)0;
+                px[o + 3] = 255;
+            }
+        var tex = d.CreateTexture(side, side, TextureFormat.Rgba8, TextureFilter.Nearest);
+        d.Upload(tex, px, UploadFormat.Rgba8);
+        return tex;
+    }
+
+    [Fact]
     public void AStingSurgesTheField()
     {
         var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 8192), "gn_sting");

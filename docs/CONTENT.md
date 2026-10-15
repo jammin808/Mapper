@@ -61,6 +61,11 @@ with time: divergence-free, so it neither gathers nor thins the field). At the p
 are born only where it is bright (brighter than `threshold`, with its brightness as the chance). A source that would show the
 field itself is refused as a loop.
 
+**`particles.image`** is the same field made for a picture: born where its source is bright (by luma, alpha or edges, `invert`
+for where it is dark), drifting along the picture's contours (`flow`; `flowMode` across moves them up its brightness instead),
+and coloured by the picture where each particle was born (`colorBy` `source`: the colour is packed whole into the slot's state at
+birth, 8 bits a channel). `particles.flow` reads the same picture when its emitter is `picture`.
+
 **Drawing.** Each slot is an instanced sprite (circle, square, star, streak or bokeh) fetched from the state on the GPU, sized and
 coloured over its life (by life, speed or at random through 2–5 colours), faded in and out, premultiplied or additive with `glow`.
 
@@ -89,6 +94,14 @@ A generator's bindings (`MOD BIND`, alias `GENERATOR BIND`) never write the show
 before they draw (allocating nothing), and STATE's `live` shows each bound number's value at the last draw. The CPU particle field
 (it restarts from its seed on any change), the still patterns and the surface effects draw a bound number at its base, and say so.
 
+## Looks
+
+A **look** is a parameter set with a name. `GENERATOR PRESETS [<kind>|<family>]` lists the curated looks — thirty for the round-2
+kinds (particle flows and pictures, the three raymarched fractals, the reactive scene), and the particle presets and fractal
+scenes the older kinds carry — and the looks the show keeps. `GENERATOR RECALL <generator> <look>` writes a look's parameters whole
+in one undo step (a look of another kind is refused, naming it); `GENERATOR SAVE <generator> <name>` keeps the generator's look in
+the show (`gp…`), written whole so it recalls the same picture whatever the catalogue's defaults become.
+
 ## Cost and preflight
 
 Each generator's draw is timed on the GPU (timestamp queries, read three frames later, never waited on); STATE reports the last
@@ -98,6 +111,6 @@ advisory: STATE and the context go amber over it and red over twice it, and pref
 
 ## Not this round
 
-Looks and morphs (`GENERATOR PRESETS/RECALL/SAVE/MORPH`), `particles.image`'s optical flow and source colours, deep zoom, stage
+Morphs (`GENERATOR MORPH`), optical flow from a live camera, deep zoom, stage
 spaces and stage particles, crease/grow/shadowlight, `julia4d` and `apollonian`, FSR upscaling, flames, camera reactive, fluid,
 trails, preroll, the governor's Auto, `GENERATOR NEW … WITH`.

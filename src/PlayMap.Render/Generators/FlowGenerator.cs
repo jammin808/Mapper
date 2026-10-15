@@ -4,7 +4,8 @@ using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Generators;
 
-/// <summary>The GPU particle field (<c>particles.flow</c>): every slot's state in two RGBA32F textures stepped by a fragment pass on
+/// <summary>The GPU particle field (<c>particles.flow</c>, and <c>particles.image</c>: born where a source picture is bright, drifting
+/// along its contours, coloured by it): every slot's state in two RGBA32F textures stepped by a fragment pass on
 /// a fixed 1/120 s grid of the generator's own time, the births on <see cref="ParticleSchedule"/> (integers, the C# twin's), the
 /// sprites drawn instanced from the state with no CPU copy. The field has bounded memory: it is re-anchored one longest life
 /// before the time it must show — on its first frame, after a seek, a jump past a life or any change of its parameters — and run
@@ -84,8 +85,8 @@ internal sealed class FlowGenerator : GeneratorRenderer
     protected override void OnConfigure()
     {
         var max = MaxCountFor(Device);
-        var asked = ParticleFlowSettings.Resolve(Params);
-        _settings = ParticleFlowSettings.Resolve(Params, max);
+        var asked = ParticleFlowSettings.Resolve(Params, kindId: Kind.Id);
+        _settings = ParticleFlowSettings.Resolve(Params, max, Kind.Id);
         _words = asked.Count > _settings.Count
             ? $"{asked.Count} particles asked; this GPU ({Device.Renderer}) steps {_settings.Count}"
             : "";
@@ -133,17 +134,17 @@ internal sealed class FlowGenerator : GeneratorRenderer
         _drawn = true;
     }
 
-    /// <summary>The source picture a picture emitter reads, or null (with words) when it has none.</summary>
+    /// <summary>The source picture the field reads (born on it, moved by it or coloured by it), or null (with words) when it has none.</summary>
     private GpuTexture? PictureOf(in GeneratorFrame frame)
     {
-        if (_settings.Emitter != FlowEmitter.Picture)
+        if (!_settings.ReadsPicture(Num("flow")))
         {
             _pictureWords = "";
             return null;
         }
         if (!Inputs.TryGetValue("source", out var source) || source.IsNone)
         {
-            _pictureWords = "the picture emitter has no source: GENERATOR INPUT <generator> source <source>";
+            _pictureWords = "it reads no picture yet: GENERATOR INPUT <generator> source <source>";
             return null;
         }
         if ((frame.Modulation as ContentFrame)?.Pictures is not { } pictures || pictures.Picture(source, 256, 256) is not { } texture)
@@ -204,6 +205,10 @@ internal sealed class FlowGenerator : GeneratorRenderer
         p.Set("uSurge", speedMul, surge.Lift, surge.Swirl, surge.Gust * 2f);
         p.SetInt("uEdges", (int)s.Edges);
         p.Set("uRestitution", (float)Num("restitution"));
+        p.SetInt("uWeight", (int)s.Weight);
+        p.SetInt("uInvert", s.Invert ? 1 : 0);
+        p.Set("uFlow", (float)Num("flow"), s.FlowMode == FlowMode.Across ? 1 : 0);
+        p.SetInt("uColorSource", s.ColorBy == FlowColorBy.Source ? 1 : 0);
         d.BindSampler(p, "uS0", 0, _current!.A);
         d.BindSampler(p, "uS1", 1, _current.B);
         d.BindSampler(p, "uPicture", 2, picture ?? Services.Black);
