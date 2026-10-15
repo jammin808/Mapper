@@ -16,5 +16,5 @@ public sealed record ContentSettings
     /// <summary>off | advise.</summary>
     public string Governor { get; init; } = "advise";
 
-    public int MaxParticles { get; init; } = 4_194_304;
+    public int MaxParticles { get; init; } = 1_048_576;
 }

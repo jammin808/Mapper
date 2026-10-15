@@ -65,19 +65,50 @@ public readonly record struct ReactiveView(
     public static ReactiveView Of(ReactiveSettings o, double seconds, EffectSurge surge = default)
     {
         ArgumentNullException.ThrowIfNull(o);
-        var speed = o.Speed * (1 + surge.Speed * 0.9) * (1 - Math.Clamp(surge.Slow, 0, 0.9));
+        return Of(o, ReactiveNumbers.Of(o), seconds, surge, ReactiveSound.None);
+    }
+
+    /// <summary>The view with the numbers a binding may move taken from <paramref name="n"/>, and the sound: the scene's level and
+    /// bass at the frame's instant and how far it may move it (<see cref="ReactiveSound.Amount"/>, the generator's <c>sound</c>).
+    /// The sound moves the brightness inside <see cref="FlashGuard.MaxAudioBrightnessSwing"/>, never more; with amount 0 the view is
+    /// the one the scene drew before it listened.</summary>
+    public static ReactiveView Of(ReactiveSettings o, in ReactiveNumbers n, double seconds, EffectSurge surge, in ReactiveSound sound)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        var speed = n.Speed * (1 + surge.Speed * 0.9) * (1 - Math.Clamp(surge.Slow, 0, 0.9));
         return new ReactiveView(
             Time: seconds * speed,
-            Depth: Math.Clamp(o.Depth + surge.Zoom * 0.25, 0, 3),
+            Depth: Math.Clamp(n.Depth + surge.Zoom * 0.25, 0, 3),
             Symmetry: o.Symmetry,
-            Angle: seconds * o.Rotation * Math.Tau * 0.1 + surge.Rotate * Math.Tau,
-            Level: 0,
-            Low: 0,
-            Amount: 0,
+            Angle: seconds * n.Rotation * Math.Tau * 0.1 + surge.Rotate * Math.Tau,
+            Level: sound.Level,
+            Low: sound.Low,
+            Amount: sound.Amount,
             // A sting's glow lifts the scene inside a bound that cannot become a flash; its own flash channel
-            // is the thing that may, and that goes through the guard.
-            Brightness: FlashGuard.Brightness((float)o.Brightness * (1 + surge.Glow * 0.5f), 0, 0));
+            // is the thing that may, and that goes through the guard. The sound swings it inside the guard's audio bound.
+            Brightness: FlashGuard.Brightness((float)n.Brightness * (1 + surge.Glow * 0.5f), sound.Low, sound.Amount));
     }
+}
+
+/// <summary>The numbers of a reactive scene a binding may move, read every frame.</summary>
+public readonly record struct ReactiveNumbers(double Speed, double Depth, double Rotation, double Brightness)
+{
+    public static ReactiveNumbers Of(ReactiveSettings o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        return new(o.Speed, o.Depth, o.Rotation, o.Brightness);
+    }
+}
+
+/// <summary>What a scene hears at one instant: the sound's level and bass (0–1, from the node's modulation bus; 0.5 = neutral when
+/// the node hears nothing) and how far it may move the scene (0–1).</summary>
+public readonly record struct ReactiveSound(float Level, float Low, float Amount)
+{
+    public static readonly ReactiveSound None = new(0, 0, 0);
+
+    /// <summary>The bus sources a scene listens to.</summary>
+    public const string LevelSource = "audio:level";
+    public const string BassSource = "audio:bass";
 }
 
 /// <summary>The scenes' arithmetic, written once here for the CPU and mirrored line for line in the shaders.

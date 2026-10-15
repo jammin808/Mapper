@@ -83,7 +83,8 @@ public sealed class ModulationTests
 
     /// <summary>A generator's numbers are never rewritten in the drawn project (its renderer re-reads every number on a change: a
     /// particle field would re-seed and a flash guard forget its last flash, every frame): its parameter set is the show's own and
-    /// its bindings stay on it for its own render path; held, they are taken off. STATE and MOD PEEK say it is drawn at its base.</summary>
+    /// its bindings stay on it for its own render path; held, they are taken off. STATE and MOD PEEK say a bound number is drawn at
+    /// its base only for a kind whose renderer reads its numbers once per change.</summary>
     [Fact]
     public async Task AGeneratorKeepsItsNumbersAndItsBindingsForItsOwnRenderPath()
     {
@@ -107,9 +108,18 @@ public sealed class ModulationTests
             .FindGenerator("gn_julia")!.Bindings);
         Assert.Empty(rig.Engine.AudioRt.Read(bus => plan.Apply(bus, 6_000_000_000L, true)).FindGenerator("gn_julia")!.Bindings);
 
+        // A fractal's renderer evaluates its bindings every frame: nothing says it is drawn at its base.
         var unbound = rig.State().GetProperty("modulation").GetProperty("unbound").EnumerateArray().Select(u => u.GetString()).ToList();
-        Assert.Contains($"Fractal speed: {EngineCore.GeneratorDrawsBase}", unbound);
+        Assert.DoesNotContain(unbound, u => u!.Contains(EngineCore.GeneratorDrawsBase, StringComparison.Ordinal));
         var peek = AudioRig.Json(await rig.Ok("MOD PEEK gn_julia")).GetProperty("bindings")[0];
+        Assert.Equal("", peek.GetProperty("words").GetString());
+
+        // The particle field on the CPU reads its numbers once per change: its bound number is drawn at its base, and STATE says so.
+        var field = (await rig.Ok("GENERATOR NEW particles.field Snow")).Payload!;
+        await rig.Ok($"MOD BIND {field} wobble lfo:sine/1 AMOUNT 0.5");
+        unbound = [.. rig.State().GetProperty("modulation").GetProperty("unbound").EnumerateArray().Select(u => u.GetString())];
+        Assert.Contains($"Snow wobble: {EngineCore.GeneratorDrawsBase}", unbound);
+        peek = AudioRig.Json(await rig.Ok($"MOD PEEK {field}")).GetProperty("bindings")[0];
         Assert.Equal(EngineCore.GeneratorDrawsBase, peek.GetProperty("words").GetString());
     }
 

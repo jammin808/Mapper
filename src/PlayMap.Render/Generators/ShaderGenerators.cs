@@ -268,10 +268,37 @@ internal sealed class FractalGenerator(RenderServices services, GeneratorKind ki
         _guard.Reset();
     }
 
+    public override string Words => HeardNothing ? NoSoundWords : "";
+
+    /// <summary>The preset-resolved value of a number a binding may move (compared without making a string: Modulate asks every frame).</summary>
+    protected override double BaseNumber(string name)
+    {
+        static bool Is(string a, string b) => a.Equals(b, StringComparison.OrdinalIgnoreCase);
+        if (Is(name, "zoom"))
+            return _settings.Zoom;
+        if (Is(name, "centerX"))
+            return _settings.CenterX;
+        if (Is(name, "centerY"))
+            return _settings.CenterY;
+        if (Is(name, "speed"))
+            return _settings.Speed;
+        if (Is(name, "juliaRe"))
+            return _settings.JuliaRe;
+        if (Is(name, "juliaIm"))
+            return _settings.JuliaIm;
+        return base.BaseNumber(name);
+    }
+
     protected override void Draw(in GeneratorFrame frame)
     {
         var surge = EffectEnvelope.At(frame.Impulse, frame.Seconds);
-        var view = FractalView.Of(_settings, frame.Seconds, FractalView.ShaderIterationCap, surge);
+        var s = _settings;
+        var numbers = new FractalNumbers(Num("zoom", s.Zoom), Num("centerX", s.CenterX), Num("centerY", s.CenterY), Num("speed", s.Speed),
+            Num("juliaRe", s.JuliaRe), Num("juliaIm", s.JuliaIm));
+        var view = FractalView.Of(s, numbers, frame.Seconds, FractalView.ShaderIterationCap, surge);
+        var sound = Hear(frame, Num("sound"));
+        if (sound.Amount > 0)
+            view = view with { Brightness = FlashGuard.Brightness((float)view.Brightness, sound.Low, sound.Amount) };
         Apply(Device.Program(Kind.Id), view, _palette, Width, Height);
         Fill(Device.Program(Kind.Id));
         var flash = frame.FlashGuard ? _guard.Limit(surge.Flash, frame.Seconds) : surge.Flash;
@@ -333,10 +360,14 @@ internal sealed class ReactiveGenerator(RenderServices services, GeneratorKind k
         _ => "reactive.plasma",
     };
 
+    public override string Words => HeardNothing ? NoSoundWords : "";
+
     protected override void Draw(in GeneratorFrame frame)
     {
         var surge = EffectEnvelope.At(frame.Impulse, frame.Seconds);
-        var view = ReactiveView.Of(_settings, frame.Seconds, surge);
+        var s = _settings;
+        var numbers = new ReactiveNumbers(Num("speed", s.Speed), Num("depth", s.Depth), Num("rotation", s.Rotation), Num("brightness", s.Brightness));
+        var view = ReactiveView.Of(s, numbers, frame.Seconds, surge, Hear(frame, Num("sound")));
         var p = Device.Program(ProgramFor(_settings.Scene));
         Apply(p, view, _palette, Width, Height);
         Fill(p);
