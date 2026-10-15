@@ -279,6 +279,24 @@ public sealed class ChaseTests
     }
 
     [Fact]
+    public void AGapHoldIsHeldFromTheInstantTheShownCodeLeftTheItem()
+    {
+        var regions = TimecodeRegions.Build(Show(), Format, _ => 0).Regions;
+        var settings = new ChaseSettings(40_000_000, ChaseLoss.Hold, 500_000_000, ChaseGap.Hold);
+        // 01:00:18:12 at 10 s, rolling 50 ppm fast, the picture 40 ms behind its code: item 2 ended at 01:00:18:00 on this line.
+        var line = new TcLine(10_000_000_000, Tc("01:00:18:12"), 1.00005, 0, 25, 1, 1, true);
+        var left = line.At(Tc("01:00:18:00")) + 40_000_000;
+        foreach (var now in new[] { 10_100_000_000L, 11_000_000_000L })
+        {
+            var (plan, _) = ChaseLogic.Decide(settings, regions, "rolling", line, ChaseMemory.Start, now);
+            Assert.Equal((ChaseAction.Hold, 1, 8_000_000_000L - 1, left, 2), (plan.Action, plan.Region, plan.MediaNs, plan.AtLeaderNs, plan.NextRegion));
+        }
+        // Code that stands still in the gap names no such instant.
+        var (parked, _) = ChaseLogic.Decide(settings, regions, "parked", line, ChaseMemory.Start, 11_000_000_000);
+        Assert.Equal((ChaseAction.Hold, long.MinValue), (parked.Action, parked.AtLeaderNs));
+    }
+
+    [Fact]
     public void ReverseCodeHoldsAndALocateParksOnItsFrame()
     {
         var regions = TimecodeRegions.Build(Show(), Format, _ => 0).Regions;

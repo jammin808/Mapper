@@ -7,9 +7,10 @@ using PlayMap.Engine.Tests.Control;
 namespace PlayMap.Engine.Tests.Tc;
 
 /// <summary>A chase with GAP HOLD while rolling code runs between two items: the last frame of the item before is held on one
-/// anchor, made once when the hold began. The lane does not move while the code rolls through the gap (no new revision, no new
-/// sequence for the decoder), the item on the air keeps the instant it started (its effects' time stands still), and the next item
-/// still takes over on its exact frame.</summary>
+/// anchor, from the instant the code left that item — the same on every node, however late a node begins holding. The lane does
+/// not move while the code rolls through the gap (no new revision, no new sequence for the decoder), the item on the air keeps the
+/// instant it started (its effects' time runs on from where it played), a jump inside the gap moves that instant with the code, and
+/// the next item still takes over on its exact frame.</summary>
 public sealed class ChaseHoldTests
 {
     private const long S = 1_000_000_000;
@@ -81,8 +82,9 @@ public sealed class ChaseHoldTests
         sources.BeginFrame(rig.Engine.Snapshot, 1);
         var first = sources.Item(playlist, rig.Engine.LeaderNowNs);
         Assert.Equal("it_a", first?.Item.Id);
-        // Held on its last frame since 6.5 s: it counts as started that frame's length before.
-        Assert.Equal(6 * S + S / 2 - (10 * S - 1), first?.StartNs);
+        // Held on its last frame from 6 s, the instant its code ended (01:00:10:00, a second after 01:00:09:00 rolled at 5 s): it
+        // counts as started its length before — where it started while it played, to the last frame's nanosecond.
+        Assert.Equal(6 * S - (10 * S - 1), first?.StartNs);
 
         for (var i = 0; i < 100; i++)
         {
@@ -92,5 +94,71 @@ public sealed class ChaseHoldTests
             var onAir = sources.Item(playlist, rig.Engine.LeaderNowNs);
             Assert.Equal(("it_a", first?.StartNs), (onAir?.Item.Id, onAir?.StartNs));
         }
+    }
+
+    /// <summary>Rehearsal at 01:00:09:00, rolling from the clock's instant.</summary>
+    private static async Task Roll(ControlRig rig)
+    {
+        await rig.Ok("TIMECODE SOURCE ADD Rehearsal INTERNAL FORMAT 25");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal LOCATE 01:00:09:00");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal PLAY");
+    }
+
+    /// <summary>The show starts chasing Rehearsal with GAP HOLD now.</summary>
+    private static async Task Chase(ControlRig rig)
+    {
+        await rig.Ok("TIMECODE CHASE Show Rehearsal");
+        await rig.Ok("TIMECODE SET Show GAP HOLD");
+        await rig.Engine.StepChasesAsync();
+    }
+
+    /// <summary>The instant the show's item on the air counts as started, as a frame reads it.</summary>
+    private static long? StartedOnAir(ControlRig rig, EngineSources sources, long frame)
+    {
+        sources.BeginFrame(rig.Engine.Snapshot, frame);
+        return sources.Item(SourceRef.Playlist("pl_show"), rig.Engine.LeaderNowNs)?.StartNs;
+    }
+
+    [Fact]
+    public async Task ANodeThatBeginsHoldingLateHoldsFromTheInstantTheCodeLeftTheItem()
+    {
+        // One node chases from before Song 1's end and first ticks in the gap 7 ms after its code ended (6 s); the other begins
+        // chasing a second into the gap (a node restarted, a chase engaged late).
+        var throughClock = new ManualClock(5 * S);
+        await using var through = await ControlRig.StartAsync(Gapped(), clock: throughClock);
+        using var throughSources = new EngineSources(null);
+        await Roll(through);
+        throughClock.AdvanceMs(997);
+        await Chase(through);
+        // Song 1 plays from 01:00:00:00, nine seconds before 01:00:09:00 rolled at 5 s.
+        Assert.Equal(-4 * S, StartedOnAir(through, throughSources, 1));
+        throughClock.AdvanceMs(10);
+        await through.Engine.StepChasesAsync();
+        throughClock.AdvanceMs(993);
+        await through.Engine.StepChasesAsync();
+
+        var lateClock = new ManualClock(5 * S);
+        await using var late = await ControlRig.StartAsync(Gapped(), clock: lateClock);
+        using var lateSources = new EngineSources(null);
+        await Roll(late);
+        lateClock.AdvanceMs(2000);
+        await Chase(late);
+
+        // Both hold Song 1's last frame from 6 s, so both count it as started where it did while it played.
+        foreach (var rig in new[] { through, late })
+        {
+            var lane = rig.Engine.Playback.Lane("pl_show")!;
+            Assert.Equal((7 * S, "it_a", TransportState.Paused, 10 * S - 1, 6 * S, "it_b", 8 * S),
+                (rig.Engine.LeaderNowNs, lane.ItemId, lane.Clip.State, lane.Clip.Anchor.MediaNs, lane.Clip.Anchor.LeaderNs, lane.NextItemId, lane.SwitchAtLeaderNs));
+        }
+        Assert.Equal(((long?)(-4 * S + 1), (long?)(-4 * S + 1)), (StartedOnAir(through, throughSources, 2), StartedOnAir(late, lateSources, 1)));
+
+        // A jump inside the gap moves that instant with the code: back to 01:00:10:10 at 7 s, Song 1's code ended 0.4 s before.
+        await through.Ok("TIMECODE INTERNAL Rehearsal LOCATE 01:00:10:10");
+        await through.Engine.StepChasesAsync();
+        var jumped = through.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(("it_a", 10 * S - 1, 6_600_000_000, "it_b", 8_600_000_000),
+            (jumped.ItemId, jumped.Clip.Anchor.MediaNs, jumped.Clip.Anchor.LeaderNs, jumped.NextItemId, jumped.SwitchAtLeaderNs));
+        Assert.Equal(6_600_000_000 - (10 * S - 1), StartedOnAir(through, throughSources, 3));
     }
 }

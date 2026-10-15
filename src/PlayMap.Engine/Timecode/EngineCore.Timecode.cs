@@ -306,12 +306,16 @@ public sealed partial class EngineCore
                 }
                 var r = regions[plan.Region];
                 var next = NextClip(out var nextIndex);
-                // A hold is anchored once, at the instant it began: while the lane holds the same frame of the same item, its anchor
-                // (and so the instant the item counts as started, the time its effects see) stands still however long the code rolls.
+                // The last frame is held from the instant the code left the item, so on every node the item counts as started (the
+                // origin of its effects' time) its length before that. While the lane holds that frame of that item from within a
+                // quarter frame of that instant, its anchor stands as it is however long the code rolls; code that stands still names
+                // no instant, so a hold it finds is kept and one it begins starts now.
                 var holding = lane is { IsIdle: false } h && h.Index == r.Index && h.ItemId == r.ItemId && h.Clip.State == TransportState.Paused
                     && Math.Abs(h.Clip.Anchor.MediaAt(leaderNs) - plan.MediaNs) < quarter
-                    && Math.Abs(h.Clip.Anchor.Rate - r.Rate) / Math.Max(1e-9, Math.Abs(r.Rate)) < 50e-6;
-                var anchor = holding ? lane!.Clip.Anchor : new TimelineAnchor(plan.MediaNs, leaderNs, r.Rate, false);
+                    && Math.Abs(h.Clip.Anchor.Rate - r.Rate) / Math.Max(1e-9, Math.Abs(r.Rate)) < 50e-6
+                    && (plan.AtLeaderNs == long.MinValue || Math.Abs(h.Clip.Anchor.LeaderNs - plan.AtLeaderNs) < quarter);
+                var anchor = holding ? lane!.Clip.Anchor
+                    : new TimelineAnchor(plan.MediaNs, plan.AtLeaderNs == long.MinValue ? leaderNs : plan.AtLeaderNs, r.Rate, false);
                 var held = new ClipTransport(r.ItemId, TransportState.Paused, anchor, r.InNs, r.OutNs, r.Loop, 0);
                 if (holding && lane!.Clip with { Seq = 0 } == held && lane.NextIndex == nextIndex
                     && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter)

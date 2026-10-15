@@ -58,7 +58,7 @@ sources, in order), `ChaseLogic` decides the lane:
 | waiting / acquiring | engaged, no line yet | unchanged |
 | locked | a rolling line | the region's item anchored at the line's own instant, at the line's rate × the item's; the next region scheduled to take over on its exact frame |
 | parked | the code stands still (a locate, a repeated frame) | the item held at that code's frame |
-| outside | rolling code between regions | black (or the last frame, `GAP HOLD`) until the next region takes over on its exact frame |
+| outside | rolling code between regions | black (or the last frame, `GAP HOLD`: held from the instant the code left that item, the same on every node, so the item counts as started its length before that and its effects' time runs on as while it played; a jump inside the gap moves that instant with the code) until the next region takes over on its exact frame |
 | freewheel | the source drops out | the last line rides on for `FREEWHEEL` (500 ms) |
 | held / stopped / free | the freewheel ran out | `ONLOSS HOLD` holds where the line said, `STOP` goes black, `CONTINUE` runs on at the last rate |
 | reverse | the code runs backwards | holds |
