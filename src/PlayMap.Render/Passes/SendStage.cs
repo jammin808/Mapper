@@ -157,20 +157,40 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 entry.CountBusy();
                 continue;
             }
-            var picture = Tap(entry, in frame);
-            if (picture is null)
-                entry.CountBlank();
-            var packed = _pack.Pack(picture, entry.Width, entry.Height, entry.Format, entry.Fit);
+            // FREEZE holds a send that follows the air as it holds an output: its last packed frame goes out again, unchanged.
+            var held = entry.Kind != SendTapKind.Output && entry.FollowAir && frame.Freeze && !frame.Blackout
+                ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
+                : null;
+            Gpu.RenderTarget packed;
+            if (held is not null)
+            {
+                packed = held;
+            }
+            else
+            {
+                var picture = Tap(entry, in frame);
+                if (picture is null)
+                    entry.CountBlank();
+                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, entry.Fit);
+            }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
             ring.Request(packed, entry.Format, entry.Width, entry.Height, bytes, stride, frame.LeaderNs, entry.FpsN, entry.FpsD);
             entry.CountPacked();
         }
     }
 
+    /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster, so blackout, a test
+    /// pattern or a safe look on it, and a hold, reach the send exactly as they reach the output. A canvas or source tap that
+    /// follows the air is black in blackout and shows the air's test pattern while it covers every output.</summary>
     private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame)
     {
-        if (entry.Kind != SendTapKind.Output && entry.FollowAir && frame.Blackout)
-            return null;
+        if (entry.Kind != SendTapKind.Output && entry.FollowAir)
+        {
+            if (frame.Blackout)
+                return null;
+            if (frame.PatternOverride is { IsNone: false } pattern && frame.PatternOutputs.IsDefaultOrEmpty)
+                return renderer.SourcePicture(pattern, entry.Width, entry.Height);
+        }
         return entry.Kind switch
         {
             SendTapKind.Output => renderer.OutputPicture(entry.Target),
@@ -197,7 +217,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 _gone.Add(entry);
             }
             foreach (var e in _gone)
+            {
                 _rings.Remove(e);
+                _pack.Forget(e);
+            }
             _gone.Clear();
         }
         for (var i = _retiring.Count - 1; i >= 0; i--)

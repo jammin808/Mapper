@@ -231,12 +231,12 @@ public sealed unsafe class SendReadbackRing : IDisposable
 /// <summary>The send pack pass: a picture scaled to the send's size (fit with black bars, fill cropped, or stretched) and packed by
 /// <c>video.pack</c> into an RGBA8 target whose read-back bytes are the wire frame (<see cref="SendFormat.Uyvy"/>: w/2 × h;
 /// <see cref="SendFormat.Uyva"/>: w/2 × (h + ⌈h/2⌉), the alpha plane in the rows below h; <see cref="SendFormat.Bgra8"/>: w × h).
-/// Targets are kept per size and format and reused by every send of that shape; nothing is allocated per frame once warm. Render
-/// thread.</summary>
+/// Each send keeps its own packed target (keyed by the caller's key), so a send that holds re-reads its last frame unchanged; the
+/// scaling targets are shared per size. Nothing is allocated per frame once warm. Render thread.</summary>
 public sealed class PackPass : IDisposable
 {
     private readonly GlDevice _device;
-    private readonly Dictionary<(int W, int H, SendFormat F), RenderTarget> _packed = [];
+    private readonly Dictionary<object, RenderTarget> _packed = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(int W, int H), RenderTarget> _scaled = [];
     private RenderTarget? _black;
 
@@ -254,19 +254,37 @@ public sealed class PackPass : IDisposable
         _ => (4 * width * height, 4 * width),
     };
 
-    /// <summary>Scales <paramref name="picture"/> (null = black) to the send's size and packs it; answers the packed target to read.</summary>
-    public RenderTarget Pack(GpuTexture? picture, int width, int height, SendFormat format, SendFit fit)
+    /// <summary>The send's packed target as last packed (null before its first pack, or when its shape changed since).</summary>
+    public RenderTarget? Last(object key, int width, int height, SendFormat format)
     {
+        var (tw, th) = TargetSize(format, width, height);
+        return _packed.TryGetValue(key, out var t) && t.Width == tw && t.Height == th ? t : null;
+    }
+
+    /// <summary>Lets go of a send's packed target (the send left the plan).</summary>
+    public void Forget(object key)
+    {
+        if (_packed.Remove(key, out var t))
+            t.Dispose();
+    }
+
+    private static (int W, int H) TargetSize(SendFormat format, int width, int height) => format switch
+    {
+        SendFormat.Uyvy => (width / 2, height),
+        SendFormat.Uyva => (width / 2, height + (height + 1) / 2),
+        _ => (width, height),
+    };
+
+    /// <summary>Scales <paramref name="picture"/> (null = black) to the send's size and packs it into the send's own target
+    /// (<paramref name="key"/>); answers the packed target to read.</summary>
+    public RenderTarget Pack(object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit)
+    {
+        ArgumentNullException.ThrowIfNull(key);
         var source = Scale(picture, width, height, fit);
-        var key = (width, height, format);
-        if (!_packed.TryGetValue(key, out var target))
+        var (tw, th) = TargetSize(format, width, height);
+        if (!_packed.TryGetValue(key, out var target) || target.Width != tw || target.Height != th)
         {
-            var (tw, th) = format switch
-            {
-                SendFormat.Uyvy => (width / 2, height),
-                SendFormat.Uyva => (width / 2, height + (height + 1) / 2),
-                _ => (width, height),
-            };
+            target?.Dispose();
             target = _device.CreateRenderTarget(tw, th, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
             _packed[key] = target;
         }

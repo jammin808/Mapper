@@ -1,1 +1,237 @@
-[]
+[
+  {
+    "title": "Control",
+    "path": "control",
+    "light": {
+      "path": "control.surfaces[].light",
+      "red": [
+        "red"
+      ],
+      "amber": [
+        "amber"
+      ],
+      "green": [
+        "green"
+      ]
+    },
+    "words": "control.osc.words",
+    "fields": [
+      {
+        "label": "Input on",
+        "path": "control.enabled"
+      },
+      {
+        "label": "OSC open",
+        "path": "control.osc.open"
+      },
+      {
+        "label": "OSC port",
+        "path": "control.osc.port"
+      },
+      {
+        "label": "MIDI",
+        "path": "control.midi.backend"
+      },
+      {
+        "label": "Art-Net input",
+        "path": "control.dmx.artnet.enabled"
+      },
+      {
+        "label": "Bindings",
+        "path": "control.bindings.count"
+      },
+      {
+        "label": "Waiting",
+        "path": "control.bindings.waiting"
+      },
+      {
+        "label": "Unplugged",
+        "path": "control.bindings.unplugged"
+      },
+      {
+        "label": "Last input",
+        "path": "control.last.input"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Input off",
+        "line": "CONTROL ENABLE OFF"
+      },
+      {
+        "label": "Input on",
+        "line": "CONTROL ENABLE ON"
+      },
+      {
+        "label": "Stop learning",
+        "line": "BIND LEARN OFF"
+      },
+      {
+        "label": "Monitor",
+        "line": "CONTROL MONITOR 16"
+      },
+      {
+        "label": "Ports",
+        "line": "CONTROL PORTS"
+      }
+    ]
+  },
+  {
+    "title": "Control surface",
+    "path": "control.surfaces[]",
+    "light": {
+      "path": "light",
+      "red": [
+        "red"
+      ],
+      "amber": [
+        "amber"
+      ],
+      "green": [
+        "green"
+      ]
+    },
+    "words": "name",
+    "fields": [
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "Port",
+        "path": "port"
+      },
+      {
+        "label": "Connected",
+        "path": "connected"
+      },
+      {
+        "label": "Bindings",
+        "path": "bindings"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Bindings off",
+        "line": "BIND ENABLE $(id) OFF"
+      },
+      {
+        "label": "Bindings on",
+        "line": "BIND ENABLE $(id) ON"
+      },
+      {
+        "label": "List",
+        "line": "BIND LIST $(id)"
+      }
+    ]
+  },
+  {
+    "title": "Timecode source",
+    "path": "timecode.sources[]",
+    "light": {
+      "path": "state",
+      "red": [
+        "unavailable",
+        "lost",
+        "silent"
+      ],
+      "amber": [
+        "acquiring",
+        "dropout",
+        "reverse"
+      ],
+      "green": [
+        "rolling",
+        "parked"
+      ]
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "Code",
+        "path": "text"
+      },
+      {
+        "label": "Format",
+        "path": "detected"
+      },
+      {
+        "label": "Speed (ppm)",
+        "path": "speedPpm"
+      },
+      {
+        "label": "Discontinuities",
+        "path": "errors.discontinuity"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Reset counts",
+        "line": "TIMECODE SOURCE RESET $(id)"
+      }
+    ]
+  },
+  {
+    "title": "Chase",
+    "path": "timecode.chases[]",
+    "light": {
+      "path": "state",
+      "red": [
+        "held",
+        "stopped"
+      ],
+      "amber": [
+        "freewheel",
+        "free",
+        "outside",
+        "acquiring",
+        "reverse"
+      ],
+      "green": [
+        "locked",
+        "parked"
+      ]
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Code",
+        "path": "text"
+      },
+      {
+        "label": "Item",
+        "path": "item"
+      },
+      {
+        "label": "Engaged",
+        "path": "engaged"
+      },
+      {
+        "label": "Delay (ms)",
+        "path": "delayMs"
+      },
+      {
+        "label": "On loss",
+        "path": "onLoss"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Engage",
+        "line": "TIMECODE ENGAGE $(playlist) ON"
+      },
+      {
+        "label": "Disengage",
+        "line": "TIMECODE ENGAGE $(playlist) OFF"
+      }
+    ]
+  }
+]

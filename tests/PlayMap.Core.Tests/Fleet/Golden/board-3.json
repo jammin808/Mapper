@@ -1,0 +1,296 @@
+{
+  "headline": "3 machines \u00B7 4 outputs \u00B7 1 red \u00B7 2 amber \u2014 FOH-C: gone quiet 7 s",
+  "worst": "machine:c0ffee00",
+  "worstLight": "red",
+  "worstWords": "FOH-C: gone quiet 7 s",
+  "counts": {
+    "green": 4,
+    "amber": 2,
+    "red": 1,
+    "grey": 1,
+    "things": 8,
+    "links": 7
+  },
+  "focus": "",
+  "lens": "all",
+  "problems": [
+    "machine:c0ffee00",
+    "machine:9f8e7d6c",
+    "output:9f8e7d6c:op_1"
+  ],
+  "nodes": [
+    {
+      "id": "machine:0badc0de",
+      "kind": "machine",
+      "plane": "video",
+      "tier": 1,
+      "label": "FOH-A",
+      "sub": "FOH-A \u00B7 primary \u00B7 all green",
+      "light": "green",
+      "x": 0,
+      "y": 0,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "primary \u00B7 epoch 7 \u00B7 build 0.2.0"
+      ],
+      "page": "fleet",
+      "item": "0badc0de",
+      "wire": "EYE FOCUS machine:0badc0de",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "output:0badc0de:op_1",
+      "kind": "output",
+      "plane": "video",
+      "tier": 2,
+      "label": "Left",
+      "sub": "60 fps",
+      "light": "green",
+      "x": 180,
+      "y": 0,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "FOH-A: output op_1",
+        "path gl-window"
+      ],
+      "page": "fleet",
+      "item": "0badc0de",
+      "wire": "EYE FOCUS output:0badc0de:op_1",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "output:0badc0de:op_2",
+      "kind": "output",
+      "plane": "video",
+      "tier": 2,
+      "label": "Right",
+      "sub": "60 fps",
+      "light": "green",
+      "x": 360,
+      "y": 0,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "FOH-A: output op_2",
+        "path gl-window"
+      ],
+      "page": "fleet",
+      "item": "0badc0de",
+      "wire": "EYE FOCUS output:0badc0de:op_2",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "projector:0badc0de:pj1",
+      "kind": "projector",
+      "plane": "video",
+      "tier": 3,
+      "label": "P1",
+      "sub": "calibrated, 0.8 px \u00B7 on",
+      "light": "green",
+      "x": 180,
+      "y": 56,
+      "w": 160,
+      "h": 24,
+      "words": [
+        "FOH-A: projector pj1"
+      ],
+      "page": "fleet",
+      "item": "0badc0de",
+      "wire": "EYE FOCUS projector:0badc0de:pj1",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "machine:c0ffee00",
+      "kind": "machine",
+      "plane": "video",
+      "tier": 1,
+      "label": "FOH-C",
+      "sub": "gone quiet 7 s",
+      "light": "red",
+      "x": 0,
+      "y": 128,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "FOH-C\u0027s health feed ended",
+        "solo \u00B7 epoch 7 \u00B7 build 0.2.0"
+      ],
+      "page": "fleet",
+      "item": "c0ffee00",
+      "wire": "EYE FOCUS machine:c0ffee00",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "output:c0ffee00:op_9",
+      "kind": "output",
+      "plane": "video",
+      "tier": 2,
+      "label": "Rear",
+      "sub": "not heard for 7 s",
+      "light": "grey",
+      "x": 180,
+      "y": 128,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "FOH-C: output op_9",
+        "path gl-window"
+      ],
+      "page": "fleet",
+      "item": "c0ffee00",
+      "wire": "EYE FOCUS output:c0ffee00:op_9",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "machine:9f8e7d6c",
+      "kind": "machine",
+      "plane": "video",
+      "tier": 1,
+      "label": "FOH-B",
+      "sub": "FOH-B \u00B7 backup \u00B7 1 amber: outputs \u2014 Left: 4 dropped, 1 missed in a minute",
+      "light": "amber",
+      "x": 0,
+      "y": 256,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "subscribed over TLS, certificate pinned",
+        "backup \u00B7 epoch 7 \u00B7 build 0.2.0",
+        "outputs: Left: 4 dropped, 1 missed in a minute"
+      ],
+      "page": "fleet",
+      "item": "9f8e7d6c",
+      "wire": "EYE FOCUS machine:9f8e7d6c",
+      "visible": true,
+      "emphasis": 1
+    },
+    {
+      "id": "output:9f8e7d6c:op_1",
+      "kind": "output",
+      "plane": "video",
+      "tier": 2,
+      "label": "Left",
+      "sub": "59 fps \u00B7 4 dropped \u00B7 1 missed in a minute",
+      "light": "amber",
+      "x": 180,
+      "y": 256,
+      "w": 160,
+      "h": 48,
+      "words": [
+        "FOH-B: output op_1",
+        "path gl-window"
+      ],
+      "page": "fleet",
+      "item": "9f8e7d6c",
+      "wire": "EYE FOCUS output:9f8e7d6c:op_1",
+      "visible": true,
+      "emphasis": 1
+    }
+  ],
+  "edges": [
+    {
+      "from": "machine:0badc0de",
+      "to": "output:0badc0de:op_1",
+      "kind": "shows",
+      "light": "green",
+      "words": ""
+    },
+    {
+      "from": "machine:0badc0de",
+      "to": "output:0badc0de:op_2",
+      "kind": "shows",
+      "light": "green",
+      "words": ""
+    },
+    {
+      "from": "output:0badc0de:op_1",
+      "to": "projector:0badc0de:pj1",
+      "kind": "drives",
+      "light": "green",
+      "words": ""
+    },
+    {
+      "from": "machine:c0ffee00",
+      "to": "output:c0ffee00:op_9",
+      "kind": "shows",
+      "light": "grey",
+      "words": ""
+    },
+    {
+      "from": "machine:9f8e7d6c",
+      "to": "output:9f8e7d6c:op_1",
+      "kind": "shows",
+      "light": "amber",
+      "words": ""
+    },
+    {
+      "from": "machine:9f8e7d6c",
+      "to": "machine:0badc0de",
+      "kind": "mirrors",
+      "light": "amber",
+      "words": "backs up"
+    },
+    {
+      "from": "machine:9f8e7d6c",
+      "to": "machine:0badc0de",
+      "kind": "follows",
+      "light": "amber",
+      "words": "takes its clock"
+    }
+  ],
+  "replay": false,
+  "replayAt": "",
+  "moment": "",
+  "machines": [
+    {
+      "id": "0badc0de",
+      "name": "FOH-A",
+      "role": "primary",
+      "light": "green",
+      "headline": "FOH-A \u00B7 primary \u00B7 all green",
+      "heard": "live",
+      "self": true,
+      "outputs": [
+        "output:0badc0de:op_1",
+        "output:0badc0de:op_2"
+      ],
+      "projectors": [
+        "projector:0badc0de:pj1"
+      ]
+    },
+    {
+      "id": "c0ffee00",
+      "name": "FOH-C",
+      "role": "solo",
+      "light": "red",
+      "headline": "gone quiet 7 s",
+      "heard": "gone",
+      "self": false,
+      "outputs": [
+        "output:c0ffee00:op_9"
+      ],
+      "projectors": []
+    },
+    {
+      "id": "9f8e7d6c",
+      "name": "FOH-B",
+      "role": "backup",
+      "light": "amber",
+      "headline": "FOH-B \u00B7 backup \u00B7 1 amber: outputs \u2014 Left: 4 dropped, 1 missed in a minute",
+      "heard": "live",
+      "self": false,
+      "outputs": [
+        "output:9f8e7d6c:op_1"
+      ],
+      "projectors": []
+    }
+  ]
+}
