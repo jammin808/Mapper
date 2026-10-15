@@ -104,6 +104,12 @@ internal sealed class FakePhone : IAsyncDisposable
 
     public int Cues => Volatile.Read(ref _cues);
 
+    /// <summary>What this phone says its pictures' capture instants were, against the truth (ms; set before joining for a clock that is
+    /// off by a constant, after joining for one that says pictures were taken before they were).</summary>
+    public double CaptureSkewMs { get; set; }
+
+    private double PageMs => MonoClock.Instance.NowNs / 1e6;
+
     public int RollingSeen { get; private set; }
 
     public string Id { get; private set; } = "";
@@ -132,6 +138,11 @@ internal sealed class FakePhone : IAsyncDisposable
         var welcome = await ReceiveAsync() ?? throw new InvalidOperationException($"refused: {_ws.CloseStatusDescription}");
         Id = welcome.GetProperty("phone").GetProperty("id").GetString()!;
         Rig = welcome.GetProperty("camera").GetString()!;
+        // One clock exchange, as the page makes every second: this phone's clock is the node's own (plus any skew a test sets).
+        var t1 = PageMs;
+        await SendAsync(new { t = "ping", t1 });
+        var pong = await ReceiveAsync() ?? throw new InvalidOperationException("no pong");
+        await SendAsync(new { t = "ping", t1 = PageMs, prev = new { t1, t2 = pong.GetProperty("t2").GetDouble(), t3 = pong.GetProperty("t3").GetDouble(), t4 = PageMs } });
         _loop = Task.Run(LoopAsync, _stop.Token);
     }
 
@@ -307,7 +318,7 @@ internal sealed class FakePhone : IAsyncDisposable
     private async Task SeenAsync(long cue, string kind, int tag, byte[] gray, int rolling, bool upload = true)
     {
         var seq = ++_seq;
-        var capture = MonoClock.Instance.NowNs / 1e6;
+        var capture = PageMs + CaptureSkewMs;
         await SendAsync(new { t = "seen", cue, seq, tag, capture, sites = _sites.Count, margin = 10, settleDiff = 1.0, rolling });
         if (!upload)
             return;

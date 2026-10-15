@@ -28,6 +28,9 @@ public interface IPhoneSession
     /// <summary>Why the phone is not connected ("" while it is).</summary>
     string Gone { get; }
 
+    /// <summary>Whether a clock exchange has given the page clock's offset yet.</summary>
+    bool HasClock { get; }
+
     /// <summary>A page instant (ms) on the node's monotonic clock (ns), through the clock exchange (unchanged before the first).</summary>
     long ToNodeNs(double pageMs);
 
@@ -104,6 +107,15 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
 
     /// <summary>Raised when a fact STATE shows moved (on the receive loop).</summary>
     public event Action? Changed;
+
+    public bool HasClock
+    {
+        get
+        {
+            lock (_gate)
+                return _clock.HasEstimate;
+        }
+    }
 
     public long ToNodeNs(double pageMs)
     {

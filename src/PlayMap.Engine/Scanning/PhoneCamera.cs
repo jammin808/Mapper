@@ -67,7 +67,8 @@ public sealed class PhoneCamera : ICuedScanCamera
             cue.MinChange), ct).ConfigureAwait(false);
         if (seen.Outcome != "seen")
             return new CuedPicture("stuck", null, 0, 0, seen.Sites, seen.RollingRejects, seen.Why.Length > 0 ? seen.Why : "no picture");
-        var capture = double.IsFinite(seen.CapturePageMs) ? session.ToNodeNs(seen.CapturePageMs) : 0;
+        // Without a clock exchange yet the page's instant cannot be placed on the node's clock: no timing check for it (0).
+        var capture = double.IsFinite(seen.CapturePageMs) && session.HasClock ? session.ToNodeNs(seen.CapturePageMs) : 0;
         return new CuedPicture("seen", PixelsAsync(session, seen.Seq, ct), seen.Tag, capture, seen.Sites, seen.RollingRejects, "");
     }
 

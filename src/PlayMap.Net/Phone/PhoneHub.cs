@@ -407,7 +407,19 @@ public sealed class PhoneHub : IAsyncDisposable
         }
 
         if (Join is { } join)
-            phone = phone with { Rig = await join(new PhoneJoined(phone.Id, phone.Name, hello.Profile, phone.Rig, key is not null), ct) };
+        {
+            try
+            {
+                phone = phone with { Rig = await join(new PhoneJoined(phone.Id, phone.Name, hello.Profile, phone.Rig, key is not null), ct) };
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The phone is paired (its key stands) but has no camera in the project yet: it is told why and may join again.
+                _log.LogWarning(ex, "Phone {Phone} joined but its camera could not be added.", phone.Id);
+                await RefuseAsync(socket, WebSocketCloseStatus.InternalServerError, "the node could not add this phone's camera: " + ex.Message, ct);
+                return null;
+            }
+        }
         phone = phone with { LastSeenUnixMs = _options.Time.GetUtcNow().ToUnixTimeMilliseconds() };
         _keys.Put(phone);
         var session = new PhoneSession(socket, phone, hello.Profile, hello.Camera, address, _options, _log);

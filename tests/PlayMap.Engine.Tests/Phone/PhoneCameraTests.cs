@@ -73,6 +73,24 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task APhoneWhoseCaptureTimesComeBeforeTheirPatternsIsCountedAndTheTagsStillPair()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        await using var phone = await rig.JoinAsync();
+        // Its clock exchange was true; then it says every picture was taken half a second before it was.
+        phone.CaptureSkewMs = -500;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE FAST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.True(view.State == "done", view.Message);
+        AssertFound(rig, view);
+        var pairing = rig.State().GetProperty("scan").GetProperty("pairing");
+        Assert.Equal("tag", pairing.GetProperty("mode").GetString());
+        // Every pattern's picture claims a capture before its present: each is counted, none is trusted over its tag.
+        Assert.True(pairing.GetProperty("timingDisagrees").GetInt32() > 3, pairing.ToString());
+        Assert.Contains("the phone's clock or latency is off — pairing by tags only", rig.Engine.Store.Project.Stage.Scans[0].Notes, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ASteadyPhoneWhoseBrightnessWandersIsScannedWithoutFullWhiteOrBlack()
     {
         await using var rig = await PhoneScanRig.StartAsync();
