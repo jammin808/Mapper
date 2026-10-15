@@ -1,7 +1,7 @@
 # Optimise on import
 
 A clip the operator drops in becomes the version this node plays best, in the background, without touching the show or the source.
-This round makes HAP, HAP Alpha, HAP Q and HAP Q Alpha versions with PlayMap's own GPU encoder, keeps HDR sources as they are, and
+PlayMap makes HAP, HAP Alpha, HAP Q and HAP Q Alpha versions with its own GPU encoder, keeps HDR sources as they are, and
 plays a version from the item's next open. The wire is `docs/wire/optimise.md`.
 
 ## The parts
@@ -34,9 +34,9 @@ queue nothing; `MEDIA OPTIMISE` runs the rules by hand) and does nothing under `
 | `long-gop-small` | long-GOP below 1920 × 1080 | keep | 1280×720 h264 decodes on the CPU at little cost |
 | `long-gop-cpu` | long-GOP, 1080p or larger, a target decodes it on the CPU | HAP Q | node a1b2c3d4 decodes this h264 on the CPU: HAP Q plays on the GPU |
 | `cpu-intra` | ProRes, DNxHD, CineForm, MJPEG, QuickTime Animation, PNG, TIFF, FFV1, … | HAP Q | prores decodes on the CPU here: HAP Q plays on the GPU |
-| `fallback` | anything else (image sequences included this round) | keep | no rule asks for a change |
+| `fallback` | anything else (image sequences included) | keep | no rule asks for a change |
 
-The target nodes this round are this node alone: the block families its renderer samples and no hardware decoder (proving those is
+The target nodes are this node alone: the block families its renderer samples and no hardware decoder (proving those is
 wp2-zerocopy's decode-path ladder), so long-GOP at 1080p and larger becomes HAP Q here.
 
 ## Jobs

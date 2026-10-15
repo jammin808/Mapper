@@ -45,7 +45,7 @@ Five design ideas we have not found combined in one product:
 | Area | Merged and tested (simulators only) | In progress | Designed only | Absent |
 |---|---|---|---|---|
 | Playback core | Playlists, gapless lanes, `ClipTransport`, `TimelineAnchor`, frame selection, `AT` starts, sync groups, timecode chase | Blind edit, sound on the air, the sync group's leader clock | Web/YouTube (enum only), Stagewatch timer source | Cue stack and timeline (by design), reverse play |
-| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, sound input, the HAP family on the GPU, optimise to HAP on import with PlayMap's own GPU encoder, OpenAL audio (never run on a device) | OMT and NDI in and out | D3D11VA zero-copy | Spout, Syphon, HDR out, ASIO |
+| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, sound input, the HAP family on the GPU, optimise to HAP on import with PlayMap's own GPU encoder, an OpenAL audio output no engine part drives yet (clips play silent) | OMT and NDI in and out | D3D11VA zero-copy | Spout, Syphon, HDR out, ASIO |
 | Render | GL 3.3 core or ES 3.00 projector pass; output stage (warp, mask, blend, black level, trim, dither); vblank clock and present ledger per output; ISF effect chains; the edit overlay; every catalogued generator; Fade and Dip between scheduled items | — | D3D11 flip-model | Transitions on a manual take, Vulkan, Metal |
 | Mapping maths | Lattices, TPS pin warp, Bezier tools, mask raster, 3D auto-blend, intensity compensation, coverage analysis, MPCDI export package, pixel quads, LED pixel mapping | — | Rescan retargeting | Mesh deform, planner UI |
 | Scan and calibration | Gray code + phase decoder, smart scan, quality score, meshing, `PoseSolver`, self-calibration, ICP, bridged registration, mesh and cloud IO, scan simulator, the scan runner, the calibration score and ledger, camera auto-align of flat screens, the multi-view solve (Core only) | The phone as a scan camera | — | Any real-camera run |
@@ -55,7 +55,7 @@ Five design ideas we have not found combined in one product:
 | AI | Assistant (a hosted or a local model), `CommandGate`, proposals, recipes | — | Voice, deixis | — |
 | Desk | Window, PLAY / MAP / SCAN, drawers, demo engine, view models, drag tests; the real engine, local or on the network | Controls for the round-two verbs | — | Web remote, roles, XR; onboarding beyond `LIGHT WALL` |
 
-The verb catalogue has 298 rows; a node answers the 104 first-round rows and the 137 round-two rows the packages route (`VERBS` marks each). `SCAN START` and `SCAN APPLY` run on a capture camera or the scan simulator, and `BLEND SOLVE` solves on a worker; `LATENCY MEASURE` refuses until a camera is connected. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
+The verb catalogue has 298 rows; a node answers the 104 first-round rows and the 137 round-two rows the packages route (`VERBS` marks each). `SCAN START` and `SCAN APPLY` run on a capture camera or the scan simulator, and `BLEND SOLVE` solves on a worker; `LATENCY MEASURE` refuses: its camera path is not built. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
 
 ## 3. The field in October 2026
 
@@ -258,7 +258,7 @@ Rounds and IDs refer to docs/ROADMAP.md. The professional baseline is the HAP fa
 | **YouTube terms** | See §9 |
 | **Prompt injection** | Media file names, metadata, web-page sources and STATE fields that remote clients can write all reach the assistant's context. They are data, never instructions. High-risk verbs always wait for a human. While armed, the assistant can only queue proposals |
 | **Web content on a show node** | CEF runs sandboxed in its own process, with no file or device access, and is off by default |
-| **Exposed HTTP / MCP on venue networks** | TLS and pairing exist. Default posture: remote verbs need pairing, MCP is off until enabled, and a firewall profile is offered on first run (MCP is on by default for now; every verb that changes something needs pairing) |
+| **Exposed HTTP / MCP on venue networks** | TLS and pairing exist, and every verb that changes something needs pairing. MCP is served by default; the posture to ship is MCP off until enabled, with a firewall profile offered on first run (ROADMAP R3.14) |
 | **Unsigned binaries** | An unsigned exe with embedded FFmpeg and ONNX Runtime triggers SmartScreen and antivirus false positives, and corporate IT will block it. Code signing is a Round 0 item. Show machines never auto-update, and an armed node never updates |
 
 ## 11. Confidence

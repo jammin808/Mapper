@@ -72,7 +72,7 @@ Playlists show no mapping fields. The surface inspector shows a "Mapping is shar
 
 ### 3.4 The verb-first contract
 
-A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test is to fail if any button, menu item or shortcut maps to a verb that is not in the catalogue (ROADMAP R1.8; not written yet). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
+A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test is to fail if any button, menu item or shortcut maps to a verb that is not in the catalogue (ROADMAP R1.8; not written yet). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, playback volume, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
 
 Typed parameters then generate, at no extra cost: the last-action panel, the palette entry, the "Bind…" target, the Companion action, the MCP tool and the integrator command sheet.
 
