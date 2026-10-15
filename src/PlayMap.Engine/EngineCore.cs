@@ -109,6 +109,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     private (long Key, string Json) _stateCache = (-1, "");
     private string? _projectPath;
     private bool _dirty;
+    private int _stopping;
 
     /// <summary>The store this line's document edits go to while it runs on the lane (a session's blind draft), else null.</summary>
     private ProjectStore? _lineStore;
@@ -204,6 +205,29 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// <summary>True while any playlist plays (the wire pushes STATE at least every second then).</summary>
     public bool IsAnimating => Playback.Snapshot.Playlists.Values.Any(p => p.Clip.State == Core.Playback.TransportState.Playing);
 
+    /// <summary>What every line hears once the node has begun to stop (<see cref="BeginStop"/>).</summary>
+    internal const string StoppingWords = "the node is stopping — it takes no more lines";
+
+    /// <summary>True once the node has begun to stop: no line runs on it from then on.</summary>
+    internal bool Stopping => Volatile.Read(ref _stopping) != 0;
+
+    /// <summary>The node stops taking lines. From this call on, every line that enters — through <see cref="HandleAsync"/> (the wire,
+    /// the web port, MCP, OSC, the assistant, an approval, a panic's own lines) or fired by a binding
+    /// (<see cref="RunBindingLineAsync"/>) — and every line still waiting for the lane is refused with <see cref="StoppingWords"/>.
+    /// The host calls it as it begins to stop, before it closes any door or part, so no line source it closes later (a binding, an
+    /// OSC socket, a link) can start work on a part it has closed already; its own last work (the recovery record, the journal) goes
+    /// to the lane and the journal directly, never as a line. Thread-safe; a second call changes nothing.</summary>
+    internal void BeginStop() => Interlocked.Exchange(ref _stopping, 1);
+
+    /// <summary>A line that arrived once the node began to stop: refused with the words, and journalled as any refusal of its verb is
+    /// (when <paramref name="journal"/>: a binding's gesture is journalled by its owner, once).</summary>
+    private CommandReply RefusedStopping(WireLine line, SessionInfo session, bool journal)
+    {
+        if (journal && IsJournalled(line))
+            Journal.Add("refused", StoppingWords, session.ClientName, VerbCatalog.Redacted(line), false);
+        return CommandReply.Fail(StoppingWords);
+    }
+
     /// <summary>Network facts and output health changed (the edges call this; STATE's revision moves).</summary>
     public void FactsChanged()
     {
@@ -217,6 +241,8 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         if (ct.IsCancellationRequested)
             return ValueTask.FromResult(CommandReply.Fail("cancelled"));
+        if (Stopping)
+            return ValueTask.FromResult(RefusedStopping(line, session, journal: true));
         // A shown copy (its secret words replaced by the marker) stands for a line kept elsewhere: it never runs.
         if (VerbCatalog.IsShownCopy(line))
             return ValueTask.FromResult(CommandReply.Fail("this is a shown copy — its secret words were kept back where it was shown; "
@@ -377,6 +403,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        BeginStop();
         StopSolving();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
