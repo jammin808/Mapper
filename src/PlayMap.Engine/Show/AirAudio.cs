@@ -1,6 +1,7 @@
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Playback;
+using PlayMap.Media;
 using PlayMap.Media.Audio;
 using PlayMap.Media.Ffmpeg;
 
@@ -83,6 +84,9 @@ public sealed class AirAudio : IAsyncDisposable
                     _failed = forItem;
                 opened?.Dispose();
             }
+            // Nothing wanted, nothing to say: a failure was the item's, and the item has left the air.
+            if (_wanted is null)
+                _problem = "";
             if (_wanted == _playing)
                 return;
             if (_wanted is null || _wanted == _failed)
@@ -92,20 +96,32 @@ public sealed class AirAudio : IAsyncDisposable
             }
             if (_opening is null && snap.Project.Project.FindMedia(_wanted.Value.MediaId) is { } media)
             {
-                var path = media.Location;
+                var path = PathOf(media);
                 _openingFor = _wanted;
                 _opening = Task.Run(() => Open(path));
-
             }
         }
     }
 
-    /// <summary>The focused playlist's item at this instant, when its source is a media file with sound.</summary>
+    /// <summary>The bytes the item names on this machine, as the picture finds them: the file fetched by its hash, else its location
+    /// (a relative one against the project's folder).</summary>
+    private string PathOf(MediaItem media)
+    {
+        if (ContentHasher.IsValid(media.ContentHash) && _engine.Services.Media?.PathForHash(media.ContentHash) is { } stored)
+            return stored;
+        var folder = _engine.ProjectPath is { } project ? Path.GetDirectoryName(Path.GetFullPath(project)) : _engine.Services.ProjectFolder;
+        return MediaLibrary.ResolvePath(media, folder);
+    }
+
+    /// <summary>The focused playlist's item on the air at this instant — the incoming one from the instant it first shows, as the
+    /// picture's fade brings it in — when its source is a media file with sound.</summary>
     private static (string, string, string)? Wanted(EngineSnapshot snap, long leaderNs)
     {
         if (snap.Playback.Focused is not { IsIdle: false } lane)
             return null;
-        var (source, _, itemId) = lane.At(leaderNs);
+        var (source, itemId) = lane.NextItemId is not null && leaderNs >= lane.NextShowsAtNs
+            ? (lane.NextSource, lane.NextItemId)
+            : (lane.Source, lane.ItemId);
         if (itemId is null || source.Kind != SourceKind.Media || snap.Project.Project.FindMedia(source.Id) is not { IsFile: true } media
             || media.Info.AudioChannels <= 0)
             return null;
@@ -121,7 +137,9 @@ public sealed class AirAudio : IAsyncDisposable
         {
             decoder = new FfmpegAudioDecoder(path);
         }
-        catch (Exception ex) when (ex is MediaOpenException or FfmpegException or FfmpegUnavailableException or IOException or UnauthorizedAccessException)
+        // Whatever stops a decoder from opening is this item's problem, said in STATE; the worker always reports back, so the sound
+        // never stops following the show over one file.
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             problem = $"{Path.GetFileName(path)} has no sound this node can play: {ex.Message}";
         }
@@ -143,6 +161,8 @@ public sealed class AirAudio : IAsyncDisposable
     private void Hand(FfmpegAudioDecoder decoder, (string PlaylistId, string ItemId, string MediaId) item)
     {
         var anchor = new AnchorTimeline(() => AnchorOf(item.PlaylistId, item.ItemId), () => _engine.LeaderNowNs);
+        // The first service step plays at the air's gain now, never at what the output last had (a panic or MASTER 0 while idle).
+        Output.Volume = GainNow(item.PlaylistId);
         Output.Play(decoder, new AirTimeline(this, anchor, item.PlaylistId));
         _decoder?.Dispose();
         _decoder = decoder;
@@ -167,16 +187,20 @@ public sealed class AirAudio : IAsyncDisposable
         return clip?.Anchor ?? TimelineAnchor.Zero;
     }
 
+    /// <summary>The air's gain × the playlist's volume at the leader's now.</summary>
+    private float GainNow(string playlistId)
+    {
+        var volume = _engine.Snapshot.Playback.Playlists.TryGetValue(playlistId, out var lane) ? lane.Volume : 1;
+        return (float)(_engine.AirAudioGain(_engine.LeaderNowNs) * Math.Clamp(volume, 0, 4));
+    }
+
     /// <summary>The item's timeline as the output's service step reads it: the anchor's position, and — read at that same step's
     /// leader instant — the air's gain × the playlist's volume, which the output applies from its next step.</summary>
     private sealed class AirTimeline(AirAudio owner, AnchorTimeline anchor, string playlistId) : IAudioTimeline
     {
         public TimelinePosition Now()
         {
-            var engine = owner._engine;
-            var now = engine.LeaderNowNs;
-            var volume = engine.Snapshot.Playback.Playlists.TryGetValue(playlistId, out var lane) ? lane.Volume : 1;
-            owner.Output.Volume = (float)(engine.AirAudioGain(now) * Math.Clamp(volume, 0, 4));
+            owner.Output.Volume = owner.GainNow(playlistId);
             return anchor.Now();
         }
     }

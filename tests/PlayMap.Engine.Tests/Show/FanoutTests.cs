@@ -134,6 +134,8 @@ public sealed class FanoutTests
         Assert.Equal((Core.Bus.Light.Red, "timeout", "FOH-C did not answer in 2 s"), (silent.Light, silent.Value, silent.Note));
         Assert.False(report.Complete);
         Assert.Contains("on 3 nodes", lead.Engine.Journal.Recent(20).Single(r => r.Kind == "preflight").Text, StringComparison.Ordinal);
+        // The member's report rides in its receipt; the journal's row says it applied and carries none of the report.
+        Assert.Equal("PREFLIGHT QUICK WAIT on FOH-B: applied", lead.Engine.Journal.Recent(30).Single(r => r.Kind == "fleet" && r.Text.Contains("FOH-B", StringComparison.Ordinal)).Text);
 
         var json = JsonDocument.Parse(await lead.Ok($"PREFLIGHT REPORT {id}")).RootElement;
         var nodes = json.GetProperty("nodes").EnumerateArray().ToList();

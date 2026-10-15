@@ -165,10 +165,11 @@ public sealed class PlaybackLanes
     /// transition's window: it stays the lane's current item, the incoming one is its next with the switch at the window's end and
     /// the window opening at the GO's instant, so the source provider mixes both sides exactly as between scheduled items. The item
     /// on the air at the GO's instant is the outgoing one (an incoming item already mixing in counts as on the air). Null when the GO
-    /// cuts: nothing on the air, the same item again, or a cut.</summary>
+    /// cuts: nothing on the air, the same item again, a cut, or a playlist in a sync group (its followers adopt the leader's item
+    /// and anchor, which carries no window, so the group cuts together at the GO).</summary>
     private PlaylistPlayback? ManualMix(Playlist list, PlaylistPlayback lane, int index, long atLeaderNs)
     {
-        if (lane.IsIdle)
+        if (lane.IsIdle || list.SyncGroup is not null)
             return null;
         var outgoing = lane.NextItemId is not null && atLeaderNs >= Math.Min(lane.MixStartNs, lane.SwitchAtLeaderNs) ? Promote(list, lane) : lane;
         var incoming = list.Items[index];
@@ -219,8 +220,9 @@ public sealed class PlaybackLanes
         var lane = Lane(list.Id);
         if (lane is null || lane.IsIdle)
             return (false, $"nothing is loaded in {list.Name} — PLAYLIST GO {list.Id} starts it");
-        // A verb that lands after a scheduled switch acts on the item that is on now.
-        if (nowLeaderNs >= lane.SwitchAtLeaderNs && lane.NextItemId is not null)
+        // A verb that lands once the next item shows acts on the item on the air: the incoming one from its window's opening (a
+        // fade or dip a GO started is kept and the verb lands on the GO's item), the next one after a switch.
+        if (lane.NextItemId is not null && nowLeaderNs >= lane.NextShowsAtNs)
             lane = Promote(list, lane);
         var r = verb(lane.Clip);
         if (!r.Ok)

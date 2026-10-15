@@ -126,5 +126,56 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         Assert.Equal(lane.Clip.InNs, lane.Clip.Anchor.MediaAt(rig.Now));
         Assert.True(Pull(rig, output, buffer) < 1e-4);
         Assert.True(Pull(rig, output, buffer) < 1e-4);
+
+        // With the air's gain back at full the cued item stays silent: its transport, not the gain, holds the sound.
+        await rig.Ok("PANIC CLEAR FADE 0");
+        await rig.Ticked();
+        Assert.Equal(1, rig.Show().GetProperty("sound").GetProperty("gain").GetDouble(), 3);
+        Assert.Equal(TransportState.Cued, rig.Engine.Playback.Lane("pl_show")!.Clip.State);
+        for (var i = 0; i < 4; i++)
+            Assert.True(Pull(rig, output, buffer) < 1e-4, "a cued item sounded");
+    }
+
+    [Fact]
+    public async Task TheItemsVolumeScalesTheSoundAndAFileWithNoSoundSaysWhy()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable)))
+            Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
+        var broken = Path.Combine(Directory.CreateTempSubdirectory("playmap-air-audio-").FullName, "broken.wav");
+        await File.WriteAllBytesAsync(broken, "not a sound file at all"u8.ToArray());
+        var p = ToneShow();
+        var list = p.Playlists[0];
+        var bad = new MediaItem("md_bad", "Broken", MediaKind.Audio, broken, "", 0,
+            MediaInfo.Unknown with { DurationNs = 4_000_000_000, AudioCodec = "pcm_s16le", AudioChannels = 2, AudioRate = 48_000 }, []);
+        p = p with
+        {
+            Media = [.. p.Media, bad],
+            Playlists = [list with { Items = [list.Items[0] with { Volume = 0.5 }, PlaylistItem.For("it_bad", SourceRef.Media("md_bad"), "Broken")] }],
+        };
+        await using var rig = new ShowRig(p);
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        var output = sound.Output;
+        var buffer = new float[Block * FfmpegAudioDecoder.Channels];
+
+        // A half-scale sine at the item's volume 0.5: RMS 0.5 × 0.5 / √2.
+        await rig.Ok("PLAYLIST GO pl_show");
+        Assert.True(await ShowRig.Eventually(() => sound.ItemId == "it_tone"), sound.Problem);
+        for (var i = 0; i < 20; i++)
+            Pull(rig, output, buffer);
+        var level = Pull(rig, output, buffer);
+        log.WriteLine($"volume 0.5 {level:0.0000}");
+        Assert.InRange(level, 0.175, 0.179);
+
+        // An item whose file holds no sound this node can play: silence, and STATE says why.
+        await rig.Ok("PLAYLIST NEXT pl_show");
+        Assert.True(await ShowRig.Eventually(() =>
+        {
+            rig.Advance(10);
+            return rig.Show().GetProperty("sound").GetProperty("problem").GetString()!.Contains("broken.wav", StringComparison.Ordinal);
+        }), rig.Show().GetProperty("sound").ToString());
+        Assert.Null(sound.ItemId);
+        for (var i = 0; i < 4; i++)
+            Assert.True(Pull(rig, output, buffer) < 1e-4, "the broken item sounded");
     }
 }

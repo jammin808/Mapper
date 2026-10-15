@@ -18,7 +18,9 @@ back comes back armed (a panic in force comes back too, at its outcome at once).
 **Roles** come from the session's transport, never from words a client sends: the desk is the **operator**; any other paired
 client (wire, HTTP, WebSocket, Companion, OSC, bindings, Patterns, Stagewatch) is a **remote** — an **operator** when the node's
 settings list it (`show.operators`) *and* it proved the node's token on its own connection (a session paired only because its
-address is trusted proved nothing; on a node that asks no token only this machine counts). An entry is an address
+address is trusted proved nothing; on a node that asks no token only this machine counts). The session carries no "proved" mark
+of its own yet, so a session from a trusted address never counts as an operator even when it did send the token (the spine's
+`SessionInfo.Proved` is asked for). An entry is an address
 (`10.0.0.7`), a name at an address (`Companion: FOH deck@10.0.0.7`), or a bare name, which names a session from this machine
 only — a HELLO name is a claim, never a role. MCP and the assistant are the **assistant**; a person's
 approval of an assistant's line is **approved**; fleet and sync peers are **peers**; the node itself (recovery, a panic's own
@@ -38,7 +40,7 @@ an unknown prefix counts as mapping, the cautious side).
 | Air towards light | A | A | P | R | A | A |
 | Panic | A, never refused | A, never refused | P | A | A | A |
 | Show: ARM, LOCK, PREFLIGHT | A | A | P | R | A | A |
-| Show: DISARM, UNLOCK | A | A when DISARM-FROM PAIRED, else R | P | R | A | A |
+| Show: DISARM, UNLOCK | A | A when DISARM-FROM PAIRED, else R | P | R | A unless DISARM-FROM DESK | A |
 | Show: SET, PANIC SET | A | R | P | R | A | A |
 | Content | A (live) | R | P | R | A | A |
 | Playlists | PLAYLIST ADD only | R | P | R | A | A |
@@ -134,18 +136,30 @@ SHUTTER and FX-OFF send their lines as the node itself (`system`), through the g
 
 `BLIND ON` gives the calling session a **draft**: a second store seeded with the live root (sharing every branch, so it costs
 nothing). The show's gate sends that session's document edits there — lines on the lane through the line's store, off-lane verbs
-through `EditAsync` — while the air, STATE's project and `PROJECT GET` keep the live root. One draft per node; a desk that reconnects
-(a new session, the same operator) takes its draft back with `BLIND ON`; the desk may land or drop a draft another session left.
+through `EditAsync` — while the air, STATE's project and `PROJECT GET` keep the live root. One draft per node, held by a session
+(its door and its id); a draft needs a lasting connection, so MCP and HTTP calls cannot open one. A desk that reconnects (a new
+session, the same name) takes its draft back with `BLIND ON` once the old connection is gone — while that one is still open it
+keeps the draft ("Desk holds the blind draft on another connection that is still open — it commits or discards it there"); the
+takeover is journalled and raised (`show.blind` with `takenFrom`). The desk may land or drop a draft another session left. A line
+the gate sent to the draft lands in the draft it was decided for or nowhere: if the draft ended or began landing meanwhile it is
+refused, never applied live. While a draft is open, `PROJECT OPEN` and `PROJECT NEW` are refused (the draft is of this project).
+A draft lives in the engine's memory: a restart loses it, as it loses an unsaved edit.
 The show's explicit locks hold on the draft as they hold live; an armed show's implicit mapping and layout locks do not (staging
 mapping while armed is what the draft is for).
 
 **Seeing it.** `VIEW <v> SHOW editor DRAFT` is the editor's view of the draft: the render host draws it with a second renderer on
 its context that is handed the draft with no outputs, so its canvases and generators are the draft's and the air's renderer never
-sees the draft (the stage's meshes and warps are the live ones until the commit lands). With no draft open it shows the air.
+sees the draft (the stage's meshes and warps are the live ones until the commit lands). With no draft open it shows the air. The
+draft is drawn after the air's frame, between frames, into a ring of the view's own, so a draft view never moves the air's present
+and a fault in it stops the draft views (journalled once), never the air. A draft view takes a view id of its own: an id that has
+drawn the air is refused ("live has drawn the air — a draft view takes a view id of its own (VIEW live-draft SHOW editor DRAFT)").
 
 **`BLIND DIFF`** lists the draft against the root it started from, entity by entity (`ProjectDiff`, Core): added, changed (each
 field as the `SET` path that would make it, from and to, at most twelve and a count), removed; a field set back to what it was is
-no change. `conflicts` names every id the draft changed that also changed live since `BLIND ON`.
+no change. A list whose kept entities stand in another order is one more change, `order:<kind>` ("playlists (order): order
+["A","B"] → ["B","A"]"); landing it puts the draft's order in place and keeps an entity added live since `BLIND ON` after the one
+it followed. An entity the draft adds lands after the one it follows in the draft. `conflicts` names every id the draft changed
+that also changed live since `BLIND ON`.
 
 **`BLIND COMMIT [NOW|AT …|NEXT [<pl>]|ON GO [<pl>]] [FORCE]`** lands the draft as **one undo step** at a show boundary:
 
@@ -153,17 +167,24 @@ no change. `conflicts` names every id the draft changed that also changed live s
 |---|---|
 | `NOW` (default) | now + the commit lead (`SHOW SET COMMIT-LEAD`, 34 ms) |
 | `AT +<ms>` / `AT <unix ms>` | that instant (at least the commit lead ahead) |
-| `NEXT [<pl>]` | the playlist's next switch (the focused playlist when none is named); refused "nothing ends on Show — use ON GO or AT" |
+| `NEXT [<pl>]` | the playlist's next switch (the focused playlist when none is named), read again until it lands: a GO on the playlist pins it to the GO's own switch, a clip verb moves it with the lane; refused "nothing ends on Show — use ON GO or AT" |
 | `ON GO [<pl>]` | the next accepted GO, NEXT, PREV, VIDEO PLAY or RESTART (on that playlist): its own start instant |
 
 The commit is published as (root, leader instant) in the engine's snapshot, so the render thread draws the new root **from the
-boundary's frame on** — the same frame on every node holding it — and the lane promotes it on the tick that reaches it. A live
+boundary's frame on** — the same frame on every node holding it — and the lane promotes it on the tick that reaches it. Exact to
+the frame means the project's own fields (content, generators, canvases, outputs); the stage's tables (meshes, warps, masks,
+blends, lenses) are built for the live root and follow when the lane makes the commit the document, a few ticks later. A live
 change to an entity the draft also changed refuses the commit, naming it ("changed on the air since BLIND ON: Main canvas (canvas,
 cv_main) — … FORCE lands the draft's version"); `FORCE` lands the draft's whole version of each such entity. While a commit waits,
 the draft takes no more edits, a live edit to an entity it lands is refused ("a blind commit lands Main canvas (canvas) at
 21:04:05.200 — wait for it, or BLIND DISCARD"), and any other live edit is carried into the root it publishes. A lock set after
-the commit was scheduled refuses it when it lands: the draft stays, nothing staged is lost. `BLIND DISCARD` drops the draft and a
-waiting commit; `BLIND OFF` leaves an empty draft and refuses one that holds changes.
+the commit was scheduled refuses it when it lands: the draft stays, nothing staged is lost; a `LOCK` that would refuse a waiting
+commit is itself refused ("a blind commit lands … — LOCK it once the commit has landed, or BLIND DISCARD first"). **An armed show
+lands only an operator's commit**: a commit a remote asked is not published while the show is armed, and reaching its boundary
+armed it is refused and journalled, the draft kept. An assistant's `BLIND COMMIT` is always refused: a person lands an assistant's
+draft ("BLIND DIFF shows it, BLIND COMMIT on the desk lands it"). `BLIND DISCARD` drops the draft and a waiting commit, and is
+refused within the commit lead of its instant ("the draft is landing now … — UNDO takes it back once it has landed");
+`BLIND OFF` leaves an empty draft and refuses one that holds changes.
 
 ## Sound on the air
 
@@ -180,8 +201,10 @@ null output.
 A `PLAYLIST GO`, `NEXT` or `PREV` into an item that comes in with a fade or a dip keeps the item on the air through the incoming
 item's window, which opens at the GO's own instant (its `AT`, else now): the outgoing item stays the lane's current one, the
 incoming one is its next with the switch at the window's end, and the source provider mixes both in linear light exactly as
-between scheduled items. Inside the window the incoming item is the one on the air (a further GO steps and mixes from it); an item
-that ends inside the window holds its last frame until the switch.
+between scheduled items. Inside the window the incoming item is the one on the air: a further GO steps and mixes from it, and a
+clip verb (`VIDEO PAUSE`, `SEEK`, …) lands on it, keeping the GO. An item that ends inside the window holds its last frame until
+the switch. A playlist in a sync group cuts at the GO: its followers adopt the leader's item and anchor, which carry no window yet,
+so the group cuts together.
 
 ## The GO fence
 
@@ -210,14 +233,19 @@ The node's own checks:
 | clock | the show clock: role and, following, the uncertainty of the leader's time | green < 1 ms, amber < 4 ms, red beyond; amber when a playlist names a sync group this node leads or follows none | `SYNC FOLLOW <group> <leader>`, `SYNC LEAD <group>` |
 | links | Patterns and Stagewatch: heard and paired | grey not linked, red linked but not heard, amber heard but not paired (its token is a secret: no line) | `LINK PATTERNS <host>`, `LINK STAGEWATCH <host>` |
 
-Every package adds its own checks (`EngineServices.PreflightChecks`). Every row of this node's checks names this node.
+Every package adds its own checks (`EngineServices.PreflightChecks`). Every row of this node's checks names this node. When the
+calibration ledger's own check runs (its `calibration` rows, one per projector) the mapping check yields to it, so a projector
+never has two verdicts in one report; show-ready's mapping step reads either.
 
 **The group.** `SHOW ARM ALL`, `SHOW DISARM ALL` and `PREFLIGHT ALL` go to every member of the group this node leads through the
 fleet's fan-out (`IFleetFanout`, wp2-sync): each member runs the line through its own gate as a peer. ARM and DISARM answer with
 this node and every member's receipt (applied with its leader instant, refused with its words, silent); a node already in the asked
-mode still brings the group to it. `PREFLIGHT ALL` asks each member `PREFLIGHT QUICK WAIT` and merges the rows of the report each
-member's receipt carries under that member's name, a member that does not answer being a red `fleet` row; every report lists one
-section per node (`nodes`). Refused "no fleet fan-out on this node" while the node fans out to none.
+mode still brings the group to it. `SHOW DISARM ALL` is an operator's (the desk's) only: a remote that may disarm this node may not
+disarm the group. `PREFLIGHT ALL` asks each member `PREFLIGHT QUICK WAIT` and merges the rows of the report each member's receipt
+carries under that member's name, a member that does not answer being a red `fleet` row; a member's fix runs on the member, so it
+is in the row's note (" — on FOH-B: SHOW SET MINGO 300") and never a line this node's report would run here. Every report lists
+one section per node (`nodes`). The journal keeps one row per receipt, never the report it carries. Refused "no fleet fan-out on
+this node" while the node fans out to none.
 
 **Show-ready** counts five steps — outputs, media, mapping,
 sync and backup (sync, clock, fleet, links), safety — a step done when none of its rows is red or amber and every check of it finished (a check past its

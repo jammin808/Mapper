@@ -26,7 +26,9 @@ public sealed record EntityChange(string Id, string Kind, string Label, ChangeOp
 }
 
 /// <summary>A draft as the entities it changes against the root it started from. Applied to a live root, it puts each changed
-/// entity's draft version in place by id (added, replaced or removed in its own list), so what changed live elsewhere stays.</summary>
+/// entity's draft version in place by id (replaced, removed, or added after the entity it follows in the draft), and a list the
+/// draft reordered takes the draft's order (an entity added live since the base keeps its place after the one it followed), so
+/// what changed live elsewhere stays.</summary>
 public sealed record ProjectPatch(long BaseRevision, IReadOnlyList<EntityChange> Changes, Project Draft)
 {
     /// <summary>The live root with this draft's changes put in, entity by entity. The live root's locks are kept (they are never a
@@ -48,7 +50,7 @@ public sealed record ProjectPatch(long BaseRevision, IReadOnlyList<EntityChange>
         List<string>? hits = null;
         foreach (var c in Changes)
         {
-            if (!ProjectDiff.Same(ProjectDiff.Get(baseRoot, c.Id), ProjectDiff.Get(live, c.Id)))
+            if (ProjectDiff.Moved(baseRoot, live, c.Id))
                 (hits ??= []).Add(c.Id);
         }
         return hits ?? (IReadOnlyList<string>)[];
@@ -61,7 +63,7 @@ public sealed record ProjectPatch(long BaseRevision, IReadOnlyList<EntityChange>
         ArgumentNullException.ThrowIfNull(after);
         foreach (var c in Changes)
         {
-            if (!ProjectDiff.Same(ProjectDiff.Get(before, c.Id), ProjectDiff.Get(after, c.Id)))
+            if (ProjectDiff.Moved(before, after, c.Id))
                 return c.Id;
         }
         return null;
@@ -72,27 +74,70 @@ public sealed record ProjectPatch(long BaseRevision, IReadOnlyList<EntityChange>
 /// of the document (media, playlists with their items, generators, canvases with their layers, the stage's lists, outputs, sends,
 /// controllers, timecode, effects assets, presets, LED rigs, the fleet plan) and the show-wide singletons (settings, the show's
 /// rules and panic plans, audio, tempo, optimise, the site frame, the name), comparing by reference first, by value second and by
-/// JSON last, so a draft that sets a field back to what it was changes nothing.</summary>
+/// JSON last, so a draft that sets a field back to what it was changes nothing. A list whose entities kept by both sides stand in
+/// another order is one more change, "order:&lt;kind&gt;" (adding or removing alone moves no order).</summary>
 public static class ProjectDiff
 {
     /// <summary>Field rows listed per changed entity; the rest are counted in one more row.</summary>
     public const int FieldsShown = 12;
 
-    private sealed record Coll(string Kind, Func<Project, IEnumerable<IEntity>> Items, Func<Project, string, IEntity?, Project> Put);
+    /// <summary>The id prefix of a list's order change.</summary>
+    private const string OrderPrefix = "order:";
+
+    private sealed record Coll(string Kind, Func<Project, IEnumerable<IEntity>> Items, Func<Project, Project, string, IEntity?, Project> Put,
+        Func<Project, IReadOnlyList<string>, Project> Arrange);
 
     private sealed record Single(string Id, string Kind, Func<Project, object> Get, Func<Project, Project, Project> Put);
 
     private static Coll Of<T>(string kind, Func<Project, ImmutableArray<T>> get, Func<Project, ImmutableArray<T>, Project> set)
         where T : class, IEntity =>
-        new(kind, p => get(p).Cast<IEntity>(), (p, id, e) =>
+        new(kind, p => get(p).Cast<IEntity>(), (p, draft, id, e) =>
         {
             var list = get(p);
             var i = list.IndexOfId(id);
             if (e is null)
                 return i < 0 ? p : set(p, list.RemoveAt(i));
             var item = (T)e;
-            return set(p, i < 0 ? list.Add(item) : list.SetItem(i, item));
-        });
+            return set(p, i >= 0 ? list.SetItem(i, item) : list.Insert(After(list, get(draft), id), item));
+        }, (p, order) => set(p, Arranged(get(p), order)));
+
+    /// <summary>Where an entity the draft adds goes in a live list: after the nearest entity before it in the draft that the live
+    /// list holds, else first.</summary>
+    private static int After<T>(ImmutableArray<T> live, ImmutableArray<T> draft, string id)
+        where T : class, IEntity
+    {
+        for (var j = draft.IndexOfId(id) - 1; j >= 0; j--)
+        {
+            var k = live.IndexOfId(draft[j].Id);
+            if (k >= 0)
+                return k + 1;
+        }
+        return 0;
+    }
+
+    /// <summary>A live list in the draft's order: the ids the draft names in its order, then each live-only entity after the one it
+    /// followed live (else first).</summary>
+    private static ImmutableArray<T> Arranged<T>(ImmutableArray<T> live, IReadOnlyList<string> order)
+        where T : class, IEntity
+    {
+        var byId = live.ToDictionary(e => e.Id, StringComparer.Ordinal);
+        var result = new List<T>(live.Length);
+        foreach (var id in order)
+        {
+            if (byId.Remove(id, out var e))
+                result.Add(e);
+        }
+        for (var i = 0; i < live.Length; i++)
+        {
+            if (!byId.ContainsKey(live[i].Id))
+                continue;
+            var at = 0;
+            for (var j = i - 1; j >= 0 && at == 0; j--)
+                at = result.FindIndex(x => string.Equals(x.Id, live[j].Id, StringComparison.Ordinal)) + 1;
+            result.Insert(at, live[i]);
+        }
+        return [.. result];
+    }
 
     private static readonly Coll[] Lists =
     [
@@ -178,6 +223,13 @@ public static class ProjectDiff
                     if (!seen.Contains(id))
                         changes.Add(new EntityChange(id, c.Kind, LabelOf(was), ChangeOp.Removed, []));
                 }
+                var kept = c.Items(draft).Where(e => before.ContainsKey(e.Id)).ToList();
+                var keptBefore = c.Items(baseRoot).Where(e => seen.Contains(e.Id)).ToList();
+                if (!kept.Select(e => e.Id).SequenceEqual(keptBefore.Select(e => e.Id), StringComparer.Ordinal))
+                {
+                    changes.Add(new EntityChange(OrderPrefix + c.Kind, "order", Plural(c.Kind), ChangeOp.Changed,
+                        [new FieldChange("order", Names(keptBefore), Names(kept))]));
+                }
             }
         }
         return new ProjectPatch(baseRevision, changes, draft);
@@ -198,9 +250,25 @@ public static class ProjectDiff
         };
     }
 
-    /// <summary>The entity or singleton value with this id in a root, or null.</summary>
+    /// <summary>True when the value with this id differs between two roots; for a list's order, when the entities both roots hold
+    /// stand in another order.</summary>
+    internal static bool Moved(Project a, Project b, string id)
+    {
+        if (OrderOf(id) is not { } c)
+            return !Same(Get(a, id), Get(b, id));
+        var inB = c.Items(b).Select(e => e.Id).ToHashSet(StringComparer.Ordinal);
+        var inA = c.Items(a).Select(e => e.Id).ToHashSet(StringComparer.Ordinal);
+        return !c.Items(a).Select(e => e.Id).Where(inB.Contains).SequenceEqual(c.Items(b).Select(e => e.Id).Where(inA.Contains), StringComparer.Ordinal);
+    }
+
+    private static Coll? OrderOf(string id) =>
+        id.StartsWith(OrderPrefix, StringComparison.Ordinal) ? Array.Find(Lists, c => string.Equals(OrderPrefix + c.Kind, id, StringComparison.Ordinal)) : null;
+
+    /// <summary>The entity or singleton value with this id in a root (a list's order is its ids), or null.</summary>
     internal static object? Get(Project p, string id)
     {
+        if (OrderOf(id) is { } order)
+            return string.Join("\n", order.Items(p).Select(e => e.Id));
         foreach (var s in Singles)
         {
             if (s.Id == id)
@@ -217,9 +285,12 @@ public static class ProjectDiff
         return null;
     }
 
-    /// <summary>Puts the draft's version of one id into a root: replaced, added at the end of its list, or removed.</summary>
+    /// <summary>Puts the draft's version of one id into a root: replaced, added after the entity it follows in the draft, removed, or
+    /// (a list's order) the list arranged in the draft's order.</summary>
     internal static Project Put(Project into, Project draft, string id)
     {
+        if (OrderOf(id) is { } order)
+            return order.Arrange(into, [.. order.Items(draft).Select(e => e.Id)]);
         foreach (var s in Singles)
         {
             if (s.Id == id)
@@ -240,7 +311,7 @@ public static class ProjectDiff
                     inLive = true;
             }
             if (inDraft is not null || inLive)
-                return c.Put(into, id, inDraft);
+                return c.Put(into, draft, id, inDraft);
         }
         return into;
     }
@@ -254,6 +325,15 @@ public static class ProjectDiff
             return false;
         return ProjectJson.SerializeEntity(a) == ProjectJson.SerializeEntity(b);
     }
+
+    private static string Names(IEnumerable<IEntity> entities) => Text(new JsonArray([.. entities.Select(e => (JsonNode?)JsonValue.Create(LabelOf(e)))]));
+
+    private static string Plural(string kind) => kind switch
+    {
+        "media" => "media",
+        _ when kind.EndsWith('s') || kind.EndsWith("sh", StringComparison.Ordinal) => kind + "es",
+        _ => kind + "s",
+    };
 
     private static string LabelOf(IEntity e) => ShowEntities.Describe(e).Label is { Length: > 0 } l and not "?" ? l : e.Id;
 

@@ -102,4 +102,44 @@ public sealed class ProjectDiffTests
         Assert.Equal(20 - ProjectDiff.FieldsShown, change.More);
         Assert.Equal($"List (playlist): and {20 - ProjectDiff.FieldsShown} more", ProjectDiff.Words(change)[^1]);
     }
+
+    private static Playlist List(string id, string name) => new(id, name, [], false, null);
+
+    [Fact]
+    public void AListsOrderIsOneChangeAndLandsAroundWhatLiveAdded()
+    {
+        var b = Base() with { Playlists = [List("pl_a", "A"), List("pl_b", "B"), List("pl_c", "C")] };
+        var draft = b with { Playlists = [b.Playlists[2], b.Playlists[0], b.Playlists[1]] };
+        var patch = ProjectDiff.Between(b, draft, 1);
+        var change = Assert.Single(patch.Changes);
+        Assert.Equal(("order:playlist", ChangeOp.Changed), (change.Id, change.Op));
+        Assert.Equal(["playlists (order): order [\"A\",\"B\",\"C\"] → [\"C\",\"A\",\"B\"]"], ProjectDiff.Words(change));
+
+        // Live added D after A since the base: the draft's order lands and D keeps its place after A.
+        var live = b with { Playlists = [b.Playlists[0], List("pl_d", "D"), b.Playlists[1], b.Playlists[2]] };
+        Assert.Empty(patch.ConflictsWith(b, live));
+        Assert.Equal(["pl_c", "pl_a", "pl_d", "pl_b"], patch.ApplyTo(live).Playlists.Select(l => l.Id));
+
+        // Live reordered the same list: a conflict, and an edit that waits on the commit is told so.
+        var swapped = b with { Playlists = [b.Playlists[1], b.Playlists[0], b.Playlists[2]] };
+        Assert.Equal(["order:playlist"], patch.ConflictsWith(b, swapped));
+        Assert.Equal("order:playlist", patch.Touches(b, swapped));
+        Assert.Null(patch.Touches(b, live));
+    }
+
+    [Fact]
+    public void AnAddedEntityLandsAfterTheOneItFollowsInTheDraftAndMovesNoOrder()
+    {
+        var b = Base() with { Playlists = [List("pl_a", "A"), List("pl_b", "B"), List("pl_c", "C")] };
+        var middle = ProjectDiff.Between(b, b with { Playlists = b.Playlists.Insert(1, List("pl_x", "X")) }, 1);
+        Assert.Equal(["pl_x"], middle.Changes.Select(c => c.Id));
+        Assert.Equal(["pl_a", "pl_x", "pl_b", "pl_c"], middle.ApplyTo(b).Playlists.Select(l => l.Id));
+
+        // First in the draft lands first; two added in a row keep their order.
+        var first = ProjectDiff.Between(b, b with { Playlists = [List("pl_y", "Y"), List("pl_z", "Z"), .. b.Playlists] }, 1);
+        Assert.Equal(["pl_y", "pl_z", "pl_a", "pl_b", "pl_c"], first.ApplyTo(b).Playlists.Select(l => l.Id));
+
+        // Removing alone moves no order.
+        Assert.Equal(["pl_b"], ProjectDiff.Between(b, b with { Playlists = b.Playlists.RemoveAt(1) }, 1).Changes.Select(c => c.Id));
+    }
 }

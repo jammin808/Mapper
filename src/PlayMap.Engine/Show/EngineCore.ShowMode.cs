@@ -358,8 +358,12 @@ public sealed partial class EngineCore : IShowDecisions
             Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
             return [new FanoutReceipt("", "the group", "fault", 0, Journal.Describe(ex))];
         }
+        // A member's reply that is a document (a preflight report) rides in the receipt, never in the journal's row.
         foreach (var r in receipts)
-            Journal.Add(r.Stage == "applied" ? "fleet" : "refused", $"{FirstLine(text)} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + FirstLine(r.Words) : "")}", ok: r.Stage == "applied");
+        {
+            var words = r.Words.TrimStart() is { Length: > 0 } w && w[0] is not ('{' or '[') ? " — " + FirstLine(w) : "";
+            Journal.Add(r.Stage == "applied" ? "fleet" : "refused", $"{FirstLine(text)} on {r.Name}: {r.Stage}{words}", ok: r.Stage == "applied");
+        }
         return receipts;
     }
 

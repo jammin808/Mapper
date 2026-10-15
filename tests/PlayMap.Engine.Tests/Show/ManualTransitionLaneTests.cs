@@ -89,4 +89,36 @@ public sealed class ManualTransitionLaneTests
         await rig.Ok("PLAYLIST GO pl_show #1");
         Assert.Null(rig.Engine.Playback.Lane("pl_show")!.NextItemId);
     }
+
+    [Fact]
+    public async Task APauseInsideTheWindowPausesTheGosItemAndKeepsIt()
+    {
+        await using var rig = new ShowRig(Show());
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Advance(2_000);
+        var t = rig.Now;
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Clock.NowNs = t + 400_000_000;
+        await rig.Ok("VIDEO PAUSE ON pl_show");
+        var lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(("it_b", TransportState.Paused, (string?)null), (lane.ItemId, lane.Clip.State, lane.NextItemId));
+        Assert.Equal(400_000_000, lane.Clip.Anchor.MediaAt(rig.Now) - lane.Clip.InNs);
+        rig.Clock.NowNs = t + 2_000_000_000;
+        await rig.Ticked();
+        Assert.Equal(("it_b", TransportState.Paused), (rig.Engine.Playback.Lane("pl_show")!.ItemId, rig.Engine.Playback.Lane("pl_show")!.Clip.State));
+    }
+
+    [Fact]
+    public async Task APlaylistInASyncGroupCutsOnAGo()
+    {
+        var p = Show();
+        await using var rig = new ShowRig(p with { Playlists = [p.Playlists[0] with { SyncGroup = "grp" }] });
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Advance(2_000);
+        var t = rig.Now;
+        await rig.Ok("PLAYLIST GO pl_show");
+        var lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(("it_b", (string?)null), (lane.ItemId, lane.NextItemId));
+        Assert.Equal(t, lane.Clip.Anchor.LeaderNs);
+    }
 }
