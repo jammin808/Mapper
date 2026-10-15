@@ -135,7 +135,11 @@ public sealed class GeneratorLive(string generatorId, ContentStats owner)
     /// <summary>What its last draw came to (render thread; a test's fake renderer).</summary>
     public void Drawn(double progress, int count, long timeNs)
     {
-        Volatile.Write(ref _progress, (long)Math.Round(Math.Clamp(progress, 0, 1) * 1e6));
+        var next = (long)Math.Round(Math.Clamp(progress, 0, 1) * 1e6);
+        // A settling field's progress reaches STATE in tenths (a push each), not every frame.
+        if (next / 100_000 != Volatile.Read(ref _progress) / 100_000)
+            owner.Moved();
+        Volatile.Write(ref _progress, next);
         Volatile.Write(ref _count, count);
         Volatile.Write(ref _timeNs, timeNs);
     }
@@ -187,6 +191,28 @@ public sealed class ContentStats
 
     /// <summary>A generator's entry, made the first time it is met.</summary>
     public GeneratorLive For(string generatorId) => _generators.GetOrAdd(generatorId, static (id, self) => new GeneratorLive(id, self), this);
+
+    private int _impulsePreset = -1;
+    private long _impulseStart;
+    private long _impulseFrame;
+
+    /// <summary>A generator was drawn with a sting this frame (render thread): the preset, its start on the leader clock and the
+    /// frame — what STATE says is surging.</summary>
+    public void ImpulseDrawn(Core.Content.EffectImpulse impulse, long frame)
+    {
+        if (Volatile.Read(ref _impulsePreset) != (int)impulse.Preset || Volatile.Read(ref _impulseStart) != BitConverter.DoubleToInt64Bits(impulse.StartSeconds))
+        {
+            Volatile.Write(ref _impulsePreset, (int)impulse.Preset);
+            Volatile.Write(ref _impulseStart, BitConverter.DoubleToInt64Bits(impulse.StartSeconds));
+            Moved();
+        }
+        Volatile.Write(ref _impulseFrame, frame);
+    }
+
+    /// <summary>True when a generator was drawn with this sting within the last <paramref name="frames"/> frames.</summary>
+    public bool Surged(Core.Content.PulsePreset preset, double startSeconds, long frames = 30) =>
+        Volatile.Read(ref _impulsePreset) == (int)preset && Volatile.Read(ref _impulseStart) == BitConverter.DoubleToInt64Bits(startSeconds)
+        && Frame - Volatile.Read(ref _impulseFrame) <= frames;
 
     /// <summary>The generators met (a snapshot).</summary>
     public IReadOnlyList<string> Ids() => [.. _generators.Keys];

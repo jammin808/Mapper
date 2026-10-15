@@ -104,6 +104,47 @@ public class ContentTimeTests(GlFixture gl)
     }
 
     [Fact]
+    public void OwnTimeIsWholeNanosecondsSoAnOddOriginDaysOnStepsAsZeroDoes()
+    {
+        // An origin and a leader that are no whole number of anything: the leader minus the origin is still exactly 10.25 s.
+        const long origin = 3L * 86_400 * 1_000_000_000 + 333_333_337;
+        gl.Run(c =>
+        {
+            using var services = new RenderServices(c.Device);
+            using var odd = new GeneratorHost(services);
+            using var zero = new GeneratorHost(services);
+            var a = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 4096).With("lifeMin", 0.5).With("lifeMax", 1), "gn_odd") with { OriginNs = origin };
+            var b = a with { OriginNs = 0 };
+            const long own = 10_250_000_000;
+            var fa = Settle(odd, a, origin + own);
+            var fb = Settle(zero, b, own);
+            Assert.Equal(1230, ((FlowGenerator)odd.RendererOf(a.Id, W, H)!).SimStep);
+            var pa = Scene.ReadTexture(c.Device, DrawAt(odd, a, origin + own, fa));
+            var pb = Scene.ReadTexture(c.Device, DrawAt(zero, b, own, fb));
+            Assert.True(pa.AsSpan().SequenceEqual(pb), "an odd origin days on draws another field");
+        });
+    }
+
+    private static Gpu.GpuTexture DrawAt(GeneratorHost host, Generator g, long leaderNs, long frame)
+    {
+        host.BeginFrame(frame);
+        var tex = host.Render(g, W, H, ContentGl.Context, GeneratorFrame.At(leaderNs / 1e9) with { LeaderNs = leaderNs });
+        host.EndFrame();
+        return tex;
+    }
+
+    private static long Settle(GeneratorHost host, Generator g, long leaderNs)
+    {
+        for (var f = 1; f < 40; f++)
+        {
+            DrawAt(host, g, leaderNs, f);
+            if (host.RendererOf(g.Id, W, H)!.Progress >= 1)
+                return f + 1;
+        }
+        throw new InvalidOperationException("did not settle");
+    }
+
+    [Fact]
     public void AGeneratorAPlaylistRoutesReadsItsItemsClipTime()
     {
         gl.Run(c =>
@@ -136,10 +177,10 @@ public class ContentTimeTests(GlFixture gl)
             using var services = new RenderServices(c.Device);
             using var host = new GeneratorHost(services);
             var marks = Scene.Gen("pattern.syncmarks", null, "gn_marks") with { OriginNs = 1_000_000_000 };
-            Assert.Equal(4.01, GeneratorHost.OwnSeconds(marks, GeneratorFrame.At(4.01), null, out var origin), 9);
+            Assert.Equal(4_010_000_000, GeneratorHost.OwnNs(marks, GeneratorFrame.At(4.01), null, out var origin));
             Assert.Equal(0, origin);
             var other = Scene.Gen("fractal.julia", null, "gn_j") with { OriginNs = 1_000_000_000 };
-            Assert.Equal(3.01, GeneratorHost.OwnSeconds(other, GeneratorFrame.At(4.01), null, out origin), 9);
+            Assert.Equal(3_010_000_000, GeneratorHost.OwnNs(other, GeneratorFrame.At(4.01), null, out origin));
             Assert.Equal(1_000_000_000, origin);
         });
     }

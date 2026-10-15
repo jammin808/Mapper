@@ -42,4 +42,16 @@ public sealed record GeneratorTraits(TimeClass Time, double PeriodSeconds, doubl
     /// <summary>True for the kinds that keep the leader's own clock whatever their origin: the sync marks flash on the leader's grid,
     /// which is what they are for.</summary>
     public static bool OnLeaderClock(string? kindId) => string.Equals(kindId, "pattern.syncmarks", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True for a number a kind reads once per change, never per frame (it fixes a field's schedule or a target's size), so
+    /// a binding on it is drawn at its base: a particle field's lives, a raymarched fractal's render scale.</summary>
+    public static bool ConfigureOnly(string? kindId, string param)
+    {
+        ArgumentNullException.ThrowIfNull(param);
+        if (ParticleFlowSettings.IsKind(kindId))
+            return param.Equals("lifeMin", StringComparison.OrdinalIgnoreCase) || param.Equals("lifeMax", StringComparison.OrdinalIgnoreCase);
+        if (Fractal3DSettings.IsKind(kindId))
+            return param.Equals("renderScale", StringComparison.OrdinalIgnoreCase);
+        return false;
+    }
 }

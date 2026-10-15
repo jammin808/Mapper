@@ -67,6 +67,13 @@ internal sealed class ContentBoard
         Stings.Fire(sting.Preset.Preset, sting.AtLeaderNs / 1e9, sting.LengthMs / 1000.0);
     }
 
+    /// <summary>True when the renderer drew a generator with this sting lately (observed, not assumed).</summary>
+    public bool Drawn(StingFired sting)
+    {
+        ArgumentNullException.ThrowIfNull(sting);
+        return _frame?.Stats.Surged(sting.Preset.Preset, sting.AtLeaderNs / 1e9) ?? false;
+    }
+
     public void Clear()
     {
         _sting = null;
@@ -88,6 +95,7 @@ internal sealed class ContentBoard
         ArgumentNullException.ThrowIfNull(g);
         var traits = GeneratorTraits.Of(g.Kind);
         var listens = Listens(g, traits);
+        var time = TimeOf(g, traits, listens);
         var stats = _frame?.Stats;
         var warnings = new List<string>();
         if (GeneratorCatalog.Find(g.Kind) is null)
@@ -98,7 +106,7 @@ internal sealed class ContentBoard
             if (ContentTime.PrecisionLost(g.Kind, own))
                 warnings.Add(ContentTime.PrecisionWords);
             // Not drawn: no own time observed (the warning still reads the leader's clock).
-            return new GeneratorView(g, "idle", 0, traits.With(listens), 0, 0, 0, 0, false,
+            return new GeneratorView(g, "idle", 0, time, 0, 0, 0, 0, false,
                 stats is null ? "no renderer on this node" : "not drawn: nothing shows it", warnings, []);
         }
         var onAir = stats.Frame - live.LastFrame <= RecentFrames;
@@ -117,8 +125,23 @@ internal sealed class ContentBoard
         for (var i = 0; i < names.Length; i++)
             bound.Add((names[i], values[i]));
         var words = state == "idle" ? "not drawn lately: nothing shows it" : live.Words;
-        return new GeneratorView(g, state, state == "idle" ? 0 : live.Progress, traits.With(listens), seconds, live.GpuMs, live.GpuMsP95, live.Count,
+        return new GeneratorView(g, state, state == "idle" ? 0 : live.Progress, time, seconds, live.GpuMs, live.GpuMsP95, live.Count,
             onAir && state != "faulted", words, warnings, bound);
+    }
+
+    /// <summary>A generator's time class: live when it listens to this node's sound; history when a GPU field reads a picture (its
+    /// births and drift follow the frames that picture had when they were drawn); else its kind's.</summary>
+    public static TimeClass TimeOf(Generator g, GeneratorTraits traits, bool listens)
+    {
+        ArgumentNullException.ThrowIfNull(g);
+        ArgumentNullException.ThrowIfNull(traits);
+        if (listens)
+            return TimeClass.Live;
+        if (ParticleFlowSettings.IsKind(g.Kind) && g.Inputs.TryGetValue("source", out var source) && !source.IsNone
+            && GeneratorCatalog.Find(g.Kind) is { } kind
+            && ParticleFlowSettings.Resolve(g.Params, kindId: g.Kind).ReadsPicture(ParamValues.Number(g.Params, kind, "flow")))
+            return TimeClass.History;
+        return traits.Time;
     }
 
     /// <summary>True when a generator reads this node's own sound: its kind listens and its sound is up, or a binding reads a live source.</summary>

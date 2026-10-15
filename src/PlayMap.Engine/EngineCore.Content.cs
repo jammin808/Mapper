@@ -105,9 +105,11 @@ public sealed partial class EngineCore
         var parameters = ParamSet.Empty;
         if (presetName is not null)
         {
-            if (PresetFor(kind, presetName, out var why) is not { } preset)
+            // A look the kind has (saved in the show or curated), written whole as RECALL writes it.
+            if (LookFor(kind, presetName, out var why) is not { } look)
                 return CommandReply.Fail(why);
-            parameters = parameters.With("preset", preset);
+            parameters = look.Params;
+            presetName = look.Name;
         }
         var name = args.Count > 1 ? string.Join(' ', args.Skip(1)) : kind.Name;
         // Its own time starts now: the same instant on every node that applies this edit.
@@ -119,7 +121,7 @@ public sealed partial class EngineCore
             return p with { Generators = p.Generators.Add(new Generator(id, name, kind.Id, parameters) { OriginNs = origin }) };
         });
         return r.Changed
-            ? CommandReply.Success(id, $"made {kind.Name} generator {name}{(presetName is null ? "" : " from " + parameters.Get("preset"))}")
+            ? CommandReply.Success(id, $"made {kind.Name} generator {name}{(presetName is null ? "" : " from " + presetName)}")
             : FromEdit(r);
     }
 

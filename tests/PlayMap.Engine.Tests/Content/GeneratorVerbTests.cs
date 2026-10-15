@@ -37,8 +37,13 @@ public sealed class GeneratorVerbTests
         var julia = rig.Engine.Store.Project.FindGenerator(made.Payload);
         Assert.True(julia is not null, $"{made.Payload} / {made.Effect}");
         Assert.Equal("Julia dragon", julia.Params.Get("preset"));
-        Assert.Contains("no particle preset 'Sleet'", await rig.Refused("GENERATOR NEW particles.field PRESET Sleet"), StringComparison.Ordinal);
-        Assert.Contains("has no presets", await rig.Refused("GENERATOR NEW particles.flow PRESET Snow"), StringComparison.Ordinal);
+        Assert.Contains("no look 'Sleet' for Particles", await rig.Refused("GENERATOR NEW particles.field PRESET Sleet"), StringComparison.Ordinal);
+        // The round-2 kinds take their curated looks, written whole as RECALL writes them.
+        var swirlId = (await rig.Ok("GENERATOR NEW particles.flow PRESET galaxy swirl")).Payload!;
+        var swirl = rig.Engine.Store.Project.FindGenerator(swirlId)!;
+        Assert.Equal(GeneratorLooks.Find("particles.flow", "Galaxy swirl")!.Params, swirl.Params);
+        Assert.Contains("Galaxy swirl is a look for Particle flow, not Mandelbulb", await rig.Refused("GENERATOR NEW mandelbulb PRESET Galaxy swirl"), StringComparison.Ordinal);
+        Assert.Contains("Grid has no curated looks", await rig.Refused("GENERATOR NEW pattern.grid PRESET Haze"), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,6 +86,12 @@ public sealed class GeneratorVerbTests
         Assert.Contains(other, all.GetProperty("generators").EnumerateArray().Select(e => e.GetString()));
         Assert.Contains("no generator Fog", await rig.Refused("GENERATOR RETIME Fog"), StringComparison.Ordinal);
         Assert.Contains("AT", await rig.Refused($"GENERATOR RETIME {id} AT soon"), StringComparison.Ordinal);
+        // The sync marks keep the leader's grid: retiming them moves nothing, so it is refused, and ALL leaves them be.
+        var marks = (await rig.Ok("GENERATOR NEW syncmarks")).Payload!;
+        Assert.Contains("keeps the leader's grid", await rig.Refused($"GENERATOR RETIME {marks}"), StringComparison.Ordinal);
+        var origin = rig.Engine.Store.Project.FindGenerator(marks)!.OriginNs;
+        await rig.Ok("GENERATOR RETIME ALL AT +3000");
+        Assert.Equal(origin, rig.Engine.Store.Project.FindGenerator(marks)!.OriginNs);
     }
 
     [Fact]
@@ -101,6 +112,39 @@ public sealed class GeneratorVerbTests
         Assert.Contains("reads no picture", await rig.Refused($"GENERATOR INPUT {julia} source canvas:cv_plate"), StringComparison.Ordinal);
         Assert.Contains("not matte", await rig.Refused("GENERATOR INPUT gn_sparks matte canvas:cv_plate"), StringComparison.Ordinal);
         Assert.NotEmpty(await rig.Refused("GENERATOR INPUT gn_sparks source canvas:cv_nowhere"));
+    }
+
+    [Fact]
+    public async Task RetimeSaysWhenAPlaylistsItemTimeDrivesTheGenerator()
+    {
+        var show = ContentRig.Show() with
+        {
+            Playlists = [new Playlist("pl_show", "Show", [PlaylistItem.For("it_sparks", SourceRef.Generator("gn_sparks"), "Sparks")], false, null)],
+        };
+        await using var rig = new ContentRig(show);
+        var r = await rig.Ok("GENERATOR RETIME Sparks AT +500");
+        Assert.Contains("while Show plays it, its item's time drives it", r.Effect, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ANumberAKindReadsOncePerChangeIsDrawnAtItsBaseAndAFieldOnAPictureIsHistory()
+    {
+        await using var rig = new ContentRig(ContentRig.Show());
+        await rig.Ok("MOD BIND gn_sparks lifeMax lfo:sine/1 AMOUNT 0.5");
+        await rig.Ok("MOD BIND gn_sparks curl lfo:sine/1 AMOUNT 0.5");
+        var peek = ContentRig.Json(await rig.Ok("MOD PEEK gn_sparks")).GetProperty("bindings").EnumerateArray()
+            .ToDictionary(b => b.GetProperty("param").GetString()!, b => b.GetProperty("words").GetString());
+        Assert.Equal(EngineCore.GeneratorDrawsBase, peek["lifeMax"]);
+        Assert.Equal("", peek["curl"]);
+        Assert.True(GeneratorTraits.ConfigureOnly("fractal.kifs", "renderScale"));
+        Assert.False(GeneratorTraits.ConfigureOnly("fractal.kifs", "twist"));
+
+        JsonElement Sparks() => rig.State().GetProperty("content").GetProperty("generators").EnumerateArray()
+            .Single(g => g.GetProperty("id").GetString() == "gn_sparks");
+        Assert.Equal("bounded", Sparks().GetProperty("time").GetString());
+        await rig.Ok("GENERATOR INPUT gn_sparks source canvas:cv_plate");
+        await rig.Ok("GENERATOR SET gn_sparks emitter picture");
+        Assert.Equal("history", Sparks().GetProperty("time").GetString());
     }
 
     [Fact]

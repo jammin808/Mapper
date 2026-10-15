@@ -31,8 +31,9 @@ internal sealed class ContentPreflight : IPreflightCheck
         {
             if (v.State == "faulted")
             {
+                // Its parameters back to their defaults is the fix the show can make; with none set there is no line to offer.
                 rows.Add(new PreflightRow("content:" + v.Generator.Id, node, Section, v.Label, Light.Red, "faulted", v.Words,
-                    $"GENERATOR RESET {v.Generator.Id}"));
+                    v.Generator.Params.Values.Count > 0 ? $"GENERATOR RESET {v.Generator.Id}" : null));
                 continue;
             }
             if (!v.OnAir)
@@ -128,7 +129,7 @@ internal sealed class StingIndex(EngineCore engine) : IIndexContributor
     public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
     {
         ArgumentNullException.ThrowIfNull(w);
-        var running = engine.Content.Sting is { } s && engine.LeaderNowNs < s.EndLeaderNs ? s.Preset.Name : null;
+        var running = engine.Content.Sting is { } s && engine.LeaderNowNs < s.EndLeaderNs && engine.Content.Drawn(s) ? s.Preset.Name : null;
         w.WriteStartArray();
         foreach (var p in Stings.All)
         {

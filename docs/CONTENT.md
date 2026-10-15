@@ -36,7 +36,8 @@ turn and shift hue; scenes glow; the flash channel goes through the flash guard.
 ## The GPU particle field (`particles.flow`)
 
 Every particle's state lives in two RGBA32F textures (position, age and life; velocity, colour key and size key) and is stepped
-by one fragment pass on a fixed grid of 1/120 s of the generator's time, two steps a frame at 60 Hz. Up to 4 M particles
+by one fragment pass on a fixed grid of 1/120 s of the generator's time (counted in whole nanoseconds, exact days into a show), two
+steps a frame at 60 Hz. Up to 1 M particles
 (262 144 by default); a software renderer (llvmpipe) steps 64 k, and STATE says so.
 
 **Births.** Slot *i* lives `life_i` steps (between `lifeMin` and `lifeMax`) and is born whenever `(n − phase_i) mod life_i = 0`;
@@ -48,7 +49,8 @@ C# twin, slot for slot.
 longest life back is the same field. The renderer therefore never integrates from the start of a show: on its first frame, after
 a seek, a jump of more than a life, or any change of its parameters, it **re-anchors** one longest life before the time it must
 show and runs forward from there (at most `30 M / count` steps a frame, 2–64), holding its last picture and saying how far it has
-settled. On one GPU and driver the result is bit-for-bit the field that played from the start; across vendors births are exact
+settled; a GPU too slow to catch up draws what it has after 30 frames, and says so. A bound number (an LFO on the rate, say) is
+read at each step's own instant, so a pure source keeps the field the same at 50 or 60 frames a second. On one GPU and driver the result is bit-for-bit the field that played from the start; across vendors births are exact
 and the field is the same in kind, not to the bit (STATE's time class says `bounded`, with its horizon).
 
 **Forces**, in order: gravity and wind, a vortex, an attractor (negative repels), a sting's lift, swirl and gust; drag; then the

@@ -252,7 +252,7 @@ public sealed partial class EngineCore
         {
             if (item.Problem.Length > 0)
                 list.Add($"{item.Entity.Name} {item.Binding.Param}: {item.Problem}");
-            else if (DrawnAtBase(plan.Project, item.Entity))
+            else if (DrawnAtBase(plan.Project, item.Entity, item.Param))
                 list.Add($"{item.Entity.Name} {item.Binding.Param}: {GeneratorDrawsBase}");
             else if (item.Source is { IsAudio: true } && !listening)
                 list.Add($"{item.Binding.Source} (no audio on this node)");
@@ -262,19 +262,7 @@ public sealed partial class EngineCore
 
     /// <summary>Why a generator's bound number is drawn at its base: its renderer evaluates its own bindings, and this kind's renderer
     /// reads its numbers once per change, not every frame.</summary>
-    internal const string GeneratorDrawsBase = "drawn at its base: a generator reads its bindings on its own render path, and this kind reads its numbers once per change";
-
-    /// <summary>True when a bound entity draws its bound numbers at their base: a generator whose kind does not evaluate its bindings
-    /// every frame (the particle field on the CPU, the still patterns, the surface effects). Every other entity, and every generator
-    /// whose kind does, draws them live.</summary>
-    internal static bool DrawnAtBase(Project p, ModEntity e)
-    {
-        ArgumentNullException.ThrowIfNull(p);
-        ArgumentNullException.ThrowIfNull(e);
-        if (ModulationPlan.DrawsLive(e.Kind))
-            return false;
-        return p.FindGenerator(e.Id) is not { } g || !PlayMap.Core.Content.GeneratorTraits.Of(g.Kind).DrawsBindings;
-    }
+    internal const string GeneratorDrawsBase = "drawn at its base: a generator reads its bindings on its own render path, and its kind reads this number once per change";
 
     private static double Round(float v) => Math.Round(v, 3);
 

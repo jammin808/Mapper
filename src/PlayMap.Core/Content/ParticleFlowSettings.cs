@@ -44,7 +44,7 @@ public sealed record ParticleFlowSettings(int Count, uint Seed, FlowEmitter Emit
         string.Equals(kindId, KindId, StringComparison.OrdinalIgnoreCase) || string.Equals(kindId, ImageKindId, StringComparison.OrdinalIgnoreCase);
 
     public const int DefaultCount = 262_144;
-    public const int MaxCount = 4_194_304;
+    public const int MaxCount = 1_048_576;
 
     /// <summary>The longest life the catalogue's default allows: the horizon a field converges within.</summary>
     public const double DefaultLifeMaxSeconds = 4;

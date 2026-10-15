@@ -270,16 +270,24 @@ internal sealed class FractalGenerator(RenderServices services, GeneratorKind ki
 
     public override string Words => HeardNothing ? NoSoundWords : "";
 
-    protected override double BaseNumber(string name) => name.ToLowerInvariant() switch
+    /// <summary>The preset-resolved value of a number a binding may move (compared without making a string: Modulate asks every frame).</summary>
+    protected override double BaseNumber(string name)
     {
-        "zoom" => _settings.Zoom,
-        "centerx" => _settings.CenterX,
-        "centery" => _settings.CenterY,
-        "speed" => _settings.Speed,
-        "juliare" => _settings.JuliaRe,
-        "juliaim" => _settings.JuliaIm,
-        _ => base.BaseNumber(name),
-    };
+        static bool Is(string a, string b) => a.Equals(b, StringComparison.OrdinalIgnoreCase);
+        if (Is(name, "zoom"))
+            return _settings.Zoom;
+        if (Is(name, "centerX"))
+            return _settings.CenterX;
+        if (Is(name, "centerY"))
+            return _settings.CenterY;
+        if (Is(name, "speed"))
+            return _settings.Speed;
+        if (Is(name, "juliaRe"))
+            return _settings.JuliaRe;
+        if (Is(name, "juliaIm"))
+            return _settings.JuliaIm;
+        return base.BaseNumber(name);
+    }
 
     protected override void Draw(in GeneratorFrame frame)
     {

@@ -11,8 +11,9 @@ public static class ParticleSchedule
     /// <summary>Steps a second.</summary>
     public const int StepsPerSecond = 120;
 
-    /// <summary>Added to every step index the shader sees: 2²⁰ steps (about 2.4 h) before the origin are still positive.</summary>
-    public const long StepBias = 1L << 20;
+    /// <summary>Added to every step index the shader sees: 2³⁰ steps (about 104 days) before the origin are still positive, past any
+    /// AT a RETIME takes; the biased index wraps 2³² − 2³⁰ steps (about 310 days) after the origin.</summary>
+    public const long StepBias = 1L << 30;
 
     public const uint KeyLife = 0x9E3779B9u;
     public const uint KeyPhase = 0x85EBCA6Bu;

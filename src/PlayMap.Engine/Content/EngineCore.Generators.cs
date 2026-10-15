@@ -52,29 +52,6 @@ public sealed partial class EngineCore
         return name;
     }
 
-    /// <summary>The curated look a kind takes by name, with its spelling; null with the reason when the kind has none by that name.</summary>
-    internal static string? PresetFor(GeneratorKind kind, string name, out string why)
-    {
-        ArgumentNullException.ThrowIfNull(kind);
-        why = "";
-        if (kind.Param("preset") is null)
-        {
-            why = $"{kind.Name} has no presets";
-            return null;
-        }
-        if (kind.Id.Equals("particles.field", StringComparison.OrdinalIgnoreCase))
-        {
-            if (ParticlePresets.Find(name) is { } p)
-                return p.Name;
-            why = $"no particle preset '{name}' — {string.Join(", ", ParticlePresets.Names)}";
-            return null;
-        }
-        if (FractalPresets.Find(name) is { } f)
-            return f.Name;
-        why = $"no fractal preset '{name}' — {string.Join(", ", FractalPresets.Names)}";
-        return null;
-    }
-
     /// <summary>A parameter stepped by a delta: a number by delta × its step ((max − min) / 100), a whole number likewise rounded, a
     /// choice to the next (or previous) one, wrapping. Null with the reason for a type that does not step.</summary>
     internal static string? Stepped(GeneratorKind kind, ParamSpec spec, ParamSet set, double delta, out string why)
@@ -275,6 +252,12 @@ public sealed partial class EngineCore
         var targets = everyone ? [.. Edits.Project.Generators] : FindGenerator(string.Join(' ', args)) is { } one ? new List<Generator> { one } : [];
         if (targets.Count == 0)
             return CommandReply.Fail(everyone ? "no generator in the show" : $"no generator {string.Join(' ', args)}");
+        // The sync marks flash on the leader's own grid: an origin moves nothing of theirs.
+        if (!everyone && GeneratorTraits.OnLeaderClock(targets[0].Kind))
+            return CommandReply.Fail($"{targets[0].Name} keeps the leader's grid: RETIME moves nothing of it");
+        targets.RemoveAll(g => GeneratorTraits.OnLeaderClock(g.Kind));
+        if (targets.Count == 0)
+            return CommandReply.Fail("every generator in the show keeps the leader's grid: RETIME moves nothing");
         var moving = targets.Where(g => g.OriginNs != origin).Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
         if (moving.Count == 0)
             return CommandReply.Fail(targets.Count == 1 ? $"{targets[0].Name} already counts its time from that instant" : "every generator already counts its time from that instant");
@@ -296,7 +279,17 @@ public sealed partial class EngineCore
                 w.WriteStringValue(id);
             w.WriteEndArray();
             w.WriteEndObject();
-        }), $"{label} count{(moving.Count == 1 ? "s" : "")} its time from {when} (Unix ms); a particle field settles anew from there");
+        }), $"{label} count{(moving.Count == 1 ? "s" : "")} its time from {when} (Unix ms); a particle field settles anew from there{RoutedWords(moving)}");
+    }
+
+    /// <summary>What RETIME's words add for a generator a playlist routes: on the air there its item's time drives it, not its origin.</summary>
+    private string RoutedWords(IReadOnlySet<string> ids)
+    {
+        foreach (var list in Edits.Project.Playlists)
+            foreach (var item in list.Items)
+                if (item.Source.Kind == SourceKind.Generator && ids.Contains(item.Source.Id))
+                    return $" — while {list.Name} plays it, its item's time drives it";
+        return "";
     }
 
     // ---- GENERATOR PRESETS, RECALL, SAVE ----
@@ -446,9 +439,11 @@ public sealed partial class EngineCore
         var fired = new StingFired(preset, start, UnixMsAt(start), ms);
         Content.Fire(fired);
         FactsChanged();
-        // Applied: the channel every generator reads holds it; its surge is observed in STATE.content.sting.
-        return CommandReply.Success(JsonOut(w => WriteSting(w, fired, LeaderNowNs)),
-            $"{preset.Name} {ms} ms at {fired.AtUnixMs.ToString(CultureInfo.InvariantCulture)} (Unix ms)");
+        var effect = $"{preset.Name} {ms} ms at {fired.AtUnixMs.ToString(CultureInfo.InvariantCulture)} (Unix ms)";
+        var reply = CommandReply.Success(JsonOut(w => WriteSting(w, fired, LeaderNowNs)), effect);
+        // Applied: the channel every generator reads holds it; a generator drawn with it is observed in STATE.content.sting. A node
+        // with no renderer holds it and draws nothing: accepted, not applied.
+        return Content.Frame is null ? reply with { Applied = false, Effect = effect + " — accepted: no renderer on this node draws it" } : reply;
     }
 
     private CommandReply StingClear()
@@ -478,13 +473,14 @@ public sealed partial class EngineCore
         w.WriteEndArray();
     });
 
-    private static void WriteSting(Utf8JsonWriter w, StingFired s, long nowNs)
+    private void WriteSting(Utf8JsonWriter w, StingFired s, long nowNs)
     {
         w.WriteStartObject();
         w.WriteString("preset", s.Preset.Name);
         w.WriteNumber("atUnixMs", s.AtUnixMs);
         w.WriteNumber("lengthMs", s.LengthMs);
         w.WriteNumber("progress", Math.Round(s.Progress(nowNs), 3));
+        w.WriteBoolean("drawn", Content.Drawn(s));
         w.WriteEndObject();
     }
 
@@ -550,7 +546,7 @@ public sealed partial class EngineCore
         if (live > 0)
             words.Add($"{live} listening to this node's sound (breaks mirror backup)");
         if (stinging)
-            words.Add($"sting {Content.Sting!.Preset.Name} surging");
+            words.Add(Content.Drawn(Content.Sting!) ? $"sting {Content.Sting!.Preset.Name} surging" : $"sting {Content.Sting!.Preset.Name} fired, not drawn yet");
         items.Add(new Core.Bus.ContextItem("content", "content", "Content", light, string.Join(" · ", words)));
     }
 
@@ -565,7 +561,15 @@ public sealed partial class EngineCore
             why = inputs.Count == 0 ? $"{g.Name} reads no picture ({stray})" : $"{g.Name} reads {string.Join(", ", inputs)}, not {stray}";
     }
 
-    /// <summary>True when a generator's binding reads a source this node's bus evaluates live: used by audio's words.</summary>
-    internal static bool DrawsBindingsLive(Project p, string generatorId) =>
-        p.FindGenerator(generatorId) is { } g && GeneratorTraits.Of(g.Kind).DrawsBindings;
+    /// <summary>True when a bound number is drawn at its base (audio's words read it): a generator whose kind does not evaluate its
+    /// bindings every frame (the particle field on the CPU, the still patterns, the surface effects), or a number its kind reads once
+    /// per change (a field's lives, a fractal's render scale). Every other entity's numbers are drawn live.</summary>
+    internal static bool DrawnAtBase(Project p, Core.Modulation.ModEntity e, string param)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        ArgumentNullException.ThrowIfNull(e);
+        if (Core.Modulation.ModulationPlan.DrawsLive(e.Kind))
+            return false;
+        return p.FindGenerator(e.Id) is not { } g || !GeneratorTraits.Of(g.Kind).DrawsBindings || GeneratorTraits.ConfigureOnly(g.Kind, param);
+    }
 }

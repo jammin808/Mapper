@@ -119,8 +119,10 @@ internal sealed class GeneratorHost : IDisposable
         {
             inst.LastRendered = _frame;
             var renderer = inst.Renderer;
-            var seconds = OwnSeconds(generator, in frame, content, out var origin);
-            var own = frame.OnOwnClock(seconds, origin);
+            var ownNs = OwnNs(generator, in frame, content, out var origin);
+            var own = frame.OnOwnClock(ownNs, origin);
+            if (!frame.Impulse.IsNone)
+                content?.Stats.ImpulseDrawn(frame.Impulse, _frame);
             try
             {
                 renderer.Inputs = generator.Inputs;
@@ -128,6 +130,8 @@ internal sealed class GeneratorHost : IDisposable
                 if (!ReferenceEquals(renderer.BoundNames, _lastNames.GetValueOrDefault(inst)))
                     NameLive(inst, live);
                 renderer.Modulate(frame.Modulation, frame.LeaderNs, live?.LiveValues);
+                // What it reads of other sources draws on their account, before its own draw is timed.
+                renderer.Prepare(in own);
                 inst.Timer ??= _services.Device.HasTimerQuery ? new FxTimer(_services.Device) : null;
                 inst.Timer?.Begin();
                 renderer.Render(in own);
@@ -148,7 +152,7 @@ internal sealed class GeneratorHost : IDisposable
                     live.Gpu(ns);
                 }
                 var progress = renderer.Progress;
-                live.Drawn(progress, renderer.Count, (long)Math.Round(seconds * 1e9));
+                live.Drawn(progress, renderer.Count, ownNs);
                 live.Set(progress < 1 ? GeneratorState.Warming : GeneratorState.Ok, renderer.Words, _frame);
             }
         }
@@ -165,23 +169,24 @@ internal sealed class GeneratorHost : IDisposable
         live?.LiveNames([.. names]);
     }
 
-    /// <summary>A generator's own time in seconds this frame and the leader ns it counts from: its item's clip time when a playlist
-    /// routes it, else the time since its origin; the sync marks keep the leader's clock.</summary>
-    public static double OwnSeconds(Generator generator, in GeneratorFrame frame, ContentFrame? content, out long originNs)
+    /// <summary>A generator's own time this frame in whole nanoseconds (integers, exact days into a show) and the leader ns it counts
+    /// from: its item's clip time when a playlist routes it, else the time since its origin; the sync marks keep the leader's clock.</summary>
+    public static long OwnNs(Generator generator, in GeneratorFrame frame, ContentFrame? content, out long originNs)
     {
         ArgumentNullException.ThrowIfNull(generator);
+        var leaderNs = frame.LeaderNs;
         if (GeneratorTraits.OnLeaderClock(generator.Kind))
         {
             originNs = 0;
-            return frame.Seconds;
+            return leaderNs;
         }
         if (content is not null && content.TryItemTime(generator.Id, out var itemNs))
         {
-            originNs = frame.LeaderNs - itemNs;
-            return itemNs / 1e9;
+            originNs = leaderNs - itemNs;
+            return itemNs;
         }
         originNs = generator.OriginNs;
-        return frame.Seconds - generator.OriginNs / 1e9;
+        return leaderNs - generator.OriginNs;
     }
 
     /// <summary>Drops the renderers no frame has used for a while (a generator none of whose renderers is left is forgotten by the

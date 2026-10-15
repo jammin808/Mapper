@@ -9,7 +9,8 @@
       "preset": "Explosion",
       "atUnixMs": 1760000004100,
       "lengthMs": 900,
-      "progress": 0.5
+      "progress": 0.5,
+      "drawn": true
     },
     "generators": [
       {

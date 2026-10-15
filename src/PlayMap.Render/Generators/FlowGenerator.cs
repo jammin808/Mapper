@@ -31,6 +31,11 @@ internal sealed class FlowGenerator : GeneratorRenderer
     private bool _drawn;
     private string _words = "";
     private string _pictureWords = "";
+    private string _lagWords = "";
+    private int _held;
+#pragma warning disable CA2213 // Another source's picture, borrowed for one frame: its owner disposes it.
+    private GpuTexture? _picture;
+#pragma warning restore CA2213
     private SourceRef? _missing;
     private string _missingWords = "";
 
@@ -50,7 +55,7 @@ internal sealed class FlowGenerator : GeneratorRenderer
 
     public override int Count => _settings.Count;
 
-    public override string Words => _pictureWords.Length > 0 ? _pictureWords : _words;
+    public override string Words => _pictureWords.Length > 0 ? _pictureWords : _lagWords.Length > 0 ? _lagWords : _words;
 
     /// <summary>How far the field has settled since it was anchored (1 once it shows the time it is asked for).</summary>
     public override double Progress
@@ -111,22 +116,53 @@ internal sealed class FlowGenerator : GeneratorRenderer
     /// <summary>Steps a frame may run while it settles (never fewer than two: a frame at 60 Hz needs two).</summary>
     public int StepsPerFrame => (int)Math.Clamp(CatchUpBudget / Math.Max(1, _settings.Count), 2, 64);
 
+    /// <summary>Frames a field may hold its last picture while it catches up before it draws what it has (a GPU slower than the show).</summary>
+    public const int MaxHeldFrames = 30;
+
+    /// <summary>The step a generator time falls in: floor(ns × 120 / 10⁹) in integers (exact days into a show), never so far before
+    /// the origin that the biased step wraps.</summary>
+    public static long StepAt(long ownNs)
+    {
+        var scaled = ownNs * ParticleSchedule.StepsPerSecond;
+        var step = scaled / 1_000_000_000 - (scaled % 1_000_000_000 < 0 ? 1 : 0);
+        return Math.Max(step, -ParticleSchedule.StepBias / 2);
+    }
+
+    /// <summary>The generator time a step starts at, ns (the inverse of <see cref="StepAt"/> on the grid).</summary>
+    public static long StepNs(long step) => step * 1_000_000_000 / ParticleSchedule.StepsPerSecond;
+
+    public override void Prepare(in GeneratorFrame frame) => _picture = PictureOf(in frame);
+
     protected override void Draw(in GeneratorFrame frame)
     {
-        var picture = PictureOf(in frame);
-        _targetStep = (long)Math.Floor(frame.Seconds * ParticleSchedule.StepsPerSecond + 1e-9);
+        var picture = _picture;
+        _picture = null;
+        _targetStep = StepAt(frame.OwnNs);
         var life = _settings.LifeMaxSteps;
         if (_simStep == long.MinValue || _targetStep < _simStep || _targetStep - _simStep > life)
             Anchor(_targetStep - life);
         var budget = _simStep < _targetStep - 2 ? StepsPerFrame : int.MaxValue;
+        var moved = false;
         for (var n = 0; n < budget && _simStep < _targetStep; n++)
         {
             _simStep++;
-            var stepSurge = EffectEnvelope.At(frame.Impulse, _simStep / (double)ParticleSchedule.StepsPerSecond);
+            var stepNs = StepNs(_simStep);
+            // A bound number is read at the step's own leader instant, so a pure source (an LFO, the beat) keeps the field a pure
+            // function of time whatever the frame rate; the frame's own values are read again before it draws.
+            if (HasBindings)
+            {
+                Modulate(frame.Modulation, frame.LeaderNs - (frame.OwnNs - stepNs), null);
+                moved = true;
+            }
+            var stepSurge = EffectEnvelope.At(frame.Impulse, stepNs / 1e9);
             Step(_simStep, in stepSurge, picture);
         }
-        if (_simStep < _targetStep && _drawn)
+        if (moved)
+            Modulate(frame.Modulation, frame.LeaderNs, null);
+        if (_simStep < _targetStep && _drawn && ++_held <= MaxHeldFrames)
             return;
+        _lagWords = _simStep < _targetStep ? "this GPU steps the field slower than the show: it draws behind its time" : "";
+        _held = 0;
         var surge = EffectEnvelope.At(frame.Impulse, frame.Seconds);
         DrawSprites(in surge);
         var flash = frame.FlashGuard ? _guard.Limit(surge.Flash, frame.Seconds) : surge.Flash;

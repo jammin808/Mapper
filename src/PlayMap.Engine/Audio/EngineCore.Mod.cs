@@ -103,7 +103,7 @@ public sealed partial class EngineCore
         var note = source.IsAudio
             ? AudioRt.Feed.Listening ? " — live: this node's sound" : " — no audio on this node yet: it holds its base until AUDIO LISTEN"
             : " — pure: the same on every node";
-        if (DrawnAtBase(r.Changed ? Edits.Project : p, entity))
+        if (DrawnAtBase(r.Changed ? Edits.Project : p, entity, param))
             note += "; " + GeneratorDrawsBase;
         return CommandReply.Success(BindingJson(entity, binding),
             $"{(existing is null ? "bound" : "rebound")} {entity.KindWord} {entity.Name} {param} to {binding.Source}{note}");
@@ -309,7 +309,7 @@ public sealed partial class EngineCore
                 w.WriteString("determinism", item.Source?.Determinism.ToString().ToLowerInvariant() ?? "");
                 w.WriteString("words", item.Problem.Length > 0 ? item.Problem
                     : double.IsNaN(source) ? "its source is missing: the number holds its base" : held ? "held at its base (MOD BYPASS)"
-                    : DrawnAtBase(plan.Project, item.Entity) ? GeneratorDrawsBase : "");
+                    : DrawnAtBase(plan.Project, item.Entity, item.Param) ? GeneratorDrawsBase : "");
                 w.WriteEndObject();
             }
             w.WriteEndArray();

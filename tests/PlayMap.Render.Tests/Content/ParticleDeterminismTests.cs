@@ -53,6 +53,50 @@ public class ParticleDeterminismTests(GlFixture gl)
     private static int[] Bits(float[] values) => [.. values.Select(BitConverter.SingleToInt32Bits)];
 
     [Fact]
+    public void ABoundRateFromAPureSourceDrawsTheSameFieldAtFiftyAndSixtyFramesASecond()
+    {
+        var binding = new ParamBinding("rate", "lfo:wave", 1, 0, BindingCurve.Linear, 0) { Mode = BindingMode.Replace };
+        var curl = new ParamBinding("curl", "lfo:wave", 1, 0, BindingCurve.Linear, 0) { Mode = BindingMode.Replace };
+        var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 8192).With("lifeMin", 0.5).With("lifeMax", 1.5), "gn_lfo")
+            with { Bindings = [binding, curl] };
+        var (fifty, sixty) = gl.Run(c =>
+        {
+            using var services = new RenderServices(c.Device);
+            using var a = new GeneratorHost(services);
+            using var b = new GeneratorHost(services);
+            var bus = new WaveBus();
+            for (var f = 0; f <= 250; f++)
+                ContentGl.Draw(a, g, f / 50.0, f + 1, 64, 36, bus);
+            for (var f = 0; f <= 300; f++)
+                ContentGl.Draw(b, g, f / 60.0, f + 1, 64, 36, bus);
+            var ra = (FlowGenerator)a.RendererOf(g.Id, 64, 36)!;
+            var rb = (FlowGenerator)b.RendererOf(g.Id, 64, 36)!;
+            Assert.Equal(600, ra.SimStep);
+            Assert.Equal(600, rb.SimStep);
+            return ((ContentGl.ReadState(c.Device, ra.State!, 0), ContentGl.ReadState(c.Device, ra.State!, 1)),
+                (ContentGl.ReadState(c.Device, rb.State!, 0), ContentGl.ReadState(c.Device, rb.State!, 1)));
+        });
+        Assert.True(Bits(fifty.Item1).SequenceEqual(Bits(sixty.Item1)), "positions differ between 50 and 60 frames a second");
+        Assert.True(Bits(fifty.Item2).SequenceEqual(Bits(sixty.Item2)), "velocities differ between 50 and 60 frames a second");
+    }
+
+    /// <summary>A pure source: a 0.7 Hz wave of the leader instant, between 0.2 and 1.</summary>
+    private sealed class WaveBus : Core.Modulation.IModulationBus
+    {
+        public bool TryRead(string source, long leaderNs, out double value01) => TryRead(Resolve(source), leaderNs, out value01);
+
+        public bool IsLive(string source) => false;
+
+        public int Resolve(string source) => source == "lfo:wave" ? 0 : -1;
+
+        public bool TryRead(int slot, long leaderNs, out double value01)
+        {
+            value01 = slot == 0 ? 0.6 + 0.4 * Math.Sin(leaderNs / 1e9 * 0.7 * Math.Tau) : 0.5;
+            return slot == 0;
+        }
+    }
+
+    [Fact]
     public void EverySlotsBirthLifeAndAgeOnTheGpuAreTheCSharpSchedules()
     {
         const int count = 4096;

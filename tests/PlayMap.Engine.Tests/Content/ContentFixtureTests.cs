@@ -52,6 +52,8 @@ public sealed class ContentFixtureTests
         rig.Clock.AdvanceMs(4_000);
         rig.Engine.Content.Attach(Observed());
         await rig.Ok("STING Explosion 900 AT +100");
+        // The renderer drew a generator with it.
+        rig.Engine.Content.Frame!.Stats.ImpulseDrawn(rig.Engine.Content.Stings.Current, 100);
         rig.Clock.AdvanceMs(550);
         rig.Engine.FactsChanged();
         return rig;
@@ -127,6 +129,7 @@ public sealed class ContentFixtureTests
             Assert.Equal(6.0, content.GetProperty("budgetMs").GetDouble());
             Assert.Equal("drawing", content.GetProperty("renderer").GetString());
             Assert.Equal(0.5, content.GetProperty("sting").GetProperty("progress").GetDouble(), 3);
+            Assert.True(content.GetProperty("sting").GetProperty("drawn").GetBoolean());
             var g = content.GetProperty("generators").EnumerateArray().ToDictionary(x => x.GetProperty("id").GetString()!);
             Assert.Equal(("warming", 0.4, "bounded", 65536), (g["gn_sparks"].GetProperty("state").GetString(), g["gn_sparks"].GetProperty("progress").GetDouble(),
                 g["gn_sparks"].GetProperty("time").GetString(), g["gn_sparks"].GetProperty("count").GetInt32()));
@@ -285,6 +288,12 @@ public sealed class ContentFixtureTests
         Assert.Equal("red", rows[2].GetProperty("light").GetString());
         Assert.Equal("red", ContextLight());
         await rig.Ok("STING Flash");
+        Assert.Equal("ready", Rows(stings).EnumerateArray().Single(r => r.GetProperty("id").GetString() == "Flash").GetProperty("state").GetString());
+        using (var fired = JsonDocument.Parse(rig.Engine.Context()))
+            Assert.Contains("sting Flash fired, not drawn yet", fired.RootElement.GetProperty("items").EnumerateArray()
+                .Single(i => i.GetProperty("id").GetString() == "content").GetProperty("state").GetString(), StringComparison.Ordinal);
+        // A frame drew a generator with it: now it surges.
+        rig.Engine.Content.Frame!.Stats.ImpulseDrawn(rig.Engine.Content.Stings.Current, 100);
         Assert.Equal("surging", Rows(stings).EnumerateArray().Single(r => r.GetProperty("id").GetString() == "Flash").GetProperty("state").GetString());
         using var ctx = JsonDocument.Parse(rig.Engine.Context());
         var state = ctx.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "content").GetProperty("state").GetString()!;

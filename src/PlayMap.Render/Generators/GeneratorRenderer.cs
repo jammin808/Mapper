@@ -16,6 +16,16 @@ public readonly record struct GeneratorFrame(double Seconds, long ShowFrame, dou
     /// <summary>The leader ns the generator's time counts from (its origin, or its item's start); 0 on the leader clock.</summary>
     public long OriginNs { get; init; }
 
+    private readonly long? _ownNs;
+
+    /// <summary><see cref="Seconds"/> in whole nanoseconds: the generator's own time, exact days into a show (a field's steps count
+    /// on it in integers).</summary>
+    public long OwnNs
+    {
+        get => _ownNs ?? (long)Math.Round(Seconds * 1e9);
+        init => _ownNs = value;
+    }
+
     /// <summary>The frame's leader instant in nanoseconds (the same instant as <see cref="Seconds"/>, unrounded).</summary>
     public long LeaderNs { get; init; }
 
@@ -31,13 +41,15 @@ public readonly record struct GeneratorFrame(double Seconds, long ShowFrame, dou
             LeaderNs = (long)Math.Round(seconds * 1e9),
         };
 
-    /// <summary>The frame on a generator's own clock: <paramref name="seconds"/> of its time, the sting moved onto that clock (it
-    /// surges at the same leader instant), the origin named.</summary>
-    public GeneratorFrame OnOwnClock(double seconds, long originNs)
+    /// <summary>The frame on a generator's own clock: <paramref name="ownNs"/> of its time, its frame index counted on that clock,
+    /// the sting moved onto that clock (it surges at the same leader instant), the origin named.</summary>
+    public GeneratorFrame OnOwnClock(long ownNs, long originNs)
     {
+        var seconds = ownNs / 1e9;
         var shift = Seconds - seconds;
         var impulse = Impulse.IsNone ? Impulse : Impulse with { StartSeconds = Impulse.StartSeconds - shift };
-        return this with { Seconds = seconds, Impulse = impulse, OriginNs = originNs };
+        var showFrame = (long)Math.Floor(Math.Max(0, seconds) * FrameRate + 1e-6);
+        return this with { Seconds = seconds, OwnNs = ownNs, ShowFrame = showFrame, Impulse = impulse, OriginNs = originNs };
     }
 }
 
@@ -180,7 +192,8 @@ internal abstract class GeneratorRenderer : IDisposable
         var list = new List<Binding>();
         if (DrawsBindings && !bindings.IsDefaultOrEmpty)
             foreach (var b in bindings)
-                if (b.Enabled && b.Mode != BindingMode.Rate && ParamValues.Spec(Kind, b.Param) is { Type: ParamType.Number } spec)
+                if (b.Enabled && b.Mode != BindingMode.Rate && ParamValues.Spec(Kind, b.Param) is { Type: ParamType.Number } spec
+                    && !GeneratorTraits.ConfigureOnly(Kind.Id, spec.Name))
                     list.Add(new Binding(b, spec, ModTargets.SourceKey(b)));
         _bindings = [.. list];
         _boundNames = [.. list.Select(x => x.Spec.Name)];
@@ -291,6 +304,14 @@ internal abstract class GeneratorRenderer : IDisposable
     protected virtual void OnConfigure()
     {
     }
+
+    /// <summary>What the renderer reads before its draw is timed (another source's picture, which draws on its own account).</summary>
+    public virtual void Prepare(in GeneratorFrame frame)
+    {
+    }
+
+    /// <summary>True when bindings move some of its numbers.</summary>
+    protected bool HasBindings => _bindings.Length > 0;
 
     /// <summary>Draws when the picture needs it.</summary>
     public void Render(in GeneratorFrame frame)
