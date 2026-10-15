@@ -94,18 +94,20 @@ public sealed class AudioListener : IAudioCaptureSink
         return _toLeader(inputTimeNs + _offsetNs) - InputLatencyNs;
     }
 
-    /// <summary>Copies the <paramref name="samples"/> mono samples that end at <paramref name="leaderNs"/>; false when they are not
-    /// held (not yet heard, or older than 2 s).</summary>
-    public bool TryWave(long leaderNs, Span<float> into)
+    /// <summary>Copies the mono samples (as many as <paramref name="into"/> holds) that end at <paramref name="leaderNs"/>, or the
+    /// newest ones when the instant is after the newest sample heard (a frame is drawn for an instant ahead of the sound that reaches
+    /// it); false when they are not held (not yet heard, older than the ring keeps) or the newest sample is more than
+    /// <paramref name="maxAgeNs"/> before the instant (the sound stopped).</summary>
+    public bool TryWave(long leaderNs, Span<float> into, long maxAgeNs = 1_000_000_000)
     {
         var end = Volatile.Read(ref _waveEnd);
-        if (end == 0 || into.Length > _wave.Length / 2)
+        if (end == 0 || into.Length == 0 || into.Length > _wave.Length / 2)
             return false;
         var endLeader = LeaderAtSample(end);
-        if (endLeader == long.MinValue)
+        if (endLeader == long.MinValue || leaderNs - endLeader > maxAgeNs)
             return false;
-        var last = end - (long)Math.Round((endLeader - leaderNs) * AudioAnalyser.SampleRate / 1e9);
-        if (last > end || last - into.Length < end - _wave.Length / 2)
+        var last = Math.Min(end, end - (long)Math.Round((endLeader - leaderNs) * (double)AudioAnalyser.SampleRate / 1e9));
+        if (last - into.Length < end - _wave.Length / 2)
             return false;
         for (var i = 0; i < into.Length; i++)
             into[i] = _wave[(int)((last - into.Length + i) % _wave.Length)];

@@ -81,7 +81,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
             value01 = 0.5;
             return false;
         }
-        value01 = c.Source.IsSmoothed ? Smoothed(c, leaderNs) : Raw(c.Source, leaderNs);
+        value01 = c.Source.IsSmoothed ? Smoothed(c, leaderNs) : Raw(c, leaderNs);
         return true;
     }
 
@@ -114,7 +114,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
     {
         if (_feed?.Listener is not { } listener || samples <= 0 || interleaved.Length < samples)
             return false;
-        return listener.TryWave(leaderNs, interleaved[..samples]);
+        return listener.TryWave(leaderNs, interleaved[..samples], StaleNs);
     }
 
     public bool TrySpectrum(long leaderNs, int bins, Span<float> magnitudes01)
@@ -135,8 +135,9 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
     // ---- values ----
 
     /// <summary>A source's unsmoothed value at an instant.</summary>
-    private double Raw(ModSource s, long t)
+    private double Raw(Channel c, long t)
     {
+        var s = c.Source;
         if (s.IsAudio)
             return ReadFrame(t) ? AudioValue(s, t) : 0;
         var tempo = _tempo();
@@ -148,7 +149,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
             ModSourceKind.BeatPulse => Pulse(tempo, t, 1, s.PulseMs),
             ModSourceKind.BarPulse => Pulse(tempo, t, tempo.BeatsPerBar, s.PulseMs),
             ModSourceKind.Bpm => Math.Clamp(tempo.BpmAt(t) / 240, 0, 1),
-            _ => Lfo(s, tempo, t),
+            _ => Lfo(s, c.Seed, tempo, t),
         };
     }
 
@@ -205,7 +206,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
         return dt < 0 ? 1 : Math.Exp(-dt / (decayMs * 1e6));
     }
 
-    private static double Lfo(ModSource s, TempoTimeline tempo, long t)
+    private static double Lfo(ModSource s, ulong seed, TempoTimeline tempo, long t)
     {
         var time = s.PeriodInBeats ? tempo.BeatAt(t) : t / 1e9;
         var cycles = time / s.Period + s.Phase;
@@ -217,7 +218,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
             LfoShape.Ramp => 1 - x,
             LfoShape.Square => x < 0.5 ? 1 : 0,
             LfoShape.Pulse => x < 0.1 ? 1 : 0,
-            LfoShape.Random => new Pcg32(ModSource.StableHash(s.BaseName) ^ (ulong)(long)Math.Floor(cycles)).NextDouble(),
+            LfoShape.Random => new Pcg32(seed ^ (ulong)(long)Math.Floor(cycles)).NextDouble(),
             _ => 0.5 - 0.5 * Math.Cos(2 * Math.PI * x),
         };
     }
@@ -239,7 +240,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
     private void WarmStart(Channel c, long k)
     {
         var start = k - Math.Max(Age(k, 0, c.Span), Age(k, c.Span / 2, c.Span));
-        var x = Raw(c.Source, start * TickNs);
+        var x = Raw(c, start * TickNs);
         c.A = x;
         c.B = x;
         c.LastTick = start - 1;
@@ -249,7 +250,7 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
 
     private void Step(Channel c, long k)
     {
-        var x = Raw(c.Source, k * TickNs);
+        var x = Raw(c, k * TickNs);
         c.A = Age(k, 0, c.Span) == 0 ? x : Follow(c, c.A, x);
         c.B = Age(k, c.Span / 2, c.Span) == 0 ? x : Follow(c, c.B, x);
         c.LastTick = k;
@@ -281,9 +282,14 @@ public sealed class ModulationBus : IModulationBus, IAudioFrames
             Span = Math.Clamp((long)Math.Ceiling(16 * tau), MinSpanTicks, cap) & ~1L;
             AttackCoef = source.AttackMs <= 0 ? 1 : 1 - Math.Exp(-TickNs / (source.AttackMs * 1e6));
             ReleaseCoef = source.ReleaseMs <= 0 ? 1 : 1 - Math.Exp(-TickNs / (source.ReleaseMs * 1e6));
+            Seed = source.Kind == ModSourceKind.Lfo ? ModSource.StableHash(source.BaseName) : 0;
         }
 
         public ModSource Source { get; }
+
+        /// <summary>A random LFO's seed: the hash of its name without smoothing, so every node draws the same values (taken once,
+        /// so a read allocates nothing).</summary>
+        public ulong Seed { get; }
 
         public long Span { get; }
 

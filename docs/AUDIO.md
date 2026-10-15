@@ -88,6 +88,11 @@ this node's, and `MANUAL` brings the show's tempo back one lead ahead.
 | `bpm` | 0–1 over 0–240 BPM (raw: the BPM) | pure |
 | `lfo:<shape>/<period>[b][/<phase>]` | sine, triangle, saw, ramp, square, pulse, random; the period in seconds or beats | pure |
 
+For ISF audio textures and FFGL buffers, `IAudioFrames` answers the spectrum (the frame's 64 bins, resampled to the bins asked)
+and the mono waveform (the listener keeps the last 2 s) at a frame's instant: the samples that end there, or the newest ones when
+the frame is drawn for an instant ahead of the sound that reaches it; nothing while the node listens to nothing or once the sound is
+more than 1 s old.
+
 Any source may end in `~<attack ms>[/<release ms>]`, or a binding may give `SMOOTH`: a one-pole follower on a fixed 5 ms grid of
 leader time, never per render frame, so 50, 60 or 144 frames a second read the same value at the same instant. It runs as two
 filters restarted in turn at absolute multiples of a span (at least 2 s and 16 time constants), the output taken from the one that
