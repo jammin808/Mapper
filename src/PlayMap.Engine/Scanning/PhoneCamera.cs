@@ -137,7 +137,9 @@ public sealed class PhoneCamera : ICuedScanCamera
         return Session.SetSitesAsync(new PhoneSites(projectorId, located.Chosen, located.Lit, located.MinSites), ct);
     }
 
-    public async Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct)
+    public int Moves => _session?.Moves ?? 0;
+
+    public async Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct, CancellationToken scan)
     {
         ArgumentNullException.ThrowIfNull(cue);
         TakeForScan();
@@ -148,7 +150,8 @@ public sealed class PhoneCamera : ICuedScanCamera
             return new CuedPicture("stuck", null, 0, 0, seen.Sites, seen.RollingRejects, seen.Why.Length > 0 ? seen.Why : "no picture");
         // Without a clock exchange yet the page's instant cannot be placed on the node's clock: no timing check for it (0).
         var capture = double.IsFinite(seen.CapturePageMs) && session.HasClock ? session.ToNodeNs(seen.CapturePageMs) : 0;
-        return new CuedPicture("seen", PixelsAsync(session, seen.Seq, ct), seen.Tag, capture, seen.Sites, seen.RollingRejects, "");
+        // The picture outlives the cue's wait: the scan's own token ends the wait for it.
+        return new CuedPicture("seen", PixelsAsync(session, seen.Seq, scan), seen.Tag, capture, seen.Sites, seen.RollingRejects, "");
     }
 
     private static async Task<CameraFrame> PixelsAsync(IPhoneSession session, long seq, CancellationToken ct)

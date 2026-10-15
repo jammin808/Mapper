@@ -20,6 +20,7 @@ public sealed class CatalogueTests
         "RECORD", "SELECT", "COMPANION PRESS", "COMPANION VAR", "COMPANION BRIGHTNESS", // wp2-companion: the action feed, selection and the node → Companion link are next round
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
         "ALIGN PLAN", "ALIGN SCORE", "DEVICE NATIVE", // wp2-align: the dry run, the score's own verb and the projectors' own processing are wp2-resolve's
+        "SCAN SUGGEST", "SCAN SOLVE", "SCAN VIEWS", "SCAN DROP", // wp2-phonescan: many views into one scan are wp2-multiscan's
     ];
 
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>

@@ -5,7 +5,8 @@ using PlayMap.Core.Scan;
 namespace PlayMap.Core.Tests.Phone;
 
 /// <summary>The locate run: candidates spread over the raster without touching, every chosen site's cells placed where the
-/// simulator's truth puts them, the tag footprint marked for the decode to leave out, and a camera that sees no sites says so.</summary>
+/// simulator's truth puts them, the tag footprint marked for the decode to leave out, a camera that sees no sites says so, and every
+/// frame changes from the one before by the page's grid rule however small the projection stands in the picture.</summary>
 public sealed class CellLocateTests
 {
     [Theory]
@@ -67,6 +68,37 @@ public sealed class CellLocateTests
         foreach (var p in located.Chosen.SelectMany(s => s.Cells))
             Assert.True(located.Shadow[(int)p.Y * kit.Width + (int)p.X]);
         Assert.False(located.Lit.IsEmpty);
+    }
+
+    /// <summary>The change level a cued capture asks the camera for (CuedCapture's ChangeLevel).</summary>
+    private const double Level = 8;
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(96)]
+    public void EveryLocateFrameChangesFromTheOneBeforeHoweverSmallTheProjectionStands(byte background)
+    {
+        var kit = TagKit.Floor();
+        var (w, h) = (kit.Width * 2, kit.Height * 2);
+        // The camera's picture in the corner of one twice as wide and as high: the projection stands in some 5 % of it.
+        byte[] Far(byte[] picture)
+        {
+            var big = new byte[w * h];
+            for (var y = 0; y < kit.Height; y++)
+                Array.Copy(picture, y * kit.Width, big, y * w, kit.Width);
+            return PictureGrid.Of(big, w, h, default);
+        }
+        var before = Far(kit.Camera(kit.LocateRaster(0, background), 900));
+        for (var k = 1; k < CellLocate.Frames; k++)
+        {
+            var now = Far(kit.Camera(kit.LocateRaster(k, background), (ulong)(900 + k)));
+            Assert.True(PictureGrid.Changed(before, now, Level), $"frame {k + 1}: {PictureGrid.Moved(before, now, Level)} samples moved");
+            before = now;
+        }
+        // The same frame seen again (fresh noise) has not changed, and two such pictures agree.
+        var again = Far(kit.Camera(kit.LocateRaster(CellLocate.Frames - 1, background), 990));
+        Assert.False(PictureGrid.Changed(before, again, Level), $"{PictureGrid.Moved(before, again, Level)} samples moved");
+        Assert.True(PictureGrid.Diff(before, again) < 3);
     }
 
     [Fact]

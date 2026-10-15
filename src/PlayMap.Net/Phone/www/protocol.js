@@ -70,3 +70,20 @@ export async function pmf1(header, pixels, compress = true) {
   out.set(payload, 8 + head.length);
   return out;
 }
+
+/**
+ * What a closed socket means for the page: whether to try again (and after how long), and whether its stored key is worthless now.
+ * A refusal that cannot change by trying again (a key or invite the node does not know, a phone forgotten, replaced by another tab,
+ * phones switched off) stops the page; a forgotten phone or an unknown key also drops the key. Anything else (the link dropped, the
+ * node restarting, too many phones for now, a quiet spell) tries again, waiting longer each time up to half a minute, a minute after
+ * too many wrong tries from this address.
+ * @param {number} code @param {string} reason @param {boolean} hasKey @param {number} attempt how many tries in a row have failed
+ * @returns {{again: boolean, forgetKey: boolean, delayMs: number}}
+ */
+export function afterClose(code, reason, hasKey, attempt) {
+  const forget = /key is not known|was forgotten/.test(reason);
+  const final = forget || /^ERR |was replaced|switched off/.test(reason);
+  if (final || !hasKey) return { again: false, forgetKey: forget, delayMs: 0 };
+  const delayMs = /too many wrong/.test(reason) ? 60000 : Math.min(30000, 1000 * 2 ** Math.min(5, attempt));
+  return { again: true, forgetKey: false, delayMs };
+}

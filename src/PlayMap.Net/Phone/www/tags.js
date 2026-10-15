@@ -110,9 +110,14 @@ export function readFrame(gray, width, height, sites, minSites) {
   return { outcome: 'read', value, validSites: valid, margin };
 }
 
+/** Samples of a picture's grid that must move for it to have changed (1 % of 48 × 27). */
+export const MIN_CHANGED_SAMPLES = 13;
+
 /**
- * Settles a stream of pictures: two consecutive frames agree when the mean absolute difference over a sparse grid (48 × 27
- * samples inside the lit rectangle) is under the tolerance.
+ * Settles a stream of pictures over a sparse grid (PlayMap.Core.Phone.PictureGrid, the same integers): 48 × 27 samples inside the
+ * lit rectangle (the whole picture before the tag places are known), each the 3 × 3 mean round its point. Two consecutive frames
+ * agree when the mean absolute difference is under the tolerance; a picture has changed from another when at least 13 samples moved
+ * by the change level or more.
  */
 export class Settle {
   /** @param {number[]} lit [x, y, w, h] @param {number} tolerance */
@@ -125,13 +130,26 @@ export class Settle {
 
   /** The grid of a picture. @param {Uint8Array | Uint8ClampedArray} gray @param {number} width @param {number} height */
   grid(gray, width, height) {
-    const [x0, y0, w, h] = this.lit[2] > 0 ? this.lit : [0, 0, width, height];
+    return Settle.gridOf(gray, width, height, this.lit);
+  }
+
+  /**
+   * The grid of a picture over a lit rectangle ([0, 0, 0, 0]: the whole picture).
+   * @param {Uint8Array | Uint8ClampedArray} gray @param {number} width @param {number} height @param {number[]} lit
+   */
+  static gridOf(gray, width, height, lit) {
+    const [x0, y0, w, h] = lit[2] > 0 && lit[3] > 0 ? lit : [0, 0, width, height];
     const g = new Uint8Array(48 * 27);
     for (let j = 0; j < 27; j++) {
       const y = Math.min(height - 1, Math.floor(y0 + ((j + 0.5) * h) / 27));
       for (let i = 0; i < 48; i++) {
         const x = Math.min(width - 1, Math.floor(x0 + ((i + 0.5) * w) / 48));
-        g[j * 48 + i] = gray[y * width + x];
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = Math.min(height - 1, Math.max(0, y + dy)) * width;
+          for (let dx = -1; dx <= 1; dx++) sum += gray[yy + Math.min(width - 1, Math.max(0, x + dx))];
+        }
+        g[j * 48 + i] = Math.floor((sum + 4) / 9);
       }
     }
     return g;
@@ -142,6 +160,18 @@ export class Settle {
     let s = 0;
     for (let k = 0; k < a.length; k++) s += Math.abs(a[k] - b[k]);
     return s / a.length;
+  }
+
+  /** Samples that moved by `level` or more. @param {Uint8Array} a @param {Uint8Array} b @param {number} level */
+  static moved(a, b, level) {
+    let n = 0;
+    for (let k = 0; k < a.length; k++) if (Math.abs(a[k] - b[k]) >= level) n++;
+    return n;
+  }
+
+  /** Whether `b` has changed from `a`. @param {Uint8Array} a @param {Uint8Array} b @param {number} level */
+  static changed(a, b, level) {
+    return Settle.moved(a, b, level) >= MIN_CHANGED_SAMPLES;
   }
 
   /**

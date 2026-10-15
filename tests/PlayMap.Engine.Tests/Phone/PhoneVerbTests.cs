@@ -67,6 +67,45 @@ public sealed class PhoneVerbTests
         Assert.DoesNotContain(rig.Engine.Journal.Recent(20), r => r.Text.Contains("invite issued", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("wire")]
+    [InlineData("desk")]
+    [InlineData("companion")]
+    public async Task AnInviteIsNeverSentOnTheLineWireToAnotherMachine(string transport)
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        var refused = await rig.Run("PHONE INVITE", new SessionInfo("w1", transport, "192.168.1.20", false, "Somebody", true));
+        Assert.False(refused.Ok);
+        Assert.Equal("PHONE INVITE answers on this machine or through the node's web page: the line wire is not encrypted, and the invite's link is a secret",
+            refused.Payload);
+        Assert.DoesNotContain("#t=", refused.Payload, StringComparison.Ordinal);
+        // The web port (its https page) from another machine, and the line wire on this machine, may ask.
+        Assert.True((await rig.Run("PHONE INVITE", new SessionInfo("h1", "http", "192.168.1.20", false, "Browser", true))).Ok);
+        Assert.True((await rig.Run("PHONE INVITE", new SessionInfo("w2", "wire", "127.0.0.1", true, "Somebody", true))).Ok);
+    }
+
+    [Fact]
+    public async Task APhoneJoiningWhileTheShowIsArmedIsRefusedWithTheLocksWordsAndItsInviteHoldsForLater()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        var ticket = TicketOf(await rig.Ok("PHONE INVITE Pixel 8"));
+        await rig.Ok("SHOW ARM");
+        await using (var refused = new FakePhone(rig.Display, rig.Camera, locks: true))
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => refused.JoinAsync(rig.Host.Port, ticket));
+            Assert.Contains("the node could not add this phone's camera", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("armed", ex.Message, StringComparison.Ordinal);
+        }
+        // Attempts are not facts: no camera rig, no phone.
+        Assert.Empty(rig.Engine.Store.Project.Stage.Cameras);
+        Assert.Empty(rig.State().GetProperty("phones").EnumerateArray());
+        await rig.Ok("SHOW DISARM");
+        await using var joined = new FakePhone(rig.Display, rig.Camera, locks: true);
+        await joined.JoinAsync(rig.Host.Port, ticket);
+        Assert.NotNull(rig.Engine.Store.Project.Stage.Cameras.Find(joined.Rig));
+        Assert.True(Assert.Single(rig.State().GetProperty("phones").EnumerateArray()).GetProperty("connected").GetBoolean());
+    }
+
     [Fact]
     public async Task NoTicketOrKeyReachesStateTheContextTheJournalOrTheProject()
     {

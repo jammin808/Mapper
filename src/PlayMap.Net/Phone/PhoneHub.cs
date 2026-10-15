@@ -39,6 +39,9 @@ public sealed record PhoneHubOptions
     /// <summary>How long a socket may stay open before its hello.</summary>
     public TimeSpan HelloTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long a phone may send nothing (its page pings every second) before its session ends with words.</summary>
+    public TimeSpan QuietTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Wrong tickets or keys from one address in a minute before it is locked out for the rest of that minute.</summary>
     public int WrongPerMinute { get; init; } = 5;
 
@@ -85,7 +88,7 @@ public sealed class PhoneHub : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private int _disposed;
 
-    private sealed record Ticket(string Name, DateTimeOffset Expires, string InvitedBy);
+    private sealed record Ticket(string Name, DateTimeOffset Expires, string InvitedBy, string PhoneId = "", string Rig = "");
 
     public PhoneHub(PhoneHubOptions options)
     {
@@ -132,15 +135,23 @@ public sealed class PhoneHub : IAsyncDisposable
     public IReadOnlyList<string> Forget(string phoneIdOrAll)
     {
         ArgumentNullException.ThrowIfNull(phoneIdOrAll);
-        var ids = phoneIdOrAll.Equals("ALL", StringComparison.OrdinalIgnoreCase)
-            ? _keys.All.Select(p => p.Id).ToList()
-            : _keys.Find(phoneIdOrAll) is { } one ? [one.Id] : [];
-        foreach (var id in ids)
+        List<string> ids;
+        var gone = new List<PhoneSession>();
+        // Under the gate a join registers under: a join in flight either lands first (and is disconnected here) or finds the key gone.
+        lock (_gate)
         {
-            _keys.Remove(id);
-            if (_sessions.TryRemove(id, out var s))
-                s.Disconnect("was forgotten: its key no longer opens anything");
+            ids = phoneIdOrAll.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+                ? [.. _keys.All.Select(p => p.Id)]
+                : _keys.Find(phoneIdOrAll) is { } one ? [one.Id] : [];
+            foreach (var id in ids)
+            {
+                _keys.Remove(id);
+                if (_sessions.TryRemove(id, out var s))
+                    gone.Add(s);
+            }
         }
+        foreach (var s in gone)
+            s.Disconnect("was forgotten: its key no longer opens anything");
         if (ids.Count > 0)
             Changed?.Invoke();
         return ids;
@@ -267,7 +278,7 @@ public sealed class PhoneHub : IAsyncDisposable
             _log.LogInformation("Phone {Phone} ({Name}) joined from {Address} with a {Profile} camera.", session.PhoneId, session.Name, address,
                 session.Profile.Exposure);
             Changed?.Invoke();
-            await session.RunAsync(stop.Token);
+            await session.RunAsync(stop.Token, _stop.Token);
         }
         catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException)
         {
@@ -279,9 +290,7 @@ public sealed class PhoneHub : IAsyncDisposable
             {
                 session.End("is not connected — open the invite on the phone");
                 session.Changed -= OnChanged;
-                var phone = _keys.Find(session.PhoneId);
-                if (phone is not null)
-                    _keys.Put(phone with { LastSeenUnixMs = _options.Time.GetUtcNow().ToUnixTimeMilliseconds() });
+                _keys.Touch(session.PhoneId, _options.Time.GetUtcNow().ToUnixTimeMilliseconds());
                 Changed?.Invoke();
                 session.Dispose();
             }
@@ -360,16 +369,18 @@ public sealed class PhoneHub : IAsyncDisposable
             await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, "too many wrong invites from this address — wait a minute", ct);
             return null;
         }
-        PhoneRecord? phone;
+        PhoneRecord phone;
         string? key = null;
+        Ticket? ticket = null;
+        var ticketDigest = "";
         if (hello.Ticket.Length > 0)
         {
-            Ticket? ticket;
+            ticketDigest = Digest(hello.Ticket);
             var expired = false;
             lock (_gate)
             {
-                // Used once, whether or not it is still good.
-                if (_tickets.Remove(Digest(hello.Ticket), out ticket))
+                // Used once, whether or not it is still good: given back only when the node, not the phone, failed the join.
+                if (_tickets.Remove(ticketDigest, out ticket))
                     expired = ticket.Expires < _options.Time.GetUtcNow();
             }
             if (ticket is null)
@@ -386,23 +397,25 @@ public sealed class PhoneHub : IAsyncDisposable
             key = NewKey();
             var name = ticket.Name.Length > 0 ? ticket.Name : hello.Name.Length > 0 ? hello.Name : "Phone";
             var now = _options.Time.GetUtcNow().ToUnixTimeMilliseconds();
-            phone = new PhoneRecord(NewId(), name, PhoneKeys.Digest(key), now, now, "");
-            _keys.Put(phone);
+            // A ticket given back keeps the phone id (and rig) its first try made, so a second try makes no second camera.
+            phone = new PhoneRecord(ticket.PhoneId.Length > 0 ? ticket.PhoneId : NewId(), name, PhoneKeys.Digest(key), now, now, ticket.Rig);
         }
         else
         {
-            phone = hello.Key.Length > 0 ? _keys.FindByKey(hello.Key) : null;
-            if (phone is null)
+            var known = hello.Key.Length > 0 ? _keys.FindByKey(hello.Key) : null;
+            if (known is null)
             {
                 NoteWrong(address);
                 await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, "ERR this phone's key is not known here — ask for a new invite", ct);
                 return null;
             }
+            phone = known;
         }
-        if (Connected >= _options.MaxConnected && !_sessions.ContainsKey(phone.Id))
+        var full = string.Create(CultureInfo.InvariantCulture, $"{_options.MaxConnected} phones are connected already");
+        if (LiveOthers(phone.Id) >= _options.MaxConnected)
         {
-            await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation,
-                string.Create(CultureInfo.InvariantCulture, $"{_options.MaxConnected} phones are connected already"), ct);
+            GiveBack(ticketDigest, ticket, phone);
+            await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, full, ct);
             return null;
         }
 
@@ -414,39 +427,97 @@ public sealed class PhoneHub : IAsyncDisposable
             }
             catch (InvalidOperationException ex)
             {
-                // The phone is paired (its key stands) but has no camera in the project yet: it is told why and may join again.
-                _log.LogWarning(ex, "Phone {Phone} joined but its camera could not be added.", phone.Id);
+                // A first join keeps its ticket for another try within its life; a phone with a key keeps it.
+                GiveBack(ticketDigest, ticket, phone);
+                _log.LogWarning(ex, "Phone {Phone} could not join: its camera could not be added.", phone.Id);
                 await RefuseAsync(socket, WebSocketCloseStatus.InternalServerError, "the node could not add this phone's camera: " + ex.Message, ct);
                 return null;
             }
         }
-        phone = phone with { LastSeenUnixMs = _options.Time.GetUtcNow().ToUnixTimeMilliseconds() };
-        _keys.Put(phone);
+
+        // Registered under the gate PHONE FORGET takes: a phone forgotten while its join was in flight is refused, never written back.
         var session = new PhoneSession(socket, phone, hello.Profile, hello.Camera, address, _options, _log);
-        if (_sessions.TryGetValue(phone.Id, out var older))
-            older.Disconnect("was replaced: the phone joined again");
-        _sessions[phone.Id] = session;
-        var welcome = phone;
-        await session.SendAsync(w =>
+        PhoneSession? older = null;
+        string? refusal = null;
+        lock (_gate)
         {
-            w.WriteString("t", "welcome");
-            w.WriteStartObject("phone");
-            w.WriteString("id", welcome.Id);
-            w.WriteString("name", welcome.Name);
-            w.WriteEndObject();
+            var now = _options.Time.GetUtcNow().ToUnixTimeMilliseconds();
+            if (Volatile.Read(ref _disposed) != 0)
+                refusal = "the node is stopping";
+            else if (LiveOthers(phone.Id) >= _options.MaxConnected)
+                refusal = full;
+            else if (key is null && !_keys.Touch(phone.Id, now, phone.Rig))
+                refusal = "was forgotten: its key no longer opens anything";
+            else
+            {
+                phone = phone with { LastSeenUnixMs = now };
+                if (key is not null)
+                    _keys.Put(phone);
+                _sessions.TryGetValue(phone.Id, out older);
+                _sessions[phone.Id] = session;
+            }
+        }
+        if (refusal is not null)
+        {
+            if (refusal == full)
+                GiveBack(ticketDigest, ticket, phone);
+            session.Dispose();
+            await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, refusal, ct);
+            return null;
+        }
+        older?.Disconnect("was replaced: the phone joined again");
+        var welcome = phone;
+        try
+        {
+            await session.SendAsync(w =>
+            {
+                w.WriteString("t", "welcome");
+                w.WriteStartObject("phone");
+                w.WriteString("id", welcome.Id);
+                w.WriteString("name", welcome.Name);
+                w.WriteEndObject();
+                if (key is not null)
+                    w.WriteString("key", key);
+                w.WriteStartObject("node");
+                w.WriteString("id", _options.NodeId);
+                w.WriteString("name", _options.NodeName);
+                w.WriteEndObject();
+                w.WriteString("camera", welcome.Rig);
+                w.WriteStartObject("limits");
+                w.WriteNumber("maxInFlight", _options.MaxInFlight);
+                w.WriteNumber("maxBinary", _options.MaxBinaryBytes);
+                w.WriteEndObject();
+            }, ct);
+        }
+        catch (Exception ex) when (ex is PhoneGoneException or OperationCanceledException)
+        {
+            // The welcome never reached the phone: the session is not this phone's, and a key it never heard opens nothing.
+            lock (_gate)
+            {
+                _sessions.TryRemove(new KeyValuePair<string, PhoneSession>(welcome.Id, session));
+                if (key is not null)
+                    _keys.Remove(welcome.Id);
+            }
             if (key is not null)
-                w.WriteString("key", key);
-            w.WriteStartObject("node");
-            w.WriteString("id", _options.NodeId);
-            w.WriteString("name", _options.NodeName);
-            w.WriteEndObject();
-            w.WriteString("camera", welcome.Rig);
-            w.WriteStartObject("limits");
-            w.WriteNumber("maxInFlight", _options.MaxInFlight);
-            w.WriteNumber("maxBinary", _options.MaxBinaryBytes);
-            w.WriteEndObject();
-        }, ct);
+                GiveBack(ticketDigest, ticket, welcome);
+            _log.LogDebug(ex, "Phone {Phone}'s welcome did not go.", welcome.Id);
+            session.Dispose();
+            return null;
+        }
         return session;
+    }
+
+    /// <summary>Phones connected now other than <paramref name="phoneId"/> (whose own older socket a join replaces).</summary>
+    private int LiveOthers(string phoneId) =>
+        _sessions.Count(s => s.Value.Connected && !string.Equals(s.Key, phoneId, StringComparison.Ordinal));
+
+    /// <summary>A ticket the node failed (not the phone) is good again until it expires, with the phone id its try made.</summary>
+    private void GiveBack(string digest, Ticket? ticket, PhoneRecord phone)
+    {
+        if (ticket is null)
+            return;
+        lock (_gate)
+            _tickets[digest] = ticket with { PhoneId = phone.Id, Rig = phone.Rig };
     }
 
     private static async Task RefuseAsync(WebSocket socket, WebSocketCloseStatus status, string words, CancellationToken ct)
@@ -455,9 +526,7 @@ public sealed class PhoneHub : IAsyncDisposable
         bye.CancelAfter(TimeSpan.FromSeconds(2));
         try
         {
-            // A close reason is at most 123 bytes.
-            var reason = words.Length > 100 ? words[..100] : words;
-            await socket.CloseOutputAsync(status, reason, bye.Token);
+            await socket.CloseOutputAsync(status, PhoneSession.CloseReason(words), bye.Token);
         }
         catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException)
         {
@@ -474,6 +543,9 @@ public sealed class PhoneHub : IAsyncDisposable
             s.Disconnect("was disconnected: the node is stopping");
         _stop.Dispose();
     }
+
+    /// <summary>The largest camera raster a phone may say it has (16 Mpx): every picture it sends is that size.</summary>
+    internal const long MaxRasterPixels = 1L << 24;
 
     /// <summary>What a hello says: the ticket or the key, the phone's name, and its camera.</summary>
     private sealed record Hello(string Ticket, string Key, string Name, PhoneProfile Profile, PhoneCameraFacts Camera)
@@ -492,13 +564,13 @@ public sealed class PhoneHub : IAsyncDisposable
             var caps = camera.TryGetProperty("caps", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
             var locks = caps.ValueKind == JsonValueKind.Object && caps.TryGetProperty("exposure", out var ex) && ex.ValueKind == JsonValueKind.Array
                 && ex.EnumerateArray().Any(e => e.GetString() == "manual")
-                && caps.TryGetProperty("exposureTime", out var et) && et.ValueKind == JsonValueKind.Array;
+                && caps.TryGetProperty("exposureTime", out var et) && et.ValueKind == JsonValueKind.Array && et.GetArrayLength() >= 2;
             var platform = ua.ValueKind == JsonValueKind.Object ? Text(ua, "platform") : "";
             if (platform is not ("android-chrome" or "ios-safari"))
                 platform = "other";
             var width = camera.GetProperty("width").GetInt32();
             var height = camera.GetProperty("height").GetInt32();
-            if (width is < 16 or > 16384 || height is < 16 or > 16384)
+            if (width is < 16 or > 8192 || height is < 16 or > 8192 || (long)width * height > MaxRasterPixels)
                 throw new FormatException("a camera raster");
             var label = Text(camera, "label");
             var fps = camera.TryGetProperty("fps", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDouble() : 0;

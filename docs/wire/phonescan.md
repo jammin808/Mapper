@@ -7,15 +7,17 @@ The phone as a local scan camera (`docs/PHONESCAN.md`). A phone joins through an
 
 | Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
-| `PHONE INVITE` | `PHONE INVITE [<name>] [FOR <minutes 1-60>]` | To the asking session only: JSON `{name, url, qr:{size, modules}, fingerprint, expiresUnixMs}`. `url` is `https://<address>:<port>/scan/#t=<ticket>` — the ticket (20 random bytes, 32 base32 letters) rides only in the fragment, which a browser never sends; `qr.modules` is the URL as a QR code (byte mode, level M, versions 1–10), row-major, most significant bit first, base64; `fingerprint` is the short fingerprint of the certificate the web port really serves (read by a TLS handshake to the port), for the person to compare with the phone's warning. The address is this machine's on the asking session's subnet, else its first private address. Default life `NodeSettings.Phone.InviteMinutes` (10). Refused for the `assistant`, `mcp` and `approval` transports, when phones are off (`phone.enabled`), when the web port serves no https ("turn on encrypted connections first"), for `FOR` outside 1–60 and for a name over 40 characters. The journal keeps `PHONE INVITE "<name>" → invite issued, expires HH:mm UTC`, never the link | high | yes |
+| `PHONE INVITE` | `PHONE INVITE [<name>] [FOR <minutes 1-60>]` | To the asking session only: JSON `{name, url, qr:{size, modules}, fingerprint, expiresUnixMs}`. `url` is `https://<address>:<port>/scan/#t=<ticket>` — the ticket (20 random bytes, 32 base32 letters) rides only in the fragment, which a browser never sends; `qr.modules` is the URL as a QR code (byte mode, level M, versions 1–10), row-major, most significant bit first, base64; `fingerprint` is the short fingerprint of the certificate the web port really serves (read by a TLS handshake to the port), for the person to compare with the phone's warning. The address is this machine's on the asking session's subnet, else its first private address. Default life `NodeSettings.Phone.InviteMinutes` (10). Refused for the `assistant`, `mcp` and `approval` transports, from another machine on any transport but the web port's (`http`, `ws`: the line wire is not encrypted), when phones are off (`phone.enabled`), when the web port serves no https ("turn on encrypted connections first"), for `FOR` outside 1–60 and for a name over 40 characters. The journal keeps `PHONE INVITE "<name>" → invite issued, expires HH:mm UTC`, never the link | high | yes |
 | `PHONE LIST` | `PHONE LIST` | JSON `{phones:[…]}`, each as STATE | low | no |
 | `PHONE FORGET` | `PHONE FORGET <phone>\|ALL` | JSON `{forgotten:[ids]}`: the key no longer opens anything and the phone's socket closes ("was forgotten"); its camera rig stays in the project. Refused "no such phone <id>" / "no phone is paired with this node" | review | yes |
-| `SCAN NEXT` | `SCAN NEXT` | The pattern a cued camera waits on now is shown again and asked for afresh (a phone that was bumped or lost its view); refused "no scan is waiting for a picture" | review | yes |
+| `SCAN NEXT` | `SCAN NEXT` | The wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. The journal keeps `asked: the waited pattern goes up again for the camera`; refused "no scan is waiting for a picture" | review | yes |
 
 `SCAN START <camera>` through a Phone rig runs the lock-step capture (below). `ALIGN RUN` on a group whose camera is a Phone rig
 opens it through the same hub (align's `AlignRunnerOptions.OpenCamera`): the run reads pictures one `still` cue at a time; a
-phone that is not connected fails the run with "<name> is not connected — open the invite on the phone (PHONE INVITE makes one)". `INTO`, and the rows `SCAN SUGGEST`, `SCAN SOLVE`,
-`SCAN VIEWS`, `SCAN DROP` of this block, are wp2-multiscan's (W3) and stay unrouted ("not available on this node yet").
+phone that is not connected fails the run with "<name> is not connected — open the invite on the phone (PHONE INVITE makes one)".
+
+`INTO`, and the rows `SCAN SUGGEST`, `SCAN SOLVE`, `SCAN VIEWS`, `SCAN DROP`, are wp2-multiscan's (W3): trimmed from this block
+(Assistant.Tests `CatalogueTests.TrimmedRows`), for it to add back.
 
 ## The phone's own socket: `/scan/ws`, `playmap.camera.v1`
 
@@ -32,20 +34,26 @@ else under `/scan` is served, and the module maps nothing outside it. Every answ
 | node → phone | `welcome` | `phone:{id, name}`, `key` (first join only, once), `node:{id, name}`, `camera` (the rig id), `limits:{maxInFlight, maxBinary}` |
 | phone → node / node → phone | `ping` / `pong`, `clock` | `ping {t1, prev:{t1,t2,t3,t4}}` (page ms); `pong {t1, t2, t3}` (node ms); `clock {offsetMs, uncertaintyMs}` (node − page, from the least-delayed of the last eight exchanges) |
 | phone → node | `state` | `exposure:{mode,timeMs,iso}`, `focus:{mode}`, `wb:{mode}`, `fps`, `motion` ("moving"/"still"), `visible` |
-| node → phone | `prepare` | `profile` ("lock"/"steady"), `displayHz`, `agreeTolerance`, `stableFrames` |
+| node → phone | `prepare` | `profile` ("lock"/"steady"), `displayHz`, `agreeTolerance`, `stableFrames`. A new projector's run: the page forgets the last projector's `sites` and `lit`, and takes the picture it shows once its exposure is set (the probe) as the one the first frame must change from |
 | phone → node | `prepared` | `exposure` ("locked"/"steady"), `exposureMs`, `iso`, `focus`, `whiteBalance`, `words` |
-| node → phone | `sites` | `projector`, `minSites`, `lit:[x,y,w,h]`, `sites:[{id, cells:[[x,y]×16], rows:[top,bottom]}]` (camera pixels) |
-| node → phone | `cue` | `id`, `kind` ("locate"/"pattern"/"still"), `projector`, `i`, `tag`, `at`, `earliest` (node ms), `retake`, `minChange`; a `still` asks for the next picture taken at or after `earliest`, whatever it shows (an align run, a camera view) |
+| node → phone | `sites` | `projector`, `minSites`, `lit:[x,y,w,h]`, `sites:[{id, cells:[[x,y]×16], rows:[top,bottom]}]` (camera pixels, unrounded: the page samples the very pixels the node's tag check does) |
+| node → phone | `cue` | `id`, `kind` ("locate"/"pattern"/"still"), `projector`, `i`, `tag`, `at`, `earliest` (node ms; the page uses it once the clock exchange has given the offset), `retake`, `minChange` (the level a sample of the page's 48 × 27 grid of 3 × 3 means must move by: a picture paired by change has changed when 13 samples or more did, from the last picture taken — from the one before it, for a retake of the frame just taken); a `still` asks for the next picture taken at or after `earliest`, whatever it shows (an align run, a camera view) |
 | phone → node | `seen` / `stuck` | `seen {cue, seq, tag, capture (page ms), sites, margin, settleDiff, rolling}`; `stuck {cue, why}` |
-| phone → node | `moved` | `at`, `magnitude` |
+| phone → node | `moved` | `at`, `magnitude`; during a view it fails the view ("moved during the view (its motion sensor said so)") |
 | phone → node | binary PMF1 | magic `PMF1`, uint32 LE header length (≤ 4096), JSON header `{kind:"pattern"\|"locate"\|"still", seq, cue, capture, w, h, roi:[x,y,w,h], format:"gray8"\|"gray16", codec:"deflate-raw"\|"none", frames, crc32}`, then the ROI's rows |
 | node → phone | `ack`, `say` | `ack {seq}`; `say {level, words}` |
 | phone → node | `bye` | — |
 
 Fail closed: a message type a phone does not send closes the socket with 1008 "unknown message"; anything before `hello` with
 1008 "hello first"; a missing field with 1008; text over 64 KiB or binary over 16 MiB with 1009; a PMF1 frame that is not whole
-(size, ROI, CRC-32, header) with 1007; a picture kind that was not asked for with 1008. Five wrong tickets or keys from an address
-in a minute lock it out for the rest of the minute. At most `phone.maxConnected` (4) phones at once.
+(size, ROI, CRC-32, header) or not the camera's raster (the hello's, at most 16 Mpx) with 1007; a picture kind that was not asked
+for with 1008. A whole picture no cue waits for any more (cancelled, timed out, shown again) is acknowledged and dropped. Five
+wrong tickets or keys from an address in a minute lock it out for the rest of the minute. At most `phone.maxConnected` (4) phones
+connected at once (a phone joining again replaces its own older socket). A phone that sends nothing for ten seconds (the page
+pings every second) is closed with 1008 "stopped sending: nothing for 10 s". Close reasons fit 123 bytes. A join is registered
+under the gate `PHONE FORGET` takes: one in flight when its phone is forgotten is refused "was forgotten". A first join the node
+cannot finish (the project refuses the camera rig, the house is full) keeps no phone and gives the ticket back until it expires;
+a welcome that never goes leaves no session.
 
 ## STATE
 
@@ -61,7 +69,7 @@ in a minute lock it out for the rest of the minute. At most `phone.maxConnected`
 ```
 
 `phones` lists every phone this node knows, connected or not (not connected: `connected:false`, empty address and transport, the
-words say why — "said goodbye (its page closed)", "was forgotten …", "stopped sending: …"). It carries no ticket and no key. The
+words say why — "said goodbye (its page closed)", "said goodbye: <the page's own words>", "was forgotten …", "stopped sending: …"). It carries no ticket and no key. The
 fixture is `tests/fixtures/state/phonescan.json`, its cards `phonescan.cards.json`.
 
 ## Context, preflight, INDEX

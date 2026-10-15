@@ -213,7 +213,7 @@ public static class Pmf1
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            words = "a PMF1 header that does not read: " + ex.Message;
+            words = "a PMF1 header that does not read";
             return false;
         }
     }
@@ -228,14 +228,15 @@ public static class Pmf1
             words = "the picture is larger than a PMF1 frame may be";
             return false;
         }
+        // Uncompressed pixels are checked against the roi before anything is allocated for them.
+        if (header.Codec == None && payload.Length != size)
+        {
+            words = string.Create(CultureInfo.InvariantCulture, $"{payload.Length} bytes of pixels where the roi holds {size}");
+            return false;
+        }
         var into = new byte[size];
         if (header.Codec == None)
         {
-            if (payload.Length != size)
-            {
-                words = string.Create(CultureInfo.InvariantCulture, $"{payload.Length} bytes of pixels where the roi holds {size}");
-                return false;
-            }
             payload.CopyTo(into);
         }
         else

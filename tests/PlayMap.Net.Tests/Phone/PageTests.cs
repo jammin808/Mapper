@@ -46,6 +46,15 @@ public sealed class PageTests
         pictures.Add(mixed);
         pictures.Add(new byte[sim.CameraWidth * sim.CameraHeight]);
 
+        // The sites as the node's socket sends them, so the page reads what it really receives.
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var w = new Utf8JsonWriter(buffer))
+        {
+            w.WriteStartObject();
+            PhoneSession.WriteSites(w, new PhoneSites("pj00000001", located.Chosen, located.Lit, located.MinSites));
+            w.WriteEndObject();
+        }
+        using var sent = JsonDocument.Parse(buffer.WrittenMemory);
         var dir = Temp();
         try
         {
@@ -58,8 +67,9 @@ public sealed class PageTests
                     file = $"p{k}.gray",
                     width = sim.CameraWidth,
                     height = sim.CameraHeight,
-                    minSites = located.MinSites,
-                    sites = located.Chosen.Select(s => new { cells = s.Cells.Select(c => new[] { c.X, c.Y }) }),
+                    minSites = sent.RootElement.GetProperty("minSites").GetInt32(),
+                    sites = sent.RootElement.GetProperty("sites"),
+                    lit = sent.RootElement.GetProperty("lit"),
                 });
             }
             await File.WriteAllTextAsync(Path.Combine(dir, "cases.json"), JsonSerializer.Serialize(cases));
@@ -75,6 +85,11 @@ public sealed class PageTests
                 Assert.Equal(core.Value, page.GetProperty("value").GetInt32());
                 Assert.Equal(core.ValidSites, page.GetProperty("validSites").GetInt32());
                 Assert.Equal(core.Margin, page.GetProperty("margin").GetInt32());
+                // The settle grid, over the whole picture and over the lit rectangle, sample for sample.
+                Assert.Equal(Convert.ToBase64String(PictureGrid.Of(pictures[k], sim.CameraWidth, sim.CameraHeight, default)),
+                    page.GetProperty("grid").GetString());
+                Assert.Equal(Convert.ToBase64String(PictureGrid.Of(pictures[k], sim.CameraWidth, sim.CameraHeight, located.Lit)),
+                    page.GetProperty("litGrid").GetString());
                 // Every picture at full brightness reads its own tag; a third of them are dimmed to where some do not, and the
                 // page must not read those either.
                 if (k < plan.Count && k % 3 != 0)
@@ -153,7 +168,13 @@ public sealed class PageTests
 
     /// <summary>The page in Chromium joined with a fresh invite and asked for the lock profile, as a scan asks: what the page saw and
     /// sent, what it answered, its session and the ticket.</summary>
-    private static async Task<(JsonElement Page, PhonePrepared Prepared, IPhoneSession Session, string Ticket)> RunPageAsync(PhoneNode node, string? y4m)
+    private static Task<(JsonElement Page, PhonePrepared Prepared, IPhoneSession Session, string Ticket)> RunPageAsync(PhoneNode node, string? y4m) =>
+        RunPageAsync(node, y4m, (session, ct) => session.PrepareAsync(new PhonePrepare(PhoneProtocol.Lock, 60, 3, 2), ct));
+
+    /// <summary>The page in Chromium joined with a fresh invite, driven by <paramref name="drive"/> (as a scan drives it), then told
+    /// "done": what the page saw and sent, the last prepare it answered, its session and the ticket.</summary>
+    private static async Task<(JsonElement Page, PhonePrepared Prepared, IPhoneSession Session, string Ticket)> RunPageAsync(PhoneNode node, string? y4m,
+        Func<IPhoneSession, CancellationToken, Task<PhonePrepared>> drive)
     {
         var ticket = PhoneNode.TicketOf(node.Invite());
         var dir = Temp();
@@ -168,8 +189,8 @@ public sealed class PageTests
             if (run.IsCompleted)
                 Assert.Fail("the page ended before it joined: " + (await run).Output);
             var session = node.Hub.Session(node.Hub.Phones().Single(p => p.Connected).Id)!;
-            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var prepared = await session.PrepareAsync(new PhonePrepare(PhoneProtocol.Lock, 60, 3, 2), wait.Token);
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var prepared = await drive(session, wait.Token);
             await session.SayAsync("info", "done", wait.Token);
             var (code, output) = await run;
             Assert.True(code == 0, output);
@@ -199,6 +220,9 @@ public sealed class PageTests
             foreach (var h in q.GetProperty("headers").EnumerateObject())
                 Assert.DoesNotContain(ticket, h.Value.GetString()!, StringComparison.Ordinal);
         }
+        // The socket's upgrade request was among them, with all its headers (its subprotocol: where a socket token would hide).
+        Assert.Contains(requests, q => q.GetProperty("headers").EnumerateObject()
+            .Any(h => h.Name.Equals("Sec-WebSocket-Protocol", StringComparison.OrdinalIgnoreCase) && h.Value.GetString() == PhoneProtocol.SubProtocol));
         // It travels in the socket's first message, the hello, and nowhere after.
         var sent = r.GetProperty("sent").EnumerateArray().Select(e => e.GetString()!).ToList();
         using var hello = JsonDocument.Parse(sent[0]);
@@ -246,6 +270,58 @@ public sealed class PageTests
             f.Write(y);
             f.Write(uv);
             f.Write(uv);
+        }
+    }
+
+    /// <summary>A Y4M picture sequence whose left half holds still while its right half turns from dark to bright and back each
+    /// second.</summary>
+    private static void WriteHalfBlinkY4m(string path, int w, int h)
+    {
+        using var f = File.Create(path);
+        f.Write(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture, $"YUV4MPEG2 W{w} H{h} F30:1 Ip A1:1 C420jpeg\n")));
+        var y = new byte[w * h];
+        var uv = new byte[w / 2 * (h / 2)];
+        Array.Fill(uv, (byte)128);
+        for (var n = 0; n < 60; n++)
+        {
+            for (var k = 0; k < y.Length; k++)
+                y[k] = k % w < w / 2 ? (byte)(80 + k % w / 4) : n < 30 ? (byte)40 : (byte)200;
+            f.Write("FRAME\n"u8);
+            f.Write(y);
+            f.Write(uv);
+            f.Write(uv);
+        }
+    }
+
+    /// <summary>The page's own prepare, places and change rule together: after a projector whose place was the still left half, the
+    /// next projector's first locate frame is seen where the picture changes (the rule itself, frame by frame: unit/watch.test.mjs).</summary>
+    [NodeFact("playwright")]
+    public async Task InChromiumTheNextProjectorsFirstLocateFrameIsSeenWhereThePictureChanges()
+    {
+        await using var node = await PhoneNode.StartAsync();
+        var dir = Temp();
+        try
+        {
+            var y4m = Path.Combine(dir, "camera.y4m");
+            WriteHalfBlinkY4m(y4m, 320, 240);
+            PhoneSeen? seen = null;
+            var (_, prepared, _, _) = await RunPageAsync(node, y4m, async (session, ct) =>
+            {
+                await session.PrepareAsync(new PhonePrepare(PhoneProtocol.Steady, 60, 3, 2), ct);
+                // The first projector's tag places stood in the still left half of the picture.
+                await session.SetSitesAsync(new PhoneSites("pj00000001", [], new Core.Scan.PixelRect(0, 0, 160, 240), 0), ct);
+                // The next projector's run: its first locate frame lands where the picture changes, outside the first one's place.
+                var next = await session.PrepareAsync(new PhonePrepare(PhoneProtocol.Steady, 60, 3, 2), ct);
+                seen = await session.CueAsync(new PhoneCue(0, "locate", "pj00000002", 0, 0, 0, 0, 0, 8), ct);
+                return next;
+            });
+            Assert.Equal("steady", prepared.Exposure);
+            Assert.NotNull(seen);
+            Assert.True(seen.Outcome == "seen", $"{seen.Outcome}: {seen.Why}");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Model;
@@ -46,6 +47,9 @@ public interface IPhoneSession
 
     /// <summary>Words for the phone's screen ("info", "warn").</summary>
     Task SayAsync(string level, string words, CancellationToken ct);
+
+    /// <summary>How many times the phone's motion sensor has said it moved since it joined.</summary>
+    int Moves { get; }
 }
 
 /// <summary>The facts STATE shows of a phone's camera and link.</summary>
@@ -57,7 +61,9 @@ public sealed record PhoneCameraFacts(string Label, int Width, int Height, doubl
 /// to the hub's limit and only of the types a phone sends (anything else closes with 1008), binary PMF1 frames up to theirs (larger
 /// closes with 1009; a frame that is not whole closes with 1007). One sender at a time. The clock exchange: each ping carries the
 /// page's send time and its previous exchange's four instants; the node keeps the least-delayed of the last eight, and its offset
-/// turns page instants into node ones. Pictures wait for their seen, at most twice the in-flight limit at once.
+/// turns page instants into node ones. A picture is kept only when a seen for a cue still waited on named it, and only at the
+/// camera's own raster; anything else is acknowledged and dropped. A phone that sends nothing (not even its ping each second) for
+/// the quiet limit is ended with words.
 /// </summary>
 internal sealed class PhoneSession : IPhoneSession, IDisposable
 {
@@ -70,6 +76,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     private readonly Dictionary<long, TaskCompletionSource<PhoneSeen>> _cues = [];
     private readonly Dictionary<long, PhonePicture> _pictures = [];
     private readonly Dictionary<long, TaskCompletionSource<PhonePicture>> _pictureWaits = [];
+    private readonly HashSet<long> _expected = [];
     private TaskCompletionSource<PhonePrepared>? _prepare;
     private long _nextCue;
     private volatile string _gone = "";
@@ -78,6 +85,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     private string _motion = "still";
     private bool _visible = true;
     private long _lastSeenUnixMs;
+    private int _moves;
 
     public PhoneSession(WebSocket socket, PhoneRecord phone, PhoneProfile profile, PhoneCameraFacts camera, string address,
         PhoneHubOptions options, ILogger log)
@@ -104,6 +112,8 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     public bool Connected => _gone.Length == 0;
 
     public string Gone => _gone;
+
+    public int Moves => Volatile.Read(ref _moves);
 
     /// <summary>Raised when a fact STATE shows moved (on the receive loop).</summary>
     public event Action? Changed;
@@ -160,39 +170,43 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     public Task SetSitesAsync(PhoneSites sites, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(sites);
-        return SendAsync(w =>
+        return SendAsync(w => WriteSites(w, sites), ct);
+    }
+
+    /// <summary>The <c>sites</c> message's fields. The cell centres go unrounded: the page samples the very pixels the node's own tag
+    /// check does.</summary>
+    internal static void WriteSites(Utf8JsonWriter w, PhoneSites sites)
+    {
+        w.WriteString("t", "sites");
+        w.WriteString("projector", sites.ProjectorId);
+        w.WriteNumber("minSites", sites.MinSites);
+        w.WriteStartArray("lit");
+        w.WriteNumberValue(sites.Lit.X);
+        w.WriteNumberValue(sites.Lit.Y);
+        w.WriteNumberValue(sites.Lit.Width);
+        w.WriteNumberValue(sites.Lit.Height);
+        w.WriteEndArray();
+        w.WriteStartArray("sites");
+        foreach (var s in sites.Sites)
         {
-            w.WriteString("t", "sites");
-            w.WriteString("projector", sites.ProjectorId);
-            w.WriteNumber("minSites", sites.MinSites);
-            w.WriteStartArray("lit");
-            w.WriteNumberValue(sites.Lit.X);
-            w.WriteNumberValue(sites.Lit.Y);
-            w.WriteNumberValue(sites.Lit.Width);
-            w.WriteNumberValue(sites.Lit.Height);
-            w.WriteEndArray();
-            w.WriteStartArray("sites");
-            foreach (var s in sites.Sites)
+            w.WriteStartObject();
+            w.WriteNumber("id", s.Id);
+            w.WriteStartArray("cells");
+            foreach (var c in s.Cells)
             {
-                w.WriteStartObject();
-                w.WriteNumber("id", s.Id);
-                w.WriteStartArray("cells");
-                foreach (var c in s.Cells)
-                {
-                    w.WriteStartArray();
-                    w.WriteNumberValue(Math.Round(c.X, 2));
-                    w.WriteNumberValue(Math.Round(c.Y, 2));
-                    w.WriteEndArray();
-                }
+                w.WriteStartArray();
+                w.WriteNumberValue(c.X);
+                w.WriteNumberValue(c.Y);
                 w.WriteEndArray();
-                w.WriteStartArray("rows");
-                w.WriteNumberValue(s.RowTop);
-                w.WriteNumberValue(s.RowBottom);
-                w.WriteEndArray();
-                w.WriteEndObject();
             }
             w.WriteEndArray();
-        }, ct);
+            w.WriteStartArray("rows");
+            w.WriteNumberValue(s.RowTop);
+            w.WriteNumberValue(s.RowBottom);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
     }
 
     public async Task<PhoneSeen> CueAsync(PhoneCue cue, CancellationToken ct)
@@ -236,7 +250,10 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         lock (_gate)
         {
             if (_pictures.Remove(seq, out var arrived))
+            {
+                _expected.Remove(seq);
                 return arrived;
+            }
             ThrowIfGone();
             if (!_pictureWaits.TryGetValue(seq, out tcs!))
                 _pictureWaits[seq] = tcs = new TaskCompletionSource<PhonePicture>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -247,8 +264,12 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         }
         finally
         {
+            // Taken, or no longer waited for: a picture arriving later is dropped.
             lock (_gate)
+            {
                 _pictureWaits.Remove(seq);
+                _expected.Remove(seq);
+            }
         }
     }
 
@@ -276,6 +297,8 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             body(w);
             w.WriteEndObject();
         }
+        if (_gone.Length > 0)
+            throw new PhoneGoneException($"{Name} {_gone}");
         try
         {
             await _send.WaitAsync(ct).ConfigureAwait(false);
@@ -300,8 +323,9 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         }
     }
 
-    /// <summary>The receive loop, after the hello: runs until the socket closes, then ends every wait with the reason.</summary>
-    public async Task RunAsync(CancellationToken ct)
+    /// <summary>The receive loop, after the hello: runs until the socket closes, then ends every wait with the reason (the node
+    /// stopping is told from the phone's connection dropping by <paramref name="nodeStopping"/>).</summary>
+    public async Task RunAsync(CancellationToken ct, CancellationToken nodeStopping)
     {
         string why;
         try
@@ -310,7 +334,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         }
         catch (OperationCanceledException)
         {
-            why = "was disconnected: the node is stopping";
+            why = nodeStopping.IsCancellationRequested ? "was disconnected: the node is stopping" : "stopped sending: its connection dropped";
         }
         catch (Exception ex) when (ex is WebSocketException or IOException or ObjectDisposedException)
         {
@@ -338,6 +362,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             _cues.Clear();
             _pictureWaits.Clear();
             _pictures.Clear();
+            _expected.Clear();
         }
         var gone = new PhoneGoneException($"{Name} {why}");
         foreach (var c in cues)
@@ -352,13 +377,29 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     public void Disconnect(string why)
     {
         End(why);
-        _ = CloseAsync(WebSocketCloseStatus.PolicyViolation, why.Length > 100 ? why[..100] : why, CancellationToken.None);
+        _ = CloseAsync(WebSocketCloseStatus.PolicyViolation, why, CancellationToken.None);
     }
 
     private async Task<string> ReceiveLoopAsync(CancellationToken ct)
     {
         var limit = Math.Max(_options.MaxBinaryBytes, _options.MaxTextBytes);
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        var quietWords = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"stopped sending: nothing for {_options.QuietTimeout.TotalSeconds:0.#} s");
+        using var receive = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // Quiet for too long: the phone is told why (a close with the words), and its socket let go if it never answers that.
+        using var quiet = _options.Time.CreateTimer(_ =>
+        {
+            Disconnect(quietWords);
+            try
+            {
+                receive.CancelAfter(TimeSpan.FromSeconds(2));
+            }
+            catch (ObjectDisposedException)
+            {
+                // The loop ended first.
+            }
+        }, null, _options.QuietTimeout, Timeout.InfiniteTimeSpan);
         try
         {
             var message = new ArrayBufferWriter<byte>(64 * 1024);
@@ -369,12 +410,21 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
                 var started = _options.MonoNs();
                 do
                 {
-                    r = await _socket.ReceiveAsync(buffer, ct).ConfigureAwait(false);
+                    try
+                    {
+                        r = await _socket.ReceiveAsync(buffer, receive.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        return quietWords;
+                    }
+                    quiet.Change(_options.QuietTimeout, Timeout.InfiniteTimeSpan);
                     if (r.MessageType == WebSocketMessageType.Close)
                     {
-                        // The close is answered, so the phone's side ends cleanly too.
+                        // The close is answered, so the phone's side ends cleanly too; its own words, if it gave any, say why.
+                        var said = _socket.CloseStatusDescription;
                         await CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct).ConfigureAwait(false);
-                        return "said goodbye (its page closed)";
+                        return string.IsNullOrWhiteSpace(said) || said == "bye" ? "said goodbye (its page closed)" : "said goodbye: " + Clip(said);
                     }
                     var max = r.MessageType == WebSocketMessageType.Text ? _options.MaxTextBytes : _options.MaxBinaryBytes;
                     if (message.WrittenCount + r.Count > Math.Min(max, limit))
@@ -409,7 +459,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         {
             using var bye = CancellationTokenSource.CreateLinkedTokenSource(ct);
             bye.CancelAfter(TimeSpan.FromSeconds(2));
-            await _socket.CloseOutputAsync(status, words, bye.Token).ConfigureAwait(false);
+            await _socket.CloseOutputAsync(status, CloseReason(words), bye.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException or ObjectDisposedException)
         {
@@ -418,14 +468,38 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         return status == WebSocketCloseStatus.NormalClosure ? "said goodbye" : "was disconnected: " + words;
     }
 
+    /// <summary>A close reason fits in 123 UTF-8 bytes: longer words are cut on a character boundary.</summary>
+    internal static string CloseReason(string words)
+    {
+        const int Max = 123;
+        if (Encoding.UTF8.GetByteCount(words) <= Max)
+            return words;
+        var n = Math.Min(words.Length, Max - 3);
+        while (n > 0 && (Encoding.UTF8.GetByteCount(words.AsSpan(0, n)) > Max - 3 || char.IsHighSurrogate(words[n - 1])))
+            n--;
+        return words[..n] + "…";
+    }
+
     private (WebSocketCloseStatus Status, string Words)? OnFrame(ReadOnlySpan<byte> frame, long elapsedNs)
     {
         if (!Pmf1.TryParse(frame, out var header, out var payload, out var words))
             return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);
         if (header.Kind is not ("pattern" or "locate" or "still"))
-            return (WebSocketCloseStatus.PolicyViolation, $"a picture of kind {header.Kind} was not asked for");
+            return (WebSocketCloseStatus.PolicyViolation, "a picture of a kind that was not asked for");
+        if (header.Width != Profile.Width || header.Height != Profile.Height)
+            return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: a picture whose size is not the camera's");
+        // Every frame is checked whole (at most the camera's raster), wanted or not: a broken one closes the socket.
         if (!Pmf1.TryDecode(header, payload, out var pixels, out words))
             return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);
+        bool wanted;
+        lock (_gate)
+            wanted = _expected.Contains(header.Seq);
+        if (!wanted)
+        {
+            // A picture of a cue nobody waits for any more (cancelled, timed out, shown again): acknowledged and dropped.
+            Ack(header.Seq);
+            return null;
+        }
         var gray = new byte[header.Width * header.Height];
         var bpp = header.BytesPerPixel;
         for (var y = 0; y < header.Roi.Height; y++)
@@ -442,24 +516,28 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             _uploadMBps = 0.7 * _uploadMBps + 0.3 * (frame.Length / (elapsedNs / 1e9) / 1e6);
             if (_pictureWaits.Remove(header.Seq, out waiter))
             {
-                // Taken at once by the scan waiting for it.
+                _expected.Remove(header.Seq);
             }
-            else
+            else if (_expected.Contains(header.Seq))
             {
+                // Its seen came first: kept until the scan asks for it (the in-flight limit bounds how many).
                 if (_pictures.Count >= 2 * _options.MaxInFlight)
-                    return (WebSocketCloseStatus.PolicyViolation, "too many pictures nobody asked for");
+                    return (WebSocketCloseStatus.PolicyViolation, "too many pictures on the way at once");
                 _pictures[header.Seq] = picture;
             }
         }
         waiter?.TrySetResult(picture);
+        Ack(header.Seq);
+        return null;
+    }
+
+    private void Ack(long seq) =>
         _ = SendAsync(w =>
         {
             w.WriteString("t", "ack");
-            w.WriteNumber("seq", header.Seq);
+            w.WriteNumber("seq", seq);
         }, CancellationToken.None).ContinueWith(t => _log.LogDebug(t.Exception, "An ack did not go."), CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-        return null;
-    }
 
     private async Task<(WebSocketCloseStatus? Close, string Words)> OnTextAsync(ReadOnlyMemory<byte> text, CancellationToken ct)
     {
@@ -501,6 +579,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
                     case "moved":
                         lock (_gate)
                             _motion = "moved";
+                        Interlocked.Increment(ref _moves);
                         Changed?.Invoke();
                         break;
                     default:
@@ -608,7 +687,11 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             (int)Num(m, "sites", 0), (int)Num(m, "margin", 0), Num(m, "settleDiff", 0), (int)Num(m, "rolling", 0), Str(m, "why", ""));
         TaskCompletionSource<PhoneSeen>? tcs;
         lock (_gate)
-            _cues.Remove(cue, out tcs);
+        {
+            // Only a cue still waited on names a picture worth keeping.
+            if (_cues.Remove(cue, out tcs) && t == "seen")
+                _expected.Add(seen.Seq);
+        }
         tcs?.TrySetResult(seen);
     }
 
@@ -621,9 +704,11 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     private static double Num(JsonElement m, string name, double fallback) =>
         m.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && double.IsFinite(v.GetDouble()) ? v.GetDouble() : fallback;
 
+    /// <summary>Ends the session; the send gate is let go only when no send holds or waits on it (one in flight lets go itself).</summary>
     public void Dispose()
     {
         End("was disconnected");
-        _send.Dispose();
+        if (_send.Wait(0))
+            _send.Dispose();
     }
 }

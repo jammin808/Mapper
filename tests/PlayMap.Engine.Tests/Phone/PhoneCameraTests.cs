@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlayMap.Core.Model;
+using PlayMap.Core.Phone;
 using PlayMap.Engine.Scanning;
 using Xunit.Abstractions;
 
@@ -10,7 +11,8 @@ namespace PlayMap.Engine.Tests.Phone;
 /// capture — each pattern goes up only when the phone has said it saw the one before — and late pictures, a rolling-shutter mix,
 /// a dropped upload and a phone that lies about a picture all end with every pattern paired to its own picture (the projector is
 /// found within the real-camera tolerance of the truth; STATE.scan.pairing counts what was caught). A phone that hangs up or goes
-/// silent puts its words in STATE and the scan stops cleanly with the outputs given back.
+/// silent puts its words in STATE and the scan stops cleanly with the outputs given back; one whose motion sensor fires, or that is
+/// nudged two pixels, fails the view with words.
 /// </summary>
 public sealed class PhoneCameraTests(ITestOutputHelper output)
 {
@@ -64,8 +66,11 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         Assert.Equal("locked", pairing.GetProperty("exposure").GetString());
         Assert.Equal(0, pairing.GetProperty("timingDisagrees").GetInt32());
         Assert.True(phone.RollingSeen >= 1);
-        // Lock-step: never more patterns on the glass than cues the phone answered, plus the shots again.
-        Assert.True(rig.Display.Shown <= phone.Cues + 1, $"{rig.Display.Shown} shown, {phone.Cues} cues");
+        // Lock-step: every picture after the probe went up only once the phone had answered the cue before it (show s, counted from
+        // 1 with the probe first, goes with cue s − 1).
+        var answered = rig.Display.AnsweredAtShow;
+        for (var i = 1; i < answered.Count; i++)
+            Assert.True(answered[i] >= i - 1, $"show {i + 1} went up with {answered[i]} cues answered");
         Assert.True(rig.Display.Released >= 1, "the outputs were given back");
         var record = rig.Engine.Store.Project.Stage.Scans[0];
         Assert.Equal(phone.Rig, record.CameraId);
@@ -103,6 +108,8 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         var pairing = rig.State().GetProperty("scan").GetProperty("pairing");
         Assert.Equal("steady", pairing.GetProperty("exposure").GetString());
         Assert.True(pairing.GetProperty("aeDriftPct").GetDouble() > 0);
+        // No full white or full black ever went up (tagged or not): the camera had nothing to ramp on.
+        Assert.True(rig.Display.Fullest < 0.9, $"a picture {rig.Display.Fullest:P0} at one extreme went up");
     }
 
     [Fact]
@@ -132,15 +139,15 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     [Fact]
     public async Task APhoneThatGoesSilentHasItsPatternShownAgainThenTheScanFailsWithWords()
     {
-        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromMilliseconds(600), MaxRetakes = 1 });
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2), MaxRetakes = 1 });
         await using var phone = await rig.JoinAsync();
-        phone.SilentAfter = 14;
+        phone.SilentAfter = 18;
         Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST")).Ok);
         var view = await rig.EndedAsync();
         Assert.Equal("failed", view.State);
-        Assert.Contains("said nothing for 0.6 s", view.Message, StringComparison.Ordinal);
+        Assert.Contains("said nothing for 2 s", view.Message, StringComparison.Ordinal);
         // The pattern it fell silent on was cued once more before the view gave up.
-        Assert.Equal(16, phone.Cues);
+        Assert.Equal(20, phone.Cues);
         Assert.True(rig.Display.Released >= 1);
         Assert.True(Assert.Single(rig.State().GetProperty("phones").EnumerateArray()).GetProperty("connected").GetBoolean());
     }
@@ -157,13 +164,46 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST")).Ok);
         Assert.True(await OpsRig.Eventually(() => phone.Cues == 4 && rig.Runner.WaitingForPicture, 20_000));
         var shown = rig.Display.Shown;
-        // The phone answers again; SCAN NEXT puts the waited pattern up again and the scan goes on.
+        // The phone answers again; SCAN NEXT puts the waited pattern up again at once — long before its 30 s would have — and the scan
+        // goes on with no pattern shown again for a timeout.
         phone.SilentAfter = int.MaxValue;
         await rig.Ok("SCAN NEXT");
+        Assert.True(await OpsRig.Eventually(() => phone.Cues >= 5, 10_000), "SCAN NEXT asked for the pattern again");
+        Assert.True(rig.Display.Shown > shown);
         var view = await rig.EndedAsync();
         Assert.True(view.State == "done", view.Message);
-        Assert.True(rig.Display.Shown > shown);
-        Assert.Contains(rig.Engine.Journal.Recent(200), r => r.Text == "the pattern is shown again for the camera");
+        Assert.Equal(0, rig.State().GetProperty("scan").GetProperty("pairing").GetProperty("retakes").GetInt32());
+        Assert.Contains(rig.Engine.Journal.Recent(200), r => r.Text == "asked: the waited pattern goes up again for the camera");
+    }
+
+    [Fact]
+    public async Task APhoneWhoseMotionSensorFiresFailsTheViewWithWords()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        await using var phone = await rig.JoinAsync();
+        phone.MovedAtCue = 20;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.Equal("failed", view.State);
+        Assert.Contains("Pixel 8 moved during the view (its motion sensor said so)", view.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Engine.Store.Project.Stage.Scans);
+        Assert.Equal("moved", Assert.Single(rig.State().GetProperty("phones").EnumerateArray()).GetProperty("motion").GetString());
+    }
+
+    [Fact]
+    public async Task APhoneNudgedTwoPixelsDuringTheViewIsCaughtByTheClosingCheck()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        await using var phone = await rig.JoinAsync();
+        // After the locate run and some patterns the camera stands two pixels over: every tag still reads, so only the end check sees it.
+        phone.ShiftAfter = CellLocate.Frames + 10;
+        phone.ShiftPx = 2;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.Equal("failed", view.State);
+        output.WriteLine(view.Message);
+        Assert.Contains("Pixel 8 moved during the view: its tag places stand 2.", view.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Engine.Store.Project.Stage.Scans);
     }
 
     [Fact]

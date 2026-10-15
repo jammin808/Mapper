@@ -57,9 +57,12 @@ public sealed record ScanRunnerOptions
     /// <summary>Pictures a cued camera may still be uploading while the next patterns go up.</summary>
     public int MaxInFlight { get; init; } = 6;
 
-    /// <summary>The closing picture may differ from the first by this many levels (brightness levelled) before the view counts as
-    /// moved.</summary>
+    /// <summary>Without tag places, the closing picture may differ from the first by this many levels (brightness levelled) before the
+    /// view counts as moved.</summary>
     public double MoveCheckLevels { get; init; } = 6;
+
+    /// <summary>A tag place found this many camera pixels from where the locate run saw it means the camera moved.</summary>
+    public double MoveCheckPx { get; init; } = 1;
 
     /// <summary>The background of the locate frames for a camera that keeps its own exposure: mid-grey, so its mean stays near
     /// the coded frames'.</summary>

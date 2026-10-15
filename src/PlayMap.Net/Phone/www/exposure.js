@@ -43,9 +43,14 @@ export function litTop(gray) {
   return top;
 }
 
+/** The longest exposure a 30 fps picture allows, in the track's units (100 µs). */
+export const CAP = 10000 / 30;
+
 /**
- * The exposure for the lock profile from the settled one: t₁ = t₀·215/L (0.6·t₀ when clipped), rounded up to whole frames of the
- * display above 8 ms, at most 33 ms; ISO makes up the rest within the camera's range. Times in the track's units (100 µs).
+ * The exposure for the lock profile from the settled one: t₁ = t₀·215/L (0.6·t₀ when clipped). Above 8 ms it is a whole number of
+ * the display's frames, so every picture holds the same light from a projector that flickers frame by frame: rounded up, or, where
+ * that passes the 30 fps cap, down to the most whole frames under it (one frame at least). ISO makes up the rest within the camera's
+ * range. Times in the track's units (100 µs).
  * @param {{t0: number, s0: number, level: number, displayHz: number, timeRange?: {min: number, max: number, step?: number}, isoRange?: {min: number, max: number}}} p
  */
 export function planExposure(p) {
@@ -53,8 +58,12 @@ export function planExposure(p) {
   const want = clipped ? 0.6 * p.t0 : (p.t0 * TARGET) / Math.max(1, p.level);
   let t1 = want;
   const frame = p.displayHz > 0 ? 10000 / p.displayHz : 0; // one display frame in 100 µs units
-  if (frame > 0 && t1 > 80) t1 = Math.ceil(t1 / frame) * frame;
-  t1 = Math.min(t1, 330);
+  if (frame > 0 && t1 > 80) {
+    t1 = Math.ceil(t1 / frame - 1e-9) * frame;
+    if (t1 > CAP + 1e-9) t1 = Math.max(1, Math.floor(CAP / frame + 1e-9)) * frame;
+  } else {
+    t1 = Math.min(t1, CAP);
+  }
   if (p.timeRange) t1 = Math.min(p.timeRange.max, Math.max(p.timeRange.min, t1));
   let s1 = (p.s0 * want) / Math.max(1e-6, t1);
   if (p.isoRange) s1 = Math.min(p.isoRange.max, Math.max(p.isoRange.min, s1));

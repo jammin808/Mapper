@@ -70,11 +70,14 @@ public static class ReferenceSynthesis
 /// <summary>
 /// Takes a camera's slow auto-exposure drift out of a scan's coded frames, measured against the picture rather than assumed of it.
 /// A pattern and its inverse light complementary pixels, as do two sinusoid steps half a period apart, so at every lit pixel the two
-/// pictures sum to white plus black. Each such pair's two gains are the least-squares fit of a·first + b·second = white + black over
-/// the lit pixels (gain = 1/a, 1/b): what the picture shows varies from pixel to pixel and pins the two apart, whatever it is. A
-/// coarse pair that made the references is fitted against the references of the other pairs. Each frame is scaled to the median
-/// gain. The drift is that fact: how far the farthest frame's gain stood from the median, in percent — a camera that holds still
-/// reads near zero whatever the picture shows.
+/// lights sum to white plus black. A phone's picture is not its light: its response curve bends mid-levels (a binary pattern shows
+/// only white and black, which no curve can bend apart, but a sinusoid's steps it does). So the curve is found first — the power
+/// <see cref="ResponseGamma"/> under which the sinusoid pairs sum best — and the pictures are read through it as light. Each pair's
+/// two gains are then the least-squares fit of a·first + b·second = white + black over the lit pixels (gain = 1/a, 1/b): what the
+/// picture shows varies from pixel to pixel and pins the two apart, whatever it is. A coarse pair that made the references is fitted
+/// against the references of the other pairs. Each frame is scaled (as light) to the median gain. The drift is that fact: how far
+/// the farthest frame's gain stood from the median, in percent — a camera that holds still reads near zero whatever the picture
+/// shows and whatever its curve.
 /// </summary>
 public static class GainNormaliser
 {
@@ -118,12 +121,82 @@ public static class GainNormaliser
         return pairs;
     }
 
-    /// <summary>Each coded frame's gain against the references (1 where it cannot be read).</summary>
-    public static IReadOnlyDictionary<int, double> Gains(ScanPlan plan, IList<byte[]> frames, bool[] lit)
+    /// <summary>The camera's response curve as a power (light = level^γ): the one, from 1 to 2.6, under which the sinusoid pairs'
+    /// fits leave the least residual (1 when the plan has no sinusoids: binary pairs are read alike under any curve).</summary>
+    public static double ResponseGamma(ScanPlan plan, IList<byte[]> frames, bool[] lit)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(frames);
         ArgumentNullException.ThrowIfNull(lit);
+        var phase = ComplementaryPairs(plan).Where(p => plan.Frames[p.First].Kind == ScanFrameKind.Phase).ToList();
+        if (phase.Count == 0)
+            return 1;
+        var best = 1.0;
+        var bestResidual = double.PositiveInfinity;
+        for (var step = 0; step <= 32; step++)
+        {
+            var gamma = 1 + step * 0.05;
+            var light = Light(gamma);
+            var residual = 0.0;
+            foreach (var (first, second) in phase)
+                residual += Fit(frames[first], frames[second], frames[plan.WhiteIndex], frames[plan.BlackIndex], lit, light, 4).Residual;
+            if (residual < bestResidual)
+            {
+                bestResidual = residual;
+                best = gamma;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>A level's light under a response power, on the same 0–255 scale.</summary>
+    private static double[] Light(double gamma)
+    {
+        var lut = new double[256];
+        for (var v = 0; v < 256; v++)
+            lut[v] = 255 * Math.Pow(v / 255.0, gamma);
+        return lut;
+    }
+
+    /// <summary>a·x + b·y = white + black over the lit pixels, as light; the residual relative to the sum's own size.</summary>
+    private static (double A, double B, int N, double Residual) Fit(byte[] x, byte[] y, byte[] white, byte[] black, bool[] lit, double[] light, int stride)
+    {
+        double xx = 0, xy = 0, yy = 0, xt = 0, yt = 0, tt = 0;
+        var n = 0;
+        for (var k = 0; k < lit.Length; k += stride)
+        {
+            if (!lit[k] || x[k] >= 250 || y[k] >= 250)
+                continue;
+            double lx = light[x[k]], ly = light[y[k]], t = light[white[k]] + light[black[k]];
+            xx += lx * lx;
+            xy += lx * ly;
+            yy += ly * ly;
+            xt += lx * t;
+            yt += ly * t;
+            tt += t * t;
+            n++;
+        }
+        var det = xx * yy - xy * xy;
+        if (n < 64 || !(Math.Abs(det) > 1e-9 * xx * yy))
+            return (0, 0, n, double.PositiveInfinity);
+        var a = (xt * yy - yt * xy) / det;
+        var b = (yt * xx - xt * xy) / det;
+        // Σ(a·x + b·y − t)² expanded over the sums already taken.
+        var residual = a * a * xx + b * b * yy + tt + 2 * a * b * xy - 2 * a * xt - 2 * b * yt;
+        return (a, b, n, Math.Max(0, residual) / tt);
+    }
+
+    /// <summary>Each coded frame's gain against the references (1 where it cannot be read), read as light through the camera's
+    /// response curve.</summary>
+    public static IReadOnlyDictionary<int, double> Gains(ScanPlan plan, IList<byte[]> frames, bool[] lit) =>
+        Gains(plan, frames, lit, ResponseGamma(plan, frames, lit));
+
+    private static Dictionary<int, double> Gains(ScanPlan plan, IList<byte[]> frames, bool[] lit, double gamma)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(lit);
+        var light = Light(gamma);
         var white = frames[plan.WhiteIndex];
         var black = frames[plan.BlackIndex];
         var coarse = ReferenceSynthesis.Pairs(plan);
@@ -147,7 +220,7 @@ public static class GainNormaliser
                 double t;
                 if (own < 0)
                 {
-                    t = white[k] + black[k];
+                    t = light[white[k]] + light[black[k]];
                 }
                 else
                 {
@@ -155,13 +228,14 @@ public static class GainNormaliser
                     var (hi, lo) = ReferencesWithout(frames, coarse, own, k);
                     if (hi - lo < 16)
                         continue;
-                    t = hi + lo;
+                    t = light[hi] + light[lo];
                 }
-                xx += x[k] * (double)x[k];
-                xy += x[k] * (double)y[k];
-                yy += y[k] * (double)y[k];
-                xt += x[k] * t;
-                yt += y[k] * t;
+                double lx = light[x[k]], ly = light[y[k]];
+                xx += lx * lx;
+                xy += lx * ly;
+                yy += ly * ly;
+                xt += lx * t;
+                yt += ly * t;
                 n++;
             }
             var det = xx * yy - xy * xy;
@@ -209,10 +283,12 @@ public static class GainNormaliser
         return n % 2 == 1 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
     }
 
-    /// <summary>Scales the coded frames in place to their median gain; answers the worst drift in percent (0 when nothing is lit).</summary>
+    /// <summary>Scales the coded frames in place (as light, through the camera's response curve) to their median gain; answers the
+    /// worst drift in percent (0 when nothing is lit).</summary>
     public static double Normalise(ScanPlan plan, IList<byte[]> frames, bool[] lit)
     {
-        var gains = Gains(plan, frames, lit);
+        var gamma = ResponseGamma(plan, frames, lit);
+        var gains = Gains(plan, frames, lit, gamma);
         if (gains.Count == 0 || !lit.Contains(true))
             return 0;
         var median = Median([.. gains.Values]);
@@ -222,7 +298,8 @@ public static class GainNormaliser
         foreach (var (i, g) in gains)
         {
             worst = Math.Max(worst, Math.Abs(g / median - 1));
-            var scale = median / Math.Max(g, 1e-6);
+            // Light scaled by s is a level scaled by s^(1/γ) under a power curve.
+            var scale = Math.Pow(median / Math.Max(g, 1e-6), 1 / gamma);
             var f = frames[i];
             var scaled = new byte[f.Length];
             for (var k = 0; k < f.Length; k++)

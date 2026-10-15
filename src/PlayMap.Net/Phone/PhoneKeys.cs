@@ -76,6 +76,21 @@ public sealed class PhoneKeys
         }
     }
 
+    /// <summary>Updates a phone that is still known (when it was last seen, its rig) and answers false for one that was forgotten,
+    /// so a join in flight never writes a forgotten key back.</summary>
+    public bool Touch(string id, long lastSeenUnixMs, string? rig = null)
+    {
+        lock (_gate)
+        {
+            var i = _phones.FindIndex(p => string.Equals(p.Id, id, StringComparison.Ordinal));
+            if (i < 0)
+                return false;
+            _phones[i] = _phones[i] with { LastSeenUnixMs = lastSeenUnixMs, Rig = rig ?? _phones[i].Rig };
+            Save();
+            return true;
+        }
+    }
+
     public bool Remove(string id)
     {
         lock (_gate)

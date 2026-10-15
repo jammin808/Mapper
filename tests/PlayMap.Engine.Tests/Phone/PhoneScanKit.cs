@@ -15,14 +15,40 @@ using PlayMap.Net.Phone;
 namespace PlayMap.Engine.Tests.Phone;
 
 /// <summary>A scan display that keeps what it shows: the picture on the glass now and the one before (what a late camera still
-/// sees), each present stamped on the monotonic clock; whether the outputs were given back.</summary>
+/// sees), each present stamped on the monotonic clock; whether the outputs were given back; for each show, how many cues the phone
+/// had answered by then (lock-step: never fewer than the cues before the one this show goes with); and the largest share of a shown
+/// picture at full white or at full black.</summary>
 internal sealed class GlassDisplay : IScanDisplay
 {
     private readonly Lock _gate = new();
+    private readonly List<int> _answeredAtShow = [];
     private byte[] _now = [];
     private byte[] _before = [];
     private int _shown;
     private int _released;
+    private double _fullest;
+
+    /// <summary>How many cues the phone has answered (seen or stuck) so far.</summary>
+    public Func<int>? Answered { get; set; }
+
+    public IReadOnlyList<int> AnsweredAtShow
+    {
+        get
+        {
+            lock (_gate)
+                return [.. _answeredAtShow];
+        }
+    }
+
+    /// <summary>The largest share of any shown picture at 255, or at 0.</summary>
+    public double Fullest
+    {
+        get
+        {
+            lock (_gate)
+                return _fullest;
+        }
+    }
 
     public (byte[] Now, byte[] Before) Glass
     {
@@ -39,10 +65,15 @@ internal sealed class GlassDisplay : IScanDisplay
 
     public Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct)
     {
+        var raster = gray8.ToArray();
+        var white = raster.Count(v => v == 255) / (double)raster.Length;
+        var black = raster.Count(v => v == 0) / (double)raster.Length;
         lock (_gate)
         {
             _before = _now;
-            _now = gray8.ToArray();
+            _now = raster;
+            _answeredAtShow.Add(Answered?.Invoke() ?? 0);
+            _fullest = Math.Max(_fullest, Math.Max(white, black));
         }
         Interlocked.Increment(ref _shown);
         return Task.FromResult(MonoClock.Instance.NowNs);
@@ -52,12 +83,15 @@ internal sealed class GlassDisplay : IScanDisplay
 }
 
 /// <summary>
-/// A phone as the camera page behaves, in C#: it joins with its ticket, answers prepare with the profile it can run, keeps the
-/// sites, and for each cue watches its camera — the simulated scene lit by what the display has on the glass — until two consecutive
-/// pictures show the cue's tag at every lit site (or, for locate frames, have changed) and agree; then it says seen and uploads the
-/// second as PMF1. Faults are injected by pattern index: a late camera (its first pictures still show the pattern before), a
+/// A phone as the camera page behaves, in C#: it joins with its ticket, pings every second (its clock is the node's own, and its
+/// exchange says so exactly), answers prepare with the profile it can run — forgetting the last projector's sites and taking the
+/// probe as the picture to change from — keeps the sites, and for each cue watches its camera (the simulated scene lit by what the
+/// display has on the glass) until two consecutive pictures show the cue's tag at every lit site (or, untagged, have changed by the
+/// page's grid rule; a retake of the frame just taken is compared with the one before it) and agree; then it says seen and uploads
+/// the second as PMF1. Faults are injected by pattern index: a late camera (its first pictures still show the pattern before), a
 /// rolling-shutter mix (top half the new pattern, bottom the old), a dropped upload (seen said, picture never sent), a lie (seen
-/// said at once with a picture of the old pattern), and a phone that goes silent or hangs up.
+/// said at once with a picture of the old pattern); by cue count: a phone that goes silent or hangs up, whose motion sensor fires,
+/// or whose camera is nudged a few pixels.
 /// </summary>
 internal sealed class FakePhone : IAsyncDisposable
 {
@@ -68,13 +102,18 @@ internal sealed class FakePhone : IAsyncDisposable
     private readonly int _height;
     private readonly bool _locks;
     private readonly CancellationTokenSource _stop = new();
+    private readonly SemaphoreSlim _send = new(1, 1);
     private Pcg32 _gain;
     private double _gainNow = 1;
     private List<TagSitePlacement> _sites = [];
     private int _minSites;
     private PixelRect _lit;
-    private byte[]? _lastGrid;
+    private byte[]? _lastPicture;
+    private byte[]? _pictureBefore;
+    private string _lastKey = "";
     private long _seq;
+    private Task? _pinger;
+    private int _answered;
     private ulong _frameSeed = 1;
     private Task? _loop;
     private int _cues;
@@ -120,7 +159,18 @@ internal sealed class FakePhone : IAsyncDisposable
     /// <summary>After this many cues the phone hangs up.</summary>
     public int HangUpAfter { get; set; } = int.MaxValue;
 
+    /// <summary>When this many cues have come, the phone's motion sensor says it moved.</summary>
+    public int MovedAtCue { get; set; } = int.MaxValue;
+
+    /// <summary>After this many cues the camera sees everything shifted right by <see cref="ShiftPx"/> pixels (it was nudged).</summary>
+    public int ShiftAfter { get; set; } = int.MaxValue;
+
+    public int ShiftPx { get; set; } = 3;
+
     public int Cues => Volatile.Read(ref _cues);
+
+    /// <summary>Cues answered (seen or stuck).</summary>
+    public int Answered => Volatile.Read(ref _answered);
 
     /// <summary>What this phone says its pictures' capture instants were, against the truth (ms; set before joining for a clock that is
     /// off by a constant, after joining for one that says pictures were taken before they were).</summary>
@@ -156,18 +206,63 @@ internal sealed class FakePhone : IAsyncDisposable
         var welcome = await ReceiveAsync() ?? throw new InvalidOperationException($"refused: {_ws.CloseStatusDescription}");
         Id = welcome.GetProperty("phone").GetProperty("id").GetString()!;
         Rig = welcome.GetProperty("camera").GetString()!;
-        // One clock exchange, as the page makes every second: this phone's clock is the node's own (plus any skew a test sets).
-        var t1 = PageMs;
-        await SendAsync(new { t = "ping", t1 });
+        // One clock exchange before anything else, then one a second as the page makes them. This phone's clock is the node's own, and
+        // its exchange says so exactly (no queueing on either leg), so its pictures' instants are the node's (plus any skew a test sets).
+        await SendAsync(new { t = "ping", t1 = PageMs });
         var pong = await ReceiveAsync() ?? throw new InvalidOperationException("no pong");
-        await SendAsync(new { t = "ping", t1 = PageMs, prev = new { t1, t2 = pong.GetProperty("t2").GetDouble(), t3 = pong.GetProperty("t3").GetDouble(), t4 = PageMs } });
+        await SendAsync(new { t = "ping", t1 = PageMs, prev = Exact(pong) });
         _loop = Task.Run(LoopAsync, _stop.Token);
+        _pinger = Task.Run(PingAsync, _stop.Token);
+    }
+
+    private object? _prev;
+
+    private static object Exact(JsonElement pong)
+    {
+        var (t2, t3) = (pong.GetProperty("t2").GetDouble(), pong.GetProperty("t3").GetDouble());
+        return new { t1 = t2, t2, t3, t4 = t3 };
+    }
+
+    private async Task PingAsync()
+    {
+        try
+        {
+            using var tick = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await tick.WaitForNextTickAsync(_stop.Token))
+                await SendAsync(new { t = "ping", t1 = PageMs, prev = Volatile.Read(ref _prev) });
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or ObjectDisposedException)
+        {
+            // The phone was ended.
+        }
     }
 
     private async Task SendAsync(object m)
     {
-        if (_ws.State == WebSocketState.Open)
-            await _ws.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m)), WebSocketMessageType.Text, true, _stop.Token);
+        await _send.WaitAsync(_stop.Token);
+        try
+        {
+            if (_ws.State == WebSocketState.Open)
+                await _ws.SendAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m)), WebSocketMessageType.Text, true, _stop.Token);
+        }
+        finally
+        {
+            _send.Release();
+        }
+    }
+
+    private async Task SendBinaryAsync(byte[] frame)
+    {
+        await _send.WaitAsync(_stop.Token);
+        try
+        {
+            if (_ws.State == WebSocketState.Open)
+                await _ws.SendAsync(frame, WebSocketMessageType.Binary, true, _stop.Token);
+        }
+        finally
+        {
+            _send.Release();
+        }
     }
 
     private async Task<JsonElement?> ReceiveAsync()
@@ -193,7 +288,18 @@ internal sealed class FakePhone : IAsyncDisposable
             {
                 switch (m.GetProperty("t").GetString())
                 {
+                    case "pong":
+                        Volatile.Write(ref _prev, Exact(m));
+                        break;
                     case "prepare":
+                        // A new projector's run: its sites are not known yet, and the probe on the glass is what its first frame must
+                        // change from.
+                        _sites = [];
+                        _lit = default;
+                        _minSites = 0;
+                        _lastPicture = Picture(_glass.Glass.Now);
+                        _pictureBefore = null;
+                        _lastKey = "";
                         await SendAsync(new
                         {
                             t = "prepared",
@@ -217,11 +323,21 @@ internal sealed class FakePhone : IAsyncDisposable
                         var n = Interlocked.Increment(ref _cues);
                         if (n > HangUpAfter)
                         {
-                            await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", _stop.Token);
+                            await _send.WaitAsync(_stop.Token);
+                            try
+                            {
+                                await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", _stop.Token);
+                            }
+                            finally
+                            {
+                                _send.Release();
+                            }
                             return;
                         }
                         if (n > SilentAfter)
                             break;
+                        if (n == MovedAtCue)
+                            await SendAsync(new { t = "moved", at = PageMs, magnitude = 0.4 });
                         await CueAsync(m);
                         break;
                     default:
@@ -239,30 +355,22 @@ internal sealed class FakePhone : IAsyncDisposable
     {
         if (GainWalk > 0)
             _gainNow *= 1 + GainWalk * _gain.NextGaussian();
-        return _camera!.RenderRaster(raster, _frameSeed++, _gainNow);
-    }
-
-    private byte[] Grid(byte[] gray)
-    {
-        var (w, h) = (_width, _height);
-        var r = _lit.IsEmpty ? new PixelRect(0, 0, w, h) : _lit;
-        var g = new byte[48 * 27];
-        for (var j = 0; j < 27; j++)
+        if (raster.Length == 0)
+            return new byte[_width * _height];
+        var picture = _camera!.RenderRaster(raster, _frameSeed++, _gainNow);
+        if (Cues <= ShiftAfter)
+            return picture;
+        // Nudged: the scene stands ShiftPx further right in the picture.
+        var shifted = new byte[picture.Length];
+        for (var y = 0; y < _height; y++)
         {
-            var y = Math.Min(h - 1, (int)(r.Y + (j + 0.5) * r.Height / 27));
-            for (var i = 0; i < 48; i++)
-                g[j * 48 + i] = gray[y * w + Math.Min(w - 1, (int)(r.X + (i + 0.5) * r.Width / 48))];
+            Array.Copy(picture, y * _width, shifted, y * _width + ShiftPx, _width - ShiftPx);
+            Array.Fill(shifted, picture[y * _width], y * _width, ShiftPx);
         }
-        return g;
+        return shifted;
     }
 
-    private static double Diff(byte[] a, byte[] b)
-    {
-        double s = 0;
-        for (var k = 0; k < a.Length; k++)
-            s += Math.Abs(a[k] - b[k]);
-        return s / a.Length;
-    }
+    private byte[] Grid(byte[] gray) => PictureGrid.Of(gray, _width, _height, _lit);
 
     private async Task CueAsync(JsonElement m)
     {
@@ -272,6 +380,7 @@ internal sealed class FakePhone : IAsyncDisposable
         var tag = m.GetProperty("tag").GetInt32();
         var minChange = m.GetProperty("minChange").GetDouble();
         var retake = m.GetProperty("retake").GetInt32();
+        var key = $"{kind}:{m.GetProperty("projector").GetString()}:{index}";
         if (kind == "still")
         {
             Interlocked.Increment(ref _stills);
@@ -305,6 +414,9 @@ internal sealed class FakePhone : IAsyncDisposable
             stream.Add(Picture(now));
         byte[]? previous = null;
         var rolling = 0;
+        // A retake of the frame just taken changes from the picture before it, as the page does; grids over the place known now.
+        var fromPicture = retake > 0 && key == _lastKey ? _pictureBefore : _lastPicture;
+        var from = fromPicture is null ? null : Grid(fromPicture);
         foreach (var gray in stream)
         {
             var grid = Grid(gray);
@@ -321,36 +433,40 @@ internal sealed class FakePhone : IAsyncDisposable
             }
             else
             {
-                matches = _lastGrid is null || Diff(_lastGrid, grid) >= minChange;
+                matches = from is null || PictureGrid.Changed(from, grid, minChange);
             }
             if (!matches)
             {
                 previous = null;
                 continue;
             }
-            if (previous is not null && Diff(previous, grid) < 3)
+            if (previous is not null && PictureGrid.Diff(previous, grid) < 3)
             {
-                _lastGrid = grid;
+                _pictureBefore = _lastPicture;
+                _lastPicture = gray;
+                _lastKey = key;
                 var send = !(pattern && retake == 0 && DropUpload.Remove(index));
                 await SeenAsync(id, kind!, tag, gray, rolling, upload: send);
                 return;
             }
             previous = grid;
         }
-        await SendAsync(new { t = "stuck", cue = id, why = "tag not seen" });
+        Interlocked.Increment(ref _answered);
+        await SendAsync(new { t = "stuck", cue = id, why = pattern && _sites.Count > 0 ? "tag not seen" : "unchanged" });
     }
 
     private async Task SeenAsync(long cue, string kind, int tag, byte[] gray, int rolling, bool upload = true)
     {
         var seq = ++_seq;
         var capture = PageMs + CaptureSkewMs;
+        Interlocked.Increment(ref _answered);
         await SendAsync(new { t = "seen", cue, seq, tag, capture, sites = _sites.Count, margin = 10, settleDiff = 1.0, rolling });
         if (!upload)
             return;
         var (w, h) = (_width, _height);
         var frame = Pmf1.Write(new Pmf1Header(kind is "locate" or "still" ? kind : "pattern", seq, (int)cue, w, h, new PixelRect(0, 0, w, h), Pmf1.Gray8,
             Pmf1.Deflate, 1, 0, capture), gray);
-        await _ws.SendAsync(frame, WebSocketMessageType.Binary, true, _stop.Token);
+        await SendBinaryAsync(frame);
     }
 
     /// <summary>Hangs up as a page closing does (a close frame, answered), then stops.</summary>
@@ -361,7 +477,15 @@ internal sealed class FakePhone : IAsyncDisposable
             using var bye = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             try
             {
-                await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", bye.Token);
+                await _send.WaitAsync(bye.Token);
+                try
+                {
+                    await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", bye.Token);
+                }
+                finally
+                {
+                    _send.Release();
+                }
                 if (_loop is not null)
                     await _loop.WaitAsync(bye.Token);
             }
@@ -373,8 +497,11 @@ internal sealed class FakePhone : IAsyncDisposable
         await _stop.CancelAsync();
         if (_loop is not null)
             await _loop;
+        if (_pinger is not null)
+            await _pinger;
         _ws.Dispose();
         _stop.Dispose();
+        _send.Dispose();
     }
 }
 
@@ -485,6 +612,7 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         var ticket = new Uri(invite.GetProperty("url").GetString()!).Fragment["#t=".Length..];
         var phone = new FakePhone(Display, Camera, locks, gainWalk);
         await phone.JoinAsync(Host.Port, ticket);
+        Display.Answered = () => phone.Answered;
         var cam = Truth.Camera;
         var r = await Engine.EditAsync(Desk, "the phone's optics", p => p.WithStage(s => s with
         {

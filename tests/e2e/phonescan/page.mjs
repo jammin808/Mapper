@@ -24,7 +24,18 @@ try {
   const context = await browser.newContext();
   await context.grantPermissions(['camera'], { origin: base });
   const page = await context.newPage();
-  page.on('request', (r) => result.requests.push({ url: r.url(), headers: r.headers(), body: r.postData() ?? '' }));
+  // Every request with all its headers, and the socket's upgrade request with its own (where a socket token would hide).
+  /** @type {Promise<void>[]} */
+  const pending = [];
+  page.on('request', (r) =>
+    pending.push(r.allHeaders().then((headers) => {
+      result.requests.push({ url: r.url(), headers, body: r.postData() ?? '' });
+    })));
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.enable');
+  cdp.on('Network.webSocketWillSendHandshakeRequest', (e) => {
+    result.requests.push({ url: 'websocket upgrade', headers: e.request.headers, body: '' });
+  });
   page.on('console', (m) => result.console.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => result.console.push('error: ' + e.message));
   page.on('websocket', (ws) => {
@@ -40,6 +51,7 @@ try {
   result.stored = await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('playmap.phone.')));
   // The node drives the page now (a prepare, …) and says "done" when it has what it wanted.
   await page.waitForFunction(() => document.getElementById('say')?.textContent === 'done', null, { timeout: 60000 });
+  await Promise.all(pending);
   result.settings = await page.evaluate(() => {
     const v = /** @type {HTMLVideoElement} */ (document.getElementById('video'));
     const track = /** @type {MediaStream} */ (v.srcObject).getVideoTracks()[0];

@@ -207,7 +207,7 @@ public sealed class PhoneInviteTests
         }
         await using (var phone = await JoinedAsync(node))
         {
-            var header = new Pmf1Header("pattern", 1, 1, 32, 32, new Core.Scan.PixelRect(0, 0, 32, 32), Pmf1.Gray8, Pmf1.None, 1, 0, 0);
+            var header = new Pmf1Header("pattern", 1, 1, 320, 240, new Core.Scan.PixelRect(0, 0, 32, 32), Pmf1.Gray8, Pmf1.None, 1, 0, 0);
             var frame = Pmf1.Write(header, new byte[32 * 32]);
             frame[^1] ^= 0xFF;
             await phone.SendBinaryAsync(frame);
@@ -215,6 +215,165 @@ public sealed class PhoneInviteTests
             Assert.Equal(WebSocketCloseStatus.InvalidPayloadData, status);
             Assert.Contains("CRC-32", words, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public async Task APictureIsKeptOnlyAtTheCamerasSizeAndOnlyWhenACueStillWaitsForIt()
+    {
+        await using var node = await PhoneNode.StartAsync();
+        await using (var phone = await JoinedAsync(node))
+        {
+            // A tiny frame that says it is a huge picture: refused before anything is allocated for it.
+            var header = new Pmf1Header("pattern", 1, 1, 16384, 16384, new Core.Scan.PixelRect(0, 0, 1, 1), Pmf1.Gray8, Pmf1.None, 1, 0, 0);
+            await phone.SendBinaryAsync(Pmf1.Write(header, new byte[1]));
+            var (status, words) = await phone.ClosedAsync();
+            Assert.Equal(WebSocketCloseStatus.InvalidPayloadData, status);
+            Assert.Equal("bad frame: a picture whose size is not the camera's", words);
+        }
+        await using (var phone = await JoinedAsync(node))
+        {
+            // Pictures no cue waits for (cancelled, timed out, never asked): each acknowledged and dropped, however many come.
+            for (var seq = 1; seq <= 30; seq++)
+            {
+                await phone.SendAsync(new { t = "seen", cue = 1000 + seq, seq, tag = 0, capture = 0 });
+                var frame = Pmf1.Write(new Pmf1Header("pattern", seq, 1000 + seq, 320, 240, new Core.Scan.PixelRect(0, 0, 320, 240), Pmf1.Gray8, Pmf1.Deflate,
+                    1, 0, 0), new byte[320 * 240]);
+                await phone.SendBinaryAsync(frame);
+                Assert.Equal(seq, (await phone.ReceiveTypeAsync("ack")).GetProperty("seq").GetInt64());
+            }
+            Assert.Equal(WebSocketState.Open, phone.Socket.State);
+            Assert.Single(node.Hub.Phones(), p => p.Connected);
+        }
+    }
+
+    [Fact]
+    public async Task APhoneThatSendsNothingIsEndedWithWords()
+    {
+        await using var node = await PhoneNode.StartAsync(o => o with { QuietTimeout = TimeSpan.FromMilliseconds(500) });
+        await using var phone = await JoinedAsync(node);
+        var (status, words) = await phone.ClosedAsync();
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
+        Assert.Equal("stopped sending: nothing for 0.5 s", words);
+        Assert.True(await Eventually.TrueAsync(() => !node.Hub.Phones()[0].Connected));
+        Assert.Equal("Pixel 8 stopped sending: nothing for 0.5 s", node.Hub.Phones()[0].Words);
+    }
+
+    [Fact]
+    public async Task APhoneForgottenWhileItsJoinIsInFlightIsRefusedAndItsKeyStaysForgotten()
+    {
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var joining = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gated = false;
+        await using var node = await PhoneNode.StartAsync();
+        node.Hub.Join = async (j, ct) =>
+        {
+            if (Volatile.Read(ref gated))
+            {
+                joining.TrySetResult();
+                await hold.Task.WaitAsync(ct);
+            }
+            return "cm00000001";
+        };
+        string key;
+        await using (var first = await PhoneClient.ConnectAsync(node.Port))
+        {
+            await first.SendAsync(PhoneClient.Hello(ticket: PhoneNode.TicketOf(node.Invite())));
+            key = (await first.ReceiveTypeAsync("welcome")).GetProperty("key").GetString()!;
+        }
+        var id = node.Hub.Phones()[0].Id;
+        Assert.True(await Eventually.TrueAsync(() => !node.Hub.Phones()[0].Connected));
+        Volatile.Write(ref gated, true);
+        await using var again = await PhoneClient.ConnectAsync(node.Port);
+        await again.SendAsync(PhoneClient.Hello(key: key));
+        await joining.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // PHONE FORGET while the join waits on the node: the join is refused, and the forgotten key is not written back.
+        Assert.Equal([id], node.Hub.Forget(id));
+        hold.TrySetResult();
+        var (status, words) = await again.ClosedAsync();
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
+        Assert.Equal("was forgotten: its key no longer opens anything", words);
+        Assert.Empty(node.Hub.Phones());
+        Assert.DoesNotContain(id, await File.ReadAllTextAsync(node.KeysPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AJoinTheNodeCannotFinishLeavesNoPhoneAndItsTicketHoldsForAnotherTry()
+    {
+        var refuse = true;
+        await using var node = await PhoneNode.StartAsync();
+        node.Hub.Join = (j, ct) => Volatile.Read(ref refuse)
+            ? throw new InvalidOperationException("mapping is locked while the show is armed — SHOW DISARM first")
+            : Task.FromResult("cm00000001");
+        var ticket = PhoneNode.TicketOf(node.Invite());
+        await using (var first = await PhoneClient.ConnectAsync(node.Port))
+        {
+            await first.SendAsync(PhoneClient.Hello(ticket: ticket));
+            var (status, words) = await first.ClosedAsync();
+            Assert.Equal(WebSocketCloseStatus.InternalServerError, status);
+            Assert.Equal("the node could not add this phone's camera: mapping is locked while the show is armed — SHOW DISARM first", words);
+        }
+        Assert.Empty(node.Hub.Phones());
+        Volatile.Write(ref refuse, false);
+        await using var second = await PhoneClient.ConnectAsync(node.Port);
+        await second.SendAsync(PhoneClient.Hello(ticket: ticket));
+        var welcome = await second.ReceiveTypeAsync("welcome");
+        Assert.Equal("cm00000001", welcome.GetProperty("camera").GetString());
+        Assert.True(Assert.Single(node.Hub.Phones()).Connected);
+    }
+
+    [Fact]
+    public async Task AWelcomeThatNeverGoesLeavesNoPhantomPhone()
+    {
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var joining = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var node = await PhoneNode.StartAsync();
+        node.Hub.Join = async (j, ct) =>
+        {
+            joining.TrySetResult();
+            await hold.Task;
+            return "cm00000001";
+        };
+        var phone = await PhoneClient.ConnectAsync(node.Port);
+        await phone.SendAsync(PhoneClient.Hello(ticket: PhoneNode.TicketOf(node.Invite())));
+        await joining.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // The node stops while the join is in flight: the welcome never goes, so no phone is left connected or paired.
+        await node.Hub.DisposeAsync();
+        hold.TrySetResult();
+        var (status, _) = await phone.ClosedAsync();
+        Assert.NotEqual(WebSocketCloseStatus.NormalClosure, status);
+        Assert.Empty(node.Hub.Phones());
+        await phone.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task OnlyAPhoneConnectedNowIsExemptFromTheConnectedLimit()
+    {
+        await using var node = await PhoneNode.StartAsync(o => o with { MaxConnected = 1 });
+        string keyA;
+        await using (var a = await PhoneClient.ConnectAsync(node.Port))
+        {
+            await a.SendAsync(PhoneClient.Hello(ticket: PhoneNode.TicketOf(node.Invite("A"))));
+            keyA = (await a.ReceiveTypeAsync("welcome")).GetProperty("key").GetString()!;
+        }
+        Assert.True(await Eventually.TrueAsync(() => node.Hub.Connected == 0));
+        await using var b = await PhoneClient.ConnectAsync(node.Port);
+        await b.SendAsync(PhoneClient.Hello(ticket: PhoneNode.TicketOf(node.Invite("B"))));
+        await b.ReceiveTypeAsync("welcome");
+        // A joined before but is not connected now: the limit holds for it as for any phone.
+        await using var again = await PhoneClient.ConnectAsync(node.Port);
+        await again.SendAsync(PhoneClient.Hello(key: keyA));
+        Assert.Equal("1 phones are connected already", (await again.ClosedAsync()).Words);
+        Assert.Equal(1, node.Hub.Connected);
+    }
+
+    [Fact]
+    public void ACloseReasonFitsItsBytesOnACharacterBoundary()
+    {
+        Assert.Equal("short words", PhoneSession.CloseReason("short words"));
+        var reason = PhoneSession.CloseReason(new string('é', 100) + "😀😀");
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(reason) <= 123, reason);
+        Assert.EndsWith("…", reason, StringComparison.Ordinal);
+        Assert.False(char.IsHighSurrogate(reason[^2]));
     }
 
     [Fact]

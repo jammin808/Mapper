@@ -9,3 +9,4 @@ a { color: var(--red); }
 #chips { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 #chips li { border: 1px solid var(--dim); border-radius: 1rem; padding: 0.2rem 0.7rem; font-size: 0.9rem; }
 #chips li.ok { border-color: var(--red); }
+button.quiet { background: transparent; color: var(--red); border: 1px solid var(--dim); font-size: 1rem; margin-top: 1rem; }

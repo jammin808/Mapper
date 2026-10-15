@@ -5,8 +5,8 @@ namespace PlayMap.Engine.Scanning;
 
 /// <summary>What is on the glass now, for a camera told: a locate frame (paired by change and timing) or a pattern (paired by its
 /// tag when sites exist, else by change and timing), its index and tag value (0 for none), when it was presented and the earliest
-/// instant a picture can show it (node monotonic ns), which retake this is, and the change from the last picture taken that a
-/// pairing by change needs (levels).</summary>
+/// instant a picture can show it (node monotonic ns), which retake this is, and the level a sample of the picture's grid must move by
+/// from the last picture taken for a pairing by change (<see cref="Core.Phone.PictureGrid"/>).</summary>
 public sealed record PatternCue(string Kind, string ProjectorId, int Index, int Tag, long PresentNs, long EarliestNs, int Retake, double MinChange);
 
 /// <summary>The camera's answer to a cue: "seen" with its picture on the way (<see cref="Pixels"/> completes when it lands), the tag
@@ -39,5 +39,10 @@ public interface ICuedScanCamera : IScanCamera
     /// <summary>Where the projector's tag sites land in the camera's picture (none: pairing by change and timing).</summary>
     Task SetSitesAsync(string projectorId, CellLocateResult located, CancellationToken ct);
 
-    Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct);
+    /// <summary>Puts a cue to the camera; <paramref name="ct"/> ends the wait for its answer, <paramref name="scan"/> the wait for the
+    /// picture it names.</summary>
+    Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct, CancellationToken scan);
+
+    /// <summary>How many times the camera's own motion sensor has said it moved (0 for a camera without one).</summary>
+    int Moves { get; }
 }

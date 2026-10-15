@@ -27,16 +27,25 @@ public sealed record CellLocateResult(
 /// <summary>
 /// Finds where a projector's candidate tag sites land in the camera. The candidates are 4 × 4 cells of
 /// c = max(6, round(W/80)) projector pixels, on an evenly spread grid (8 × 5 where they fit) inside a 4 % inset; each cell has an
-/// id (site × 16 + cell + 1). Twelve frames name every cell: L0 all cells lit, L1 all dark, L2…L11 a cell lit when bit j−2 of
-/// Gray(id) is set (the background stays at one level, mid-grey for a camera that holds its own exposure). Per camera pixel the
-/// contrast L0 − L1 must reach 12 levels and each bit must clear the midpoint by a fifth of it, else the pixel names no cell.
+/// id (site × 16 + cell + 1). Fourteen frames name every cell; the background between the cells takes two levels in turn, frame by
+/// frame (around mid-grey for a camera that holds its own exposure), so each frame differs from the one before wherever the
+/// projector lands in the camera — whatever the cells show, however few the camera sees — and a camera paired by change always sees
+/// the change. F0 and F1 light every cell (on either background), F2 and F3 darken every cell, F4…F13 light a cell when bit f−4 of
+/// Gray(id) is set; each bit frame is read against the all-lit and all-dark pair on its own background. Per camera pixel both
+/// contrasts must reach 12 levels and each bit must clear the midpoint by a fifth of its contrast, else the pixel names no cell.
 /// A cell is found when its pixels (gathered again round their centroid) cover at least 60 % of its site's median and are
 /// compact; a site counts when all 16 cells are found and a homography through their centroids fits within 0.5 px (the surface is
 /// locally smooth). The sites chosen: the topmost, the bottommost, then the farthest from those, up to three.
 /// </summary>
 public static class CellLocate
 {
-    public const int Frames = 12;
+    public const int Frames = 14;
+
+    /// <summary>The background of frame <paramref name="j"/>: the base level on even frames; on odd frames one about a tenth of full
+    /// light brighter (a projector's levels are gamma-encoded: 96 is some 12 % of white's light, 128 some 22 %), enough for any camera
+    /// to see the change and too little for one that keeps its own exposure to chase it.</summary>
+    public static byte Background(int j, byte background) =>
+        j % 2 == 0 ? background : background < 96 ? (byte)96 : (byte)Math.Min(255, background + 32);
 
     public const int MinPixelContrast = 12;
 
@@ -79,23 +88,24 @@ public static class CellLocate
 
     public static int CellId(int site, int cell) => site * FrameTag.Cells + cell + 1;
 
-    /// <summary>Locate frame <paramref name="j"/> (0–11) into a projector raster.</summary>
+    /// <summary>Locate frame <paramref name="j"/> (0–13) into a projector raster, on <paramref name="background"/> (even frames) or the
+    /// swung level (odd frames).</summary>
     public static void RenderFrame(int j, Span<byte> raster, int width, int height, IReadOnlyList<TagSite> sites, byte background,
         byte high = 255, byte low = 0)
     {
         ArgumentNullException.ThrowIfNull(sites);
         ArgumentOutOfRangeException.ThrowIfNegative(j);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(j, Frames);
-        raster[..(width * height)].Fill(background);
+        raster[..(width * height)].Fill(Background(j, background));
         foreach (var site in sites)
         {
             for (var c = 0; c < FrameTag.Cells; c++)
             {
                 var lit = j switch
                 {
-                    0 => true,
-                    1 => false,
-                    _ => ((GrayCode.Encode(CellId(site.Id, c)) >> (j - 2)) & 1) != 0,
+                    0 or 1 => true,
+                    2 or 3 => false,
+                    _ => ((GrayCode.Encode(CellId(site.Id, c)) >> (j - 4)) & 1) != 0,
                 };
                 TagOverlay.Fill(raster, width, site.CellRect(c), lit ? high : low);
             }
@@ -142,7 +152,7 @@ public static class CellLocate
         }
     }
 
-    /// <summary>Decodes the twelve locate pictures (gray8, camera raster) against the candidates and chooses up to
+    /// <summary>Decodes the fourteen locate pictures (gray8, camera raster) against the candidates and chooses up to
     /// <paramref name="maxSites"/> sites.</summary>
     public static CellLocateResult Decode(int width, int height, IReadOnlyList<byte[]> frames, IReadOnlyList<TagSite> sites, int maxSites = 3,
         double maxFitRmsPx = 0.5)
@@ -160,22 +170,31 @@ public static class CellLocate
         var maxId = sites.Count * FrameTag.Cells;
         var ids = new int[n];
         int litX0 = width, litY0 = height, litX1 = -1, litY1 = -1;
+        Span<int> mid2 = stackalloc int[2];
+        Span<int> margin2 = stackalloc int[2];
         for (var k = 0; k < n; k++)
         {
-            int on = frames[0][k], off = frames[1][k];
-            var contrast = on - off;
-            if (contrast < MinPixelContrast)
+            var contrasted = true;
+            for (var b = 0; b < 2; b++)
+            {
+                // Background b: its all-lit frame is F(b), its all-dark frame F(2 + b).
+                int on = frames[b][k], off = frames[2 + b][k];
+                var contrast = on - off;
+                contrasted &= contrast >= MinPixelContrast;
+                mid2[b] = on + off; // twice the midpoint
+                margin2[b] = (2 * contrast + 4) / 5; // twice a fifth of the contrast
+            }
+            if (!contrasted)
                 continue;
-            var mid2 = on + off; // twice the midpoint
-            var margin2 = (2 * contrast + 4) / 5; // twice a fifth of the contrast
             var gray = 0;
             var sure = true;
-            for (var j = 2; j < Frames; j++)
+            for (var j = 4; j < Frames; j++)
             {
                 var v2 = 2 * frames[j][k];
-                if (v2 >= mid2 + margin2)
-                    gray |= 1 << (j - 2);
-                else if (v2 > mid2 - margin2)
+                var b = j % 2;
+                if (v2 >= mid2[b] + margin2[b])
+                    gray |= 1 << (j - 4);
+                else if (v2 > mid2[b] - margin2[b])
                 {
                     sure = false;
                     break;

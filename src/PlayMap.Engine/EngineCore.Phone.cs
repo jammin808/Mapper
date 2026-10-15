@@ -23,8 +23,10 @@ public sealed partial class EngineCore
         routes.OffLane("PHONE INVITE", PhoneInviteAsync);
         routes.Lane("PHONE LIST", _ => CommandReply.Success(PhonesJson()));
         routes.Lane("PHONE FORGET", PhoneForget);
+        // An attempt: the wait is ended and the pattern goes up again, unless the camera's answer was already on its way (STATE.scan
+        // shows which).
         routes.Lane("SCAN NEXT", _ => Services.Scan is ScanRunner runner && runner.Next()
-            ? CommandReply.Success(effect: "the pattern is shown again for the camera")
+            ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
             : CommandReply.Fail("no scan is waiting for a picture"));
         routes.Index(new PhoneIndex(this));
     }
@@ -67,8 +69,9 @@ public sealed partial class EngineCore
                 : existing with { Phone = joined.Profile, Intrinsics = prior, Lens = LensDistortion.None, Calibrated = false };
             return p.WithStage(s => s with { Cameras = s.Cameras.Update(existing.Id, _ => updated) });
         }).ConfigureAwait(false);
-        if (rigId.Length == 0)
-            throw new InvalidOperationException("the phone's camera could not be added: " + r.Effect);
+        // Decided by the project after the edit, never by the attempt: a refused edit (the show armed, mapping locked) made no rig.
+        if (rigId.Length == 0 || Store.Project.Stage.Cameras.Find(rigId) is null)
+            throw new InvalidOperationException(r.Effect.Length > 0 ? r.Effect : "the project took no camera for it");
         return rigId;
     }
 
@@ -78,6 +81,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail("this node has no phone hub");
         if (NoInviteTransports.Contains(call.Session.Transport, StringComparer.Ordinal))
             return CommandReply.Fail("PHONE INVITE answers only a person on their own session, never an assistant or an approval: its link opens this node's camera page");
+        // The link is a secret: from another machine it goes only over the web port, never on the line wire, which is not encrypted.
+        if (!call.Session.IsLoopback && call.Session.Transport is not ("http" or "ws"))
+            return CommandReply.Fail("PHONE INVITE answers on this machine or through the node's web page: the line wire is not encrypted, and the invite's link is a secret");
         if (!Services.Settings.Phone.Enabled)
             return CommandReply.Fail("phones are switched off on this node");
         var args = call.Args;

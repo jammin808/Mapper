@@ -78,6 +78,33 @@ public sealed class ReferenceSynthesisTests
         }
     }
 
+    [Fact]
+    public void ACameraWithAResponseCurveIsReadAsLightAndAStillOneDoesNotDrift()
+    {
+        // A phone's picture is gamma-encoded: its sinusoid steps no longer sum to white plus black, its binary patterns still do.
+        var still = TagKit.Floor(new SimOptions { Seed = 5, CameraGamma = 2.2 });
+        var frames = still.Simulator.RenderAll();
+        ReferenceSynthesis.Fill(still.Plan, frames);
+        var gamma = GainNormaliser.ResponseGamma(still.Plan, frames, GainNormaliser.LitMask(still.Plan, frames));
+        Assert.InRange(gamma, 2.0, 2.4);
+        var drift = GainNormaliser.PrepareSteady(still.Plan, still.Simulator.RenderAll());
+        Assert.True(drift < 0.5, $"a still camera with a curve drifted {drift} %");
+
+        // A walking one is read frame by frame through its curve, as a linear one is.
+        var walking = TagKit.Floor(new SimOptions { GainWalk = 0.01, Seed = 5, CameraGamma = 2.2 });
+        var walked = walking.Simulator.RenderAll();
+        ReferenceSynthesis.Fill(walking.Plan, walked);
+        var gains = GainNormaliser.Gains(walking.Plan, walked, GainNormaliser.LitMask(walking.Plan, walked));
+        var common = Median(gains.Select(g => g.Value / walking.Simulator.GainOf(g.Key)).ToList());
+        foreach (var (i, g) in gains)
+            Assert.True(Math.Abs(g / walking.Simulator.GainOf(i) / common - 1) < 0.01, $"frame {i}: read {g:0.000}, truth {walking.Simulator.GainOf(i):0.000}");
+        // And a linear camera is read as linear.
+        var linearKit = TagKit.Floor(new SimOptions { Seed = 5 });
+        var linear = linearKit.Simulator.RenderAll();
+        ReferenceSynthesis.Fill(linearKit.Plan, linear);
+        Assert.Equal(1.0, GainNormaliser.ResponseGamma(linearKit.Plan, linear, GainNormaliser.LitMask(linearKit.Plan, linear)), 2);
+    }
+
     private static double Median(List<double> v)
     {
         v.Sort();
