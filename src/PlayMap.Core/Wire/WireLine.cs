@@ -160,13 +160,26 @@ public static class WireGrammar
         return true;
     }
 
-    /// <summary>Quotes a word for a line when it needs it.</summary>
+    /// <summary>Quotes a word for a line when it needs it, escaping only what the grammar would otherwise read as an escape or an
+    /// end: a quote, and a backslash before a quote, a backslash or the closing quote. So a line reads as it would be typed
+    /// ("C:\Shows\My FX\Shift.fs"), and <see cref="TrySplit"/> gives the word back whole.</summary>
     public static string Quote(string word)
     {
         ArgumentNullException.ThrowIfNull(word);
         if (word.Length > 0 && !word.Any(c => char.IsWhiteSpace(c) || c == '"'))
             return word;
-        return "\"" + word.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        var sb = new StringBuilder(word.Length + 2).Append('"');
+        for (var i = 0; i < word.Length; i++)
+        {
+            var c = word[i];
+            if (c == '"')
+                sb.Append('\\').Append('"');
+            else if (c == '\\' && (i + 1 == word.Length || word[i + 1] is '"' or '\\'))
+                sb.Append('\\').Append('\\');
+            else
+                sb.Append(c);
+        }
+        return sb.Append('"').ToString();
     }
 
     /// <summary>"OK", "OK @a1", "OK @a1 payload". A payload never contains a newline (JSON is compact).</summary>

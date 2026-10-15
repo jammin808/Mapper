@@ -175,7 +175,11 @@ public sealed class OutputFixtureTests
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";
             machine["presentMsP95"] = 0.21;
+            // The platform's binding (GLX here, WGL on Windows), as the renderer's name is the machine's.
+            machine["context"] = "glx";
         }
+        if (root["machine"]!["gl"] is not null)
+            root["machine"]!["gl"] = "glx";
         foreach (var o in root["outputs"]!.AsArray().OfType<JsonObject>())
         {
             o["fps"] = 60.0;

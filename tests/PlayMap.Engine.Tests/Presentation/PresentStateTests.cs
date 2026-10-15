@@ -173,7 +173,8 @@ public sealed class RenderHostPresentTests
         Assert.Equal("gl", machine.GetProperty("api").GetString());
         Assert.Equal("offscreen", machine.GetProperty("path").GetString());
         Assert.Equal("core330", machine.GetProperty("dialect").GetString());
-        Assert.Equal("glx", machine.GetProperty("context").GetString());
+        // The platform's own binding: GLX on this rig's X server, WGL on Windows.
+        Assert.Equal(OperatingSystem.IsWindows() ? "wgl" : "glx", machine.GetProperty("context").GetString());
         var lockJson = doc.RootElement.GetProperty("outputs")[0].GetProperty("lock");
         Assert.Equal("free-unknown", lockJson.GetProperty("state").GetString());
         Assert.Equal("none", doc.RootElement.GetProperty("sync").GetProperty("lock").GetProperty("driver").GetString());
@@ -192,7 +193,10 @@ public sealed class RenderHostPresentTests
         Assert.Equal((0, 0, 255), HostRig.At(await rig.Read("op_1"), 64, 10, 10));
         var machine = rig.Host.Machine();
         Assert.Equal("es300", machine.Dialect);
-        Assert.True(machine.Context == "egl" || machine.Why.StartsWith("ES through GLX", StringComparison.Ordinal), $"{machine.Context}: {machine.Why}");
+        // Linux makes ES on EGL (or on GLX, saying so); Windows makes it on its own WGL, which needs no words.
+        Assert.True(OperatingSystem.IsWindows()
+            ? machine.Context == "wgl" && machine.Why.Length == 0
+            : machine.Context == "egl" || machine.Why.StartsWith("ES through GLX", StringComparison.Ordinal), $"{machine.Context}: {machine.Why}");
     }
 
     [Fact]

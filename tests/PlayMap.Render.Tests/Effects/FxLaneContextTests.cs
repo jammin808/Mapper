@@ -22,7 +22,10 @@ public sealed class FxLaneContextTests
             {
                 using var c = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlDialect.Es300));
                 Assert.Equal(GlDialect.Es300, c.Dialect);
-                Assert.True(c.Api == "egl" || c.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {c.Words}");
+                // EGL on Linux (or GLX, saying so); WGL on Windows, which needs no words.
+                Assert.True(OperatingSystem.IsWindows()
+                    ? c.Api == "wgl" && c.Words.Length == 0
+                    : c.Api == "egl" || c.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {c.Words}");
                 Assert.Equal(c.Api == "egl", c.EglWindows);
                 using var lane = new FxCompileLane(c);
                 Assert.Equal("shared-context", lane.Mode);

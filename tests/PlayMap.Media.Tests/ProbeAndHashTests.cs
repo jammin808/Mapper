@@ -145,7 +145,8 @@ public class ProbeAndHashTests
         using var p = Process.Start(psi)!;
         var line = await p.StandardOutput.ReadToEndAsync();
         await p.WaitForExitAsync();
-        Assert.Equal("sha256:" + line.Split(' ')[0], hash);
+        // coreutils escapes a name with a backslash in it (every Windows path) and marks the line with a leading backslash.
+        Assert.Equal("sha256:" + line.TrimStart('\\').Split(' ')[0], hash);
     }
 
     [Fact]

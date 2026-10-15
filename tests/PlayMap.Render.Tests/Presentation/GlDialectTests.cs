@@ -9,7 +9,7 @@ using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests.Presentation;
 
-/// <summary>The ES dialect on a real OpenGL ES context (EGL surfaceless on Mesa): every library program compiles and links, the
+/// <summary>The ES dialect on a real OpenGL ES context (EGL surfaceless on Mesa, WGL on Windows): every library program compiles and links, the
 /// caps come from the context, BGRA uploads sample right through the swizzle, and an output renders through the whole frame.</summary>
 [Collection("es")]
 public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
@@ -24,9 +24,18 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
             Assert.StartsWith("OpenGL ES 3.", c.Device.Version, StringComparison.Ordinal);
             Assert.Equal("es300", c.Device.Caps.Dialect);
             Assert.False(c.Device.Caps.IsCore);
-            Assert.Equal("egl-surfaceless", c.Api);
-            Assert.False(c.HasWindows);
-            Assert.Empty(c.Monitors());
+            if (OperatingSystem.IsLinux())
+            {
+                Assert.Equal("egl-surfaceless", c.Api);
+                Assert.False(c.HasWindows);
+                Assert.Empty(c.Monitors());
+            }
+            else
+            {
+                // No surfaceless EGL here: the window system's own ES context, on a hidden window.
+                Assert.Equal("wgl", c.Api);
+                Assert.True(c.HasWindows);
+            }
             Assert.True(c.Device.GlVersion >= 30, $"GL_VERSION reads {c.Device.GlVersion}");
         });
     }

@@ -58,10 +58,14 @@ public sealed class EngineSourcesTests
         public List<int> OpenedOn { get; } = [];
         public int Refusals { get; set; }
 
+        /// <summary>Holds every open until set (a file on a share that is slow to answer).</summary>
+        public ManualResetEventSlim? Gate { get; init; }
+
         public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) => throw new NotSupportedException();
 
         public IVideoSource? Open(MediaItem item)
         {
+            Gate?.Wait();
             lock (Made)
             {
                 OpenedOn.Add(Environment.CurrentManagedThreadId);
@@ -183,6 +187,52 @@ public sealed class EngineSourcesTests
         frame += EngineSources.RetryFrames;
         using var lease = Until(sources, snap, SourceRef.Media("md_late"), ref frame);
         Assert.Single(media.Made);
+    }
+
+    /// <summary>An open that takes longer than the retry interval to fail (a share timing out) keeps its problem published for
+    /// the whole interval after the failure, and only then is opened again.</summary>
+    [Fact]
+    public void AnOpenThatFailsLateKeepsItsProblemForTheIntervalBeforeItIsOpenedAgain()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var media = new FakeMedia { Refusals = 1, Gate = gate };
+        var project = Project.CreateDefault() with { Media = [Item("md_late")] };
+        var snap = Snapshot(project);
+        using var sources = new EngineSources(media);
+        long frame = 0;
+        try
+        {
+            // More frames than the interval pass while the open hangs.
+            for (var i = 0; i < 2 * EngineSources.RetryFrames; i++)
+            {
+                sources.BeginFrame(snap, ++frame);
+                Assert.Null(sources.Acquire(SourceRef.Media("md_late"), 0));
+            }
+        }
+        finally
+        {
+            gate.Set();
+        }
+        var waited = Stopwatch.StartNew();
+        while (sources.Problem("md_late") is null)
+        {
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), "the open never failed");
+            Thread.Yield();
+        }
+
+        // The interval runs from the failure: the problem stays published and nothing opens again.
+        for (var i = 0; i < EngineSources.RetryFrames; i++)
+        {
+            sources.BeginFrame(snap, ++frame);
+            Assert.Null(sources.Acquire(SourceRef.Media("md_late"), 0));
+            Assert.Contains("not here yet", sources.Problem("md_late"), StringComparison.Ordinal);
+        }
+        lock (media.Made)
+            Assert.Single(media.OpenedOn);
+        using var lease = Until(sources, snap, SourceRef.Media("md_late"), ref frame);
+        lock (media.Made)
+            Assert.Equal((1, 2), (media.Made.Count, media.OpenedOn.Count));
+        gate.Dispose();
     }
 
     [Fact]

@@ -194,7 +194,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
     [Fact]
     public void AnEsContextMadeThroughTheWindowSystemRendersAndPresents()
     {
-        // GLFW makes the ES context on EGL here (or on GLX, saying so); output windows share it the same way.
+        // GLFW makes the ES context on EGL on Linux (or on GLX, saying so) and on WGL on Windows; output windows share it the same way.
         Exception? failure = null;
         var thread = new Thread(() =>
         {
@@ -203,7 +203,9 @@ public sealed class PresenterSeamTests(GlFixture gl)
                 using var platform = GpuPlatforms.Create(new PlatformRequest(Dialect: "es300"), new GlDeviceOptions(true, true));
                 var c = platform.Context;
                 Assert.Equal(GlDialect.Es300, c.Dialect);
-                Assert.True(c.Api == "egl" || platform.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {platform.Words}");
+                Assert.True(OperatingSystem.IsWindows()
+                    ? c.Api == "wgl" && platform.Words.Length == 0
+                    : c.Api == "egl" || platform.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {platform.Words}");
                 var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
                 using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
                 using (var window = platform.CreatePresenter(new OutputPresenterOptions("ES output", null, false, 64, 36, VSync: false)))

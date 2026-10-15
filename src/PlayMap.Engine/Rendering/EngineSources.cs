@@ -32,8 +32,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     public const int IdleFrames = 120;
     public const long PrepareAheadNs = 2_000_000_000;
 
-    /// <summary>A source that could not open is opened again after this many frames (a file fetched from a
-    /// peer, a camera plugged in).</summary>
+    /// <summary>A source that could not open is opened again this many frames after its failure was seen (a file fetched
+    /// from a peer, a camera plugged in): its problem stays published that long, however long the open took to fail.</summary>
     public const int RetryFrames = 300;
 
     private const int SweepEvery = 30;
@@ -44,9 +44,10 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     {
         public required MediaItem Item { get; init; }
         public required long Epoch { get; init; }
-        public required long OpenedFrame { get; init; }
         public IVideoSource? Source;
         public string? Problem;
+        /// <summary>The frame a sweep first saw the source failed (−1 while it has not).</summary>
+        public long FailedFrame = -1;
         public int Retired;
         public long LastUsed;
         public long PreparedSeq = long.MinValue;
@@ -311,7 +312,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         }
         if (_media is null || _disposed)
             return null;
-        slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame, OpenedFrame = _frame };
+        slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame };
         slots[key] = slot;
         var media = _media;
         ThreadPool.UnsafeQueueUserWorkItem(static s => Open(s.Media, s.Slot), (Media: media, Slot: slot), preferLocal: false);
@@ -392,8 +393,12 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         if (ReferenceEquals(slots, _itemSlots))
             SweepItemRefs();
         foreach (var (key, slot) in slots)
-            if (_frame - slot.LastUsed > IdleFrames || gone(key, slot) || (Failed(slot) && _frame - slot.OpenedFrame > RetryFrames))
+        {
+            if (slot.FailedFrame < 0 && Failed(slot))
+                slot.FailedFrame = _frame;
+            if (_frame - slot.LastUsed > IdleFrames || gone(key, slot) || (slot.FailedFrame >= 0 && _frame - slot.FailedFrame > RetryFrames))
                 _stale.Add(key);
+        }
         foreach (var key in _stale)
         {
             Retire(slots[key]);

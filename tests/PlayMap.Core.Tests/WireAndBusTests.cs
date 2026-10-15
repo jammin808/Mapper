@@ -79,7 +79,10 @@ public class WireAndBusTests
         // A typed path that ends in a backslash escapes its closing quote: written \\ (as Quote writes it), it closes.
         Assert.False(WireGrammar.TryParse(@"SAY ""C:\Shows\"" next", out _, out _));
 
-        foreach (var word in new[] { @"C:\Users\show\My FX\Shift.fs", @"\\stage-pc\media\clip one.mov", @"C:\Shows\", @"say \\\""hi\"" now", "plain", "" })
+        // Quote writes a path as it would be typed: only a backslash the grammar would read as an escape or an end is doubled.
+        Assert.Equal(@"""C:\Users\show\My FX\Shift.fs""", WireGrammar.Quote(@"C:\Users\show\My FX\Shift.fs"));
+        Assert.Equal(@"""C:\My Shows\\""", WireGrammar.Quote(@"C:\My Shows\"));
+        foreach (var word in new[] { @"C:\Users\show\My FX\Shift.fs", @"\\stage-pc\media\clip one.mov", @"C:\My Shows\", @"C:\Shows\", @"say \\\""hi\"" now", "plain", "" })
         {
             Assert.True(WireGrammar.TryParse("SAY " + WireGrammar.Quote(word) + " after", out var line, out _), word);
             Assert.Equal((3, word, "after"), (line.Count, line.Word(1), line.Word(2)));
