@@ -53,7 +53,8 @@ every machine, output and projector". `FLEET FOCUS self` names this node's own m
 web modules admitted before the token gate, on purpose: they are open reads like the hello — names, counts and lights, never a
 secret, a token or a file's content — and they change nothing (anything but GET or HEAD is refused 403 "the fleet's pages are
 read-only …"). The `/health` WebSocket feeds at most 64 sockets at once; one more is answered 503 with words (a GET still reads
-the record). The plan named them `/api/health` and `/api/fleet`; the web port keeps `/api/…` for its own routes behind the gate
+the record). A WebSocket whose Origin names another site is refused 403 (a fleet monitor sends no Origin; a browser always does), so
+a stranger's page cannot hold the feeds. The plan named them `/api/health` and `/api/fleet`; the web port keeps `/api/…` for its own routes behind the gate
 (no module may serve under it), so they live at `/health` and `/fleet` until the web port's owner opens an `/api/<word>` door to
 modules.
 

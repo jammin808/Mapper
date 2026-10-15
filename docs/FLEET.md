@@ -44,7 +44,7 @@ Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the 
 
 HEALTH is pushed (`SUBSCRIBE HEALTH`, the `/health` WebSocket) at once, once a second, and at once when any light moves — a clock
 that runs only while someone watches. The `/health` WebSocket feeds at most 64 sockets at once (a monitor holds one per peer); one more
-is refused with 503 and words, and a GET still reads the record.
+is refused with 503 and words, and a GET still reads the record; a socket a page from another site opens is refused.
 
 The fleet's part also watches this machine's own lights once a second on the fleet's clock: when a category's, an output's or the
 machine's light moves, the engine's facts move, so STATE (`fleet`, `eye`), the context's `machine` item and HEALTH's watchers say it

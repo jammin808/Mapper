@@ -17,17 +17,35 @@ public static class FleetWeb
 {
     public const string ReadOnly = "the fleet's pages are read-only: GET only — the node's verbs are on /api/cmd and the line wire, behind the token";
 
-    /// <summary>Open for a read; refused with words for anything else.</summary>
+    public const string ForeignFeed = "a page from another site cannot hold this node's health feed open — GET /health reads the record";
+
+    /// <summary>Open for a read; refused with words for anything else, and for a WebSocket a page from another site opens (a browser
+    /// always says where a page came from; a fleet monitor says nothing): the feeds are few, and a stranger's page must not hold them.</summary>
     public static WebAdmission AdmitRead(HttpContext context, out string words)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+        if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method))
         {
-            words = "";
-            return WebAdmission.Open;
+            words = ReadOnly;
+            return WebAdmission.Refuse;
         }
-        words = ReadOnly;
-        return WebAdmission.Refuse;
+        if (context.WebSockets.IsWebSocketRequest && !SameOriginOrNone(context.Request))
+        {
+            words = ForeignFeed;
+            return WebAdmission.Refuse;
+        }
+        words = "";
+        return WebAdmission.Open;
+    }
+
+    /// <summary>No Origin header, or one naming the host the request was sent to.</summary>
+    private static bool SameOriginOrNone(HttpRequest request)
+    {
+        var origin = request.Headers.Origin.ToString();
+        if (origin.Length == 0)
+            return true;
+        return Uri.TryCreate(origin, UriKind.Absolute, out var uri) && request.Host.HasValue
+            && string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
     }
 
     internal static async Task WriteJsonAsync(HttpContext context, string json)

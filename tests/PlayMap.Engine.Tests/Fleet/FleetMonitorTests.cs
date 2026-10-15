@@ -137,6 +137,13 @@ public sealed class FleetMonitorTests
         var received = await first.ReceiveAsync(buffer, CancellationToken.None);
         Assert.Equal(rig.Id, HealthJson.Parse(Encoding.UTF8.GetString(buffer, 0, received.Count))!.Facts.Node);
 
+        // A page from another site cannot hold a feed (a monitor sends no Origin; a browser always does).
+        using var foreign = new ClientWebSocket();
+        foreign.Options.CollectHttpResponseDetails = true;
+        foreign.Options.SetRequestHeader("Origin", "http://stranger.example");
+        await Assert.ThrowsAsync<WebSocketException>(() => foreign.ConnectAsync(uri, CancellationToken.None));
+        Assert.Equal(HttpStatusCode.Forbidden, foreign.HttpStatusCode);
+
         // One more socket is refused (503); a GET still reads the record.
         using var second = new ClientWebSocket();
         second.Options.CollectHttpResponseDetails = true;
