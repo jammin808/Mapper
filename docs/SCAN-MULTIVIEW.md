@@ -1,0 +1,157 @@
+# Multi-view scanning: many projectors, many views, curved surfaces
+
+A scan used to be one camera place and one solve per projector. Multi-view scanning lets the operator move the camera (a
+phone, a webcam on a stand) to more places; each place is one more **view**, and every projector, every view and the
+camera's own optics are solved **together**, in one frame, anchored on the projectors. From all views together each projector
+gets a **dense depth map** on its own raster, so curved plaster, a column or a sculpture needs nothing special; the
+projectors' meshes are joined into one stage mesh, and the scan reports how much of each projector's light the views saw.
+
+This is the Core of it (`src/PlayMap.Core/Scan/MultiView/`): pure computation, no engine hooks, no verbs, no STATE. The
+engine's verbs (`SCAN START … INTO`, `SCAN SOLVE`, `SCAN VIEWS`, `SCAN DROP`) are wp2-multiscan's, built on this.
+
+## Why anchor on the projectors
+
+A projector does not move between views, and every decoded camera pixel names the projector pixel that lit it, exactly.
+So **a projector pixel is a surface point's name across views**: projector pixel u seen from view A and from view B is
+the same 3D point. No feature matching and no texture are needed; a white wall and curved plaster work as well as a
+painted set.
+
+## The pipeline
+
+### 1. Inverting each view's decode (`InverseCorrespondence`)
+
+A decode answers "which projector pixel lit this camera pixel". The solve needs the other direction: "where did this view
+see projector pixel u". For any u, the decoded camera pixels whose projector coordinate lies within 3 projector pixels of u
+are fitted with a local affine map projector ← camera (weighted by decode confidence; the noise is in the decoded
+coordinate, not in the camera pixel's place), and the map is inverted at u. An answer is refused — never guessed — when:
+
+| Rule | What it catches |
+|---|---|
+| fewer than 6 pixels, or they lie on a line | too little seen |
+| the fit's residual, in camera pixels, is over 0.5 | a neighbourhood spanning a depth edge (two surfaces seen in two places) |
+| no decoded pixels on some side of u | the edge of what the view saw: u would be extrapolated |
+| the pixels fill less than half the disc the fit's own scale predicts | a rim seen edge-on |
+| the nearest decoded pixel is more than 1.5 projector pixels from u | a fold the view did not see (a cylinder's top seen from below: the wall above and the face below meet in the camera) |
+| the 2 × 2 camera pixels around the answer did not themselves decode near u | an answer just past a silhouette |
+
+On the test scene every answer lands within 0.04–0.06 px RMS of where the camera truly saw that projector pixel, 99 % within
+0.25 px, and no projector pixel hidden from the camera is ever answered.
+
+### 2. Tracks (`TrackSet`)
+
+On each projector's raster a grid at a 16-pixel stride (nodes at ((i + ½)·16, (j + ½)·16)); every node any view placed is a
+**track**, with one observation per view that placed it. Tracks are ordered by projector id, then row and column — the same
+tracks in the same order whatever order the views arrive in. `TrackSet.Without(view)` drops a view's observations.
+
+### 3. The start
+
+- Each view is self-calibrated on its own (`SelfCalibration.Solve`, from its dense pairs: shared camera pixels tie two
+  projectors' scales within a view).
+- The views are chained along a **maximum spanning tree** whose edges are shared projectors, weighted by shared tracks,
+  from the view that solved the most projectors. Each link is a similarity fitted to the shared tracks' points in the two
+  views' frames (Umeyama, refitted without the pairs past three times the median distance).
+- A view that shares no projector with the tree is left out with words: *"view v3 shares no projector with the others;
+  include part of a projector the other views saw"*. A projector no chained view solved is named too.
+- Held projectors carry the chain onto the stage (below). Each track starts at the median of its triangulated depths.
+
+### 4. The joint adjustment (`MultiViewBundle`)
+
+| Unknown | Count | Prior (1σ) |
+|---|---|---|
+| each view's pose (rotation, centre) | 6 per view | — |
+| each camera rig: f (fy = f·aspect), cx, cy, k1, k2 | 5 per rig, none when `Calibrated` | f ±10 %, cx/cy ±2 % of the width, k ±0.05 |
+| each projector: pose, f, cx, cy | 6 + 1 + 2; f held under `SolveLocks.Focal`, cx/cy under `SolveLocks.Shift` | throw ±5 %, cx/cy ±2 % of the width |
+| each track: its depth along its projector's ray | 1 per track | — |
+
+- **Residual**: the camera reprojection π(K_c, D_c, T_v, X_t) − x_{t,v}, with X_t = C_p + d_t·R_p·K_p⁻¹[u, 1]ᵀ. The
+  projector's own observation is exact by construction — that is the anchor. Huber loss, δ = 1.5 px.
+- **Solver**: Levenberg–Marquardt; the depth block is diagonal and is eliminated by the Schur complement, so each step
+  solves a dense system the size of the poses and optics (about 35 unknowns for 3 views, 2 projectors and a phone). After the
+  first adjustment, observations more than 2 px out are dropped and it runs again. Sums run in a fixed order: the same input
+  gives the same result on any machine.
+- **Gauge**: with no projector held, the root view is fixed and the projector it sees most keeps its distance from it (the
+  scale; lengths are then in that baseline, `Metric` false, until the engine scales them by a known distance or registers the
+  scan). With **one** held projector, it fixes the frame and the root view keeps its distance from it; the scale comes from
+  the stage's distances between the held projector and the others (the words say so: hold two for a metric solve — one held
+  projector cannot fix scale, since scaling the scene about it changes no observation). With **two or more** held, the stage
+  fixes everything and the result is metric.
+- **HOLD**: a held projector is never a parameter. Its result *is* its stage pose and prior optics, bit for bit. This is "re-solve
+  only the projector that moved": one new view that sees the moved projector and two held ones is enough.
+- **Projector lenses** are held as given (the round's projectors are distortion-free or measured); camera rigs solve k1, k2.
+
+**Outputs** (`MultiViewResult`): per view its pose, RMS, observations, inliers and RMS per projector; per projector its pose,
+optics, RMS, tracks, inliers and the 1σ of its position along its axis (from the reduced system with the priors, scaled by the
+residual's own variance — a formal σ: on the simulator it is smaller than the true error, which comes from the edges, not the
+noise); per rig its optics and focal σ; per track its 3D point, RMS and views; the views left out and why.
+
+### 5. A bad view: `Influence` and `DropView`
+
+A view that disagrees with the rest (the camera moved between two projectors' runs) does not show up as one bad view: a
+joint solve spreads its error over every view (on the test scene a 2 px shift of one view's run gives 0.19–0.35 px on every
+view and projector alike). So the scan names it by **influence**: `MultiViewCalibration.Influence` re-solves without each view
+in turn (warm, from the current result) and reports each view's RMS with and without it. The view whose removal lowers the
+residual most is the one to drop (`SCAN DROP` in the engine).
+
+`DropView(input, previous, view)` removes the view's pairs and observations (tracks no other view saw go too) and re-solves
+**warm** from the previous result: the root view stays where it was and keeps its distance to its projector, so the frame and
+its scale do not jump (`Metric` is kept). Dropping a view the scan does not have, or its only view, is refused with the reason.
+
+### 6. Dense depth per projector (`ProjectorDepth`)
+
+For every projector pixel on a 2-pixel grid (1 for a difficult surface), each view's camera position comes from its inverted
+decode at that pixel. The projector's ray is intersected with each camera's by moving along the projector's ray to the depth
+that camera sees best (a few Gauss–Newton steps from the rays' closest approach). Views combine by inverse variance: a view's
+variance is its pixel uncertainty (confidence, fit residual) over how fast its pixel moves with depth, so a grazing or
+short-baseline view weighs little. Views more than 2 px out of the combined point are dropped and the rest combined again.
+The result is a depth, a σ and a view count per cell, and an organised cloud with normals toward the projector — `Mesh()` is
+its `GridMesher` mesh, whose UVs are the projector's own raster.
+
+### 7. The stage mesh (`ScanMerge`)
+
+The projectors' meshes are joined so each surface appears **once**: projectors are taken steadiest first (median σ); a later
+triangle near kept triangles (1.5 local grid steps) is dropped when any of them measured that place as well or better, and
+when every one of them measured it worse, they are dropped instead and it is kept. Each vertex carries its projector and
+depth-map cell (for click-to-surface).
+
+### 8. Coverage (`CoverageMap`)
+
+Per projector, on cells of 4 × 4 projector pixels: how many views decoded each cell (0, 1, or 2 for two and more), and the
+shares of the lit raster seen at least once (`Seen`) and twice (`Twice`). The lit raster is the scanned region by default, or
+a mask the caller knows better. "Aim at the red" is the lit cells still at 0.
+
+### 9. The simulator (`MultiViewSim`)
+
+Multi-view scans with no hardware, over the existing `ScanSimulator`: each view of each projector is its own
+single-projector scene (`MultiViewScene.For`), traced, rendered frame by frame (noise seeded per capture with `Pcg32`) and
+decoded as a real scan would be. `MultiViewScenes.WallAndCylinder()` is the wall and cylinder of `SimScenes` lit by two
+projectors (throw 1.2 from the left, 1.0 from the right, 512 × 320) and seen by a phone (64° field of view, 480 × 360, a little
+residual distortion) from three places: left, right and low in the middle. The simulator also answers the truth: the point a
+projector pixel lights and the lit cells of a projector's raster.
+
+## Measured (simulator, `tests/PlayMap.Core.Tests/Scan/MultiView/`)
+
+Wall and cylinder, 2 projectors, 3 views, the phone's focal prior 8 % off, the throw priors 5 % off, nothing held; the solve
+registered to the world on its track points (as registering a scan to a surveyed model does):
+
+| What | Bar | Measured |
+|---|---|---|
+| projector centre | 5 mm | 1.16 mm (pj1), 1.44 mm (pj2) |
+| projector orientation | 0.05° | 0.0042°, 0.0077° |
+| projector throw | 0.2 % | 0.033 %, 0.050 % |
+| phone focal length | 0.5 % | 0.004 % |
+| residual | — | 0.01 px RMS over 1 244 tracks; 8 iterations |
+| dense surface to the truth mesh | ≤ 3 mm expected; **tightened to 1 mm** | 0.26 mm and 0.27 mm RMS (99 % within 0.9 mm; the worst, 6 mm, on the floor at grazing incidence, where its σ says 4 mm) |
+| coverage of the lit raster | ≥ 95 % with 3 views; ≤ 80 % for one | 99.9 %; one view alone 70.8–72.0 % (at most 78 % of either projector) |
+| a view shifted 2 px | raises RMS; dropping it < 0.5 px | 0.009 → 0.29 px; without it 0.009 px (without either good view 0.10 and 0.24 px) |
+| HOLD | bit-identical | every held field bit for bit; with both held, every view within 0.06 mm and 0.001° |
+
+## Wire
+
+None: this is Core. wp2-multiscan routes `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` through `MultiViewCalibration.Solve`,
+`Influence` and `DropView`, keeps the tracks and depth maps under the scan's folder, and fills the scan's score terms
+(`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`.
+
+## Next
+
+Metric scale (a tape between two points, a phone's depth), TSDF or Poisson meshing of the per-projector depth maps, two phones
+in one view, and solving projector lens distortion in the joint adjustment.
