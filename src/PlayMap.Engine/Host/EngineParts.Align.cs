@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddAlignParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-align fills this.
+        extensions.Add(setup => new Align.AlignExtension(setup.Display));
     }
 }

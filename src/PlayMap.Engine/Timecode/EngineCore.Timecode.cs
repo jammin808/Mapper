@@ -24,6 +24,7 @@ public sealed partial class EngineCore
     private volatile ImmutableDictionary<string, ChaseView> _chaseViews = ImmutableDictionary<string, ChaseView>.Empty.WithComparers(StringComparer.Ordinal);
     private Project? _timecodeProject;
     private int _timecodeFacts;
+    private int _timecodeShown;
 
     /// <summary>The show's timecode sources at run time (fed by the control service's inputs, read by the chase).</summary>
     public TimecodeBoard TimecodeSources { get; } = new();
@@ -98,13 +99,15 @@ public sealed partial class EngineCore
         PublishTimecodeFacts(p, mono);
     }
 
-    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves (the code's frames never move it; its
-    /// text is written from the line when STATE is read).</summary>
+    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves. A source's frame or a chase's code
+    /// moved: STATE is written afresh on its next read (<see cref="Moved"/>) with its revision where it is, so STATE says the code as
+    /// it is whether or not anything plays, and its pushes do not rise to the frame rate.</summary>
     private void PublishTimecodeFacts(Project p, long mono)
     {
         if (p.Timecode.Sources.IsEmpty && _chaseViews.IsEmpty && _timecodeFacts == 0)
             return;
         var facts = new HashCode();
+        var shown = new HashCode();
         foreach (var s in p.Timecode.Sources)
         {
             var r = TimecodeSources.ReadingOf(s.Id, mono);
@@ -112,6 +115,7 @@ public sealed partial class EngineCore
             facts.Add(r.State);
             facts.Add(r.Format?.Text);
             facts.Add(r.Words);
+            shown.Add(r.Frame);
         }
         foreach (var (id, v) in _chaseViews)
         {
@@ -120,6 +124,13 @@ public sealed partial class EngineCore
             facts.Add(v.Engaged);
             facts.Add(v.Active);
             facts.Add(v.ItemId);
+            shown.Add(v.Text);
+        }
+        var frames = shown.ToHashCode();
+        if (frames != _timecodeShown)
+        {
+            _timecodeShown = frames;
+            Moved();
         }
         var signature = facts.ToHashCode();
         if (signature == _timecodeFacts)
@@ -294,11 +305,23 @@ public sealed partial class EngineCore
                     return;
                 }
                 var r = regions[plan.Region];
-                var held = new ClipTransport(r.ItemId, TransportState.Paused, new TimelineAnchor(plan.MediaNs, leaderNs, r.Rate, false), r.InNs, r.OutNs, r.Loop, 0);
-                if (lane is { IsIdle: false } h && h.Index == r.Index && h.Clip.State == TransportState.Paused
-                    && Math.Abs(h.Clip.Anchor.MediaAt(leaderNs) - plan.MediaNs) < quarter && h.NextIndex == -1 && plan.NextRegion < 0)
-                    return;
                 var next = NextClip(out var nextIndex);
+                // The last frame is held from the instant the code left the item, so on every node the item counts as started (the
+                // origin of its effects' time) its length before that. While the lane holds that frame of that item from within a
+                // quarter frame of that instant, its anchor stands as it is however long the code rolls; code that stands still names
+                // no instant, so a hold it finds is kept and one it begins starts now.
+                var holding = lane is { IsIdle: false } h && h.Index == r.Index && h.ItemId == r.ItemId && h.Clip.State == TransportState.Paused
+                    && Math.Abs(h.Clip.Anchor.MediaAt(leaderNs) - plan.MediaNs) < quarter
+                    && Math.Abs(h.Clip.Anchor.Rate - r.Rate) / Math.Max(1e-9, Math.Abs(r.Rate)) < 50e-6
+                    && (plan.AtLeaderNs == long.MinValue || Math.Abs(h.Clip.Anchor.LeaderNs - plan.AtLeaderNs) < quarter);
+                var anchor = holding ? lane!.Clip.Anchor
+                    : new TimelineAnchor(plan.MediaNs, plan.AtLeaderNs == long.MinValue ? leaderNs : plan.AtLeaderNs, r.Rate, false);
+                var held = new ClipTransport(r.ItemId, TransportState.Paused, anchor, r.InNs, r.OutNs, r.Loop, 0);
+                // The next item is rescheduled when its instant is off by a quarter frame or its rate (the code's) by 50 ppm.
+                if (holding && lane!.Clip with { Seq = 0 } == held && lane.NextIndex == nextIndex
+                    && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter
+                    && Math.Abs(lane.NextClip.Anchor.Rate - next.Anchor.Rate) / Math.Max(1e-9, Math.Abs(next.Anchor.Rate)) < 50e-6)
+                    return;
                 Playback.Chase(list, r.Index, held, nextIndex, next, plan.NextAtLeaderNs);
                 return;
             }

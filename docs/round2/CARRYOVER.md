@@ -101,3 +101,13 @@ Round 2 W1 notes:
   (needs a bounded open in audio's hub); an engine built without the audio part (tests only) has no hub, so LTC and TIMECODE
   DEVICES say so. The context's command list sorts TIMECODE CHASE, ENGAGE and INTERNAL with the transport verbs, which moves
   SYNC LEAD, SYNC FOLLOW and LINK PATTERNS out of the Eye's first 64 — which 64 the Eye sees is the owner's call.
+- wp2-align (merged): ALIGN NEW/RUN/STATUS/CANCEL/ACCEPT/REVERT/CORNERS/CLEAR, run folders, STATE.align and outputs[].measured,
+  the measured warp, blend and pedestal drawn by the output stage; AlignLedgerRoundTripTests is the wall × align test. Open: the
+  phone camera hooks in at AlignRunnerOptions.OpenCamera (set in AlignExtension) once phonescan merges; SCAN START does not
+  refuse while an ALIGN RUN shows patterns (align refuses the other way round); a real-camera run does not take the camera from
+  the previews as a scan does (lab); PROJECT SAVE to a new folder copies neither align/<run> nor scans/, so the next edit finds
+  the measured files missing; the ledger records one result per edit, so ALIGN ACCEPT calls wall's ledger directly to apply
+  every output in one edit (a multi-result record would close it); ACCEPT writes the measured γ into the blend γ and a revert to
+  a fallback without a correction does not restore it; wall's ScoreVocabulary still offers next-round fix lines (ALIGN RUN …
+  STEPS COLOR, … COLOR WHITE); align.devices is not written (DEVICE NATIVE is next round); fx's IsfTranslatorTests leaves GL
+  errors queued in the shared context (a later test that checks for none must clear them first).

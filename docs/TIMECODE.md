@@ -58,10 +58,10 @@ sources, in order), `ChaseLogic` decides the lane:
 | waiting / acquiring | engaged, no line yet | unchanged |
 | locked | a rolling line | the region's item anchored at the line's own instant, at the line's rate × the item's; the next region scheduled to take over on its exact frame |
 | parked | the code stands still (a locate, a repeated frame) | the item held at that code's frame |
-| outside | rolling code between regions | black (or the last frame, `GAP HOLD`) until the next region takes over on its exact frame |
+| outside | rolling code between regions | black (or the last frame, `GAP HOLD`: held from the instant the code left that item, the same on every node, so the item counts as started its length before that and its effects' time runs on as while it played; a jump inside the gap moves that instant with the code) until the next region takes over on its exact frame |
 | freewheel | the source drops out | the last line rides on for `FREEWHEEL` (500 ms) |
 | held / stopped / free | the freewheel ran out | `ONLOSS HOLD` holds where the line said, `STOP` goes black, `CONTINUE` runs on at the last rate |
-| reverse | the code runs backwards | holds |
+| reverse | the code runs backwards | holds where it is; the chase says the code as it runs back |
 | disengaged | `TIMECODE ENGAGE … OFF`, or a panic step that moves the playlist's transport | the playlist plays on by hand from where it is, at its items' own rates (a panic's step then pauses or cues it) |
 
 Within a region the lane is re-anchored only when the content would be off by a quarter frame or more, or the rate by 50 ppm,
@@ -80,7 +80,10 @@ FREEZE and SAFE leave the chase engaged.
 `STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, the fit's scatter as `jitterUs`, level,
 counts, words) and the chases (state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each
 playlist carries `chase`. A source's or a chase's state, format or words changing moves STATE's revision; the code's frames never
-do (its text is written from the line when STATE is read), so STATE pushes do not rise to the frame rate. The context has
+do, so STATE pushes do not rise to the frame rate. STATE is written afresh once a source's frame or a chase's code has moved (the
+lane's tick notes it), so a read while the code rolls says the code as it is — with nothing playing too — and STATE is not written
+again while the code stands still. While the code moves, STATE reaches its listeners at least once a second, as while a playlist
+plays. The context has
 `timecode:<tc>` and `chase:<pl>` items; controllers hear the events `chase.locked` and `chase.lost` (the freewheel ran out and the
 loss rule took over). Preflight's `timecode` section checks every chased playlist's source is present and rolling. INDEX's
 `timecode` section lists the chased playlists with an Engage key.

@@ -19,6 +19,7 @@ public sealed class CatalogueTests
         "FX PLUGINS", "FX TRUST", // wp2-fx: FFGL is next round
         "RECORD", "SELECT", "COMPANION PRESS", "COMPANION VAR", "COMPANION BRIGHTNESS", // wp2-companion: the action feed, selection and the node → Companion link are next round
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
+        "ALIGN PLAN", "ALIGN SCORE", "DEVICE NATIVE", // wp2-align: the dry run, the score's own verb and the projectors' own processing are wp2-resolve's
         "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
     ];
 
