@@ -82,7 +82,8 @@ counts, words) and the chases (state, code, item, rate, delay, freewheel left, l
 playlist carries `chase`. A source's or a chase's state, format or words changing moves STATE's revision; the code's frames never
 do, so STATE pushes do not rise to the frame rate. STATE is written afresh once a source's frame or a chase's code has moved (the
 lane's tick notes it), so a read while the code rolls says the code as it is — with nothing playing too — and STATE is not written
-again while the code stands still. The context has
+again while the code stands still. While the code moves, STATE reaches its listeners at least once a second, as while a playlist
+plays. The context has
 `timecode:<tc>` and `chase:<pl>` items; controllers hear the events `chase.locked` and `chase.lost` (the freewheel ran out and the
 loss rule took over). Preflight's `timecode` section checks every chased playlist's source is present and rolling. INDEX's
 `timecode` section lists the chased playlists with an Engage key.

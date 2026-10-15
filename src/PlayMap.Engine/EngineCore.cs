@@ -107,6 +107,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     private AirState _air = AirState.Initial;
     private long _factsRevision;
     private long _motion;
+    private long _movedAtNs = long.MinValue;
     private ((long State, long Quantum, long Motion) Key, string Json) _stateCache = ((-1, 0, 0), "");
     private string? _projectPath;
     private bool _dirty;
@@ -214,8 +215,14 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     /// <summary>Something STATE shows moved with time outside the project, the playback and the air (a rolling source's frame, a
     /// chase's code): STATE is written afresh on its next read, and its revision stays where it is, so pushes do not rise to that
-    /// rate. Called on the lane's tick only when what is shown moved, so STATE is not written again while it stands still.</summary>
-    private void Moved() => Interlocked.Increment(ref _motion);
+    /// rate; the transports count the node as animating a while after (<see cref="PlayMap.Net.INodeActivity.IsAnimating"/>), so
+    /// its listeners hear it at least once a second. Called on the lane's tick only when what is shown moved, so STATE is not
+    /// written again while it stands still.</summary>
+    private void Moved()
+    {
+        Interlocked.Increment(ref _motion);
+        Volatile.Write(ref _movedAtNs, Services.Mono.NowNs);
+    }
 
     public ValueTask<CommandReply> HandleAsync(WireLine line, SessionInfo session, CancellationToken ct)
     {
