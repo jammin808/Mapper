@@ -14,7 +14,7 @@ namespace PlayMap.Engine.Tests.Rendering;
 /// the default project, shows a playlist's clip at the frame its leader instant names, blacks out and puts a
 /// pattern on the one output named, lays a scan frame raw on one output and says when it was presented, moves
 /// a warp node without uploading a mesh again, allocates nothing on a warm static frame, and says why when
-/// there is no display at all.</summary>
+/// there is no display at all (on Linux, where a display is DISPLAY or WAYLAND_DISPLAY; Windows never asks for one).</summary>
 [Collection("render host")]
 public sealed class RenderHostTests(ITestOutputHelper log)
 {
@@ -372,8 +372,10 @@ public sealed class RenderHostTests(ITestOutputHelper log)
         Assert.Equal(before.FramePathAllocatedBytes, after.FramePathAllocatedBytes);
     }
 
+    /// <summary>On Linux a display is DISPLAY or WAYLAND_DISPLAY: with neither, TryCreate answers null and says so. Windows
+    /// has its desktop and never reads them, so a show machine (where neither is ever set) still gets its GL.</summary>
     [Fact]
-    public void WithNoDisplayTryCreateAnswersNullAndSaysWhy()
+    public async Task WithNoDisplayTryCreateAnswersNullAndSaysWhyOnLinuxAndWindowsNeverAsksForOne()
     {
         var display = Environment.GetEnvironmentVariable("DISPLAY");
         var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
@@ -382,6 +384,13 @@ public sealed class RenderHostTests(ITestOutputHelper log)
             Environment.SetEnvironmentVariable("DISPLAY", null);
             Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", null);
             var host = RenderHost.TryCreate(RenderHostOptions.Default, out var why);
+            if (!OperatingSystem.IsLinux())
+            {
+                if (host is null)
+                    Assert.Fail(why);
+                await host.DisposeAsync();
+                return;
+            }
             Assert.Null(host);
             Assert.Contains("no display", why, StringComparison.Ordinal);
             Assert.Contains("DISPLAY", why, StringComparison.Ordinal);

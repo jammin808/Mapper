@@ -5,8 +5,9 @@ using NodeRig = PlayMap.Engine.Tests.Host.HostRig;
 namespace PlayMap.Engine.Tests.Rendering;
 
 /// <summary>The render host in a real node (the engine host with the exe's render factory): it renders, its
-/// outputs' health reaches STATE, the scan display is the render host, VIEW reaches it; and a headless node
-/// with no display runs without one and no fault, while a windowed node with no display says why.</summary>
+/// outputs' health reaches STATE, the scan display is the render host, VIEW reaches it; and on Linux a headless node
+/// with no display runs without one and no fault, while a windowed node with no display says why (Windows never asks
+/// for a display variable: its nodes draw).</summary>
 [Collection("render host")]
 public sealed class NodeRenderTests
 {
@@ -49,6 +50,15 @@ public sealed class NodeRenderTests
         {
             Environment.SetEnvironmentVariable("DISPLAY", null);
             Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", null);
+            if (!OperatingSystem.IsLinux())
+            {
+                // The display variables are Linux's: a Windows node without them draws, with no fault.
+                await using var drawing = await NodeRig.StartAsync("GL", parts: WithRender);
+                Assert.IsType<RenderHost>(drawing.Host.Render);
+                Assert.Empty(drawing.State().GetProperty("faults").EnumerateArray());
+                Assert.StartsWith("OpenGL ", drawing.State().GetProperty("machine").GetProperty("renderer").GetString(), StringComparison.Ordinal);
+                return;
+            }
             await using (var headless = await NodeRig.StartAsync("No GL", parts: WithRender))
             {
                 Assert.Null(headless.Host.Render);

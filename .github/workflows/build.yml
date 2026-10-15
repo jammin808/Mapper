@@ -44,39 +44,59 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
 
-  # The Windows build: the exe the show machine runs. Its runner has no GPU and no audio endpoint; it builds
-  # everything and runs the suites that need neither.
+  # The Windows build: the exe the show machine runs, and every suite. Its runner has no GPU and no audio endpoint:
+  # OpenGL is Mesa's software rasteriser (llvmpipe, from mesa-dist-win) and FFmpeg is 9.0's shared libraries, as on Linux.
   windows:
     runs-on: windows-latest
+    env:
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
+      GALLIUM_DRIVER: llvmpipe
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
+      - name: FFmpeg 9.0 shared libraries
+        run: |
+          curl.exe -sSfL -o ff.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip"
+          Expand-Archive ff.zip -DestinationPath .ffmpeg-zip
+          Move-Item (Get-ChildItem .ffmpeg-zip -Directory | Select-Object -First 1).FullName .ffmpeg
+          Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\.ffmpeg\bin"
+          Get-ChildItem .ffmpeg\bin -Filter *.dll | ForEach-Object Name
+      - name: Mesa's software OpenGL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo pal1000/mesa-dist-win --pattern "mesa3d-*-release-msvc.7z" --dir .mesa-dl
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $archive = Get-ChildItem .mesa-dl -Filter *.7z | Select-Object -First 1
+          Write-Output "Mesa: $($archive.Name)"
+          7z x $archive.FullName -o.mesa -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path .mesa\x64\opengl32.dll)) { Write-Output "::error::the Mesa archive has no x64\opengl32.dll"; exit 1 }
+          Get-ChildItem .mesa\x64 -Filter *.dll | ForEach-Object Name
       - name: Restore
         run: dotnet restore
       - name: Build
         run: dotnet build -c Release --no-restore
+      # Windows looks for opengl32.dll beside the process's exe before System32, so Mesa's goes beside every exe that draws:
+      # dotnet.exe (the node host and any dotnet-hosted test host) and each test output folder (testhost.exe).
+      - name: Mesa beside the processes that draw
+        run: |
+          $folders = @($env:DOTNET_ROOT) + (Get-ChildItem tests -Directory | ForEach-Object { Join-Path $_.FullName 'bin\Release\net10.0' } | Where-Object { Test-Path $_ })
+          foreach ($folder in $folders) {
+            Copy-Item .mesa\x64\*.dll $folder -Force
+            Write-Output "Mesa beside $folder"
+          }
       # PowerShell goes on past a native command's exit code, so each project's result is taken from $LASTEXITCODE and the
       # step fails at its end naming every project that failed: one failure hides no other project's result.
-      - name: Test (no GPU, no FFmpeg; every project to its end)
+      - name: Test (every project to its end)
         run: |
           $failed = @()
-          foreach ($name in 'PlayMap.Core.Tests', 'PlayMap.Engine.Tests', 'PlayMap.Net.Tests', 'PlayMap.Devices.Tests', 'PlayMap.Assistant.Tests', 'PlayMap.Vision.Tests') {
+          foreach ($project in Get-ChildItem tests\*\*.csproj) {
+            $name = $project.BaseName
             Write-Output "::group::$name"
-            dotnet test "tests/$name" -c Release --no-build --logger "trx;LogFileName=$name.trx"
-            if ($LASTEXITCODE -ne 0) { $failed += $name }
-            Write-Output "::endgroup::"
-          }
-          if ($failed.Count -gt 0) { Write-Output "::error::failed: $($failed -join ', ')"; exit 1 }
-          exit 0
-      - name: Test the Windows-only code (no GPU; WARP and the D3D11 paths)
-        if: success() || failure()
-        run: |
-          $failed = @()
-          foreach ($name in 'PlayMap.Render.Tests', 'PlayMap.Media.Tests') {
-            Write-Output "::group::$name"
-            dotnet test "tests/$name" -c Release --no-build --filter Category=Windows --logger "trx;LogFileName=$name.windows.trx"
+            dotnet test $project.FullName -c Release --no-build --logger "trx;LogFileName=$name.trx"
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             Write-Output "::endgroup::"
           }

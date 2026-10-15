@@ -132,8 +132,9 @@ internal static class Clips
             Environment.SetEnvironmentVariable(FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
         FfmpegLoader.EnsureLoaded();
         var libs = Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!;
-        var tool = Path.GetFullPath(Path.Combine(libs, "..", "bin", "ffmpeg"));
-        return File.Exists(tool) ? tool : "/opt/ffmpeg9/bin/ffmpeg";
+        var name = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        var tool = Path.GetFullPath(Path.Combine(libs, "..", "bin", name));
+        return File.Exists(tool) ? tool : Path.Combine("/opt/ffmpeg9/bin", name);
     }
 
     /// <summary>A 64 × 48 H.264 clip at 25 fps, <paramref name="seconds"/> long, every frame its index painted.</summary>

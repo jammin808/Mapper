@@ -203,7 +203,8 @@ public class HapRenderTests(GlFixture gl)
     private static string Tool()
     {
         var libs = Environment.GetEnvironmentVariable("PLAYMAP_FFMPEG_DIR") ?? "/opt/ffmpeg9/lib";
-        foreach (var candidate in new[] { Path.Combine(libs, "..", "bin", "ffmpeg"), "/opt/ffmpeg9/bin/ffmpeg" })
+        var name = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        foreach (var candidate in new[] { Path.Combine(libs, "..", "bin", name), Path.Combine("/opt/ffmpeg9/bin", name) })
         {
             if (File.Exists(candidate))
                 return Path.GetFullPath(candidate);
