@@ -22,6 +22,7 @@ public sealed class AirAudio : IAsyncDisposable
     private Task? _opening;
     private bool _openDone;
     private FfmpegAudioDecoder? _opened;
+    private string _openProblem = "";
     private (string PlaylistId, string ItemId, string MediaId)? _openingFor;
     private FfmpegAudioDecoder? _decoder;
     private (string PlaylistId, string ItemId, string MediaId)? _failed;
@@ -66,22 +67,33 @@ public sealed class AirAudio : IAsyncDisposable
                 return;
             _wanted = Wanted(snap, leaderNs);
             if (_failed is not null && _wanted != _failed)
+            {
                 _failed = null;
+                _problem = "";
+            }
             if (_opening is not null && _openDone)
             {
                 var opened = _opened;
                 var forItem = _openingFor;
+                var why = _openProblem;
                 _opened = null;
                 _openDone = false;
                 _opening = null;
                 _openingFor = null;
+                _openProblem = "";
                 if (opened is not null && forItem == _wanted)
                 {
                     Hand(opened, forItem!.Value);
                     return;
                 }
+                // A file that cannot sound: said here, on the tick that silences the item before it, so the item and its problem
+                // move together.
                 if (opened is null)
+                {
                     _failed = forItem;
+                    if (forItem == _wanted)
+                        _problem = why;
+                }
                 opened?.Dispose();
             }
             // Nothing wanted, nothing to say: a failure was the item's, and the item has left the air.
@@ -151,9 +163,8 @@ public sealed class AirAudio : IAsyncDisposable
                 return;
             }
             _opened = decoder;
+            _openProblem = problem;
             _openDone = true;
-            if (problem.Length > 0)
-                _problem = problem;
         }
     }
 

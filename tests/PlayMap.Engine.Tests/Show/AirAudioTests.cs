@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Media.Audio;
@@ -169,11 +170,11 @@ public sealed class AirAudioTests(ITestOutputHelper log)
 
         // An item whose file holds no sound this node can play: silence, and STATE says why.
         await rig.Ok("PLAYLIST NEXT pl_show");
-        Assert.True(await ShowRig.Eventually(() =>
-        {
-            rig.Advance(10);
-            return rig.Show().GetProperty("sound").GetProperty("problem").GetString()!.Contains("broken.wav", StringComparison.Ordinal);
-        }), rig.Show().GetProperty("sound").ToString());
+        Assert.True(await ShowRig.Eventually(() => sound.Problem.Length > 0), rig.Show().GetProperty("sound").ToString());
+        // The problem and the silence land on the same tick: STATE never names the problem with the item before it still sounding.
+        var said = rig.Show().GetProperty("sound");
+        Assert.Contains("broken.wav", said.GetProperty("problem").GetString(), StringComparison.Ordinal);
+        Assert.Equal(JsonValueKind.Null, said.GetProperty("item").ValueKind);
         Assert.Null(sound.ItemId);
         for (var i = 0; i < 4; i++)
             Assert.True(Pull(rig, output, buffer) < 1e-4, "the broken item sounded");
