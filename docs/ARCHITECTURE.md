@@ -49,8 +49,8 @@ know GL). Only App references Avalonia.
 
 - `Project` is an immutable record tree (`System.Collections.Immutable`). An edit is `Func<Project, Project>`
   applied by `ProjectStore` — **one writer**, in the engine. The new root shares every untouched branch; undo is a
-  list of roots; drags coalesce into one undo step. Readers (render thread, network, state writer) take the
-  current root through a volatile reference and never lock.
+  list of roots; drags coalesce into one undo step (edits of one field within 750 ms on the node's clock). Readers
+  (render thread, network, state writer) take the current root through a volatile reference and never lock.
 - Runtime state (transports, links, outputs' health, availability) is not in the document: each lane publishes
   its own immutable snapshot; STATE composes them.
 - Generic edits (`GET/SET/ADD/REMOVE/MOVE` by id and dotted field path) are how the desk edits anything and why an
