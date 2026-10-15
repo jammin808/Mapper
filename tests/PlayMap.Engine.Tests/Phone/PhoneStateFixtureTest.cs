@@ -67,7 +67,9 @@ public sealed partial class PhoneStateFixtureTest
         foreach (var p in phones)
         {
             p!["lastSeenUnixMs"] = 1_760_000_000_000;
-            p["link"]!["uploadMBps"] = 0;
+            // Measured on this run's link: present when connected, stable in the fixture.
+            foreach (var key in new[] { "rttMs", "offsetMs", "uncertaintyMs", "uploadMBps" })
+                p["link"]![key] = 0;
         }
         var root = new JsonObject
         {
