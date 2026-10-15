@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.State;
@@ -58,6 +59,36 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
 
+    private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
+    private Func<string, string?>? _gateHook;
+
+    /// <summary>The verb names the node answered VERBS with at attach (empty until it answers: then every control
+    /// shows). A control whose verb the node lacks hides, so a node without a package shows none of its controls.</summary>
+    public IReadOnlySet<string> Verbs => _verbs;
+
+    /// <summary>Raised on the UI thread when the node's verb list arrived.</summary>
+    public event Action? VerbsUpdated;
+
+    /// <summary>True when the node runs the verb a line starts with (or the list is not known yet).</summary>
+    public bool Knows(string line)
+    {
+        if (_verbs.Count == 0 || string.IsNullOrWhiteSpace(line))
+            return true;
+        return WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && _verbs.Contains(m.Spec.Name);
+    }
+
+    /// <summary>The desk-wide refusal hook (the show's policy, the locks): the words why a line would be refused now,
+    /// or null. Every <see cref="ViewModels.DeskAction"/> asks it on refresh, so a control greys with the gate's words
+    /// before the press; the engine still decides.</summary>
+    public Func<string, string?>? Gate
+    {
+        get => _gateHook;
+        set => _gateHook = value;
+    }
+
+    /// <summary>Why the gate would refuse this line now, or null.</summary>
+    public string? GateWords(string line) => _gateHook is { } g && !string.IsNullOrWhiteSpace(line) ? g(line) : null;
+
     public IEngineLink? Link => _link;
 
     public StateSnapshot State => _state;
@@ -112,6 +143,64 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         ApplyProject();
         ApplyState();
         StatusUpdated?.Invoke(_status);
+        _ = LoadVerbsAsync(link);
+    }
+
+    /// <summary>Asks the node for its vocabulary (VERBS: a JSON list of rows, or names separated by spaces) and
+    /// keeps the names; a node that does not answer leaves every control showing.</summary>
+    private async Task LoadVerbsAsync(IEngineLink link)
+    {
+        var reply = await SendQuietAsync("VERBS");
+        if (!reply.Ok || !ReferenceEquals(link, _link))
+            return;
+        var names = ParseVerbs(reply.Text);
+        _post(() =>
+        {
+            if (!ReferenceEquals(link, _link))
+                return;
+            _verbs = names;
+            VerbsUpdated?.Invoke();
+        });
+    }
+
+    /// <summary>The names in a VERBS reply.</summary>
+    public static FrozenSet<string> ParseVerbs(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var t = text.Trim();
+        if (t.StartsWith('['))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(t);
+                var names = new List<string>();
+                foreach (var row in doc.RootElement.EnumerateArray())
+                {
+                    if (row.ValueKind == System.Text.Json.JsonValueKind.String)
+                        names.Add(row.GetString() ?? "");
+                    else if (row.ValueKind == System.Text.Json.JsonValueKind.Object && row.TryGetProperty("name", out var n))
+                        names.Add(n.GetString() ?? "");
+                }
+                return names.Where(n => n.Length > 0).ToFrozenSet(StringComparer.Ordinal);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return FrozenSet<string>.Empty;
+            }
+        }
+        // The names joined by spaces are ambiguous for two-word verbs: a name is any catalogue name whose words appear in order.
+        var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < words.Length; i++)
+        {
+            foreach (var spec in VerbCatalog.All)
+            {
+                var parts = spec.Name.Split(' ');
+                if (i + parts.Length <= words.Length && parts.AsSpan().SequenceEqual(words.AsSpan(i, parts.Length)))
+                    known.Add(spec.Name);
+            }
+        }
+        return known.ToFrozenSet(StringComparer.Ordinal);
     }
 
     public void Detach()

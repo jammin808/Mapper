@@ -43,6 +43,51 @@ public sealed partial class FakeEngineLink : IEngineLink
     private string _token = PlayMap.Core.Bus.Pairing.NewToken();
     private LinkStatus _status = LinkStatus.Live;
     private int _disposed;
+    private readonly SortedDictionary<string, System.Text.Json.Nodes.JsonNode?> _sections = new(StringComparer.Ordinal);
+    private bool _extraMoved;
+
+    // One hook per desk package: each answers the round-2 verbs its features need in the demo, in its own file;
+    // a hook nobody implements compiles away. A hook that changes STATE sets _extraMoved.
+    partial void TryShowVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryAssistantVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryContentVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryMapVerbs(WireLine line, ref WireReply? reply);
+
+    /// <summary>Lays a top-level STATE section over the fake's own (a test's fixture, as the node writes it) and
+    /// publishes; objects merge key by key, arrays of objects by id. Null removes the section.</summary>
+    public void SetSection(string key, string? json)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        long stateRev;
+        lock (_gate)
+        {
+            if (json is null)
+                _sections.Remove(key);
+            else
+                _sections[key] = _sections.TryGetValue(key, out var had) && had is not null
+                    ? Merge(had, System.Text.Json.Nodes.JsonNode.Parse(json))
+                    : System.Text.Json.Nodes.JsonNode.Parse(json);
+            Publish(projectMoved: false);
+            stateRev = _stateSeq;
+        }
+        StateChanged?.Invoke(stateRev);
+    }
+
+    /// <summary>A section as a hook holds it (created empty when absent), to change in place; the send publishes.</summary>
+    private System.Text.Json.Nodes.JsonObject Section(string key)
+    {
+        if (_sections.TryGetValue(key, out var node) && node is System.Text.Json.Nodes.JsonObject o)
+            return o;
+        var made = new System.Text.Json.Nodes.JsonObject();
+        _sections[key] = made;
+        return made;
+    }
+
+    /// <summary>Marks STATE as moved by a hook (the send publishes it).</summary>
+    private void Moved() => _extraMoved = true;
 
     /// <param name="project">The project to open (the demo show when null).</param>
     /// <param name="clock">The show clock; tests pass a <see cref="ManualClock"/> and call <see cref="Tick"/>.</param>
@@ -148,9 +193,10 @@ public sealed partial class FakeEngineLink : IEngineLink
             _sent.Add(line);
             var before = _store.Current.Revision;
             var beforeAir = (_blackout, _frozen, _pattern);
+            _extraMoved = false;
             reply = Handle(line);
             var projectMoved = _store.Current.Revision != before;
-            var mutated = reply.Ok && (projectMoved || IsMutating(line) || beforeAir != (_blackout, _frozen, _pattern));
+            var mutated = reply.Ok && (projectMoved || IsMutating(line) || _extraMoved || beforeAir != (_blackout, _frozen, _pattern));
             if (!mutated)
                 return Task.FromResult(reply);
             Publish(projectMoved);
@@ -268,6 +314,16 @@ public sealed partial class FakeEngineLink : IEngineLink
             case "SCAN" when line.WordUpper(1) == "SURFACE":
                 return ScanSurface(line);
         }
+        WireReply? extra = null;
+        TryShowVerbs(line, ref extra);
+        if (extra is null)
+            TryAssistantVerbs(line, ref extra);
+        if (extra is null)
+            TryContentVerbs(line, ref extra);
+        if (extra is null)
+            TryMapVerbs(line, ref extra);
+        if (extra is not null)
+            return extra;
         var match = VerbCatalog.Match(line);
         if (match is null)
             return Err($"unknown verb '{line.Word(0)}' — HELP lists the vocabulary");
@@ -279,7 +335,9 @@ public sealed partial class FakeEngineLink : IEngineLink
                 "HELLO" or "PING" or "NONCE" or "AUTH" or "AUTH-PROOF" or "SUBSCRIBE" => Ok(),
                 "STATE" => Ok(_stateJson),
                 "PROJECT GET" => Ok(_projectMirror.Json),
-                "VERBS" or "HELP" => Ok(string.Join(' ', VerbCatalog.All.Select(v => v.Name))),
+                "HELP" => Ok(string.Join(' ', VerbCatalog.All.Select(v => v.Name))),
+                // The engine's shape: one row per verb (the desk reads the names).
+                "VERBS" => Ok(System.Text.Json.JsonSerializer.Serialize(VerbCatalog.All.Select(v => new Dictionary<string, string> { ["name"] = v.Name }))),
                 "SET" => Set(line),
                 "ADD" => Add(line),
                 "REMOVE" => line.Count < 2 ? Err("REMOVE <id>") : Edit("remove " + line.Word(1), p => ProjectEdits.Remove(p, line.Word(1))),

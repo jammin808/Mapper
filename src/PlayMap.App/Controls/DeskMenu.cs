@@ -5,10 +5,19 @@ using PlayMap.App.ViewModels;
 
 namespace PlayMap.App.Controls;
 
+/// <summary>What a window offers every right-click menu beyond the object's own actions: the modules' entries for
+/// that target (Lock, Add effect ▸, Bind ▸…), the same instances its inspector's toolbar shows.</summary>
+public interface IMenuExtras
+{
+    IReadOnlyList<DeskAction> ExtrasFor(IMenuTarget target);
+}
+
 /// <summary>Gives a control a right-click menu made from its object's <see cref="DeskAction"/> list — the same
-/// actions its toolbar shows, so the menu and the buttons can never disagree. Each item carries its
-/// shortcut and, in its tooltip, the verb it sends. The menu is rebuilt each time it opens, so its words
-/// follow the latest STATE (Play reads Pause while the clip plays).</summary>
+/// actions its toolbar shows, so the menu and the buttons can never disagree — and, when the control's data is an
+/// <see cref="IMenuTarget"/>, the modules' entries for it after a rule. Each item carries its shortcut and, in its
+/// tooltip, the verb it sends; an item the gate refuses is greyed with "· armed" and the gate's words. An action whose
+/// verb the node does not run is left out. The menu is rebuilt each time it opens, so its words follow the latest
+/// STATE (Play reads Pause while the clip plays).</summary>
 public static class DeskMenu
 {
     public static readonly AttachedProperty<IEnumerable<DeskAction>?> ActionsProperty =
@@ -35,21 +44,48 @@ public static class DeskMenu
         menu.Opening += (_, _) =>
         {
             if (GetActions(control) is { } current)
-                Fill(menu.Items, current);
+                Fill(menu.Items, current, ExtrasOf(control));
         };
         control.ContextMenu = menu;
     }
 
-    /// <summary>The menu items for a list of actions (also what the tests compare with the toolbar).</summary>
-    public static void Fill(ItemCollection items, IEnumerable<DeskAction> actions)
+    /// <summary>The modules' entries for the control's target (none when the control's data names no object or the
+    /// window offers none).</summary>
+    public static IReadOnlyList<DeskAction> ExtrasOf(Control control)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        var target = control.DataContext switch
+        {
+            IMenuTarget t => t,
+            InspectorHost { Current: { } c } => c,
+            _ => null,
+        };
+        return target is not null && TopLevel.GetTopLevel(control)?.DataContext is IMenuExtras extras ? extras.ExtrasFor(target) : [];
+    }
+
+    /// <summary>The menu items for a list of actions and the modules' extras after a rule (also what the tests compare
+    /// with the toolbar).</summary>
+    public static void Fill(ItemCollection items, IEnumerable<DeskAction> actions, IEnumerable<DeskAction>? extras = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(actions);
         items.Clear();
         foreach (var a in actions)
         {
+            if (!a.IsAvailable)
+                continue;
             if (a.SeparatorBefore && items.Count > 0)
                 items.Add(new Separator());
+            items.Add(Build(a));
+        }
+        var first = true;
+        foreach (var a in extras ?? [])
+        {
+            if (!a.IsAvailable || (a.HasChildren && !a.Children.Any(c => c.IsAvailable)))
+                continue;
+            if ((first || a.SeparatorBefore) && items.Count > 0)
+                items.Add(new Separator());
+            first = false;
             items.Add(Build(a));
         }
     }
@@ -58,7 +94,7 @@ public static class DeskMenu
     {
         var item = new MenuItem
         {
-            Header = a.Label,
+            Header = a.MenuLabel,
             Command = a.Children.Count > 0 ? null : a.Command,
             IsEnabled = a.IsEnabled,
             Tag = a,
@@ -74,11 +110,14 @@ public static class DeskMenu
             item.Icon = new PathIcon { Data = geo, Width = 14, Height = 14 };
         var verb = a.Verb;
         if (verb.Length > 0)
-            ToolTip.SetTip(item, verb);
+            ToolTip.SetTip(item, a.Refusal is { } why ? verb + "\n" + why : verb);
         if (a.IsDanger)
             item.Classes.Add("danger");
         foreach (var child in a.Children)
-            item.Items.Add(Build(child));
+        {
+            if (child.IsAvailable)
+                item.Items.Add(Build(child));
+        }
         return item;
     }
 

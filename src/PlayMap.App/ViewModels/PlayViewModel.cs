@@ -264,7 +264,7 @@ public sealed class PlayViewModel : ObservableObject
 
 /// <summary>One library item in the bin: its kind, length, where it stands on this node (the dot), and its
 /// right-click menu.</summary>
-public sealed class MediaItemViewModel : ObservableObject
+public sealed class MediaItemViewModel : ObservableObject, IMenuTarget
 {
     private readonly DeskSession _session;
     private readonly PlayViewModel _play;
@@ -391,7 +391,7 @@ public sealed class MediaItemViewModel : ObservableObject
 }
 
 /// <summary>A generator in the bin's second tab.</summary>
-public sealed class GeneratorItemViewModel : ObservableObject
+public sealed class GeneratorItemViewModel : ObservableObject, IMenuTarget
 {
     private readonly DeskSession _session;
     private string _name = "";
@@ -443,7 +443,7 @@ public sealed class GeneratorItemViewModel : ObservableObject
 }
 
 /// <summary>An output's preview tile in PLAY (the engine's picture of it when a preview ring is up).</summary>
-public sealed class OutputPreviewViewModel : ObservableObject
+public sealed class OutputPreviewViewModel : ObservableObject, IMenuTarget
 {
     private string _name = "";
     private string _light = "grey";

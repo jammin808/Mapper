@@ -1,0 +1,214 @@
+using System.Collections;
+using System.Reflection;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
+using PlayMap.App.Controls;
+using PlayMap.App.ViewModels;
+using PlayMap.Core.Wire;
+
+namespace PlayMap.App.Tests;
+
+/// <summary>The desk has no private API: with every package's STATE fixture loaded, every action reachable from the top
+/// bar, the drawers, the inspectors and every object's right-click menu (its own actions and the modules' entries) sends a
+/// line the catalogue parses, and no line carries a secret. Every toolbar is a subset of its object's menu, and every
+/// entry a module appends to a menu is also on that object's inspector toolbar.</summary>
+public class DeskVerbRuleTests(ITestOutputHelper output)
+{
+    /// <summary>Every DeskAction reachable from a view model graph (public properties, lists, sub-actions), and every
+    /// object the graph names that a menu can be about.</summary>
+    internal static (List<DeskAction> Actions, List<IMenuTarget> Targets, List<object> Objects) Walk(object root)
+    {
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var actions = new List<DeskAction>();
+        var targets = new List<IMenuTarget>();
+        var objects = new List<object>();
+        var queue = new Queue<object>();
+        queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var o = queue.Dequeue();
+            if (!seen.Add(o))
+                continue;
+            if (o is DeskAction a)
+            {
+                actions.Add(a);
+                foreach (var c in a.Children)
+                    queue.Enqueue(c);
+                continue;
+            }
+            if (o is IMenuTarget t)
+                targets.Add(t);
+            objects.Add(o);
+            foreach (var p in o.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (p.GetIndexParameters().Length > 0 || !Interesting(p.PropertyType))
+                    continue;
+                var value = p.GetValue(o);
+                if (value is null or string)
+                    continue;
+                if (value is IEnumerable list)
+                {
+                    foreach (var item in list)
+                    {
+                        if (item is not null && Interesting(item.GetType()))
+                            queue.Enqueue(item);
+                    }
+                }
+                else if (Interesting(value.GetType()))
+                    queue.Enqueue(value);
+            }
+        }
+        return (actions, targets, objects);
+    }
+
+    /// <summary>The desk's own view-model types (and lists of them); the session, the link and the mirrors are not walked.</summary>
+    private static bool Interesting(Type type)
+    {
+        if (type == typeof(Link.DeskSession) || typeof(PlayMap.Core.Wire.IEngineLink).IsAssignableFrom(type) || type == typeof(string))
+            return false;
+        if (type.Namespace?.StartsWith("PlayMap.App.ViewModels", StringComparison.Ordinal) == true)
+            return true;
+        if (type == typeof(object))
+            return true;
+        if (type.IsGenericType && typeof(IEnumerable).IsAssignableFrom(type))
+            return type.GetGenericArguments().Any(Interesting);
+        return type.IsArray && Interesting(type.GetElementType()!);
+    }
+
+    /// <summary>A line is the catalogue's: it parses, a row matches, and it carries no secret word.</summary>
+    internal static string? Fault(string line)
+    {
+        if (!WireGrammar.TryParse(line, out var parsed, out var error))
+            return "does not parse: " + error?.Reason;
+        if (VerbCatalog.Match(parsed) is not { } m)
+            return "no catalogue row";
+        if (m.Spec.SecretFrom is int from)
+        {
+            // A word in the secret position is a secret unless it is one of the syntax's own keywords (LINK PATTERNS
+            // FOLLOW-BLACKOUT ON names no token).
+            var keywords = System.Text.RegularExpressions.Regex.Matches(m.Spec.Syntax, "[A-Z][A-Z0-9-]*").Select(x => x.Value).ToHashSet(StringComparer.Ordinal);
+            for (var i = from; i < parsed.Count; i++)
+            {
+                if (!keywords.Contains(parsed.Word(i)))
+                    return "carries a secret (" + m.Spec.Name + ")";
+            }
+        }
+        return null;
+    }
+
+    [AvaloniaFact]
+    public async Task EveryReachableActionSendsACatalogueLineAndEveryToolbarIsInItsMenu()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.LoadAll(desk.Link);
+        var window = MainWindowTests.Open(desk);
+        DeskHarness.Pump();
+        var all = new List<DeskAction>();
+        var targets = new List<IMenuTarget>();
+        var objects = new List<object>();
+
+        void Collect()
+        {
+            DeskHarness.Pump();
+            var (a, t, o) = Walk(desk.Main);
+            all.AddRange(a);
+            targets.AddRange(t);
+            objects.AddRange(o);
+            foreach (var control in window.GetVisualDescendants().OfType<Control>())
+            {
+                if (DeskMenu.GetActions(control) is { } own)
+                {
+                    var menu = new ContextMenu();
+                    var extras = DeskMenu.ExtrasOf(control);
+                    DeskMenu.Fill(menu.Items, own, extras);
+                    var items = Items(menu.Items).ToList();
+                    all.AddRange(items);
+                    // The object's toolbar is in its menu.
+                    if (control.DataContext?.GetType().GetProperty("Toolbar")?.GetValue(control.DataContext) is IEnumerable<DeskAction> toolbar)
+                    {
+                        foreach (var b in toolbar.Where(x => x.IsAvailable))
+                            Assert.Contains(b, items);
+                    }
+                }
+            }
+        }
+
+        foreach (var ws in new[] { Workspace.Play, Workspace.Map, Workspace.Scan })
+        {
+            desk.Main.Workspace = ws;
+            Collect();
+        }
+        foreach (var node in desk.Main.Map.Outliner.SelectMany(g => g.Nodes).ToList())
+        {
+            desk.Main.Workspace = Workspace.Map;
+            desk.Main.Map.Select(node.Kind, node.Id);
+            Collect();
+        }
+        desk.Main.Workspace = Workspace.Play;
+        foreach (var media in desk.Main.Play.Media.ToList())
+        {
+            desk.Main.Play.SelectedMedia = media;
+            Collect();
+        }
+        foreach (var pl in desk.Main.Play.Playlists.ToList())
+        {
+            foreach (var item in pl.Items.ToList())
+            {
+                pl.SelectedItem = item;
+                Collect();
+            }
+        }
+        foreach (var d in desk.Main.Drawers.Drawers)
+        {
+            foreach (var tab in d.Tabs)
+            {
+                desk.Main.Drawers.Show(d.Key, tab.Key);
+                Collect();
+            }
+        }
+
+        // Every module entry for an object is on its inspector's toolbar too (the menu and the toolbar never disagree).
+        foreach (var t in targets.DistinctBy(t => t.Id))
+            all.AddRange(desk.Main.ExtrasFor(t).SelectMany(x => x.Children.Prepend(x)));
+
+        var lines = all.Distinct().Select(a => (a, line: a.Verb)).Where(x => x.line.Length > 0).ToList();
+        Assert.NotEmpty(lines);
+        var faults = lines.Select(x => (x.a, x.line, why: Fault(x.line))).Where(x => x.why is not null).ToList();
+        foreach (var f in faults)
+            output.WriteLine($"{f.a.Id} '{f.a.Label}': {f.line} — {f.why}");
+        Assert.Empty(faults);
+        output.WriteLine($"{lines.Count} action lines checked over {targets.DistinctBy(t => t.Id).Count()} objects");
+
+        // Toolbars inside the view models are subsets of their menus.
+        foreach (var o in objects)
+        {
+            if (o.GetType().GetProperty("Toolbar")?.GetValue(o) is IEnumerable<DeskAction> toolbar
+                && o.GetType().GetProperty("Actions")?.GetValue(o) is IEnumerable<DeskAction> menu)
+                Assert.Subset(menu.ToHashSet(), toolbar.ToHashSet());
+        }
+        window.Close();
+    }
+
+    private static IEnumerable<DeskAction> Items(ItemCollection items)
+    {
+        foreach (var i in items.OfType<MenuItem>())
+        {
+            if (i.Tag is DeskAction a)
+                yield return a;
+            foreach (var c in Items(i.Items))
+                yield return c;
+        }
+    }
+
+    [Fact]
+    public void TheRuleFindsALineThatIsNotTheCataloguesOrCarriesASecret()
+    {
+        Assert.Null(Fault("SHOW ARM"));
+        Assert.NotNull(Fault("FROBNICATE ALL"));
+        Assert.NotNull(Fault("LINK PATTERNS 10.0.0.2 s3cr3t"));
+        Assert.Null(Fault("LINK PATTERNS OFF"));
+        Assert.Null(Fault("LINK PATTERNS FOLLOW-BLACKOUT ON"));
+        Assert.NotNull(Fault("CREDENTIAL SET dv_1 admin hunter2"));
+    }
+}

@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:show="using:PlayMap.App.ViewModels.Show"
+             x:Class="PlayMap.App.Views.Show.ShowStripView"
+             x:DataType="show:ShowStripViewModel">
+  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding IsPresent}">
+    <Button x:Name="ArmButton" Classes="pill" Classes.armed="{Binding IsArmed}" Command="{Binding Arm.Command}" ToolTip.Tip="{Binding Arm.Tip}">
+      <TextBlock Text="{Binding Arm.Label}" FontWeight="SemiBold" />
+    </Button>
+    <Button x:Name="PanicButton" Classes="blackout" Command="{Binding Panic.Command}" ToolTip.Tip="{Binding Panic.Tip}">
+      <TextBlock Text="PANIC" FontWeight="Bold" />
+    </Button>
+  </StackPanel>
+</UserControl>

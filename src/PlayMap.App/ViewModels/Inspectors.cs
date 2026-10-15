@@ -7,14 +7,59 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.App.ViewModels;
 
+/// <summary>What the window's modules add under an inspector: the entries its right-click menu also carries (shown as
+/// the inspector's second toolbar) and the sections drawn below its fields.</summary>
+public interface IInspectorExtras
+{
+    IReadOnlyList<DeskAction> ExtrasFor(IMenuTarget target);
+
+    IReadOnlyList<object> SectionsFor(IMenuTarget target);
+}
+
 /// <summary>Holds the inspector for what is selected and refreshes it on every push; an inspector whose
-/// object is gone closes.</summary>
+/// object is gone closes. The modules' extras and sections for the object follow it.</summary>
 public sealed class InspectorHost : ObservableObject
 {
     private readonly DeskSession _session;
     private InspectorViewModel? _current;
+    private IInspectorExtras? _modules;
+    private IReadOnlyList<DeskAction> _extras = [];
+    private IReadOnlyList<object> _sections = [];
 
     public InspectorHost(DeskSession session) => _session = session;
+
+    /// <summary>The modules' entries for the selected object: the same instances its right-click menu appends.</summary>
+    public IReadOnlyList<DeskAction> Extras
+    {
+        get => _extras;
+        private set => Set(ref _extras, value);
+    }
+
+    /// <summary>The modules' sections for the selected object (cards, effect slots…), drawn by their registered views.</summary>
+    public IReadOnlyList<object> Sections
+    {
+        get => _sections;
+        private set => Set(ref _sections, value);
+    }
+
+    /// <summary>Connects the window's modules (once, where the window composes them).</summary>
+    public void Use(IInspectorExtras modules)
+    {
+        _modules = modules;
+        RefreshExtras();
+    }
+
+    /// <summary>Re-reads the modules' extras and sections for the selected object (a new list only when it changed).</summary>
+    public void RefreshExtras()
+    {
+        IReadOnlyList<DeskAction> extras = _current is { } c && _modules is { } m ? m.ExtrasFor(c) : [];
+        IReadOnlyList<object> sections = _current is { } c2 && _modules is { } m2 ? m2.SectionsFor(c2) : [];
+        if (!extras.SequenceEqual(_extras))
+            Extras = extras;
+        if (!sections.SequenceEqual(_sections))
+            Sections = sections;
+        _extras.RefreshAll();
+    }
 
     public InspectorViewModel? Current
     {
@@ -33,12 +78,15 @@ public sealed class InspectorHost : ObservableObject
         Current = inspector;
         if (inspector is not null && _session.Project is { } p)
             Refresh(p, _session.State);
+        else
+            RefreshExtras();
     }
 
     public void Refresh(Project p, StateSnapshot s)
     {
         if (_current is { } c && !c.Refresh(p, s))
             Current = null;
+        RefreshExtras();
     }
 }
 
@@ -46,7 +94,7 @@ public sealed class InspectorHost : ObservableObject
 /// loaded from the mirror on every push; a field the operator changed in the last moments is left alone so
 /// a push that lags the typing never pulls the caret back. Sliders and text go through the throttle
 /// (latest wins, ≈ 60 Hz); toggles and choices go at once.</summary>
-public abstract class InspectorViewModel : ObservableObject
+public abstract class InspectorViewModel : ObservableObject, IMenuTarget
 {
     private static readonly long FreshTicks = Stopwatch.Frequency / 2;
     private readonly Dictionary<string, long> _edited = new(StringComparer.Ordinal);

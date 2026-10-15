@@ -510,7 +510,7 @@ public sealed class OutlinerGroup : ObservableObject
 
 /// <summary>One object in the outliner: its name, colour, visibility and lock toggles, and its right-click
 /// menu (the same actions as its inspector's).</summary>
-public sealed class OutlinerNode : ObservableObject
+public sealed class OutlinerNode : ObservableObject, IMenuTarget
 {
     private readonly MapViewModel _map;
     private string _name = "";

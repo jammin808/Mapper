@@ -15,6 +15,7 @@ public sealed class DeskAction : ObservableObject
     private readonly Func<bool>? _isChecked;
     private readonly Func<bool>? _isEnabled;
     private string _labelText;
+    private DeskSession? _session;
 
     private DeskAction(string id, string label, Func<string?> verb, AsyncCommand command, Func<string>? dynamicLabel,
         Func<bool>? isChecked, Func<bool>? isEnabled)
@@ -40,7 +41,7 @@ public sealed class DeskAction : ObservableObject
             if (line is not null)
                 await session.SendAsync(line, ct);
         }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message));
-        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled);
+        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session };
         return self;
     }
 
@@ -52,7 +53,7 @@ public sealed class DeskAction : ObservableObject
         ArgumentNullException.ThrowIfNull(session);
         DeskAction? self = null;
         var command = new AsyncCommand(run, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message));
-        self = new DeskAction(id, label, verb ?? (() => null), command, dynamicLabel, isChecked, isEnabled);
+        self = new DeskAction(id, label, verb ?? (() => null), command, dynamicLabel, isChecked, isEnabled) { _session = session };
         return self;
     }
 
@@ -103,7 +104,19 @@ public sealed class DeskAction : ObservableObject
 
     public bool IsChecked => _isChecked?.Invoke() ?? false;
 
-    public bool IsEnabled => _isEnabled?.Invoke() ?? true;
+    /// <summary>Live: its own condition holds and the gate (the show's policy, the locks) would not refuse its line.</summary>
+    public bool IsEnabled => (_isEnabled?.Invoke() ?? true) && Refusal is null;
+
+    /// <summary>The gate's words when the line this action sends would be refused now ("Not while armed: …"), or null.</summary>
+    public string? Refusal => _session?.GateWords(Verb);
+
+    /// <summary>False when the node does not run this action's verb (its package is absent there): the control hides.</summary>
+    public bool IsAvailable => _session?.Knows(Verb) ?? true;
+
+    /// <summary>The menu's words: the label, and "· armed" or "· locked" while the gate refuses it.</summary>
+    public string MenuLabel => Refusal is { } why
+        ? Label + (why.StartsWith("Not while armed", StringComparison.Ordinal) ? " · armed" : " · locked")
+        : Label;
 
     /// <summary>The line this action sends now, or "" for a desk-only action.</summary>
     public string Verb => _verb() ?? "";
@@ -115,7 +128,8 @@ public sealed class DeskAction : ObservableObject
         {
             var head = Gesture is null ? Label : $"{Label}  ({Gesture})";
             var verb = Verb;
-            return verb.Length == 0 ? head : head + "\n" + verb;
+            var tip = verb.Length == 0 ? head : head + "\n" + verb;
+            return Refusal is { } why ? tip + "\n" + why : tip;
         }
     }
 
@@ -135,7 +149,7 @@ public sealed class DeskAction : ObservableObject
     /// <summary>Re-reads the label, the verb, the checked and enabled state (after a STATE push).</summary>
     public void Refresh()
     {
-        Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled));
+        Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable));
         Command.RaiseCanExecuteChanged();
     }
 

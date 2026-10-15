@@ -10,7 +10,7 @@ using PlayMap.Core.Model;
 namespace PlayMap.App.ViewModels;
 
 /// <summary>An output as a rectangle on the multi-screen plan.</summary>
-public sealed class PlanTile : ObservableObject
+public sealed class PlanTile : ObservableObject, IMenuTarget
 {
     private string _name = "";
     private RectD _plan;

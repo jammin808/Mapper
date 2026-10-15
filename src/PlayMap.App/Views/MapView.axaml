@@ -31,7 +31,10 @@
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                               <Ellipse Width="10" Height="10" Fill="{Binding Color, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
                               <StackPanel Grid.Column="1">
-                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                <DockPanel>
+                                  <ui:BadgeStrip DockPanel.Dock="Right" Margin="4,0,0,0" />
+                                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
                                 <TextBlock Classes="faint" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </Grid>

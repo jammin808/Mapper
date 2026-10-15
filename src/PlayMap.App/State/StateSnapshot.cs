@@ -101,6 +101,27 @@ public sealed record StateSnapshot(
         new MediaState(0, 0, true, []), new StageState(0, 0, [], 0), null, SyncState.None, LinkState.Off, LinkState.Off, [],
         new ProjectState("", "", 0, "", false), AiState.Off);
 
+    private readonly Dictionary<string, object?> _sections = new(StringComparer.Ordinal);
+
+    /// <summary>The whole STATE object as read (a detached copy), for the sections round-2 packages read
+    /// themselves; default for the empty snapshot.</summary>
+    public JsonElement Root { get; init; }
+
+    /// <summary>A top-level STATE object read once per snapshot by its package's reader (null element when the
+    /// node does not publish it: the package's feature is absent there, so its controls hide).</summary>
+    public T Section<T>(string key, Func<JsonElement?, T> read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        lock (_sections)
+        {
+            if (_sections.TryGetValue(key, out var cached) && cached is T hit)
+                return hit;
+            var value = read(Root.ValueKind == JsonValueKind.Object && Root.TryGetProperty(key, out var e) ? e : null);
+            _sections[key] = value;
+            return value;
+        }
+    }
+
     public PlaylistState? FocusedPlaylist
     {
         get
@@ -155,7 +176,10 @@ public sealed record StateSnapshot(
             ReadLink(links?.Obj("stagewatch")),
             r.Arr("peers").Select(p => new PeerState(p.Str("t"), p.Str("id"), p.Str("name"), p.Str("light", "grey"), p.Bool("live"), p.Str("headline"))).ToImmutableArray(),
             ReadProject(r.Obj("project")),
-            ReadAi(r.Obj("ai")));
+            ReadAi(r.Obj("ai")))
+        {
+            Root = r.Clone(),
+        };
     }
 
     private static AirState ReadAir(JsonElement? a) => a is { } e
