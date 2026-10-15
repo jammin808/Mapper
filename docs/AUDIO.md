@@ -11,7 +11,7 @@ effect slot move with the sound, the beat or an LFO — live, while the show kee
   A sound file is an input too (`file:/path/show.wav`, looped at the pace of the clock). On Linux FFmpeg's capture devices are
   read (`pulse`, `oss`, `openal`, through libavdevice; there is no device on the build machine, and the list says why in words);
   on Windows WASAPI gives each capture endpoint, **System sound** (the loopback of an output) and **Everything but PlayMap**
-  (process loopback, Windows 10 build 19041 or later), and FFmpeg's `dshow` through the same code path as Linux.
+  (process loopback, Windows 11 or Server 2022 — build 20348 — or later), and FFmpeg's `dshow` through the same code path as Linux.
 - **The show's choice and the machine's.** `AUDIO LISTEN` writes what the show listens to (`default`, `system`, a test signal, a
   device's name or key, a file); the name is matched again on another machine by Patterns' rule (case, spaces and the socket number
   Windows writes, "Microphone (2- USB Audio CODEC)" ≡ "(3- …)"). `AUDIO LISTEN … HERE` keeps this machine's own input in the node's
@@ -57,7 +57,9 @@ Every change is a new anchor one lead (40 ms) ahead of the line, or at the insta
   a beat; more than 2 s between taps starts again.
 
 The show's tempo and meter are project settings (undoable); the clock follows them when they change without a TEMPO verb (an
-undo, a loaded show).
+undo, a loaded show). The meter is not an anchor: `TEMPO METER` applies at once, and the bar and phrase count again from the beat
+count (beat 0 is a bar line in every meter). Anchoring the meter, so a change lands on a bar line one lead ahead on every node, is
+for the round that shares anchors between nodes.
 
 ## Tempo detection
 
