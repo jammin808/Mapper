@@ -12,8 +12,9 @@ namespace PlayMap.Engine.Tests.Align;
 /// <summary>ALIGN RUN end to end on the engine: STATE.align and outputs[].measured by field through a run and an ACCEPT; a curved screen
 /// fails in words and stages nothing; a second run while one runs is refused, and CANCEL ends it; the run through the scan display and
 /// a camera seam (the simulator behind both) stages as the simulator's own path does; a project whose measured files are missing says
-/// which in STATE, the context and preflight (red, with the line that returns to the fallback); INDEX lists each group with keys that
-/// are catalogue lines.</summary>
+/// which in STATE, the context and preflight (red, with the line that returns to the fallback); a project opened from its file reads
+/// its files beside it; a camera that faults ends the run failed and frees the runner; a simulated run leaves the display alone;
+/// INDEX lists each group with keys that are catalogue lines.</summary>
 public sealed class AlignRunTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";

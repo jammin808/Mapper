@@ -422,6 +422,9 @@ public sealed partial class EngineCore
         return p.WithStage(st => st with { Aligns = st.Aligns.Update(group.Id, g => g with { LastRunId = record.Id }) });
     }
 
+    /// <summary>A result recorded by hand rather than measured: no score, made by "manual" (the ledger's word for it).</summary>
+    private static readonly QualityScore AsItStandsScore = QualityScore.None with { Source = "manual" };
+
     /// <summary>The output's current result when it stands as that result; otherwise the output as it stands recorded (a kept
     /// result, applied) — so whatever ACCEPT, CLEAR or REVERT replaces can be returned to.</summary>
     private static (Project Project, string Id) KeepAsItStands(Project p, Output o, string who, long now)
@@ -430,7 +433,7 @@ public sealed partial class EngineCore
             return (p, cid);
         var id = p.NewId(Ids.Calibration);
         var snap = new CalibrationSnapshot(id, o.Measured is null ? "No measured correction" : "As it stood", CalibrationTarget.Output, o.Id, now,
-            CalibrationSource.Manual, null, o.CalibrationId, Core.Model.QualityScore.None, who, false)
+            CalibrationSource.Manual, null, o.CalibrationId, AsItStandsScore, who, false)
         {
             Output = o.Measured,
         };
@@ -521,7 +524,7 @@ public sealed partial class EngineCore
                 var o = project.FindOutput(t.Id)!;
                 (project, var previous) = KeepAsItStands(project, o, who, Services.Wall.UnixMs);
                 var snap = new CalibrationSnapshot(project.NewId(Ids.Calibration), "Cleared", CalibrationTarget.Output, o.Id, Services.Wall.UnixMs,
-                    CalibrationSource.Manual, null, previous, Core.Model.QualityScore.None, who, false);
+                    CalibrationSource.Manual, null, previous, AsItStandsScore, who, false);
                 (project, _) = CalibrationLedger.Record(project, snap, apply: true);
                 project = project with { Outputs = project.Outputs.Update(o.Id, x => x with { FallbackId = previous }) };
             }
@@ -646,8 +649,9 @@ public sealed partial class EngineCore
         w.WriteEndObject();
     }
 
-    /// <summary>A group as STATE, the context and INDEX read it: its accepted score (from the ledger result its outputs stand on),
-    /// whether a run of it is staged or running, its light and words.</summary>
+    /// <summary>A group as STATE, the context and INDEX read it: its accepted score (from the ledger result its outputs stand on: a
+    /// run's, or a run's brought back by ALIGN REVERT or the ledger's own verbs), whether a run of it is staged or running, its light
+    /// and words.</summary>
     internal (QualityScore? Score, string Staged, Light Light, string Words) AlignGroupState(Project p, AlignGroup g)
     {
         var view = AlignBackend.View;
@@ -656,8 +660,8 @@ public sealed partial class EngineCore
         QualityScore? score = null;
         foreach (var id in g.OutputIds)
         {
-            if (p.FindOutput(id) is { CalibrationId: { } cid } o && p.FindCalibration(cid) is { Source: CalibrationSource.Align } s
-                && o.Measured?.RunId == g.LastRunId && g.LastRunId.Length > 0)
+            if (p.FindOutput(id) is { CalibrationId: { } cid } o && p.FindCalibration(cid) is { Source: CalibrationSource.Align or CalibrationSource.Revert } s
+                && s.Score.Source == "align" && s.Output is { RunId.Length: > 0 } run && o.Measured?.RunId == run.RunId)
             {
                 score = s.Score;
                 break;
