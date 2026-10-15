@@ -213,6 +213,8 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         var started = Now;
         var outputs = setup.Outputs;
         IScanCamera? camera = null;
+        // Only a run that put pictures on the outputs hands them back: a simulated run never touched the display another run may hold.
+        var showing = false;
         var stepEta = Stopwatch();
         try
         {
@@ -231,6 +233,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                     ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot align through yet");
                 if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                     throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
+                showing = true;
                 shooter = new DisplayShooter(_display!, camera, outputs, _options);
             }
             var specs = outputs.Select((o, j) => new AlignOutputSpec(o.Id, o.Name, o.Width, o.Height, PriorFor(o, setup.Projectors[j]))).ToList();
@@ -256,9 +259,16 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         {
             Fail(setup, started, "failed", ex.Message);
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Whatever a camera or the solve threw, the run ends failed with its words: a run left "running" would refuse every
+            // later run and no CANCEL could end it.
+            Fail(setup, started, "failed", $"the run stopped: {ex.Message}");
+        }
         finally
         {
-            _display?.Release();
+            if (showing)
+                _display?.Release();
             camera?.Dispose();
         }
     }

@@ -115,9 +115,7 @@ public sealed class AlignRunTests
         var sim = AlignRig.Truth(2, Layout);
         var seam = new SimDisplayCamera(sim);
         var options = new AlignRunnerOptions { OpenCamera = _ => seam, LatencyFlashes = 1, FlashHold = TimeSpan.FromMilliseconds(1), FallbackLatencyMs = 0, MaxUnsettledFrames = 1 };
-        var project = AlignRig.Project(2, Layout);
-        project = project with { Stage = project.Stage with { Cameras = [project.Stage.Cameras[0] with { SourceKind = CameraSourceKind.Device, Source = "/dev/video9" }] } };
-        await using var rig = new AlignRig(project, options, seam);
+        await using var rig = new AlignRig(DeviceCamera(AlignRig.Project(2, Layout)), options, seam);
         var group = await rig.NewGroup();
         var run = await rig.RunToEnd(group);
         var r = rig.State().GetProperty("align").GetProperty("run");
@@ -127,6 +125,38 @@ public sealed class AlignRunTests
         Assert.True(seam.Released > 0, "the outputs were handed back to the show");
         await rig.Ok($"ALIGN ACCEPT {run}");
         Assert.NotNull(rig.Current.FindOutput("op2")!.Measured);
+    }
+
+    [Fact]
+    public async Task ACameraThatFaultsEndsTheRunFailedInWordsAndTheNextRunStarts()
+    {
+        var seam = new SimDisplayCamera(AlignRig.Truth(2, Layout));
+        var options = new AlignRunnerOptions { OpenCamera = _ => new FaultingCamera(), LatencyFlashes = 0, FallbackLatencyMs = 0, MaxUnsettledFrames = 1 };
+        await using var rig = new AlignRig(DeviceCamera(AlignRig.Project(2, Layout)), options, seam);
+        var group = await rig.NewGroup();
+        await rig.RunToEnd(group);
+        var r = rig.State().GetProperty("align").GetProperty("run");
+        Assert.Equal("failed", r.GetProperty("state").GetString());
+        Assert.Contains(FaultingCamera.Words, r.GetProperty("words").GetString(), StringComparison.Ordinal);
+        Assert.Equal(1, seam.Released);
+
+        // The runner is free again: the next run is accepted and runs.
+        var next = AlignRig.Json(await rig.Ok($"ALIGN RUN {group}"));
+        Assert.Equal("accepted", next.GetProperty("stage").GetString());
+        await rig.Runner.Running!;
+        Assert.Equal((next.GetProperty("run").GetString(), "failed"), (rig.Runner.View!.Id, rig.Runner.View.State));
+    }
+
+    [Fact]
+    public async Task ASimulatedRunLeavesTheDisplayAlone()
+    {
+        var seam = new SimDisplayCamera(AlignRig.Truth(2, Layout));
+        await using var rig = new AlignRig(AlignRig.Project(2, Layout), display: seam);
+        var group = await rig.NewGroup();
+        await rig.RunToEnd(group);
+        Assert.Equal("staged", rig.Runner.View!.State);
+        Assert.Equal(0, seam.Released);
+        Assert.All(seam.Shown, n => Assert.Equal(0, n));
     }
 
     [Fact]
@@ -181,6 +211,10 @@ public sealed class AlignRunTests
         await rig.Ok($"ALIGN ACCEPT {group}");
         Assert.StartsWith("A ", Rows(rig, index)[0].GetProperty("state").GetString(), StringComparison.Ordinal);
     }
+
+    /// <summary>The project with its camera a capture device: a run goes through the display and the camera seam.</summary>
+    private static Project DeviceCamera(Project project) =>
+        project with { Stage = project.Stage with { Cameras = [project.Stage.Cameras[0] with { SourceKind = CameraSourceKind.Device, Source = "/dev/video9" }] } };
 
     private static List<JsonElement> Rows(AlignRig rig, IIndexContributor index)
     {
@@ -260,5 +294,23 @@ internal sealed class SimDisplayCamera(MultiProjectorSim sim) : IScanDisplay, IS
     public void Dispose()
     {
         // The simulator holds nothing to let go of.
+    }
+}
+
+/// <summary>A camera that opens and then fails its first picture with an exception of its own.</summary>
+internal sealed class FaultingCamera : IScanCamera
+{
+    public const string Words = "the camera's driver stalled";
+
+    public string Problem => "";
+
+    public Task<bool> OpenAsync(CancellationToken ct) => Task.FromResult(true);
+
+    public Task<CameraFrame?> NextAsync(long afterGeneration, TimeSpan timeout, CancellationToken ct) =>
+        Task.FromException<CameraFrame?>(new TimeoutException(Words));
+
+    public void Dispose()
+    {
+        // Nothing was opened.
     }
 }
