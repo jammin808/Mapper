@@ -56,7 +56,7 @@ public sealed partial class CompanionModuleFixtureTests
     }
 
     /// <summary>The document with every show id renamed in order of first appearance (shared across the two files) and the
-    /// signatures and the process's memory figures fixed, indented.</summary>
+    /// signatures, STATE's seq and the process's memory figures fixed, indented.</summary>
     private static string Stable(string json, Dictionary<string, string> ids)
     {
         var text = ShowId().Replace(json, m =>
@@ -69,6 +69,9 @@ public sealed partial class CompanionModuleFixtureTests
             return stable;
         });
         var root = JsonNode.Parse(text)!.AsObject();
+        // STATE's seq counts the node's facts as they arrive (a fault, a peer heard), so it is true of one run only.
+        if (root["seq"] is not null)
+            root["seq"] = 8030048;
         if (root["sig"] is not null)
         {
             root["sig"] = "9f1c2ab07d3e4410";
