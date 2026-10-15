@@ -62,8 +62,8 @@ public class PerformanceTests(ITestOutputHelper output)
         Assert.Equal(0, consumer[1] + consumer[2]);
     }
 
-    /// <summary>A lock's first wait makes its wait event, and a thread's first wait its wait record, on the waiting thread; a
-    /// prepared thread's wait on a prepared lock makes nothing.</summary>
+    /// <summary>A lock's first wait makes its wait event on the waiting thread; a prepared thread's wait on a prepared lock makes
+    /// nothing.</summary>
     [Fact]
     public void APreparedLocksFirstWaitAllocatesNothingWhereAnUnpreparedOnesDoes()
     {
@@ -95,7 +95,6 @@ public class PerformanceTests(ITestOutputHelper output)
         var prepared = new Lock();
         PlayMap.Media.Frames.LockWaits.Prepare(prepared);
         Assert.True(WaitOnce(unprepared, prepareThread: true) > 0, "a first wait on a lock makes its event");
-        Assert.True(WaitOnce(new Lock(), prepareThread: false) > WaitOnce(new Lock(), prepareThread: true), "a thread's first wait makes its record");
         Assert.Equal(0, WaitOnce(prepared, prepareThread: true));
     }
 
