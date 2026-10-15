@@ -177,6 +177,12 @@ public static unsafe class HapTranscode
                     ended = true;
                     ffmpeg.avcodec_send_packet(decoder.Context, null);
                 }
+                else if (packet->stream_index != video)
+                {
+                    // Packets the stream probe buffered before the other streams were discarded.
+                    ffmpeg.av_packet_unref(packet);
+                    continue;
+                }
                 else
                 {
                     if (!parser.TryParse(new ReadOnlySpan<byte>(packet->data, packet->size), width, height, request.Codec, out _))

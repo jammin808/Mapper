@@ -328,7 +328,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     {
         if (slots.TryGetValue(key, out var slot))
         {
-            if (ReferenceEquals(slot.Item, item) || slot.Item == item)
+            // A new version or a change of use (wp2-optimise) is for the item's next open: an open decoder keeps what it opened.
+            if (ReferenceEquals(slot.Item, item) || slot.Item == item || slot.Item with { Versions = item.Versions, Use = item.Use } == item)
             {
                 slot.LastUsed = _frame;
                 return slot;

@@ -44,6 +44,18 @@ internal static class OptimiseClips
         return path;
     }
 
+    /// <summary>An MPEG-4 Part 2 clip (FFmpeg's own LGPL encoder) of testsrc2 with a 440 Hz tone in AAC, as an .mp4.</summary>
+    public static string Mpeg4WithAudio(string folder, int width, int height, double seconds, string name = "clip.mp4")
+    {
+        var path = Path.Combine(folder, name);
+        var c = CultureInfo.InvariantCulture;
+        Run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", string.Create(c, $"testsrc2=s={width}x{height}:r=25:d={seconds}"),
+            "-f", "lavfi", "-i", string.Create(c, $"sine=frequency=440:sample_rate=48000:duration={seconds}"),
+            "-c:v", "mpeg4", "-q:v", "2", "-c:a", "aac", "-b:a", "128k", "-shortest", path);
+        return path;
+    }
+
     /// <summary>A file decoded by the tool to raw RGBA frames.</summary>
     public static byte[] Rgba(string path) =>
         Run("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path, "-f", "rawvideo", "-pix_fmt", "rgba", "-");
