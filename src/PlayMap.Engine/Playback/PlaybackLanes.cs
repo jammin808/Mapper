@@ -64,6 +64,7 @@ public sealed class PlaybackLanes
 {
     private readonly Func<string, long> _mediaDurationNs;
     private readonly Dictionary<string, PlaylistPlayback> _lanes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _guards = new(StringComparer.Ordinal);
     private string? _focused;
     private long _revision;
     private volatile PlaybackSnapshot _snapshot = PlaybackSnapshot.Empty;
@@ -91,6 +92,7 @@ public sealed class PlaybackLanes
             if (project.FindPlaylist(id) is null)
             {
                 _lanes.Remove(id);
+                _guards.Remove(id);
                 changed = true;
             }
         }
@@ -133,6 +135,8 @@ public sealed class PlaybackLanes
     public (bool Ok, string Words) Cue(Playlist list, int index, long nowLeaderNs)
     {
         ArgumentNullException.ThrowIfNull(list);
+        if (GuardOf(list.Id) is { } guarded)
+            return (false, guarded);
         if (index < 0 || index >= list.Items.Length)
             return (false, $"{list.Name} has no item {index + 1}");
         var lane = Lane(list.Id) ?? Idle(list.Id);
@@ -145,6 +149,8 @@ public sealed class PlaybackLanes
     public (bool Ok, string Words) Go(Playlist list, int index, long atLeaderNs)
     {
         ArgumentNullException.ThrowIfNull(list);
+        if (GuardOf(list.Id) is { } guarded)
+            return (false, guarded);
         if (index < 0 || index >= list.Items.Length)
             return (false, list.Items.Length == 0 ? $"{list.Name} is empty" : $"{list.Name} has no item {index + 1}");
         var lane = Lane(list.Id) ?? Idle(list.Id);
@@ -159,6 +165,8 @@ public sealed class PlaybackLanes
     public (bool Ok, string Words) Step(Playlist list, int step, long atLeaderNs)
     {
         ArgumentNullException.ThrowIfNull(list);
+        if (GuardOf(list.Id) is { } guarded)
+            return (false, guarded);
         var lane = Lane(list.Id) ?? Idle(list.Id);
         var target = lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, lane.Index, step);
         if (target < 0)
@@ -171,6 +179,8 @@ public sealed class PlaybackLanes
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(verb);
+        if (GuardOf(list.Id) is { } guarded)
+            return (false, guarded);
         var lane = Lane(list.Id);
         if (lane is null || lane.IsIdle)
             return (false, $"nothing is loaded in {list.Name} — PLAYLIST GO {list.Id} starts it");
@@ -216,13 +226,17 @@ public sealed class PlaybackLanes
             var list = project.FindPlaylist(id);
             if (list is null)
                 continue;
+            var chased = _guards.ContainsKey(id);
             if (nowLeaderNs >= lane.SwitchAtLeaderNs && lane.NextItemId is not null)
             {
-                lane = Schedule(list, Promote(list, lane), nowLeaderNs);
+                // A chased lane's next switch is the chase's to schedule (timecode decides what follows).
+                lane = chased ? Promote(list, lane) : Schedule(list, Promote(list, lane), nowLeaderNs);
                 _lanes[id] = lane;
                 changed = true;
                 continue;
             }
+            if (chased)
+                continue;
             var ticked = lane.Clip.Tick(nowLeaderNs);
             if (!ReferenceEquals(ticked, lane.Clip))
             {
@@ -237,6 +251,99 @@ public sealed class PlaybackLanes
         if (changed)
             Publish();
     }
+
+    /// <summary>The words that refuse manual transport on a playlist (a chase drives it), or null.</summary>
+    public string? GuardOf(string playlistId) => _guards.GetValueOrDefault(playlistId);
+
+    /// <summary>A chase takes (words) or gives back (null) a playlist's transport: while taken, CUE, GO, NEXT, PREV and the clip verbs
+    /// are refused with the words, and only <see cref="Chase"/> moves the lane. Given back, the lane plays on by hand from where it
+    /// is: a running clip at its item's own rate, the next item scheduled as usual.</summary>
+    public void Guard(Playlist list, string? words, long nowLeaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        if (words is not null)
+        {
+            _guards[list.Id] = words;
+            return;
+        }
+        if (!_guards.Remove(list.Id) || Lane(list.Id) is not { IsIdle: false } lane || lane.ItemId is null)
+            return;
+        var item = list.Items.IndexOfId(lane.ItemId) is var i and >= 0 ? list.Items[i] : null;
+        var clip = lane.Clip;
+        if (clip.State == TransportState.Playing && item is not null)
+            clip = clip with { Anchor = clip.Anchor.WithRate(item.Rate > 0 ? item.Rate : 1, nowLeaderNs), Seq = clip.Seq + 1 };
+        _lanes[list.Id] = Schedule(list, lane with { Clip = clip }, nowLeaderNs);
+        Publish();
+    }
+
+    /// <summary>A chase's lane exactly as computed: the item at <paramref name="index"/> on <paramref name="clip"/> and, when
+    /// <paramref name="nextIndex"/> is one, the next item on <paramref name="nextClip"/> from the leader instant
+    /// <paramref name="switchAtLeaderNs"/> (the exact frame its timecode starts). Answers false when the lane already is that.</summary>
+    public bool Chase(Playlist list, int index, ClipTransport clip, int nextIndex, ClipTransport nextClip, long switchAtLeaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(nextClip);
+        if (index < 0 || index >= list.Items.Length)
+            return false;
+        var current = Lane(list.Id);
+        var seq = Math.Max(current?.Clip.Seq ?? 0, current?.NextClip.Seq ?? 0);
+        var lane = Load(list, index, seq) with { Clip = clip with { Seq = seq + 1 } };
+        lane = WithNext(list, lane, nextIndex, nextClip, switchAtLeaderNs, seq + 2);
+        if (current is not null && Same(current, lane))
+            return false;
+        _lanes[list.Id] = lane;
+        Publish();
+        return true;
+    }
+
+    /// <summary>A chase between items: black (nothing current) until the next item takes over at its exact instant.</summary>
+    public bool ChaseGap(Playlist list, int nextIndex, ClipTransport nextClip, long switchAtLeaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(nextClip);
+        var current = Lane(list.Id);
+        var seq = Math.Max(current?.Clip.Seq ?? 0, current?.NextClip.Seq ?? 0);
+        PlaylistPlayback lane;
+        if (nextIndex < 0 || nextIndex >= list.Items.Length || switchAtLeaderNs == long.MaxValue)
+        {
+            lane = Idle(list.Id) with { Clip = ClipTransport.Empty with { Seq = seq + 1 } };
+        }
+        else
+        {
+            // Not idle (the next switch must stand), but nothing shows before it: no current item.
+            lane = Idle(list.Id) with { Index = nextIndex, Clip = ClipTransport.Empty with { Seq = seq + 1 } };
+            lane = WithNext(list, lane, nextIndex, nextClip, switchAtLeaderNs, seq + 2);
+        }
+        if (current is not null && Same(current, lane))
+            return false;
+        _lanes[list.Id] = lane;
+        Publish();
+        return true;
+    }
+
+    private PlaylistPlayback WithNext(Playlist list, PlaylistPlayback lane, int nextIndex, ClipTransport nextClip, long switchAtLeaderNs, long seq)
+    {
+        if (nextIndex < 0 || nextIndex >= list.Items.Length || switchAtLeaderNs == long.MaxValue)
+            return lane with { SwitchAtLeaderNs = long.MaxValue, NextIndex = -1, NextItemId = null, NextSource = SourceRef.None, NextClip = ClipTransport.Empty };
+        var item = list.Items[nextIndex];
+        return lane with
+        {
+            SwitchAtLeaderNs = switchAtLeaderNs,
+            NextIndex = nextIndex,
+            NextItemId = item.Id,
+            NextSource = item.Source,
+            NextClip = nextClip with { Seq = seq },
+            NextTransition = TransitionKind.Cut,
+            MixStartNs = long.MaxValue,
+        };
+    }
+
+    /// <summary>Two lanes show the same thing at every instant (the sequence numbers aside).</summary>
+    private static bool Same(PlaylistPlayback a, PlaylistPlayback b) =>
+        a.Index == b.Index && string.Equals(a.ItemId, b.ItemId, StringComparison.Ordinal) && a.Clip with { Seq = 0 } == b.Clip with { Seq = 0 }
+        && a.SwitchAtLeaderNs == b.SwitchAtLeaderNs && string.Equals(a.NextItemId, b.NextItemId, StringComparison.Ordinal)
+        && a.NextClip with { Seq = 0 } == b.NextClip with { Seq = 0 };
 
     private PlaylistPlayback Load(Playlist list, int index, long seq)
     {

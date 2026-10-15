@@ -1,0 +1,306 @@
+[
+  {
+    "name": "int",
+    "hex": "2f706c61796d61702f626c61636b6f75740000002c69000000000001",
+    "read": {
+      "address": "/playmap/blackout",
+      "args": [
+        {
+          "type": "i",
+          "value": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative int",
+    "hex": "2f66616465722f31000000002c690000ffffffd6",
+    "read": {
+      "address": "/fader/1",
+      "args": [
+        {
+          "type": "i",
+          "value": -42
+        }
+      ]
+    }
+  },
+  {
+    "name": "float",
+    "hex": "2f66616465722f32000000002c6600003f000000",
+    "read": {
+      "address": "/fader/2",
+      "args": [
+        {
+          "type": "f",
+          "value": 0.5
+        }
+      ]
+    }
+  },
+  {
+    "name": "float32 rounding",
+    "hex": "2f66616465722f33000000002c6600003dcccccd",
+    "read": {
+      "address": "/fader/3",
+      "args": [
+        {
+          "type": "f",
+          "value": 0.10000000149011612
+        }
+      ]
+    }
+  },
+  {
+    "name": "double",
+    "hex": "2f706c61796d61702f766964656f2f7365656b002c6400004054e00000000000",
+    "read": {
+      "address": "/playmap/video/seek",
+      "args": [
+        {
+          "type": "d",
+          "value": 83.5
+        }
+      ]
+    }
+  },
+  {
+    "name": "string",
+    "hex": "2f706c61796d61702f6c696e650000002c730000504c41594c49535420474f2073686f7700000000",
+    "read": {
+      "address": "/playmap/line",
+      "args": [
+        {
+          "type": "s",
+          "value": "PLAYLIST GO show"
+        }
+      ]
+    }
+  },
+  {
+    "name": "string of 3 (padding)",
+    "hex": "2f616263000000002c73000061626300",
+    "read": {
+      "address": "/abc",
+      "args": [
+        {
+          "type": "s",
+          "value": "abc"
+        }
+      ]
+    }
+  },
+  {
+    "name": "string of 4 (padding)",
+    "hex": "2f616263640000002c7300006162636400000000",
+    "read": {
+      "address": "/abcd",
+      "args": [
+        {
+          "type": "s",
+          "value": "abcd"
+        }
+      ]
+    }
+  },
+  {
+    "name": "utf-8",
+    "hex": "2f6e616d650000002c73000042c3bc686e650000",
+    "read": {
+      "address": "/name",
+      "args": [
+        {
+          "type": "s",
+          "value": "Bühne"
+        }
+      ]
+    }
+  },
+  {
+    "name": "int64",
+    "hex": "2f626967000000002c680000fffffee08e04fb35",
+    "read": {
+      "address": "/big",
+      "args": [
+        {
+          "type": "h",
+          "value": "-1234567890123"
+        }
+      ]
+    }
+  },
+  {
+    "name": "blob",
+    "hex": "2f626c6f620000002c620000000000050102030405000000",
+    "read": {
+      "address": "/blob",
+      "args": [
+        {
+          "type": "b",
+          "value": "0102030405"
+        }
+      ]
+    }
+  },
+  {
+    "name": "true false nil impulse",
+    "hex": "2f666c61677300002c54464e49000000",
+    "read": {
+      "address": "/flags",
+      "args": [
+        {
+          "type": "T"
+        },
+        {
+          "type": "F"
+        },
+        {
+          "type": "N"
+        },
+        {
+          "type": "I"
+        }
+      ]
+    }
+  },
+  {
+    "name": "no arguments",
+    "hex": "2f706c61796d61702f70696e670000002c000000",
+    "read": {
+      "address": "/playmap/ping",
+      "args": []
+    }
+  },
+  {
+    "name": "mixed",
+    "hex": "2f6d6978656400002c69667364000000000000073e80000078000000bff8000000000000",
+    "read": {
+      "address": "/mixed",
+      "args": [
+        {
+          "type": "i",
+          "value": 7
+        },
+        {
+          "type": "f",
+          "value": 0.25
+        },
+        {
+          "type": "s",
+          "value": "x"
+        },
+        {
+          "type": "d",
+          "value": -1.5
+        }
+      ]
+    }
+  },
+  {
+    "name": "array",
+    "hex": "2f617272617900002c695b69735d690000000001000000026200000000000003",
+    "read": {
+      "address": "/array",
+      "args": [
+        {
+          "type": "i",
+          "value": 1
+        },
+        {
+          "type": "[",
+          "value": [
+            {
+              "type": "i",
+              "value": 2
+            },
+            {
+              "type": "s",
+              "value": "b"
+            }
+          ]
+        },
+        {
+          "type": "i",
+          "value": 3
+        }
+      ]
+    }
+  },
+  {
+    "name": "bundle immediately",
+    "hex": "2362756e646c65000000000000000001000000242f706c61796d61702f7365742f73665f612f6f7061636974790000002c6600003f0000000000001c2f706c61796d61702f626c61636b6f75740000002c69000000000000",
+    "read": {
+      "timeTag": "0000000000000001",
+      "packets": [
+        {
+          "address": "/playmap/set/sf_a/opacity",
+          "args": [
+            {
+              "type": "f",
+              "value": 0.5
+            }
+          ]
+        },
+        {
+          "address": "/playmap/blackout",
+          "args": [
+            {
+              "type": "i",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "bundle at a time",
+    "hex": "2362756e646c6500ec96243280000000000000242f706c61796d61702f706c61796c6973742f676f000000002c73000073686f7700000000",
+    "read": {
+      "timeTag": "ec96243280000000",
+      "packets": [
+        {
+          "address": "/playmap/playlist/go",
+          "args": [
+            {
+              "type": "s",
+              "value": "show"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "nested bundle",
+    "hex": "2362756e646c65000000000000000001000000202362756e646c650000000000000000010000000c2f6100002c690000000000010000000c2f6200002c73000074776f00",
+    "read": {
+      "timeTag": "0000000000000001",
+      "packets": [
+        {
+          "timeTag": "0000000000000001",
+          "packets": [
+            {
+              "address": "/a",
+              "args": [
+                {
+                  "type": "i",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "address": "/b",
+          "args": [
+            {
+              "type": "s",
+              "value": "two"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

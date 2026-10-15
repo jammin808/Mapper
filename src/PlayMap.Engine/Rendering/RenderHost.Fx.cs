@@ -4,9 +4,9 @@ using PlayMap.Render.Engine;
 
 namespace PlayMap.Engine.Rendering;
 
-/// <summary>wp2-fx's hooks into the render host: the effects pass in every frame (output chains before the output stage), its
-/// compile lane made with the context and let go with it, and the engine told when a slot's observed state moves (the numbers
-/// ride the next push; a state change makes one).</summary>
+/// <summary>wp2-fx's hooks into the render host: the effects pass in every frame (item, layer and surface chains as their pictures
+/// are made, output chains before the output stage), its compile lane made with the context and let go with it, and the engine
+/// told when a slot's observed state moves (the numbers ride the next push; a state change makes one).</summary>
 public sealed partial class RenderHost
 {
 #pragma warning disable CA2213 // Disposed by OnContextLostFx on the render thread that made it, never from DisposeAsync's thread.
@@ -34,7 +34,6 @@ public sealed partial class RenderHost
         inputs = inputs with { Passes = _fxPasses };
         // DATE reads the frame's leader instant as wall time, not the moment this frame is composed.
         fx.UnixMs = engine.Services.Wall.UnixMs + (inputs.LeaderNs - engine.LeaderNowNs) / 1_000_000;
-        fx.Prepare(in inputs);
         var version = fx.Stats.Version;
         if (version != _fxVersion)
         {

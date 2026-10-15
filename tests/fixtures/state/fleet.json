@@ -1,1 +1,58 @@
-{}
+{
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [
+      {
+        "id": "c0ffee00",
+        "name": "FOH-C",
+        "role": "solo",
+        "light": "red",
+        "headline": "gone quiet 7 s",
+        "heard": "gone",
+        "build": "0.2.0",
+        "rev": 12
+      },
+      {
+        "id": "9f8e7d6c",
+        "name": "FOH-B",
+        "role": "backup",
+        "light": "amber",
+        "headline": "FOH-B \u00B7 backup \u00B7 1 amber: outputs \u2014 Left: 4 dropped, 1 missed in a minute",
+        "heard": "live",
+        "build": "0.2.0",
+        "rev": 12
+      }
+    ],
+    "light": "red",
+    "headline": "3 machines \u00B7 3 outputs \u00B7 1 red \u00B7 2 amber \u2014 FOH-C: gone quiet 7 s"
+  },
+  "eye": {
+    "headline": "3 machines \u00B7 3 outputs \u00B7 1 red \u00B7 2 amber \u2014 FOH-C: gone quiet 7 s",
+    "worst": "machine:c0ffee00",
+    "worstLight": "red",
+    "worstWords": "FOH-C: gone quiet 7 s",
+    "counts": {
+      "green": 2,
+      "amber": 2,
+      "red": 1,
+      "grey": 1,
+      "things": 6,
+      "links": 5
+    },
+    "focus": "machine:c0ffee00",
+    "lens": "problems",
+    "problems": [
+      "machine:c0ffee00",
+      "machine:9f8e7d6c",
+      "output:9f8e7d6c:op_1"
+    ]
+  }
+}
