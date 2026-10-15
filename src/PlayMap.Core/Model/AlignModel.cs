@@ -24,6 +24,9 @@ public sealed record AlignOptions
     public static readonly AlignOptions Default = new();
     public ColorMatchMode Color { get; init; } = ColorMatchMode.White;
     public bool BlackLevel { get; init; } = true;
+    /// <summary>How far the measured blend evens out the white, 0 (not at all) to 1 (down to the dimmest): a camera's vignetting and a
+    /// gain screen's angle bias what it measures, so partly.</summary>
+    public double Uniformity { get; init; } = 0.6;
     public BlendCurve Curve { get; init; } = BlendCurve.Cosine;
     /// <summary>Fraction of the raster side (as BlendSolveOptions).</summary>
     public double EdgeWidth { get; init; } = 0.15;

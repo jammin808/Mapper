@@ -106,7 +106,8 @@ public sealed class FxVerbTests
 
         var layer = await Run(engine, "FX ADD \"Test card\" fx.feedback");
         Assert.True(layer.Ok);
-        Assert.Contains("draws effects on outputs only", layer.Effect, StringComparison.Ordinal);
+        Assert.EndsWith("— compiling when its layer is on the air", layer.Effect, StringComparison.Ordinal);
+        Assert.Equal(engine.LeaderNowNs, engine.Store.Project.FindFx(layer.Payload!)!.Value.Slot.OriginNs);
         var onLayer = Slot(engine, layer.Payload!);
         Assert.Equal(("ly_base", "layer"), (onLayer.GetProperty("owner").GetString(), onLayer.GetProperty("ownerKind").GetString()));
         Assert.False(onLayer.GetProperty("deterministic").GetBoolean());
