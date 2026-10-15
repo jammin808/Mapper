@@ -77,7 +77,7 @@ public sealed partial class EngineCore
         {
             var context = new PreflightContext(this, PreflightDepth.Quick, _showMode.Armed);
             var (rows, complete) = await PreflightRunner.RunAsync(PreflightChecks, context, Services.Mono, Services.Settings.Name, CancellationToken.None,
-                c => PreflightCheckFinished?.Invoke(c)).ConfigureAwait(false);
+                c => CheckFinished(id, c)).ConfigureAwait(false);
             report = new PreflightReport(id, Services.Wall.UnixMs, PreflightDepth.Quick, (Services.Mono.NowNs - start) / 1_000_000, rows,
                 PreflightReports.Ready(rows), complete);
         }
@@ -107,6 +107,19 @@ public sealed partial class EngineCore
             w.WriteString("light", ShowContext.LightWord(PreflightReports.Worst(report.Rows)));
         });
         PreflightDone?.Invoke(report);
+    }
+
+    /// <summary>A listener that faults is its own fault: the preflight and its checks go on.</summary>
+    private void CheckFinished(string id, IPreflightCheck check)
+    {
+        try
+        {
+            PreflightCheckFinished?.Invoke(check);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Journal.Add("fault", $"preflight {id}: a listener of {check.Section} faulted: {ex.Message}", ok: false);
+        }
     }
 
     /// <summary>Writes a report beside the journal (preflight/&lt;id&gt;.json); a node without a journal file keeps it in memory only.</summary>

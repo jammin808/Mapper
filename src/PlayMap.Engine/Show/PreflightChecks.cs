@@ -80,8 +80,13 @@ public static class PreflightRunner
         }
         finally
         {
-            foreach (var r in runs)
-                r.Cts.Dispose();
+            // However the loop ends, a check still running is cut, never left to run on.
+            for (var i = 0; i < runs.Count; i++)
+            {
+                if (rows[i] is null)
+                    await runs[i].Cts.CancelAsync().ConfigureAwait(false);
+                runs[i].Cts.Dispose();
+            }
         }
         return ([.. rows.SelectMany(r => r ?? [])], complete);
     }

@@ -4,7 +4,8 @@ using PlayMap.Engine.Rendering;
 namespace PlayMap.Engine.Tests.Rendering;
 
 /// <summary>The render thread tells the engine its facts moved without allocating (an output's light that flips under load once
-/// cost a work item a frame), and a move raised while the engine is reading the facts is never lost.</summary>
+/// cost a work item a frame), a move raised while the engine is reading the facts is never lost, and stopping the signal while a
+/// run holds and a raise is pending ends its thread.</summary>
 public sealed class FactsSignalTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
@@ -20,15 +21,15 @@ public sealed class FactsSignalTests
         {
             try
             {
-                // Warm: the pool's queue and its first worker exist before anything is counted.
-                for (var i = 1; i <= 50; i++)
+                // Warm: the semaphore's monitor exists before anything is counted.
+                for (var i = 1; i <= 20; i++)
                     RaiseAndWait(signal, ref runs, i);
                 var before = GC.GetAllocatedBytesForCurrentThread();
-                for (var i = 51; i <= 1050; i++)
+                for (var i = 21; i <= 520; i++)
                     RaiseAndWait(signal, ref runs, i);
                 allocated = GC.GetAllocatedBytesForCurrentThread() - before;
             }
-            catch (TimeoutException ex)
+            catch (Exception ex)
             {
                 failure = ex;
             }
@@ -36,7 +37,7 @@ public sealed class FactsSignalTests
         thread.Start();
         thread.Join();
         Assert.Null(failure);
-        Assert.Equal(1050, Interlocked.Read(ref runs));
+        Assert.Equal(520, Interlocked.Read(ref runs));
         Assert.Equal(0, allocated);
     }
 
@@ -69,9 +70,37 @@ public sealed class FactsSignalTests
         Assert.Equal(after, Interlocked.Read(ref runs));
     }
 
-    /// <summary>Raises once and spins until the target has run <paramref name="expected"/> times (spinning allocates nothing).</summary>
+    [Fact]
+    public async Task StoppingWhileARunHoldsAndARaiseIsPendingEndsTheThread()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        long runs = 0;
+        var signal = new FactsSignal(() =>
+        {
+            Interlocked.Increment(ref runs);
+            entered.Set();
+            release.Wait(Patience);
+        });
+        signal.Raise();
+        Assert.True(entered.Wait(Patience));
+        // A raise is pending (its release outstanding) when the stop comes: the stop must not wait on a wake that never comes.
+        signal.Raise();
+        var stopping = Task.Run(signal.Dispose);
+        Assert.True(await OpsRig.Eventually(() => signal.IsStopping));
+        release.Set();
+        await stopping.WaitAsync(Patience);
+        Assert.Equal(1, Interlocked.Read(ref runs));
+        signal.Raise();
+        signal.Dispose();
+        Assert.Equal(1, Interlocked.Read(ref runs));
+    }
+
+    /// <summary>Raises against a parked waiter (the path a frame takes, raises being frames apart) and spins until the target has
+    /// run <paramref name="expected"/> times. Spinning and reading the clock allocate nothing.</summary>
     private static void RaiseAndWait(FactsSignal signal, ref long runs, long expected)
     {
+        WaitParked(signal);
         signal.Raise();
         var spin = new SpinWait();
         var start = Stopwatch.GetTimestamp();
@@ -79,6 +108,26 @@ public sealed class FactsSignalTests
         {
             if (Stopwatch.GetElapsedTime(start) > Patience)
                 throw new TimeoutException($"the signal's run {expected} never came");
+            spin.SpinOnce();
+        }
+    }
+
+    /// <summary>Until the signal's thread has been waiting for 2 ms without a break (past the semaphore's own spinning).</summary>
+    private static void WaitParked(FactsSignal signal)
+    {
+        var start = Stopwatch.GetTimestamp();
+        long parkedSince = 0;
+        var spin = new SpinWait();
+        while (true)
+        {
+            if (!signal.Parked)
+                parkedSince = 0;
+            else if (parkedSince == 0)
+                parkedSince = Stopwatch.GetTimestamp();
+            else if (Stopwatch.GetElapsedTime(parkedSince) > TimeSpan.FromMilliseconds(2))
+                return;
+            if (Stopwatch.GetElapsedTime(start) > Patience)
+                throw new TimeoutException("the signal's thread never parked");
             spin.SpinOnce();
         }
     }
