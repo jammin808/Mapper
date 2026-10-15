@@ -193,7 +193,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
                     await OscAsync(w.Bytes!, w.From!, ct).ConfigureAwait(false);
                     break;
                 case WorkKind.ArtNet:
-                    await ArtNetAsync(w.Bytes!, w.Address, ct).ConfigureAwait(false);
+                    await ArtNetAsync(w.Bytes!, w.Address, w.AtNs, ct).ConfigureAwait(false);
                     break;
                 case WorkKind.Settings:
                     Reconcile(engine.Store.Project, engine.ControlInput.Settings);
@@ -552,13 +552,14 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         // An IPv4 SocketAddress holds the address in bytes 4–7.
         var address = from.Family == System.Net.Sockets.AddressFamily.InterNetwork && from.Size >= 8
             ? (uint)(from[4] << 24 | from[5] << 16 | from[6] << 8 | from[7]) : 0u;
-        _work.Writer.TryWrite(new Work(WorkKind.ArtNet, default, packet.ToArray(), null, address));
+        // A packet is timed when the socket hands it over, not when the loop reaches it: a timecode line is fitted to arrivals.
+        var at = _engine?.Services.Mono.NowNs ?? 0;
+        _work.Writer.TryWrite(new Work(WorkKind.ArtNet, default, packet.ToArray(), null, address) { AtNs = at });
     }
 
-    private async Task ArtNetAsync(byte[] packet, uint from, CancellationToken ct)
+    private async Task ArtNetAsync(byte[] packet, uint from, long now, CancellationToken ct)
     {
         var engine = _engine!;
-        var now = engine.Services.Mono.NowNs;
         var events = new List<InputEvent>();
         _artIn.LearnAll = engine.ControlInput.Learning is not null && engine.ControlInput.Settings.ArtNetEnabled;
         var result = _artIn.Receive(packet, from, now, events, out var tc);
@@ -809,6 +810,9 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     /// or the DMX channels the bindings want.</summary>
     private readonly record struct Work(WorkKind Kind, InputEvent Event, byte[]? Bytes, IPEndPoint? From, uint Address, DmxChannel[]? Channels = null)
     {
+        /// <summary>When a packet arrived (mono ns).</summary>
+        public long AtNs { get; init; }
+
         public static readonly Work Tick = new(WorkKind.Tick, default, null, null, 0);
         public static readonly Work Settings = new(WorkKind.Settings, default, null, null, 0);
         public static readonly Work Ports = new(WorkKind.Ports, default, null, null, 0);

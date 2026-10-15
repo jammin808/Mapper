@@ -72,7 +72,9 @@ Which chases are disengaged is kept for recovery.
 ## STATE, context, preflight, INDEX
 
 `STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, fit σ, level, counts, words) and the chases
-(state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each playlist carries `chase`. The
+(state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each playlist carries `chase`. A source's
+or a chase's state, format or words changing moves STATE's revision; the code's frames never do (its text is written from the line
+when STATE is read), so STATE pushes do not rise to the frame rate. The
 context has `timecode:<tc>` and `chase:<pl>` items. Preflight's `timecode` section checks every chased playlist's source is present
 and rolling. INDEX's `timecode` section lists the chased playlists with an Engage key.
 
@@ -80,4 +82,4 @@ and rolling. INDEX's `timecode` section lists the chased playlists with an Engag
 
 Timecode outputs (LTC, MTC, Art-Net), TC cues, triggered mode, backup-source switching beyond "the first rolling source", jump
 preload, the timecode test card, `SUBSCRIBE TIMECODE`, `TIMECODE CALIBRATE`, LTC from a looping file, MIDI clock, and the
-leader/follower relay of a chase across a sync group — `docs/ROADMAP.md` lists them for the next round.
+leader/follower relay of a chase across a sync group — the next round.

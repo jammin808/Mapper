@@ -22,6 +22,7 @@ public sealed partial class EngineCore
     private readonly Dictionary<string, ChaseRun> _chases = new(StringComparer.Ordinal);
     private volatile ImmutableDictionary<string, ChaseView> _chaseViews = ImmutableDictionary<string, ChaseView>.Empty.WithComparers(StringComparer.Ordinal);
     private Project? _timecodeProject;
+    private int _timecodeFacts;
 
     /// <summary>The show's timecode sources at run time (fed by the control service's inputs, read by the chase).</summary>
     public TimecodeBoard TimecodeSources { get; } = new();
@@ -74,19 +75,51 @@ public sealed partial class EngineCore
                     Playback.Guard(released, null, leaderNs);
             }
         }
-        if (p.Playlists.All(l => l.Chase is null) && _chases.Count == 0)
-            return;
         var mono = Services.Mono.NowNs;
-        var views = ImmutableDictionary.CreateBuilder<string, ChaseView>(StringComparer.Ordinal);
-        foreach (var list in p.Playlists)
+        if (p.Playlists.Any(l => l.Chase is not null) || _chases.Count > 0)
         {
-            if (list.Chase is not { } chase)
-                continue;
-            if (!_chases.TryGetValue(list.Id, out var run))
-                _chases[list.Id] = run = new ChaseRun();
-            views[list.Id] = Step(list, chase, run, leaderNs, mono);
+            var views = ImmutableDictionary.CreateBuilder<string, ChaseView>(StringComparer.Ordinal);
+            foreach (var list in p.Playlists)
+            {
+                if (list.Chase is not { } chase)
+                    continue;
+                if (!_chases.TryGetValue(list.Id, out var run))
+                    _chases[list.Id] = run = new ChaseRun();
+                views[list.Id] = Step(list, chase, run, leaderNs, mono);
+            }
+            _chaseViews = views.ToImmutable();
         }
-        _chaseViews = views.ToImmutable();
+        PublishTimecodeFacts(p, mono);
+    }
+
+    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves (the code's frames never move it; its
+    /// text is written from the line when STATE is read).</summary>
+    private void PublishTimecodeFacts(Project p, long mono)
+    {
+        if (p.Timecode.Sources.IsEmpty && _chaseViews.IsEmpty && _timecodeFacts == 0)
+            return;
+        var facts = new HashCode();
+        foreach (var s in p.Timecode.Sources)
+        {
+            var r = TimecodeSources.ReadingOf(s.Id, mono);
+            facts.Add(s.Id);
+            facts.Add(r.State);
+            facts.Add(r.Format?.Text);
+            facts.Add(r.Words);
+        }
+        foreach (var (id, v) in _chaseViews)
+        {
+            facts.Add(id);
+            facts.Add(v.State);
+            facts.Add(v.Engaged);
+            facts.Add(v.Active);
+            facts.Add(v.ItemId);
+        }
+        var signature = facts.ToHashCode();
+        if (signature == _timecodeFacts)
+            return;
+        _timecodeFacts = signature;
+        FactsChanged();
     }
 
     /// <summary>One chase at one instant: the active source (the first rolling one in order, else the first), its line in leader

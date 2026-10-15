@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using PlayMap.Core.Dmx;
 using PlayMap.Core.Time;
 using PlayMap.Net.Control;
@@ -74,16 +76,28 @@ public sealed class ArtNetInTests
         using var desk = ControlRig.Udp(ControlRig.Address(46), ArtNet.Port);
         var dmx = new byte[530];
         Send(desk, node, dmx.AsSpan(0, ArtNet.WriteDmx(dmx, 0, 0, [77, 0])));
+        // The code runs at 25 fps against the real clock (frame n at 40n ms, sent as its frame begins) for as long as it takes the
+        // source to read rolling: code that stops reads dropout 2.5 frames later, so the state is read while the code still runs.
         var tc = new byte[ArtNet.TimeCodeLength];
-        for (var f = 0; f < 12; f++)
+        string? state = null;
+        JsonElement source = default;
+        var run = Stopwatch.StartNew();
+        var last = -1L;
+        while (state != "rolling" && run.Elapsed < TimeSpan.FromSeconds(10))
         {
-            ArtNet.WriteTimeCode(tc, new ArtTimeCode(f, 30, 2, 1, 1, 0));
-            Send(desk, node, tc);
-            await Task.Delay(40);
+            var n = run.ElapsedMilliseconds / 40;
+            if (n != last)
+            {
+                last = n;
+                ArtNet.WriteTimeCode(tc, new ArtTimeCode((int)(n % 25), 30 + (int)(n / 25), 2, 1, 1, 0));
+                Send(desk, node, tc);
+                source = rig.State().GetProperty("timecode").GetProperty("sources")[0];
+                state = source.GetProperty("state").GetString();
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, 40 - (run.ElapsedMilliseconds % 40))));
         }
-        await ControlRig.Until(() => rig.State().GetProperty("timecode").GetProperty("sources")[0].GetProperty("state").GetString() == "rolling", "the code rolling");
-        var source = rig.State().GetProperty("timecode").GetProperty("sources")[0];
-        Assert.StartsWith("01:02:30:", source.GetProperty("text").GetString(), StringComparison.Ordinal);
+        Assert.True(state == "rolling", source.ToString());
+        Assert.StartsWith("01:02:", source.GetProperty("text").GetString(), StringComparison.Ordinal);
         Assert.Equal("25", source.GetProperty("detected").GetString());
         // Art-Net control input is off: the DMX frame was heard by the socket and fired nothing.
         Assert.Equal(1, rig.Engine.Store.Project.FindSurface("sf_lobby")!.Opacity);
