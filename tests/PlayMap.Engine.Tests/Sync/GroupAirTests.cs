@@ -97,6 +97,35 @@ public sealed class GroupAirTests
         readOnly.Sub!.Dispose();
     }
 
+    [Fact]
+    public async Task APanicHandedAgainIsThatPressAndALaterOneIsTheSecondPress()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), SyncRig.Fast());
+        await using var member = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(member);
+        await SyncRig.GroupAsync(leader, member);
+        var fanout = leader.Engine.Services.Fanout!;
+        var lead = member.Engine.Store.Project.Show.Rules.PanicLeadMs * 1_000_000L;
+        var at = leader.Engine.LeaderNowNs;
+        Assert.Equal("applied", Assert.Single(await fanout.SendAsync("PANIC FADE 1000", at, CancellationToken.None)).Stage);
+        clock.AdvanceMs(300);   // inside the fade: a second press now turns the panic hard
+
+        // The same press handed again (as a new subscription hands a member that came back the group's latest panic): that press, so
+        // refused with words, and the fade runs on.
+        var again = Assert.Single(await fanout.SendAsync("PANIC FADE 1000", at, CancellationToken.None));
+        Assert.Equal("refused", again.Stage);
+        Assert.Contains("already in this panic", again.Words, StringComparison.Ordinal);
+        var panic = member.State().GetProperty("air").GetProperty("panic");
+        Assert.False(panic.GetProperty("hard").GetBoolean());
+        Assert.Equal(0.5, member.Engine.AirGain("op_1", at + lead + 500_000_000), 1e-6);
+
+        // A later press while the fade runs is the second press, as it is on the leader: hard.
+        Assert.Equal("applied", Assert.Single(await fanout.SendAsync("PANIC", leader.Engine.LeaderNowNs, CancellationToken.None)).Stage);
+        Assert.True(member.State().GetProperty("air").GetProperty("panic").GetProperty("hard").GetBoolean());
+    }
+
     private sealed class NullSink : PlayMap.Net.IPushSink
     {
         public void Latest(string key, string line)

@@ -94,7 +94,7 @@ public sealed class SyncBoardTests
         Assert.True(Assert.Single(p.Pairs).MixedRate);
         Assert.Equal(16.65, p.SoonestSlipS!.Value, 0.0166);
         Assert.Equal(59.94, p.Outputs.Single(o => o.Output == "op_right").RefreshHz, 0.001);
-        Assert.Equal(0, p.Outputs.Single(o => o.Output == "op_right").Ppm, 0.5);   // against its own standard rate
+        Assert.Equal(1.0, p.Outputs.Single(o => o.Output == "op_right").Ppm, 0.01);   // against its own standard rate, 60000/1001: 59.94 is 1 ppm slow of it
     }
 
     [Fact]
@@ -108,6 +108,46 @@ public sealed class SyncBoardTests
         Assert.Null(Assert.Single(p.Pairs).NextSlipS);
         Assert.Equal(12, p.Pairs[0].PhaseUs, 1e-6);
         Assert.Equal("2 nodes, 2 outputs on one vblank", p.Words);
+    }
+
+    /// <summary>A locked report with a board and its count at its last vblank.</summary>
+    private static VblankReport Boarded(uint node, string output, double vblankNs, uint count) =>
+        Report(node, output, P60Ps, vblankNs, state: LockState.Framelocked) with
+        {
+            Flags = VblankReport.FlagSettled | VblankReport.FlagBoard | VblankReport.FlagBoardSynced,
+            BoardFrameCount = count,
+        };
+
+    [Fact]
+    public void LockedOutputsOnTwoChainsAreNotOneVblankWhateverTheirDriversSay()
+    {
+        // 6 ms apart: two boards each locked to something, not to each other.
+        var apart = Board((Report(Leader, "op_left", P60Ps, T, state: LockState.Framelocked), true),
+            (Report(Member, "op_right", P60Ps, T + 6_000_000, state: LockState.Framelocked), false)).Picture(T, 0);
+        Assert.Equal(("free-running", Light.Amber), (apart.Verdict, apart.Light));
+        Assert.Contains("op_right on 9f8e7d6c reports locked but is not on op_left's vblank (6000 µs apart)", apart.Words, StringComparison.Ordinal);
+
+        // Within a timestamp's jitter, but the boards count different vblanks (the member's last vblank is 30 periods later, so its
+        // count must be 30 more): not one chain either.
+        var later = T + 30 * P60Ps / 1000.0 + 20_000;
+        var miscounted = Board((Boarded(Leader, "op_left", T, 0xFFFFF0), true), (Boarded(Member, "op_right", later, 0xFFFFF0 + 31 - 0x1000000), false)).Picture(T, 0);
+        Assert.Equal("free-running", miscounted.Verdict);
+        Assert.Contains("its frame count disagrees", miscounted.Words, StringComparison.Ordinal);
+
+        // The same with counts that agree across the 24-bit wrap: one vblank.
+        var counted = Board((Boarded(Leader, "op_left", T, 0xFFFFF0), true), (Boarded(Member, "op_right", later, 0xFFFFF0 + 30 - 0x1000000), false)).Picture(T, 0);
+        Assert.Equal(("same vblank", Light.Green), (counted.Verdict, counted.Light));
+        Assert.Null(Assert.Single(counted.Pairs).NextSlipS);
+    }
+
+    [Theory]
+    [InlineData(60000.0 / 1001)]
+    [InlineData(24000.0 / 1001)]
+    [InlineData(120000.0 / 1001)]
+    public void ADisplayExactlyOnARateOfTheThousandAndOneFamilyReadsNoPpm(double hz)
+    {
+        var p = Board((Report(Leader, "op_left", (long)Math.Round(1e12 / hz), T), true)).Picture(T, 0);
+        Assert.Equal(0, Assert.Single(p.Outputs).Ppm, 0.005);
     }
 
     [Fact]

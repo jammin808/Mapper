@@ -58,7 +58,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly ConcurrentDictionary<string, uint> _seq = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (Core.Sync.LockState State, long AtWatch)> _lastSent = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _adopted = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<(string Feed, long Seq), byte> _airDone = new();
+    private readonly Lock _airGate = new();
+    private readonly HashSet<(string Feed, long Seq)> _airDone = [];
+    private readonly Queue<(string Feed, long Seq)> _airOrder = new();
+    private readonly Dictionary<string, (string Feed, long Seq)> _airLatest = new(StringComparer.Ordinal);
     private readonly Lock _dueGate = new();
     private readonly Lock _persistGate = new();
     private readonly Queue<DueAir> _due = new();
@@ -343,17 +346,26 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         return [.. receipts.Select(r => new FanoutReceipt(r.Node, r.Name, r.Stage, r.AppliedLeaderNs, r.Words))];
     }
 
-    /// <summary>The air line a leader's own line becomes for its members (BLACKOUT TOGGLE as the state it left), or null when it
-    /// stays here: not an air verb, HERE, or a malformed line.</summary>
-    public static string? FanoutLine(string text, bool blackoutNow)
+    /// <summary>The air line a leader's own line becomes for its members (BLACKOUT TOGGLE as the state it left; a panic's AT &lt;unix ms&gt;
+    /// as AT +&lt;ms&gt; from the line's instant, read on this node's wall clock <paramref name="wallUnixMs"/>, so every member lands on the
+    /// leader's instant whatever its own wall clock says), or null when it stays here: not an air verb, HERE, a line that names
+    /// outputs (ON …: they are this node's outputs), or a malformed line.</summary>
+    public static string? FanoutLine(string text, bool blackoutNow, long wallUnixMs)
     {
         if (!WireGrammar.TryParse(text, out var line, out _) || VerbCatalog.Match(line) is not { } m || !AirVerbs.Contains(m.Spec.Name))
             return null;
-        var words = line.Words;
-        if (words.Any(w => w.Equals("HERE", StringComparison.OrdinalIgnoreCase)))
+        var words = line.Words.ToList();
+        if (words.Any(w => w.Equals("HERE", StringComparison.OrdinalIgnoreCase))
+            || (m.Spec.Name is "PANIC" or "PANIC CLEAR" && words.Any(w => w.Equals("ON", StringComparison.OrdinalIgnoreCase))))
             return null;
         if (m.Spec.Name == "BLACKOUT")
             return blackoutNow ? "BLACKOUT ON" : "BLACKOUT OFF";
+        for (var i = 0; i < words.Count - 1; i++)
+        {
+            if (words[i].Equals("AT", StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(words[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var unix))
+                words[i + 1] = "+" + Math.Max(0, unix - wallUnixMs).ToString(CultureInfo.InvariantCulture);
+        }
         return string.Join(' ', words);
     }
 
@@ -457,13 +469,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             return;
         if (!AnchorFeed.TryReadAir(json, out var feed, out var seq, out var text, out var at))
             return;
-        if (!_airDone.TryAdd((feed, seq), 0))
+        if (!FirstTime(feed, seq, KindOf(text)))
             return;   // the latest of its kind, handed again on a new subscription: it ran here already
-        if (_airDone.Count > AirRemembered)
-        {
-            foreach (var old in _airDone.Keys.OrderBy(k => k.Seq).Take(_airDone.Count - AirRemembered / 2))
-                _airDone.TryRemove(old, out _);
-        }
         CommandReply reply;
         if (!WireGrammar.TryParse(text, out var line, out var error) || VerbCatalog.Match(line) is not { } m || !MemberVerbs.Contains(m.Spec.Name))
         {
@@ -495,6 +502,31 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             var due = new DueAir(at, line, new TaskCompletionSource<(CommandReply, long)>(TaskCreationOptions.RunContinuationsAsynchronously));
             _due.Enqueue(due);
             return due;
+        }
+    }
+
+    /// <summary>True the first time this node takes (feed, seq) — across follows too, as a feed's instance is its leader process's.
+    /// Remembered in arrival order and the oldest forgotten first, never the latest line of a kind (the one each new subscription
+    /// hands again).</summary>
+    private bool FirstTime(string feed, long seq, string? kind)
+    {
+        lock (_airGate)
+        {
+            var key = (feed, seq);
+            if (!_airDone.Add(key))
+                return false;
+            _airOrder.Enqueue(key);
+            if (kind is not null)
+                _airLatest[kind] = key;
+            while (_airOrder.Count > AirRemembered)
+            {
+                var old = _airOrder.Dequeue();
+                if (_airLatest.ContainsValue(old))
+                    _airOrder.Enqueue(old);   // at most one per kind: the next one out is forgotten
+                else
+                    _airDone.Remove(old);
+            }
+            return true;
         }
     }
 
@@ -649,14 +681,19 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         var node = VblankReport.NodeNumber(me);
         var watch = Interlocked.Increment(ref _watches);
         var every = Math.Max(1, (long)Math.Round(_o.ReportEvery / _o.WatchEvery));
+        // Every number on the leader's time base: the period measured on this node's clock scaled by the leader's rate against it
+        // (the estimate's drift, not a slew's), and the uncertainty widened by any correction still being slewed.
+        var rate = 1 + Clock.Drift;
+        var uncertaintyUs = (uint)Math.Clamp(Math.Round((Clock.UncertaintyNs + Clock.SlewingNs) / 1000), 0, VblankReport.MaxClockUncertaintyUs);
         foreach (var v in source.Read())
         {
             if (_lastSent.TryGetValue(v.OutputId, out var last) && watch - last.AtWatch < every && last.State == v.State)
                 continue;
             var seq = _seq.AddOrUpdate(v.OutputId, 1, (_, s) => s + 1);
+            var periodPs = Math.Clamp((long)Math.Round(v.PeriodPs * rate), VblankReport.MinPeriodPs, VblankReport.MaxPeriodPs);
             var report = new VblankReport(v.State, (byte)(v.Settled ? VblankReport.FlagSettled : 0), v.Path, node, VblankReport.HashId(v.OutputId), seq,
-                v.FrameCount & 0xFFFFFF, Math.Clamp(v.PeriodPs, VblankReport.MinPeriodPs, VblankReport.MaxPeriodPs), Math.Max(0, Clock.ToLeader(v.LastVblankLocalNs)),
-                v.RefreshIndex, v.Missed60s, 0, v.AirLatencyUs, (uint)Math.Clamp(Math.Round(Clock.UncertaintyNs / 1000), 0, VblankReport.MaxClockUncertaintyUs));
+                v.FrameCount & 0xFFFFFF, periodPs, Math.Max(0, Clock.ToLeader(v.LastVblankLocalNs)),
+                v.RefreshIndex, v.Missed60s, 0, v.AirLatencyUs, uncertaintyUs);
             if (leads)
             {
                 Board.Name(me, v.OutputId);
@@ -681,7 +718,6 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         // The network host has just moved the exchange to this leader: its lines wait for an estimate heard from here on.
         Interlocked.Exchange(ref _estimatesBefore, Clock.Estimates);
         _adopted.Clear();
-        _airDone.Clear();
         _leaderName = peer.Name;
         _leaderAddress = peer.Address;
         var said = "";

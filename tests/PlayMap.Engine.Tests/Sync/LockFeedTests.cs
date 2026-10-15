@@ -84,12 +84,14 @@ public sealed class LockFeedTests
 }
 
 /// <summary>Which of a leader's own lines go to its group, and as what: PANIC (and its alias), PANIC CLEAR, BLACKOUT (a toggle as the
-/// state it left) and MASTER; HERE keeps a line local; nothing else is fanned out from the journal.</summary>
+/// state it left) and MASTER; a panic's AT &lt;unix ms&gt; as +ms from the leader's wall clock; HERE, and a line that names outputs, keep
+/// a line local; nothing else is fanned out from the journal.</summary>
 public sealed class FanoutLineTests
 {
     [Theory]
     [InlineData("PANIC FADE 1000", false, "PANIC FADE 1000")]
-    [InlineData("PANIC OFF ON op_1", false, "PANIC OFF ON op_1")]
+    [InlineData("PANIC OFF FADE 0", false, "PANIC OFF FADE 0")]
+    [InlineData("PANIC OFF ON op_1", false, null)]
     [InlineData("PANIC CLEAR FADE 500", false, "PANIC CLEAR FADE 500")]
     [InlineData("BLACKOUT TOGGLE", true, "BLACKOUT ON")]
     [InlineData("BLACKOUT TOGGLE", false, "BLACKOUT OFF")]
@@ -101,6 +103,12 @@ public sealed class FanoutLineTests
     [InlineData("SHOW ARM", false, null)]
     [InlineData("PLAYLIST GO pl_show", false, null)]
     [InlineData("NOT A VERB", false, null)]
+    [InlineData("PANIC ON op_1 FADE 500", false, null)]
+    [InlineData("PANIC CLEAR ON op_1", false, null)]
+    [InlineData("PANIC CLEAR ALL FADE 0", false, "PANIC CLEAR ALL FADE 0")]
+    [InlineData("PANIC SAFE AT 1760000030000", false, "PANIC SAFE AT +30000")]
+    [InlineData("PANIC AT 1759999990000", false, "PANIC AT +0")]
+    [InlineData("PANIC AT +250", false, "PANIC AT +250")]
     public void OnlyTheAirVerbsGoAndHereKeepsALineLocal(string line, bool blackoutNow, string? sent) =>
-        Assert.Equal(sent, SyncNode.FanoutLine(line, blackoutNow));
+        Assert.Equal(sent, SyncNode.FanoutLine(line, blackoutNow, 1_760_000_000_000));
 }

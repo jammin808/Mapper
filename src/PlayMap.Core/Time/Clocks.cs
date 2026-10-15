@@ -228,6 +228,21 @@ public sealed class NetworkClock
     /// <summary>The uncertainty of the mapping: half the best round trip (the offset is exact only for a symmetric path).</summary>
     public double UncertaintyNs => _map.Estimator is { HasEstimate: true } e ? e.RoundTrip / 2.0 : 0;
 
+    /// <summary>The leader's rate against this node's clock, minus one, as the mapping applies it (0 on this node's own line): a span
+    /// of local ns is (1 + this) leader ns.</summary>
+    public double Drift => _map.Estimator is { HasEstimate: true } e ? e.Drift : 0;
+
+    /// <summary>The size of the correction still being slewed at now, ns: a reading through the mapping is off the estimate by up to
+    /// this much.</summary>
+    public double SlewingNs
+    {
+        get
+        {
+            var map = _map;
+            return Math.Abs(Residual(map, Local.NowNs));
+        }
+    }
+
     /// <summary>Takes a new estimate of the leader's clock (never written after it is handed in): slewed when its jump at now is at
     /// most <see cref="SlewLimitNs"/>, otherwise stepped where <see cref="StepOn"/> says. Ends a hold.</summary>
     public void Follow(ClockOffsetEstimator estimator)

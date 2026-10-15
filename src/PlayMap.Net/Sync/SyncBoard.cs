@@ -42,6 +42,8 @@ public sealed record SyncPicture(ImmutableArray<SyncOutputRow> Outputs, Immutabl
 /// <item>Relative rate δ = (P_o − P_R)/P_R moves the phase δ ns per ns: the next slip comes when it reaches ±P_R/2 — at
 /// (P_R/2 − φ)/δ for δ &gt; 0, (φ + P_R/2)/|δ| for δ &lt; 0; none when |δ| &lt; 0.01 ppm or both are locked. (50 ppm at 60 Hz
 /// slips every 5 min 33 s; 59.94 against 60 every 16.65 s.)</item>
+/// <item>"Same vblank" when every heard output is locked and every locked pair measures as one: phase within both uncertainties
+/// and <see cref="LockedPhaseSlackNs"/>, and board counts that agree (framelock 3.5).</item>
 /// </list></summary>
 public sealed class SyncBoard
 {
@@ -57,7 +59,15 @@ public sealed class SyncBoard
     /// <summary>A free-running pair that slips sooner than this while the show plays is amber (10 min).</summary>
     public const double SlipAmberS = 600;
 
-    private static readonly double[] StandardHz = [23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 72, 75, 90, 100, 119.88, 120, 144, 165, 180, 240];
+    /// <summary>A locked pair reads one vblank only within both clocks' uncertainty and this much more (a software vblank timestamp's
+    /// jitter): further apart, the two are on different lock chains whatever their drivers say.</summary>
+    public const double LockedPhaseSlackNs = 1_000_000;
+
+    private const long Count24 = 1 << 24;
+
+    /// <summary>The standard rates, the 1001 family exact (a display at 60000/1001 Hz reads 0 ppm).</summary>
+    private static readonly double[] StandardHz = [24000 / 1001.0, 24, 25, 30000 / 1001.0, 30, 48000 / 1001.0, 48, 50, 60000 / 1001.0, 60, 72, 75, 90, 100,
+        120000 / 1001.0, 120, 144, 165, 180, 240];
 
     private readonly Lock _gate = new();
     private readonly List<Entry> _entries = [];
@@ -170,6 +180,7 @@ public sealed class SyncBoard
         var mixed = false;
         double? soonest = null;
         double worstPhase = 0, worstUncertainty = 0;
+        (Entry Entry, double PhaseUs, bool CountsAgree)? apart = null;
         string Label(Entry e) => names.TryGetValue((e.Node, e.Hash), out var id) ? id : "#" + e.Hash.ToString("x8", CultureInfo.InvariantCulture);
         foreach (var e in entries)
         {
@@ -186,7 +197,15 @@ public sealed class SyncBoard
                 var phase = Phase(reference.Report, r, nowLeaderNs);
                 var delta = (r.PeriodNs - pr) / pr;
                 var pairMixed = Math.Abs(r.PeriodNs / pr - 1) > MixedRateLimit;
+                // Locked on both sides means one vblank only when the measurement agrees: the phase within both uncertainties and a
+                // timestamp's jitter, and (with boards) the counts one count per period apart.
+                var counts = CountsAgree(reference.Report, r);
                 var locked = Locked(r.State) && Locked(reference.Report.State);
+                if (locked && (Math.Abs(phase) > e.UncertaintyNs + reference.UncertaintyNs + LockedPhaseSlackNs || !counts))
+                {
+                    apart ??= (e, phase / 1000, counts);
+                    locked = false;
+                }
                 slip = locked || Math.Abs(delta) < NoSlipBelow ? null
                     : delta > 0 ? (pr / 2 - phase) / delta / 1e9 : (phase + pr / 2) / -delta / 1e9;
                 phaseUs = phase / 1000;
@@ -228,9 +247,14 @@ public sealed class SyncBoard
             (verdict, light, words) = ("mixed rate", Light.Amber,
                 $"{count}: {odd.B} runs at a different rate from {odd.A} — they slip every few seconds; set every output to one rate");
         }
-        else if (heard.All(e => Locked(e.Report.State)))
+        else if (heard.All(e => Locked(e.Report.State)) && apart is null)
         {
             (verdict, light, words) = ("same vblank", Light.Green, $"{count} on one vblank");
+        }
+        else if (apart is { } a && reference is not null)
+        {
+            (verdict, light, words) = ("free-running", Light.Amber, string.Create(CultureInfo.InvariantCulture,
+                $"{count}: {Label(a.Entry)} on {a.Entry.NodeText} reports locked but is not on {Label(reference)}'s vblank ({(a.CountsAgree ? $"{a.PhaseUs:0} µs apart" : "its frame count disagrees")}) — check the sync chain"));
         }
         else if (joining is not null)
         {
@@ -279,6 +303,17 @@ public sealed class SyncBoard
     }
 
     private static bool Locked(LockState s) => s is LockState.Framelocked or LockState.HouseLocked;
+
+    /// <summary>Two boards on one chain count the same vblanks: b's count less a's is the number of a's periods between their last
+    /// vblanks, mod 2²⁴ (framelock 3.5). True when either has no board to count.</summary>
+    private static bool CountsAgree(in VblankReport a, in VblankReport b)
+    {
+        if ((a.Flags & VblankReport.FlagBoard) == 0 || (b.Flags & VblankReport.FlagBoard) == 0)
+            return true;
+        var periods = (long)Math.Round((b.LastVblankLeaderNs - (double)a.LastVblankLeaderNs) / a.PeriodNs);
+        var off = ((long)b.BoardFrameCount - a.BoardFrameCount - periods) % Count24;
+        return (off + Count24) % Count24 == 0;
+    }
 
     private static double Nearest(in VblankReport r, long atLeaderNs)
     {

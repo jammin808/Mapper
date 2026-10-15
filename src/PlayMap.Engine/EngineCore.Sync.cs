@@ -451,7 +451,7 @@ public sealed partial class EngineCore
         // Sent with no member too: the feed keeps it as its kind's latest for a member that joins (or comes back) later.
         if (row.Kind != "verb" || !row.Ok || row.Line is null || Services.GroupSync is not { Leads: true } sync)
             return;
-        if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout) is not { } text)
+        if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout, Services.Wall.UnixMs) is not { } text)
             return;
         var at = LeaderNowNs;
         // Pushed here, in the order this session's lines ran (the journal's row is written before the line is answered); only the
@@ -501,6 +501,10 @@ public sealed partial class EngineCore
     internal (CommandReply Reply, long RanAtLeaderNs) RunAirLineOnLane(WireLine line, long atLeaderNs, SessionInfo session)
     {
         var ran = Math.Max(atLeaderNs, LeaderNowNs);
+        // A leader's PANIC from no later than the panic this node is in is that press again (handed anew to a member that came back):
+        // pressed here a second time it would turn the panic hard.
+        if (_air.Panic is { } panic && atLeaderNs <= panic.SinceLeaderNs && VerbCatalog.Match(line) is { Spec.Name: "PANIC" })
+            return (CommandReply.Fail($"already in this panic since {Seconds(panic.SinceUnixMs)} — the leader's press at that instant ran here"), ran);
         CommandReply reply;
         try
         {
