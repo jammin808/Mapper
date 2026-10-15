@@ -214,11 +214,11 @@ public sealed partial class EngineCore
         if (TargetLine.Parse(target, out _) is not { } t)
             return target;
         if (t.Field is { } f && t.Spec.Name is "SET" or "NUDGE")
-            return $"{NameOf(p, f.Id)} {f.Path}";
-        return string.Join(' ', t.Line.Words.Select(w => NameOf(p, w)));
+            return $"{WordName(p, f.Id)} {f.Path}";
+        return string.Join(' ', t.Line.Words.Select(w => WordName(p, w)));
     }
 
-    private static string NameOf(Project p, string word) =>
+    private static string WordName(Project p, string word) =>
         Locate(p, word) is { } located ? Label(located.Entity) is { Length: > 0 } name ? name : word : word;
 
     // ---- CONTROL ----
