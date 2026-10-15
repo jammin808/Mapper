@@ -170,7 +170,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "fd5c349f8f4c730f"
+    "index": "bc6a1a586d421dbc"
   },
   "faults": [],
   "ai": {
@@ -421,6 +421,21 @@
     "unbound": [],
     "held": [],
     "flashLimited": -1
+  },
+  "led": {
+    "output": false,
+    "level": 1,
+    "fixtures": 0,
+    "pixels": 0,
+    "universes": 0,
+    "mbps": 0,
+    "test": null,
+    "locate": null,
+    "lagMs": 0,
+    "lateCollects": 0,
+    "nodes": [],
+    "conflicts": [],
+    "warnings": []
   },
   "calibration": {
     "moved": [],

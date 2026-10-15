@@ -86,8 +86,9 @@ public sealed class HelloService : IAsyncDisposable
     }
 
     /// <summary>The capabilities round 2 adds to the contract's: <c>eye</c> (EYE / EYE STATUS answer the board in Patterns' EyeJson
-    /// shape) and <c>show</c> (Show Mode's facts in STATE and the context) — sixteen in all, every one a strict reader keeps.</summary>
-    public static readonly IReadOnlyList<string> RoundTwoCaps = ["eye", "show"];
+    /// shape), <c>show</c> (Show Mode's facts in STATE and the context) and <c>led</c> (LED output: STATE.led and the LED verbs).
+    /// A strict reader keeps the first sixteen, so the order puts the contract's and the Eye's first.</summary>
+    public static readonly IReadOnlyList<string> RoundTwoCaps = ["eye", "show", "led"];
 
     /// <summary>PlayMap's hello: kind playmap, its ports (http, ws and https on one port when it serves TLS, wire,
     /// sync), its capabilities, its clock and its certificate's fingerprint. No show data, no secret.</summary>

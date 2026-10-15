@@ -94,8 +94,10 @@ public sealed class EyeContextTests
         var hello = HelloService.PlayMapHello(settings, 1760101234567, "sha256:" + new string('a', 64), "RACK-1");
         Assert.Contains("eye", hello.Caps);
         Assert.Contains("show", hello.Caps);
-        Assert.Equal(16, hello.Caps.Count);
-        Assert.Equal(16, hello.Caps.Distinct(StringComparer.Ordinal).Count());
+        // Round 2 adds eye, show and led to the contract's fourteen; a strict reader keeps the first sixteen, so led comes last.
+        Assert.Equal(17, hello.Caps.Count);
+        Assert.Equal(17, hello.Caps.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal("led", hello.Caps[^1]);
         var bytes = hello.ToJson();
         Assert.InRange(bytes.Length, 1, ShowBusConstants.HelloMaxBytes);
         var back = ShowBusHello.Parse(bytes)!;
