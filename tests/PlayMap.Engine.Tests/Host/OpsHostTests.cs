@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Client;
 using PlayMap.Core.Media;
@@ -22,6 +23,9 @@ public sealed class OpsHostTests
     private const string Password = "JBMIA-pj1";
 
     /// <summary>The operations parts with no PJLink socket (tests share the machine) and quick projector timings.</summary>
+    /// <summary>How often the desk renews the views it shows (MainViewModel: every 5 s, a third of the node's 15 s lease).</summary>
+    private static readonly TimeSpan DeskRenewsViews = TimeSpan.FromSeconds(5);
+
     internal static OpsPartsOptions Quick(ScanRunnerOptions? scan = null) => new()
     {
         Scan = scan ?? new ScanRunnerOptions(),
@@ -85,8 +89,18 @@ public sealed class OpsHostTests
         using (var started = JsonDocument.Parse(Answer(await wire.AskAsync("@s SCAN START sim MODE FAST"), "s")))
         {
             var scanId = started.RootElement.GetProperty("scan").GetString()!;
-            Assert.True(await Eventually.TrueAsync(() => node.State().GetProperty("scan").GetProperty("state").GetString() is "done" or "failed", 120_000),
-                "the scan never ended");
+            // The test is the camera view's viewer: it renews the view as the desk does (every 5 s), since the node lets a view
+            // nobody renews go after 15 s, and a scan on a loaded machine takes longer than that.
+            var renewed = Stopwatch.StartNew();
+            Assert.True(await Eventually.TrueAsync(async () =>
+            {
+                if (renewed.Elapsed >= DeskRenewsViews)
+                {
+                    Answer(await wire.AskAsync("@k VIEW cam KEEP"), "k");
+                    renewed.Restart();
+                }
+                return node.State().GetProperty("scan").GetProperty("state").GetString() is "done" or "failed";
+            }, 120_000), "the scan never ended");
             var scan = node.State().GetProperty("scan");
             Assert.True(scan.GetProperty("state").GetString() == "done", scan.GetProperty("message").GetString());
             Assert.Equal(scanId, scan.GetProperty("id").GetString());
