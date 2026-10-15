@@ -23,7 +23,10 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 - **Plays.** FFmpeg with hardware decode; all seven HAP codecs block-compressed on the GPU, HAP R and HAP HDR included;
   Patterns' test patterns, 2D and raymarched 3D fractals, a GPU particle field of up to 1 M particles, sound-reactive
   scenes, stings and thirty curated looks. Every generator counts its own time on the show clock, so a late joiner, a backup
-  or a chase draws the same picture.
+  or a chase draws the same picture. A clip that costs this node CPU decode (ProRes, DNxHD and the like, or long-GOP at 1080p
+  and above) gets a HAP Q version in the background, HAP Q Alpha when it has alpha — on import under `MEDIA RULE MODE AUTO`,
+  or when `MEDIA OPTIMISE` asks — made by PlayMap's own GPU encoder in a worker process; the source stays, and the version
+  plays from the item's next open.
 - **Shapes.** Ordered chains of ISF effects on outputs, layers, surfaces and playlist items, a show's own ISF files beside the
   ten built in. A number on a layer, a surface, an effect or a generator can move with the sound, the beat clock or an LFO.
 - **Maps.** `LIGHT WALL` and a pixel quad from four clicks on the wall, with the edit overlay drawn through the output's warp;
@@ -51,17 +54,17 @@ Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' 
 context report it; the multi-view solve is Core's alone so far.
 
 **In progress:** blind edit and sound on the air; the sync group's leader clock and measured sync; the phone as a scan
-camera; video in and out over OMT and NDI; optimise to HAP on import; the Companion module; and the desk's controls for
+camera; video in and out over OMT and NDI; the Companion module; and the desk's controls for
 show safety, locks, effects and the rest, which today run over the wire.
 
 ## What it is made of
 
 | Module | What it does |
 |---|---|
-| `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, network clock and drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy and preflight, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, and fleet health. |
-| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), preflight, frame-exact playlist lanes with pre-scheduled gapless switches, timecode chase, control bindings, the calibration ledger, align runs, the scan runner, STATE and context, journal, recovery record, sync-group anchors |
-| `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload; the edit overlay; LED sampling; previews |
-| `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; HAP's own parser with its Snappy stage on a worker pool; sound input (libavdevice; WASAPI with loopback on Windows) |
+| `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, network clock and drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy and preflight, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, fleet health, and optimise's planner, rules, governor, HAP packer and version choice. |
+| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), preflight, frame-exact playlist lanes with pre-scheduled gapless switches, timecode chase, control bindings, the calibration ledger, align runs, the scan runner, the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), STATE and context, journal, recovery record, sync-group anchors |
+| `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload; the edit overlay; LED sampling; previews; the GPU HAP encoder |
+| `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; HAP's own parser with its Snappy stage on a worker pool; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows) |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync (UDP 9942), OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, and resetting internal geometry before scans. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
@@ -89,6 +92,7 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/SHOW.md` — Show Mode, locks, panic, the master, the GO fence and preflight
 - `docs/OUTPUT.md` — presenting, vblank truth and the frame lock
 - `docs/DECODE.md` — the HAP family on the GPU
+- `docs/OPTIMISE.md` — optimise on import: HAP versions made in the background
 - `docs/CONTROL.md` — OSC, MIDI, Art-Net and sACN input, and bindings
 - `docs/TIMECODE.md` — timecode chase
 - `docs/COMPANION.md` — the node's side of Companion and other controllers

@@ -6,8 +6,9 @@ PlayMap is two things in one portable exe:
    NotchLC…), the HAP family block-compressed on the GPU, stills, image sequences, network streams, generators (test
    patterns, 2D and raymarched 3D fractals, a GPU particle field, reactive scenes) and live inputs, through chains of
    ISF effects, from any number of independent playlists, in frame-accurate step with other PlayMap nodes on the
-   network, a playlist chasing timecode if asked. On the Show Bus it is a node of the Patterns ecosystem: Patterns (and
-   Stagewatch, controllers, and an AI through MCP) can see everything it is doing and drive everything it can do.
+   network, a playlist chasing timecode if asked, and makes HAP versions of clips it decodes on the CPU in the
+   background. On the Show Bus it is a node of the Patterns ecosystem: Patterns (and Stagewatch, controllers, and an
+   AI through MCP) can see everything it is doing and drive everything it can do.
 2. **A 3D projection-mapping suite.** Scan an object, a room or a building with structured light (a capture camera, or
    the scan simulator) and/or put a LiDAR or photogrammetry model on the stage; get projector poses, a mesh and surfaces
    in minutes; click an object to make it a surface; play media through the warped 3D mesh with automatic blends;
@@ -17,13 +18,16 @@ PlayMap is two things in one portable exe:
 The UI hides the power: three workspaces (**Play**, **Map**, **Scan**) plus **Outputs** and **Network** drawers;
 right-click menus on everything, in step with the desk's buttons and the wire's verbs.
 
-## 1. Processes — one exe, two crash domains
+## 1. Processes — one exe, three roles
 
 ```
 PlayMap.exe                 the desk (Avalonia). Starts and watches its engine; or attaches to any node's engine
                             on the network (operate a rack render node from a laptop).
 PlayMap.exe engine          the node: project, playback, decode, render, outputs, network, scan. Owns its main
                             thread (output windows + GL context live there). Headless: `engine headless`.
+PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The engine starts and watches it; it lowers
+                            its own CPU priority, makes its own GL context (hidden, or EGL surfaceless with no
+                            display) and speaks one JSON object a line on its standard input and output.
 ```
 
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
@@ -33,6 +37,9 @@ PlayMap.exe engine          the node: project, playback, decode, render, outputs
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed; the node's own lines (a panic's shutters and effects) still run. Then the
   doors and parts close in reverse, the recovery record is written and the journal flushed.
+- A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
+  job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
+  closes, and after two minutes with nothing to do (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
   pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees.
@@ -41,14 +48,14 @@ PlayMap.exe engine          the node: project, playback, decode, render, outputs
 
 | Module | References | Holds |
 |---|---|---|
-| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, the calibration score, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`) |
-| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, preview read-back |
-| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), content hashing |
+| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, the calibration score, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
+| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
+| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back) |
 | `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync (UDP 9942), OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
 | `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), the machine's MIDI ports (ALSA sequencer, WinMM) |
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
-| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, playback lanes, timecode chase, control bindings, output windows, preview shared memory, scan runner, align runs, the calibration ledger, journal, recovery record, watchdog heartbeat |
+| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, playback lanes, timecode chase, control bindings, output windows, preview shared memory, scan runner, align runs, the calibration ledger, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
 | `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
@@ -215,6 +222,11 @@ Windows; asked for today (`dxgi`), the node runs GL and says so (docs/ROADMAP.md
 - **Media sync**: library items are identified by content hash; a node missing a file pulls it in 8 MiB chunks
   from any peer that has it, resumable, throttled while a show runs; each node publishes readiness (present,
   verified, decodable, first frame ready).
+- **Media versions**: an item may carry versions (`MediaVersion`, `mv…`): HAP files the optimise worker made from its
+  source, each hashed into this node's media store and recorded on the item as one edit. At each open the media backend
+  asks `VersionChoice` which file to play — under `use: auto` a version this GPU samples whose file is here, the best
+  measured first, else the source; `MEDIA USE` pins the source or a version — so a change reaches the air at the item's
+  next open (docs/OPTIMISE.md).
 
 ## 8. Reliability rules (inherited from Patterns, enforced by the analyzers and tests)
 
