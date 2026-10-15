@@ -57,6 +57,12 @@ wrong tickets or keys a minute from an address, and any message type a phone doe
   camera sees no tag place, the pairing (`mode:"timing"`, with words to keep the phone very still).
 - The tags are not the pattern: their footprint, and anything decoded within 2 px of a tag place, is left out of the decode.
 
+## Other readers of the phone's pictures
+
+A Phone rig opens wherever a camera rig does (`ScanCameras.Open`): an align run (`ALIGN RUN`) reads its pictures one `still` cue
+at a time — the phone answers with its next picture, stamped on the node's clock through the clock exchange. The stills stop the
+moment a scan drives the phone, so a scan's cues are the only ones it sees.
+
 ## Verified here, and what is not
 
 - Core: PMF1 (round trip, CRC, every refusal), the QR code (read back by an independent reader and by jsQR), the tag codec (every
@@ -70,7 +76,8 @@ wrong tickets or keys a minute from an address, and any message type a phone doe
 - Engine: a whole scan through a phone over its real socket (a C# phone that behaves as the page), with late pictures, a
   rolling-shutter mix, a dropped upload and a false picture all paired right (the projector within 1 cm, 0.25°, 0.6 % of throw);
   the steady profile with a wandering gain; a phone that hangs up or goes silent stops the scan cleanly with words in STATE;
-  `SCAN NEXT`; the verbs, the preflight row, INDEX; the ticket and key in no STATE, context, journal or project.
+  `SCAN NEXT`; an align run through a phone reaching its staged result, and failing with the phone's words when it is gone; the
+  verbs, the preflight row, INDEX; the ticket and key in no STATE, context, journal or project.
 - Simulator: a camera hunting 1 % a frame with no white or black decodes ≥ 90 % of the locked pixels and holds the pose within twice
   the locked thresholds.
 - **Lab only**: real phones (Chrome Android's exposure lock, iOS Safari's steady behaviour, lens switching, rolling-shutter timing,

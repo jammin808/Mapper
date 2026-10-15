@@ -702,17 +702,13 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         return 0;
     }
 
-    /// <summary>The camera a rig is: a phone through the node's phone hub, else a capture device or stream.</summary>
+    /// <summary>The camera a rig is (<see cref="ScanCameras.Open"/>) for this runner's node.</summary>
     private IScanCamera? OpenCameraFor(CameraRig rig)
     {
-        if (rig.SourceKind == CameraSourceKind.Phone)
-        {
-            EngineCore? engine;
-            lock (_gate)
-                engine = _engine;
-            return engine?.Services.Phones is { } hub ? new PhoneCamera(hub, rig) : null;
-        }
-        return CaptureCamera.OptionsFor(rig) is { } options ? new CaptureCamera(options) : null;
+        EngineCore? engine;
+        lock (_gate)
+            engine = _engine;
+        return ScanCameras.Open(engine, rig);
     }
 
     /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present;

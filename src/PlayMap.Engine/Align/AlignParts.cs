@@ -123,6 +123,7 @@ internal sealed class AlignIndex(EngineCore engine) : IIndexContributor
 internal sealed class AlignExtension(IScanDisplay display) : IEngineExtension
 {
     private AlignRunner? _runner;
+    private volatile EngineCore? _engine;
 
     public string Name => "align";
 
@@ -130,11 +131,16 @@ internal sealed class AlignExtension(IScanDisplay display) : IEngineExtension
     {
         ArgumentNullException.ThrowIfNull(services);
         var wall = services.Wall;
-        _runner = new AlignRunner(display, new AlignRunnerOptions { UnixMs = () => wall.UnixMs });
+        // A rig's camera opens as a scan's does: a phone through the node's phone hub (wp2-phonescan), else a capture device.
+        _runner = new AlignRunner(display, new AlignRunnerOptions { UnixMs = () => wall.UnixMs, OpenCamera = rig => Scanning.ScanCameras.Open(_engine, rig) });
         return services with { Align = _runner, PreflightChecks = [.. services.PreflightChecks, new AlignPreflight()] };
     }
 
-    public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
+    public Task StartAsync(EngineCore engine, CancellationToken ct)
+    {
+        _engine = engine;
+        return Task.CompletedTask;
+    }
 
     public ValueTask DisposeAsync() => _runner?.DisposeAsync() ?? ValueTask.CompletedTask;
 }

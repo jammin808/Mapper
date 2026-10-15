@@ -63,7 +63,9 @@ internal sealed class FakePhone : IAsyncDisposable
 {
     private readonly ClientWebSocket _ws = new();
     private readonly GlassDisplay _glass;
-    private readonly ScanSimulator _camera;
+    private readonly ScanSimulator? _camera;
+    private readonly int _width;
+    private readonly int _height;
     private readonly bool _locks;
     private readonly CancellationTokenSource _stop = new();
     private Pcg32 _gain;
@@ -77,14 +79,30 @@ internal sealed class FakePhone : IAsyncDisposable
     private Task? _loop;
     private int _cues;
 
-    public FakePhone(GlassDisplay glass, ScanSimulator camera, bool locks, double gainWalk = 0)
+    /// <summary>A phone that answers still cues with what <paramref name="still"/> shows (an align run's camera), at its raster.</summary>
+    public FakePhone(Func<CancellationToken, Task<CameraFrame>> still, int width, int height)
+        : this(new GlassDisplay(), null, locks: true)
+    {
+        Still = still;
+        (_width, _height) = (width, height);
+    }
+
+    public FakePhone(GlassDisplay glass, ScanSimulator? camera, bool locks, double gainWalk = 0)
     {
         _glass = glass;
         _camera = camera;
         _locks = locks;
         GainWalk = gainWalk;
         _gain = new Pcg32(77);
+        (_width, _height) = camera is null ? (0, 0) : (camera.CameraWidth, camera.CameraHeight);
     }
+
+    /// <summary>What a still cue is answered with (null: the scene lit by the glass, as for a pattern).</summary>
+    public Func<CancellationToken, Task<CameraFrame>>? Still { get; init; }
+
+    public int Stills => Volatile.Read(ref _stills);
+
+    private int _stills;
 
     public double GainWalk { get; }
 
@@ -129,8 +147,8 @@ internal sealed class FakePhone : IAsyncDisposable
             camera = new
             {
                 label = "camera2 0, facing back",
-                width = _camera.CameraWidth,
-                height = _camera.CameraHeight,
+                width = _width,
+                height = _height,
                 fps = 30,
                 caps = _locks ? new { exposure = new[] { "manual", "continuous" }, exposureTime = new[] { 10, 1000, 5 } } : new { exposure = Array.Empty<string>(), exposureTime = Array.Empty<int>() },
             },
@@ -221,12 +239,12 @@ internal sealed class FakePhone : IAsyncDisposable
     {
         if (GainWalk > 0)
             _gainNow *= 1 + GainWalk * _gain.NextGaussian();
-        return _camera.RenderRaster(raster, _frameSeed++, _gainNow);
+        return _camera!.RenderRaster(raster, _frameSeed++, _gainNow);
     }
 
     private byte[] Grid(byte[] gray)
     {
-        var (w, h) = (_camera.CameraWidth, _camera.CameraHeight);
+        var (w, h) = (_width, _height);
         var r = _lit.IsEmpty ? new PixelRect(0, 0, w, h) : _lit;
         var g = new byte[48 * 27];
         for (var j = 0; j < 27; j++)
@@ -254,8 +272,15 @@ internal sealed class FakePhone : IAsyncDisposable
         var tag = m.GetProperty("tag").GetInt32();
         var minChange = m.GetProperty("minChange").GetDouble();
         var retake = m.GetProperty("retake").GetInt32();
+        if (kind == "still")
+        {
+            Interlocked.Increment(ref _stills);
+            var gray = Still is { } still ? (await still(_stop.Token)).Gray : Picture(_glass.Glass.Now);
+            await SeenAsync(id, "still", 0, gray, 0);
+            return;
+        }
         var (now, before) = _glass.Glass;
-        var (w, h) = (_camera.CameraWidth, _camera.CameraHeight);
+        var (w, h) = (_width, _height);
         var pattern = kind == "pattern";
         if (pattern && retake == 0 && Lie.Remove(index))
         {
@@ -322,8 +347,8 @@ internal sealed class FakePhone : IAsyncDisposable
         await SendAsync(new { t = "seen", cue, seq, tag, capture, sites = _sites.Count, margin = 10, settleDiff = 1.0, rolling });
         if (!upload)
             return;
-        var (w, h) = (_camera.CameraWidth, _camera.CameraHeight);
-        var frame = Pmf1.Write(new Pmf1Header(kind == "locate" ? "locate" : "pattern", seq, (int)cue, w, h, new PixelRect(0, 0, w, h), Pmf1.Gray8,
+        var (w, h) = (_width, _height);
+        var frame = Pmf1.Write(new Pmf1Header(kind is "locate" or "still" ? kind : "pattern", seq, (int)cue, w, h, new PixelRect(0, 0, w, h), Pmf1.Gray8,
             Pmf1.Deflate, 1, 0, capture), gray);
         await _ws.SendAsync(frame, WebSocketMessageType.Binary, true, _stop.Token);
     }

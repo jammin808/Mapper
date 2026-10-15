@@ -12,7 +12,9 @@ The phone as a local scan camera (`docs/PHONESCAN.md`). A phone joins through an
 | `PHONE FORGET` | `PHONE FORGET <phone>\|ALL` | JSON `{forgotten:[ids]}`: the key no longer opens anything and the phone's socket closes ("was forgotten"); its camera rig stays in the project. Refused "no such phone <id>" / "no phone is paired with this node" | review | yes |
 | `SCAN NEXT` | `SCAN NEXT` | The pattern a cued camera waits on now is shown again and asked for afresh (a phone that was bumped or lost its view); refused "no scan is waiting for a picture" | review | yes |
 
-`SCAN START <camera>` through a Phone rig runs the lock-step capture (below). `INTO`, and the rows `SCAN SUGGEST`, `SCAN SOLVE`,
+`SCAN START <camera>` through a Phone rig runs the lock-step capture (below). `ALIGN RUN` on a group whose camera is a Phone rig
+opens it through the same hub (align's `AlignRunnerOptions.OpenCamera`): the run reads pictures one `still` cue at a time; a
+phone that is not connected fails the run with "<name> is not connected — open the invite on the phone (PHONE INVITE makes one)". `INTO`, and the rows `SCAN SUGGEST`, `SCAN SOLVE`,
 `SCAN VIEWS`, `SCAN DROP` of this block, are wp2-multiscan's (W3) and stay unrouted ("not available on this node yet").
 
 ## The phone's own socket: `/scan/ws`, `playmap.camera.v1`
@@ -33,10 +35,10 @@ else under `/scan` is served, and the module maps nothing outside it. Every answ
 | node → phone | `prepare` | `profile` ("lock"/"steady"), `displayHz`, `agreeTolerance`, `stableFrames` |
 | phone → node | `prepared` | `exposure` ("locked"/"steady"), `exposureMs`, `iso`, `focus`, `whiteBalance`, `words` |
 | node → phone | `sites` | `projector`, `minSites`, `lit:[x,y,w,h]`, `sites:[{id, cells:[[x,y]×16], rows:[top,bottom]}]` (camera pixels) |
-| node → phone | `cue` | `id`, `kind` ("locate"/"pattern"), `projector`, `i`, `tag`, `at`, `earliest` (node ms), `retake`, `minChange` |
+| node → phone | `cue` | `id`, `kind` ("locate"/"pattern"/"still"), `projector`, `i`, `tag`, `at`, `earliest` (node ms), `retake`, `minChange`; a `still` asks for the next picture taken at or after `earliest`, whatever it shows (an align run, a camera view) |
 | phone → node | `seen` / `stuck` | `seen {cue, seq, tag, capture (page ms), sites, margin, settleDiff, rolling}`; `stuck {cue, why}` |
 | phone → node | `moved` | `at`, `magnitude` |
-| phone → node | binary PMF1 | magic `PMF1`, uint32 LE header length (≤ 4096), JSON header `{kind:"pattern"\|"locate", seq, cue, capture, w, h, roi:[x,y,w,h], format:"gray8"\|"gray16", codec:"deflate-raw"\|"none", frames, crc32}`, then the ROI's rows |
+| phone → node | binary PMF1 | magic `PMF1`, uint32 LE header length (≤ 4096), JSON header `{kind:"pattern"\|"locate"\|"still", seq, cue, capture, w, h, roi:[x,y,w,h], format:"gray8"\|"gray16", codec:"deflate-raw"\|"none", frames, crc32}`, then the ROI's rows |
 | node → phone | `ack`, `say` | `ack {seq}`; `say {level, words}` |
 | phone → node | `bye` | — |
 

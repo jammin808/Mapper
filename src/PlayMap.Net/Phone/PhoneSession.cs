@@ -422,7 +422,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
     {
         if (!Pmf1.TryParse(frame, out var header, out var payload, out var words))
             return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);
-        if (header.Kind is not ("pattern" or "locate"))
+        if (header.Kind is not ("pattern" or "locate" or "still"))
             return (WebSocketCloseStatus.PolicyViolation, $"a picture of kind {header.Kind} was not asked for");
         if (!Pmf1.TryDecode(header, payload, out var pixels, out words))
             return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);

@@ -3,6 +3,7 @@
 //
 // JOIN ──Allow (camera, motion, wake lock)──▶ CONNECTING ──hello/welcome──▶ READY
 // READY ──prepare──▶ exposure profile ──prepared──▶ READY ; READY ──cue──▶ WATCHING ──seen──▶ (upload) ──▶ READY
+// (a "still" cue is answered with the next picture as it is: an align run or a camera view reads frames that way)
 // any ──socket lost──▶ RECONNECTING (with the stored key) ──▶ READY
 //
 // The invite's ticket arrives in the URL's fragment, which a browser never sends; it is taken out of the address at once and
@@ -452,6 +453,16 @@ function watch(m) {
     if (s.cue !== cue) return;
     if (capture < cue.earliest) {
       fail('taken before the pattern was up');
+      return;
+    }
+    if (cue.kind === 'still') {
+      // A still is the next picture as it is: whoever asked settles and pairs it.
+      window.clearTimeout(timer);
+      s.cue = null;
+      s.onFrame = null;
+      const seq = ++s.seq;
+      send({ t: 'seen', cue: cue.id, seq, tag: 0, capture, sites: 0, margin: 0, settleDiff: 0, rolling: 0 });
+      upload('still', seq, cue.id, capture, gray);
       return;
     }
     const st = settle.offer(gray, s.width, s.height);
