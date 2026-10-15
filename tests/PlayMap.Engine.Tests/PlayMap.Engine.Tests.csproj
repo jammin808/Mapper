@@ -37,4 +37,9 @@
     <ProjectReference Include="..\..\tools\PlayMap.Node\PlayMap.Node.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <!-- OMT's codec built for the tests from the vendored source, shared with the media tests rather than copied. -->
+  <ItemGroup Label="wp2-videoio">
+    <Compile Include="..\PlayMap.Media.Tests\Video\VmxBuild.cs" Link="VideoIo\VmxBuild.cs" />
+  </ItemGroup>
+
 </Project>

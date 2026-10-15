@@ -29,4 +29,11 @@
     <PackageReference Include="NAudio.Wasapi" Version="3.1.0" />
   </ItemGroup>
 
+  <!-- Open Media Transport: libomtnet vendored under src/ThirdParty (its own project, outside the fences); its codec libvmx is
+       native and loaded at run time. NDI is never referenced: the user's runtime is loaded at run time. -->
+  <ItemGroup Label="wp2-videoio">
+    <ProjectReference Include="..\ThirdParty\libomtnet\PlayMap.ThirdParty.Omt.csproj" />
+    <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
+  </ItemGroup>
+
 </Project>
