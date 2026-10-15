@@ -329,6 +329,7 @@ public static class VerbCatalog
 
         // The group's clock, anchors and vblank verdict (wp2-sync). SUBSCRIBE ANCHORS is a topic; SYNC STATUS (today's row) gains the verdict.
         V2("SYNC LATENCY", "SYNC LATENCY AUTO|<ms 0-500>", "The group's air latency (AUTO: the largest output latency any member reports)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Layout },
+        V2("SYNC RECEIPT", "SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]", "A group member's answer to an air line its leader fanned out (member to leader, on the member's anchor feed)", VerbCategory.Network, VerbRisk.Low, false) with { Ephemeral = true },
 
         // HAP on the GPU (wp2-decode).
         V2("MEDIA INSPECT", "MEDIA INSPECT <media>", "What a clip is to the decoder: codec and texture, chunks, second stage, MB per frame and per second, HDR reading, odd size, and the lines that fix what is slow", VerbCategory.Media, VerbRisk.Low, false),

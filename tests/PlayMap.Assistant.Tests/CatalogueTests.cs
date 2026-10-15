@@ -21,6 +21,12 @@ public sealed class CatalogueTests
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
     ];
 
+    /// <summary>Rows a package added inside its own block for what it ships (PLAN §2.2), beyond SPINE §4.3's.</summary>
+    private static readonly string[] AddedRows =
+    [
+        "SYNC RECEIPT", // wp2-sync: a member's answer to its leader's air line
+    ];
+
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>
     private static readonly HashSet<string> ConnectionVerbs = new(StringComparer.Ordinal) { "HELLO", "NONCE", "AUTH", "AUTH-PROOF", "SUBSCRIBE" };
 
@@ -88,8 +94,9 @@ public sealed class CatalogueTests
         var second = VerbCatalog.All.Skip(first.Count).ToList();
 
         Assert.Equal(FirstRoundRows, first.Count);
-        Assert.Equal(RoundTwoRows - TrimmedRows.Length, second.Count);
+        Assert.Equal(RoundTwoRows - TrimmedRows.Length + AddedRows.Length, second.Count);
         Assert.All(TrimmedRows, name => Assert.Null(VerbCatalog.Find(name)));
+        Assert.All(AddedRows, name => Assert.Equal(2, VerbCatalog.Find(name)?.Round));
         Assert.All(second, v => Assert.Equal(2, v.Round));
         Assert.All(second, v => Assert.Null(v.SecretFrom));
         Assert.All(second, v => Assert.Empty(v.HighFor));
