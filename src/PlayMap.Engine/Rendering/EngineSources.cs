@@ -71,6 +71,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private Project _project = Project.CreateDefault();
     private PlaybackSnapshot _playback = PlaybackSnapshot.Empty;
     private long _frame;
+    private bool _air;
     private bool _disposed;
 
     public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null)
@@ -86,6 +87,10 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     /// <summary>Decoders open now (all consumers).</summary>
     public int OpenSources => _itemSlots.Count + _mediaSlots.Count + _liveSlots.Count;
 
+    /// <summary>The frame's air is drawn (its outputs and sends): live inputs drawn from here until the next frame — previews — are
+    /// drawn for preview, not for program (tally).</summary>
+    public void EndAir() => _air = false;
+
     /// <summary>Why a library item could not be opened, or null.</summary>
     public string? Problem(string mediaOrItemId) =>
         (_itemSlots.GetValueOrDefault(mediaOrItemId) ?? _mediaSlots.GetValueOrDefault(mediaOrItemId) ?? _liveSlots.GetValueOrDefault(mediaOrItemId))?.Problem;
@@ -97,6 +102,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         _project = snapshot.Project.Project;
         _playback = snapshot.Playback;
         _frame = frame;
+        _air = true;
         if (frame % SweepEvery == 0)
         {
             Sweep(_itemSlots, _itemGone);
@@ -340,6 +346,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     {
         var slot = SlotFor(_liveSlots, id, item);
         var src = slot is null ? null : Volatile.Read(ref slot.Source);
+        if (src is VideoIo.LiveHandle handle)
+            handle.ForAir = _air;
         // A live source has only now: its newest frame, whatever the time asked.
         return slot is null || src is null ? null : _leases.Wrap(src.Acquire(0), slot.Epoch);
     }

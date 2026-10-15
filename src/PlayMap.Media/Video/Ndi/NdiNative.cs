@@ -66,7 +66,10 @@ internal static class NdiBandwidth
 
 internal static class NdiFrameFormat
 {
+    public const int Interleaved = 0;
     public const int Progressive = 1;
+    public const int Field0 = 2;
+    public const int Field1 = 3;
 }
 
 /// <summary>NDIlib_source_t.</summary>

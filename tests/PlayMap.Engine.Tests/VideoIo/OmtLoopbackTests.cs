@@ -27,9 +27,10 @@ internal sealed class LiveMedia : IMediaBackend
 }
 
 /// <summary>PlayMap → OMT → PlayMap on this machine's loopback with libvmx built from the vendored source: an output's final picture
-/// at 1080p, sent as UYVY by the render host's send stage, is received by a live input of the same engine and shown on a second
-/// output within a code of luma; one receiver however it is shown; STATE says the input delivers 1920×1080 on air and the send has a
-/// receiver and sends.</summary>
+/// at 1080p — a chart of four coloured blocks — sent as UYVY by the render host's send stage, is received by a live input of the same
+/// engine and shown on a second output, every block within a code of luma; the frames arrive in the order sent; one receiver however
+/// it is shown; STATE says the input delivers 1920×1080 on air and the send has a receiver and sends. (The lock-step, frame-by-frame
+/// check of the same path without a free-running render loop is Media's OmtLoopbackTests.)</summary>
 [Collection("render host")]
 public sealed class OmtLoopbackTests
 {
@@ -37,9 +38,13 @@ public sealed class OmtLoopbackTests
     public async Task AnOutputTapSentOverOmtIsReceivedAsAnInputAndShownOnAnotherOutput()
     {
         using var omt = new OmtProvider(new OmtOptions(Path.Combine(Path.GetTempPath(), "playmap-omt-engine-tests")), MonoClock.Instance);
+        static Layer Block(string id, string colour, double x, double y) =>
+            new(id, id, SourceRef.Solid(colour), new RectD(x, y, 960, 540), 1, LayerBlend.Normal, true);
+        var chart = new Canvas("cv_chart", "Chart", 1920, 1080, "#000000",
+            [Block("ly_a", "#4080c0", 0, 0), Block("ly_b", "#c04020", 960, 0), Block("ly_c", "#20a040", 0, 540), Block("ly_d", "#e0e0e0", 960, 540)]);
         var project = HostRig.WithOutputs(
-            HostRig.Screen("op_1", SourceRef.Solid("#4080c0"), 1920, 1080),
-            HostRig.Screen("op_2", SourceRef.None, 320, 180));
+            HostRig.Screen("op_1", SourceRef.Canvas("cv_chart"), 1920, 1080),
+            HostRig.Screen("op_2", SourceRef.None, 320, 180)) with { Canvases = [chart] };
         var host = RenderHost.TryCreate(RenderHostOptions.Default with { Windows = false }, out var why) ?? throw new InvalidOperationException(why);
         var media = new LiveMedia();
         var services = EngineServices.ForTests(MonoClock.Instance);
@@ -76,14 +81,36 @@ public sealed class OmtLoopbackTests
                 await host.FramesAsync(2).WaitAsync(HostRig.Patience);
                 sent = await host.ReadOutputAsync("op_1").WaitAsync(HostRig.Patience) ?? [];
                 shown = await host.ReadOutputAsync("op_2").WaitAsync(HostRig.Patience) ?? [];
-                if (shown.Length > 0 && HostRig.At(shown, 320, 160, 90) != (0, 0, 0))
+                if (shown.Length > 0 && HostRig.At(shown, 320, 80, 45) != (0, 0, 0) && HostRig.At(shown, 320, 240, 135) != (0, 0, 0))
                     break;
                 Assert.True(waited.Elapsed < HostRig.Patience, "op_2 never showed the input");
             }
             static double Luma((int R, int G, int B) c) => 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
-            var a = HostRig.At(sent, 1920, 960, 540);
-            var b = HostRig.At(shown, 320, 160, 90);
-            Assert.True(Math.Abs(Luma(a) - Luma(b)) <= 1.0, $"sent {a}, shown {b}");
+            // The middle of each block, sent at 1920×1080 and shown at 320×180.
+            foreach (var (x, y) in new[] { (480, 270), (1440, 270), (480, 810), (1440, 810) })
+            {
+                var a = HostRig.At(sent, 1920, x, y);
+                var b = HostRig.At(shown, 320, x / 6, y / 6);
+                Assert.True(Math.Abs(Luma(a) - Luma(b)) <= 1.0, $"block at {x},{y}: sent {a}, shown {b}");
+            }
+
+            // In order: each frame the input holds is stamped later than the one before (the sender's stamp is the leader instant).
+            using (var reader = engine.VideoIo.Open(engine.Store.Project.FindMedia(input)!)!)
+            {
+                var last = long.MinValue;
+                var changes = 0;
+                for (var k = 0; k < 20; k++)
+                {
+                    await host.FramesAsync(1).WaitAsync(HostRig.Patience);
+                    using var lease = reader.Acquire(0);
+                    if (lease is null || lease.SenderTimestampNs == last)
+                        continue;
+                    Assert.True(lease.SenderTimestampNs > last, $"frame stamped {lease.SenderTimestampNs} after {last}");
+                    last = lease.SenderTimestampNs;
+                    changes++;
+                }
+                Assert.True(changes >= 2, $"{changes} new frames in 20 render frames");
+            }
 
             engine.VideoIo.Tick();
             engine.FactsChanged();
@@ -103,6 +130,57 @@ public sealed class OmtLoopbackTests
             Assert.Equal("ready", state.GetProperty("omt").GetProperty("state").GetString());
             // One receiver for the input however many consumers read it.
             Assert.Equal(1, sink.Connections);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+            engine.VideoIo.Dispose();
+            await engine.DisposeAsync();
+        }
+    }
+}
+
+/// <summary>A live input on the air through the render host: drawn by an output, it is on program (the frame's air drew it) and a warm
+/// frame allocates nothing on the render thread, with the hub made before the host starts as the node's own extension makes it.</summary>
+[Collection("render host")]
+public sealed class LiveOnAirHostTests
+{
+    [Fact]
+    public async Task ALiveInputOnAnOutputIsOnProgramAndAWarmFrameAllocatesNothing()
+    {
+        var clock = new ManualClock(5_000_000_000);
+        using var provider = new FakeVideoProvider(LiveProtocol.Omt, clock);
+        var cam = new MediaItem("md_cam", "Cam 1", MediaKind.Stream, "omt:STUDIO (Cam 1)", "", 0, MediaInfo.Unknown, []);
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Media("md_cam"), 64, 36)) with { Media = [cam] };
+        var host = RenderHost.TryCreate(RenderHostOptions.Default with { Windows = false }, out var why) ?? throw new InvalidOperationException(why);
+        var media = new LiveMedia();
+        var services = EngineServices.ForTests(clock);
+        services = services with
+        {
+            Settings = services.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8] },
+            Outputs = host,
+            Media = media,
+            LiveInputs = [provider],
+            SendProviders = [provider],
+        };
+        var engine = new EngineCore(services, project);
+        media.Engine = engine;
+        engine.VideoIo.Reconcile(engine.Store.Project);
+        provider.Opened.Single().Push(64, 36, 150);
+        host.Start(engine);
+        try
+        {
+            await host.FramesAsync(40).WaitAsync(HostRig.Patience);
+            engine.VideoIo.Tick();
+            engine.FactsChanged();
+            var row = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").GetProperty("inputs")[0];
+            Assert.Equal("program", row.GetProperty("tally").GetString());
+            Assert.Equal((true, false), provider.Opened.Single().Tally);
+            var before = host.Stats;
+            await host.FramesAsync(90).WaitAsync(HostRig.Patience);
+            var after = host.Stats;
+            Assert.True(after.Frames - before.Frames >= 90);
+            Assert.Equal(before.FramePathAllocatedBytes, after.FramePathAllocatedBytes);
         }
         finally
         {

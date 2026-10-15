@@ -237,9 +237,18 @@ public sealed class VideoIoVerbTests
         Assert.Equal("now", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
         Assert.Equal(400, saved.MaxSendMbps);
         Assert.Equal("stage,foh", rig.Engine.VideoIo.Settings.NdiGroups);
-        await rig.Ok("VIDEOIO SET OMT OFF");
-        Assert.Equal("off", rig.State().GetProperty("omt").GetProperty("state").GetString());
-        Assert.StartsWith("OMT is off on this node", await rig.Refused("INPUT ADD omt://10.0.0.7:6400"), StringComparison.Ordinal);
+        // OMT off from the next start: what runs keeps running (and STATE says so, with what the next start brings); nothing new.
+        var running = VideoIoRig.IdOf(await rig.Ok("SEND ADD OMT Main output:op_1 ALWAYS"));
+        r = await rig.Ok("VIDEOIO SET OMT OFF");
+        Assert.Equal("next start", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
+        await rig.Ok("SET op_1 name \"Left wall\"");
+        rig.Engine.VideoIo.Tick();
+        Assert.Equal("ready", rig.State().GetProperty("omt").GetProperty("state").GetString());
+        Assert.Equal("off", rig.State().GetProperty("omt").GetProperty("atNextStart").GetString());
+        Assert.Equal("sending", rig.Send(running).GetProperty("state").GetString());
+        Assert.Equal(0, rig.Omt.Sinks.Single().Closes);
+        Assert.Equal("OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it", await rig.Refused("INPUT ADD omt://10.0.0.7:6400"));
+        Assert.Equal("OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it", await rig.Refused("SEND ADD OMT Other output:op_1"));
         Assert.Contains("does not take", await rig.Refused("VIDEOIO SET MAX-SEND-MBPS lots"), StringComparison.Ordinal);
     }
 
@@ -250,9 +259,16 @@ public sealed class VideoIoVerbTests
         var id = VideoIoRig.IdOf(await rig.Ok("INPUT ADD \"omt:STUDIO (Cam 1)\""));
         var source = rig.Omt.Opened.Single();
         source.Push();
-        using var handle = rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
+        using var handle = (LiveHandle)rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
         rig.Engine.VideoIo.Tick();
         Assert.Equal((false, false), source.Tally);
+        // Drawn but not into the air (a preview, a scan camera): preview.
+        using (handle.Acquire(0))
+            rig.Engine.VideoIo.Tick();
+        Assert.Equal((false, true), source.Tally);
+        Assert.False(rig.Input(id).GetProperty("onAir").GetBoolean());
+        // Drawn into the air (the renderer's outputs and sends): program.
+        handle.ForAir = true;
         using (handle.Acquire(0))
             rig.Engine.VideoIo.Tick();
         Assert.Equal((true, false), source.Tally);
@@ -266,7 +282,7 @@ public sealed class VideoIoVerbTests
         rig.AdvanceMs(300);
         rig.Engine.VideoIo.Tick();
         rig.Engine.VideoIo.Tick();
-        Assert.Equal([(true, false), (false, true), (false, false)], source.TallySent);
+        Assert.Equal([(false, true), (true, false), (false, true), (false, false)], source.TallySent);
     }
 
     [Fact]
@@ -282,7 +298,8 @@ public sealed class VideoIoVerbTests
         var id = VideoIoRig.IdOf(await rig.Ok("INPUT ADD \"omt:STUDIO (Cam 1)\""));
         var source = rig.Omt.Opened.Single();
         source.Push();
-        using var handle = rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
+        using var handle = (LiveHandle)rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
+        handle.ForAir = true;
         using (handle.Acquire(0))
             rig.Engine.VideoIo.Tick();
         var good = (await Rows()).Single(r => r.Id == "videoio.input." + id);
@@ -331,7 +348,8 @@ public sealed class VideoIoVerbTests
         await rig.Ok($"OUTPUT SOURCE op_1 media:{id}");
         var source = rig.Omt.Opened.Single();
         source.Push();
-        using var handle = rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
+        using var handle = (LiveHandle)rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(id)!)!;
+        handle.ForAir = true;
         using (handle.Acquire(0))
             rig.Engine.VideoIo.Tick();
         rig.Omt.Sinks.Single().Watch(3);

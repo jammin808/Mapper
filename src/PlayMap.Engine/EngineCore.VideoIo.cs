@@ -38,6 +38,9 @@ public sealed partial class EngineCore
         }
     }
 
+    /// <summary>The hub if it has been made, else null (the render thread asks this, so a frame never makes one).</summary>
+    internal VideoIoHub? VideoIoMade => Volatile.Read(ref _videoIo);
+
     partial void RouteVideoIo(VerbRoutes routes)
     {
         routes.Lane("INPUT LIST", _ => CommandReply.Success(JsonOut(w => WriteInputs(w, Store.Project))));
@@ -80,7 +83,7 @@ public sealed partial class EngineCore
         }
         if (!LiveUri.TryParse(uri, out var protocol, out var address, out var byUrl))
             return CommandReply.Fail($"\"{uri}\" is no live input: ndi:HOST (Name), ndi://ip:port, omt:HOST (Name), omt://host:port, spout:Name, or an FFmpeg URL (rtsp://…)");
-        if (protocol != LiveProtocol.Ffmpeg && VideoIo.Unavailable(protocol, sending: false) is { } why)
+        if (protocol != LiveProtocol.Ffmpeg && VideoIo.Unavailable(protocol, sending: false, adding: true) is { } why)
             return CommandReply.Fail(why);
         var project = Edits.Project;
         var location = LiveUri.Format(protocol, address);
@@ -116,7 +119,7 @@ public sealed partial class EngineCore
             w.WriteString("id", id);
             w.WriteString("uri", location);
             w.WriteString("proto", ProtoWord(protocol));
-            w.WriteString("state", input?.Source is { } s ? LiveSourceState(s.Live.State) : protocol == LiveProtocol.Ffmpeg ? "ffmpeg" : "failed");
+            w.WriteString("state", protocol == LiveProtocol.Ffmpeg ? "ffmpeg" : input is null ? "failed" : InputState(input).State);
             w.WriteEndObject();
         }), $"added {name} ({location}) — {state}");
     }
@@ -181,7 +184,9 @@ public sealed partial class EngineCore
         var targets = new List<LiveInput>();
         foreach (var input in VideoIo.InputsOf(project))
         {
-            if (all ? input.Source?.Live.State is not LiveState.Ok : input.Id == call.Args[0] || string.Equals(input.Item.Name, call.Args[0], StringComparison.Ordinal))
+            // ALL is every input that is open (or refused to open) and not delivering; a cold input nothing shows stays closed.
+            var open = input.Source is not null || input.Problem.Length > 0;
+            if (all ? open && input.Source?.Live.State is not LiveState.Ok : input.Id == call.Args[0] || string.Equals(input.Item.Name, call.Args[0], StringComparison.Ordinal))
                 targets.Add(input);
         }
         if (!all && targets.Count == 0)
@@ -195,8 +200,14 @@ public sealed partial class EngineCore
                 $"{targets[0].Item.Name} delivers {live.Fps:0.##} fps ({live.AgeMs} ms old) — nothing to reconnect"));
         if (!all && targets[0].Source is null && targets[0].Problem.Length > 0)
             return CommandReply.Fail(targets[0].Problem);
-        foreach (var t in targets)
-            VideoIo.Reconnect(t);
+        targets.RemoveAll(t => !VideoIo.Reconnect(t));
+        if (targets.Count == 0)
+            return CommandReply.Fail($"{call.Args[0]} left the show meanwhile — nothing to reconnect");
+        // A receiver the protocol would not make again is a refusal with its words, not a wait.
+        var refused = targets.Where(t => t.Source is null && t.Problem.Length > 0).ToList();
+        if (refused.Count == targets.Count)
+            return CommandReply.Fail(string.Join("; ", refused.Select(t => t.Problem)));
+        targets.RemoveAll(refused.Contains);
         Journal.Add("videoio", $"reconnecting {string.Join(", ", targets.Select(t => t.Item.Name))}", ok: true);
         // Observed, not attempted: answered at the first frame from the new connection, or with the words that none came yet.
         var deadline = Services.Mono.NowNs + 3_000_000_000L;
@@ -208,9 +219,10 @@ public sealed partial class EngineCore
             await Task.Delay(20, call.Ct).ConfigureAwait(false);
         }
         var waiting = targets.Where(t => t.Source?.Live.Received is not > 0).Select(t => t.Item.Name).ToList();
+        var also = refused.Count > 0 ? $" ({string.Join("; ", refused.Select(t => t.Problem))})" : "";
         return waiting.Count == 0
-            ? CommandReply.Success(effect: $"reconnected {string.Join(", ", targets.Select(t => t.Item.Name))}: frames are arriving")
-            : CommandReply.Accepted($"reconnecting {string.Join(", ", waiting)}: no frame yet — STATE says when the first lands");
+            ? CommandReply.Success(effect: $"reconnected {string.Join(", ", targets.Select(t => t.Item.Name))}: frames are arriving{also}")
+            : CommandReply.Accepted($"reconnecting {string.Join(", ", waiting)}: no frame yet — STATE says when the first lands{also}");
     }
 
     /// <summary>A live input of the library by id or name (an NDI, OMT or Spout stream item), or null with the words why not.</summary>
@@ -263,8 +275,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"INPUT FALLBACK takes HOLD, BLACK or a source (media:<id>, generator:<id>, canvas:<id>, playlist:<id>, color:#RRGGBB), not \"{word}\"");
         else if (source.Kind is SourceKind.Live || project.FindMedia(source.Id) is { Kind: MediaKind.Stream })
             return CommandReply.Fail($"{item.Name} cannot fall back to a live input ({source}): a fallback is a picture this node always has");
-        else if (source.Kind is not SourceKind.Color && !SourceExists(project, source))
-            return CommandReply.Fail($"no {source.Kind.ToString().ToLowerInvariant()} {source.Id} in the project");
+        else if (Fallbacks.Fits(project, source) is { } unfit)
+            return CommandReply.Fail(unfit);
         else
             next = live with { OnLoss = LiveLoss.Fallback, Fallback = source.ToString() };
         if (next == live)
@@ -279,15 +291,6 @@ public sealed partial class EngineCore
         VideoIo.Reconcile(Store.Project);
         return CommandReply.Success(effect: $"{item.Name} on loss: {words}");
     }
-
-    private static bool SourceExists(Project project, SourceRef source) => source.Kind switch
-    {
-        SourceKind.Media => project.FindMedia(source.Id) is not null,
-        SourceKind.Generator => project.FindGenerator(source.Id) is not null,
-        SourceKind.Canvas => project.FindCanvas(source.Id) is not null,
-        SourceKind.Playlist => project.FindPlaylist(source.Id) is not null,
-        _ => true,
-    };
 
     private CommandReply InputBackup(VerbCall call)
     {
@@ -318,7 +321,8 @@ public sealed partial class EngineCore
                 return CommandReply.Fail(unavailable);
         }
         var next = live with { Backup = backup };
-        var onBackup = VideoIo.InputOf(item.Id)?.Using == "backup";
+        var known = VideoIo.InputOf(item.Id);
+        var onBackup = known?.Using == "backup";
         var r = Edits.Apply(backup.Length > 0 ? $"{item.Name}'s backup {backup}" : $"{item.Name} without a backup", pp => pp with
         {
             Media = pp.Media.Update(item.Id, m => m with { Live = next == LiveSettings.Default ? null : next }),
@@ -326,10 +330,14 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         VideoIo.Reconcile(Store.Project);
+        // The backup it was on is gone: it reads its primary now, which may itself be lost (then the loss policy holds, and a new
+        // backup takes over once it delivers).
+        var primaryWords = known?.Primary?.Live is { State: LiveState.Ok } ? "it shows its primary again"
+            : $"its primary is not delivering, so it {LossWords(Store.Project, next)} until a feed delivers";
         if (backup.Length == 0)
-            return CommandReply.Success(effect: onBackup ? $"{item.Name} has no backup now — it shows its primary again" : $"{item.Name} has no backup now");
+            return CommandReply.Success(effect: onBackup ? $"{item.Name} has no backup now — {primaryWords}" : $"{item.Name} has no backup now");
         return CommandReply.Success(effect: onBackup
-            ? $"{item.Name}'s backup is now {backup} — it shows its primary until INPUT SWITCH {item.Id} BACKUP"
+            ? $"{item.Name}'s backup is now {backup} — {primaryWords}"
             : $"{item.Name}'s backup is {backup}: it takes over when the primary is lost");
     }
 
@@ -364,7 +372,8 @@ public sealed partial class EngineCore
                 : $"{item.Name}'s {feedWord} is {LiveSourceState(health.State)}: {health.Words}");
         var before = health.Received;
         var startNs = Services.Mono.NowNs;
-        VideoIo.Switch(input, backup);
+        if (!VideoIo.Switch(input, backup))
+            return CommandReply.Fail($"{item.Name} left the show meanwhile — nothing to switch");
         Journal.Add("videoio", $"{call.Session.ClientName} switched {item.Name} to its {feedWord} ({(backup ? live.Backup : item.Location)})", ok: true);
         RaiseEvent("input.switched", LeaderNowNs, w =>
         {
@@ -446,7 +455,7 @@ public sealed partial class EngineCore
                 return CommandReply.Fail($"SEND ADD does not take '{a}' — <w>x<h>, @<fps>, UYVY, UYVA, P216, PA16, BGRA8, QUALITY LOW|MEDIUM|HIGH or ALWAYS");
         }
         var live = VideoIoHub.ProtocolOf(protocol);
-        if (VideoIo.Unavailable(live, sending: true) is { } why)
+        if (VideoIo.Unavailable(live, sending: true, adding: true) is { } why)
             return CommandReply.Fail(why);
         if (protocol == SendProtocol.Ndi && quality != "default")
             return CommandReply.Fail("NDI chooses its own quality: QUALITY is OMT's");
@@ -458,14 +467,8 @@ public sealed partial class EngineCore
         if (SendShape.Resolve(project, send, out var shapeWords) is not { } shape)
             return CommandReply.Fail(shapeWords);
         var est = EstimateMbps(protocol, shape, quality);
-        var (limit, limitWords) = SendLimitMbps();
-        var others = 0.0;
-        foreach (var s in project.Sends)
-            if (s.Enabled && SendShape.Resolve(project, s, out _) is { } os)
-                others += EstimateMbps(s.Protocol, os, s.Quality);
-        if (limit > 0 && others + est > limit)
-            return CommandReply.Fail(string.Create(CultureInfo.InvariantCulture,
-                $"{project.Sends.Count(s => s.Enabled) + 1} sends ≈ {others + est:0} Mb/s > {limit:0} Mb/s ({limitWords}) — VIDEOIO SET MAX-SEND-MBPS <n> to allow more"));
+        if (OverBandwidth(project, project with { Sends = project.Sends.Add(send) }) is { } over)
+            return CommandReply.Fail(over);
         var id = "";
         var r = Edits.Apply($"add {VideoIoHub.Name(live)} send {name}", pp =>
         {
@@ -479,7 +482,9 @@ public sealed partial class EngineCore
         var fullName = slot?.Sink?.FullName ?? "";
         var effect = slot?.Problem is { Length: > 0 } problem
             ? $"added {name}, but it sends nothing: {problem}"
-            : $"sending {fullName} from {tap}" + (shapeWords.Length > 0 ? $" ({shapeWords})" : "");
+            : slot?.Sink is null
+                ? $"added {name} from {tap}: {VideoIoHub.Name(live)} draws its sends through its own GPU stage"
+                : $"sending {fullName} from {tap}" + (shapeWords.Length > 0 ? $" ({shapeWords})" : "");
         return CommandReply.Success(JsonOut(jw =>
         {
             jw.WriteStartObject();
@@ -501,6 +506,34 @@ public sealed partial class EngineCore
     }
 
     /// <summary>A send's compressed rate estimate: OMT's VMX at its quality, NDI's SpeedHQ (bits a pixel at the rate).</summary>
+    /// <summary>The bandwidth guard: the words when the enabled sends of <paramref name="after"/> would pass the node's send limit
+    /// (MAX-SEND-MBPS, else 70 % of the link) and take more than those of <paramref name="before"/> did (an edit that lowers the
+    /// total is never refused); null otherwise.</summary>
+    private string? OverBandwidth(Project before, Project after)
+    {
+        static double Total(Project p, out int count)
+        {
+            var total = 0.0;
+            count = 0;
+            foreach (var s in p.Sends)
+            {
+                if (!s.Enabled || SendShape.Resolve(p, s, out _) is not { } shape)
+                    continue;
+                total += EstimateMbps(s.Protocol, shape, s.Quality);
+                count++;
+            }
+            return total;
+        }
+        var next = Total(after, out var count);
+        if (next <= Total(before, out _))
+            return null;
+        var (limit, limitWords) = SendLimitMbps();
+        return limit > 0 && next > limit
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"{count} send{(count == 1 ? "" : "s")} ≈ {next:0} Mb/s > {limit:0} Mb/s ({limitWords}) — VIDEOIO SET MAX-SEND-MBPS <n> to allow more")
+            : null;
+    }
+
     internal static double EstimateMbps(SendProtocol protocol, SendShape shape, string quality)
     {
         var bitsPerPixel = protocol switch
@@ -535,6 +568,11 @@ public sealed partial class EngineCore
         if (send.Enabled == on)
             return CommandReply.Fail($"{send.Name} is already {(on ? "on" : "off")}");
         var watchers = VideoIo.SendOf(send.Id)?.Sink?.Connections ?? 0;
+        if (on && VideoIo.Unavailable(VideoIoHub.ProtocolOf(send.Protocol), sending: true, adding: true) is { } off)
+            return CommandReply.Fail(off);
+        var project = Edits.Project;
+        if (on && OverBandwidth(project, project with { Sends = project.Sends.Update(send.Id, s => s with { Enabled = true }) }) is { } over)
+            return CommandReply.Fail(over);
         var r = Edits.Apply($"{(on ? "start" : "stop")} send {send.Name}", pp => pp with { Sends = pp.Sends.Update(send.Id, s => s with { Enabled = on }) });
         if (!r.Changed)
             return FromEdit(r);
@@ -668,10 +706,11 @@ public sealed partial class EngineCore
     {
         var provider = VideoIo.InputProvider(LiveProtocol.Ndi);
         var settings = VideoIo.Settings;
-        var status = !settings.NdiEnabled ? new ProviderStatus("off", "", "", "NDI is off on this node", "https://ndi.video")
+        var status = !VideoIo.Running.NdiEnabled ? new ProviderStatus("off", "", "", "NDI is off on this node", "https://ndi.video")
             : provider?.Status ?? new ProviderStatus("absent", "", "", VideoIoHub.Unregistered(LiveProtocol.Ndi), "https://ndi.video");
         w.WriteStartObject("ndi");
         w.WriteString("state", status.State);
+        w.WriteString("atNextStart", settings.NdiEnabled ? "on" : "off");
         w.WriteString("version", status.Version);
         w.WriteString("path", status.Path);
         w.WriteString("words", status.Words);
@@ -686,11 +725,12 @@ public sealed partial class EngineCore
     {
         var provider = VideoIo.InputProvider(LiveProtocol.Omt);
         var settings = VideoIo.Settings;
-        var status = !settings.OmtEnabled ? new ProviderStatus("off", "", "", "OMT is off on this node", "")
+        var status = !VideoIo.Running.OmtEnabled ? new ProviderStatus("off", "", "", "OMT is off on this node", "")
             : provider?.Status ?? new ProviderStatus("failed", "", "", VideoIoHub.Unregistered(LiveProtocol.Omt), "");
         var omt = provider as IVideoRuntimeFacts;
         w.WriteStartObject("omt");
         w.WriteString("state", status.State);
+        w.WriteString("atNextStart", settings.OmtEnabled ? "on" : "off");
         w.WriteString("version", status.Version);
         w.WriteString("vmx", omt is { Vmx.Length: > 0 } ? omt.Vmx : "missing");
         w.WriteString("mdns", omt is { Mdns.Length: > 0 } ? omt.Mdns : "none");
@@ -982,6 +1022,15 @@ public sealed partial class EngineCore
         {
             case VideoSend send:
                 why = ValidateSend(p, send);
+                // The edit's own project: the send in place of its old self (or added); the guard compares with the project before.
+                if (why is null && send.Enabled)
+                {
+                    var after = p.Sends.Find(send.Id) is null ? p with { Sends = p.Sends.Add(send) } : p with { Sends = p.Sends.Update(send.Id, _ => send) };
+                    if (send.Tap.Length > 0 && SendShape.Resolve(after, send, out var shapeWhy) is null)
+                        why = shapeWhy;
+                    else
+                        why = OverBandwidth(p, after);
+                }
                 break;
             case MediaItem { Kind: MediaKind.Stream } item when item.Live is { } live:
                 why = ValidateLive(p, item, live);
@@ -1030,6 +1079,8 @@ public sealed partial class EngineCore
         if (live.Fallback.Length > 0 && (!SourceRef.TryParse(live.Fallback, out var fallback) || fallback.Kind is SourceKind.Live
                 || p.FindMedia(fallback.Id) is { Kind: MediaKind.Stream } && fallback.Kind is SourceKind.Media))
             return $"{item.Name}: live.fallback is a colour, a generator, a canvas, a playlist or a media item, never a live input — not \"{live.Fallback}\"";
+        if (live.Fallback.Length > 0 && SourceRef.TryParse(live.Fallback, out var fits) && Fallbacks.Fits(p, fits) is { } unfit)
+            return $"{item.Name}: live.fallback — {unfit}";
         if (live.OnLoss == LiveLoss.Fallback && live.Fallback.Length == 0)
             return $"{item.Name}: live.onLoss fallback names its picture in live.fallback";
         return null;

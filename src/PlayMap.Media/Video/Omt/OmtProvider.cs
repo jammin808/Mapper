@@ -257,6 +257,9 @@ internal sealed class OmtSink : SendSink
     /// <summary>omt://host:port of this sender.</summary>
     public string Url => _send.URL;
 
+    /// <summary>The quality the sender encodes at now (as the sender holds it, not as asked).</summary>
+    internal OMTQuality EncoderQuality => _send.Quality;
+
     protected override bool Transmit(SendFrame frame)
     {
         var codec = frame.Format switch

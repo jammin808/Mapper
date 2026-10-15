@@ -45,29 +45,33 @@ or accepted when none came in 3 s.
 P216 and PA16 to even widths, UYVA to a multiple of 4 — the effect says so ("1918 → 1916 (UYVA needs a multiple of 4)"). The rate
 defaults to the output's refresh, else the show's; 23.976, 29.97, 59.94 and 119.88 are sent as 1001 rationals. `QUALITY` is OMT's
 (NDI refuses it: "NDI chooses its own quality: QUALITY is OMT's"). `ALWAYS` packs and reads back even when no receiver watches
-(otherwise a send costs nothing until one connects). **The bandwidth guard** refuses a send that would take the node's enabled sends
-past `MAX-SEND-MBPS`, or 70 % of the NIC's link when that is 0 ("3 sends ≈ 820 Mb/s > 700 Mb/s (70 % of eth0's 1000 Mb/s) — VIDEOIO
-SET MAX-SEND-MBPS <n> to allow more"); the estimate is OMT 0.8 / 1.6 / 2.4 bits a pixel (low / medium / high) and NDI 1.0.
+(otherwise a send costs nothing until one connects). **The bandwidth guard** refuses a `SEND ADD`, a `SEND ENABLE … ON` or an edit
+of a send (`SET sd… fps 120`, `ADD send {…}`) that would take the node's enabled sends past `MAX-SEND-MBPS`, or 70 % of the NIC's
+link when that is 0 ("3 sends ≈ 820 Mb/s > 700 Mb/s (70 % of eth0's 1000 Mb/s) — VIDEOIO SET MAX-SEND-MBPS <n> to allow more"); an
+edit that lowers the total is never refused. The estimate is OMT 0.8 / 1.6 / 2.4 bits a pixel (low / medium / high) and NDI 1.0.
+A packed target is a texture of at most 16384 rows: a PA16 send is at most 5461 rows tall, P216 8192, UYVA 10922.
 
 **VIDEOIO SET.** `MAX-SEND-MBPS` applies now; `NDI`, `NDI-GROUPS`, `NDI-DISCOVERY`, `OMT`, `OMT-DISCOVERY` and `SPOUT` apply at
-the next engine start (the runtimes read them when they load). Turning a protocol `OFF` refuses new inputs and sends of it at
-once. Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
+the next engine start (the runtimes read them when they load): what runs keeps running and STATE shows it (`state`, with
+`atNextStart`); a protocol turned `OFF` refuses new inputs and sends of it at once ("OMT is off from the next engine start —
+VIDEOIO SET OMT ON keeps it"). Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
 
 Generic verbs keep working: `SET md… live {"pacing":"smooth"}`, `SET sd… width 1280`, `REMOVE sd…`, `REMOVE md…`, `ADD send {…}`.
-The checks refuse a send name outside 1–48 printable characters, a tap that does not parse, fps outside 0–240, a size outside
+The checks refuse a send name outside 1–48 printable characters, a tap that does not parse or names nothing in the show, fps outside 0–240, a size outside
 0×0 (the tap's) to 16384×16384, a quality other than default/low/medium/high, a format NDI and OMT do not send this round
 (RGBA8, RGB10A2, RGBA16F), a duplicate name per protocol; and on a live item `lostMs` outside 100–60000, `staleMs` above
-`lostMs`, `recoverMs` outside 0–600000, a backup that is not a live URI or is the item's own location, a fallback that is live,
-and `onLoss` fallback with no fallback.
+`lostMs`, `recoverMs` outside 0–600000, a backup that is not a live URI or is the item's own location, a fallback that is live or
+shows a live input however deep (a playlist's items, a canvas's layers) or names nothing in the show, and `onLoss` fallback with no
+fallback. An item a fallback names cannot be removed while it does.
 
 ## STATE
 
 Top level `videoio` (after `decode`):
 
 ```json
-"videoio":{"ndi":{"state":"ready|absent|failed|off","version":"6.3.2","path":"/usr/lib/libndi.so.6","words":"","link":"https://ndi.video",
+"videoio":{"ndi":{"state":"ready|absent|failed|off","atNextStart":"on|off","version":"6.3.2","path":"/usr/lib/libndi.so.6","words":"","link":"https://ndi.video",
                   "groups":"","discovery":"","advertisers":true},
-           "omt":{"state":"ready|failed|off","version":"1.0.0.20","vmx":"avx2|sse42|neon|scalar|missing","mdns":"avahi|dnsapi|bonjour|none",
+           "omt":{"state":"ready|failed|off","atNextStart":"on|off","version":"1.0.0.20","vmx":"avx2|sse42|neon|scalar|missing","mdns":"avahi|dnsapi|bonjour|none",
                   "server":"","words":""},
            "spout":{"state":"unavailable","version":"","senders":0,"words":"no Spout provider on this node (Spout is Windows only)"},
            "discoveredCount":2,
@@ -95,8 +99,10 @@ Top level `videoio` (after `decode`):
 - `loss` is what the loss policy does now: empty while the feed in use delivers; `hold`, `black` or `fallback` from the tick that
   found it lost until it is back (a held picture at its first steady frame; black and a fallback after `live.recoverMs` of steady
   frames). `using` is the feed consumers read; a backup takes over when the feed in use is lost and the other delivers.
-- `tally` is `program` when a consumer drew the input in the last 250 ms and the air is not blacked out, `preview` when it was
-  drawn under a blackout; it is told to the sender on change.
+- `tally` is `program` when the renderer drew the input into the air (an output or a send) in the last 250 ms and the air is not
+  blacked out, `preview` when it was drawn otherwise (a preview, a scan camera) or under a blackout; it is told to the sender on
+  change, and the feed not in use is told it is on nothing.
+- `ndi.state` / `omt.state` is what runs; `atNextStart` what `VIDEOIO SET` asked for the next start.
 - A send's `state`: `sending` (frames go out), `idle` (no receiver, `onlyWhenWatched`), `off`, `failed` (`words`: no runtime, a tap
   with nothing behind it, a refused sender), `starting`. `skippedUnwatched` counts frames not packed because nobody watched.
 - `discovered` is at most 64 rows (`discoveredCount` is all of them), sorted by URI; `added` is the library id that names it.

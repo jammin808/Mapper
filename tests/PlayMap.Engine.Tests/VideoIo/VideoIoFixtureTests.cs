@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.VideoIo;
 using PlayMap.Engine.Tests.Spine;
 
 namespace PlayMap.Engine.Tests.VideoIo;
@@ -27,7 +28,8 @@ public sealed class VideoIoFixtureTests
             source.Push(1920, 1080, 128);
             rig.AdvanceMs(20);
         }
-        using var handle = rig.Engine.VideoIo.Open(cam)!;
+        using var handle = (LiveHandle)rig.Engine.VideoIo.Open(cam)!;
+        handle.ForAir = true;
         using (handle.Acquire(0))
             rig.Engine.VideoIo.Tick();
         rig.Omt.Sinks.Single().Watch(2, program: true);

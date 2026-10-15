@@ -279,7 +279,8 @@ public sealed class VideoIoLossTests
         Deliver(rig, backup, 1_200);
         Assert.Equal("backup", rig.Input(id).GetProperty("using").GetString());
         var off = await rig.Ok($"INPUT BACKUP {id} OFF");
-        Assert.Equal("Cam 1 has no backup now — it shows its primary again", off.Effect);
+        // The primary went quiet before the takeover: it is what consumers read now, and its loss policy holds.
+        Assert.Equal("Cam 1 has no backup now — its primary is not delivering, so it holds its last picture until a feed delivers", off.Effect);
         Assert.Equal("primary", rig.Input(id).GetProperty("using").GetString());
         Assert.True(backup.Closed);
     }

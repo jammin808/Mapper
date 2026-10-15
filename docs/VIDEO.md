@@ -15,24 +15,28 @@ media item shows it: a surface, an output in source mode, a playlist item, a pre
 - **One receiver per input.** `MediaBackend.Open` routes NDI and OMT locations to the engine's `VideoIoHub`, which keeps one
   receiver per input and lends every consumer a non-owning `LiveHandle`; three surfaces and a thumbnail are still one network
   stream. A warm input (the default) connects when it enters the show and stays connected while it is in it; a cold one connects at
-  its first consumer. An input that leaves the show is closed once nothing holds it (a camera rig's feed lives while its consumer
-  does).
+  its first consumer and closes when its last lets go. An input that leaves the show is closed once nothing holds it (a camera rig's
+  feed lives while its consumer does, and follows the rig to another source).
 - **Receiving.** Each receiver has its own thread (OMT `Receive`, NDI `recv_capture_v3`, 50 ms waits) that copies the frame's planes
   into a `LiveFramePool` (lock-free, reference-counted slots: the writer takes a slot no reader holds, a reader's lease keeps its
   slot; a frame with every slot held is dropped and counted) and frees the protocol's buffer at once. Layouts arrive packed — UYVY,
-  UYVA, P216, PA16 (`LivePlanes` documents each plane) — or BGRA. The GPU unpacks them (`video.unpack`: UYVY as an RGBA8 texture
+  UYVA, P216, PA16 (`LivePlanes` documents each plane) — or BGRA. NDI delivers an interlaced source as its fields, upper first:
+  they are woven into one frame of twice a field's height and published once both are in (a lone field is dropped and counted).
+  Colour follows the frame's `ndi_color_info` when it carries one, else NDI's rule by size (BT.601 up to 720×576, Rec.2020 above
+  1920×1080, Rec.709 between); OMT says its colour space on every frame. The GPU unpacks them (`video.unpack`: UYVY as an RGBA8 texture
   of w/2 × h, P216 as R16 luma and RG16 chroma, alpha as R8 or R16; BT.709 limited range, an odd pixel's chroma the mean of its
   pair's and the next) into the picture the renderer samples; `PackReference.Unpack` is its CPU twin.
 - **Health.** The state follows the age of the newest frame on the node's monotonic clock: `ok`, `stale` past three periods of its
   own measured rate (or `StaleMs`), `lost` past `LostMs` (1 s), `failed` with the protocol's words. `INPUT RECONNECT` closes and
   reopens the receiver (refused while it delivers) and answers at the first frame.
-- **Tally.** The hub sees every consumer: an input drawn in the last 250 ms is on program, or on preview while the air is blacked
-  out. The sender is told on change (NDI `recv_set_tally`, OMT `SetTally`).
+- **Tally.** The hub sees every consumer: an input the renderer drew into the air (an output or a send) in the last 250 ms is on
+  program unless the air is blacked out; one drawn otherwise (a preview, the multiview, a scan camera) is on preview. The sender is
+  told on change (NDI `recv_set_tally`, OMT `SetTally`), and the feed not in use is told it is on nothing.
 - **The loss policy.** The feed in use is lost when its receiver says lost or failed, when it could not open, or when it has given
   no frame `LostMs` after it opened. A **backup** feed (`INPUT BACKUP`, warm beside the primary) takes over when the feed in use is
-  lost and the other delivers — a pointer swap at each consumer's next acquire, journalled and raised once. Only a person goes back
-  (`INPUT SWITCH … PRIMARY`, answered at the next frame from it): a switch only ever leaves a lost feed, so an input never flaps on
-  the air. With no feed to take over, the input **holds** its last picture, shows **black**, or shows its **fallback** (a media
+  lost and the other delivers — a pointer swap at each consumer's next acquire, journalled and raised once. A switch only ever
+  leaves a lost feed, so an input never flaps on the air: a primary that recovers while the backup delivers waits for a person
+  (`INPUT SWITCH … PRIMARY`, answered at the next frame from it); a backup that is lost while the primary delivers hands back to it. With no feed to take over, the input **holds** its last picture, shows **black**, or shows its **fallback** (a media
   item, a generator, a canvas, a playlist or a colour — never another live input). The renderer is routed there through
   `ISourceProvider.Route`, for a stream item, a live ref and a playlist's live item alike. A held picture is left at the first
   steady frame; black and a fallback after `RecoverMs` (2 s) of steady frames.
@@ -50,12 +54,15 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   frame, held until the sender releases it (NDI's async send keeps it until the next send). Nothing is allocated per frame once warm.
 - **Nobody watching costs nothing.** A send packs and reads back only while a receiver is connected, unless `ALWAYS`; frames skipped
   are counted. A frame due while every slot is still with the sender is counted busy, never waited for.
-- **What the air shows.** An output tap is the output's final raster, so blackout, freeze, the test pattern and covered or held
-  outputs reach the send exactly as they reach the projector. A canvas or source tap that follows the air (`FollowAir`, the
-  default) goes black in a blackout, holds its last frame while frozen, and carries the air's pattern when it covers every output.
+- **What the air shows.** An output tap is the output's final raster, so blackout, freeze, the test pattern, a safe look, the
+  master and panic gain and covered or held outputs reach the send exactly as they reach the projector; a disabled output's tap
+  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what every output takes: black in a
+  blackout, the test pattern or safe look while it covers every output, a hold while every output holds, and the brightest
+  output's gain (its signal scaled as an output's final stage scales its own), so it is dark only when every output is.
 - **Senders.** Each sender has a worker thread: the newest frame wins (an older one waiting is released and counted dropped), the
-  frame is sent (OMT encodes VMX; NDI `send_send_video_async_v2`), and an idle sender releases what it holds after 200 ms. Receivers
-  and tally are refreshed every 250 ms. The node's sends are held to a **bandwidth guard** at `SEND ADD`.
+  frame is sent (OMT encodes VMX; NDI `send_send_video_async_v2`, each frame tagged BT.709 so no receiver guesses its colour from
+  its size), and an idle sender releases what it holds after 200 ms. Receivers
+  and tally are refreshed every 250 ms. The node's sends are held to a **bandwidth guard** at `SEND ADD`, `SEND ENABLE ON` and any edit of a send.
 
 ## OMT
 
@@ -75,7 +82,7 @@ exports as unmanaged function pointers over blittable structs transcribed from N
 `NdiNative.cs` and in `THIRD-PARTY-NOTICES.md`). A runtime that is missing refuses with words that say where it looked, where to
 get one (https://ndi.video) and the variable to set. The Discovery Server and groups come from the node's settings
 (`VIDEOIO SET NDI-DISCOVERY`, `NDI-GROUPS`, applied at the next start) through the runtime's configuration file in the node home's
-`ndi` folder; with a 6.3 runtime or later the send and receive advertisers are created. Colour info (BT.2020, PQ, HLG) is read from
+`ndi` folder, written before the runtime is loaded; with a 6.3 runtime or later the send and receive advertisers are created. Colour info (BT.2020, PQ, HLG) is read from
 the frame's metadata. The tests run against `tests/native/fake_ndi.c`, PlayMap's own test double compiled in test setup.
 
 NDI® is a registered trademark of Vizrt NDI AB.

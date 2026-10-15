@@ -21,6 +21,7 @@ internal struct FakeNdiStats
     public long LastRecvColorFormat;
     public long LastRecvBandwidth;
     public long LastSendClockVideo;
+    public long VideoCaptured;
 }
 
 /// <summary>PlayMap's own test double of the NDI runtime (tests/native/fake_ndi.c, its layouts transcribed from NDI's MIT-licensed
@@ -89,6 +90,7 @@ internal static unsafe class FakeNdi
         private readonly delegate* unmanaged[Cdecl]<FakeNdiStats*, void> _stats;
         private readonly delegate* unmanaged[Cdecl]<int, byte*, int, void> _strings;
         private readonly delegate* unmanaged[Cdecl]<long*, int, void> _layout;
+        private readonly delegate* unmanaged[Cdecl]<int, void> _injectFormat;
 
         public Control(string folder)
         {
@@ -100,9 +102,13 @@ internal static unsafe class FakeNdi
             _stats = (delegate* unmanaged[Cdecl]<FakeNdiStats*, void>)NativeLibrary.GetExport(handle, "fake_ndi_stats");
             _strings = (delegate* unmanaged[Cdecl]<int, byte*, int, void>)NativeLibrary.GetExport(handle, "fake_ndi_strings");
             _layout = (delegate* unmanaged[Cdecl]<long*, int, void>)NativeLibrary.GetExport(handle, "fake_ndi_layout");
+            _injectFormat = (delegate* unmanaged[Cdecl]<int, void>)NativeLibrary.GetExport(handle, "fake_ndi_set_inject_format");
         }
 
         public void Reset() => _reset();
+
+        /// <summary>The frame_format_type of the frames injected from now on (1 progressive, 0 interleaved, 2 field 0, 3 field 1).</summary>
+        public void InjectFormat(int frameFormatType) => _injectFormat(frameFormatType);
 
         public void SetVersion(string? version)
         {

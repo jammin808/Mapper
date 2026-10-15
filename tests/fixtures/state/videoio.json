@@ -2,6 +2,7 @@
   "videoio": {
     "ndi": {
       "state": "ready",
+      "atNextStart": "on",
       "version": "fake 1.0",
       "path": "/fake/ndi",
       "words": "",
@@ -12,6 +13,7 @@
     },
     "omt": {
       "state": "ready",
+      "atNextStart": "on",
       "version": "fake 1.0",
       "vmx": "avx2",
       "mdns": "none",

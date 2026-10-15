@@ -174,6 +174,89 @@ public sealed class NdiFakeRuntimeTests : IDisposable
     }
 
     [NdiFact]
+    public async Task AnInterlacedSourcesFieldsAreWovenIntoOneFrameAndAPaddedStrideIsReadRowByRow()
+    {
+        using var ndi = Provider();
+        Assert.True(_fake!.InjectSource("STUDIO (Cam 2)", "10.0.0.5:5962"));
+        using var source = ndi.Open("STUDIO (Cam 2)", byUrl: false, LiveSettings.Default, "md_cam2");
+        const int w = 32, h = 4, stride = 2 * w + 16;
+        // A field of UYVY rows, each row's bytes its own code (field 0: 10 + row, field 1: 100 + row), with padding past each row.
+        static byte[] Field(int baseCode)
+        {
+            var bytes = new byte[stride * h];
+            for (var y = 0; y < h; y++)
+                Array.Fill(bytes, (byte)(baseCode + y), y * stride, 2 * w);
+            return bytes;
+        }
+        _fake.InjectFormat(2);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(10), stride, 1_000));
+        await Until(() => _fake.Stats().VideoCaptured == 1, "field 0 captured");
+        // A field alone is not a picture: nothing is published until its pair is in.
+        Assert.Equal(0, source.Live.Received);
+        _fake.InjectFormat(3);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(100), stride, 2_000));
+        await Until(() => source.Live.Received == 1, "the woven frame");
+        using (var lease = source.Acquire(0)!)
+        {
+            Assert.Equal((PixelLayout.Uyvy, w, 2 * h), (lease.Layout, lease.Width, lease.Height));
+            // Field 0's stamp is the frame's.
+            Assert.Equal(1_000L * 100, lease.SenderTimestampNs);
+            var rows = Bytes(lease.Planes[0]);
+            var tight = lease.Planes[0].Stride;
+            Assert.Equal(2 * w, tight);
+            for (var y = 0; y < 2 * h; y++)
+                Assert.All(rows.AsSpan(y * tight, tight).ToArray(), b => Assert.Equal(y % 2 == 0 ? 10 + y / 2 : 100 + y / 2, b));
+        }
+        Assert.Equal(2 * h, source.Live.Height);
+
+        // A field 1 with no field 0 before it is dropped, never published as a picture of half the height.
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(100), stride, 3_000));
+        await Until(() => _fake.Stats().VideoCaptured == 3, "a lone field 1 captured");
+        // A progressive frame after it is read whole, through its padded stride.
+        _fake.InjectFormat(1);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(40), stride, 4_000));
+        await Until(() => source.Live.Received == 2, "the progressive frame");
+        using (var lease = source.Acquire(0)!)
+        {
+            Assert.Equal((w, h), (lease.Width, lease.Height));
+            Assert.Equal(4_000L * 100, lease.SenderTimestampNs);
+            var rows = Bytes(lease.Planes[0]);
+            for (var y = 0; y < h; y++)
+                Assert.All(rows.AsSpan(y * 2 * w, 2 * w).ToArray(), b => Assert.Equal(40 + y, b));
+        }
+        Assert.True(source.Live.Dropped >= 1);
+    }
+
+    [Fact]
+    public void AnUntaggedFrameTakesNdisColourBySizeAndATagSaysOtherwise()
+    {
+        Assert.Equal((ColorMatrix.Bt601, TransferFunction.Sdr), NdiSource.ColorInfo(0, 720, 576));
+        Assert.Equal(ColorMatrix.Bt709, NdiSource.ColorInfo(0, 722, 480).Matrix);
+        Assert.Equal(ColorMatrix.Bt709, NdiSource.ColorInfo(0, 640, 578).Matrix);
+        Assert.Equal(ColorMatrix.Bt709, NdiSource.ColorInfo(0, 1920, 1080).Matrix);
+        Assert.Equal(ColorMatrix.Bt2020, NdiSource.ColorInfo(0, 3840, 2160).Matrix);
+        Assert.Equal(ColorMatrix.Bt2020, NdiSource.ColorInfo(0, 1920, 1082).Matrix);
+        static (ColorMatrix, TransferFunction) Tagged(string xml, int w, int h)
+        {
+            var p = Marshal.StringToCoTaskMemUTF8(xml);
+            try
+            {
+                return NdiSource.ColorInfo(p, w, h);
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(p);
+            }
+        }
+        Assert.Equal((ColorMatrix.Bt709, TransferFunction.Sdr), Tagged("<ndi_color_info transfer=\"bt_709\" matrix=\"bt_709\" primaries=\"bt_709\"/>", 3840, 2160));
+        Assert.Equal((ColorMatrix.Bt2020, TransferFunction.Pq),
+            Tagged("<ndi_metadata_group><ndi_color_info primaries=\"bt_2100\" transfer=\"bt_2100_pq\" matrix=\"bt_2100\"/></ndi_metadata_group>", 1920, 1080));
+        Assert.Equal((ColorMatrix.Bt601, TransferFunction.Hlg), Tagged("<ndi_color_info transfer=\"bt_2100_hlg\" matrix=\"bt_601\"/>", 1920, 1080));
+        // Other metadata is no colour: the size's rule stands.
+        Assert.Equal((ColorMatrix.Bt709, TransferFunction.Sdr), Tagged("<ndi_capabilities ntk_ptz=\"true\"/>", 1280, 720));
+    }
+
+    [NdiFact]
     public async Task TheSendRingPublishesAndTheRuntimeNeverReadsAFrameAfterItIsLetGo()
     {
         using var ndi = Provider(groups: "stage");
@@ -194,6 +277,8 @@ public sealed class NdiFakeRuntimeTests : IDisposable
             await Until(() => source.Live.Received == k + 1, $"frame {k} received");
             using var lease = source.Acquire(0)!;
             Assert.Equal(bytes[1], Bytes(lease.Planes[0])[1]);
+            // Every sent frame says BT.709: without it a 64×16 frame would be read as BT.601 (NDI's rule for SD sizes).
+            Assert.Equal(ColorMatrix.Bt709, lease.Matrix);
             // The runtime stamps a frame at its submit time: frames arrive in the order sent.
             Assert.True(lease.SenderTimestampNs > 0);
             // A frame let go may be reused at once: scribbling over it never reaches the runtime, which no longer reads it.

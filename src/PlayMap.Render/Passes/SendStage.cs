@@ -96,7 +96,9 @@ public sealed class SendPlanEntry
         if (FpsN <= 0 || FpsD <= 0)
             return false;
         var k = (long)Math.Floor(leaderNs * (double)FpsN / (FpsD * 1e9));
-        if (k <= LastK)
+        // Leader time that went back more than a second (a node that joined a leader with an earlier epoch) re-arms the grid,
+        // rather than holding the send until time passes where it was.
+        if (k <= LastK && LastK - k <= Math.Max(1, FpsN / Math.Max(1, FpsD)))
             return false;
         LastK = k;
         return true;
@@ -106,10 +108,12 @@ public sealed class SendPlanEntry
 /// <summary>The sends at the end of every frame (after every output is drawn, before any present): for each entry of the published
 /// plan, finished read-backs are offered to its sender; a frame due on the leader-time grid is tapped (an output's final picture, a
 /// canvas, a source), scaled, packed and queued for read-back — unless nobody watches and the send packs only for watchers (counted,
-/// no GPU work), or every read-back slot is still with the sender (counted busy). An output tap that has no picture this frame sends
-/// black (counted blank); blackout reaches canvas and source taps that follow the air. Render thread; never blocks; nothing is
-/// allocated per frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go of every
-/// frame).</summary>
+/// no GPU work), or every read-back slot is still with the sender (counted busy). An output tap that has no picture this frame (an
+/// output disabled, or not drawn) sends black (counted blank). A canvas or source tap that follows the air takes what every output
+/// takes: black in blackout, the test pattern or the safe look while it covers every output, a hold while every output holds, and
+/// the brightest output's gain (master × panic × degrade), so it is dark only when every output is. Render thread; never blocks;
+/// nothing is allocated per frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go
+/// of every frame).</summary>
 public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 {
     private readonly Video.PackPass _pack = new(renderer.Device);
@@ -118,6 +122,9 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     private readonly List<Video.SendReadbackRing> _retiring = [];
     private readonly HashSet<SendPlanEntry> _live = new(ReferenceEqualityComparer.Instance);
     private bool _disposed;
+    private float _airGain = 1;
+    private SourceRef? _airSafe;
+    private bool _airHeld;
 
     public string Name => "videoio.sends";
 
@@ -138,6 +145,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         var plan = Plan;
         if (plan.IsDefaultOrEmpty)
             return;
+        ReadAir(in frame);
         foreach (var entry in plan)
         {
             if (!_rings.TryGetValue(entry, out var ring))
@@ -159,8 +167,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 entry.CountBusy();
                 continue;
             }
-            // FREEZE holds a send that follows the air as it holds an output: its last packed frame goes out again, unchanged.
-            var held = entry.Kind != SendTapKind.Output && entry.FollowAir && frame.Freeze && !frame.Blackout
+            // A hold on every output (FREEZE, or a FREEZE outcome) holds a send that follows the air as it holds an output: its last
+            // packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
+            var follows = entry.Kind != SendTapKind.Output && entry.FollowAir;
+            var held = follows && _airHeld && !frame.Blackout
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
                 : null;
             Gpu.RenderTarget packed;
@@ -173,7 +183,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 var picture = Tap(entry, in frame);
                 if (picture is null)
                     entry.CountBlank();
-                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, entry.Fit);
+                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, entry.Fit, follows ? _airGain : 1f);
             }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
             ring.Request(packed, entry.Format, entry.Width, entry.Height, bytes, stride, frame.LeaderNs, entry.FpsN, entry.FpsD);
@@ -181,9 +191,45 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         }
     }
 
+    /// <summary>What the air does to every output this frame: the brightest output's gain, the safe look when every output shows the
+    /// same one, and whether every output holds. With no enabled output (or no levels) the air is untouched but for FREEZE.
+    /// Allocation-free.</summary>
+    private void ReadAir(in Engine.PassFrame frame)
+    {
+        _airGain = 1;
+        _airSafe = null;
+        _airHeld = frame.Freeze;
+        if (frame.Levels is not { } levels)
+            return;
+        var any = false;
+        var gain = 0f;
+        SourceRef? safe = null;
+        var allSafe = true;
+        var allHeld = true;
+        foreach (var o in frame.Project.Outputs)
+        {
+            if (!o.Enabled)
+                continue;
+            any = true;
+            gain = Math.Max(gain, levels.Gain(o.Id, frame.LeaderNs));
+            var look = levels.Override(o.Id, frame.LeaderNs);
+            if (look is not { IsNone: false } || (safe is not null && !Equals(safe, look)))
+                allSafe = false;
+            else
+                safe ??= look;
+            allHeld &= frame.Held(o.Id);
+        }
+        if (!any)
+            return;
+        _airGain = Math.Clamp(gain, 0f, 1f);
+        _airSafe = allSafe ? safe : null;
+        _airHeld = allHeld;
+    }
+
     /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster, so blackout, a test
-    /// pattern or a safe look on it, and a hold, reach the send exactly as they reach the output. A canvas or source tap that
-    /// follows the air is black in blackout and shows the air's test pattern while it covers every output.</summary>
+    /// pattern or a safe look on it, its gain and a hold reach the send exactly as they reach the output; a disabled output sends
+    /// black. A canvas or source tap that follows the air is black in blackout and shows the air's test pattern or safe look while it
+    /// covers every output.</summary>
     private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame)
     {
         if (entry.Kind != SendTapKind.Output && entry.FollowAir)
@@ -192,10 +238,12 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 return null;
             if (frame.PatternOverride is { IsNone: false } pattern && frame.PatternOutputs.IsDefaultOrEmpty)
                 return renderer.SourcePicture(pattern, entry.Width, entry.Height);
+            if (_airSafe is { } safe)
+                return renderer.SourcePicture(safe, entry.Width, entry.Height);
         }
         return entry.Kind switch
         {
-            SendTapKind.Output => renderer.OutputPicture(entry.Target),
+            SendTapKind.Output => frame.Project.Outputs.Find(entry.Target) is { Enabled: true } ? renderer.OutputPicture(entry.Target) : null,
             SendTapKind.Canvas => renderer.CanvasPicture(entry.Target),
             _ => entry.Source is { } source ? renderer.SourcePicture(source, entry.Width, entry.Height) : null,
         };

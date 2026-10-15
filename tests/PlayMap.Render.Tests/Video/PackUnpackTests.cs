@@ -325,6 +325,79 @@ public sealed class PackUnpackTests(GlFixture gl)
         });
     }
 
+    /// <summary>The air's levels a test sets: one gain, one safe look and one hold for every output.</summary>
+    private sealed class FixedLevels(float gain, SourceRef? safe = null, bool hold = false) : IAirLevels
+    {
+        public float Gain(string outputId, long leaderNs) => gain;
+
+        public SourceRef? Override(string outputId, long leaderNs) => safe;
+
+        public bool Hold(string outputId, long leaderNs) => hold;
+    }
+
+    [Fact]
+    public void ASendThatFollowsTheAirTakesItsBlackoutGainSafeLookAndHoldAndADisabledOutputSendsBlack()
+    {
+        const int w = 64, h = 36;
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            static Canvas Card(string colour) =>
+                new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            var shown = Scene.SourceOutput("op_1", SourceRef.Solid("#202020"), w, h);
+            var off = Scene.SourceOutput("op_2", SourceRef.Solid("#FFFFFF"), w, h) with { Enabled = false };
+            var project = Scene.Project([], [shown, off], [Card("#808080")]);
+            var sink = new TestSink(hold: false);
+            var offSink = new TestSink(hold: false);
+            SendPlanEntry Entry(string id, SendTapKind kind, string target, ISendSink to) => new()
+            {
+                Id = id, Name = id, Kind = kind, Target = target, Width = w, Height = h, Format = SendFormat.Bgra8, FpsN = 60, FpsD = 1,
+                Fit = SendFit.Fit, Sink = to, FollowAir = true,
+            };
+            var canvasSend = Entry("sd_1", SendTapKind.Canvas, "cv_1", sink);
+            var offSend = Entry("sd_2", SendTapKind.Output, "op_2", offSink);
+            using var stage = new SendStage(engine) { Plan = [canvasSend, offSend] };
+            var passes = ImmutableArray.Create<IFramePass>(stage);
+            var i = 0L;
+            // One frame of the 60 Hz grid with the air as given; answers the canvas send's centre pixel (B, G, R, A).
+            byte[] Frame(Project p, IAirLevels? levels = null, bool blackout = false)
+            {
+                i++;
+                engine.Render(Scene.Inputs(p, (i + 0.5) / 60.0) with { Passes = passes, Levels = levels, Blackout = blackout });
+                c.Device.Finish();
+                i++;
+                // The read-back of the frame packed above is collected and offered on the next frame.
+                engine.Render(Scene.Inputs(p, (i + 0.5) / 60.0) with { Passes = passes, Levels = levels, Blackout = blackout });
+                c.Device.Finish();
+                var f = sink.Frames[^1];
+                var o = ((h / 2) * w + w / 2) * 4;
+                return f[o..(o + 4)];
+            }
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(project));
+            // A disabled output's tap sends black, counted blank, though its last picture is still there.
+            var o2 = ((h / 2) * w + w / 2) * 4;
+            Assert.Equal([0, 0, 0, 0xFF], offSink.Frames[^1][o2..(o2 + 4)]);
+            Assert.True(offSend.Blank > 0);
+            // Half the gain on every output: the send's signal is halved, as an output's final stage halves its own.
+            var half = Frame(project, new FixedLevels(0.5f));
+            Assert.InRange(half[0], 0x3F, 0x41);
+            Assert.Equal(0xFF, half[3]);
+            // Every output dark (a panic fade, the master at 0): the send is dark.
+            Assert.Equal([0, 0, 0, 0xFF], Frame(project, new FixedLevels(0f)));
+            // The safe look on every output: the send shows it.
+            Assert.Equal([0x00, 0x00, 0xFF, 0xFF], Frame(project, new FixedLevels(1f, SourceRef.Solid("#FF0000"))));
+            // Blackout: black.
+            Assert.Equal([0, 0, 0, 0xFF], Frame(project, blackout: true));
+            // A hold on every output holds the send: the card changes, the send does not.
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(project));
+            var changed = project with { Canvases = [Card("#40C040")] };
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(changed, new FixedLevels(1f, hold: true)));
+            Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(changed));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
     [Fact]
     public void TheSendStageAllocatesNothingPerFrameOnceWarmAndSkipsWorkNobodyWatches()
     {

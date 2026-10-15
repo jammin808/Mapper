@@ -18,6 +18,55 @@ public sealed unsafe class LiveFramePoolTests
     private static byte First(VideoFrameLease lease) => *(byte*)lease.Planes[0].Data;
 
     [Fact]
+    public void AWriterAndReadersOnTheirOwnThreadsNeverSeeAFrameChangeUnderALease()
+    {
+        // The writer fills each frame with one byte value; three readers acquire, check every byte of the frame they hold is the
+        // same, and that what they see never goes backwards. Fixed counts, no sleeps: the threads race for as long as the writes take.
+        using var pool = new LiveFramePool(4);
+        const int frames = 20_000;
+        var failures = 0;
+        var done = 0;
+        var writer = new Thread(() =>
+        {
+            for (var k = 1; k <= frames; k++)
+            {
+                if (!pool.TryBeginWrite(PixelLayout.Uyvy, 64, 8, out var planes))
+                    continue;
+                var value = (byte)(k % 251 + 1);
+                foreach (var p in planes)
+                    new Span<byte>((void*)p.Data, p.Stride * p.Height).Fill(value);
+                pool.Publish(k, k);
+            }
+            Volatile.Write(ref done, 1);
+        });
+        var readers = Enumerable.Range(0, 3).Select(_ => new Thread(() =>
+        {
+            long last = 0;
+            while (Volatile.Read(ref done) == 0)
+            {
+                using var lease = pool.Acquire();
+                if (lease is null)
+                    continue;
+                var span = new ReadOnlySpan<byte>((void*)lease.Planes[0].Data, lease.Planes[0].Stride * lease.Planes[0].Height);
+                var first = span[0];
+                if (span.ContainsAnyExcept(first) || lease.SenderTimestampNs < last || (byte)(lease.SenderTimestampNs % 251 + 1) != first)
+                    Interlocked.Increment(ref failures);
+                last = lease.SenderTimestampNs;
+                // A frame held across the writer's next frames is still the same frame.
+                if (span.ContainsAnyExcept(first))
+                    Interlocked.Increment(ref failures);
+            }
+        })).ToList();
+        writer.Start();
+        readers.ForEach(r => r.Start());
+        writer.Join();
+        readers.ForEach(r => r.Join());
+        Assert.Equal(0, failures);
+        Assert.Equal(0, pool.Held);
+        Assert.True(pool.Published > 0);
+    }
+
+    [Fact]
     public void AReaderGetsTheNewestFrameAndAHeldFrameIsNeverOverwritten()
     {
         using var pool = new LiveFramePool(3);

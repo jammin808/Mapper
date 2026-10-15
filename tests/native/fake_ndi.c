@@ -219,6 +219,7 @@ typedef struct fake_ndi_stats_t {
 	int64_t last_recv_color_format; // -1 until a receiver is created
 	int64_t last_recv_bandwidth;    // -1 until a receiver is created
 	int64_t last_send_clock_video;  // 0/1
+	int64_t video_captured;         // video frames handed to receivers by recv_capture
 } fake_ndi_stats_t;
 
 // Strings read by fake_ndi_strings; each is "" until recorded.
@@ -318,6 +319,8 @@ static char* g_strings[FAKE_STR_COUNT];
 static char g_version[256];
 
 static void reset_locked(void);
+// The frame_format_type fake_ndi_inject_frame gives the frames it injects (progressive until told otherwise; reset restores it).
+static int g_inject_format = NDIlib_frame_format_type_progressive;
 
 static void once_init(void) {
 	pthread_condattr_t attr;
@@ -679,6 +682,7 @@ static void reset_locked(void) {
 	g_receivers = NULL;
 	g_advertisers = NULL;
 	memset(&g_stats, 0, sizeof g_stats);
+	g_inject_format = NDIlib_frame_format_type_progressive;
 	g_stats.last_recv_color_format = -1;
 	g_stats.last_recv_bandwidth = -1;
 	for (int i = 0; i < FAKE_STR_COUNT; i++) {
@@ -1050,6 +1054,7 @@ static NDIlib_frame_type_e capture(receiver* r, NDIlib_video_frame_v2_t* video, 
 		if (s && s->latest.present && s->latest.seq > r->delivered_seq) {
 			if (frame_deliver(&s->latest, video)) {
 				r->delivered_seq = s->latest.seq;
+				g_stats.video_captured++;
 				result = NDIlib_frame_type_video;
 			}
 			break;
@@ -1311,7 +1316,7 @@ FAKE_API bool fake_ndi_inject_frame(const char* full_name, int fourcc, int xres,
 	v.frame_rate_N = 60;
 	v.frame_rate_D = 1;
 	v.picture_aspect_ratio = 0.0f;
-	v.frame_format_type = NDIlib_frame_format_type_progressive;
+	v.frame_format_type = (NDIlib_frame_format_type_e)g_inject_format;
 	v.timecode = timestamp;
 	v.p_data = (uint8_t*)(uintptr_t)data;
 	v.line_stride_in_bytes = line_stride;
@@ -1320,6 +1325,13 @@ FAKE_API bool fake_ndi_inject_frame(const char* full_name, int fourcc, int xres,
 	pthread_cond_broadcast(&g_cv);
 	unlock();
 	return true;
+}
+
+// The frame_format_type of the frames injected from now on: 1 progressive, 0 interleaved, 2 field 0, 3 field 1.
+FAKE_API void fake_ndi_set_inject_format(int frame_format_type) {
+	lock();
+	g_inject_format = frame_format_type;
+	unlock();
 }
 
 FAKE_API void fake_ndi_stats(fake_ndi_stats_t* out) {

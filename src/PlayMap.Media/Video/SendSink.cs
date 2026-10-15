@@ -17,6 +17,7 @@ public abstract class SendSink : ISendSink
 
     private readonly Thread _thread;
     private readonly AutoResetEvent _wake = new(false);
+    private readonly Lock _offerGate = new();
     private readonly double[] _encodeMs = new double[EncodeRing];
     private readonly double[] _encodeSorted = new double[EncodeRing];
     private readonly Lock _statsGate = new();
@@ -76,18 +77,23 @@ public abstract class SendSink : ISendSink
     public void Offer(SendFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        if (_stopping)
+        // Under the gate Dispose stops behind: a frame is either offered before the stop (and the worker's last look releases it)
+        // or refused here, never stranded, and the wake is never set once it is disposed.
+        lock (_offerGate)
         {
-            frame.Release();
-            Interlocked.Increment(ref _dropped);
-            return;
+            if (_stopping)
+            {
+                frame.Release();
+                Interlocked.Increment(ref _dropped);
+                return;
+            }
+            if (Interlocked.Exchange(ref _pending, frame) is { } older)
+            {
+                older.Release();
+                Interlocked.Increment(ref _dropped);
+            }
+            _wake.Set();
         }
-        if (Interlocked.Exchange(ref _pending, frame) is { } older)
-        {
-            older.Release();
-            Interlocked.Increment(ref _dropped);
-        }
-        _wake.Set();
     }
 
     public void Update(SendSpec spec)
@@ -126,8 +132,18 @@ public abstract class SendSink : ISendSink
         while (!_stopping)
         {
             _wake.WaitOne(RefreshMs);
-            if (Interlocked.Exchange(ref _pending, null) is { } frame && !_stopping)
-                Send(frame);
+            if (Interlocked.Exchange(ref _pending, null) is { } frame)
+            {
+                if (_stopping)
+                {
+                    frame.Release();
+                    Interlocked.Increment(ref _dropped);
+                }
+                else
+                {
+                    Send(frame);
+                }
+            }
             var now = Stopwatch.GetTimestamp();
             // A frame the protocol keeps reading is let go when no newer frame came for a while (the protocol's synchronising call
             // with no frame first), so a quiet send never holds the producer's memory for long.
@@ -236,12 +252,22 @@ public abstract class SendSink : ISendSink
     {
         if (!disposing || Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _stopping = true;
+        lock (_offerGate)
+            _stopping = true;
         _wake.Set();
         if (_thread.ThreadState != System.Threading.ThreadState.Unstarted)
+        {
             _thread.Join();
+        }
         else
+        {
+            if (Interlocked.Exchange(ref _pending, null) is { } left)
+            {
+                left.Release();
+                Interlocked.Increment(ref _dropped);
+            }
             Close();
+        }
         _wake.Dispose();
     }
 

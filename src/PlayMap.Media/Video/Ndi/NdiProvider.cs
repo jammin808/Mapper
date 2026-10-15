@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using PlayMap.Core.Media;
@@ -39,6 +40,9 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
         _options = options;
         _clock = clock;
         _groups = options.Groups.Length > 0 ? Marshal.StringToCoTaskMemUTF8(options.Groups) : 0;
+        // The configuration (discovery server, groups) is in place before the runtime is loaded and initialised, whichever of the
+        // two reads it.
+        WriteConfig();
         _runtime = NdiRuntime.Load(options.RuntimePath, out _why);
         if (_runtime is null)
             return;
@@ -47,7 +51,6 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
             _why = "this CPU lacks what the NDI runtime needs (SSE4.2)";
             return;
         }
-        WriteConfig();
         if (_runtime.Initialize() == 0)
         {
             _why = $"the NDI runtime at {_runtime.Path} would not initialise";
@@ -147,6 +150,9 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
         List<LiveEndpoint> seen;
         lock (_gate)
         {
+            // Disposed meanwhile: the runtime may be gone already, so no finder is made after it.
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
             if (_finder == 0)
             {
                 var create = new NdiFindCreate { ShowLocalSources = 1, Groups = _groups, ExtraIps = 0 };
@@ -233,6 +239,14 @@ internal sealed unsafe class NdiSource : LiveSource
     private readonly nint _recv;
     private volatile bool _stopping;
     private int _tallyWord = -1;
+    private readonly nint[] _planeData = new nint[3];
+    private readonly int[] _planeStride = new int[3];
+    private int _planeCount;
+    private bool _weaving;
+    private PixelLayout _weaveLayout;
+    private int _weaveWidth;
+    private int _weaveHeight;
+    private long _weaveStamp;
 
     public NdiSource(NdiProvider provider, NdiRuntime runtime, string address, bool byUrl, LiveSettings settings, string key, IMonoClock clock)
         : base(LiveProtocol.Ndi, key, settings, clock)
@@ -309,6 +323,7 @@ internal sealed unsafe class NdiSource : LiveSource
                 SetConnections(_runtime.RecvGetNoConnections(_recv));
             }
         }
+        AbandonWeave();
     }
 
     private void Copy(in NdiVideoFrame frame)
@@ -324,54 +339,110 @@ internal sealed unsafe class NdiSource : LiveSource
         };
         var w = frame.XRes;
         var h = frame.YRes;
-        if ((int)layout < 0 || frame.Data == 0 || w < 2 || h < 1 || (LivePlanes.IsPacked(layout) && LivePlanes.Refuse(layout, w, h) is not null)
-            || !Pool.TryBeginWrite(layout, w, h, out var planes))
+        // The receiver's colour formats deliver an interlaced source as its fields, upper first: field 0 goes to the even rows of a
+        // frame of twice its height, field 1 to the odd rows, and the frame is published whole once both are in.
+        var field = frame.FrameFormatType is NdiFrameFormat.Field0 or NdiFrameFormat.Field1;
+        var height = field ? 2 * h : h;
+        if ((int)layout < 0 || frame.Data == 0 || w < 2 || h < 1 || (LivePlanes.IsPacked(layout) && LivePlanes.Refuse(layout, w, height) is not null))
+        {
+            AbandonWeave();
+            CountDropped();
+            return;
+        }
+        if (frame.FrameFormatType == NdiFrameFormat.Field1)
+        {
+            if (!_weaving || _weaveLayout != layout || _weaveWidth != w || _weaveHeight != h)
+            {
+                AbandonWeave();
+                CountDropped();
+                return;
+            }
+            _weaving = false;
+            CopyRows(in frame, layout, w, h, 1, 2);
+            PublishFrame(frame.Metadata, layout, w, height, _weaveStamp);
+            return;
+        }
+        AbandonWeave();
+        if (!Pool.TryBeginWrite(layout, w, height, out var planes))
         {
             CountDropped();
             return;
         }
-        // NDI lays planes one after another: UYVA's alpha plane at w a row after the UYVY plane; P216's chroma and PA16's alpha at
-        // the first plane's stride.
-        var src = (byte*)frame.Data;
-        long bytes = 0;
+        _planeCount = planes.Length;
         for (var i = 0; i < planes.Length; i++)
         {
-            var srcStride = layout == PixelLayout.Uyva && i == 1 ? w : frame.LineStrideInBytes;
-            var plane = planes[i];
-            var row = Math.Min(srcStride, plane.Stride);
-            var dst = (byte*)plane.Data;
-            for (var y = 0; y < h; y++)
-                Buffer.MemoryCopy(src + (long)y * srcStride, dst + (long)y * plane.Stride, plane.Stride, row);
-            src += (long)srcStride * h;
-            bytes += (long)plane.Stride * h;
+            _planeData[i] = planes[i].Data;
+            _planeStride[i] = planes[i].Stride;
         }
-        var (matrix, transfer) = ColorInfo(frame.Metadata, h);
+        CopyRows(in frame, layout, w, h, 0, field ? 2 : 1);
+        var stamp = frame.Timestamp == NdiTimestamps.Undefined || frame.Timestamp <= 0 ? long.MinValue : frame.Timestamp * 100;
+        if (field)
+        {
+            (_weaving, _weaveLayout, _weaveWidth, _weaveHeight, _weaveStamp) = (true, layout, w, h, stamp);
+            return;
+        }
+        PublishFrame(frame.Metadata, layout, w, height, stamp);
+    }
+
+    /// <summary>Copies a frame's (or a field's) rows into the planes being written: row y to row y·step + offset. NDI lays planes one
+    /// after another: UYVA's alpha plane at w a row after the UYVY plane; P216's chroma and PA16's alpha at the first plane's stride.</summary>
+    private void CopyRows(in NdiVideoFrame frame, PixelLayout layout, int w, int h, int offset, int step)
+    {
+        var src = (byte*)frame.Data;
+        for (var i = 0; i < _planeCount; i++)
+        {
+            var srcStride = layout == PixelLayout.Uyva && i == 1 ? w : frame.LineStrideInBytes;
+            var stride = _planeStride[i];
+            var row = Math.Min(srcStride, stride);
+            var dst = (byte*)_planeData[i];
+            for (var y = 0; y < h; y++)
+                Buffer.MemoryCopy(src + (long)y * srcStride, dst + ((long)y * step + offset) * stride, stride, row);
+            src += (long)srcStride * h;
+        }
+    }
+
+    private void PublishFrame(nint metadata, PixelLayout layout, int w, int h, long stamp)
+    {
+        long bytes = 0;
+        for (var i = 0; i < _planeCount; i++)
+            bytes += (long)_planeStride[i] * h;
+        var (matrix, transfer) = ColorInfo(metadata, w, h);
         var arrival = Clock.NowNs;
-        Pool.Publish(frame.Timestamp == NdiTimestamps.Undefined || frame.Timestamp <= 0 ? long.MinValue : frame.Timestamp * 100, arrival,
-            matrix, ColorRange.Limited, transfer);
+        Pool.Publish(stamp, arrival, matrix, ColorRange.Limited, transfer);
         Delivered(layout, w, h, bytes, arrival);
     }
 
-    /// <summary>The frame's <c>&lt;ndi_color_info transfer=… matrix=…/&gt;</c>, when it carries one (PQ and HLG, BT.2020); the
-    /// defaults by height otherwise.</summary>
-    internal static (ColorMatrix Matrix, TransferFunction Transfer) ColorInfo(nint metadata, int height)
+    /// <summary>A lone field waiting for its pair is given back (its pair never came, or a whole frame came instead).</summary>
+    private void AbandonWeave()
     {
-        var matrix = height < 720 ? ColorMatrix.Bt601 : ColorMatrix.Bt709;
+        if (!_weaving)
+            return;
+        _weaving = false;
+        Pool.Abandon();
+        CountDropped();
+    }
+
+    /// <summary>The frame's colour: its <c>&lt;ndi_color_info transfer=… matrix=…/&gt;</c> when it carries one (PQ and HLG; BT.601,
+    /// BT.709, BT.2020 or BT.2100), else NDI's own rule by size — BT.601 up to 720×576, Rec.2020 above 1920×1080, Rec.709 between.
+    /// Read in place: nothing is allocated.</summary>
+    internal static (ColorMatrix Matrix, TransferFunction Transfer) ColorInfo(nint metadata, int width, int height)
+    {
+        var matrix = width > 1920 || height > 1080 ? ColorMatrix.Bt2020 : width > 720 || height > 576 ? ColorMatrix.Bt709 : ColorMatrix.Bt601;
         var transfer = TransferFunction.Sdr;
         if (metadata == 0)
             return (matrix, transfer);
-        var text = Marshal.PtrToStringUTF8(metadata) ?? "";
-        if (!text.Contains("ndi_color_info", StringComparison.Ordinal))
+        var text = MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)metadata);
+        if (text.IndexOf("ndi_color_info"u8) < 0)
             return (matrix, transfer);
-        if (text.Contains("bt_2100_pq", StringComparison.Ordinal))
+        if (text.IndexOf("bt_2100_pq"u8) >= 0)
             transfer = TransferFunction.Pq;
-        else if (text.Contains("bt_2100_hlg", StringComparison.Ordinal))
+        else if (text.IndexOf("bt_2100_hlg"u8) >= 0)
             transfer = TransferFunction.Hlg;
-        if (text.Contains("matrix=\"bt_2020\"", StringComparison.Ordinal))
+        if (text.IndexOf("matrix=\"bt_2020\""u8) >= 0 || text.IndexOf("matrix=\"bt_2100\""u8) >= 0)
             matrix = ColorMatrix.Bt2020;
-        else if (text.Contains("matrix=\"bt_601\"", StringComparison.Ordinal))
+        else if (text.IndexOf("matrix=\"bt_601\""u8) >= 0)
             matrix = ColorMatrix.Bt601;
-        else if (text.Contains("matrix=\"bt_709\"", StringComparison.Ordinal))
+        else if (text.IndexOf("matrix=\"bt_709\""u8) >= 0)
             matrix = ColorMatrix.Bt709;
         return (matrix, transfer);
     }
@@ -427,6 +498,9 @@ internal sealed unsafe class NdiSink : SendSink
 
     public override string FullName => _fullName;
 
+    /// <summary>The colour every sent frame carries (null-terminated).</summary>
+    private static ReadOnlySpan<byte> ColorTag => "<ndi_color_info transfer=\"bt_709\" matrix=\"bt_709\" primaries=\"bt_709\"/>\0"u8;
+
     protected override bool Transmit(SendFrame frame)
     {
         var fourCc = frame.Format switch
@@ -449,7 +523,9 @@ internal sealed unsafe class NdiSink : SendSink
             Timecode = frame.LeaderNs / 100,
             Data = frame.Data,
             LineStrideInBytes = frame.Stride,
-            Metadata = 0,
+            // PlayMap packs BT.709 limited range at every size: said on every frame, since without it a receiver reads a UHD frame as
+            // Rec.2020 and an SD one as BT.601. The literal is the assembly's own read-only data, valid for as long as NDI reads it.
+            Metadata = (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(ColorTag)),
             Timestamp = 0,
         };
         _runtime.SendVideoAsync(_send, &video);

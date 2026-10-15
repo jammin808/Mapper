@@ -31,7 +31,15 @@ internal sealed class VideoIndex(EngineCore engine) : IIndexContributor
             w.WriteString("kind", "input");
             w.WriteString("label", input.Item.Name);
             w.WriteString("parent", "");
-            w.WriteString("light", state switch { "ok" => "green", "connecting" => "grey", "lost" or "failed" => "red", _ => "amber" });
+            // Lit as the context lights it: lost or failed is red only on air; an input showing black, its fallback or its backup is amber.
+            var standIn = input.Loss is "black" or "fallback" || input.Using == "backup";
+            w.WriteString("light", state switch
+            {
+                "ok" => standIn ? "amber" : "green",
+                "connecting" => "grey",
+                "lost" or "failed" => input.Tally == "program" ? "red" : "amber",
+                _ => "amber",
+            });
             w.WriteString("state", state);
             w.WriteEndObject();
         }

@@ -48,7 +48,7 @@ public sealed class VideoIoHub : IDisposable
     private readonly Dictionary<string, SendSlot> _sends = new(StringComparer.Ordinal);
     private readonly AutoResetEvent _wake = new(false);
     private readonly Func<long> _mono;
-    private readonly Func<bool> _blackout;
+    private readonly VideoIoSettings _running;
     private SendPlanEntry[] _plan = [];
     private Project? _reconciled;
     private VideoIoSettings _settings;
@@ -56,6 +56,7 @@ public sealed class VideoIoHub : IDisposable
     private volatile bool _stopping;
     private long _nextDiscoveryNs = long.MinValue;
     private long _signature;
+    private int _inputCount;
     private int _disposed;
 
     public VideoIoHub(EngineCore engine)
@@ -63,8 +64,8 @@ public sealed class VideoIoHub : IDisposable
         ArgumentNullException.ThrowIfNull(engine);
         _engine = engine;
         _settings = engine.Services.Settings.VideoIo;
+        _running = _settings;
         _mono = () => _engine.Services.Mono.NowNs;
-        _blackout = () => _engine.Snapshot.Air.EffectiveBlackout;
         foreach (var provider in engine.Services.LiveInputs)
             provider.EndpointsChanged += Wake;
     }
@@ -72,8 +73,15 @@ public sealed class VideoIoHub : IDisposable
     /// <summary>This node's video I/O settings as they stand (VIDEOIO SET changes them; the runtimes read some only at start).</summary>
     public VideoIoSettings Settings => Volatile.Read(ref _settings);
 
+    /// <summary>The settings this engine started with: which runtimes were loaded and how they discover. A protocol turned on or off
+    /// since applies at the next start.</summary>
+    public VideoIoSettings Running => _running;
+
     /// <summary>Keeps changed settings on the machine (set by the exe's part; null in tests, which keep them in memory).</summary>
     public Action<VideoIoSettings>? Save { get; set; }
+
+    /// <summary>Whether any live input is kept (the render thread asks once a frame, without locking).</summary>
+    public bool HasInputs => Volatile.Read(ref _inputCount) > 0;
 
     /// <summary>The send plan the render thread runs (published whole).</summary>
     public ImmutableArray<SendPlanEntry> Plan => System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray(Volatile.Read(ref _plan));
@@ -111,14 +119,25 @@ public sealed class VideoIoHub : IDisposable
         _ => LiveProtocol.Syphon,
     };
 
-    /// <summary>Why a protocol cannot be used on this node (no provider, or its runtime is not ready), or null.</summary>
-    public string? Unavailable(LiveProtocol protocol, bool sending)
+    /// <summary>Why a protocol cannot be used on this node (off since this engine started, no provider, or its runtime is not
+    /// ready), or null. <paramref name="adding"/> asks for a new input or send, which is refused too when the protocol is off from
+    /// the next start: what runs keeps running until then.</summary>
+    public string? Unavailable(LiveProtocol protocol, bool sending, bool adding = false)
     {
-        var settings = Settings;
-        if (protocol == LiveProtocol.Ndi && !settings.NdiEnabled)
-            return "NDI is off on this node — VIDEOIO SET NDI ON (applies at the next engine start)";
-        if (protocol == LiveProtocol.Omt && !settings.OmtEnabled)
-            return "OMT is off on this node — VIDEOIO SET OMT ON (applies at the next engine start)";
+        var running = _running;
+        var saved = Settings;
+        if (protocol == LiveProtocol.Ndi && !running.NdiEnabled)
+            return saved.NdiEnabled
+                ? "NDI turns on at the next engine start (it was off when this one started)"
+                : "NDI is off on this node — VIDEOIO SET NDI ON (applies at the next engine start)";
+        if (protocol == LiveProtocol.Omt && !running.OmtEnabled)
+            return saved.OmtEnabled
+                ? "OMT turns on at the next engine start (it was off when this one started)"
+                : "OMT is off on this node — VIDEOIO SET OMT ON (applies at the next engine start)";
+        if (adding && protocol == LiveProtocol.Ndi && !saved.NdiEnabled)
+            return "NDI is off from the next engine start — VIDEOIO SET NDI ON keeps it";
+        if (adding && protocol == LiveProtocol.Omt && !saved.OmtEnabled)
+            return "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it";
         ProviderStatus? status = sending
             ? SendProvider(protocol)?.Status
             : InputProvider(protocol)?.Status;
@@ -177,9 +196,21 @@ public sealed class VideoIoHub : IDisposable
                 input = new LiveInput(item, protocol, address, byUrl);
                 _inputs[item.Id] = input;
             }
+            else if (!input.InProject && Reopens(input.Item, item))
+            {
+                // A camera rig's feed (not a library item, so no reconcile sees it) moved to another source: the new consumer reads
+                // the new one, and the old consumer's handle reads it too until it lets go.
+                CloseInput(input);
+                ResetFeed(input);
+                input.Item = item;
+                input.Protocol = protocol;
+                input.Address = address;
+                input.ByUrl = byUrl;
+            }
             input.AddHandle();
             OpenInput(input);
-            return new LiveHandle(input, _mono, _blackout);
+            Volatile.Write(ref _inputCount, _inputs.Count);
+            return new LiveHandle(input, _mono);
         }
     }
 
@@ -202,15 +233,18 @@ public sealed class VideoIoHub : IDisposable
             return _inputs.GetValueOrDefault(id);
     }
 
-    /// <summary>Closes an input's receiver and opens it again (INPUT RECONNECT).</summary>
-    internal void Reconnect(LiveInput input)
+    /// <summary>Closes an input's receivers and opens them again (INPUT RECONNECT); false when the input left the hub meanwhile.</summary>
+    internal bool Reconnect(LiveInput input)
     {
         lock (_gate)
         {
+            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
+                return false;
             CloseInput(input);
             OpenInput(input);
         }
         Wake();
+        return true;
     }
 
     /// <summary>Opens what of the input is closed: its primary, and its backup when it names one (warm beside the primary).</summary>
@@ -303,6 +337,9 @@ public sealed class VideoIoHub : IDisposable
         {
             if (Volatile.Read(ref _disposed) != 0)
                 return;
+            // The store's project as it stands under the lock: a tick that read an older one never undoes the lane's newer reconcile.
+            if (_engine.Store.Project is { } latest && !ReferenceEquals(latest, project))
+                project = latest;
             _reconciled = project;
             ReconcileInputs(project);
             ReconcileSends(project);
@@ -323,8 +360,7 @@ public sealed class VideoIoHub : IDisposable
             if (_inputs.TryGetValue(item.Id, out var input))
             {
                 var before = input.Item.Live ?? LiveSettings.Default;
-                var reopen = !string.Equals(input.Item.Location, item.Location, StringComparison.Ordinal)
-                    || before.Proxy != settings.Proxy || before.Depth != settings.Depth;
+                var reopen = Reopens(input.Item, item);
                 input.Item = item;
                 if (reopen)
                 {
@@ -366,21 +402,40 @@ public sealed class VideoIoHub : IDisposable
         SweepInputs();
     }
 
+    /// <summary>Whether an item's change needs its receivers made again (another location, proxy or depth).</summary>
+    private static bool Reopens(MediaItem before, MediaItem after)
+    {
+        var a = before.Live ?? LiveSettings.Default;
+        var b = after.Live ?? LiveSettings.Default;
+        return !string.Equals(before.Location, after.Location, StringComparison.Ordinal) || a.Proxy != b.Proxy || a.Depth != b.Depth;
+    }
+
     /// <summary>Closes and forgets the inputs no longer in the project that no consumer holds (a camera rig's feed lives while its
-    /// consumer holds it; a removed item's goes once the renderer lets go of it).</summary>
+    /// consumer holds it; a removed item's goes once the renderer lets go of it), and closes a cold input nothing shows.</summary>
     private void SweepInputs()
     {
         List<string>? gone = null;
         foreach (var (id, input) in _inputs)
+        {
             if (!input.InProject && input.Handles <= 0)
                 (gone ??= []).Add(id);
-        if (gone is null)
-            return;
-        foreach (var id in gone)
-        {
-            CloseInput(_inputs[id]);
-            _inputs.Remove(id);
+            else if (input.InProject && input.Handles <= 0 && !(input.Item.Live ?? LiveSettings.Default).Warm
+                     && (input.Primary is not null || input.Backup is not null))
+            {
+                // A cold input is received only while something shows it.
+                CloseInput(input);
+                ResetFeed(input);
+            }
         }
+        if (gone is not null)
+        {
+            foreach (var id in gone)
+            {
+                CloseInput(_inputs[id]);
+                _inputs.Remove(id);
+            }
+        }
+        Volatile.Write(ref _inputCount, _inputs.Count);
     }
 
     private void ReconcileSends(Project project)
@@ -423,9 +478,10 @@ public sealed class VideoIoHub : IDisposable
             }
             if (SendProvider(protocol) is not { } provider)
             {
-                // A protocol whose senders draw on the GPU (Spout) registers its own provider and stage; none here.
+                // A protocol whose senders draw on the GPU (Spout) registers a GPU provider and draws through its own stage: no
+                // read-back plan here, and no failure either.
                 CloseSink(slot);
-                slot.Problem = NoProvider(protocol);
+                slot.Problem = GpuSendProvider(send.Protocol) is not null ? "" : NoProvider(protocol);
                 slot.Plan = null;
                 continue;
             }
@@ -631,10 +687,13 @@ public sealed class VideoIoHub : IDisposable
                     (news ??= []).Add(said);
                 if (input.Source is not { } source)
                     continue;
+                // Program: drawn into the air (an output or a send) in the window and not blacked out; preview: drawn otherwise.
                 var drawn = input.LastDrawnNs != long.MinValue && now - input.LastDrawnNs <= TallyWindowNs;
-                var program = drawn && !black && !input.DrawnInBlack;
+                var program = !black && input.LastAirNs != long.MinValue && now - input.LastAirNs <= TallyWindowNs;
                 var preview = drawn && !program;
                 source.SetTally(program, preview);
+                // The feed not in use is on nothing (a camera left by a takeover goes dark, not red).
+                (ReferenceEquals(source, input.Primary) ? input.Backup : input.Primary)?.SetTally(false, false);
                 input.Tally = program ? "program" : preview ? "preview" : "none";
             }
         }
@@ -700,7 +759,8 @@ public sealed class VideoIoHub : IDisposable
         var route = settings.OnLoss switch
         {
             LiveLoss.Black => SourceRef.None,
-            LiveLoss.Fallback when SourceRef.TryParse(settings.Fallback, out var fallback) && fallback.Kind is not SourceKind.Live => fallback,
+            // A fallback that went from the project, or came to show a live input, is black: never a dangling or live picture.
+            LiveLoss.Fallback when SourceRef.TryParse(settings.Fallback, out var fallback) && Fallbacks.Fits(project, fallback) is null => fallback,
             LiveLoss.Fallback => SourceRef.None,
             _ => null,
         };
@@ -773,17 +833,20 @@ public sealed class VideoIoHub : IDisposable
     }
 
     /// <summary>INPUT SWITCH: makes consumers read the primary or the backup from their next acquire; a loss held on the feed left
-    /// is let go (the feed switched to is the person's word).</summary>
-    internal void Switch(LiveInput input, bool backup)
+    /// is let go (the feed switched to is the person's word). False when the input left the hub meanwhile.</summary>
+    internal bool Switch(LiveInput input, bool backup)
     {
         lock (_gate)
         {
+            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
+                return false;
             input.Use(backup);
             input.LossRoute = null;
             input.Loss = "";
             input.SteadySinceNs = long.MinValue;
         }
         Wake();
+        return true;
     }
 
     /// <summary>A number that moves when a word STATE shows moves (states, receivers, tally, problems, discovered count) — not the
@@ -840,6 +903,7 @@ public sealed class VideoIoHub : IDisposable
             foreach (var input in _inputs.Values)
                 CloseInput(input);
             _inputs.Clear();
+            Volatile.Write(ref _inputCount, 0);
             foreach (var slot in _sends.Values)
                 CloseSink(slot);
             _sends.Clear();
@@ -849,10 +913,78 @@ public sealed class VideoIoHub : IDisposable
     }
 }
 
+/// <summary>What a live input may fall back to: a picture this node always has — a library item that is not a stream, a generator,
+/// a canvas, a playlist, a colour, black — and never one that shows a live input itself, however deep (a playlist's items, a
+/// canvas's layers).</summary>
+internal static class Fallbacks
+{
+    private const int MaxDepth = 8;
+
+    /// <summary>Why a source cannot be a fallback in this project, or null.</summary>
+    public static string? Fits(Project project, SourceRef source)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.IsNone || source.Kind is SourceKind.Color)
+            return null;
+        if (!Exists(project, source))
+            return $"no {source.Kind.ToString().ToLowerInvariant()} {source.Id} in the project";
+        return ShowsLive(project, source, 0, []) is { } live
+            ? $"{source} shows the live input {live}: a fallback is a picture this node always has"
+            : null;
+    }
+
+    private static bool Exists(Project project, SourceRef source) => source.Kind switch
+    {
+        SourceKind.Media => project.FindMedia(source.Id) is not null,
+        SourceKind.Generator => project.FindGenerator(source.Id) is not null,
+        SourceKind.Canvas => project.FindCanvas(source.Id) is not null,
+        SourceKind.Playlist => project.FindPlaylist(source.Id) is not null,
+        SourceKind.Live => true,
+        _ => true,
+    };
+
+    /// <summary>The first live input a source shows, as its ref, or null.</summary>
+    private static string? ShowsLive(Project project, SourceRef source, int depth, HashSet<string> seen)
+    {
+        if (source.Kind is SourceKind.Live || source.Kind is SourceKind.Media && project.FindMedia(source.Id) is { Kind: MediaKind.Stream })
+            return source.ToString();
+        if (depth >= MaxDepth || !seen.Add(source.ToString()))
+            return null;
+        switch (source.Kind)
+        {
+            case SourceKind.Playlist when project.FindPlaylist(source.Id) is { } list:
+                foreach (var item in list.Items)
+                    if (ShowsLive(project, item.Source, depth + 1, seen) is { } found)
+                        return found;
+                return null;
+            case SourceKind.Canvas when project.FindCanvas(source.Id) is { } canvas:
+                foreach (var layer in canvas.Layers)
+                    if (ShowsLive(project, layer.Source, depth + 1, seen) is { } found)
+                        return found;
+                return null;
+            default:
+                return null;
+        }
+    }
+}
+
 /// <summary>What a send's tap resolves to on this project: the point it reads, its size fitted to its format, its rate as a
 /// rational, and the format the render thread packs.</summary>
 internal sealed record SendShape(SendTapKind Kind, string Target, SourceRef? Source, int Width, int Height, int FpsN, int FpsD, SendFormat Format)
 {
+    /// <summary>The tallest (and widest) packed target a send makes; a larger send is refused with words here rather than failing on
+    /// the render thread when the target is made.</summary>
+    public const int MaxTargetRows = 16384;
+
+    private static int MaxRows(SendFormat format) => format switch
+    {
+        SendFormat.Uyva => MaxTargetRows * 2 / 3,
+        SendFormat.P216 => MaxTargetRows / 2,
+        SendFormat.Pa16 => MaxTargetRows / 3,
+        _ => MaxTargetRows,
+    };
+
     /// <summary>The shape, or null with the words why (a tap that names nothing); <paramref name="words"/> says a size the format
     /// changed ("1918 → 1916 …") when it resolves.</summary>
     public static SendShape? Resolve(Project project, VideoSend send, out string words)
@@ -912,6 +1044,15 @@ internal sealed record SendShape(SendTapKind Kind, string Target, SourceRef? Sou
         if (fitted < multiple || h < 1)
         {
             words = string.Create(CultureInfo.InvariantCulture, $"{send.Name}: {w}×{h} is too small to send");
+            return null;
+        }
+        // The packed target stacks a layout's planes in rows (UYVA's alpha below its picture, P216's and PA16's planes one under
+        // another); it is a texture, so it holds at most MaxTargetRows rows.
+        var rows = format switch { SendFormat.Uyva => h + (h + 1) / 2, SendFormat.P216 => 2 * h, SendFormat.Pa16 => 3 * h, _ => h };
+        if (rows > MaxTargetRows || fitted > MaxTargetRows)
+        {
+            words = string.Create(CultureInfo.InvariantCulture,
+                $"{send.Name}: {Word(format)} at {fitted}×{h} packs into {rows} rows — at most {MaxTargetRows} (a {Word(format)} send is at most {MaxRows(format)} rows tall)");
             return null;
         }
         if (fitted != w)

@@ -142,7 +142,7 @@ internal sealed class VideoIoRig : IAsyncDisposable
     public readonly FakeVideoProvider Ndi;
     public readonly FakeVideoProvider Omt;
 
-    public VideoIoRig(Project? project = null, bool ndi = true, VideoIoSettings? settings = null)
+    public VideoIoRig(Project? project = null, bool ndi = true, VideoIoSettings? settings = null, ISendSinkProvider? gpu = null)
     {
         Ndi = new FakeVideoProvider(LiveProtocol.Ndi, Clock);
         Omt = new FakeVideoProvider(LiveProtocol.Omt, Clock);
@@ -152,6 +152,7 @@ internal sealed class VideoIoRig : IAsyncDisposable
             Settings = services.Settings with { VideoIo = settings ?? VideoIoSettings.Default },
             LiveInputs = ndi ? [Omt, Ndi] : [Omt],
             SendProviders = ndi ? [Omt, Ndi] : [Omt],
+            GpuSendProviders = gpu is null ? [] : [gpu],
         };
         Engine = new EngineCore(services, project ?? Show());
     }

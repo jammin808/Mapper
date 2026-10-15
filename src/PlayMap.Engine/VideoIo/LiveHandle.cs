@@ -4,7 +4,7 @@ using PlayMap.Core.Model;
 namespace PlayMap.Engine.VideoIo;
 
 /// <summary>One live input of the library as the hub keeps it: the receiver (one per input, however many consumers read it), why it
-/// is not receiving when it is not, which feed it uses, and when a consumer last drew it (for tally).</summary>
+/// is not receiving when it is not, which feed it uses, and when a consumer last drew it, and last drew it for the air (for tally).</summary>
 internal sealed class LiveInput
 {
     private ILiveSource? _source;
@@ -12,7 +12,7 @@ internal sealed class LiveInput
     private ILiveSource? _backup;
     private SourceRef? _lossRoute;
     private long _lastDrawnNs = long.MinValue;
-    private int _drawnInBlack;
+    private long _lastAirNs = long.MinValue;
     private int _handles;
 
     public LiveInput(MediaItem item, LiveProtocol protocol, string address, bool byUrl)
@@ -111,13 +111,15 @@ internal sealed class LiveInput
 
     public long LastDrawnNs => Volatile.Read(ref _lastDrawnNs);
 
-    public bool DrawnInBlack => Volatile.Read(ref _drawnInBlack) != 0;
+    /// <summary>When a consumer last drew it into the air (an output, or a send): program, while the air is not blacked out.</summary>
+    public long LastAirNs => Volatile.Read(ref _lastAirNs);
 
-    /// <summary>Render thread: a consumer drew it now (allocation-free).</summary>
-    public void MarkDrawn(long monoNs, bool black)
+    /// <summary>Any thread: a consumer drew it now, for the air or not (a preview, a scan camera); allocation-free.</summary>
+    public void MarkDrawn(long monoNs, bool air)
     {
         Volatile.Write(ref _lastDrawnNs, monoNs);
-        Volatile.Write(ref _drawnInBlack, black ? 1 : 0);
+        if (air)
+            Volatile.Write(ref _lastAirNs, monoNs);
     }
 
     public void AddHandle() => Interlocked.Increment(ref _handles);
@@ -128,9 +130,13 @@ internal sealed class LiveInput
 /// <summary>A consumer's view of a live input: the renderer's, a scan camera's, a thumbnail's. It reads whatever receiver the input
 /// has now (so a reconnect or a backup taking over reaches every consumer at its next acquire) and disposing it lets go of the view
 /// only — the receiver stays with the hub while the input is in the project.</summary>
-internal sealed class LiveHandle(LiveInput input, Func<long> monoNs, Func<bool> blackout) : ILiveSource
+internal sealed class LiveHandle(LiveInput input, Func<long> monoNs) : ILiveSource
 {
     private int _disposed;
+
+    /// <summary>Whether the next acquires draw it into the air: set by the renderer's sources for the part of a frame that draws
+    /// outputs and sends, false for its previews; false for any other consumer (a scan camera, a thumbnail).</summary>
+    public bool ForAir { get; set; }
 
     public string Key => input.Id;
 
@@ -155,7 +161,7 @@ internal sealed class LiveHandle(LiveInput input, Func<long> monoNs, Func<bool> 
     {
         if (Volatile.Read(ref _disposed) != 0 || input.Source is not { } source)
             return null;
-        input.MarkDrawn(monoNs(), blackout());
+        input.MarkDrawn(monoNs(), ForAir);
         return source.Acquire(mediaNs);
     }
 

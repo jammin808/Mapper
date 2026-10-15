@@ -240,7 +240,7 @@ public sealed class PackPass : IDisposable
     private readonly GlDevice _device;
     private readonly Dictionary<object, RenderTarget> _packed = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(int W, int H), RenderTarget> _scaled = [];
-    private RenderTarget? _black;
+    private readonly Dictionary<(int W, int H), RenderTarget> _black = [];
 
     public PackPass(GlDevice device)
     {
@@ -282,8 +282,9 @@ public sealed class PackPass : IDisposable
     };
 
     /// <summary>Scales <paramref name="picture"/> (null = black) to the send's size and packs it into the send's own target
-    /// (<paramref name="key"/>); answers the packed target to read.</summary>
-    public RenderTarget Pack(object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit)
+    /// (<paramref name="key"/>), its colour times <paramref name="gain"/> (the air's, for a send that follows it; alpha untouched);
+    /// answers the packed target to read.</summary>
+    public RenderTarget Pack(object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit, float gain = 1f)
     {
         ArgumentNullException.ThrowIfNull(key);
         var source = Scale(picture, width, height, fit);
@@ -300,6 +301,7 @@ public sealed class PackPass : IDisposable
         p.SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, SendFormat.P216 or SendFormat.Pa16 => 3, _ => 2 });
         p.SetInt("uWidth", width);
         p.SetInt("uHeight", height);
+        p.Set("uGain", Math.Clamp(gain, 0f, 1f));
         _device.BindSampler(p, "uPicture", 0, source);
         _device.DrawFullscreen(p);
         return target;
@@ -309,14 +311,15 @@ public sealed class PackPass : IDisposable
     {
         if (picture is null)
         {
-            if (_black is null || _black.Width != width || _black.Height != height)
+            // One black picture per size, kept: two sends of different sizes with nothing to show make nothing per frame.
+            if (!_black.TryGetValue((width, height), out var black))
             {
-                _black?.Dispose();
-                _black = _device.CreateRenderTarget(width, height, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
-                _device.BindTarget(_black);
+                black = _device.CreateRenderTarget(width, height, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
+                _device.BindTarget(black);
                 _device.Clear(0, 0, 0, 1);
+                _black[(width, height)] = black;
             }
-            return _black.Color;
+            return black.Color;
         }
         if (picture.Width == width && picture.Height == height)
             return picture;
@@ -375,7 +378,8 @@ public sealed class PackPass : IDisposable
         foreach (var t in _scaled.Values)
             t.Dispose();
         _scaled.Clear();
-        _black?.Dispose();
-        _black = null;
+        foreach (var t in _black.Values)
+            t.Dispose();
+        _black.Clear();
     }
 }
