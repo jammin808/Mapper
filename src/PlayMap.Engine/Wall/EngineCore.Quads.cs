@@ -168,7 +168,7 @@ public sealed partial class EngineCore
         var outputId = output?.Id ?? "";
         var projectorId = projector?.Id ?? "";
         var already = output is not null && projector is not null && output.Enabled && output.Mode == OutputMode.Projector
-            && output.Kind == OutputKind.Display && (display is null || output.DisplayKey == display.Key) && output.Width == w && output.Height == h
+            && (display is null || (output.Kind == OutputKind.Display && output.DisplayKey == display.Key)) && output.Width == w && output.Height == h
             && (name is null || output.Name == name);
         if (already && _air.Overlay.On && OverlayCovers(_air.Overlay, outputId))
             return CommandReply.Fail($"{output!.Name} already lights {display?.Name ?? output.DisplayKey} as {projector!.Name}, with the overlay on — SURFACE QUAD {projector.Id} … draws a quad");
@@ -200,10 +200,11 @@ public sealed partial class EngineCore
                         SourceRef.None, new RectD(0, 0, w, h), OutputWarp.None, BlendSettings.Default, ColorTrim.Neutral, [], new RectD(x, 0, w, h), 0, true);
                     return project with { Outputs = project.Outputs.Add(o) };
                 }
+                // An output named with no display this node sees (a headless one) keeps its kind: only a display is made full screen.
                 var lit = o with
                 {
                     Name = name ?? o.Name,
-                    Kind = OutputKind.Display,
+                    Kind = display is null ? o.Kind : OutputKind.Display,
                     DisplayKey = display?.Key ?? o.DisplayKey,
                     Width = w,
                     Height = h,

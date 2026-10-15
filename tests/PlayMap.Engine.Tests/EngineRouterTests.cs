@@ -268,8 +268,9 @@ public sealed class EngineRouterTests
         await using var rig = new Rig();
         await rig.TwoItems();
         var keys = rig.State().EnumerateObject().Select(p => p.Name).ToArray();
+        // Today's keys first, in today's order; the packages' keys follow them (StateOrderTests holds their order).
         Assert.Equal(["v", "seq", "id", "t", "name", "version", "at", "light", "headline", "air", "video", "playlists", "outputs",
-            "media", "stage", "scan", "sync", "links", "peers", "machine", "project", "faults", "ai", "devices", "solve", "cameras"], keys);
+            "media", "stage", "scan", "sync", "links", "peers", "machine", "project", "faults", "ai", "devices", "solve", "cameras"], keys[..26]);
         Assert.Equal("playmap", rig.State().GetProperty("t").GetString());
         var ctx = JsonDocument.Parse(rig.Engine.Context()).RootElement;
         Assert.Equal("playmap", ctx.GetProperty("node").GetProperty("t").GetString());

@@ -85,8 +85,17 @@ public sealed class OverlayPass : IFramePass
     }
 
     /// <summary>True when the overlay would draw on this output this frame.</summary>
-    public static bool Covers(OverlayState? state, bool armed, string outputId) =>
-        !armed && state is { On: true } s && (s.Outputs.IsDefaultOrEmpty || s.Outputs.Contains(outputId, StringComparer.Ordinal));
+    public static bool Covers(OverlayState? state, bool armed, string outputId)
+    {
+        if (armed || state is not { On: true } s)
+            return false;
+        if (s.Outputs.IsDefaultOrEmpty)
+            return true;
+        foreach (var id in s.Outputs)
+            if (string.Equals(id, outputId, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
 
     public void Final(in PassFrame frame, Output output, RenderTarget final)
     {

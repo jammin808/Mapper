@@ -34,7 +34,8 @@ internal static class CalibrationLedger
             Pose = c.Pose,
             Locks = c.Locks,
             Pins = c.Pins,
-            SolveResidualPx = s.Score.RmsPx > 0 && s.Score.RmsPx < 99 ? Math.Max(s.Score.RmsPx, 1e-6) : pj.SolveResidualPx,
+            // A solve's (or a recalled solve's) residual; a result kept as it stood leaves the projector's own.
+            SolveResidualPx = s.Source != CalibrationSource.Manual && s.Score.RmsPx is >= 0 and < 99 ? Math.Max(s.Score.RmsPx, 1e-6) : pj.SolveResidualPx,
         };
     }
 

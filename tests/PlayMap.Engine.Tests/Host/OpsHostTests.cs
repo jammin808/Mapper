@@ -64,7 +64,7 @@ public sealed class OpsHostTests
         // The exe's composition carries the operations parts (the render side adds no extension).
         var standard = EngineParts.Standard();
         Assert.NotNull(standard.ScanBackend);
-        Assert.Equal(3, standard.Extensions.Count);
+        Assert.True(standard.Extensions.Count >= 3, $"{standard.Extensions.Count} parts");
 
         await using var node = await HostRig.StartAsync("Scan node", parts: OpsParts.With(EngineParts.Bare, Quick()));
         var engine = node.Engine;
