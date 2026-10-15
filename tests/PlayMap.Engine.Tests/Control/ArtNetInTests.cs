@@ -3,6 +3,10 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using PlayMap.Core.Dmx;
 using PlayMap.Core.Time;
@@ -17,6 +21,49 @@ public sealed class ArtNetInTests
     private static void Send(Socket from, string to, ReadOnlySpan<byte> packet) =>
         from.SendTo(packet, SocketFlags.None, new IPEndPoint(IPAddress.Parse(to), ArtNet.Port));
 
+    /// <summary>Sends <paramref name="perWindow"/> packets for each slot of <paramref name="bytes"/>, writes the bytes this thread
+    /// allocated over each window, and answers the sends refused. Compiled fully optimised before it first runs, and never inlined:
+    /// the windows are never where the runtime compiles the loop that counts them (a tier-0 loop is recompiled on stack, on this
+    /// thread, and that compile can grow the runtime's cast cache or box a static here).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
+    private static int SendCounting(ArtNetEndpoint endpoint, ReadOnlySpan<byte> packet, SocketAddress to, long[] bytes, int perWindow)
+    {
+        var refused = 0;
+        for (var k = 0; k < bytes.Length; k++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < perWindow; i++)
+            {
+                if (!endpoint.Send(packet, to))
+                    refused++;
+            }
+            bytes[k] = GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        return refused;
+    }
+
+    /// <summary>Binds the sockets' native send methods now. The runtime binds a native method's target when new code first calls it
+    /// through its stub (a 56 B string, once in the process, on the calling thread): a send path recompiled at tier 1 during the
+    /// windows would bind it there.</summary>
+    private static void BindSocketSends()
+    {
+        var bound = 0;
+        foreach (var type in typeof(Socket).Assembly.GetTypes())
+        {
+            foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if ((method.Attributes & MethodAttributes.PinvokeImpl) == 0 || !method.Name.Contains("send", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                Marshal.Prelink(method);
+                bound++;
+            }
+        }
+        Assert.True(bound > 0, "System.Net.Sockets has no native send method to bind");
+    }
+
+    /// <summary>A warm send allocates nothing. The windows hold the sends alone: the counting loop is compiled before it runs and the
+    /// native send methods are bound before the first window, so the runtime's own first-time work (a compile, a binding) is not
+    /// counted against them; what any window allocated, the sends refused and an exception thrown on this thread are the words.</summary>
     [Fact]
     public async Task TenThousandSendsAllocateNothing()
     {
@@ -25,14 +72,13 @@ public sealed class ArtNetInTests
         var to = endpoint.AddressOf(new IPEndPoint(IPAddress.Parse(ControlRig.Address(42)), ArtNet.Port));
         var packet = new byte[530];
         var n = ArtNet.WriteDmx(packet, 1, 0, new byte[512]);
-        for (var i = 0; i < 200; i++)
-            endpoint.Send(packet.AsSpan(0, n), to);
-        // What allocated, if anything did: the bytes of each thousand sends, the sends refused, and an exception on this thread.
+        BindSocketSends();
+        SendCounting(endpoint, packet.AsSpan(0, n), to, new long[1], 200);
         var perThousand = new long[10];
         var refused = 0;
         Exception? thrown = null;
         var thread = Environment.CurrentManagedThreadId;
-        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> seen = (_, e) =>
+        EventHandler<FirstChanceExceptionEventArgs> seen = (_, e) =>
         {
             if (Environment.CurrentManagedThreadId == thread)
                 thrown ??= e.Exception;
@@ -40,16 +86,7 @@ public sealed class ArtNetInTests
         AppDomain.CurrentDomain.FirstChanceException += seen;
         try
         {
-            for (var k = 0; k < perThousand.Length; k++)
-            {
-                var before = GC.GetAllocatedBytesForCurrentThread();
-                for (var i = 0; i < 1000; i++)
-                {
-                    if (!endpoint.Send(packet.AsSpan(0, n), to))
-                        refused++;
-                }
-                perThousand[k] = GC.GetAllocatedBytesForCurrentThread() - before;
-            }
+            refused = SendCounting(endpoint, packet.AsSpan(0, n), to, perThousand, 1000);
         }
         finally
         {
