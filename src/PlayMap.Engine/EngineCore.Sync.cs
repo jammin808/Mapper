@@ -400,18 +400,32 @@ public sealed partial class EngineCore
         if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout) is not { } text)
             return;
         var at = LeaderNowNs;
-        _ = Task.Run(async () =>
+        // Pushed here, in the order this session's lines ran (the journal's row is written before the line is answered); only the
+        // receipts are waited for beside it.
+        Task<IReadOnlyList<FanoutReceipt>> sent;
+        try
         {
-            try
-            {
-                foreach (var r in await sync.SendAsync(text, at, CancellationToken.None).ConfigureAwait(false))
-                    Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage is not ("refused" or "silent"));
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
-            }
-        }, CancellationToken.None);
+            sent = sync.SendAsync(text, at, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
+            return;
+        }
+        _ = JournalReceiptsAsync(text, sent);
+    }
+
+    private async Task JournalReceiptsAsync(string text, Task<IReadOnlyList<FanoutReceipt>> sent)
+    {
+        try
+        {
+            foreach (var r in await sent.ConfigureAwait(false))
+                Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage is not ("refused" or "silent"));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
+        }
     }
 
     /// <summary>A verb answered on the lane (a package's lane route or a first-round row), so a member can run it pinned to an instant.</summary>

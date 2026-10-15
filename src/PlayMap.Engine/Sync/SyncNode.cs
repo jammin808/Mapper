@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Core.Bus;
@@ -58,9 +59,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly ConcurrentDictionary<string, (Core.Sync.LockState State, long AtWatch)> _lastSent = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _adopted = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string Feed, long Seq), byte> _airDone = new();
-    private readonly Lock _pendingGate = new();
+    private readonly Lock _dueGate = new();
     private readonly Lock _persistGate = new();
-    private readonly List<(string Group, string Key, string Json)> _pending = [];
     private readonly List<DueAir> _due = [];
     private readonly List<Task> _work = [];
     private volatile EngineCore? _engine;
@@ -73,6 +73,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private volatile string _leaderName = "";
     private volatile string _leaderAddress = "";
     private volatile string _joining = "";
+    private volatile Channel<(string Group, string Key, string Json)>? _lines;
+
+    /// <summary>Feed lines a follower holds while its clock comes to the leader's time line or its lane is busy.</summary>
+    private const int LinesHeld = 4096;
     private IVblankSource? _source;
     private bool _holdNoted;
     private (string Verdict, Light Light, int Heard, bool Mixed) _lastPicture = ("", Light.Grey, -1, false);
@@ -325,32 +329,46 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
 
     // ---- What the follower's link brings ----------------------------------------------------------------------------------
 
+    /// <summary>A line from the leader's feed, queued in arrival order for <see cref="TakeLinesAsync"/>. A feed that comes faster than
+    /// this node takes it is redialled: its new subscription hands the latest of every key again.</summary>
     private void OnAnchor(string group, string key, string json)
     {
-        if (_engine is null)
+        if (_lines is not { } lines || lines.Writer.TryWrite((group, key, json)))
             return;
-        if (!Clock.IsFollowing)
-        {
-            // Anchors and air lines are on the leader's time line: they wait until this node's clock reads it.
-            lock (_pendingGate)
-            {
-                if (key != AnchorFeed.Air)
-                    _pending.RemoveAll(p => p.Group == group && p.Key == key);
-                _pending.Add((group, key, json));
-            }
-            return;
-        }
-        Take(group, key, json);
+        _log.LogWarning("The leader's feed came faster than this node takes it: a line was dropped; the link is dialled again.");
+        _engine?.Journal.Add("sync", "the leader's feed came faster than this node takes it — dialling it again for the latest", ok: false);
+        _follower?.Drop();
     }
 
-    private void Take(string group, string key, string json)
+    /// <summary>The feed's lines, one at a time in the order they came: anchors adopted, air lines run (or scheduled), the lock taken.
+    /// They are on the leader's time line, so none is taken until this node's clock reads it.</summary>
+    private async Task TakeLinesAsync(Channel<(string Group, string Key, string Json)> lines, AnchorFollower link, CancellationToken ct)
     {
-        if (key == AnchorFeed.Air)
-            Background(RunAirAsync(json));
-        else if (key == LockRecord.Key)
-            TakeLock(json);
-        else
-            Background(AdoptAsync(group, key, json));
+        await foreach (var (group, key, json) in lines.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        {
+            // A follow that ended (or moved to another leader) takes nothing more of its old feed.
+            if (!ReferenceEquals(_lines, lines))
+                return;
+            while (!Clock.IsFollowing)
+            {
+                if (!await Waits.DelayAsync(_o.WatchEvery, ct).ConfigureAwait(false))
+                    return;
+            }
+            try
+            {
+                if (key == AnchorFeed.Air)
+                    await RunAirAsync(json, link).ConfigureAwait(false);
+                else if (key == LockRecord.Key)
+                    TakeLock(json);
+                else
+                    await AdoptAsync(group, key, json).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+            {
+                // One line that faults is that line's; the feed goes on with the next.
+                _log.LogWarning(ex, "A line from the leader's feed faulted: {Key}", key);
+            }
+        }
     }
 
     /// <summary>The leader's frame lock, taken here; a join the armed show holds back is asked again on each watch.</summary>
@@ -370,9 +388,12 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             _adopted.TryAdd(id, 0);
     }
 
-    private async Task RunAirAsync(string json)
+    /// <summary>One air line: refused with words unless a member runs it from its leader; run now, pinned to the leader's instant,
+    /// when that instant has come; else accepted now and run at its instant by the lane's tick (its receipt follows then, beside the
+    /// feed, so later lines are not held up).</summary>
+    private async Task RunAirAsync(string json, AnchorFollower link)
     {
-        if (_engine is not { } engine || _follower is not { } link)
+        if (_engine is not { } engine)
             return;
         if (!AnchorFeed.TryReadAir(json, out var feed, out var seq, out var text, out var at))
             return;
@@ -392,51 +413,43 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         {
             await link.ReceiptAsync(seq, "accepted", at, "", _stop.Token).ConfigureAwait(false);
             var due = new DueAir(at, line, new TaskCompletionSource<CommandReply>(TaskCreationOptions.RunContinuationsAsynchronously));
-            lock (_pendingGate)
+            lock (_dueGate)
                 _due.Add(due);
-            reply = await due.Done.Task.WaitAsync(_stop.Token).ConfigureAwait(false);
+            Background(ReceiptWhenRunAsync(due, seq, link));
+            return;
         }
         else
         {
             reply = await engine.RunAirLineAsync(line, m.Spec, at, LeaderSession).ConfigureAwait(false);
         }
-        var words = reply.Ok ? reply.Effect : reply.Payload ?? "refused";
-        await link.ReceiptAsync(seq, reply.Ok ? "applied" : "refused", at, words, _stop.Token).ConfigureAwait(false);
+        await Receipt(link, seq, at, reply).ConfigureAwait(false);
     }
 
-    /// <summary>On the lane, each tick: air lines whose instant came run (pinned to it); what waited for the clock is taken once it
-    /// follows; a silent leader is free-wheeled on.</summary>
+    private async Task ReceiptWhenRunAsync(DueAir due, long seq, AnchorFollower link) =>
+        await Receipt(link, seq, due.AtLeaderNs, await due.Done.Task.WaitAsync(_stop.Token).ConfigureAwait(false)).ConfigureAwait(false);
+
+    private Task<bool> Receipt(AnchorFollower link, long seq, long at, CommandReply reply) =>
+        link.ReceiptAsync(seq, reply.Ok ? "applied" : "refused", at, reply.Ok ? reply.Effect : reply.Payload ?? "refused", _stop.Token);
+
+    /// <summary>On the lane, each tick: air lines whose instant came run, pinned to it, in the order of their instants; a silent leader
+    /// is free-wheeled on.</summary>
     internal void Tick(EngineCore engine, long leaderNs)
     {
         List<DueAir>? due = null;
-        List<(string Group, string Key, string Json)>? pending = null;
-        lock (_pendingGate)
+        lock (_dueGate)
         {
-            if (_due.Count > 0)
+            for (var i = _due.Count - 1; i >= 0; i--)
             {
-                for (var i = _due.Count - 1; i >= 0; i--)
-                {
-                    if (_due[i].AtLeaderNs > leaderNs)
-                        continue;
-                    (due ??= []).Add(_due[i]);
-                    _due.RemoveAt(i);
-                }
-            }
-            if (_pending.Count > 0 && Clock.IsFollowing)
-            {
-                pending = [.. _pending];
-                _pending.Clear();
+                if (_due[i].AtLeaderNs > leaderNs)
+                    continue;
+                (due ??= []).Add(_due[i]);
+                _due.RemoveAt(i);
             }
         }
         if (due is not null)
         {
             foreach (var d in due.OrderBy(d => d.AtLeaderNs))
                 d.Done.TrySetResult(engine.RunAirLineOnLane(d.Line, d.AtLeaderNs, LeaderSession));
-        }
-        if (pending is not null)
-        {
-            foreach (var (g, k, j) in pending)
-                Take(g, k, j);
         }
         WatchLeader(engine);
     }
@@ -445,7 +458,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// playlists keep switching their own items at the anchored instants; the journal and the context say so, once.</summary>
     private void WatchLeader(EngineCore engine)
     {
-        if (Role != "follower" || !Clock.IsFollowing)
+        if (_follower is null || !Clock.IsFollowing || Role != "follower")
             return;
         var silent = Clock.Local.NowNs - Clock.HeardLocalNs > _settings.LeaderTimeoutMs * Durations.NsPerMs;
         if (silent && !Clock.IsHolding)
@@ -601,6 +614,13 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         if (wire > 0)
         {
             var link = new AnchorFollower(peer.Address, wire, me.Name, string.Join(' ', new[] { me.NodeId }.Concat(outputs)), _wall, _log);
+            var lines = Channel.CreateBounded<(string Group, string Key, string Json)>(new BoundedChannelOptions(LinesHeld)
+            {
+                SingleReader = true,
+                FullMode = BoundedChannelFullMode.Wait,
+            });
+            _lines = lines;
+            Background(TakeLinesAsync(lines, link, _stop.Token));
             link.Anchor += OnAnchor;
             link.StatusChanged += _ => _engine?.FactsChanged();
             _follower = link;
@@ -629,10 +649,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             await link.DisposeAsync().ConfigureAwait(false);
         }
         Interlocked.Exchange(ref _reporter, null)?.Dispose();
+        Interlocked.Exchange(ref _lines, null)?.Writer.TryComplete();
         _lastSent.Clear();
-        lock (_pendingGate)
+        lock (_dueGate)
         {
-            _pending.Clear();
             foreach (var d in _due)
                 d.Done.TrySetResult(CommandReply.Fail("this node stopped following before the line's instant"));
             _due.Clear();

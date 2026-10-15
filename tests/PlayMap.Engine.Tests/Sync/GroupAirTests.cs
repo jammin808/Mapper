@@ -52,6 +52,17 @@ public sealed class GroupAirTests
         Assert.Equal(at, Assert.Single(events, e => e.Kind == "air.blackout").AtLeaderNs);
         Assert.False(leader.State().GetProperty("air").GetProperty("blackout").GetBoolean());   // sent, not run, on the leader
 
+        // Lines that follow each other closely reach the member in the order they ran: a panic and its clear, a GO and a NEXT.
+        await leader.OkAsync("PANIC FADE 0");
+        await leader.OkAsync("PANIC CLEAR FADE 0");
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        clock.AdvanceMs(500);   // past the armed show's double-GO protection
+        await leader.OkAsync("PLAYLIST NEXT pl_show");
+        Assert.True(await Eventually.TrueAsync(() => leader.Journal().Contains("PANIC CLEAR FADE 0 on Stage: applied", StringComparison.Ordinal)), leader.Journal());
+        Assert.True(await Eventually.TrueAsync(() => member.Engine.AnchorJson("pl_show") == leader.Engine.AnchorJson("pl_show")));
+        Assert.Equal("it_b", member.Engine.Playback.Lane("pl_show")!.ItemId);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, member.State().GetProperty("air").GetProperty("panic").ValueKind);
+
         // A line no member runs from its leader is refused there with words.
         var refused = Assert.Single(await fanout.SendAsync("PROJECT NEW Gone", leader.Engine.LeaderNowNs, CancellationToken.None));
         Assert.Equal("refused", refused.Stage);

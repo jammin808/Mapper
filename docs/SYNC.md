@@ -68,8 +68,11 @@ in order:
   leader applied the lock and leaves when it released it — never with its own frame lock off, and not while it is armed and on
   air (it joins at the next blackout or once disarmed, as `SYNC APPLY` would).
 
-A subscriber gets the latest anchor of every playlist and the latest air line of each kind (blackout, master, panic) first, so a
-member that comes back rejoins the show where it is; a member never runs the same air line twice. A subscriber that names no
+A member takes the feed's lines one at a time, in the order they came (a leader numbers and pushes each air line under one lock,
+in the order its lines ran), and none before its clock reads the leader's time line; a feed that comes faster than it takes it is
+dialled again. A subscriber gets the latest anchor of every playlist and the latest air line of each kind (blackout, master,
+panic) first, so a member that comes back rejoins the show where it is; a member never runs the same air line twice (a leader
+that restarted numbers its lines afresh under a new feed instance). A subscriber that names no
 node only reads (a desk watching the group) and is no member: it is never waited for.
 
 ## Vblank reports and the leader's board

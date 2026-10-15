@@ -54,6 +54,9 @@ public sealed class AnchorFollower : IAsyncDisposable
 
     public void Start() => _link.Start();
 
+    /// <summary>Cuts the connection now; the link dials again and its new subscription hands the latest of every key.</summary>
+    public void Drop() => _link.Drop();
+
     /// <summary>This node's receipt for an air line; false when the link is down (the leader reads the member as silent).</summary>
     public async Task<bool> ReceiptAsync(long seq, string stage, long appliedLeaderNs, string words, CancellationToken ct)
     {

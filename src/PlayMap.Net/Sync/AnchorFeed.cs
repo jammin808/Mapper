@@ -101,30 +101,35 @@ public sealed class AnchorFeed
 
     /// <summary>Sends an air line to every member at a leader instant and waits (at most <paramref name="wait"/>) for each one's
     /// final receipt; a member that only accepted reads "accepted", one that said nothing "silent". <paramref name="kind"/> keeps
-    /// the line as that kind's latest for members that join later (null: not kept).</summary>
+    /// the line as that kind's latest for members that join later (null: not kept). The line is numbered and pushed before this
+    /// returns its task (one lock for both), so lines sent one after another reach every member in that order.</summary>
     public async Task<IReadOnlyList<AirReceipt>> SendAirAsync(string group, string? kind, string line, long leaderNs, TimeSpan wait, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(group);
         ArgumentException.ThrowIfNullOrWhiteSpace(line);
-        var seq = Interlocked.Increment(ref _airSeq);
-        var json = JsonText.Write(w =>
-        {
-            w.WriteStartObject();
-            w.WriteString("feed", Instance);
-            w.WriteNumber("seq", seq);
-            w.WriteString("line", line);
-            w.WriteNumber("leaderNs", leaderNs);
-            w.WriteEndObject();
-        });
-        var text = $"{Word} {group} {Air} {json}";
+        long seq;
         List<Waiting> waits;
+        List<Subscriber> dropped;
         lock (_gate)
         {
+            seq = ++_airSeq;
+            var at = seq;
+            var json = JsonText.Write(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("feed", Instance);
+                w.WriteNumber("seq", at);
+                w.WriteString("line", line);
+                w.WriteNumber("leaderNs", leaderNs);
+                w.WriteEndObject();
+            });
             waits = [.. _subs.Where(s => s.Member.Node.Length > 0).Select(s => new Waiting(s.Member))];
             foreach (var w in waits)
                 _waiting[(seq, w.Member.SessionId)] = w;
+            dropped = PushLocked(kind is null ? null : group + " " + Air + " " + kind, $"{Word} {group} {Air} {json}");
         }
-        Push(kind is null ? null : group + " " + Air + " " + kind, text);
+        if (dropped.Count > 0)
+            MembersChanged?.Invoke();
         try
         {
             var receipts = new List<AirReceipt>(waits.Count);
@@ -179,25 +184,32 @@ public sealed class AnchorFeed
 
     private void Push(string? key, string line)
     {
-        List<Subscriber> dropped = [];
+        List<Subscriber> dropped;
         lock (_gate)
-        {
-            if (key is not null)
-            {
-                _latest.RemoveAll(l => l.Key == key);
-                _latest.Add((key, line));
-            }
-            foreach (var s in _subs)
-            {
-                // An overflow closed the member's topic: it rejoins with a fresh SUBSCRIBE (and the latest lines).
-                if (!s.Sink.InOrder(line))
-                    dropped.Add(s);
-            }
-            foreach (var d in dropped)
-                _subs.Remove(d);
-        }
+            dropped = PushLocked(key, line);
         if (dropped.Count > 0)
             MembersChanged?.Invoke();
+    }
+
+    /// <summary>Keeps the line as its key's latest and hands it to every subscriber, under the feed's lock; answers the subscribers an
+    /// overflow closed (removed).</summary>
+    private List<Subscriber> PushLocked(string? key, string line)
+    {
+        if (key is not null)
+        {
+            _latest.RemoveAll(l => l.Key == key);
+            _latest.Add((key, line));
+        }
+        List<Subscriber> dropped = [];
+        foreach (var s in _subs)
+        {
+            // An overflow closed the member's topic: it rejoins with a fresh SUBSCRIBE (and the latest lines).
+            if (!s.Sink.InOrder(line))
+                dropped.Add(s);
+        }
+        foreach (var d in dropped)
+            _subs.Remove(d);
+        return dropped;
     }
 
     private void End(Subscriber sub)
