@@ -58,7 +58,10 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`).
+libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`). On Ubuntu 24.04,
+`sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack (PulseAudio with a
+virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints the
+variables to export.
 
 FFmpeg is LGPL/GPL depending on the build shipped beside the exe; see the licences of the models the vision
 module downloads before using them commercially.

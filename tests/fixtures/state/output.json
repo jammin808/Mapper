@@ -200,7 +200,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "c15a4699b6b6f3e4"
+    "index": "b4269dfb25a48ea2"
   },
   "faults": [],
   "ai": {
@@ -237,6 +237,37 @@
     "preflight": null,
     "minGoMs": 0
   },
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [],
+    "light": "green",
+    "headline": "1 machine \u00B7 0 outputs \u00B7 all green"
+  },
+  "eye": {
+    "headline": "1 machine \u00B7 0 outputs \u00B7 all green",
+    "worst": "",
+    "worstLight": "green",
+    "worstWords": "",
+    "counts": {
+      "green": 1,
+      "amber": 0,
+      "red": 0,
+      "grey": 0,
+      "things": 1,
+      "links": 0
+    },
+    "focus": "",
+    "lens": "all",
+    "problems": []
+  },
   "decode": {
     "platform": {
       "blocks": {
@@ -254,47 +285,6 @@
       "words": "no decoders open"
     },
     "sources": []
-  },
-  "control": {
-    "enabled": true,
-    "axisHz": 100,
-    "osc": {
-      "port": 9943,
-      "open": false,
-      "words": "no control service on this node"
-    },
-    "midi": {
-      "backend": "none",
-      "open": false,
-      "words": "no control service on this node",
-      "inputs": [],
-      "outputs": []
-    },
-    "dmx": {
-      "artnet": {
-        "enabled": false,
-        "open": false
-      },
-      "sacn": {
-        "enabled": false,
-        "open": false
-      }
-    },
-    "surfaces": [],
-    "bindings": {
-      "count": 0,
-      "enabled": 0,
-      "live": 0,
-      "waiting": 0,
-      "unplugged": 0
-    },
-    "learning": null,
-    "learnt": null,
-    "last": null
-  },
-  "timecode": {
-    "sources": [],
-    "chases": []
   },
   "clients": [],
   "events": {
