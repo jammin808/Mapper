@@ -39,6 +39,7 @@ public sealed class DropViewTests(ITestOutputHelper output)
         output.WriteLine(string.Create(inv, $"clean {clean.RmsPx:0.000} px; shifted {bad.RmsPx:0.000} px ({string.Join(", ", bad.Views.SelectMany(v => v.RmsByProjector.Select(kv => $"{v.Id}/{kv.Key} {kv.Value:0.000}")))})"));
         // The shift raises the residual tenfold.
         Assert.True(bad.RmsPx > 10 * clean.RmsPx, $"{bad.RmsPx:0.000} px against {clean.RmsPx:0.000} px");
+        output.WriteLine(string.Join(", ", bad.Views.Select(v => string.Create(inv, $"{v.Id} {v.Inliers} of {v.Observations} inliers"))));
 
         // Each view's influence: dropping v2 brings the residual under half a pixel; dropping either good view leaves
         // the disagreement in. So v2 is the view to drop, and it is named by the numbers alone.
@@ -51,6 +52,10 @@ public sealed class DropViewTests(ITestOutputHelper output)
         output.WriteLine(dropped.Words);
         Assert.Equal(influence.Single(i => i.ViewId == "v2").RmsWithoutPx, dropped.RmsPx);
         Assert.True(dropped.RmsPx < 0.5, $"{dropped.RmsPx:0.000} px");
+        // The shifted solve is itself under half a pixel (the joint solve spreads the shift over every view), so the
+        // drop must bring the residual back to the clean scan's, not merely under the bar.
+        Assert.True(dropped.RmsPx < bad.RmsPx / 10, $"{dropped.RmsPx:0.000} px against {bad.RmsPx:0.000} px");
+        Assert.True(dropped.RmsPx < 2 * clean.RmsPx, $"{dropped.RmsPx:0.000} px against the clean {clean.RmsPx:0.000} px");
         Assert.All(influence.Where(i => i.ViewId != "v2"), i => Assert.True(i.RmsWithoutPx > 5 * dropped.RmsPx, $"without {i.ViewId}: {i.RmsWithoutPx:0.000} px"));
         Assert.Equal(["v1", "v3"], dropped.Views.Select(v => v.Id));
         Assert.Equal(["pj1", "pj2"], dropped.Projectors.Select(p => p.Id));
