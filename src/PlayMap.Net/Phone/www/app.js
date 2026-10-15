@@ -13,7 +13,7 @@
 // forgets the phone or the person forgets the node here.
 
 import { SUBPROTOCOL, pmf1, afterClose } from './protocol.js';
-import { canLock, litTop, planExposure, applyDropping } from './exposure.js';
+import { canLock, litTop, planExposure, afterMiss, applyDropping } from './exposure.js';
 import { Watcher } from './watch.js';
 
 /** @param {string} id */
@@ -44,6 +44,11 @@ const s = {
   inFlight: 0,
   /** @type {((gray: Uint8Array, captureMs: number) => void) | null} */ onFrame: null,
   stopped: false,
+  // The page closed its own socket (to join again, or to forget the node): the node's echo of that close is not news.
+  closingSelf: false,
+  // The phone turned during a first join: it joins again once the welcome has given it its key.
+  rejoin: false,
+  rvfc: false,
   attempts: 0,
   moving: false,
   /** @type {any} */ wakeLock: null,
@@ -117,13 +122,18 @@ function forgetHere() {
   }
   s.key = '';
   s.stopped = true;
-  s.ws?.close(1000, 'forgot this node');
+  closeSelf('forgot this node');
   show('forget', false);
+  // With no invite in hand there is nothing to join with.
+  if (!s.ticket) /** @type {HTMLButtonElement} */ (el('allow')).disabled = true;
   say('This phone keeps nothing for this node now: scan a new invite to join again.');
 }
 
 /** The back camera with one physical lens where the labels tell; the stream at up to 1080p 30. @param {Promise<string>} motion */
 async function allow(motion) {
+  // The person asked to join: whatever stopped the page before no longer holds.
+  s.stopped = false;
+  s.attempts = 0;
   const want = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
   let stream = await navigator.mediaDevices.getUserMedia({ video: { ...want, facingMode: { ideal: 'environment' } }, audio: false });
   const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
@@ -157,7 +167,9 @@ async function allow(motion) {
       raster(video.videoWidth, video.videoHeight);
       chips();
       say('The phone turned: it joins again with its new picture size. Keep it still in one place for the scan.', 'warn');
-      s.ws?.close(1000, 'the phone turned: joining again with its new picture size');
+      // A first join still waiting for its key joins again once it has it; a phone with its key joins again now.
+      if (s.key) closeSelf('the phone turned: joining again with its new picture size');
+      else s.rejoin = true;
     }
   });
   await motionAndWake(motion);
@@ -165,6 +177,13 @@ async function allow(motion) {
   show('join', false);
   show('ready', true);
   connect();
+}
+
+/** Closes the page's own socket, its words its own. @param {string} why */
+function closeSelf(why) {
+  if (!s.ws) return;
+  s.closingSelf = true;
+  s.ws.close(1000, why);
 }
 
 /** The picture's size, and everything sized by it. @param {number} w @param {number} h */
@@ -223,18 +242,17 @@ async function wake() {
 }
 
 /**
- * Every new camera frame as gray8 with when it was taken (page ms), to whoever is waiting for frames. The gray buffer is reused:
- * whoever keeps a frame copies it. Without frame callbacks, a frame the video has not moved past is not offered twice.
+ * Every camera frame as gray8 with when it was taken (page ms), to whoever is waiting for frames. The gray buffer is reused:
+ * whoever keeps a frame copies it. Without frame callbacks the page draws at the screen's rate and cannot tell one camera frame
+ * from the next, so it takes no pattern by agreeing frames (see watch()).
  * @param {HTMLVideoElement} video
  */
 function frames(video) {
   const rvfc = typeof video.requestVideoFrameCallback === 'function';
-  let shown = -1;
+  s.rvfc = rvfc;
   /** @param {number} now @param {any} [meta] */
   const tick = (now, meta) => {
-    const fresh = rvfc || video.currentTime !== shown;
-    shown = video.currentTime;
-    if (fresh && s.onFrame && s.ctx && s.width > 0) {
+    if (s.onFrame && s.ctx && s.width > 0) {
       s.ctx.drawImage(video, 0, 0, s.width, s.height);
       const rgba = s.ctx.getImageData(0, 0, s.width, s.height).data;
       const gray = s.gray;
@@ -295,10 +313,9 @@ function hello() {
       wakeLock: 'wakeLock' in navigator,
     },
   };
+  // The ticket until the welcome (a socket lost before it may try again with it), then the key.
   if (s.ticket) m.ticket = s.ticket;
   else m.key = s.key;
-  // A ticket is good once: it is not kept for a reconnect.
-  s.ticket = '';
   return m;
 }
 
@@ -322,8 +339,12 @@ function connect() {
     if (s.ws === ws) s.ws = null;
     endCue();
     s.inFlight = 0;
-    if (e.reason) say(e.reason, 'warn');
-    const next = afterClose(e.code, e.reason, s.key.length > 0, s.attempts);
+    const self = s.closingSelf;
+    s.closingSelf = false;
+    if (e.reason && !self) say(e.reason, 'warn');
+    // A refused invite is not tried again; a socket the page closed itself to join again joins again at once.
+    if (/^ERR /.test(e.reason)) s.ticket = '';
+    const next = self ? { again: !s.stopped, forgetKey: false, delayMs: 0 } : afterClose(e.code, e.reason, s.key.length > 0 || s.ticket.length > 0, s.attempts);
     if (next.forgetKey) forgetHere();
     if (!s.stopped && next.again) {
       s.attempts++;
@@ -341,6 +362,8 @@ function onMessage(m) {
   switch (m.t) {
     case 'welcome':
       s.attempts = 0;
+      s.stopped = false;
+      s.ticket = '';
       if (m.key) {
         s.key = m.key;
         try {
@@ -354,6 +377,10 @@ function onMessage(m) {
       el('title').textContent = (m.node?.name ?? 'PlayMap') + ' camera';
       status('Ready: ' + (m.phone?.name ?? 'this phone') + ' is the scan camera');
       chips();
+      if (s.rejoin) {
+        s.rejoin = false;
+        closeSelf('the phone turned: joining again with its new picture size');
+      }
       break;
     case 'pong':
       s.exchange = { t1: m.t1, t2: m.t2, t3: m.t3, t4: performance.now() };
@@ -469,9 +496,12 @@ async function profile(m) {
       let t = settled.exposureTime;
       let iso = settled.iso ?? c.iso?.min ?? 100;
       let level = litTop(gray);
+      // A phone's video is gamma-encoded; the first correction tells the curve this camera really has.
+      let gamma = 2.2;
+      let landed = 'the camera did not take manual exposure';
       // One measurement, one exposure; measured again, and corrected once more if it did not land.
       for (let round = 0; round < 2; round++) {
-        const plan = planExposure({ t0: t, s0: iso, level, displayHz: m.displayHz, timeRange: c.exposureTime, isoRange: c.iso });
+        const plan = planExposure({ t0: t, s0: iso, level, gamma, displayHz: m.displayHz, timeRange: c.exposureTime, isoRange: c.iso });
         /** @type {Record<string, any>} */
         const want = { exposureMode: 'manual', exposureTime: plan.t1 };
         if (c.iso) want.iso = plan.s1;
@@ -484,43 +514,48 @@ async function profile(m) {
         const after = /** @type {any} */ (track.getSettings());
         const now = await until(() => false, 250);
         if (after.exposureMode !== 'manual') break;
-        level = litTop(now);
-        t = after.exposureTime ?? plan.t1;
-        iso = after.iso ?? plan.s1;
-        if (level >= LOCK_LOW && level <= LOCK_HIGH) {
+        const next = { t: after.exposureTime ?? plan.t1, s: after.iso ?? plan.s1, level: litTop(now) };
+        if (next.level >= LOCK_LOW && next.level <= LOCK_HIGH) {
           // What the camera says it holds, never what it was asked.
           return {
             t: 'prepared',
             exposure: 'locked',
-            exposureMs: Math.round(t * 10) / 100,
-            iso,
+            exposureMs: Math.round(next.t * 10) / 100,
+            iso: after.iso ?? 0,
             focus: after.focusMode === 'manual' ? 'locked' : focusOffered ? 'auto' : 'not offered',
             whiteBalance: after.whiteBalanceMode === 'manual' ? 'locked' : wbOffered ? 'auto' : 'not offered by this camera',
             words: 'Exposure locked',
           };
         }
+        landed = `its level landed at ${next.level}, outside ${LOCK_LOW}–${LOCK_HIGH}`;
+        const miss = afterMiss({ t, s: iso, level }, next, gamma);
+        gamma = miss.gamma;
+        ({ t, s: iso, level } = miss.base);
       }
       await applyDropping(track, { exposureMode: 'continuous' });
       await settleExposure();
-      return steady(track, wbOffered, 'The camera did not hold the exposure it was given: brightness kept steady instead');
+      return steady(track, focusOffered, wbOffered, `The exposure lock did not hold (${landed}): brightness kept steady instead`);
     }
   }
   if (wbOffered) await applyDropping(track, { whiteBalanceMode: 'manual' });
   await settleExposure();
-  return steady(track, wbOffered, platform() === 'ios-safari'
+  return steady(track, focusOffered, wbOffered, platform() === 'ios-safari'
     ? 'iPhone cannot lock exposure from a web page: brightness kept steady instead'
     : 'This camera cannot lock its exposure from a web page: brightness kept steady instead');
 }
 
-/** @param {MediaStreamTrack} track @param {boolean} wbOffered @param {string} words */
-function steady(track, wbOffered, words) {
+/**
+ * What the camera holds on the steady profile.
+ * @param {MediaStreamTrack} track @param {boolean} focusOffered @param {boolean} wbOffered @param {string} words
+ */
+function steady(track, focusOffered, wbOffered, words) {
   const after = /** @type {any} */ (track.getSettings());
   return {
     t: 'prepared',
     exposure: 'steady',
     exposureMs: 0,
     iso: 0,
-    focus: 'auto',
+    focus: after.focusMode === 'manual' ? 'locked' : focusOffered ? 'auto' : 'not offered',
     whiteBalance: after.whiteBalanceMode === 'manual' ? 'locked' : wbOffered ? 'auto' : 'not offered by this camera',
     words,
   };
@@ -543,6 +578,11 @@ function endCue() {
  */
 function watch(m) {
   endCue();
+  if (!s.rvfc && m.kind !== 'still') {
+    // Without frame times two agreeing draws may be one camera frame: no pattern is taken that way.
+    send({ t: 'stuck', cue: m.id, why: 'this browser cannot tell one camera frame from the next: update it, or use another' });
+    return;
+  }
   const watching = watcher.cue(m);
   /** @type {any} */
   const cue = { id: m.id, timer: 0, handler: null };

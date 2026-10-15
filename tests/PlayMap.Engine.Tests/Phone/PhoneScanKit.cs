@@ -151,6 +151,21 @@ internal sealed class FakePhone : IAsyncDisposable
 
     public HashSet<int> DropUpload { get; } = [];
 
+    /// <summary>Locate frames whose first picture is said seen but never sent.</summary>
+    public HashSet<int> DropLocateUpload { get; } = [];
+
+    /// <summary>Whether the closing check's first picture is said seen but never sent.</summary>
+    public bool DropClosingUpload { get; set; }
+
+    /// <summary>After answering this many cues the phone's motion sensor starts a movement (between cues).</summary>
+    public int BumpAfterCue { get; set; } = int.MaxValue;
+
+    /// <summary>Cues answered stuck.</summary>
+    public int Stucks => Volatile.Read(ref _stucks);
+
+    private int _stucks;
+    private int _locateZero;
+
     public HashSet<int> Lie { get; } = [];
 
     /// <summary>After this many cues the phone stops answering (its socket stays open).</summary>
@@ -300,6 +315,7 @@ internal sealed class FakePhone : IAsyncDisposable
                         _lastPicture = Picture(_glass.Glass.Now);
                         _pictureBefore = null;
                         _lastKey = "";
+                        _locateZero = 0;
                         await SendAsync(new
                         {
                             t = "prepared",
@@ -442,16 +458,27 @@ internal sealed class FakePhone : IAsyncDisposable
             }
             if (previous is not null && PictureGrid.Diff(previous, grid) < 3)
             {
-                _pictureBefore = _lastPicture;
+                if (key != _lastKey)
+                    _pictureBefore = _lastPicture;
                 _lastPicture = gray;
                 _lastKey = key;
-                var send = !(pattern && retake == 0 && DropUpload.Remove(index));
+                // Index 0 of a locate run comes twice: its first frame, then the closing check.
+                var closing = kind == "locate" && index == 0 && Interlocked.Increment(ref _locateZero) > 1;
+                var dropClosing = closing && retake == 0 && DropClosingUpload;
+                if (dropClosing)
+                    DropClosingUpload = false;
+                var send = !(pattern && retake == 0 && DropUpload.Remove(index))
+                    && !(kind == "locate" && retake == 0 && !closing && DropLocateUpload.Remove(index))
+                    && !dropClosing;
                 await SeenAsync(id, kind!, tag, gray, rolling, upload: send);
+                if (Answered == BumpAfterCue)
+                    await SendAsync(new { t = "state", motion = "moving" });
                 return;
             }
             previous = grid;
         }
         Interlocked.Increment(ref _answered);
+        Interlocked.Increment(ref _stucks);
         await SendAsync(new { t = "stuck", cue = id, why = pattern && _sites.Count > 0 ? "tag not seen" : "unchanged" });
     }
 

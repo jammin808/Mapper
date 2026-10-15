@@ -664,7 +664,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 var part = setup.Parts[j];
                 if (camera is ICuedScanCamera cued)
                 {
-                    var (cuedFrames, cw, ch, located, pairing) = await CaptureCuedAsync(display, cued, setup.CameraId, j, part, track, notes, ct).ConfigureAwait(false);
+                    var (cuedFrames, cw, ch, located, pairing) = await CaptureCuedAsync(display, cued, setup.CameraId,
+                        (rig.Intrinsics.Width, rig.Intrinsics.Height), j, part, track, notes, ct).ConfigureAwait(false);
                     track.Pairing(pairing);
                     captures.Add(Decode(j, part, cw, ch, cuedFrames, null, views, track, map =>
                     {

@@ -23,9 +23,9 @@ public sealed record ScanPairing(string Mode, int Sites, int RollingRejects, int
 /// stuck on a pattern has it shown again, up to the retake limit, then the view fails with the camera's words;</item>
 /// <item>verify — each picture's tag is read again on the node: one that shows another pattern is refused and its pattern shot again
 /// (observed, never assumed); a picture that never arrives is shot again too;</item>
-/// <item>end check — the all-cells-lit locate frame shown once more: each chosen site's lit square is found again against the run's
-/// all-dark frame, and one that moved more than the move limit (camera pixels) means the camera moved — the view fails (without
-/// sites, the two pictures are compared level by level).</item>
+/// <item>end check — the all-cells-lit locate frame shown once more: each chosen site is found again in it by correlation with the
+/// run's own, and one that moved more than the move limit (camera pixels) means the camera moved — the view fails (without a site
+/// it can measure, the two pictures are compared level by level).</item>
 /// </list>
 /// A camera whose own motion sensor says it moved during the view fails the view at once.
 /// The steady profile skips the full white and black (made afterwards from the coarse pairs) and levels the exposure drift. Timing
@@ -113,7 +113,7 @@ public sealed partial class ScanRunner
     /// <summary>One projector through a cued camera: its frames (plan order, the camera's raster), the tag shadow to leave out of the
     /// decode and the pairing facts.</summary>
     private async Task<(byte[][] Frames, int Width, int Height, CellLocateResult Located, ScanPairing Pairing)> CaptureCuedAsync(IScanDisplay display,
-        ICuedScanCamera camera, string cameraId, int j, Part part, Track track, List<string> notes, CancellationToken ct)
+        ICuedScanCamera camera, string cameraId, (int Width, int Height) rigRaster, int j, Part part, Track track, List<string> notes, CancellationToken ct)
     {
         var views = ViewsOf();
         var plan = part.Plan;
@@ -141,7 +141,7 @@ public sealed partial class ScanRunner
                 throw new InvalidOperationException($"{camera.Name} did not answer while setting its exposure");
             }
             notes.Add($"{pj.Name}: {camera.Name} — {prepared.Words}.");
-            return await CaptureCuedViewAsync(camera, cameraId, j, part, track, notes, prepared, Show, framePeriodNs, views, ct).ConfigureAwait(false);
+            return await CaptureCuedViewAsync(camera, cameraId, rigRaster, j, part, track, notes, prepared, Show, framePeriodNs, views, ct).ConfigureAwait(false);
         }
     }
 
@@ -156,8 +156,8 @@ public sealed partial class ScanRunner
     }
 
     private async Task<(byte[][] Frames, int Width, int Height, CellLocateResult Located, ScanPairing Pairing)> CaptureCuedViewAsync(ICuedScanCamera camera,
-        string cameraId, int j, Part part, Track track, List<string> notes, CuedPrepared prepared, Func<byte[], CancellationToken, Task<long>> show,
-        long framePeriodNs, ScanViews? views, CancellationToken ct)
+        string cameraId, (int Width, int Height) rigRaster, int j, Part part, Track track, List<string> notes, CuedPrepared prepared,
+        Func<byte[], CancellationToken, Task<long>> show, long framePeriodNs, ScanViews? views, CancellationToken ct)
     {
         var plan = part.Plan;
         var pj = part.Projector;
@@ -186,6 +186,10 @@ public sealed partial class ScanRunner
             var frame = await TakeAsync(camera, c => show(raster, c), (present, retake) => LocateCue(index, present, retake), facts,
                 $"locate frame {k + 1}", ct).ConfigureAwait(false);
             (w, h) = Size(frame, w, h);
+            // The rig's optics are for the raster its camera joined with: pictures of another size would be solved against the wrong ones.
+            if ((w, h) != rigRaster)
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"{camera.Name} sends {w}×{h} pictures, but its camera rig is {rigRaster.Width}×{rigRaster.Height}: join it again so the rig takes its picture size"));
             locate[k] = frame.Gray;
             views?.CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
         }
@@ -261,9 +265,8 @@ public sealed partial class ScanRunner
         var closing = await TakeAsync(camera, c => show(closingRaster, c), (present, retake) => LocateCue(0, present, retake), facts,
             "the closing check", ct).ConfigureAwait(false);
         Size(closing, w, h);
-        if (tagged)
+        if (tagged && MovedPx(locate[0], closing.Gray, located.Chosen, w, h) is { } px)
         {
-            var px = MovedPx(locate[0], closing.Gray, locate[2], located.Chosen, w, h);
             if (px > _options.MoveCheckPx)
                 throw new InvalidOperationException(double.IsFinite(px)
                     ? string.Create(CultureInfo.InvariantCulture,
@@ -272,6 +275,7 @@ public sealed partial class ScanRunner
         }
         else
         {
+            // No tag place to find again (none, or all at the picture's edge): the two pictures level by level.
             var moved = MovedLevels(locate[0], closing.Gray, located.Lit, w);
             if (moved > _options.MoveCheckLevels)
                 throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
@@ -351,7 +355,9 @@ public sealed partial class ScanRunner
     {
         for (var round = 0; ; round++)
         {
-            var seen = await SeenAsync(camera, show, cue, facts, what, 0, ct).ConfigureAwait(false);
+            // Asking again for a frame already taken (its picture lost) is a retake: the camera changes from the picture before it.
+            var again = round;
+            var seen = await SeenAsync(camera, show, (present, retake) => cue(present, retake + again), facts, what, 0, ct).ConfigureAwait(false);
             if (await PictureOrNullAsync(seen.Pixels!, ct).ConfigureAwait(false) is { } frame)
                 return frame;
             if (round >= _options.MaxRetakes)
@@ -364,46 +370,35 @@ public sealed partial class ScanRunner
     private const int MoveSearchPx = 3;
 
     /// <summary>
-    /// How far (camera pixels) the chosen sites moved between two all-cells-lit pictures, each taken against the run's all-dark one:
-    /// per site, the shift that best lays the later picture of the site (a window half a cell wider than it) on the earlier — the
-    /// highest normalised correlation over whole-pixel shifts up to <see cref="MoveSearchPx"/>, refined to a fraction of a pixel by a
-    /// parabola through its neighbours; the largest shift. A brightness change scales a site and leaves the correlation where it was;
-    /// a site found at the edge of the search, or not lit at all, has moved further (infinite).
+    /// How far (camera pixels) the chosen sites moved between two all-cells-lit pictures: per site, the shift that best lays the later
+    /// picture of the site (a window half a cell wider than it) on the earlier — the highest zero-mean normalised correlation over
+    /// whole-pixel shifts up to <see cref="MoveSearchPx"/>, refined to a fraction of a pixel by a parabola through its neighbours; the
+    /// largest shift. Both pictures move with the camera as a whole, and a brightness change scales and offsets a window without moving
+    /// its peak. A site found at the edge of the search, or no longer lit there, has moved further (infinite). A site too near the
+    /// picture's edge for the search to stay inside is not measured; null when no site can be.
     /// </summary>
-    internal static double MovedPx(byte[] litBefore, byte[] litAfter, byte[] dark, IReadOnlyList<TagSitePlacement> sites, int width, int height)
+    internal static double? MovedPx(byte[] before, byte[] after, IReadOnlyList<TagSitePlacement> sites, int width, int height)
     {
-        var worst = 0.0;
         const int R = MoveSearchPx;
+        double? worst = null;
         foreach (var site in sites)
         {
             var cells = site.Cells;
             var pitch = (cells[1] - cells[0]).Length;
-            var x0 = (int)Math.Floor(cells.Min(c => c.X) - pitch);
-            var x1 = (int)Math.Ceiling(cells.Max(c => c.X) + pitch);
-            var y0 = (int)Math.Floor(cells.Min(c => c.Y) - pitch);
-            var y1 = (int)Math.Ceiling(cells.Max(c => c.Y) + pitch);
-            if (x0 - R < 0 || y0 - R < 0 || x1 + R >= width || y1 + R >= height)
-                return double.PositiveInfinity;
+            // The site's square, and the window half a cell beyond it, kept where the search stays inside the picture.
+            double sx0 = cells.Min(c => c.X) - pitch / 2, sx1 = cells.Max(c => c.X) + pitch / 2;
+            double sy0 = cells.Min(c => c.Y) - pitch / 2, sy1 = cells.Max(c => c.Y) + pitch / 2;
+            var x0 = Math.Max(R, (int)Math.Floor(sx0 - pitch / 2));
+            var x1 = Math.Min(width - 1 - R, (int)Math.Ceiling(sx1 + pitch / 2));
+            var y0 = Math.Max(R, (int)Math.Floor(sy0 - pitch / 2));
+            var y1 = Math.Min(height - 1 - R, (int)Math.Ceiling(sy1 + pitch / 2));
+            if (x0 > sx0 || x1 < sx1 || y0 > sy0 || y1 < sy1)
+                continue;
             var ncc = new double[2 * R + 1, 2 * R + 1];
             for (var dy = -R; dy <= R; dy++)
             {
                 for (var dx = -R; dx <= R; dx++)
-                {
-                    double ab = 0, aa = 0, bb = 0;
-                    for (var y = y0; y <= y1; y++)
-                    {
-                        for (var x = x0; x <= x1; x++)
-                        {
-                            double b = litBefore[y * width + x] - dark[y * width + x];
-                            var q = (y + dy) * width + x + dx;
-                            double a = litAfter[q] - dark[q];
-                            ab += a * b;
-                            aa += a * a;
-                            bb += b * b;
-                        }
-                    }
-                    ncc[dy + R, dx + R] = aa > 0 && bb > 0 ? ab / Math.Sqrt(aa * bb) : 0;
-                }
+                    ncc[dy + R, dx + R] = Correlation(before, after, width, x0, y0, x1, y1, dx, dy);
             }
             int bx = 0, by = 0;
             for (var dy = -R; dy <= R; dy++)
@@ -416,11 +411,35 @@ public sealed partial class ScanRunner
             }
             if (Math.Abs(bx) == R || Math.Abs(by) == R || !(ncc[by + R, bx + R] > 0.5))
                 return double.PositiveInfinity;
-            var sx = bx + Vertex(ncc[by + R, bx + R - 1], ncc[by + R, bx + R], ncc[by + R, bx + R + 1]);
-            var sy = by + Vertex(ncc[by + R - 1, bx + R], ncc[by + R, bx + R], ncc[by + R + 1, bx + R]);
-            worst = Math.Max(worst, Math.Sqrt(sx * sx + sy * sy));
+            var shiftX = bx + Vertex(ncc[by + R, bx + R - 1], ncc[by + R, bx + R], ncc[by + R, bx + R + 1]);
+            var shiftY = by + Vertex(ncc[by + R - 1, bx + R], ncc[by + R, bx + R], ncc[by + R + 1, bx + R]);
+            worst = Math.Max(worst ?? 0, Math.Sqrt(shiftX * shiftX + shiftY * shiftY));
         }
         return worst;
+    }
+
+    /// <summary>The zero-mean normalised correlation of the earlier picture's window with the later one's shifted by (dx, dy).</summary>
+    private static double Correlation(byte[] before, byte[] after, int width, int x0, int y0, int x1, int y1, int dx, int dy)
+    {
+        double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+        var n = 0;
+        for (var y = y0; y <= y1; y++)
+        {
+            for (var x = x0; x <= x1; x++)
+            {
+                double b = before[y * width + x];
+                double a = after[(y + dy) * width + x + dx];
+                sa += a;
+                sb += b;
+                saa += a * a;
+                sbb += b * b;
+                sab += a * b;
+                n++;
+            }
+        }
+        var va = saa - sa * sa / n;
+        var vb = sbb - sb * sb / n;
+        return va > 0 && vb > 0 ? (sab - sa * sb / n) / Math.Sqrt(va * vb) : 0;
     }
 
     /// <summary>The offset (−½…½) of the top of the parabola through three equally spaced values whose middle is the largest.</summary>

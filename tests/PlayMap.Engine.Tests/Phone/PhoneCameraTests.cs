@@ -191,10 +191,40 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task APhoneNudgedTwoPixelsDuringTheViewIsCaughtByTheClosingCheck()
+    public async Task AMovementStartingBetweenCuesFailsTheViewToo()
     {
         await using var rig = await PhoneScanRig.StartAsync();
         await using var phone = await rig.JoinAsync();
+        // The sensor fires after a seen, while no cue is in hand: the page reports the movement starting, and that counts.
+        phone.BumpAfterCue = 20;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.Equal("failed", view.State);
+        Assert.Contains("Pixel 8 moved during the view (its motion sensor said so)", view.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALostLocateOrClosingPictureIsTakenAgainAsARetakeWithoutAStall()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        await using var phone = await rig.JoinAsync();
+        phone.DropLocateUpload.Add(5);
+        phone.DropClosingUpload = true;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE FAST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.True(view.State == "done", view.Message);
+        // Each frame asked for again was seen at once against the picture before it: no stuck, one retake each.
+        Assert.Equal(0, phone.Stucks);
+        Assert.Equal(2, rig.State().GetProperty("scan").GetProperty("pairing").GetProperty("retakes").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task APhoneNudgedTwoPixelsDuringTheViewIsCaughtByTheClosingCheck(bool locks)
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        await using var phone = await rig.JoinAsync(locks: locks);
         // After the locate run and some patterns the camera stands two pixels over: every tag still reads, so only the end check sees it.
         phone.ShiftAfter = CellLocate.Frames + 10;
         phone.ShiftPx = 2;

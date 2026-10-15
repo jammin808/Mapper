@@ -63,3 +63,14 @@ test('two agreeing frames in a row are needed, more when the node asks', () => {
   assert.equal(cue.offer(picture(200, 200)), null);
   assert.ok(cue.offer(picture(200, 200)));
 });
+
+test('every retake of a frame changes from the picture before that frame, however many times it is lost', () => {
+  const w = new Watcher();
+  w.resize(W, H);
+  w.prepared({}, picture(30, 30));
+  assert.ok(offer(w.cue({ kind: 'locate', projector: 'A', i: 0, tag: 0 }), picture(200, 200)));
+  assert.ok(offer(w.cue({ kind: 'locate', projector: 'A', i: 1, tag: 0 }), picture(90, 90)));
+  // Frame 1's picture is lost twice: each retake is still seen, against frame 0's picture.
+  assert.ok(offer(w.cue({ kind: 'locate', projector: 'A', i: 1, tag: 0, retake: 1 }), picture(90, 90)));
+  assert.ok(offer(w.cue({ kind: 'locate', projector: 'A', i: 1, tag: 0, retake: 2 }), picture(90, 90)));
+});

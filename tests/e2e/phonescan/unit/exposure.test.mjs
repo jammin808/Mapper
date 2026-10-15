@@ -1,7 +1,7 @@
 // The lock profile's arithmetic and the page's rule for a closed socket, on their own.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planExposure, CAP, TARGET } from '../../../../src/PlayMap.Net/Phone/www/exposure.js';
+import { planExposure, fitGamma, afterMiss, CAP, TARGET } from '../../../../src/PlayMap.Net/Phone/www/exposure.js';
 import { afterClose } from '../../../../src/PlayMap.Net/Phone/www/protocol.js';
 
 const frames = (/** @type {number} */ t1, /** @type {number} */ hz) => (t1 * hz) / 10000;
@@ -39,4 +39,33 @@ test('a closed socket is tried again only when trying again can work', () => {
   assert.equal(afterClose(1006, '', true, 9).delayMs, 30000);
   assert.equal(afterClose(1008, '4 phones are connected already', true, 0).again, true);
   assert.equal(afterClose(1008, 'too many wrong invites from this address — wait a minute', true, 0).delayMs, 60000);
+});
+
+test('a camera with a curve lands within 190–240 in two corrections, from any settled level', () => {
+  for (const curve of [1.6, 1.8, 2.2, 2.6]) {
+    for (const start of [60, 80, 100, 120, 140, 180, 230, 300]) {
+      // A camera whose level is light to the power 1/curve; at t 100, ISO 100 it reads `start` (above 255: clipped).
+      const k = Math.pow(start / 255, curve) / 1e4;
+      const level = (/** @type {number} */ t, /** @type {number} */ s) => Math.min(255, Math.round(255 * Math.pow(t * s * k, 1 / curve)));
+      let base = { t: 100, s: 100, level: level(100, 100) };
+      let gamma = 2.2;
+      const seen = [];
+      for (let round = 0; round < 2; round++) {
+        const p = planExposure({ t0: base.t, s0: base.s, level: base.level, gamma, displayHz: 60 });
+        const next = { t: p.t1, s: p.s1, level: level(p.t1, p.s1) };
+        seen.push(next.level);
+        if (next.level >= 190 && next.level <= 240) break;
+        ({ base, gamma } = afterMiss(base, next, gamma));
+      }
+      const last = seen[seen.length - 1];
+      assert.ok(last >= 190 && last <= 240, `curve ${curve}, settled at ${start}: ${seen.join(' → ')}`);
+    }
+  }
+});
+
+test('the curve is read from what a correction did, and kept where it says nothing', () => {
+  // Light ×4 moved a gamma-2 camera's level ×2.
+  assert.ok(Math.abs(fitGamma({ t: 100, s: 100, level: 50 }, { t: 400, s: 100, level: 100 }, 2.2) - 2) < 1e-9);
+  assert.equal(fitGamma({ t: 100, s: 100, level: 50 }, { t: 400, s: 100, level: 255 }, 2.2), 2.2, 'clipped');
+  assert.equal(fitGamma({ t: 100, s: 100, level: 100 }, { t: 101, s: 100, level: 101 }, 2.2), 2.2, 'hardly moved');
 });

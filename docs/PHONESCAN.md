@@ -21,11 +21,13 @@ certificate, on the show network. The verbs and the protocol are in `docs/wire/p
    join in flight when it lands is refused, never written back.
 4. On its first join the phone becomes a camera rig of kind Phone in the project (one undo step), with a phone camera's field of
    view as its prior; a later join with another camera or raster resets the solved intrinsics. A join the project refuses (the
-   show armed: mapping is locked) is refused to the phone with those words; no phone is kept, and the invite stays good for another
+   show armed: mapping is locked — for a phone coming back with another camera as for a new one) is refused to the phone with those
+   words, so a rig never describes a camera other than the one its phone has; no phone is kept, and the invite stays good for another
    try within its life. So does an invite whose join met a full house (`phone.maxConnected`).
 5. The page tries a lost connection again, waiting longer each time (to half a minute); it stops for good on a refusal trying again
    cannot change (a key or invite the node does not know, a forgotten phone — whose key it drops — another tab of the same phone,
-   phones switched off). A phone that turns (its picture changes size) joins again with its new size.
+   phones switched off). A phone that turns (its picture changes size) joins again with its new size — once its first join has
+   its key, never in the middle of it.
 
 The phone's session is that capability alone. It reaches nothing but its own socket: the module serves only under `/scan`; the
 node's `/api`, `/ws` and `/mcp` keep their own gate (origin, own host names, token). The socket itself refuses a page of another
@@ -38,10 +40,12 @@ acknowledged and dropped. A phone that sends nothing for ten seconds (its page p
 
 - **Lock** (a camera that offers manual exposure — Chrome on Android): while the probe (the coarsest Gray stripes) is on the glass
   the page lets auto-exposure settle, measures the top of the lit stripes once, sets exposure time and ISO explicitly for a level of
-  215 (above 8 ms a whole number of display frames — rounded up, or down to the most whole frames under the 30 fps cap — so a
-  projector that flickers frame by frame gives every picture the same light), locks focus and white balance where offered, then
-  measures again: the level must land within 190–240, after at most one more correction, or the camera runs the steady profile
-  with words. Focus and white balance are reported from what the camera says it holds, never from what it was asked.
+  215 — planned in light through the camera's curve (γ 2.2 first, then the curve the first correction shows; a correction that
+  clipped is planned again from the one before on a gentler curve) — above 8 ms a whole number of display frames (rounded up, or
+  down to the most whole frames under the 30 fps cap) so a projector that flickers frame by frame gives every picture the same
+  light, locks focus and white balance where offered, then measures again: the level must land within 190–240, after at most one
+  more correction, or the camera runs the steady profile with words that say why (it took no manual exposure, or where its level
+  landed). Focus, white balance and ISO are reported from what the camera says it holds, never from what it was asked.
 - **Steady** (a camera without those controls — iPhone Safari among them): the camera keeps its own exposure, which the node keeps
   still by never showing a full white or black frame (they would make it ramp). The scan's white and black are made afterwards from
   the three coarsest Gray pairs of each axis (`ReferenceSynthesis`): per pixel, the pair that differs most. Each coded frame's gain
@@ -64,7 +68,8 @@ acknowledged and dropped. A phone that sends nothing for ten seconds (its page p
   place, each a 3 × 3 mean; `PictureGrid`) must have moved by 8 levels at 13 samples or more from the last picture taken — a few
   samples suffice when the projection is small in the picture. Each projector's prepare starts afresh: the last projector's place
   is forgotten and the probe on the glass is what the first frame must change from; a frame shown again for a retake changes from
-  the picture before the one taken.
+  the picture before that frame (a frame whose picture was lost is asked for again as a retake). A browser without frame callbacks
+  cannot tell one camera frame from the next, so it takes no pattern that way and says so.
 - **Tags**: every pattern carries its tag (value (i mod 63) + 1) at the chosen sites: cell 0 lit and cell 15 dark as references,
   cells 1–14 seven differential pairs carrying six bits and their parity (`FrameTag`). The phone's reader (`tags.js`) and the
   node's read the same value from the same pixels — same samples, same integer rule (checked under Node 22 on rendered pictures).
@@ -74,9 +79,10 @@ acknowledged and dropped. A phone that sends nothing for ten seconds (its page p
   asks for it again by hand (the wait ends and the pattern goes up again, unless the phone's answer was already on its way).
 - **Checked on the node**: every picture's tag is read again when it lands; one that shows another pattern (`caught`) or never
   arrives is shot again. At the end the all-cells-lit locate frame goes up again (shot again if its picture never arrives): each
-  chosen site, found again against the run's all-dark picture by correlation, standing more than a pixel from where it was means the
-  phone moved, and the view fails — observed, never assumed (without tag places, the two pictures are compared level by level). The
-  phone's own motion sensor saying it moved fails the view at once.
+  chosen site, found again in it by zero-mean correlation with the run's own all-lit picture, standing more than a pixel from where
+  it was means the phone moved, and the view fails — observed, never assumed. A site too near the picture's edge for the search is
+  left out; without any site to measure, the two pictures are compared level by level. The phone's motion sensor reporting a
+  movement starting, cue or no cue, fails the view at once. A picture whose size is not the rig's fails the view with words.
 - **Timing** is the cross-check (a picture taken before its pattern was presented is counted, `timingDisagrees`) and, where the
   camera sees no tag place, the pairing (`mode:"timing"`, with words to keep the phone very still).
 - The tags are not the pattern: their footprint, and anything decoded within 2 px of a tag place, is left out of the decode.
@@ -96,21 +102,26 @@ moment a scan drives the phone, so a scan's cues are the only ones it sees.
   either; the curve's power found).
 - Net: tickets once and expiring (on a hand-moved clock), keys as digests, lockout, the limits' close codes, CSP and headers, the
   socket's origin and own-host rules, the clock exchange; a frame that lies about its size, pictures nobody waits for dropped
-  however many, a quiet phone ended, a forget racing a join, a join the node cannot finish (no phone kept, the ticket good again),
-  a welcome that never went, the connected limit for a phone that joined before, close reasons within 123 bytes.
+  however many and none inflated, a broken one a cue waits for closing the socket, a phone's own strings named and never echoed
+  into STATE, a quiet phone ended, a forget racing a join, a join the node cannot finish (no phone kept, the ticket good again), a
+  welcome that never went, the connected limit for a phone that joined before, close reasons within 123 bytes.
 - The page in Chromium (Playwright, `/opt/pw-browsers`): no request — the socket's upgrade with all its headers among them —
   carries the ticket; the hello carries it once; the lock profile sets manual exposure on the fake camera; a camera with no
   controls runs the steady profile with its words; the next projector's first locate frame is seen where the picture changes;
   plain HTTP refuses with words and no camera. Under Node: the tag reader and the settle grid read what Core's read from the sites
-  message the node sends; the pairing rule frame by frame (a new projector's run, a stale picture, a retake); the exposure plan's
-  whole frames; the reconnect rule.
+  message the node sends; the pairing rule frame by frame (a new projector's run, a stale picture, a retake, a frame lost twice);
+  the exposure plan's whole frames; curved cameras landing within 190–240 in two corrections from any settled level; the
+  reconnect rule.
 - Engine: a whole scan through a phone over its real socket (a C# phone that behaves as the page), with late pictures, a
   rolling-shutter mix, a dropped upload and a false picture all paired right (the projector within 1 cm, 0.25°, 0.6 % of throw),
   every picture after the probe put up only once the phone had answered the one before; the steady profile with a wandering gain,
   never a full white or black on the glass; a phone that hangs up or goes silent stops the scan cleanly with words in STATE; a
-  phone whose motion sensor fires, or nudged two pixels mid-view, fails the view with words;
+  phone whose motion sensor fires (in a cue or between cues), or nudged two pixels mid-view (locked or steady), fails the view with
+  words; a lost locate or closing picture asked for again without a stall; the end check's measure to a fraction of a pixel on a
+  dark and a lit background, a site at the picture's edge left out;
   `SCAN NEXT` answered before its timeout with no retake; a phone joining while the show is armed refused with the lock's words,
-  its invite good after SHOW DISARM; an invite refused on the line wire from another machine; an align run through a phone
+  its invite good after SHOW DISARM, and one coming back with another camera refused until then, its rig unchanged; an invite
+  refused on the line wire from another machine; an align run through a phone
   reaching its staged result, and failing with the phone's words when it is gone; the verbs, the preflight row, INDEX; the ticket and key in no STATE, context, journal or project.
 - Simulator: a camera hunting 1 % a frame with no white or black decodes ≥ 90 % of the locked pixels and holds the pose within twice
   the locked thresholds.

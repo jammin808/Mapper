@@ -168,17 +168,18 @@ public static class Pmf1
             var codec = Text(r, "codec");
             if (Array.IndexOf(Kinds, kind) < 0)
             {
-                words = $"a PMF1 frame of kind '{kind}'";
+                // The phone's own strings are named, never echoed: these words reach STATE.
+                words = "a PMF1 frame of an unknown kind";
                 return false;
             }
             if (format is not (Gray8 or Gray16))
             {
-                words = $"a PMF1 frame in format '{format}' (gray8 or gray16)";
+                words = "a PMF1 frame in an unknown format (gray8 or gray16)";
                 return false;
             }
             if (codec is not (Deflate or None))
             {
-                words = $"a PMF1 frame coded '{codec}' ({Deflate} or {None})";
+                words = $"a PMF1 frame in an unknown coding ({Deflate} or {None})";
                 return false;
             }
             if (!r.TryGetProperty("roi", out var roi) || roi.ValueKind != JsonValueKind.Array || roi.GetArrayLength() != 4)

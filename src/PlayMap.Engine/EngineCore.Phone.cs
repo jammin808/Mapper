@@ -69,8 +69,9 @@ public sealed partial class EngineCore
                 : existing with { Phone = joined.Profile, Intrinsics = prior, Lens = LensDistortion.None, Calibrated = false };
             return p.WithStage(s => s with { Cameras = s.Cameras.Update(existing.Id, _ => updated) });
         }).ConfigureAwait(false);
-        // Decided by the project after the edit, never by the attempt: a refused edit (the show armed, mapping locked) made no rig.
-        if (rigId.Length == 0 || Store.Project.Stage.Cameras.Find(rigId) is null)
+        // Decided by the project after the edit, never by the attempt: a refused edit (the show armed, mapping locked) made no rig,
+        // or left one describing another camera than the phone now has.
+        if (rigId.Length == 0 || Store.Project.Stage.Cameras.Find(rigId) is not { } stored || stored.Phone != joined.Profile)
             throw new InvalidOperationException(r.Effect.Length > 0 ? r.Effect : "the project took no camera for it");
         return rigId;
     }

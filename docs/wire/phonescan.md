@@ -33,7 +33,7 @@ else under `/scan` is served, and the module maps nothing outside it. Every answ
 | phone → node | `hello` | `v:1`, `ticket` (first join) or `key`, `phone:{name}`, `ua:{platform, browser, model?}`, `camera:{label, width, height, fps, caps:{exposure[], exposureTime[min,max,step], iso[], focus[], focusDistance[], whiteBalance[], torch, zoom[]}}`, `features{}` |
 | node → phone | `welcome` | `phone:{id, name}`, `key` (first join only, once), `node:{id, name}`, `camera` (the rig id), `limits:{maxInFlight, maxBinary}` |
 | phone → node / node → phone | `ping` / `pong`, `clock` | `ping {t1, prev:{t1,t2,t3,t4}}` (page ms); `pong {t1, t2, t3}` (node ms); `clock {offsetMs, uncertaintyMs}` (node − page, from the least-delayed of the last eight exchanges) |
-| phone → node | `state` | `exposure:{mode,timeMs,iso}`, `focus:{mode}`, `wb:{mode}`, `fps`, `motion` ("moving"/"still"), `visible` |
+| phone → node | `state` | `exposure:{mode,timeMs,iso}`, `focus:{mode}`, `wb:{mode}`, `fps`, `motion` ("moving"/"still": a movement starting counts as a move, as `moved` does), `visible` |
 | node → phone | `prepare` | `profile` ("lock"/"steady"), `displayHz`, `agreeTolerance`, `stableFrames`. A new projector's run: the page forgets the last projector's `sites` and `lit`, and takes the picture it shows once its exposure is set (the probe) as the one the first frame must change from |
 | phone → node | `prepared` | `exposure` ("locked"/"steady"), `exposureMs`, `iso`, `focus`, `whiteBalance`, `words` |
 | node → phone | `sites` | `projector`, `minSites`, `lit:[x,y,w,h]`, `sites:[{id, cells:[[x,y]×16], rows:[top,bottom]}]` (camera pixels, unrounded: the page samples the very pixels the node's tag check does) |
@@ -47,7 +47,8 @@ else under `/scan` is served, and the module maps nothing outside it. Every answ
 Fail closed: a message type a phone does not send closes the socket with 1008 "unknown message"; anything before `hello` with
 1008 "hello first"; a missing field with 1008; text over 64 KiB or binary over 16 MiB with 1009; a PMF1 frame that is not whole
 (size, ROI, CRC-32, header) or not the camera's raster (the hello's, at most 16 Mpx) with 1007; a picture kind that was not asked
-for with 1008. A whole picture no cue waits for any more (cancelled, timed out, shown again) is acknowledged and dropped. Five
+for with 1008. A picture no cue waits for any more (cancelled, timed out, shown again) is acknowledged and dropped unread (nothing
+is inflated for it); one a cue waits for is read whole. Refusal words name a bad field, never echo the phone's value. Five
 wrong tickets or keys from an address in a minute lock it out for the rest of the minute. At most `phone.maxConnected` (4) phones
 connected at once (a phone joining again replaces its own older socket). A phone that sends nothing for ten seconds (the page
 pings every second) is closed with 1008 "stopped sending: nothing for 10 s". Close reasons fit 123 bytes. A join is registered

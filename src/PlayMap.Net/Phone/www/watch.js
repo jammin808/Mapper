@@ -107,7 +107,8 @@ export class Watcher {
         if (run > 1 && !st.agrees) fail('unsettled');
         if (run < this.stableFrames) return null;
         const picture = gray.slice();
-        this.beforeGray = this.lastGray;
+        // A retake of the frame just taken keeps the picture before that frame: every retake of it changes from that one.
+        if (key !== this.lastKey) this.beforeGray = this.lastGray;
         this.lastGray = picture;
         this.lastKey = key;
         return { seen: { picture, sites: read.validSites, margin: read.margin, settleDiff: Math.round(st.diff * 100) / 100, rolling } };

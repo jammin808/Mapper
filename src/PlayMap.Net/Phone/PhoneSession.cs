@@ -48,7 +48,7 @@ public interface IPhoneSession
     /// <summary>Words for the phone's screen ("info", "warn").</summary>
     Task SayAsync(string level, string words, CancellationToken ct);
 
-    /// <summary>How many times the phone's motion sensor has said it moved since it joined.</summary>
+    /// <summary>How many times the phone's motion sensor has said it moved (a move reported, or a movement starting) since it joined.</summary>
     int Moves { get; }
 }
 
@@ -341,6 +341,8 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             why = "stopped sending: its connection dropped (" + ex.Message + ")";
             _log.LogDebug(ex, "A phone's socket dropped.");
         }
+        // Words that may carry a phone's own text are kept short: they reach STATE and the log.
+        why = Clip(why);
         _log.LogInformation("Phone {Phone} ({Name}) {Why}.", PhoneId, Name, why);
         End(why);
     }
@@ -488,18 +490,18 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             return (WebSocketCloseStatus.PolicyViolation, "a picture of a kind that was not asked for");
         if (header.Width != Profile.Width || header.Height != Profile.Height)
             return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: a picture whose size is not the camera's");
-        // Every frame is checked whole (at most the camera's raster), wanted or not: a broken one closes the socket.
-        if (!Pmf1.TryDecode(header, payload, out var pixels, out words))
-            return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);
         bool wanted;
         lock (_gate)
             wanted = _expected.Contains(header.Seq);
         if (!wanted)
         {
-            // A picture of a cue nobody waits for any more (cancelled, timed out, shown again): acknowledged and dropped.
+            // A picture of a cue nobody waits for any more (cancelled, timed out, shown again): acknowledged and dropped unread —
+            // nothing is inflated for it.
             Ack(header.Seq);
             return null;
         }
+        if (!Pmf1.TryDecode(header, payload, out var pixels, out words))
+            return (WebSocketCloseStatus.InvalidPayloadData, "bad frame: " + words);
         var gray = new byte[header.Width * header.Height];
         var bpp = header.BytesPerPixel;
         for (var y = 0; y < header.Roi.Height; y++)
@@ -651,7 +653,13 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             if (m.TryGetProperty("fps", out var fps) && fps.ValueKind == JsonValueKind.Number)
                 _camera = _camera with { Fps = fps.GetDouble() };
             if (m.TryGetProperty("motion", out var motion) && motion.ValueKind == JsonValueKind.String)
-                _motion = motion.GetString() == "moving" ? "moving" : "still";
+            {
+                var moving = motion.GetString() == "moving";
+                // Every start of a movement counts as a move, cue or no cue: a view counts those after it began.
+                if (moving && _motion != "moving")
+                    Interlocked.Increment(ref _moves);
+                _motion = moving ? "moving" : "still";
+            }
             if (m.TryGetProperty("visible", out var visible) && visible.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 _visible = visible.GetBoolean();
         }

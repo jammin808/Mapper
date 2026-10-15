@@ -93,7 +93,7 @@ public sealed class Pmf1Tests
     [Theory]
     [InlineData("{\"kind\":\"pattern\",\"seq\":1,\"w\":64,\"h\":48,\"roi\":[0,0,65,48],\"format\":\"gray8\",\"codec\":\"none\",\"crc32\":0}", "outside")]
     [InlineData("{\"kind\":\"pattern\",\"seq\":1,\"w\":64,\"h\":48,\"roi\":[0,0,64,48],\"format\":\"rgb\",\"codec\":\"none\",\"crc32\":0}", "format")]
-    [InlineData("{\"kind\":\"pattern\",\"seq\":1,\"w\":64,\"h\":48,\"roi\":[0,0,64,48],\"format\":\"gray8\",\"codec\":\"zip\",\"crc32\":0}", "coded")]
+    [InlineData("{\"kind\":\"pattern\",\"seq\":1,\"w\":64,\"h\":48,\"roi\":[0,0,64,48],\"format\":\"gray8\",\"codec\":\"zip\",\"crc32\":0}", "coding")]
     [InlineData("{\"kind\":\"selfie\",\"seq\":1,\"w\":64,\"h\":48,\"roi\":[0,0,64,48],\"format\":\"gray8\",\"codec\":\"none\",\"crc32\":0}", "kind")]
     [InlineData("{\"kind\":\"pattern\",\"w\":64,\"h\":48,\"roi\":[0,0,64,48],\"format\":\"gray8\",\"codec\":\"none\",\"crc32\":0}", "does not read")]
     [InlineData("[1,2,3]", "JSON object")]

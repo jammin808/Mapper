@@ -47,15 +47,16 @@ export function litTop(gray) {
 export const CAP = 10000 / 30;
 
 /**
- * The exposure for the lock profile from the settled one: t₁ = t₀·215/L (0.6·t₀ when clipped). Above 8 ms it is a whole number of
- * the display's frames, so every picture holds the same light from a projector that flickers frame by frame: rounded up, or, where
- * that passes the 30 fps cap, down to the most whole frames under it (one frame at least). ISO makes up the rest within the camera's
- * range. Times in the track's units (100 µs).
- * @param {{t0: number, s0: number, level: number, displayHz: number, timeRange?: {min: number, max: number, step?: number}, isoRange?: {min: number, max: number}}} p
+ * The exposure for the lock profile from the settled one. A phone's picture is gamma-encoded (a level is light to the power 1/γ),
+ * so the light needed is (215/L)^γ times what gave level L: t₁ = t₀·(215/L)^γ (0.6·t₀ when clipped). Above 8 ms it is a whole number
+ * of the display's frames, so every picture holds the same light from a projector that flickers frame by frame: rounded up, or,
+ * where that passes the 30 fps cap, down to the most whole frames under it (one frame at least). ISO makes up the rest within the
+ * camera's range. Times in the track's units (100 µs).
+ * @param {{t0: number, s0: number, level: number, displayHz: number, gamma?: number, timeRange?: {min: number, max: number, step?: number}, isoRange?: {min: number, max: number}}} p
  */
 export function planExposure(p) {
   const clipped = p.level >= 250;
-  const want = clipped ? 0.6 * p.t0 : (p.t0 * TARGET) / Math.max(1, p.level);
+  const want = clipped ? 0.6 * p.t0 : p.t0 * Math.pow(TARGET / Math.max(1, p.level), p.gamma ?? 2.2);
   let t1 = want;
   const frame = p.displayHz > 0 ? 10000 / p.displayHz : 0; // one display frame in 100 µs units
   if (frame > 0 && t1 > 80) {
@@ -68,6 +69,30 @@ export function planExposure(p) {
   let s1 = (p.s0 * want) / Math.max(1e-6, t1);
   if (p.isoRange) s1 = Math.min(p.isoRange.max, Math.max(p.isoRange.min, s1));
   return { t1, s1, clipped };
+}
+
+/**
+ * The camera's curve from what one correction did: the light went by (t₁·s₁)/(t₀·s₀) and the level by L₁/L₀, so γ is the ratio of
+ * their logarithms, kept within 1–3; the prior where the step tells nothing (a clipped level, a level that hardly moved).
+ * @param {{t: number, s: number, level: number}} a @param {{t: number, s: number, level: number}} b @param {number} prior
+ */
+export function fitGamma(a, b, prior) {
+  const levels = Math.log(b.level / a.level);
+  if (a.level >= 250 || b.level >= 250 || a.level < 1 || b.level < 1 || Math.abs(levels) < 0.05) return prior;
+  const light = Math.log((b.t * b.s) / (a.t * a.s));
+  const gamma = light / levels;
+  return Number.isFinite(gamma) && gamma > 0 ? Math.min(3, Math.max(1, gamma)) : prior;
+}
+
+/**
+ * What a correction that missed leaves for the next: the exposure to correct from and the curve to plan with. One that clipped (its
+ * level unknown above 250) after an unclipped one overshot: the next plans again from the unclipped one, on a gentler curve (×0.75);
+ * otherwise from the correction itself, on the curve the two measurements show.
+ * @param {{t: number, s: number, level: number}} before @param {{t: number, s: number, level: number}} after @param {number} gamma
+ */
+export function afterMiss(before, after, gamma) {
+  if (after.level >= 250 && before.level < 250) return { base: before, gamma: Math.max(1, gamma * 0.75) };
+  return { base: after, gamma: fitGamma(before, after, gamma) };
 }
 
 /**

@@ -207,7 +207,13 @@ public sealed class PhoneInviteTests
         }
         await using (var phone = await JoinedAsync(node))
         {
-            var header = new Pmf1Header("pattern", 1, 1, 320, 240, new Core.Scan.PixelRect(0, 0, 32, 32), Pmf1.Gray8, Pmf1.None, 1, 0, 0);
+            // A picture a cue waits for is read whole: a broken one closes the socket.
+            var session = node.Hub.Session(node.Hub.Phones().Single(p => p.Connected).Id)!;
+            var asked = session.CueAsync(new PhoneCue(0, "pattern", "pj00000001", 3, 4, 0, 0, 0, 8), CancellationToken.None);
+            var cue = (await phone.ReceiveTypeAsync("cue")).GetProperty("id").GetInt64();
+            await phone.SendAsync(new { t = "seen", cue, seq = 1, tag = 4, capture = 0 });
+            Assert.Equal("seen", (await asked).Outcome);
+            var header = new Pmf1Header("pattern", 1, (int)cue, 320, 240, new Core.Scan.PixelRect(0, 0, 32, 32), Pmf1.Gray8, Pmf1.None, 1, 0, 0);
             var frame = Pmf1.Write(header, new byte[32 * 32]);
             frame[^1] ^= 0xFF;
             await phone.SendBinaryAsync(frame);
@@ -241,8 +247,42 @@ public sealed class PhoneInviteTests
                 await phone.SendBinaryAsync(frame);
                 Assert.Equal(seq, (await phone.ReceiveTypeAsync("ack")).GetProperty("seq").GetInt64());
             }
+            // One nobody waits for is not even inflated: a broken one is dropped like any other.
+            var broken = Pmf1.Write(new Pmf1Header("pattern", 99, 1099, 320, 240, new Core.Scan.PixelRect(0, 0, 320, 240), Pmf1.Gray8, Pmf1.Deflate,
+                1, 0, 0), new byte[320 * 240]);
+            broken[^1] ^= 0xFF;
+            await phone.SendBinaryAsync(broken);
+            Assert.Equal(99, (await phone.ReceiveTypeAsync("ack")).GetProperty("seq").GetInt64());
             Assert.Equal(WebSocketState.Open, phone.Socket.State);
             Assert.Single(node.Hub.Phones(), p => p.Connected);
+        }
+        await using (var phone = await JoinedAsync(node))
+        {
+            // A phone's own strings are named, never echoed: the words reach STATE.
+            var header = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                kind = new string('k', 2000),
+                seq = 1,
+                cue = 1,
+                w = 320,
+                h = 240,
+                roi = new[] { 0, 0, 1, 1 },
+                format = "gray8",
+                codec = "none",
+                frames = 1,
+                crc32 = 0,
+                capture = 0,
+            }));
+            var frame = new byte[8 + header.Length + 1];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame, 0x31464d50);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4), (uint)header.Length);
+            header.CopyTo(frame, 8);
+            await phone.SendBinaryAsync(frame);
+            var (status, words) = await phone.ClosedAsync();
+            Assert.Equal(WebSocketCloseStatus.InvalidPayloadData, status);
+            Assert.Equal("bad frame: a PMF1 frame of an unknown kind", words);
+            Assert.True(await Eventually.TrueAsync(() => node.Hub.Phones().Count(p => !p.Connected && p.Words.Contains("unknown kind", StringComparison.Ordinal)) == 1));
+            Assert.All(node.Hub.Phones(), p => Assert.True(p.Words.Length < 200, p.Words));
         }
     }
 

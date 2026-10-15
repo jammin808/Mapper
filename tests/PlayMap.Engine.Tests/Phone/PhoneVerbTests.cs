@@ -106,6 +106,53 @@ public sealed class PhoneVerbTests
         Assert.True(Assert.Single(rig.State().GetProperty("phones").EnumerateArray()).GetProperty("connected").GetBoolean());
     }
 
+    /// <summary>A phone joining over its own socket with a camera of the given raster; its welcome, or the close and its words.</summary>
+    private static async Task<(JsonElement? Welcome, string Words)> HelloAsync(PhoneScanRig rig, object credential, int width, int height)
+    {
+        using var ws = new System.Net.WebSockets.ClientWebSocket();
+        ws.Options.AddSubProtocol(PhoneProtocol.SubProtocol);
+        await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{rig.Host.Port}/scan/ws"), CancellationToken.None);
+        var hello = JsonSerializer.SerializeToNode(new
+        {
+            t = "hello",
+            v = 1,
+            camera = new { label = "back", width, height, caps = new { exposure = Array.Empty<string>() } },
+        })!.AsObject();
+        foreach (var p in JsonSerializer.SerializeToNode(credential)!.AsObject())
+            hello[p.Key] = p.Value?.DeepClone();
+        await ws.SendAsync(Encoding.UTF8.GetBytes(hello.ToJsonString()), System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+        var buffer = new byte[64 * 1024];
+        var got = await ws.ReceiveAsync(buffer, CancellationToken.None);
+        if (got.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+            return (null, ws.CloseStatusDescription ?? "");
+        var welcome = JsonDocument.Parse(buffer.AsMemory(0, got.Count)).RootElement.Clone();
+        await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        return (welcome, "");
+    }
+
+    [Fact]
+    public async Task APhoneComingBackWithAnotherCameraWhileTheShowIsArmedIsRefusedAndItsRigStaysTrue()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        var (welcome, _) = await HelloAsync(rig, new { ticket = TicketOf(await rig.Ok("PHONE INVITE Pixel 8")) }, 320, 240);
+        var key = welcome!.Value.GetProperty("key").GetString()!;
+        var rigId = welcome.Value.GetProperty("camera").GetString()!;
+        Assert.True(await OpsRig.Eventually(() => !rig.Hub.Phones()[0].Connected));
+        await rig.Ok("SHOW ARM");
+        // Turned to portrait: the rig would have to forget its optics, which the armed show does not allow — so the phone is refused.
+        var (refused, words) = await HelloAsync(rig, new { key }, 240, 320);
+        Assert.Null(refused);
+        Assert.Contains("the node could not add this phone's camera", words, StringComparison.Ordinal);
+        Assert.Contains("armed", words, StringComparison.Ordinal);
+        Assert.Equal(320, rig.Engine.Store.Project.Stage.Cameras.Find(rigId)!.Phone!.Width);
+        await rig.Ok("SHOW DISARM");
+        var (again, _) = await HelloAsync(rig, new { key }, 240, 320);
+        Assert.NotNull(again);
+        var updated = rig.Engine.Store.Project.Stage.Cameras.Find(rigId)!;
+        Assert.Equal((240, 320), (updated.Phone!.Width, updated.Phone.Height));
+        Assert.Equal((240, 320), (updated.Intrinsics.Width, updated.Intrinsics.Height));
+    }
+
     [Fact]
     public async Task NoTicketOrKeyReachesStateTheContextTheJournalOrTheProject()
     {
