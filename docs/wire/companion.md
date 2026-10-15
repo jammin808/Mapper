@@ -87,7 +87,8 @@ not open; grey "no Companion is connected" otherwise.
 
 ## Papers note
 
-For the integration docs pass: WIRE.md gains the line channel (`/ws` + `playmap.lines.v1`, its stricter pairing and close codes),
-the desk-identity rule, the three new SUBSCRIBE topics, INDEX/EVENTS/WHOAMI/PRESENCE/THUMB, VERBS' `params`/`formParams`/`press`,
-`GET /api/thumb`, and STATE's `clients`, `events`, `project.index`; ARCHITECTURE.md names `LineSessions` (one per door) and the mDNS
-responder in `PlayMap.Net/Discovery`; the trimmed rows (`RECORD`, `SELECT`, `COMPANION PRESS|VAR|BRIGHTNESS`) are next round.
+For the integration docs pass: WIRE.md gains the line channel (`/ws` + `playmap.lines.v1`, its stricter pairing, its refusal of a
+foreign `Origin`, and its close codes), the desk-identity rule, the three new SUBSCRIBE topics, INDEX/EVENTS/WHOAMI/PRESENCE/THUMB,
+VERBS' `params`/`formParams`/`press`, `GET /api/thumb`, and STATE's `clients`, `events`, `project.index`; ARCHITECTURE.md names
+`LineSessions` (one per door) and the mDNS responder in `PlayMap.Net/Discovery`; the trimmed rows (`RECORD`, `SELECT`,
+`COMPANION PRESS|VAR|BRIGHTNESS`) are next round.
