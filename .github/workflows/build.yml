@@ -71,7 +71,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $archive = Get-ChildItem .mesa-dl -Filter *.7z | Select-Object -First 1
           Write-Output "Mesa: $($archive.Name)"
-          7z x $archive.FullName -o.mesa -y | Out-Null
+          7z x $archive.FullName "-o.mesa" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
           if (-not (Test-Path .mesa\x64\opengl32.dll)) { Write-Output "::error::the Mesa archive has no x64\opengl32.dll"; exit 1 }
           Get-ChildItem .mesa\x64 -Filter *.dll | ForEach-Object Name
