@@ -94,6 +94,27 @@ public sealed class SacnInTests
     }
 
     [Fact]
+    public async Task ASourceTheNodeDoesNotAllowTakesNoPartInTheMerge()
+    {
+        var u = Universe(2);
+        var iface = ControlRig.Address(67);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true,
+            settings: s => s with { SacnEnabled = true, SacnInterface = iface, DmxAllow = [Main.ToString("D")] });
+        await rig.Ok($"BIND ADD SACN {u} 1 TO SET sf_lobby opacity *");
+        using var main = Console(ControlRig.Address(68));
+        using var backup = Console(ControlRig.Address(69));
+        var node = IPAddress.Parse(iface);
+        // The backup desk at a higher priority is not allowed (by CID): the main desk keeps the fader.
+        await StreamUntil(() => Math.Abs(Opacity(rig, "sf_lobby") - 0.6) < 1e-6, "the main desk's level", seq =>
+        {
+            Send(backup, node, Backup, u, seq, 200, 255);
+            Send(main, node, Main, u, seq, 100, 153);
+        });
+        var sources = rig.State().GetProperty("control").GetProperty("dmx").GetProperty("sacn").GetProperty("sources");
+        Assert.Equal([Main.ToString("D")], sources.EnumerateArray().Select(x => x.GetProperty("cid").GetString()));
+    }
+
+    [Fact]
     public async Task UnicastIsHeardASurfaceByCidHearsItsConsoleOnlyAndTheVerbsSayWhatIsOn()
     {
         var u = Universe(1);

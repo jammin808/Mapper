@@ -703,8 +703,9 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         var settings = engine.ControlInput.Settings;
         if (!settings.SacnEnabled)
             return;
-        // A source the node does not allow takes no part in the merge.
-        if (settings.DmxAllow.Length > 0 && !settings.DmxAllow.Contains(new IPAddress(BitConverterBig(from)).ToString(), StringComparer.Ordinal))
+        // A source the node does not allow (by its address or its CID) takes no part in the merge.
+        if (settings.DmxAllow.Length > 0 && !settings.DmxAllow.Contains(new IPAddress(BitConverterBig(from)).ToString(), StringComparer.Ordinal)
+            && !(packet.Length >= 38 && settings.DmxAllow.Any(a => Guid.TryParse(a, out var g) && g == new Guid(packet.AsSpan(22, 16), bigEndian: true))))
             return;
         _sacnIn.LearnAll = engine.ControlInput.Learning is not null;
         _sacnIn.AcceptPreview = _surfaces.Any(s => s.Kind == "sacn" && s.Enabled && s.AcceptPreview);

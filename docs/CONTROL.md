@@ -107,7 +107,7 @@ highest priority wins, equal priorities merge highest-takes-precedence per chann
 dropped (§6.7.2), a source that terminates or is silent for 2.5 s gives way to those left — a backup console at a lower priority
 takes over — and when none is left the channels hold. Preview data is ignored unless an sACN surface accepts it; synchronized data
 waits for its synchronization packet once one has been seen. A surface matched by a console's CID or address hears the channels
-that console sets.
+that console sets; `ControlSettings.DmxAllow` (addresses or CIDs) keeps every other source out of the merge.
 
 ### The built-in DMX personality
 

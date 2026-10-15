@@ -16,7 +16,7 @@ refused as targets.
 | Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
 | `CONTROL STATUS` | `CONTROL STATUS` | JSON: STATE's `control` object | low | no |
-| `CONTROL PORTS` | `CONTROL PORTS` | JSON `{backend, open, words, inputs:[{name, surface, open}], outputs:[], osc:{…}, artnet:{…}}` (off the lane) | low | no |
+| `CONTROL PORTS` | `CONTROL PORTS` | JSON `{backend, open, words, inputs:[{name, surface, open}], outputs:[], osc:{…}, artnet:{…}, sacn:{…}}` (off the lane) | low | no |
 | `CONTROL MONITOR` | `CONTROL MONITOR [<n 1-64>]` | JSON `[{at, input, raw, value, binding\|null, source}]`, newest first (off the lane) | low | no |
 | `CONTROL PROFILES` | `CONTROL PROFILES` | JSON `[{id:"generic", name, verified:true, words}]` (generic: values in, OSC values and lamps back; controller profiles are next round) | low | no |
 | `CONTROL ENABLE` | `CONTROL ENABLE ON\|OFF\|TOGGLE` | effect "control input off — 24 bindings paused"; the same state is refused; kept in the node's settings | review | yes |
