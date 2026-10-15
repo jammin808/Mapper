@@ -431,14 +431,13 @@ public static class VerbCatalog
         V2("MOD BYPASS", "MOD BYPASS ON|OFF|TOGGLE [<entity>|ALL]", "Holds every modulated number at its base value", VerbCategory.Modulation, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("MOD PEEK", "MOD PEEK <entity>", "The live value of each modulated number of an entity", VerbCategory.Modulation, VerbRisk.Low, false),
 
-        // Particles, fractals, reactive: looks, morphs, stings (wp2-content).
+        // Particles, fractals, reactive: time, inputs, looks, stings (wp2-content).
         V2("GENERATOR GET", "GENERATOR GET <generator>", "A generator with its effective values, bindings, inputs, morph, cost and state", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RESET", "GENERATOR RESET <generator> [<param>|ALL]", "Parameters back to their defaults", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source|flow|matte <source>|NONE", "A picture a generator reads (particles emit from it)", VerbCategory.Content, VerbRisk.Review, true),
+        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source <source>|NONE", "A picture a generator reads (a particle flow emits where it is bright)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR PRESETS", "GENERATOR PRESETS [<kind>|<family>]", "Curated and saved looks", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RECALL", "GENERATOR RECALL <generator> <preset>", "Applies a look (one undo step)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR SAVE", "GENERATOR SAVE <generator> <name>", "Saves the generator's look in the show; answers its id", VerbCategory.Content, VerbRisk.Low, true),
-        V2("GENERATOR MORPH", "GENERATOR MORPH <generator> <preset> [OVER <0.1-600 s>] [AT +<ms>|<unix ms>] [CURVE LINEAR|EASE]", "Crossfades a generator to a look on the show clock", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR RETIME", "GENERATOR RETIME <generator>|ALL [AT +<ms>|<unix ms>]", "Restarts a generator's own time (particles re-seed from that instant)", VerbCategory.Content, VerbRisk.Review, true),
         V2("STING", "STING <preset> [<100-5000 ms>] [AT +<ms>|<unix ms>]", "Fires a sting every generator answers, on the show clock", VerbCategory.Content, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("STING CLEAR", "STING CLEAR", "Stops the sting", VerbCategory.Content, VerbRisk.Low, true) with { Show = ShowClass.Perform },
@@ -446,15 +445,14 @@ public static class VerbCatalog
 
         // LED pixel mapping (wp2-led).
         V2("LED LIST", "LED LIST", "The LED rig: nodes, fixtures, pixels, universes, conflicts and bandwidth", VerbCategory.Led, VerbRisk.Low, false),
-        V2("LED NEW", "LED NEW LINE|GRID|RING <count>[x<rows>] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>|world] [TYPE <type>] [<name>]", "Adds a fixture laid out on a space; answers its id", VerbCategory.Led, VerbRisk.Low, true),
-        V2("LED IMPORT", "LED IMPORT <path> [AS CSV] [ON <space>] [SCALE <x>] [NODE <node>]", "Imports pixel positions and patches from a CSV (one undo step)", VerbCategory.Led, VerbRisk.Review, true),
+        V2("LED NEW", "LED NEW LINE|GRID|RING <count>[x<rows>] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>] [TYPE <type>] [<name>]", "Adds a fixture laid out on a space; answers its id", VerbCategory.Led, VerbRisk.Low, true),
+        V2("LED IMPORT", "LED IMPORT <path> [AS CSV] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>] [SCALE <x>] [NODE <node>]", "Imports pixel positions and patches from a CSV (one undo step)", VerbCategory.Led, VerbRisk.Review, true),
         V2("LED PATCH", "LED PATCH <fixture> <node> <universe>[.<address>] [FORCE]", "Patches a fixture to a node's universe and address (FORCE allows an overlap)", VerbCategory.Led, VerbRisk.Review, true),
-        V2("LED AUTOPATCH", "LED AUTOPATCH [<fixture>|#<tag>|ALL] [NODE <node>…] [FROM <universe>[.<address>]] [ALIGN ON|OFF] [EACH ON|OFF]", "Patches fixtures in order within each node's capacity", VerbCategory.Led, VerbRisk.Review, true),
-        V2("LED DISCOVER", "LED DISCOVER [ARTNET|ALL] [<seconds 1-10>]", "Polls the network for Art-Net nodes", VerbCategory.Led, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+        V2("LED AUTOPATCH", "LED AUTOPATCH [<fixture>|#<tag>|ALL] [NODE <node>…] [FROM <universe>[.<address>]] [EACH ON|OFF]", "Patches fixtures in order within each node's capacity", VerbCategory.Led, VerbRisk.Review, true),
         V2("LED OUTPUT", "LED OUTPUT ON|OFF [<node>|ALL] [HOLD]", "This machine sends pixel data, or stops (one black frame first unless HOLD)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED TEST", "LED TEST CHASE|ORDER|UNIVERSE|FIXTURE|GRADIENT|WALK|WHITE|FULL|BLACK|OFF [ON <node>|<fixture>|#<tag>|ALL]", "A test pattern on the LEDs instead of the show", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V2("LED LOCATE", "LED LOCATE <fixture> [<seconds 1-60>]", "Blinks one fixture", VerbCategory.Led, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
+        V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>] | LED LEVEL BY <delta> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED MONITOR", "LED MONITOR <node> <universe>", "The bytes last sent to a universe, with the fixtures in it", VerbCategory.Led, VerbRisk.Low, false),
 
         // Facades: site, survey, control points, long-throw priors, light plan, stacks (wp2-facade).

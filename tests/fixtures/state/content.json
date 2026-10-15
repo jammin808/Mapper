@@ -1,1 +1,79 @@
-{}
+{
+  "content": {
+    "budgetMs": 6,
+    "governor": "advise",
+    "light": "red",
+    "costMs": 1.2,
+    "renderer": "drawing",
+    "sting": {
+      "preset": "Explosion",
+      "atUnixMs": 1760000004100,
+      "lengthMs": 900,
+      "progress": 0.5,
+      "drawn": true
+    },
+    "generators": [
+      {
+        "id": "gn_sparks",
+        "kind": "particles.flow",
+        "name": "Sparks",
+        "state": "warming",
+        "progress": 0.4,
+        "time": "bounded",
+        "horizonS": 4,
+        "originNs": 1000000000,
+        "timeS": 3,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 65536,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": true,
+        "light": "amber",
+        "words": "",
+        "warnings": []
+      },
+      {
+        "id": "gn_bulb",
+        "kind": "fractal.mandelbulb",
+        "name": "Bulb",
+        "state": "ok",
+        "progress": 1,
+        "time": "pure",
+        "originNs": 2000000000,
+        "timeS": 2,
+        "gpuMs": 1.2,
+        "gpuMsP95": 1.2,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": true,
+        "light": "green",
+        "words": "",
+        "warnings": []
+      },
+      {
+        "id": "gn_waves",
+        "kind": "reactive.scene",
+        "name": "Waves",
+        "state": "faulted",
+        "progress": 1,
+        "time": "live",
+        "originNs": 0,
+        "timeS": 4,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "red",
+        "words": "Shader \u0027reactive.plasma\u0027 did not compile",
+        "warnings": []
+      }
+    ]
+  }
+}

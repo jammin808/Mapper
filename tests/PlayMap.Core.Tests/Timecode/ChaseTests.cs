@@ -9,7 +9,8 @@ namespace PlayMap.Core.Tests.Tc;
 
 /// <summary>The chase as a pure function of the code: seeded runs of timecode (a start, a rate off by up to ±50 ppm, observations
 /// jittered by up to ±50 µs) through the tracker's fit and the chase logic every 10 ms, and the frame chosen at every simulated
-/// 60 Hz vblank compared with the reference — the item's frame at the true code then. Dropouts, loss and jumps follow their rules.</summary>
+/// 60 Hz vblank compared with the reference — the item's frame at the true code then. Dropouts, loss and jumps follow their rules;
+/// a step of the code is a jump or drift by the chase's jump threshold.</summary>
 public sealed class ChaseTests
 {
     private static readonly TcFormat Format = TcFormat.Fps25;
@@ -107,10 +108,11 @@ public sealed class ChaseTests
         truth ??= code;
         var rng = new Pcg32(seed);
         var regions = TimecodeRegions.Build(Show(), Format, _ => 0).Regions;
-        var tracker = new TimecodeTracker(Format);
+        settings ??= new ChaseSettings(0, ChaseLoss.Hold, 500_000_000, ChaseGap.Black);
+        // The source's code judged at the chase's jump threshold, as the engine's board does for each threshold a chase sets.
+        var tracker = new TimecodeTracker(Format, jumpNs: settings.JumpNs);
         var lane = new Lane();
         var memory = ChaseMemory.Start;
-        settings ??= new ChaseSettings(0, ChaseLoss.Hold, 500_000_000, ChaseGap.Black);
         var t0 = 10_000_000_000L;
         var end = t0 + seconds * 1_000_000_000;
         long nextTick = t0, nextVblank = t0;
@@ -262,6 +264,112 @@ public sealed class ChaseTests
         Assert.Equal(ChaseState.Locked, run.Memory.State);
     }
 
+    /// <summary>Code rolling at 25 fps steps ahead by some frames at once. Past the jump threshold in force (the chase's JUMP, or
+    /// auto's 2 frames) the step is a jump: on the second observation that agrees the run starts afresh, and by the third the line is
+    /// on the new code. Within it the step is drift: the run goes on, nothing is counted a discontinuity, the line stays rolling and
+    /// comes to the new code as the fit's window takes it in.</summary>
+    [Theory]
+    [InlineData(1, 0, false)]
+    [InlineData(1, 20, true)]
+    [InlineData(3, 0, true)]
+    [InlineData(3, 200, false)]
+    public void TheJumpThresholdInForceDecidesWhetherAStepIsAJumpOrDrift(int stepFrames, int jumpMs, bool isJump)
+    {
+        var tracker = new TimecodeTracker(Format, jumpNs: jumpMs * 1_000_000L);
+        var t = 1_000_000_000L;
+        long frame = 100;
+        var states = new List<string>();
+        void Roll(int frames)
+        {
+            for (var i = 0; i < frames; i++, t += 40_000_000, frame++)
+            {
+                tracker.Observe(new TcObservation(t, frame, 0, Format, 1, TcObsKind.FrameEnd, 0, false));
+                states.Add(tracker.Reading.State);
+            }
+        }
+
+        Roll(50);
+        var run = tracker.Reading.Line!.Value.Run;
+        frame += stepFrames;
+        states.Clear();
+        Roll(3);
+        var line = tracker.Reading.Line!.Value;
+        var newCode = Format.Ns(frame - 1);
+        var lineOff = line.TcAt(t - 40_000_000) - newCode;
+        if (isJump)
+        {
+            Assert.Equal((1L, run + 1, "rolling"), (tracker.Reading.Counters.Discontinuity, line.Run, tracker.Reading.State));
+            Assert.InRange(lineOff, -1_000_000, 1_000_000);
+        }
+        else
+        {
+            Assert.Equal((0L, run), (tracker.Reading.Counters.Discontinuity, line.Run));
+            Assert.InRange(lineOff, -stepFrames * 40_000_000L - 1_000_000, -stepFrames * 40_000_000L + 1_000_000);
+        }
+        // Two seconds on, the window holds only the new code: the line is on it, in the run the step left it in.
+        Roll(50);
+        line = tracker.Reading.Line!.Value;
+        Assert.Equal((isJump ? 1L : 0L, isJump ? run + 1 : run), (tracker.Reading.Counters.Discontinuity, line.Run));
+        Assert.InRange(line.TcAt(t - 40_000_000) - Format.Ns(frame - 1), -1_000_000, 1_000_000);
+        Assert.All(states.Skip(isJump ? 3 : 0), s => Assert.Equal("rolling", s));
+    }
+
+    /// <summary>A one-frame step: auto (2 frames) rides it as drift — the fit glides the line onto the code over a few frames, and
+    /// meanwhile the picture shows the frame before; a chase with JUMP 20 ms relocates, and every vblank from 150 ms after the step
+    /// shows the frame of the code.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(20, true)]
+    public void AChaseRelocatesOnAStepPastItsJumpThreshold(int jumpMs, bool relocates)
+    {
+        const long t0 = 10_000_000_000;
+        var start = Tc("01:00:01:00");
+        long? Code(long t) => start + (t - t0) + (t >= t0 + 2_000_000_000 ? 40_000_000 : 0);
+        var settings = new ChaseSettings(0, ChaseLoss.Hold, 500_000_000, ChaseGap.Black) { JumpNs = jumpMs * 1_000_000L };
+        var run = Run(5, Code, 3, t => t is > t0 + 2_150_000_000 and < t0 + 2_500_000_000, settings);
+        Assert.True(run.Checked > 15, $"{run.Checked} vblanks checked");
+        if (relocates)
+            Assert.Empty(run.Misses);
+        else
+            Assert.NotEmpty(run.Misses);
+        Assert.Equal(ChaseState.Locked, run.Memory.State);
+    }
+
+    /// <summary>A tracker judged at another threshold starts from the code as it stands (still locked, the same line and run) and
+    /// from then on judges by its own threshold, while the source's own tracker keeps auto's.</summary>
+    [Fact]
+    public void ATrackerJudgedAtAnotherThresholdKeepsItsLockAndJudgesByIt()
+    {
+        var auto = new TimecodeTracker(Format);
+        var t = 1_000_000_000L;
+        for (var f = 100; f < 140; f++, t += 40_000_000)
+            auto.Observe(new TcObservation(t, f, 0, Format, 1, TcObsKind.FrameEnd, 0, false));
+        var judged = auto.JudgedAt(20_000_000);
+        Assert.Equal((20_000_000L, auto.Reading), (judged.JumpNs, judged.Reading));
+        // A one-frame step: a jump at 20 ms, drift at auto.
+        for (var f = 141; f < 144; f++, t += 40_000_000)
+        {
+            var o = new TcObservation(t, f, 0, Format, 1, TcObsKind.FrameEnd, 0, false);
+            auto.Observe(o);
+            judged.Observe(o);
+        }
+        Assert.Equal((0L, 1L), (auto.Reading.Counters.Discontinuity, judged.Reading.Counters.Discontinuity));
+        Assert.Equal((auto.Reading.Line!.Value.Run + 1, "rolling"), (judged.Reading.Line!.Value.Run, judged.Reading.State));
+    }
+
+    /// <summary>A chase's settings carry its jump threshold; in force it is the set one, else auto: max(2 frames, 5σ).</summary>
+    [Fact]
+    public void ChaseSettingsCarryTheJumpThresholdInForce()
+    {
+        var set = ChaseSettings.Of(new TimecodeChase(["tc1"]) { JumpNs = 200_000_000 });
+        var auto = ChaseSettings.Of(new TimecodeChase(["tc1"]));
+        Assert.Equal((200_000_000L, 0L), (set.JumpNs, auto.JumpNs));
+        Assert.Equal(200_000_000, set.JumpThresholdNs(Format, 30_000_000));
+        Assert.Equal(80_000_000, auto.JumpThresholdNs(Format, 1_000_000));
+        Assert.Equal(150_000_000, auto.JumpThresholdNs(Format, 30_000_000));
+        Assert.Equal(2 * TcFormat.Fps30.FrameNs, auto.JumpThresholdNs(TcFormat.Fps30, 0));
+    }
+
     [Fact]
     public void ALoneOutlierIsCountedAndChangesNothing()
     {
@@ -279,6 +387,24 @@ public sealed class ChaseTests
     }
 
     [Fact]
+    public void AGapHoldIsHeldFromTheInstantTheShownCodeLeftTheItem()
+    {
+        var regions = TimecodeRegions.Build(Show(), Format, _ => 0).Regions;
+        var settings = new ChaseSettings(40_000_000, ChaseLoss.Hold, 500_000_000, ChaseGap.Hold);
+        // 01:00:18:12 at 10 s, rolling 50 ppm fast, the picture 40 ms behind its code: item 2 ended at 01:00:18:00 on this line.
+        var line = new TcLine(10_000_000_000, Tc("01:00:18:12"), 1.00005, 0, 25, 1, 1, true);
+        var left = line.At(Tc("01:00:18:00")) + 40_000_000;
+        foreach (var now in new[] { 10_100_000_000L, 11_000_000_000L })
+        {
+            var (plan, _) = ChaseLogic.Decide(settings, regions, "rolling", line, ChaseMemory.Start, now);
+            Assert.Equal((ChaseAction.Hold, 1, 8_000_000_000L - 1, left, 2), (plan.Action, plan.Region, plan.MediaNs, plan.AtLeaderNs, plan.NextRegion));
+        }
+        // Code that stands still in the gap names no such instant.
+        var (parked, _) = ChaseLogic.Decide(settings, regions, "parked", line, ChaseMemory.Start, 11_000_000_000);
+        Assert.Equal((ChaseAction.Hold, long.MinValue), (parked.Action, parked.AtLeaderNs));
+    }
+
+    [Fact]
     public void ReverseCodeHoldsAndALocateParksOnItsFrame()
     {
         var regions = TimecodeRegions.Build(Show(), Format, _ => 0).Regions;
@@ -286,6 +412,11 @@ public sealed class ChaseTests
         var (reverse, _) = ChaseLogic.Decide(settings, regions, "reverse", null, ChaseMemory.Start, 1);
         Assert.Equal((ChaseState.Reverse, ChaseAction.Hold), (reverse.State, reverse.Action));
         Assert.Equal("timecode running backwards — holding", reverse.Words);
+        // Its code is the one running backwards, not where the last forward line would be by now.
+        var forward = new TcLine(1_000_000_000, Tc("01:00:05:10"), 1, 0, 25, 1, 1, true);
+        var back = new TcLine(2_000_000_000, Tc("01:00:05:05"), 0, 0, 1, 2, -1, false);
+        var (backwards, _) = ChaseLogic.Decide(settings, regions, "reverse", back, new ChaseMemory(ChaseState.Locked, long.MinValue, forward), 2_000_000_000);
+        Assert.Equal((ChaseState.Reverse, Tc("01:00:05:05")), (backwards.State, backwards.TcNs));
         var tracker = new TimecodeTracker(null);
         var at = Tc("01:00:05:00");
         tracker.Observe(MtcParser.FullFrame(1, 1, 0, 5, 0, 2_000_000_000)!.Value);

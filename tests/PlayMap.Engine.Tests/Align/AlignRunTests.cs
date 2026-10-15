@@ -119,6 +119,36 @@ public sealed class AlignRunTests
     }
 
     [Fact]
+    public async Task ARunnerThatHasBegunToStopStartsNoRunAndTheVerbSaysWhy()
+    {
+        await using var rig = new AlignRig(AlignRig.Project(2, Layout));
+        var group = await rig.NewGroup();
+        var first = AlignRig.Json(await rig.Ok($"ALIGN RUN {group}")).GetProperty("run").GetString()!;
+
+        // The node stops its runner: the run under way is the last, ended and waited for.
+        await rig.Runner.DisposeAsync();
+        var ended = rig.Runner.View!;
+        var task = rig.Runner.Running!;
+        Assert.Equal(first, ended.Id);
+        Assert.False(ended.IsRunning);
+        Assert.True(task.IsCompleted);
+
+        // ALIGN RUN now answers the runner's words; nothing is published and no task starts.
+        Assert.Equal(AlignRunner.StoppingWords, await rig.Refused($"ALIGN RUN {group}"));
+        Assert.Same(ended, rig.Runner.View);
+        Assert.Same(task, rig.Runner.Running);
+        Assert.Equal(first, rig.State().GetProperty("align").GetProperty("run").GetProperty("id").GetString());
+
+        // The seam refuses the same way whoever calls it, and a second stop cancels nothing again.
+        var p = rig.Current;
+        var setup = new AlignRunSetup("ar0000beef", p.FindAlign(group)!, [.. p.Outputs], [null, null], null, CanvasFit.Inside, 16.0 / 9, rig.Folder.FullName);
+        Assert.Equal(AlignRunner.StoppingWords, Assert.Throws<InvalidOperationException>(() => rig.Runner.Start(setup)).Message);
+        await rig.Runner.DisposeAsync();
+        Assert.Same(ended, rig.Runner.View);
+        Assert.Same(task, rig.Runner.Running);
+    }
+
+    [Fact]
     public async Task ARunThroughTheDisplayAndACameraStagesLikeTheSimulatorsOwn()
     {
         var sim = AlignRig.Truth(2, Layout);

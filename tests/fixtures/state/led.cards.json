@@ -1,1 +1,146 @@
-[]
+[
+  {
+    "title": "LED",
+    "path": "led",
+    "light": {
+      "path": "led.nodes[].state",
+      "red": [
+        "unreachable",
+        "refused"
+      ],
+      "amber": [
+        "late"
+      ],
+      "green": [
+        "sending"
+      ]
+    },
+    "words": "led.warnings",
+    "fields": [
+      {
+        "label": "Output",
+        "path": "led.output"
+      },
+      {
+        "label": "Level",
+        "path": "led.level"
+      },
+      {
+        "label": "Fixtures",
+        "path": "led.fixtures"
+      },
+      {
+        "label": "Pixels",
+        "path": "led.pixels"
+      },
+      {
+        "label": "Universes",
+        "path": "led.universes"
+      },
+      {
+        "label": "Mb/s",
+        "path": "led.mbps"
+      },
+      {
+        "label": "Test",
+        "path": "led.test"
+      },
+      {
+        "label": "Overlaps",
+        "path": "led.conflicts.length"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Output on",
+        "line": "LED OUTPUT ON"
+      },
+      {
+        "label": "Output off",
+        "line": "LED OUTPUT OFF"
+      },
+      {
+        "label": "Test off",
+        "line": "LED TEST OFF"
+      },
+      {
+        "label": "Level \u002B",
+        "line": "LED LEVEL BY 5"
+      },
+      {
+        "label": "Level \u2212",
+        "line": "LED LEVEL BY -5"
+      },
+      {
+        "label": "Re-patch",
+        "line": "LED AUTOPATCH ALL"
+      }
+    ]
+  },
+  {
+    "title": "LED node",
+    "path": "led.nodes[]",
+    "light": {
+      "path": "state",
+      "red": [
+        "unreachable",
+        "refused"
+      ],
+      "amber": [
+        "late"
+      ],
+      "green": [
+        "sending"
+      ]
+    },
+    "words": "why",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Protocol",
+        "path": "protocol"
+      },
+      {
+        "label": "Address",
+        "path": "host"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Frames/s",
+        "path": "fps"
+      },
+      {
+        "label": "Universes",
+        "path": "universes"
+      },
+      {
+        "label": "Late (ms)",
+        "path": "lateMs"
+      }
+    ],
+    "actions": [
+      {
+        "label": "On",
+        "line": "LED OUTPUT ON $(id)"
+      },
+      {
+        "label": "Off",
+        "line": "LED OUTPUT OFF $(id)"
+      },
+      {
+        "label": "Chase",
+        "line": "LED TEST CHASE ON $(id)"
+      },
+      {
+        "label": "Monitor",
+        "line": "LED MONITOR $(id) 0"
+      }
+    ]
+  }
+]

@@ -172,7 +172,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "c0262d83fbd15dc1"
+    "index": "97aad2b4800bc919"
   },
   "faults": [],
   "ai": {
@@ -423,6 +423,51 @@
     "unbound": [],
     "held": [],
     "flashLimited": -1
+  },
+  "content": {
+    "budgetMs": 6,
+    "governor": "advise",
+    "light": "grey",
+    "costMs": 0,
+    "renderer": "none",
+    "sting": null,
+    "generators": [
+      {
+        "id": "gn_testcard",
+        "kind": "pattern.testcard",
+        "name": "Test card",
+        "state": "idle",
+        "progress": 0,
+        "time": "pure",
+        "originNs": 0,
+        "timeS": 0,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "grey",
+        "words": "no renderer on this node",
+        "warnings": []
+      }
+    ]
+  },
+  "led": {
+    "output": false,
+    "level": 1,
+    "fixtures": 0,
+    "pixels": 0,
+    "universes": 0,
+    "mbps": 0,
+    "test": null,
+    "locate": null,
+    "lagMs": 0,
+    "lateCollects": 0,
+    "nodes": [],
+    "conflicts": [],
+    "warnings": []
   },
   "calibration": {
     "moved": [],

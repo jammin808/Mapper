@@ -21,6 +21,8 @@ public sealed class CatalogueTests
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
         "ALIGN PLAN", "ALIGN SCORE", "DEVICE NATIVE", // wp2-align: the dry run, the score's own verb and the projectors' own processing are wp2-resolve's
         "SCAN SUGGEST", "SCAN SOLVE", "SCAN VIEWS", "SCAN DROP", // wp2-phonescan: many views into one scan are wp2-multiscan's
+        "GENERATOR MORPH", // wp2-content: morphs are next round
+        "LED DISCOVER", // wp2-led: discovery is next round
     ];
 
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>

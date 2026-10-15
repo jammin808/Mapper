@@ -73,6 +73,10 @@ Nothing shipped: OSC, MIDI, Art-Net, LTC and MTC are PlayMap's own code, written
 
 ### wp2-led
 
+Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, written from the published specifications.
+
+- Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.
+
 ### wp2-fleet
 
 ### wp2-backup
