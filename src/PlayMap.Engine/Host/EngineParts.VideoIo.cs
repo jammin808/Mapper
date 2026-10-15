@@ -1,6 +1,7 @@
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
 using PlayMap.Engine.VideoIo;
+using PlayMap.Media.Video.Ndi;
 using PlayMap.Media.Video.Omt;
 
 namespace PlayMap.Engine.Host;
@@ -85,6 +86,9 @@ internal static class VideoIoProviders
         var home = setup?.Home.Folder ?? Path.Combine(Path.GetTempPath(), "playmap-" + services.Settings.NodeId);
         if (settings.OmtEnabled)
             made.Add(new OmtProvider(new OmtOptions(Path.Combine(home, "omt"), settings.OmtDiscovery, settings.OmtPortStart, settings.OmtPortEnd), services.Mono));
+        // The user's NDI runtime, when it is installed; registered either way, so STATE and every refusal say where to get one.
+        if (settings.NdiEnabled)
+            made.Add(new NdiProvider(new NdiOptions(settings.NdiRuntimePath, settings.NdiDiscovery, settings.NdiGroups, Path.Combine(home, "ndi")), services.Mono));
         return made;
     }
 }

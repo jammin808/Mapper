@@ -394,4 +394,29 @@ public sealed class VideoIoVerbTests
         Assert.Contains("live.fallback", await rig.Refused($"SET {input} live {{\"fallback\":\"live:{input}\"}}"), StringComparison.Ordinal);
         Assert.Contains("live.lostMs", await rig.Refused($"SET {input} live {{\"lostMs\":5}}"), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task TheExesCompositionCarriesTheProvidersAndThePreflightSection()
+    {
+        Assert.Contains(PlayMap.Engine.Host.VideoIoExtension.Factory, PlayMap.Engine.Host.EngineParts.Standard().Extensions);
+        await using var rig = new VideoIoRig(ndi: false);
+        // The part reads nothing of the host's setup until it saves this machine's choices.
+        await using var part = PlayMap.Engine.Host.VideoIoExtension.Factory(null!);
+        Assert.Equal("videoio", part.Name);
+        var configured = part.Configure(EngineServices.ForTests() with
+        {
+            Settings = EngineServices.ForTests().Settings with { VideoIo = VideoIoSettings.Default with { NdiRuntimePath = "/nonexistent-ndi" } },
+        });
+        Assert.Single(configured.PreflightChecks, c => c is VideoIoPreflight);
+        Assert.Contains(configured.LiveInputs, p => p.Protocol == LiveProtocol.Omt);
+        Assert.Contains(configured.SendProviders, p => p.Protocol == LiveProtocol.Omt);
+        // NDI is registered whether or not the user installed its runtime, so every refusal can say where to get it.
+        var ndi = Assert.Single(configured.LiveInputs, p => p.Protocol == LiveProtocol.Ndi);
+        Assert.Contains(ndi.Status.State, new[] { "ready", "absent", "failed" });
+        var off = part.Configure(EngineServices.ForTests() with
+        {
+            Settings = EngineServices.ForTests().Settings with { VideoIo = VideoIoSettings.Default with { NdiEnabled = false, OmtEnabled = false } },
+        });
+        Assert.DoesNotContain(off.LiveInputs, p => p.Protocol is LiveProtocol.Ndi or LiveProtocol.Omt);
+    }
 }
