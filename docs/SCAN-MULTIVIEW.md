@@ -94,7 +94,9 @@ residual most is the one to drop (`SCAN DROP` in the engine).
 
 `DropView(input, previous, view)` removes the view's pairs and observations (tracks no other view saw go too) and re-solves
 **warm** from the previous result: the root view stays where it was and keeps its distance to its projector, so the frame and
-its scale do not jump (`Metric` is kept). Dropping a view the scan does not have, or its only view, is refused with the reason.
+its scale do not jump (`Metric` is kept). The warm start is taken only when the previous solve held every projector the input
+holds, at the same stage pose and optics; otherwise the previous frame is not the stage's, and the drop starts afresh in the
+stage frame. Dropping a view the scan does not have, or its only view, is refused with the reason.
 
 ### 6. Dense depth per projector (`ProjectorDepth`)
 
@@ -153,10 +155,11 @@ registered to the world on its track points (as registering a scan to a surveyed
 | projector throw | 0.2 % | 0.033 %, 0.050 % |
 | phone focal length | 0.5 % | 0.004 % |
 | residual | — | 0.01 px RMS over 1 244 tracks; 8 iterations |
+| time (4 cores, alone) | reported | the solve 4.5 s, almost all of it each view's start on its dense pairs (the adjustment itself about 0.2 s, a warm drop 0.17 s); dense depth of both projectors about 2 s |
 | dense surface to the truth mesh | ≤ 3 mm expected; **tightened to 1 mm** | 0.26 mm and 0.27 mm RMS (99 % within 0.9 mm; the worst, 6 mm, on the floor at grazing incidence, where its σ says 4 mm) |
 | coverage of the lit raster | ≥ 95 % with 3 views; ≤ 80 % for one | 99.9 %; one view alone 70.8–72.0 % (at most 78 % of either projector) |
 | a view shifted 2 px | raises RMS; dropping it < 0.5 px | 0.009 → 0.29 px; without it 0.009 px (without either good view 0.10 and 0.24 px) |
-| HOLD | bit-identical | every held field bit for bit; with both held, every view within 0.06 mm and 0.001° |
+| HOLD | bit-identical | every held field bit for bit, and every solved point of a held projector's tracks on its stage ray (back onto its own pixel within 10⁻⁶ px); with both held, every view within 0.06 mm and 0.001° |
 | regions | each surface once, every projector that lights it | the wall one region [pj1, pj2] (0.1 mm RMS, planar); the cylinder's side one curved region [pj1, pj2] holding all 5 317 and 4 065 of the two projectors' side cells; the floor two pieces (the cylinder's shadow cuts the lit strip), each [pj1, pj2] |
 
 ## Wire
