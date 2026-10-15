@@ -1070,3 +1070,18 @@ export function compositeDefinitions(): CompanionGraphicsCompositeElementDefinit
 		},
 	}
 }
+
+/** The presets the structure names (a preset no group shows yet is left out until one does; a definition itself never changes). */
+export function referencedPresets(
+	presets: CompanionPresetDefinitions,
+	structure: readonly CompanionPresetSection[],
+): CompanionPresetDefinitions {
+	const named = new Set<string>()
+	for (const section of structure)
+		for (const d of section.definitions) {
+			if (typeof d === 'string') named.add(d)
+			else if (d.type === 'simple') for (const id of d.presets) named.add(id)
+			else named.add(d.presetId)
+		}
+	return Object.fromEntries(Object.entries(presets).filter(([id]) => named.has(id)))
+}

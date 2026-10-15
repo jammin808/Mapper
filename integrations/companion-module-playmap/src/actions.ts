@@ -1,6 +1,7 @@
 import type {
 	CompanionActionDefinition,
 	CompanionActionDefinitions,
+	CompanionInputFieldDropdown,
 	CompanionOptionValues,
 	JsonValue,
 	SomeCompanionActionInputField,
@@ -99,6 +100,18 @@ function notSentResult(error: string): PressResult {
 	return { ok: false, stage: 'not-sent', effect: '', error, reply: '' }
 }
 
+/** Two presses within 3 s, for a key whose verb is pressed twice (the module keeps the first press; the second sends). */
+const CONFIRM: CompanionInputFieldDropdown = {
+	type: 'dropdown',
+	id: 'confirm',
+	label: 'Confirm',
+	default: 'none',
+	choices: [
+		{ id: 'none', label: 'Send on the press' },
+		{ id: 'twice', label: 'Two presses within 3 s' },
+	],
+}
+
 /** A result for a press that only armed its control (the first of two presses). */
 const ARMED: PressResult = {
 	ok: false,
@@ -114,16 +127,7 @@ const ARMED: PressResult = {
 function generatedAction(ctx: Ctx, row: VerbRow): CompanionActionDefinition {
 	const options: SomeCompanionActionInputField[] = [
 		...optionsOf(row, (prefix) => ctx.choices(prefix)),
-		{
-			type: 'dropdown',
-			id: 'confirm',
-			label: 'Confirm',
-			default: row.press === 'double' ? 'twice' : 'none',
-			choices: [
-				{ id: 'none', label: 'Send on the press' },
-				{ id: 'twice', label: 'Two presses within 3 s' },
-			],
-		},
+		{ ...CONFIRM, default: row.press === 'double' ? 'twice' : 'none' },
 	]
 	const learnable = (row.formParams[0] ?? []).filter((p) => p.prefix === 'pl' || p.prefix === 'it')
 	return {
@@ -326,6 +330,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			{ type: 'textinput', id: 'section', label: 'Section', default: '' },
 			{ type: 'textinput', id: 'row', label: 'Row id', default: '' },
 			{ type: 'number', id: 'key', label: 'Key (0-based)', default: 0, min: 0, max: 32 },
+			CONFIRM,
 		],
 		hasResult: true,
 		callback: async (action) => {
@@ -334,6 +339,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			const key = section?.keys[num(Number(action.options.key), 0)]
 			if (!section || !row || !key)
 				return ctx.receipts.notSent(action.controlId, 'section', 'the node no longer lists this key')
+			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId)) return ARMED
 			return ctx.send(fillHint(key.line, row), action.controlId)
 		},
 	}

@@ -8758,7 +8758,7 @@
   },
   {
     "name": "TIMECODE SOURCE",
-    "syntax": "TIMECODE SOURCE ADD \u003Cname\u003E LTC [\u003Cdevice\u003E[:\u003Cchannel\u003E]] | TIMECODE SOURCE ADD \u003Cname\u003E MTC \u003Cport\u003E | TIMECODE SOURCE ADD \u003Cname\u003E ARTNET [STREAM \u003Cn\u003E] | TIMECODE SOURCE ADD \u003Cname\u003E INTERNAL [FORMAT \u003Cfmt\u003E] | TIMECODE SOURCE REMOVE \u003Csource\u003E | TIMECODE SOURCE RESET \u003Csource\u003E",
+    "syntax": "TIMECODE SOURCE ADD \u003Cname\u003E LTC [\u003Cdevice\u003E[:\u003Cchannel\u003E]] [FORMAT \u003Cfmt\u003E] | TIMECODE SOURCE ADD \u003Cname\u003E MTC \u003Cport\u003E [FORMAT \u003Cfmt\u003E] | TIMECODE SOURCE ADD \u003Cname\u003E ARTNET [STREAM \u003Cn\u003E] [FORMAT \u003Cfmt\u003E] | TIMECODE SOURCE ADD \u003Cname\u003E INTERNAL [FORMAT \u003Cfmt\u003E] | TIMECODE SOURCE REMOVE \u003Csource\u003E | TIMECODE SOURCE RESET \u003Csource\u003E",
     "words": "Adds, removes or resets a timecode input; answers its id",
     "category": "timecode",
     "risk": "review",
@@ -8776,9 +8776,9 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "TIMECODE SOURCE ADD \u003Cname\u003E LTC [\u003Cdevice\u003E[:\u003Cchannel\u003E]]",
-      "TIMECODE SOURCE ADD \u003Cname\u003E MTC \u003Cport\u003E",
-      "TIMECODE SOURCE ADD \u003Cname\u003E ARTNET [STREAM \u003Cn\u003E]",
+      "TIMECODE SOURCE ADD \u003Cname\u003E LTC [\u003Cdevice\u003E[:\u003Cchannel\u003E]] [FORMAT \u003Cfmt\u003E]",
+      "TIMECODE SOURCE ADD \u003Cname\u003E MTC \u003Cport\u003E [FORMAT \u003Cfmt\u003E]",
+      "TIMECODE SOURCE ADD \u003Cname\u003E ARTNET [STREAM \u003Cn\u003E] [FORMAT \u003Cfmt\u003E]",
       "TIMECODE SOURCE ADD \u003Cname\u003E INTERNAL [FORMAT \u003Cfmt\u003E]",
       "TIMECODE SOURCE REMOVE \u003Csource\u003E",
       "TIMECODE SOURCE RESET \u003Csource\u003E"
@@ -8802,6 +8802,12 @@
         "kind": "entity",
         "optional": true,
         "prefix": "dv"
+      },
+      {
+        "name": "format",
+        "kind": "text",
+        "optional": true,
+        "keyword": "FORMAT"
       }
     ],
     "formParams": [
@@ -8823,6 +8829,12 @@
           "kind": "entity",
           "optional": true,
           "prefix": "dv"
+        },
+        {
+          "name": "format",
+          "kind": "text",
+          "optional": true,
+          "keyword": "FORMAT"
         }
       ],
       [
@@ -8835,6 +8847,12 @@
           "name": "mtc",
           "kind": "integer",
           "keyword": "MTC"
+        },
+        {
+          "name": "format",
+          "kind": "text",
+          "optional": true,
+          "keyword": "FORMAT"
         }
       ],
       [
@@ -8855,6 +8873,12 @@
           "kind": "integer",
           "optional": true,
           "keyword": "STREAM"
+        },
+        {
+          "name": "format",
+          "kind": "text",
+          "optional": true,
+          "keyword": "FORMAT"
         }
       ],
       [
@@ -13126,7 +13150,7 @@
   },
   {
     "name": "ALIGN NEW",
-    "syntax": "ALIGN NEW \u003Cname\u003E \u003Ccamera\u003E \u003Coutput\u003E\u2026|ALL [CANVAS \u003Ccanvas\u003E|NEW] [SHAPE AUTO|FLAT|CYLINDER]",
+    "syntax": "ALIGN NEW \u003Cname\u003E \u003Ccamera\u003E \u003Coutput\u003E\u2026|ALL [CANVAS \u003Ccanvas\u003E|NEW] [SHAPE AUTO|FLAT]",
     "words": "Outputs aligned together through one camera onto one canvas; answers its id",
     "category": "align",
     "risk": "review",
@@ -13138,7 +13162,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "ALIGN NEW \u003Cname\u003E \u003Ccamera\u003E \u003Coutput\u003E\u2026|ALL [CANVAS \u003Ccanvas\u003E|NEW] [SHAPE AUTO|FLAT|CYLINDER]"
+      "ALIGN NEW \u003Cname\u003E \u003Ccamera\u003E \u003Coutput\u003E\u2026|ALL [CANVAS \u003Ccanvas\u003E|NEW] [SHAPE AUTO|FLAT]"
     ],
     "available": false,
     "params": [
@@ -13180,8 +13204,7 @@
         "optional": true,
         "values": [
           "AUTO",
-          "FLAT",
-          "CYLINDER"
+          "FLAT"
         ]
       }
     ],
@@ -13225,8 +13248,7 @@
           "optional": true,
           "values": [
             "AUTO",
-            "FLAT",
-            "CYLINDER"
+            "FLAT"
           ]
         }
       ]
@@ -13234,42 +13256,9 @@
     "press": "instant"
   },
   {
-    "name": "ALIGN PLAN",
-    "syntax": "ALIGN PLAN \u003Cgroup\u003E",
-    "words": "A dry run: camera, outputs, devices and their own processing, steps and time; nothing reaches the wall or a projector",
-    "category": "align",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "ALIGN PLAN \u003Cgroup\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "group",
-        "kind": "text"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "group",
-          "kind": "text"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
     "name": "ALIGN RUN",
-    "syntax": "ALIGN RUN \u003Cgroup\u003E [ONLY \u003Coutput\u003E\u2026] [STEPS NEUTRAL,SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]",
-    "words": "Measures the outputs through the camera and stages a correction (warp, blend, colour) with its score; nothing changes on the air until ALIGN ACCEPT",
+    "syntax": "ALIGN RUN \u003Cgroup\u003E [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]",
+    "words": "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, \u03B3) with its score; nothing changes on the air until ALIGN ACCEPT",
     "category": "align",
     "risk": "high",
     "mutates": true,
@@ -13280,21 +13269,13 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "ALIGN RUN \u003Cgroup\u003E [ONLY \u003Coutput\u003E\u2026] [STEPS NEUTRAL,SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]"
+      "ALIGN RUN \u003Cgroup\u003E [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]"
     ],
     "available": false,
     "params": [
       {
         "name": "group",
         "kind": "text"
-      },
-      {
-        "name": "only",
-        "kind": "entity",
-        "optional": true,
-        "prefix": "op",
-        "keyword": "ONLY",
-        "repeats": true
       },
       {
         "name": "steps",
@@ -13309,7 +13290,7 @@
         "kind": "enum",
         "optional": true,
         "values": [
-          "NEUTRAL,SCAN,SOLVE,COLOR,VERIFY",
+          "SCAN,SOLVE",
           "ALL"
         ]
       },
@@ -13329,23 +13310,6 @@
           "INSIDE",
           "CORNERS"
         ]
-      },
-      {
-        "name": "color",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "COLOR"
-        ]
-      },
-      {
-        "name": "choice3",
-        "kind": "enum",
-        "optional": true,
-        "values": [
-          "OFF",
-          "WHITE"
-        ]
       }
     ],
     "formParams": [
@@ -13353,14 +13317,6 @@
         {
           "name": "group",
           "kind": "text"
-        },
-        {
-          "name": "only",
-          "kind": "entity",
-          "optional": true,
-          "prefix": "op",
-          "keyword": "ONLY",
-          "repeats": true
         },
         {
           "name": "steps",
@@ -13375,7 +13331,7 @@
           "kind": "enum",
           "optional": true,
           "values": [
-            "NEUTRAL,SCAN,SOLVE,COLOR,VERIFY",
+            "SCAN,SOLVE",
             "ALL"
           ]
         },
@@ -13394,23 +13350,6 @@
           "values": [
             "INSIDE",
             "CORNERS"
-          ]
-        },
-        {
-          "name": "color",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "COLOR"
-          ]
-        },
-        {
-          "name": "choice3",
-          "kind": "enum",
-          "optional": true,
-          "values": [
-            "OFF",
-            "WHITE"
           ]
         }
       ]
@@ -13443,7 +13382,7 @@
   {
     "name": "ALIGN CANCEL",
     "syntax": "ALIGN CANCEL",
-    "words": "Stops a run and restores what it changed on the projectors",
+    "words": "Stops a run; the outputs are the show\u0027s again",
     "category": "align",
     "risk": "low",
     "mutates": true,
@@ -13464,20 +13403,20 @@
     "press": "instant"
   },
   {
-    "name": "ALIGN SCORE",
-    "syntax": "ALIGN SCORE \u003Crun\u003E|\u003Cgroup\u003E",
-    "words": "A run\u0027s score and every term with its words and fix",
+    "name": "ALIGN ACCEPT",
+    "syntax": "ALIGN ACCEPT \u003Crun\u003E|\u003Cgroup\u003E",
+    "words": "Applies a staged run to its outputs as one edit; the corrections they had become their fallbacks",
     "category": "align",
-    "risk": "low",
-    "mutates": false,
+    "risk": "review",
+    "mutates": true,
     "aliases": [],
-    "show": "query",
+    "show": "mapping",
     "riskWhen": [],
     "ephemeral": false,
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "ALIGN SCORE \u003Crun\u003E|\u003Cgroup\u003E"
+      "ALIGN ACCEPT \u003Crun\u003E|\u003Cgroup\u003E"
     ],
     "available": false,
     "params": [
@@ -13493,39 +13432,6 @@
           "name": "run",
           "kind": "text",
           "alt": "\u003Cgroup\u003E"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "ALIGN ACCEPT",
-    "syntax": "ALIGN ACCEPT \u003Crun\u003E",
-    "words": "Applies a staged run to its outputs as one edit; the previous corrections become the fallbacks",
-    "category": "align",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "mapping",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "ALIGN ACCEPT \u003Crun\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "run",
-        "kind": "text"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "run",
-          "kind": "text"
         }
       ]
     ],
@@ -13678,7 +13584,7 @@
   {
     "name": "ALIGN CLEAR",
     "syntax": "ALIGN CLEAR \u003Coutput\u003E|\u003Cgroup\u003E",
-    "words": "Removes measured corrections from outputs",
+    "words": "Removes measured corrections from outputs; what they had becomes the fallback",
     "category": "align",
     "risk": "review",
     "mutates": true,
@@ -13707,41 +13613,6 @@
           "kind": "entity",
           "prefix": "op",
           "alt": "\u003Cgroup\u003E"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "DEVICE NATIVE",
-    "syntax": "DEVICE NATIVE \u003Cdevice\u003E",
-    "words": "A projector\u0027s own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard",
-    "category": "device",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "DEVICE NATIVE \u003Cdevice\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "device",
-        "kind": "entity",
-        "prefix": "dv"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "device",
-          "kind": "entity",
-          "prefix": "dv"
         }
       ]
     ],

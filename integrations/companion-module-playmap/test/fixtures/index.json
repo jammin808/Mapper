@@ -130,6 +130,34 @@
   },
   "sections": [
     {
+      "section": "align",
+      "hint": {
+        "title": "Align",
+        "rowKind": "align",
+        "keys": [
+          {
+            "label": "Align",
+            "line": "ALIGN RUN $(id)",
+            "feedback": "align.run",
+            "press": "double"
+          },
+          {
+            "label": "Accept",
+            "line": "ALIGN ACCEPT $(id)",
+            "feedback": "align.staged",
+            "press": "instant"
+          },
+          {
+            "label": "Revert",
+            "line": "ALIGN REVERT $(id)",
+            "feedback": "align.grade",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "calibration",
       "hint": {
         "title": "Calibration",
@@ -156,6 +184,71 @@
         ]
       },
       "rows": []
+    },
+    {
+      "section": "eye",
+      "hint": {
+        "title": "Eye",
+        "rowKind": "machine",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "FLEET NEXT",
+          "kind": "problem",
+          "label": "NEXT PROBLEM",
+          "parent": "eye",
+          "light": "grey",
+          "state": "0"
+        },
+        {
+          "id": "FLEET PREV",
+          "kind": "problem",
+          "label": "PREV PROBLEM",
+          "parent": "eye",
+          "light": "grey",
+          "state": "0"
+        },
+        {
+          "id": "FLEET LENS PROBLEMS",
+          "kind": "lens",
+          "label": "PROBLEMS",
+          "parent": "eye",
+          "light": "grey",
+          "state": "all"
+        },
+        {
+          "id": "FLEET LENS ALL",
+          "kind": "lens",
+          "label": "ALL",
+          "parent": "eye",
+          "light": "green",
+          "state": "all"
+        },
+        {
+          "id": "FLEET RESET",
+          "kind": "view",
+          "label": "RESET",
+          "parent": "eye",
+          "light": "grey",
+          "state": ""
+        },
+        {
+          "id": "FLEET FOCUS self",
+          "kind": "machine",
+          "label": "Test node",
+          "parent": "eye",
+          "light": "grey",
+          "state": "Test node \u00B7 nothing measured yet"
+        }
+      ]
     },
     {
       "section": "fx",
@@ -359,6 +452,22 @@
           "state": "manual"
         }
       ]
+    },
+    {
+      "section": "timecode",
+      "hint": {
+        "title": "Timecode",
+        "rowKind": "chase",
+        "keys": [
+          {
+            "label": "Engage",
+            "line": "TIMECODE ENGAGE $(id) TOGGLE",
+            "feedback": "chase.engaged",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
     }
   ]
 }

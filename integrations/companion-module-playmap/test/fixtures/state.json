@@ -85,7 +85,8 @@
         "id": "it00000003",
         "label": "Blue"
       },
-      "items": 3
+      "items": 3,
+      "chase": null
     },
     {
       "id": "pl00000004",
@@ -105,7 +106,8 @@
         "id": "it00000005",
         "label": "Green"
       },
-      "items": 1
+      "items": 1,
+      "chase": null
     }
   ],
   "outputs": [
@@ -135,7 +137,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     }
   ],
   "media": {
@@ -192,7 +195,7 @@
   ],
   "machine": {
     "renderer": "none",
-    "memMb": 141,
+    "memMb": 147,
     "gcPauseMsTotal": 0,
     "present": null
   },
@@ -244,6 +247,37 @@
     "preflight": null,
     "minGoMs": 0
   },
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [],
+    "light": "grey",
+    "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet"
+  },
+  "eye": {
+    "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet",
+    "worst": "",
+    "worstLight": "grey",
+    "worstWords": "",
+    "counts": {
+      "green": 0,
+      "amber": 0,
+      "red": 0,
+      "grey": 2,
+      "things": 2,
+      "links": 1
+    },
+    "focus": "",
+    "lens": "all",
+    "problems": []
+  },
   "decode": {
     "platform": {
       "blocks": {
@@ -261,6 +295,47 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "control": {
+    "enabled": true,
+    "axisHz": 100,
+    "osc": {
+      "port": 9943,
+      "open": false,
+      "words": "no control service on this node"
+    },
+    "midi": {
+      "backend": "none",
+      "open": false,
+      "words": "no control service on this node",
+      "inputs": [],
+      "outputs": []
+    },
+    "dmx": {
+      "artnet": {
+        "enabled": false,
+        "open": false
+      },
+      "sacn": {
+        "enabled": false,
+        "open": false
+      }
+    },
+    "surfaces": [],
+    "bindings": {
+      "count": 0,
+      "enabled": 0,
+      "live": 0,
+      "waiting": 0,
+      "unplugged": 0
+    },
+    "learning": null,
+    "learnt": null,
+    "last": null
+  },
+  "timecode": {
+    "sources": [],
+    "chases": []
   },
   "clients": [],
   "events": {
@@ -350,5 +425,9 @@
     "quadAt": null,
     "contentAt": null,
     "seconds": -1
+  },
+  "align": {
+    "run": null,
+    "groups": []
   }
 }

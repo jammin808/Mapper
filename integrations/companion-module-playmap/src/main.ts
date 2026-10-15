@@ -22,7 +22,7 @@ import { FEEDBACK_SLICES, feedbackDefinitions } from './feedbacks.ts'
 import { Confirms, GoGuard, Receipts, type PressResult } from './guards.ts'
 import { NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
 import { LivePage } from './live.ts'
-import { compositeDefinitions, presetDefinitions, presetStructure } from './presets.ts'
+import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets } from './presets.ts'
 import { NodeModel } from './state/model.ts'
 import { P, at, field, list, num as numOf, str } from './state/paths.ts'
 import { changedValues, variableDefinitions, variablesOf } from './state/variables.ts'
@@ -495,12 +495,12 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	#definePresets(): void {
-		const presets = presetDefinitions(this.config)
 		const peers = list(this.model.state, P.peers).map((p) => ({
 			id: str(field(p, P.peerId)),
 			name: str(field(p, P.peerName)),
 		}))
 		const structure = presetStructure(this.model.index, this.config, { peers })
+		const presets = referencedPresets(presetDefinitions(this.config), structure)
 		const presetsKey = JSON.stringify(presets)
 		const structureKey = JSON.stringify(structure)
 		if (presetsKey === this.#presetsKey && structureKey === this.#structureKey) return
