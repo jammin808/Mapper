@@ -248,8 +248,9 @@ calibration ledger's own check runs (its `calibration` rows, one per projector) 
 never has two verdicts in one report; show-ready's mapping step reads either.
 
 **The group.** `SHOW ARM ALL`, `SHOW DISARM ALL` and `PREFLIGHT ALL` go to every member of the group this node leads through the
-fleet's fan-out (`IFleetFanout`, wp2-sync): each member runs the line through its own gate as a peer. ARM and DISARM answer with
-this node and every member's receipt (applied with its leader instant, refused with its words, silent); a node already in the asked
+fleet's fan-out (`IFleetFanout`, wp2-sync): each member runs the line through its own gate as a peer. ARM and DISARM go out once,
+at the leader instant this node's own half ran, and answer with this node and every member's receipt (applied with its leader
+instant, refused with its words, silent); a node already in the asked
 mode still brings the group to it. `SHOW DISARM ALL` is an operator's (the desk's) only: a remote that may disarm this node may not
 disarm the group. `PREFLIGHT ALL` asks each member `PREFLIGHT QUICK WAIT` and merges the rows of the report each member's receipt
 carries under that member's name, a member that does not answer being a red `fleet` row; a member's fix runs on the member, so it
