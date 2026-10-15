@@ -21,6 +21,7 @@ using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
 using PlayMap.Net.Companion;
+using PlayMap.Net.Discovery;
 using PlayMap.Net.Mcp;
 using PlayMap.Net.Tls;
 using PlayMap.Net.Wire;
@@ -288,16 +289,18 @@ public sealed class HttpHost : IAsyncDisposable
                     break;
             }
         }
+        // A browser always says where a page came from, and a page the node did not serve never reaches its routes: on a trusted
+        // address it would be let in at once, and what it sends would run though it cannot read the answers.
+        if (!SameOriginOrNone(context.Request))
+        {
+            await WriteErrorAsync(context, StatusCodes.Status403Forbidden, IsLineChannel(context) ? LineChannelOrigin : ForeignOrigin);
+            return;
+        }
         if (IsLineChannel(context))
         {
-            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but a web page's origin, HTTPS and
-            // the address's lockout still hold before the upgrade.
+            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but HTTPS, the address's lockout and,
+            // where it would be paired at once, the host it names still hold before the upgrade.
             var from = context.Connection.RemoteIpAddress;
-            if (!SameOriginOrNone(context.Request))
-            {
-                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, LineChannelOrigin);
-                return;
-            }
             if (_settings.RequireHttps && !context.Request.IsHttps && !NetAddress.IsLoopback(from))
             {
                 await WriteErrorAsync(context, StatusCodes.Status403Forbidden, WireWords.UseHttps);
@@ -306,6 +309,11 @@ public sealed class HttpHost : IAsyncDisposable
             if (NetAddress.TokenNeeded(_settings) && !NetAddress.IsTrusted(from, _settings) && _gate.IsLocked(NetAddress.Text(from)))
             {
                 await WriteErrorAsync(context, StatusCodes.Status429TooManyRequests, WireWords.TooManyWrongTokens);
+                return;
+            }
+            if ((!NetAddress.TokenNeeded(_settings) || NetAddress.IsTrusted(from, _settings)) && !IsOwnHost(context.Request, _settings))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request));
                 return;
             }
             await next(context);
@@ -320,6 +328,12 @@ public sealed class HttpHost : IAsyncDisposable
             await WriteErrorAsync(context, status, words);
             return;
         }
+        // Let in without the token: only by a name this machine answers to, never by one a page pointed at it (DNS rebinding).
+        if (verdict == GateVerdict.Open && !IsOwnHost(context.Request, _settings))
+        {
+            await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request));
+            return;
+        }
         var remote = context.Connection.RemoteIpAddress;
         if (path.StartsWith("/mcp", StringComparison.Ordinal))
             NoteMcpClient(context);
@@ -329,6 +343,43 @@ public sealed class HttpHost : IAsyncDisposable
             new Claim(McpTools.LoopbackClaim, NetAddress.IsLoopback(remote) ? "1" : "0"),
         ], "playmap"));
         await next(context);
+    }
+
+    /// <summary>Why a web page from another site is refused the node's routes.</summary>
+    internal const string ForeignOrigin =
+        "a page from another site may not drive this node — its routes answer its own pages and controllers that send no Origin";
+
+    /// <summary>Why a request let in without the token is refused when it names a host this machine does not answer to.</summary>
+    internal static string ForeignHost(HttpRequest request)
+    {
+        var host = request.Host.Host;
+        if (host.Length > 64)
+            host = host[..64];
+        return $"this node answers by its addresses and its own names, not '{host}' — use its address, list the name in the node's web.hosts setting, or send the token";
+    }
+
+    /// <summary>The names this machine answers to without the token: an address, <c>localhost</c>, this machine's name (bare, in
+    /// <c>.local</c>, or its mDNS label), or one the operator listed (<see cref="WebSettings.Hosts"/>). A page from another site
+    /// that points its own name at this machine names none of them. A request with no Host (no browser sends one) passes.</summary>
+    internal static bool IsOwnHost(HttpRequest request, NodeSettings settings)
+    {
+        if (!request.Host.HasValue)
+            return true;
+        var host = request.Host.Host.Trim('[', ']').TrimEnd('.');
+        if ((host.Contains('.', StringComparison.Ordinal) || host.Contains(':', StringComparison.Ordinal)) && IPAddress.TryParse(host, out _))
+            return true;
+        if (Same(host, "localhost") || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var machine = Environment.MachineName;
+        var label = MdnsResponder.HostLabel(machine);
+        if (Same(host, machine) || Same(host, machine + ".local") || Same(host, label) || Same(host, label + ".local"))
+            return true;
+        foreach (var listed in settings.Web.Hosts)
+            if (Same(host, listed.Trim().TrimEnd('.')))
+                return true;
+        return false;
+
+        static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Why a web page from another site is refused the line channel.</summary>

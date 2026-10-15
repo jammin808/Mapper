@@ -29,7 +29,8 @@ pushes, `PING` clock exchange and pairing — one text frame per line. Three thi
   `RequireHttps` hold before the upgrade, and a wrong proof counts against the address like a wrong header token.
 - A web page from another site never reaches it: an upgrade whose `Origin` is not this node's own is refused (403) before it opens,
   since on a trusted address it would be paired at once. Controllers (Companion's module, scripts) send no `Origin`; pages the node
-  serves itself keep their origin and are let in.
+  serves itself keep their origin and are let in. Where it would be paired at once, the upgrade must also name the node by an
+  address or one of its own names (`docs/WIRE.md`, HTTP), so a page that points its own name at this machine is refused too.
 - Plain `AUTH <token>` is never taken there.
 
 The sessions behind each door are their own (`LineSessions`): either door serves lines when the other could not open.

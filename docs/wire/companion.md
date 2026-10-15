@@ -10,6 +10,8 @@ parameters in VERBS, and the network announcement. `docs/COMPANION.md` says how 
   is the screens' JSON socket, unchanged.
 - The upgrade skips the web's header token; a browser page from another site (an `Origin` header that is not this node's own,
   403), `RequireHttps` (403) and the address's wrong-token lockout (429) still hold before it. Controllers send no `Origin`.
+  Where it would be paired at once (a trusted address, or no token asked) it must name the node by an address or one of its own
+  names, or a name in `web.hosts` (403 otherwise).
 - Until the session pairs it answers only `NONCE`, `HELLO`, `AUTH-PROOF`, `AUTH` (refused: proofs only) and `PING`; anything else is
   `ERR not paired …`. The greeting `STATE` waits for `OK paired`. A node that asks no token, or trusts the address, is paired at once.
 - Wrong proofs count against the address in the web port's ledger (the same five a minute as a wrong header token).

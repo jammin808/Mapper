@@ -208,6 +208,14 @@ between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"s
 `{"cmd":"…","id":"…"}` commands with receipts, `{"cmd":"ping","t":…}` → pong), `GET /tls`, `GET /tls.cer`,
 `/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in a URL.
 
+A page in a browser never drives the node from another site. A request whose `Origin` is not the node's own (another site,
+or `null`) is refused with 403 on every node route (`/api`, `/ws`, `/mcp`) before it runs; controllers, scripts and other
+nodes send no `Origin`, and the node's own pages keep theirs. A request let in **without** the token (a trusted address, this
+machine by default, or a node that asks none) must also name the node by an address, `localhost`, this machine's name (bare
+or in `.local`), or a name listed in the node's settings under `web.hosts` (a venue DNS name); any other host is refused
+with 403 and the words name the host and the fix. That closes a page pointing its own name at this machine (DNS
+rebinding). A request carrying the token may name any host.
+
 ## Previews (VIEW)
 
 The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <what> [<w>x<h>]`, where
