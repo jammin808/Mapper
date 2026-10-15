@@ -305,6 +305,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
             why = "stopped sending: its connection dropped (" + ex.Message + ")";
             _log.LogDebug(ex, "A phone's socket dropped.");
         }
+        _log.LogInformation("Phone {Phone} ({Name}) {Why}.", PhoneId, Name, why);
         End(why);
     }
 

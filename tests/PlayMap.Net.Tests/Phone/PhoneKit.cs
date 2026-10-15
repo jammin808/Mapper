@@ -19,6 +19,32 @@ internal sealed class HandClock(DateTimeOffset now) : TimeProvider
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 }
 
+/// <summary>A log a test reads back.</summary>
+internal sealed class ListLog : Microsoft.Extensions.Logging.ILogger
+{
+    private readonly List<string> _lines = [];
+
+    public IReadOnlyList<string> Lines
+    {
+        get
+        {
+            lock (_lines)
+                return [.. _lines];
+        }
+    }
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        lock (_lines)
+            _lines.Add(formatter(state, exception));
+    }
+}
+
 /// <summary>A node's web port with the phone hub's module on loopback, its keys in a folder of its own.</summary>
 internal sealed class PhoneNode : IAsyncDisposable
 {
@@ -31,6 +57,8 @@ internal sealed class PhoneNode : IAsyncDisposable
     }
 
     public string Folder { get; }
+
+    public static ListLog Log { get; } = new();
 
     public PhoneHub Hub { get; }
 
@@ -48,7 +76,7 @@ internal sealed class PhoneNode : IAsyncDisposable
     {
         var folder = Directory.CreateTempSubdirectory("playmap-phone-").FullName;
         var clock = new HandClock(new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.Zero));
-        var options = new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), Time = clock, NodeId = "a1b2c3d4", NodeName = "Stage left" };
+        var options = new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), Time = clock, NodeId = "a1b2c3d4", NodeName = "Stage left", Log = Log };
         var hub = new PhoneHub(tune?.Invoke(options) ?? options);
         var host = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: false), new HttpHostOptions { Modules = [hub.Module] });
         return new PhoneNode(folder, hub, host, clock);

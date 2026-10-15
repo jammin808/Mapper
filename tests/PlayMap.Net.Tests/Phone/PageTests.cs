@@ -1,6 +1,9 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Phone;
 using PlayMap.Core.Scan;
+using PlayMap.Net.Phone;
 
 namespace PlayMap.Net.Tests.Phone;
 
@@ -148,53 +151,122 @@ public sealed class PageTests
         }
     }
 
-    [NodeFact("playwright")]
-    public async Task InChromiumThePageJoinsWithTheTicketOnlyInItsFirstMessageAndSaysItNeedsHttpsOverPlainHttp()
+    /// <summary>The page in Chromium joined with a fresh invite and asked for the lock profile, as a scan asks: what the page saw and
+    /// sent, what it answered, its session and the ticket.</summary>
+    private static async Task<(JsonElement Page, PhonePrepared Prepared, IPhoneSession Session, string Ticket)> RunPageAsync(PhoneNode node, string? y4m)
     {
-        await using var node = await PhoneNode.StartAsync();
-        var invite = node.Invite();
-        var ticket = PhoneNode.TicketOf(invite);
+        var ticket = PhoneNode.TicketOf(node.Invite());
         var dir = Temp();
         try
         {
             var outPath = Path.Combine(dir, "page.json");
-            var (code, output) = await NodeTools.RunAsync("page.mjs", TimeSpan.FromSeconds(120), node.Base.ToString().TrimEnd('/'), ticket, outPath);
+            var args = new List<string> { node.Base.ToString().TrimEnd('/'), ticket, outPath };
+            if (y4m is not null)
+                args.Add(y4m);
+            var run = NodeTools.RunAsync("page.mjs", TimeSpan.FromSeconds(150), [.. args]);
+            Assert.True(await Eventually.TrueAsync(() => node.Hub.Phones().Any(p => p.Connected) || run.IsCompleted, 60_000), "the page never joined");
+            if (run.IsCompleted)
+                Assert.Fail("the page ended before it joined: " + (await run).Output);
+            var session = node.Hub.Session(node.Hub.Phones().Single(p => p.Connected).Id)!;
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var prepared = await session.PrepareAsync(new PhonePrepare(PhoneProtocol.Lock, 60, 3, 2), wait.Token);
+            await session.SayAsync("info", "done", wait.Token);
+            var (code, output) = await run;
             Assert.True(code == 0, output);
             using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(outPath));
-            var r = doc.RootElement;
+            return (doc.RootElement.Clone(), prepared, session, ticket);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 
-            // The fragment is gone from the address at once, and no request carries the ticket anywhere.
-            Assert.Equal("", r.GetProperty("hashAfter").GetString());
-            var requests = r.GetProperty("requests").EnumerateArray().ToList();
-            Assert.True(requests.Count >= 5, r.GetProperty("requests").ToString());
-            foreach (var q in requests)
-            {
-                Assert.DoesNotContain(ticket, q.GetProperty("url").GetString()!, StringComparison.Ordinal);
-                Assert.DoesNotContain(ticket, q.GetProperty("body").GetString()!, StringComparison.Ordinal);
-                foreach (var h in q.GetProperty("headers").EnumerateObject())
-                    Assert.DoesNotContain(ticket, h.Value.GetString()!, StringComparison.Ordinal);
-            }
-            // It travels in the socket's first message, the hello, and nowhere after.
-            var sent = r.GetProperty("sent").EnumerateArray().Select(e => e.GetString()!).ToList();
-            using var hello = JsonDocument.Parse(sent[0]);
-            Assert.Equal("hello", hello.RootElement.GetProperty("t").GetString());
-            Assert.Equal(ticket, hello.RootElement.GetProperty("ticket").GetString());
-            Assert.All(sent.Skip(1), m => Assert.DoesNotContain(ticket, m, StringComparison.Ordinal));
-            var caps = hello.RootElement.GetProperty("camera").GetProperty("caps");
-            Assert.True(caps.GetProperty("exposure").ValueKind == JsonValueKind.Array);
-            Assert.StartsWith("Ready", r.GetProperty("status").GetString(), StringComparison.Ordinal);
-            Assert.True(r.GetProperty("stored").GetBoolean(), "the key is kept for the next join");
-            var phone = Assert.Single(node.Hub.Phones());
-            Assert.Equal("Pixel 8", phone.Name);
-            Assert.True(hello.RootElement.GetProperty("camera").GetProperty("width").GetInt32() > 0);
+    [NodeFact("playwright")]
+    public async Task InChromiumThePageJoinsWithTheTicketOnlyInItsFirstMessageLocksExposureAndSaysItNeedsHttpsOverPlainHttp()
+    {
+        await using var node = await PhoneNode.StartAsync();
+        var (r, prepared, session, ticket) = await RunPageAsync(node, null);
 
-            var plain = r.GetProperty("insecure");
-            Assert.False(plain.GetProperty("secure").GetBoolean());
-            Assert.Contains("needs the node's https address", plain.GetProperty("words").GetString()!, StringComparison.Ordinal);
-            Assert.StartsWith("https://phone.test:", plain.GetProperty("link").GetString()!, StringComparison.Ordinal);
-            Assert.False(plain.GetProperty("joinShown").GetBoolean());
-            Assert.Equal(0, plain.GetProperty("cameraAsks").GetInt32());
-            Assert.Equal(0, plain.GetProperty("sockets").GetInt32());
+        // The fragment is gone from the address at once, and no request carries the ticket anywhere.
+        Assert.Equal("", r.GetProperty("hashAfter").GetString());
+        var requests = r.GetProperty("requests").EnumerateArray().ToList();
+        Assert.True(requests.Count >= 5, r.GetProperty("requests").ToString());
+        foreach (var q in requests)
+        {
+            Assert.DoesNotContain(ticket, q.GetProperty("url").GetString()!, StringComparison.Ordinal);
+            Assert.DoesNotContain(ticket, q.GetProperty("body").GetString()!, StringComparison.Ordinal);
+            foreach (var h in q.GetProperty("headers").EnumerateObject())
+                Assert.DoesNotContain(ticket, h.Value.GetString()!, StringComparison.Ordinal);
+        }
+        // It travels in the socket's first message, the hello, and nowhere after.
+        var sent = r.GetProperty("sent").EnumerateArray().Select(e => e.GetString()!).ToList();
+        using var hello = JsonDocument.Parse(sent[0]);
+        Assert.Equal("hello", hello.RootElement.GetProperty("t").GetString());
+        Assert.Equal(ticket, hello.RootElement.GetProperty("ticket").GetString());
+        Assert.All(sent.Skip(1), m => Assert.DoesNotContain(ticket, m, StringComparison.Ordinal));
+        Assert.StartsWith("Ready", r.GetProperty("status").GetString(), StringComparison.Ordinal);
+        Assert.True(r.GetProperty("stored").GetBoolean(), "the key is kept for the next join");
+        Assert.Equal("Pixel 8", Assert.Single(node.Hub.Phones()).Name);
+        Assert.True(hello.RootElement.GetProperty("camera").GetProperty("width").GetInt32() > 0);
+        // The clock exchange ran: the node knows the page's clock within a few milliseconds.
+        Assert.Contains(r.GetProperty("received").EnumerateArray(), m => m.GetString()!.StartsWith("{\"t\":\"clock\"", StringComparison.Ordinal));
+
+        // Chromium's fake camera offers manual exposure (an Android phone's): the lock profile sets it and the camera keeps it.
+        var caps = hello.RootElement.GetProperty("camera").GetProperty("caps");
+        Assert.Contains(caps.GetProperty("exposure").EnumerateArray(), e => e.GetString() == "manual");
+        Assert.Equal(PhoneProtocol.Lock, session.Profile.Exposure);
+        Assert.Equal("locked", prepared.Exposure);
+        Assert.Equal("Exposure locked", prepared.Words);
+        Assert.Equal("manual", r.GetProperty("settings").GetProperty("settings").GetProperty("exposureMode").GetString());
+        Assert.NotEqual("", prepared.WhiteBalance);
+
+        var plain = r.GetProperty("insecure");
+        Assert.False(plain.GetProperty("secure").GetBoolean());
+        Assert.Contains("needs the node's https address", plain.GetProperty("words").GetString()!, StringComparison.Ordinal);
+        Assert.StartsWith("https://phone.test:", plain.GetProperty("link").GetString()!, StringComparison.Ordinal);
+        Assert.False(plain.GetProperty("joinShown").GetBoolean());
+        Assert.Equal(0, plain.GetProperty("cameraAsks").GetInt32());
+        Assert.Equal(0, plain.GetProperty("sockets").GetInt32());
+    }
+
+    /// <summary>A Y4M picture sequence, 4:2:0, a soft gradient that drifts a little each frame.</summary>
+    private static void WriteY4m(string path, int w, int h, int frames)
+    {
+        using var f = File.Create(path);
+        f.Write(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture, $"YUV4MPEG2 W{w} H{h} F30:1 Ip A1:1 C420jpeg\n")));
+        var y = new byte[w * h];
+        var uv = new byte[w / 2 * (h / 2)];
+        Array.Fill(uv, (byte)128);
+        for (var n = 0; n < frames; n++)
+        {
+            for (var k = 0; k < y.Length; k++)
+                y[k] = (byte)(64 + (k % w + n) % 128);
+            f.Write("FRAME\n"u8);
+            f.Write(y);
+            f.Write(uv);
+            f.Write(uv);
+        }
+    }
+
+    [NodeFact("playwright")]
+    public async Task InChromiumACameraWithoutExposureControlsRunsTheSteadyProfileWithWords()
+    {
+        await using var node = await PhoneNode.StartAsync();
+        var dir = Temp();
+        try
+        {
+            var y4m = Path.Combine(dir, "camera.y4m");
+            WriteY4m(y4m, 320, 240, 30);
+            var (r, prepared, session, _) = await RunPageAsync(node, y4m);
+            using var hello = JsonDocument.Parse(r.GetProperty("sent")[0].GetString()!);
+            Assert.Empty(hello.RootElement.GetProperty("camera").GetProperty("caps").GetProperty("exposure").EnumerateArray());
+            Assert.Equal(PhoneProtocol.Steady, session.Profile.Exposure);
+            // Asked to lock, a camera that cannot runs the steady profile and says why.
+            Assert.Equal("steady", prepared.Exposure);
+            Assert.Equal("This camera cannot lock its exposure from a web page: brightness kept steady instead", prepared.Words);
+            Assert.Equal("not offered by this camera", prepared.WhiteBalance);
+            Assert.Equal("steady", Assert.Single(node.Hub.Phones()).Camera!.Exposure);
         }
         finally
         {

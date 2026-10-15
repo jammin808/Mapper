@@ -264,6 +264,8 @@ public sealed class PhoneHub : IAsyncDisposable
             if (session is null)
                 return;
             session.Changed += OnChanged;
+            _log.LogInformation("Phone {Phone} ({Name}) joined from {Address} with a {Profile} camera.", session.PhoneId, session.Name, address,
+                session.Profile.Exposure);
             Changed?.Invoke();
             await session.RunAsync(stop.Token);
         }
