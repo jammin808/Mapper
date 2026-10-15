@@ -96,6 +96,14 @@ no plan uses the show's default, black over one second):
 | HARD | black at once | pause at once | as BLACK |
 
 When outputs showing one playlist disagree, the most conservative transport outcome wins (HARD, BLACK, REWIND, NEXT, RUN).
+
+**A panic's transport outcome holds whatever drives the playlist.** A step that moves a playlist's transport (BLACK, HARD, REWIND,
+NEXT) first disengages the playlist's timecode chase, at the step's instant, then runs: the code rolls on and the playlist stays
+where the panic put it. It is journalled (`panic black: Show stops chasing FOH: …`), the receipt's `released` names it (`done:false`
+while it waits for the fade's end), and `STATE.timecode` shows the chase `disengaged by PANIC BLACK — TIMECODE ENGAGE Show ON to
+follow the code again`. `PANIC CLEAR` brings the air back, not the chase; `TIMECODE ENGAGE … ON` does. RUN, FREEZE, SAFE, SHUTTER and
+FX-OFF leave transports — and chases — alone. The panic asks through one hook (`ReleaseForPanic`, declared beside the panic and
+answered by the timecode package), so anything else that comes to drive a playlist answers there too.
 `PANIC <outcome>` overrides every plan; `ON <output>…` names outputs; `FADE <ms>` sets the fade; `AT +<ms>|<unix ms>` lands the
 panic at an instant on the show clock (its transport outcome at that fade's end, its shutter and effects lines sent when the
 instant comes); `SHOW SET PANIC-LEAD <ms>` lands every panic that far ahead so a group fades on the same frames.

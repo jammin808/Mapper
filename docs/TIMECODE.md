@@ -62,12 +62,14 @@ sources, in order), `ChaseLogic` decides the lane:
 | freewheel | the source drops out | the last line rides on for `FREEWHEEL` (500 ms) |
 | held / stopped / free | the freewheel ran out | `ONLOSS HOLD` holds where the line said, `STOP` goes black, `CONTINUE` runs on at the last rate |
 | reverse | the code runs backwards | holds |
-| disengaged | `TIMECODE ENGAGE … OFF` | the playlist plays on by hand from where it is, at its items' own rates |
+| disengaged | `TIMECODE ENGAGE … OFF`, or a panic step that moves the playlist's transport | the playlist plays on by hand from where it is, at its items' own rates (a panic's step then pauses or cues it) |
 
 Within a region the lane is re-anchored only when the content would be off by a quarter frame or more, or the rate by 50 ppm,
 at most four times a second; a region change takes effect at once. While a chase is engaged, `PLAYLIST GO/CUE/NEXT/PREV` and the
 `VIDEO` clip verbs on its playlist are refused with "Main chases FOH (locked) — TIMECODE ENGAGE Main OFF to drive it by hand".
-Which chases are disengaged is kept for recovery.
+Which chases are disengaged is kept for recovery. A `PANIC` whose outcome moves transport (BLACK, HARD, REWIND, NEXT) disengages a
+chased playlist's chase at its step's instant, so the panic holds whatever the code does; the chase's words say "disengaged by PANIC
+BLACK — TIMECODE ENGAGE Main ON to follow the code again", and `PANIC CLEAR` leaves it so. RUN, FREEZE and SAFE leave it engaged.
 
 ## STATE, context, preflight, INDEX
 

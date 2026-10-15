@@ -4,6 +4,7 @@ using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Show;
 using PlayMap.Core.Time;
 using PlayMap.Core.Tc;
 using PlayMap.Core.Wire;
@@ -14,7 +15,7 @@ namespace PlayMap.Engine;
 /// <summary>wp2-control's timecode chase in the engine: the TIMECODE verbs, the chase that runs in the lane's tick (a chased
 /// playlist's transport is a function of its source's fitted line at every instant), STATE.timecode, each playlist's chase, the
 /// context's timecode and chase items and the disengaged chases kept for recovery. Only the chase moves a chased playlist; manual
-/// transport on it is refused with words until it is disengaged.</summary>
+/// transport on it is refused with words until it is disengaged (TIMECODE ENGAGE OFF, or a panic step that holds its transport).</summary>
 public sealed partial class EngineCore
 {
     private const long ReanchorEveryNs = 250_000_000;
@@ -37,6 +38,10 @@ public sealed partial class EngineCore
     private sealed class ChaseRun
     {
         public bool Engaged { get; set; } = true;
+
+        /// <summary>What disengaged the chase other than TIMECODE ENGAGE (a panic's words), or null.</summary>
+        public string? DisengagedBy { get; set; }
+
         public ChaseMemory Memory { get; set; } = ChaseMemory.Start;
         public ChasePlan? Plan { get; set; }
         public string Active { get; set; } = "";
@@ -142,8 +147,7 @@ public sealed partial class EngineCore
         {
             Playback.Guard(list, null, leaderNs);
             run.Memory = ChaseMemory.Start;
-            return new ChaseView(list.Id, sources, run.Active, false, ChaseState.Disengaged, reading.Text, Playback.Lane(list.Id)?.ItemId, 0, 0,
-                $"disengaged — {list.Name} plays by hand", run.LastJump);
+            return DisengagedView(list, sources, run, reading.Text);
         }
         var format = reading.Format ?? FormatOf(run.Active);
         var regions = RegionsOf(list, format, run);
@@ -177,6 +181,35 @@ public sealed partial class EngineCore
         var item = plan.Region >= 0 && plan.Region < regions.Regions.Length ? regions.Regions[plan.Region].ItemId : Playback.Lane(list.Id)?.ItemId;
         return new ChaseView(list.Id, sources, run.Active, true, plan.State, line is null ? "" : format.Format(format.FrameOf(plan.TcNs)), item,
             plan.Rate, freewheelLeft, words, run.LastJump);
+    }
+
+    /// <summary>A disengaged chase as STATE shows it: the playlist plays by hand, and the words say what let go and the way back.</summary>
+    private ChaseView DisengagedView(Playlist list, ImmutableArray<string> sources, ChaseRun run, string text) =>
+        new(list.Id, sources, run.Active, false, ChaseState.Disengaged, text, Playback.Lane(list.Id)?.ItemId, 0, 0,
+            run.DisengagedBy is { } by ? $"disengaged by {by} — TIMECODE ENGAGE {list.Name} ON to follow the code again" : $"disengaged — {list.Name} plays by hand",
+            run.LastJump);
+
+    /// <summary>A panic step is about to move a chased playlist's transport: the chase lets go at the step's instant (as TIMECODE ENGAGE
+    /// OFF does: the guard lifted, the lane playing on by hand from where it is), so the panic's outcome holds; STATE shows it
+    /// disengaged by the panic until TIMECODE ENGAGE puts it back (PANIC CLEAR does not). A chase already disengaged, or a
+    /// playlist that chases nothing, is left alone.</summary>
+    partial void ReleaseForPanic(Playlist list, PanicOutcome outcome, long atLeaderNs, bool commit, ref string? words)
+    {
+        if (list.Chase is not { } chase || (_chases.TryGetValue(list.Id, out var run) && !run.Engaged))
+            return;
+        var by = "PANIC " + PanicMath.Word(outcome);
+        var active = run?.Active is { Length: > 0 } a ? a : chase.Sources.FirstOrDefault() ?? "";
+        words = $"{list.Name} stops chasing {SourceName(active)}: disengaged by {by} — TIMECODE ENGAGE {list.Name} ON to follow the code again";
+        if (!commit)
+            return;
+        if (run is null)
+            _chases[list.Id] = run = new ChaseRun { Active = active };
+        run.Engaged = false;
+        run.Memory = ChaseMemory.Start;
+        run.DisengagedBy = by;
+        Playback.Guard(list, null, atLeaderNs);
+        _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? ""));
+        PublishTimecodeFacts(Store.Project, Services.Mono.NowNs);
     }
 
     private (TcFormat Format, ImmutableArray<TcRegion> Regions, string Problem) RegionsOf(Playlist list, TcFormat format, ChaseRun run)
@@ -469,7 +502,10 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return CommandReply.Fail(r.Effect);
         if (_chases.TryGetValue(list.Id, out var run))
+        {
             run.Engaged = true;
+            run.DisengagedBy = null;
+        }
         return CommandReply.Success(effect: $"{list.Name} chases {SourceName(ids[0])} (locked), engaged — waiting for code") with { Applied = false };
     }
 
@@ -498,6 +534,7 @@ public sealed partial class EngineCore
                 continue;
             }
             run.Engaged = on;
+            run.DisengagedBy = null;
             run.Memory = ChaseMemory.Start;
             if (on)
             {

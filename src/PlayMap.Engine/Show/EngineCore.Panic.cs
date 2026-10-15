@@ -13,8 +13,9 @@ namespace PlayMap.Engine;
 
 /// <summary>PANIC, PANIC CLEAR, PANIC SET and MASTER. Every level is a fade on the show clock (<see cref="AirFade"/>), so a dropped
 /// frame heals and every node fades on the same frames; the render thread reads <see cref="AirLevels"/>, built on the lane once
-/// per change. A panic's transport outcome (pause, rewind, next) lands at its fade's end, at that instant on the show clock; a
-/// second PANIC while a fade runs is the hard stop. PANIC is never refused for a paired person.</summary>
+/// per change. A panic's transport outcome (pause, rewind, next) lands at its fade's end, at that instant on the show clock, and
+/// holds whatever drives the playlist (a timecode chase lets go first); a second PANIC while a fade runs is the hard stop. PANIC is
+/// never refused for a paired person.</summary>
 public sealed partial class EngineCore
 {
     private const long NsPerMs = 1_000_000;
@@ -31,6 +32,16 @@ public sealed partial class EngineCore
 
     /// <summary>A panic's own line waiting for the panic's instant (PANIC … AT).</summary>
     private sealed record PanicLine(long AtLeaderNs, string Text, string Key);
+
+    /// <summary>What let go of a playlist (or will, at its step's instant) so a panic's transport outcome holds: the playlist and
+    /// the words.</summary>
+    private sealed record PanicRelease(string PlaylistId, string Words, long AtLeaderNs, bool Done);
+
+    /// <summary>Whatever drives a playlist's transport besides a hand (wp2-control's timecode chase) lets go of it before a panic
+    /// step moves it, so the step's outcome holds whatever drives the playlist. With <paramref name="commit"/> it lets go at
+    /// <paramref name="atLeaderNs"/> (its owner's STATE says so, and nothing takes it back but its own verb); without, it only names
+    /// what would let go. <paramref name="words"/> stays null when nothing else drives the playlist. On the lane.</summary>
+    partial void ReleaseForPanic(Playlist list, PanicOutcome outcome, long atLeaderNs, bool commit, ref string? words);
 
     private readonly List<PanicLine> _panicLinesDue = [];
 
@@ -80,7 +91,8 @@ public sealed partial class EngineCore
             : current with { Outputs = current.Outputs.AddRange(entries), Seq = ++_panicSeq };
         _returns = [.. _returns.Where(r => !entries.Any(e => e.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
-        SchedulePanicSteps(p, entries, now);
+        var released = Releases(p, entries, SchedulePanicSteps(p, entries, now));
+        notes.AddRange(released.Select(ReleaseNote));
         RunPanicLines(p, entries, clear: false, start);
         RebuildLevels();
         RaiseEvent("panic", start, w =>
@@ -89,7 +101,7 @@ public sealed partial class EngineCore
             w.WriteBoolean("hard", false);
         });
         var word = outcome is { } o1 ? PanicMath.Word(o1) : "as planned";
-        return CommandReply.Success(PanicReply(panic, entries, hard: false, notes),
+        return CommandReply.Success(PanicReply(panic, entries, hard: false, notes, released),
             $"PANIC {word} on {Plural(entries.Count, "output")} by {c.Session.ClientName}{(notes.Count > 0 ? " — " + string.Join("; ", notes) : "")}");
     }
 
@@ -131,14 +143,16 @@ public sealed partial class EngineCore
         _panicLinesDue.Clear();
         _returns = [.. _returns.Where(r => !outputs.Any(o => o.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
-        SchedulePanicSteps(Store.Project, outputs, now);
+        var released = Releases(Store.Project, outputs, SchedulePanicSteps(Store.Project, outputs, now));
+        var notes = released.Select(ReleaseNote).ToList();
         RebuildLevels();
         RaiseEvent("panic", now, w =>
         {
             w.WriteString("outcome", "hard");
             w.WriteBoolean("hard", true);
         });
-        return CommandReply.Success(PanicReply(panic, outputs, hard: true, []), $"PANIC hard: every output black at once by {session.ClientName}");
+        return CommandReply.Success(PanicReply(panic, outputs, hard: true, notes, released),
+            $"PANIC hard: every output black at once by {session.ClientName}{(notes.Count > 0 ? " — " + string.Join("; ", notes) : "")}");
     }
 
     private CommandReply PanicClear(VerbCall c)
@@ -365,8 +379,8 @@ public sealed partial class EngineCore
     }
 
     /// <summary>Each playlist an output shows waits for the most conservative transport outcome among the outputs showing it, at
-    /// the latest of their fades' ends; HARD pauses now.</summary>
-    private void SchedulePanicSteps(Project p, IEnumerable<OutputPanicAir> entries, long now)
+    /// the latest of their fades' ends; HARD pauses now. Answers what let go of a playlist for the steps that ran now.</summary>
+    private List<PanicRelease> SchedulePanicSteps(Project p, IEnumerable<OutputPanicAir> entries, long now)
     {
         foreach (var e in entries)
         {
@@ -386,8 +400,30 @@ public sealed partial class EngineCore
                 }
             }
         }
-        RunDueSteps(now);
+        var released = new List<PanicRelease>();
+        RunDueSteps(now, released);
+        return released;
     }
+
+    /// <summary>What lets go of the playlists a panic holds: what let go for the steps that ran now, then what will let go when each
+    /// of its waiting steps comes.</summary>
+    private List<PanicRelease> Releases(Project p, IEnumerable<OutputPanicAir> entries, List<PanicRelease> done)
+    {
+        var held = entries.Where(e => PanicMath.Severity(e.Outcome) > 0).Select(e => p.FindOutput(e.OutputId)).OfType<Output>()
+            .SelectMany(o => PlaylistsShownBy(p, o)).ToHashSet(StringComparer.Ordinal);
+        foreach (var s in _panicSteps)
+        {
+            if (!held.Contains(s.PlaylistId) || p.FindPlaylist(s.PlaylistId) is not { } list)
+                continue;
+            string? words = null;
+            ReleaseForPanic(list, s.Outcome, s.AtLeaderNs, commit: false, ref words);
+            if (words is not null)
+                done.Add(new PanicRelease(list.Id, words, s.AtLeaderNs, false));
+        }
+        return done;
+    }
+
+    private static string ReleaseNote(PanicRelease r) => r.Done ? r.Words : "at the fade's end, " + r.Words;
 
     private void DropStepsNotShownBy(Project p, ImmutableArray<OutputPanicAir> remaining)
     {
@@ -395,7 +431,7 @@ public sealed partial class EngineCore
         _panicSteps.RemoveAll(s => !shown.Contains(s.PlaylistId));
     }
 
-    private void RunDueSteps(long now)
+    private void RunDueSteps(long now, List<PanicRelease>? released)
     {
         for (var i = 0; i < _panicSteps.Count;)
         {
@@ -406,18 +442,27 @@ public sealed partial class EngineCore
                 continue;
             }
             _panicSteps.RemoveAt(i);
-            RunStep(s);
+            if (RunStep(s) is { } r)
+                released?.Add(r);
         }
     }
 
-    /// <summary>A transport outcome at its instant on the show clock: BLACK and HARD pause, REWIND cues the item that was on at
-    /// its in-point, NEXT cues the next item. A playlist with nothing loaded is left as it is.</summary>
-    private void RunStep(PanicStep s)
+    /// <summary>A transport outcome at its instant on the show clock: whatever else drives the playlist (a timecode chase) lets go
+    /// first, so the outcome holds; then BLACK and HARD pause, REWIND cues the item that was on at its in-point, NEXT cues the next
+    /// item. A playlist with nothing loaded is left as it is. Answers what let go, if anything did.</summary>
+    private PanicRelease? RunStep(PanicStep s)
     {
         var list = Store.Project.FindPlaylist(s.PlaylistId);
+        if (list is null)
+            return null;
+        string? words = null;
+        ReleaseForPanic(list, s.Outcome, s.AtLeaderNs, commit: true, ref words);
+        var released = words is null ? null : new PanicRelease(list.Id, words, s.AtLeaderNs, true);
+        if (released is not null)
+            Journal.Add("panic", $"panic {PanicMath.Json(s.Outcome)}: {released.Words}");
         var lane = Playback.Lane(s.PlaylistId);
-        if (list is null || lane is null || lane.IsIdle)
-            return;
+        if (lane is null || lane.IsIdle)
+            return released;
         var (_, clip, itemId) = lane.At(s.AtLeaderNs);
         var index = itemId is null ? -1 : list.Items.IndexOfId(itemId);
         (bool Ok, string Words) done = s.Outcome switch
@@ -429,6 +474,7 @@ public sealed partial class EngineCore
         };
         if (done.Ok)
             Journal.Add("panic", $"panic {PanicMath.Json(s.Outcome)}: {done.Words}");
+        return released;
     }
 
     /// <summary>Every playlist an output's picture comes from: its source, a canvas's layers, a projector output's surfaces, and
@@ -552,7 +598,7 @@ public sealed partial class EngineCore
     private void TickPanic(long now)
     {
         if (_panicSteps.Count > 0)
-            RunDueSteps(now);
+            RunDueSteps(now, null);
         for (var i = 0; i < _panicLinesDue.Count;)
         {
             var due = _panicLinesDue[i];
@@ -617,7 +663,7 @@ public sealed partial class EngineCore
         Journal.Add("recovery", $"in panic again: {Plural(outputs.Count, "output")} at {PanicMath.Json(outcome)} as when the node went away");
     }
 
-    private string PanicReply(PanicAir panic, IEnumerable<OutputPanicAir> entries, bool hard, List<string> notes) => JsonOut(w =>
+    private string PanicReply(PanicAir panic, IEnumerable<OutputPanicAir> entries, bool hard, List<string> notes, List<PanicRelease> released) => JsonOut(w =>
     {
         w.WriteStartObject();
         w.WriteString("outcome", hard ? "hard" : PanicMath.Json(panic.Outcome));
@@ -635,6 +681,17 @@ public sealed partial class EngineCore
         }
         w.WriteEndArray();
         WritePanicLines(w);
+        w.WriteStartArray("released");
+        foreach (var r in released)
+        {
+            w.WriteStartObject();
+            w.WriteString("playlist", r.PlaylistId);
+            w.WriteBoolean("done", r.Done);
+            w.WriteNumber("atLeaderNs", r.AtLeaderNs);
+            w.WriteString("words", r.Words);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
         if (notes.Count > 0)
             w.WriteString("notes", string.Join("; ", notes));
         w.WriteEndObject();
