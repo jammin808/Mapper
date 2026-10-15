@@ -85,3 +85,23 @@ Round 2 W1 notes:
   OutputStage); onboarding.contentAt is stamped on the lane (needs a first-content callback from the render host);
   air.overlay.cursorP95Ms not measured; wall.json rounds solver numbers to 3 decimals (watch Windows CI);
   OpsHostTests.ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd failed once under load (watch it).
+
+## The Windows CI job (facts for every later package)
+
+- The `windows` job runs every test project to its end on `windows-latest` and fails naming each project that failed: OpenGL is
+  Mesa's llvmpipe (mesa-dist-win's x64 DLLs copied beside `dotnet.exe` and each test output folder, `GALLIUM_DRIVER=llvmpipe`),
+  FFmpeg is 9.0's win64 shared build (`PLAYMAP_FFMPEG_DIR=.ffmpeg\bin`). Its PowerShell step once took only its last command's
+  exit code, so Core and Engine failures on Windows went unseen; a step that runs several native commands collects each one's
+  `$LASTEXITCODE`.
+- A test whose fact differs by platform asserts each platform's own (house style, as NVAPI's tier test does), never skips:
+  the DISPLAY/WAYLAND_DISPLAY rule is Linux's (Windows never reads them); ES is made on WGL on Windows (no surfaceless EGL there);
+  the native binding word is `wgl`; the capture format is `CaptureDevices.PlatformFormat`; a fixture pins the binding as it pins
+  the renderer.
+- Files on Windows: a file another process may hold is opened sharing read, write and delete (preview rings, the node's settings);
+  `File.Move(…, overwrite: true)` is refused while any reader holds the target, even one sharing delete, so a file the node
+  replaces whole while others read it goes through `FileReplace.Over` (a POSIX-semantics rename). The node's settings and
+  recovery record do; the other write-aside-then-move sites (project save, credentials, pins, thumbnails, scans, models, media
+  transfer, the hash cache) still use `File.Move` and are refused the same way while read.
+- Text: generated fixture JSON is written with `FixtureJson.Indented` ("\n" on every machine); a checkout may give a test's raw
+  string literals CRLF. Paths on the wire: a quoted backslash is itself unless it escapes a quote or a backslash, and
+  `WireGrammar.Quote` writes a path as it would be typed.
