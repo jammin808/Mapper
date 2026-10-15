@@ -202,7 +202,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "1fc773ec137b8f81"
+    "index": "0fda314ed399e81e"
   },
   "faults": [],
   "ai": {
@@ -434,6 +434,21 @@
         "warnings": []
       }
     ]
+  },
+  "led": {
+    "output": false,
+    "level": 1,
+    "fixtures": 0,
+    "pixels": 0,
+    "universes": 0,
+    "mbps": 0,
+    "test": null,
+    "locate": null,
+    "lagMs": 0,
+    "lateCollects": 0,
+    "nodes": [],
+    "conflicts": [],
+    "warnings": []
   },
   "calibration": {
     "moved": [],

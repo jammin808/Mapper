@@ -66,7 +66,10 @@ public readonly record struct SyncPacket(byte Kind, uint Seq, long T1, long T2, 
 }
 
 /// <summary>The leader's side: answers each request with t2 (read) and t3 (answer) on its <see cref="NetworkClock"/> —
-/// a leader's own clock, or a follower's estimate of its leader's (so a chain still answers in leader time).</summary>
+/// a leader's own clock, or a follower's estimate of its leader's (so a chain still answers in leader time). The same socket
+/// takes the group's vblank reports (<see cref="VblankReport"/>, told apart by their magic): a report is admitted only from an
+/// address that asked for the time within the last 10 s, and handed to the sink registered for this clock
+/// (<see cref="VblankSinks"/>); anything else is refused and counted.</summary>
 public sealed class ClockSyncResponder : IAsyncDisposable
 {
     private readonly NodeSettings _settings;
@@ -76,8 +79,10 @@ public sealed class ClockSyncResponder : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private Socket? _socket;
     private Task? _loop;
+    private readonly Dictionary<IPAddress, long> _askers = [];
     private long _answered;
     private long _refused;
+    private long _reports;
 
     /// <param name="port">The port; null = <see cref="NodeSettings.SyncPort"/>, 0 = any free port.</param>
     public ClockSyncResponder(NodeSettings settings, NetworkClock clock, int? port = null, ILogger? log = null)
@@ -92,8 +97,17 @@ public sealed class ClockSyncResponder : IAsyncDisposable
 
     public long Answered => Interlocked.Read(ref _answered);
 
-    /// <summary>Datagrams that were not a request: refused unanswered.</summary>
+    /// <summary>Datagrams that were neither a request nor an admitted report: refused unanswered.</summary>
     public long Refused => Interlocked.Read(ref _refused);
+
+    /// <summary>Vblank reports admitted and handed to the sink.</summary>
+    public long Reports => Interlocked.Read(ref _reports);
+
+    /// <summary>A report's sender must have asked for the time within this long.</summary>
+    public static readonly TimeSpan AskedWithin = TimeSpan.FromSeconds(10);
+
+    /// <summary>The askers remembered at most (the oldest are forgotten first).</summary>
+    private const int AskersKept = 1024;
 
     public void Start()
     {
@@ -138,11 +152,19 @@ public sealed class ClockSyncResponder : IAsyncDisposable
                 continue;
             }
             var t2 = _clock.NowNs;
-            if (!SyncPacket.TryRead(buffer.AsSpan(0, r.ReceivedBytes), out var request) || request.Kind != SyncPacket.Request)
+            var bytes = buffer.AsSpan(0, r.ReceivedBytes);
+            if (VblankReport.Claims(bytes))
+            {
+                if (!Admit(bytes, r.RemoteEndPoint))
+                    Interlocked.Increment(ref _refused);
+                continue;
+            }
+            if (!SyncPacket.TryRead(bytes, out var request) || request.Kind != SyncPacket.Request)
             {
                 Interlocked.Increment(ref _refused);
                 continue;
             }
+            Asked(r.RemoteEndPoint);
             new SyncPacket(SyncPacket.Reply, request.Seq, request.T1, t2, _clock.NowNs).Write(reply);
             try
             {
@@ -160,6 +182,44 @@ public sealed class ClockSyncResponder : IAsyncDisposable
                 return;
             }
         }
+    }
+
+    /// <summary>Remembers that an address asked for the time now (on the local monotonic clock).</summary>
+    private void Asked(EndPoint from)
+    {
+        if (from is not IPEndPoint ep)
+            return;
+        var now = _clock.Local.NowNs;
+        lock (_askers)
+        {
+            if (_askers.Count >= AskersKept && !_askers.ContainsKey(NetAddress.Normal(ep.Address)))
+            {
+                var oldest = _askers.MinBy(kv => kv.Value).Key;
+                _askers.Remove(oldest);
+            }
+            _askers[NetAddress.Normal(ep.Address)] = now;
+        }
+    }
+
+    /// <summary>A report from an address that asked for the time lately, read whole, to the sink registered for this clock.</summary>
+    private bool Admit(ReadOnlySpan<byte> bytes, EndPoint from)
+    {
+        if (from is not IPEndPoint ep || !VblankReport.TryRead(bytes, out var report))
+            return false;
+        var address = NetAddress.Normal(ep.Address);
+        long asked;
+        lock (_askers)
+        {
+            if (!_askers.TryGetValue(address, out asked))
+                return false;
+        }
+        if (_clock.Local.NowNs - asked > (long)AskedWithin.TotalMilliseconds * Durations.NsPerMs)
+            return false;
+        if (VblankSinks.For(_clock) is not { } sink)
+            return false;
+        sink.Offer(report, address);
+        Interlocked.Increment(ref _reports);
+        return true;
     }
 
     public async ValueTask DisposeAsync()
@@ -259,11 +319,12 @@ public sealed class ClockSyncClient : IAsyncDisposable
     /// <summary>Replies that matched no request of ours (or failed the format): dropped.</summary>
     public long Strays => Interlocked.Read(ref _strays);
 
-    /// <summary>Starts (or moves) the exchange to a leader. The estimate starts over: two leaders' clocks differ.</summary>
+    /// <summary>Starts (or moves) the exchange to a leader. The estimate starts over: two leaders' clocks differ. The clock keeps
+    /// the time line it reads until the new leader's first answer, which it then slews or steps to (never via this node's own).</summary>
     public async Task FollowAsync(IPEndPoint leader)
     {
         ArgumentNullException.ThrowIfNull(leader);
-        await StopAsync();
+        await StopExchangeAsync();
         var socket = new Socket(leader.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         socket.Bind(new IPEndPoint(leader.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any, 0));
         lock (_gate)
@@ -273,18 +334,25 @@ public sealed class ClockSyncClient : IAsyncDisposable
             _leader = leader;
         }
         _snapshot = SyncSnapshot.None with { Leader = leader.ToString() };
-        Clock.Lead();
         _socket = socket;
         _run = new CancellationTokenSource();
         var ct = _run.Token;
         _loops = Task.WhenAll(Task.Run(() => AskAsync(socket, leader, ct), CancellationToken.None), Task.Run(() => HearAsync(socket, ct), CancellationToken.None));
     }
 
-    /// <summary>Stops following: the node keeps its own clock from here (the last estimate is dropped).</summary>
+    /// <summary>Stops following: the node keeps its own clock from here (the last estimate is dropped; the clock slews or steps
+    /// back to the node's own).</summary>
     public async Task StopAsync()
     {
+        if (await StopExchangeAsync())
+            Clock.Lead();
+    }
+
+    /// <summary>Ends the exchange and forgets the leader, leaving the clock's mapping as it is; false when none ran.</summary>
+    private async Task<bool> StopExchangeAsync()
+    {
         if (_run is null)
-            return;
+            return false;
         await _run.CancelAsync();
         _socket?.Dispose();
         try
@@ -299,9 +367,10 @@ public sealed class ClockSyncClient : IAsyncDisposable
         _run.Dispose();
         _run = null;
         _socket = null;
-        _leader = null;
-        Clock.Lead();
+        lock (_gate)
+            _leader = null;
         _snapshot = SyncSnapshot.None;
+        return true;
     }
 
     private async Task AskAsync(Socket socket, IPEndPoint leader, CancellationToken ct)
@@ -376,6 +445,13 @@ public sealed class ClockSyncClient : IAsyncDisposable
             var sample = new ClockSample(reply.T1, reply.T2, reply.T3, t4);
             if (sample.RoundTrip < 0)
                 return false;
+            if (Moved(sample))
+            {
+                // The leader's time line moved (it restarted, or now continues another line): the samples of the old line are dropped,
+                // or their shorter round trips would keep the clock on it until they aged out.
+                _log.LogInformation("The leader's clock moved by more than its round trips allow: the estimate starts over.");
+                _samples.Clear();
+            }
             _samples.Enqueue(sample);
             while (_samples.Count > Kept)
                 _samples.Dequeue();
@@ -390,6 +466,17 @@ public sealed class ClockSyncClient : IAsyncDisposable
             _snapshot = new SyncSnapshot(_leader.ToString(), estimator.Offset, rtt, published.Drift * 1e6, estimator.Samples, quality);
             return true;
         }
+    }
+
+    /// <summary>True when <paramref name="sample"/>'s offset is further from the kept samples' best than both round trips' halves
+    /// and a millisecond allow: the same leader time line cannot read so. Under the gate.</summary>
+    private bool Moved(ClockSample sample)
+    {
+        if (_samples.Count == 0)
+            return false;
+        var best = _samples.MinBy(s => s.RoundTrip);
+        var allowed = (best.RoundTrip + sample.RoundTrip) / 2.0 + Durations.NsPerMs + Math.Abs(sample.T1 - best.T1) * MaxDrift;
+        return Math.Abs(sample.Offset - best.Offset) > allowed;
     }
 
     /// <summary>A fresh estimator from the recent samples, never written after it is published. Drift is applied

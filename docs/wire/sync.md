@@ -1,18 +1,116 @@
 # wp2-sync on the wire
 
-*Generated from the catalogue by `tools/gen_stubs.py`; the package owns this file and keeps it to what it ships. A row is
-answered "not available on this node yet" until the package routes it, and `VERBS` marks it `"available"` once it is.*
+The group's clock, anchors, air and vblank verdict, network side. The design is `docs/SYNC.md`.
 
 ## Verbs
 
 | Verb | Syntax | Words | Risk | Changes the show |
 |---|---|---|---|---|
-| `SYNC LATENCY` | `SYNC LATENCY AUTO\|<ms 0-500>` | The group's air latency (AUTO: the largest output latency any member reports) | review | yes |
+| `SYNC LEAD` | `SYNC LEAD <group>` | This node leads a sync group (kept for the next start) | review | yes |
+| `SYNC FOLLOW` | `SYNC FOLLOW <group> <node>` | This node follows a sync group's leader (kept for the next start) | review | yes |
+| `SYNC STATUS` | `SYNC STATUS` | The clock, the group, the feed and the board's verdict | low | no |
+| `SYNC RECEIPT` | `SYNC RECEIPT <seq> ACCEPTED\|APPLIED\|REFUSED <leader ns> [<words>]` | A group member's answer to an air line its leader fanned out | low | no |
+| `SUBSCRIBE ANCHORS` | `SUBSCRIBE ANCHORS [<node> [<output>…]]` | The group's feed (a topic of SUBSCRIBE) | low | no |
+
+With the sync part, the round-one rows `SYNC LEAD`, `SYNC FOLLOW` and `LINK PATTERNS` are answered by it:
+
+- **`SYNC LEAD <group>`** (off the lane) answers once this node leads: `leading show: followers take this node's clock on UDP
+  9942`. Refused: a group word that is not letters, digits, `-` and `_` (up to 32); "already leading show"; the clock-sync port
+  could not listen.
+- **`SYNC FOLLOW <group> <node>`** (by id or name, off the lane) answers once the exchange runs and the feed is dialled.
+  Refused: no such PlayMap node heard; the node itself; a quiet node; "already following FOH (0badc0de) for show" while that
+  leader is heard and its feed live.
+- **`LINK PATTERNS FOLLOW-BLACKOUT ON|OFF`** is kept in `NodeSettings.Sync.followPatternsBlackout`.
+- **`SYNC RECEIPT`** is accepted only from the session whose subscription the air line went to, while the leader waits for it;
+  anything else: "no air line 7 waits for a receipt from this session". Ephemeral (not journalled).
+- **`SUBSCRIBE ANCHORS`** is open like every subscription (anchors are transport facts already in STATE; no secret rides the
+  feed). Its words are this subscriber's node id and output ids (letters, digits, `-`, `_`; up to 64 outputs): a subscriber
+  that names a node is a **member** (waited for, heard on the board); one that names none only reads. A node is named only by
+  itself: the session is paired, or the show network hears that PlayMap node saying hello from the session's address (else
+  "SUBSCRIBE ANCHORS 9f8e7d6c: no PlayMap node 9f8e7d6c is heard from 10.0.0.66 — …"). A member that comes back from its own
+  address replaces its old subscription. Anything else is refused with the syntax. A member sends
+  `SUBSCRIBE ANCHORS 9f8e7d6c op_1 op_2`.
+
+## The feed's lines (leader → member, in order)
+
+```
+ANCHOR show pl_show {"index":0,"itemId":"it_a","state":"Playing","mediaNs":0,"leaderNs":1007300000000,"rate":1,"running":true,"inNs":0,"outNs":10000000000,"loop":false,"seq":1}
+ANCHOR show @air {"feed":"5c1e9a07","seq":3,"line":"PANIC FADE 1000","leaderNs":1007300000000}
+ANCHOR show @lock {"apply":true,"swapGroup":1,"barrier":1,"counter":{"count24":1193046,"leaderNs":987654321000,"periodPs":16666666667,"effectiveAt24":1193166,"seq":5}}
+```
+
+`feed` is new per leader process and `seq` counts within it: a member runs each (feed, seq) once. A member answers each `@air`
+line on the same connection:
+
+```
+@s7 SYNC RECEIPT 3 APPLIED 1007300000000 PANIC as planned on 1 output by FOH (sync leader)
+```
+
+`ACCEPTED` first when the line's instant is still to come or a line before it still waits (or when the line only started, as
+PREFLIGHT does); `APPLIED` with
+the leader instant the line took effect there — the leader's instant, or the member's own now when the line reached it later (a
+fade still runs as if from the leader's instant; a switch such as BLACKOUT lands when it runs); `REFUSED` with the member's words
+when its gate or the line refuses — a `PANIC` from no later than the panic it is in is "already in this panic since …" (the same
+press handed again). A member's answer for a line due after the leader stopped waiting reaches the leader as a
+late receipt (journalled "BLACKOUT ON on Stage: applied at its instant").
+
+## IFleetFanout (for wp2-blind and wp2-backup)
+
+`EngineServices.Fanout` (the sync part) — `Members`: the node ids subscribed as members while this node leads (empty otherwise);
+`SendAsync(line, atLeaderNs, ct)`: pushes `ANCHOR <group> @air {…}` to every subscriber and answers one `FanoutReceipt(Node,
+Name, Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `accepted` (its instant is still to come) or
+`silent` (no answer within 2 s: one deadline for every member of the send). The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
+sync part when they run (from the journal's verb rows; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes
+as `AT +<ms>`): a package must not send them through `SendAsync` again.
+
+## PMVB (member → leader, UDP, the clock-sync port)
+
+64 bytes, little-endian: `"PMVB"`, version 1, lock state (0–7, `LockState`), flags (settled, board…), path (0 offscreen, 1 gl,
+2 dxgi-flip), node id (u32, its eight hex), output id hash (FNV-1a 32 of the UTF-8 id), sequence, board count (24 bits), period
+(ps on the leader's time base, 1 000 000 000 … 50 000 000 000), last vblank (leader ns, ≥ 0), refresh index, missed in 60 s (≤ 60 000), house sync
+(milli-Hz), air latency (µs, 0 … 500 000), the sender's clock uncertainty (µs, ≤ 1 000 000: half its best round trip plus any correction still being slewed). Any other length, magic, version or
+an out-of-range field is dropped and counted (`Refused` on the responder).
 
 ## STATE
 
-`sync.group`, `feed`, `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words`.
+```jsonc
+"sync": {"role":"leader","leader":"0badc0de","offsetMs":0,"rttMs":0,"driftPpm":0,"groups":["show"],
+  "group":"show","feed":"live|connecting|lost|off","slewing":false,"steps":0,"freewheelS":0,
+  "outputs":[{"node":"9f8e7d6c","output":"op_1","state":"free-measured","path":"gl","refreshHz":59.999,"ppm":-16.67,
+              "phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"missed60s":0,"frameCount":0,"heard":true}],
+  "pairs":[{"a":"op_1","aNode":"0badc0de","b":"op_1","bNode":"9f8e7d6c","phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"mixedRate":false}],
+  "verdict":"same vblank|free-running|mixed rate|unknown","words":"leading show with 1 member; …",
+  …wp2-output's "latencyMs" and "lock"}
+```
+
+The fixture is `tests/fixtures/state/sync.json` (SYNC STATUS on a leader), its cards `sync.cards.json`.
+
+**Events**: `sync.stepped {deltaNs}`, `sync.leader.lost {leader}`, `sync.mixedrate {words}`.
 
 ## Papers note
 
-(What shipped, for the integration docs pass.)
+For the integration docs pass (`WIRE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `UX.md`):
+
+- WIRE.md: the rows above (SYNC RECEIPT added in this block; SYNC LATENCY trimmed to next round), the ANCHORS topic with its
+  words, the three feed lines, PMVB on the clock-sync port, the STATE keys and events. **`sync.offsetMs` means the follower's
+  leader-time uncertainty (half the best exchange's round trip), not the raw difference between two machines' clocks** (the
+  round-one carry-over): a 5 s gap between two machines' monotonic clocks reads `offsetMs` ≈ 0.05 on a switch.
+- ARCHITECTURE.md: the leader clock slews (≤ 1 ms at 200 ppm) and steps on the lane with a rebase of every anchor; anchors and
+  the group's air reach members through their own verbs, pinned to the leader's instant; the board's measured software tier.
+- ROADMAP.md: carry-overs closed — anchors carried to followers and the role kept (AnchorFeedTests), following never makes a
+  playlist jump (ClockSlewTests). Next: SYNC LATENCY, succession, the frame code and certificate.
+- UX.md: the desk's Sync tab reads `sync` (cards in `sync.cards.json`); its follow/lead buttons send `SYNC LEAD|FOLLOW`.
+- The catalogue gate (`tests/PlayMap.Assistant.Tests/CatalogueTests.cs`) gained `AddedRows` beside `TrimmedRows` to admit
+  `SYNC RECEIPT`, the protocol row item 4's receipts need.
+
+Seams outside this package that would close what SYNC.md lists as not yet (spine amendments):
+
+- `NetworkHost.PersistAsync(Func<NodeSettings, NodeSettings>)`, the one writer of the node's settings file: the sync part writes
+  `NodeSettings.Sync` read-fresh under its own lock today, so a later `NetworkHost.Persist` (LINK PATTERNS, a new token) writes its
+  start-time copy of `sync` back over it.
+- The verb row journalled inside the lane action (or a lane-side "line ran" hook), so the fan-out numbers air lines in lane order
+  and reads the lane's instant.
+- A step epoch (or the clock mapping) in the published snapshot, so a frame never pairs a stepped clock with an unrebased snapshot;
+  the frame-lock counter's anchor moved by a step.
+- A group lead for switches (`BLACKOUT`): the leader takes it at now + lead and sends that instant, so members land on its frame.
+- `PREFLIGHT ALL` sending through show's `FanOut` as `SHOW ARM ALL` does.

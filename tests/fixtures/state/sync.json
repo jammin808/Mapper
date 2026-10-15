@@ -1,1 +1,74 @@
-{}
+{
+  "sync": {
+    "role": "leader",
+    "leader": "0badc0de",
+    "offsetMs": 0,
+    "rttMs": 0,
+    "driftPpm": 0,
+    "groups": [
+      "show"
+    ],
+    "group": "show",
+    "feed": "live",
+    "slewing": false,
+    "steps": 0,
+    "freewheelS": 0,
+    "outputs": [
+      {
+        "node": "0badc0de",
+        "output": "op_1",
+        "state": "free-measured",
+        "path": "gl",
+        "refreshHz": 60,
+        "ppm": 0,
+        "phaseUs": 0,
+        "uncertaintyUs": 0,
+        "nextSlipS": null,
+        "missed60s": 0,
+        "frameCount": 0,
+        "heard": true
+      },
+      {
+        "node": "9f8e7d6c",
+        "output": "op_1",
+        "state": "free-measured",
+        "path": "gl",
+        "refreshHz": 59.999,
+        "ppm": 16.67,
+        "phaseUs": 3.21,
+        "uncertaintyUs": 0,
+        "nextSlipS": 499.8,
+        "missed60s": 0,
+        "frameCount": 0,
+        "heard": true
+      }
+    ],
+    "pairs": [
+      {
+        "a": "op_1",
+        "aNode": "0badc0de",
+        "b": "op_1",
+        "bNode": "9f8e7d6c",
+        "phaseUs": 3.21,
+        "uncertaintyUs": 0,
+        "nextSlipS": 499.8,
+        "mixedRate": false
+      }
+    ],
+    "verdict": "free-running",
+    "words": "leading show with 1 member; 2 nodes, 2 outputs free-running; worst pair 3 \u00B5s \u00B1 0 \u00B5s; next slip in 8 min 20 s",
+    "latencyMs": 0,
+    "lock": {
+      "state": "free-unknown",
+      "driver": "none",
+      "board": null,
+      "words": "no render host on this node",
+      "applied": false,
+      "locked": 0,
+      "fellOut": 0,
+      "rejoins": 0,
+      "time": "clock",
+      "refused": null
+    }
+  }
+}

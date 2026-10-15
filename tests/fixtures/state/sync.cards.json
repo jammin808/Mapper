@@ -1,1 +1,173 @@
-[]
+[
+  {
+    "title": "Sync",
+    "path": "sync",
+    "light": [
+      {
+        "if": "freewheelS",
+        "light": "red"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{role} \u00B7 {group} \u00B7 {verdict} \u2014 {words}",
+    "fields": [
+      {
+        "label": "Role",
+        "path": "role"
+      },
+      {
+        "label": "Group",
+        "path": "group"
+      },
+      {
+        "label": "Leader",
+        "path": "leader"
+      },
+      {
+        "label": "Feed",
+        "path": "feed"
+      },
+      {
+        "label": "Verdict",
+        "path": "verdict"
+      },
+      {
+        "label": "Steps",
+        "path": "steps"
+      }
+    ],
+    "actions": [
+      "SYNC STATUS",
+      "SYNC LEAD show",
+      "SYNC FOLLOW show 0badc0de"
+    ]
+  },
+  {
+    "title": "Clock",
+    "path": "sync",
+    "light": [
+      {
+        "if": "slewing",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "\u00B1 {offsetMs} ms \u00B7 {steps} steps",
+    "fields": [
+      {
+        "label": "Uncertainty (ms)",
+        "path": "offsetMs"
+      },
+      {
+        "label": "Round trip (ms)",
+        "path": "rttMs"
+      },
+      {
+        "label": "Drift (ppm)",
+        "path": "driftPpm"
+      },
+      {
+        "label": "Slewing",
+        "path": "slewing"
+      },
+      {
+        "label": "Steps",
+        "path": "steps"
+      },
+      {
+        "label": "Free-wheel (s)",
+        "path": "freewheelS"
+      }
+    ],
+    "actions": [
+      "SYNC STATUS"
+    ]
+  },
+  {
+    "title": "Vblanks",
+    "path": "sync.outputs",
+    "light": [
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{count} outputs",
+    "fields": [
+      {
+        "label": "Node",
+        "path": "0.node"
+      },
+      {
+        "label": "Output",
+        "path": "0.output"
+      },
+      {
+        "label": "Refresh (Hz)",
+        "path": "0.refreshHz"
+      },
+      {
+        "label": "Phase (\u00B5s)",
+        "path": "0.phaseUs"
+      },
+      {
+        "label": "\u00B1 (\u00B5s)",
+        "path": "0.uncertaintyUs"
+      },
+      {
+        "label": "Missed (60 s)",
+        "path": "0.missed60s"
+      }
+    ],
+    "actions": [
+      "SYNC STATUS",
+      "OUTPUT STATS"
+    ]
+  },
+  {
+    "title": "Pairs",
+    "path": "sync.pairs",
+    "light": [
+      {
+        "if": "0.mixedRate",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{count} pairs",
+    "fields": [
+      {
+        "label": "A",
+        "path": "0.a"
+      },
+      {
+        "label": "B",
+        "path": "0.b"
+      },
+      {
+        "label": "B on",
+        "path": "0.bNode"
+      },
+      {
+        "label": "Phase (\u00B5s)",
+        "path": "0.phaseUs"
+      },
+      {
+        "label": "\u00B1 (\u00B5s)",
+        "path": "0.uncertaintyUs"
+      },
+      {
+        "label": "Next slip (s)",
+        "path": "0.nextSlipS"
+      }
+    ],
+    "actions": [
+      "SYNC STATUS"
+    ]
+  }
+]
