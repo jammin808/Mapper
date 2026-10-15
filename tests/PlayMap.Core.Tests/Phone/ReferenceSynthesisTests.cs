@@ -35,19 +35,31 @@ public sealed class ReferenceSynthesisTests
     }
 
     [Fact]
-    public void AWalkingGainIsLevelledAndItsDriftReported()
+    public void EachFramesGainIsReadFromThePictureAndADriftOnlyAMovingCameraHas()
     {
         var walking = TagKit.Floor(new SimOptions { GainWalk = 0.01, Seed = 5 });
         var frames = walking.Simulator.RenderAll();
-        var gains = Enumerable.Range(0, walking.Plan.Count).Select(walking.Simulator.GainOf).ToArray();
-        Assert.True(gains.Max() / gains.Min() > 1.03, "the walk moved");
-        var drift = GainNormaliser.PrepareSteady(walking.Plan, frames);
-        Assert.True(drift > 1, $"drift {drift} %");
+        var truth = Enumerable.Range(0, walking.Plan.Count).Select(walking.Simulator.GainOf).ToArray();
+        Assert.True(truth.Max() / truth.Min() > 1.03, "the walk moved");
+        ReferenceSynthesis.Fill(walking.Plan, frames);
+        var gains = GainNormaliser.Gains(walking.Plan, frames, GainNormaliser.LitMask(walking.Plan, frames));
+        Assert.Equal(walking.Plan.Count - 2, gains.Count);
+        // Read against references that carry gains of their own, the estimates are the true gains up to one common factor.
+        var common = Median(gains.Select(g => g.Value / truth[g.Key]).ToList());
+        foreach (var (i, g) in gains)
+            Assert.True(Math.Abs(g / truth[i] / common - 1) < 0.01, $"frame {i}: read {g:0.000}, truth {truth[i]:0.000}");
+        var drift = GainNormaliser.PrepareSteady(walking.Plan, walking.Simulator.RenderAll());
+        Assert.True(drift > 2, $"drift {drift} %");
 
+        // A camera that holds still reads as still, whatever the picture shows.
         var steady = TagKit.Floor(new SimOptions { Seed = 5 });
         var still = steady.Simulator.RenderAll();
-        Assert.True(GainNormaliser.PrepareSteady(steady.Plan, still) < drift);
-        // After levelling, the phase frames of the walking camera agree with the still camera's to within a level or two.
+        var stillDrift = GainNormaliser.PrepareSteady(steady.Plan, still);
+        Assert.True(stillDrift < 0.5, $"a still camera drifted {stillDrift} %");
+
+        // After levelling, the walking camera's sinusoids agree with the still camera's to within the noise.
+        var levelled = walking.Simulator.RenderAll();
+        GainNormaliser.PrepareSteady(walking.Plan, levelled);
         var lit = GainNormaliser.LitMask(steady.Plan, still);
         for (var i = 0; i < steady.Plan.Count; i++)
         {
@@ -59,10 +71,16 @@ public sealed class ReferenceSynthesisTests
             {
                 if (!lit[k])
                     continue;
-                d += Math.Abs(frames[i][k] - still[i][k]);
+                d += Math.Abs(levelled[i][k] - still[i][k]);
                 n++;
             }
             Assert.True(d / n < 2.5, $"frame {i}: {d / n:0.00} levels from the still camera's");
         }
+    }
+
+    private static double Median(List<double> v)
+    {
+        v.Sort();
+        return v.Count % 2 == 1 ? v[v.Count / 2] : (v[v.Count / 2 - 1] + v[v.Count / 2]) / 2;
     }
 }

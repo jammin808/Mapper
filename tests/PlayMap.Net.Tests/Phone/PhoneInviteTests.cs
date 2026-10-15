@@ -111,6 +111,36 @@ public sealed class PhoneInviteTests
         await own.ReceiveTypeAsync("welcome");
     }
 
+    /// <summary>The upgrade as a browser sends it, with the Host it names.</summary>
+    private static async Task<HttpResponseMessage> UpgradeAsync(PhoneNode node, string host)
+    {
+        using var http = new HttpClient { BaseAddress = node.Base, Timeout = TimeSpan.FromSeconds(30) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/scan/ws");
+        request.Headers.Host = host;
+        request.Headers.Connection.Add("Upgrade");
+        request.Headers.Upgrade.ParseAdd("websocket");
+        request.Headers.Add("Sec-WebSocket-Key", Convert.ToBase64String(new byte[16]));
+        request.Headers.Add("Sec-WebSocket-Version", "13");
+        request.Headers.Add("Sec-WebSocket-Protocol", PhoneProtocol.SubProtocol);
+        return await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+    }
+
+    [Fact]
+    public async Task TheSocketAnswersOnlyByTheNodesOwnAddressOrNames()
+    {
+        await using var node = await PhoneNode.StartAsync();
+        // A page that pointed a name of its own at this machine (DNS rebinding) is turned away before any ticket is read.
+        using (var foreign = await UpgradeAsync(node, $"evil.example:{node.Port}"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, foreign.StatusCode);
+            using var body = JsonDocument.Parse(await foreign.Content.ReadAsStringAsync());
+            Assert.Contains("node's address or its own names", body.RootElement.GetProperty("error").GetString()!, StringComparison.Ordinal);
+        }
+        // The address the invite's link gives is the node's own.
+        using (var own = await UpgradeAsync(node, $"127.0.0.1:{node.Port}"))
+            Assert.Equal(HttpStatusCode.SwitchingProtocols, own.StatusCode);
+    }
+
     [Fact]
     public async Task FiveWrongTicketsInAMinuteLockTheAddressOut()
     {

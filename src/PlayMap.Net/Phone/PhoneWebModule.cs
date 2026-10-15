@@ -15,7 +15,8 @@ namespace PlayMap.Net.Phone;
 /// <item>the page's own files (GET or HEAD) are open — they carry no data and no secret, and over plain HTTP from another machine
 /// the page itself says it needs the node's https address;</item>
 /// <item><c>/scan/ws</c> is a capability: the hub admits the socket only by the ticket or key in its first message; the upgrade is
-/// refused from a page of another origin, and over plain HTTP from anything but this machine;</item>
+/// refused from a page of another origin, by a host name that is not the node's own (as the node's own routes refuse it), and over
+/// plain HTTP from anything but this machine;</item>
 /// <item>anything else under /scan is refused.</item>
 /// </list>
 /// The module maps nothing outside /scan, so the node's own routes keep their gate. Every answer carries a strict content security
@@ -83,6 +84,12 @@ public sealed partial class PhoneWebModule(PhoneHub hub) : IWebModule
             if (!SameOrigin(context.Request))
             {
                 words = "a page from another site may not use the phone's socket";
+                return WebAdmission.Refuse;
+            }
+            // As the node's own routes: a name some page pointed at this machine is not the node's (a phone uses its address).
+            if (!HttpHost.IsOwnHost(context.Request, settings))
+            {
+                words = "the phone's socket answers on the node's address or its own names, as the invite's link gives it";
                 return WebAdmission.Refuse;
             }
             if (!context.Request.IsHttps && !NetAddress.IsLoopback(context.Connection.RemoteIpAddress))

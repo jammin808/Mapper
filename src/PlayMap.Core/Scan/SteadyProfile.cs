@@ -68,9 +68,13 @@ public static class ReferenceSynthesis
 }
 
 /// <summary>
-/// Takes a camera's slow auto-exposure drift out of a scan's coded frames. Every coded frame (Gray, inverse, complementary, sinusoid)
-/// lights half of the region on average, so over the lit pixels each frame's mean should be the same; each is scaled so its mean
-/// equals the median of all their means. The worst drift is a fact: the share by which a frame's mean strayed from the median.
+/// Takes a camera's slow auto-exposure drift out of a scan's coded frames, measured against the picture rather than assumed of it.
+/// A pattern and its inverse light complementary pixels, as do two sinusoid steps half a period apart, so at every lit pixel the two
+/// pictures sum to white plus black. Each such pair's two gains are the least-squares fit of a·first + b·second = white + black over
+/// the lit pixels (gain = 1/a, 1/b): what the picture shows varies from pixel to pixel and pins the two apart, whatever it is. A
+/// coarse pair that made the references is fitted against the references of the other pairs. Each frame is scaled to the median
+/// gain. The drift is that fact: how far the farthest frame's gain stood from the median, in percent — a camera that holds still
+/// reads near zero whatever the picture shows.
 /// </summary>
 public static class GainNormaliser
 {
@@ -87,49 +91,143 @@ public static class GainNormaliser
         return lit;
     }
 
-    /// <summary>Scales the coded frames in place; answers the worst drift in percent (0 when nothing is lit).</summary>
-    public static double Normalise(ScanPlan plan, IList<byte[]> frames, bool[] lit)
+    /// <summary>The coded frames that pair up into a complementary sum: each pattern with its inverse, each sinusoid step with the one
+    /// half a period on (when the step count is even).</summary>
+    public static IReadOnlyList<(int First, int Second)> ComplementaryPairs(ScanPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var pairs = new List<(int, int)>();
+        for (var i = 0; i + 1 < plan.Count; i++)
+        {
+            var f = plan.Frames[i];
+            var g = plan.Frames[i + 1];
+            if (f.Kind is ScanFrameKind.Gray or ScanFrameKind.Complementary && g.Kind == f.Kind && !f.Inverse && g.Inverse && g.Level == f.Level
+                && g.Axis == f.Axis)
+                pairs.Add((i, i + 1));
+        }
+        for (var i = 0; i < plan.Count; i++)
+        {
+            var f = plan.Frames[i];
+            if (f.Kind != ScanFrameKind.Phase || f.PhaseSteps % 2 != 0 || f.PhaseStep >= f.PhaseSteps / 2)
+                continue;
+            var j = i + f.PhaseSteps / 2;
+            if (j < plan.Count && plan.Frames[j] is { Kind: ScanFrameKind.Phase } g && g.Axis == f.Axis && g.Period == f.Period
+                && g.PhaseStep == f.PhaseStep + f.PhaseSteps / 2)
+                pairs.Add((i, j));
+        }
+        return pairs;
+    }
+
+    /// <summary>Each coded frame's gain against the references (1 where it cannot be read).</summary>
+    public static IReadOnlyDictionary<int, double> Gains(ScanPlan plan, IList<byte[]> frames, bool[] lit)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(frames);
         ArgumentNullException.ThrowIfNull(lit);
-        var coded = new List<int>();
+        var white = frames[plan.WhiteIndex];
+        var black = frames[plan.BlackIndex];
+        var coarse = ReferenceSynthesis.Pairs(plan);
+        var gains = new Dictionary<int, double>();
+        foreach (var (first, second) in ComplementaryPairs(plan))
+        {
+            var own = -1;
+            for (var q = 0; q < coarse.Count; q++)
+            {
+                if (coarse[q].Pattern == first && coarse[q].Inverse == second)
+                    own = q;
+            }
+            double xx = 0, xy = 0, yy = 0, xt = 0, yt = 0;
+            var n = 0;
+            var x = frames[first];
+            var y = frames[second];
+            for (var k = 0; k < lit.Length; k += 2)
+            {
+                if (!lit[k] || x[k] >= 250 || y[k] >= 250)
+                    continue;
+                double t;
+                if (own < 0)
+                {
+                    t = white[k] + black[k];
+                }
+                else
+                {
+                    // This pair made the references wherever it differed most: its sum is taken from the others'.
+                    var (hi, lo) = ReferencesWithout(frames, coarse, own, k);
+                    if (hi - lo < 16)
+                        continue;
+                    t = hi + lo;
+                }
+                xx += x[k] * (double)x[k];
+                xy += x[k] * (double)y[k];
+                yy += y[k] * (double)y[k];
+                xt += x[k] * t;
+                yt += y[k] * t;
+                n++;
+            }
+            var det = xx * yy - xy * xy;
+            if (n < 64 || !(Math.Abs(det) > 1e-9 * xx * yy))
+                continue;
+            var a = (xt * yy - yt * xy) / det;
+            var b = (yt * xx - xt * xy) / det;
+            if (a > 0 && b > 0)
+            {
+                gains[first] = 1 / a;
+                gains[second] = 1 / b;
+            }
+        }
         for (var i = 0; i < plan.Count; i++)
         {
             if (plan.Frames[i].Kind is not (ScanFrameKind.White or ScanFrameKind.Black))
-                coded.Add(i);
+                gains.TryAdd(i, 1);
         }
-        var means = new double[coded.Count];
-        var count = 0;
-        for (var k = 0; k < lit.Length; k++)
-            count += lit[k] ? 1 : 0;
-        if (count == 0 || coded.Count == 0)
-            return 0;
-        for (var j = 0; j < coded.Count; j++)
+        return gains;
+    }
+
+    private static (int High, int Low) ReferencesWithout(IList<byte[]> frames, IReadOnlyList<(int Pattern, int Inverse)> pairs, int skip, int k)
+    {
+        var best = -1;
+        int hi = 0, lo = 0;
+        for (var q = 0; q < pairs.Count; q++)
         {
-            var f = frames[coded[j]];
-            long sum = 0;
-            for (var k = 0; k < lit.Length; k++)
+            if (q == skip)
+                continue;
+            int a = frames[pairs[q].Pattern][k], b = frames[pairs[q].Inverse][k];
+            if (Math.Abs(a - b) > best)
             {
-                if (lit[k])
-                    sum += f[k];
+                best = Math.Abs(a - b);
+                hi = Math.Max(a, b);
+                lo = Math.Min(a, b);
             }
-            means[j] = sum / (double)count;
         }
-        var sorted = means.Order().ToArray();
-        var median = sorted.Length % 2 == 1 ? sorted[sorted.Length / 2] : (sorted[sorted.Length / 2 - 1] + sorted[sorted.Length / 2]) / 2;
+        return (hi, lo);
+    }
+
+    private static double Median(List<double> values)
+    {
+        values.Sort();
+        var n = values.Count;
+        return n % 2 == 1 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
+    }
+
+    /// <summary>Scales the coded frames in place to their median gain; answers the worst drift in percent (0 when nothing is lit).</summary>
+    public static double Normalise(ScanPlan plan, IList<byte[]> frames, bool[] lit)
+    {
+        var gains = Gains(plan, frames, lit);
+        if (gains.Count == 0 || !lit.Contains(true))
+            return 0;
+        var median = Median([.. gains.Values]);
         if (!(median > 0))
             return 0;
         var worst = 0.0;
-        for (var j = 0; j < coded.Count; j++)
+        foreach (var (i, g) in gains)
         {
-            worst = Math.Max(worst, Math.Abs(means[j] / median - 1));
-            var scale = median / Math.Max(means[j], 1e-6);
-            var f = frames[coded[j]];
+            worst = Math.Max(worst, Math.Abs(g / median - 1));
+            var scale = median / Math.Max(g, 1e-6);
+            var f = frames[i];
             var scaled = new byte[f.Length];
             for (var k = 0; k < f.Length; k++)
                 scaled[k] = (byte)Math.Clamp(Math.Round(f[k] * scale), 0, 255);
-            frames[coded[j]] = scaled;
+            frames[i] = scaled;
         }
         return Math.Round(worst * 100, 2);
     }
