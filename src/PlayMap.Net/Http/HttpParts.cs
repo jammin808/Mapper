@@ -87,6 +87,12 @@ public sealed class TokenGate(int wrongPerMinute = 5)
         return GateVerdict.WrongToken;
     }
 
+    /// <summary>True while an address has spent its wrong tokens for this minute (the line channel's proofs count here too).</summary>
+    public bool IsLocked(string address) => Locked(address);
+
+    /// <summary>A wrong proof on the web port's line channel, counted against its address like a wrong header token.</summary>
+    public void NoteWrongFrom(string address) => NoteWrong(address);
+
     /// <summary>The token a request carries in a header ("" when none).</summary>
     public static string Presented(HttpRequest request)
     {

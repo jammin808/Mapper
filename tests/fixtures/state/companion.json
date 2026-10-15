@@ -1,1 +1,38 @@
-{}
+{
+  "clients": [
+    {
+      "session": "l1",
+      "name": "Companion:FOH deck",
+      "kind": "companion",
+      "transport": "companion",
+      "channel": "ws",
+      "address": "10.0.0.7",
+      "paired": true,
+      "module": "1.0.0",
+      "since": 1760000000000,
+      "recording": false,
+      "where": "Live \u00B7 projectors 1/3",
+      "thumbs": 12
+    },
+    {
+      "session": "w2",
+      "name": "Companion:Booth",
+      "kind": "companion",
+      "transport": "companion",
+      "channel": "tcp",
+      "address": "10.0.0.8",
+      "paired": false,
+      "module": null,
+      "since": 1760000000000,
+      "recording": false,
+      "where": null,
+      "thumbs": 0
+    }
+  ],
+  "events": {
+    "seq": 1
+  },
+  "project": {
+    "index": "9f1c2ab07d3e4410"
+  }
+}

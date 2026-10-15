@@ -151,7 +151,8 @@
     "name": "Wall",
     "revision": 1,
     "path": null,
-    "dirty": false
+    "dirty": false,
+    "index": "4cf80d14ff078097"
   },
   "faults": [],
   "ai": {
@@ -254,6 +255,10 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "clients": [],
+  "events": {
+    "seq": 0
   },
   "fx": {
     "budgetMs": 4,

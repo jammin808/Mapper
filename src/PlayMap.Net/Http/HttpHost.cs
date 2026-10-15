@@ -20,8 +20,10 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Companion;
 using PlayMap.Net.Mcp;
 using PlayMap.Net.Tls;
+using PlayMap.Net.Wire;
 
 namespace PlayMap.Net.Http;
 
@@ -85,6 +87,8 @@ public sealed class HttpHost : IAsyncDisposable
     private long _sessions;
     private int _webSockets;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _mcpSessions = new(StringComparer.Ordinal);
+    private readonly LineSessions _lines;
+    private int _lineSockets;
     private int _disposed;
 
     public HttpHost(NodeSettings settings, IWireEndpoint endpoint, ShowWallClock wall, HttpHostOptions? options = null)
@@ -100,6 +104,12 @@ public sealed class HttpHost : IAsyncDisposable
         _runner = new CommandRunner(endpoint, wall, _log);
         _isAnimating = _options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
         _isLive = () => endpoint is not INodeActivity a || a.IsLive;
+        _lines = new LineSessions(() => _settings, endpoint, wall, new WireServerOptions { IsAnimating = _options.IsAnimating, PlainAuthOnLoopback = false },
+            _log, "l")
+        {
+            WrongProof = _gate.NoteWrongFrom,
+            LockedOut = _gate.IsLocked,
+        };
     }
 
     public int Port { get; private set; }
@@ -111,8 +121,11 @@ public sealed class HttpHost : IAsyncDisposable
     /// <summary>Whether MCP is served at <c>/mcp</c>.</summary>
     public bool ServesMcp => _options.Mcp;
 
-    /// <summary>WebSockets open on <c>/ws</c> now.</summary>
+    /// <summary>WebSockets open on <c>/ws</c> now (screens; the line channel's controllers are counted apart).</summary>
     public int WebSockets => Volatile.Read(ref _webSockets);
+
+    /// <summary>Line-wire sessions open on <c>/ws</c> with the <c>playmap.lines.v1</c> subprotocol now.</summary>
+    public int LineSockets => Volatile.Read(ref _lineSockets);
 
     /// <summary>MCP clients heard from in the last minute (an MCP client over HTTP holds nothing open, so it counts while
     /// it keeps asking; a session that says goodbye stops counting at once).</summary>
@@ -148,7 +161,11 @@ public sealed class HttpHost : IAsyncDisposable
     public NodeSettings Settings => _settings;
 
     /// <summary>Takes a new token, trusted list, loopback trust or Require HTTPS at once; a new bind or port needs a restart.</summary>
-    public void UpdateSettings(NodeSettings settings) => _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    public void UpdateSettings(NodeSettings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _lines.Refresh();
+    }
 
     /// <summary>Opens the port. Throws <see cref="BindRefusedException"/> (nothing listens) when the bind address is
     /// not an address or the machine refuses it.</summary>
@@ -172,6 +189,7 @@ public sealed class HttpHost : IAsyncDisposable
             throw new BindRefusedException($"the web port could not listen on {(bind is null ? "every interface" : bind.ToString())} port {port} — it stays closed ({ex.Message})", ex);
         }
         _app = app;
+        _lines.Start();
         Port = new Uri(app.Urls.First()).Port;
         _log.LogInformation("The web port listens on {Port}{Tls}.", Port, ServesTls ? " (HTTP and HTTPS)" : "");
     }
@@ -270,6 +288,29 @@ public sealed class HttpHost : IAsyncDisposable
                     break;
             }
         }
+        if (IsLineChannel(context))
+        {
+            // The line session pairs it (NONCE, AUTH-PROOF): the web's header token is not asked, but a web page's origin, HTTPS and
+            // the address's lockout still hold before the upgrade.
+            var from = context.Connection.RemoteIpAddress;
+            if (!SameOriginOrNone(context.Request))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, LineChannelOrigin);
+                return;
+            }
+            if (_settings.RequireHttps && !context.Request.IsHttps && !NetAddress.IsLoopback(from))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, WireWords.UseHttps);
+                return;
+            }
+            if (NetAddress.TokenNeeded(_settings) && !NetAddress.IsTrusted(from, _settings) && _gate.IsLocked(NetAddress.Text(from)))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status429TooManyRequests, WireWords.TooManyWrongTokens);
+                return;
+            }
+            await next(context);
+            return;
+        }
         var verdict = _gate.Check(context, _settings);
         if (verdict is not (GateVerdict.Open or GateVerdict.Token))
         {
@@ -289,6 +330,30 @@ public sealed class HttpHost : IAsyncDisposable
         ], "playmap"));
         await next(context);
     }
+
+    /// <summary>Why a web page from another site is refused the line channel.</summary>
+    internal const string LineChannelOrigin =
+        "the line channel is for controllers, not web pages — a page from another site may not drive this node (no Origin, or this node's own)";
+
+    /// <summary>A controller (Companion's module, a script) sends no Origin; a browser always does, and a page the node did not serve
+    /// must never reach the line wire — on a trusted address it would be paired at once. Only this node's own origin may.</summary>
+    private static bool SameOriginOrNone(HttpRequest request)
+    {
+        var origin = request.Headers.Origin;
+        if (origin.Count == 0)
+            return true;
+        return origin.Count == 1
+            && Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && string.Equals(uri.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)
+            && request.Host.HasValue
+            && string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A WebSocket upgrade on <c>/ws</c> that offers the line wire's subprotocol.</summary>
+    private static bool IsLineChannel(HttpContext context) =>
+        context.Request.Path.Value == "/ws" && context.WebSockets.IsWebSocketRequest
+        && context.WebSockets.WebSocketRequestedProtocols.Contains(WebSocketLineChannel.SubProtocol, StringComparer.Ordinal);
 
     /// <summary>The node's own paths: a web module admits requests before the token gate, so it never serves under one of these
     /// (an open module there would open the node's own routes).</summary>
@@ -334,7 +399,8 @@ public sealed class HttpHost : IAsyncDisposable
         app.MapGet("/tls.cer", TlsCertificateAsync);
         app.MapGet("/api/media", ManifestAsync);
         app.MapGet("/api/media/{hash}", MediaFileAsync);
-        app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /mcp"));
+        app.MapGet("/api/thumb", ThumbAsync);
+        app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /api/thumb, /mcp"));
     }
 
     /// <summary>STATE now; with <c>?since=&lt;seq&gt;</c> it waits (at most the long-poll time) for a newer one.</summary>
@@ -419,6 +485,11 @@ public sealed class HttpHost : IAsyncDisposable
             await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "/ws is a WebSocket");
             return;
         }
+        if (IsLineChannel(context))
+        {
+            await LineChannelAsync(context);
+            return;
+        }
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
         using var session = new WebSocketSession(socket, _runner, _changes, _isAnimating, _isLive, Session(context, "ws"), _options.BeatEvery, _log);
@@ -430,6 +501,33 @@ public sealed class HttpHost : IAsyncDisposable
         finally
         {
             Interlocked.Decrement(ref _webSockets);
+        }
+    }
+
+    /// <summary>The line wire over the web port: the same session as TCP 9941, stricter before it pairs.</summary>
+    private async Task LineChannelAsync(HttpContext context)
+    {
+        using var socket = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext
+        {
+            SubProtocol = WebSocketLineChannel.SubProtocol,
+            KeepAliveInterval = TimeSpan.FromSeconds(15),
+        });
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
+        var channel = new WebSocketLineChannel(socket, context.Connection.RemoteIpAddress);
+        Interlocked.Increment(ref _lineSockets);
+        try
+        {
+            await _lines.ServeAsync(channel, stop.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or System.Net.WebSockets.WebSocketException or IOException or ObjectDisposedException)
+        {
+            // A controller that went away mid-line: its session is over.
+            _log.LogDebug(ex, "A line channel on the web port ended.");
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _lineSockets);
+            await channel.DisposeAsync();
         }
     }
 
@@ -520,6 +618,44 @@ public sealed class HttpHost : IAsyncDisposable
         await TypedResults.PhysicalFile(file.Path, "application/octet-stream", enableRangeProcessing: true).ExecuteAsync(context);
     }
 
+    /// <summary>GET /api/thumb?ref=…&amp;w=96&amp;h=96&amp;fmt=jpeg: the picture's bytes with its ETag; If-None-Match with that ETag
+    /// answers 304; a picture there is none of answers 404 with the words why.</summary>
+    private async Task ThumbAsync(HttpContext context)
+    {
+        if (_endpoint is not IThumbSource source)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status404NotFound, "this node serves no pictures");
+            return;
+        }
+        var q = context.Request.Query;
+        var words = new List<string> { q["ref"].ToString() };
+        if (q["w"].ToString() is { Length: > 0 } w)
+            words.Add(w + "x" + (q["h"].ToString() is { Length: > 0 } h ? h : w));
+        if (q["fmt"].ToString() is { Length: > 0 } fmt)
+            words.Add(fmt);
+        if (!ThumbArgs.TryParse(words, out var request, out var why) || request!.Ref.Length == 0)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, why ?? "/api/thumb?ref=<media:…|generator:…|playlist:…|color:#RRGGBB>&w=96&h=96&fmt=jpeg|png");
+            return;
+        }
+        var held = context.Request.Headers.IfNoneMatch.ToString().Trim().Trim('"');
+        var result = await source.ThumbAsync(request with { IfNoneMatch = held.Length > 0 ? held : null }, Session(context, "http"), context.RequestAborted);
+        if (!result.Ok)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status404NotFound, result.Why ?? "no picture of it");
+            return;
+        }
+        context.Response.Headers.ETag = "\"" + result.Etag + "\"";
+        context.Response.Headers.CacheControl = "no-cache";
+        if (result.NotModified)
+        {
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
+            return;
+        }
+        context.Response.ContentType = result.Mime;
+        await context.Response.Body.WriteAsync(result.Bytes, context.RequestAborted);
+    }
+
     private static async Task WriteJsonAsync(HttpContext context, int status, string json)
     {
         context.Response.StatusCode = status;
@@ -542,6 +678,7 @@ public sealed class HttpHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         _endpoint.StateChanged -= OnStateChanged;
+        await _lines.DisposeAsync();
         await _stop.CancelAsync();
         if (_app is not null)
         {
