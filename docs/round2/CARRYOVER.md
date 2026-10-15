@@ -41,7 +41,10 @@ From the polish pass (merged into main):
 - Gate change: AI-proposed lines with secret words (LINK … token) now pass the gate marked, always wait for a person, are high-risk on MCP, and are shown redacted (was: refused outright).
 
 Round 2 W1 notes:
-- wp2-fx: chains on layers/surfaces/playlist items are stored but not drawn — spine amendment needed: layer and surface picture call points (IFramePass or SourceResolver/StageRenderer hooks) plus the item's start time as an item chain's origin; PassFrame should say per output whether a pattern/safe look is up. Do as a spine-lane commit after wp2-output merges; then wire FxPass's IFxAttachPoints.Layer/Surface (small).
+- wp2-fx: chains on playlist items, layers and surfaces draw through the spine's pass hooks (IFramePass.Item, Layer,
+  Surface; an item's chain starts at the item's leader start; PassFrame.Covered/Held say per output whether a pattern, safe
+  look or hold is up — SPINE.md). Open: a canvas's own chain is stored but not drawn (needs a canvas call point after the
+  canvas is composed).
 - wp2-fx edited Assistant.Tests/CatalogueTests to read a named list of trimmed rows (TrimmedRows) — every package that trims rows must add to it.
 - wp2-fx needs audio's MOD BIND route for effect bindings (stretch, next round).
 - wp2-show: McpTools and AssistantTools should ask IShowDecisions (new Core seam, implemented by the engine) before running/queueing a line (companion owns McpTools). WireSession infers transport "desk" from HELLO name PlayMapDesk — any paired client claiming that name is treated as the operator (companion to harden). A backup mirroring mapping while armed (W3 backup) needs a way past the armed lock for fleet sessions. STATE.show refusal count and panic levels only update when STATE's revision moves (stale between). Pinned-count tests break as packages extend: OpsHostTests (extension count 3), CatalogueTests (209 round-2 rows; fx changed it to a TrimmedRows list; show kept BLIND rows unrouted to keep 209), VerbSyntaxTests (SHOW SET forms), EngineRouterTests (show/fx/output changed key list to a prefix check) — reconcile at merge.
@@ -85,3 +88,9 @@ Round 2 W1 notes:
   OutputStage); onboarding.contentAt is stamped on the lane (needs a first-content callback from the render host);
   air.overlay.cursorP95Ms not measured; wall.json rounds solver numbers to 3 decimals (watch Windows CI);
   OpsHostTests.ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd failed once under load (watch it).
+- wp2-fleet: reads at /health and /fleet (web modules, Open, GET/HEAD only, nothing secret; HttpHost refuses modules under
+  /api). The hello carries caps eye and show; the context's command list puts panic, air, transport and Show Mode verbs first
+  (the Eye keeps the first 64). Open for the owner: /api/context sits behind the token, so Patterns reads PlayMap's context
+  over the wire (SUBSCRIBE CONTEXT); opening it is the owner's call. No verb accepts a changed fleet pin (the preflight row
+  names keys/fleet-pins.json). The Patterns-side Eye patch is prepared for Patterns' maintainers and not applied (kept outside
+  this tree).
