@@ -217,6 +217,40 @@ public sealed class AudioFixtureTests
         Assert.Equal("listening", heard.Value);
     }
 
+    /// <summary>A device that stalls without a fault (it stays open and delivers nothing) is silent like one that delivers silence:
+    /// after 10 s preflight is amber and STATE counts the silence.</summary>
+    [Fact]
+    public async Task AnInputThatStopsDeliveringCountsAsSilent()
+    {
+        await using var rig = new AudioRig(AudioRig.Show());
+        var check = new AudioPreflight();
+        async Task<PreflightRow> Row() => Assert.Single(await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None));
+        await rig.Ok("MOD BIND ly_base opacity audio:bass");
+        await rig.Ok("AUDIO LISTEN fake:desk CHANNELS 1");
+        var capture = rig.Fake.Captures.Single();
+        var tone = Sounds.BassBurst(9_600, 0);
+        for (var at = 0; at < tone.Length; at += 480)
+        {
+            rig.AdvanceMs(10);
+            capture.Push(tone.AsSpan(at, 480), rig.Clock.NowNs);
+        }
+        await rig.Engine.Lane.RunAsync(rig.Engine.RefreshAudioFacts);
+        Assert.Equal(Light.Green, (await Row()).Light);
+
+        // Nothing more arrives: after a second the newest frame is stale, and the silence counts from there.
+        rig.AdvanceMs(2_000);
+        await rig.Engine.Lane.RunAsync(rig.Engine.RefreshAudioFacts);
+        rig.AdvanceMs(11_000);
+        await rig.Engine.Lane.RunAsync(rig.Engine.RefreshAudioFacts);
+        var row = await Row();
+        Assert.Equal(Light.Amber, row.Light);
+        Assert.Equal("silent", row.Value);
+        var audio = rig.State().GetProperty("audio");
+        Assert.True(audio.GetProperty("silent").GetBoolean());
+        Assert.True(audio.GetProperty("input").GetProperty("silentForS").GetDouble() >= 10);
+        Assert.Equal("listening", audio.GetProperty("input").GetProperty("state").GetString());
+    }
+
     [Fact]
     public async Task TheExesCompositionCarriesTheCheckAndTheHub()
     {

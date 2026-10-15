@@ -215,18 +215,25 @@ public sealed class AudioRuntime : IDisposable
         }
         var before = _facts;
         AudioFacts now;
-        if (Feed.Listening && Feed.Ring.TryReadLatest(scratch) && leaderNowNs - scratch.LeaderNs <= ModulationBus.StaleNs)
+        if (!Feed.Listening)
         {
-            if (!scratch.Silent)
+            _silentSinceMonoNs = long.MinValue;
+            now = AudioFacts.Quiet;
+        }
+        else
+        {
+            // An input that delivers nothing (a device that stalled without a fault) is silent like one that delivers silence, and
+            // its silence is counted the same way.
+            var fresh = Feed.Ring.TryReadLatest(scratch) && leaderNowNs - scratch.LeaderNs <= ModulationBus.StaleNs;
+            var silent = !fresh || scratch.Silent;
+            if (!silent)
                 _silentSinceMonoNs = long.MinValue;
             else if (_silentSinceMonoNs == long.MinValue)
                 _silentSinceMonoNs = monoNowNs;
             var silentFor = _silentSinceMonoNs == long.MinValue ? 0 : (monoNowNs - _silentSinceMonoNs) / 1e9;
-            now = new AudioFacts(scratch.Level, scratch.Bass, scratch.Mid, scratch.High, scratch.PeakDb, scratch.Silent, silentFor, scratch.LeaderNs);
-        }
-        else
-        {
-            now = AudioFacts.Quiet;
+            now = fresh
+                ? new AudioFacts(scratch.Level, scratch.Bass, scratch.Mid, scratch.High, scratch.PeakDb, scratch.Silent, silentFor, scratch.LeaderNs)
+                : AudioFacts.Quiet with { SilentForS = silentFor };
         }
         // Levels move every hop; STATE takes them when they moved visibly, at most four times a second.
         var moved = now.Silent != before.Silent || Math.Abs(now.SilentForS - before.SilentForS) >= 1
