@@ -96,6 +96,25 @@ public sealed class ChaseHoldTests
         }
     }
 
+    [Fact]
+    public async Task AHeldChaseSchedulesTheNextItemAtTheCodesNewRate()
+    {
+        var clock = new ManualClock(5 * S);
+        await using var rig = await HeldInTheGap(clock);
+        clock.AdvanceMs(500);
+        await rig.Engine.StepChasesAsync();
+        var held = rig.Engine.Playback.Lane("pl_show")!;
+
+        // From 01:00:11:00 at 7 s the code runs 0.8 % fast: Song 2's code comes 7.9 ms sooner and Song 1's code ended 7.9 ms later on
+        // the new line, both inside a quarter frame, so the hold stands; Song 2 is scheduled at the code's new rate from its new instant.
+        await rig.Ok("TIMECODE INTERNAL Rehearsal RATE 1.008");
+        await rig.Engine.StepChasesAsync();
+        var lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(held.Clip.Anchor, lane.Clip.Anchor);
+        Assert.Equal(("it_b", 7 * S + (long)Math.Round(S / 1.008)), (lane.NextItemId, lane.SwitchAtLeaderNs));
+        Assert.Equal(1.008, lane.NextClip.Anchor.Rate, 9);
+    }
+
     /// <summary>Rehearsal at 01:00:09:00, rolling from the clock's instant.</summary>
     private static async Task Roll(ControlRig rig)
     {

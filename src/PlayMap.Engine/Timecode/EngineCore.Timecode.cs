@@ -317,8 +317,10 @@ public sealed partial class EngineCore
                 var anchor = holding ? lane!.Clip.Anchor
                     : new TimelineAnchor(plan.MediaNs, plan.AtLeaderNs == long.MinValue ? leaderNs : plan.AtLeaderNs, r.Rate, false);
                 var held = new ClipTransport(r.ItemId, TransportState.Paused, anchor, r.InNs, r.OutNs, r.Loop, 0);
+                // The next item is rescheduled when its instant is off by a quarter frame or its rate (the code's) by 50 ppm.
                 if (holding && lane!.Clip with { Seq = 0 } == held && lane.NextIndex == nextIndex
-                    && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter)
+                    && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter
+                    && Math.Abs(lane.NextClip.Anchor.Rate - next.Anchor.Rate) / Math.Max(1e-9, Math.Abs(next.Anchor.Rate)) < 50e-6)
                     return;
                 Playback.Chase(list, r.Index, held, nextIndex, next, plan.NextAtLeaderNs);
                 return;
