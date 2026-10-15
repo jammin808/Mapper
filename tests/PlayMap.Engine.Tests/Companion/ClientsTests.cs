@@ -60,6 +60,20 @@ public sealed class ClientsTests
     }
 
     [Fact]
+    public async Task ANameSaidBeforePairingIsKeptShortInStateAndTheContext()
+    {
+        await using var rig = new CompanionRig();
+        var registry = (IClientRegistry)rig.Engine;
+        registry.Hello(CompanionRig.Paired with { SessionId = "l9", ClientName = "Companion:" + new string('x', 60 * 1024), Paired = false }, "ws");
+        var name = ClientOf(rig.State(), "l9").GetProperty("name").GetString()!;
+        Assert.Equal(ClientTable.MaxNameChars + 1, name.Length);
+        Assert.StartsWith("Companion:xxx", name, StringComparison.Ordinal);
+        Assert.EndsWith("…", name, StringComparison.Ordinal);
+        var item = CompanionRig.Json(rig.Engine.Context()).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "client:l9");
+        Assert.Equal(name, item.GetProperty("label").GetString());
+    }
+
+    [Fact]
     public async Task AnUnpairedCompanionIsAmberInTheContextAndInPreflight()
     {
         await using var rig = new CompanionRig();

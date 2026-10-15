@@ -32,6 +32,10 @@ public sealed class ClientTable
     /// <summary>PRESENCE is a short note, not a channel: at most this many bytes.</summary>
     public const int MaxPresenceBytes = 2048;
 
+    /// <summary>A HELLO name is said before pairing, so STATE and the context keep at most this many characters of it: a client that
+    /// never paired cannot grow what every other client is sent.</summary>
+    public const int MaxNameChars = 64;
+
     private static readonly ImmutableHashSet<string> PresenceKeys =
         ImmutableHashSet.Create(StringComparer.Ordinal, "kind", "module", "live", "page", "recording", "thumbs", "where");
 
@@ -64,7 +68,8 @@ public sealed class ClientTable
         lock (_gate)
         {
             var since = _clients.TryGetValue(session.SessionId, out var old) ? old.SinceUnixMs : nowUnixMs;
-            var view = new ClientView(session.SessionId, session.ClientName, KindOf(session), session.Transport, channel, session.RemoteAddress,
+            var name = Clip(session.ClientName);
+            var view = new ClientView(session.SessionId, name, KindOf(session), session.Transport, channel, session.RemoteAddress,
                 session.Paired, since)
             {
                 Module = old?.Module,
@@ -77,6 +82,14 @@ public sealed class ClientTable
             _clients = _clients.SetItem(session.SessionId, view);
         }
         Changed?.Invoke();
+    }
+
+    private static string Clip(string name)
+    {
+        if (name.Length <= MaxNameChars)
+            return name;
+        var n = char.IsHighSurrogate(name[MaxNameChars - 1]) ? MaxNameChars - 1 : MaxNameChars;
+        return string.Concat(name.AsSpan(0, n), "…");
     }
 
     public void Gone(string session)
