@@ -409,7 +409,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.#lastLabels = ''
 		this.#sendPresence()
 		this.#askWhoami()
-		this.ask('VERBS')
+		this.ask(Lines.verbs)
 			.then((reply) => {
 				if (!reply.ok) return
 				const rows = readVerbs(parseNode(reply.payload))
@@ -431,10 +431,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				this.#definePresets()
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
-		this.#subscribe('SUBSCRIBE INDEX')
+		this.#subscribe(Lines.subscribe('INDEX'))
 		// A first pairing has missed nothing; a later one replays what was raised while the link was down.
 		if (this.#pairedBefore && this.events.from() > 0) this.#replayEvents()
-		else this.#subscribe('SUBSCRIBE EVENTS')
+		else this.#subscribe(Lines.subscribe('EVENTS'))
 		this.#pairedBefore = true
 		this.thumbs.relinked()
 		// A greeting STATE may have come before the pairing finished: the clocks start now if something plays.
@@ -447,7 +447,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#replayEvents(attempt = 0, carried: readonly unknown[] = []): void {
 		const held: unknown[] = [...carried]
 		this.#held = held
-		if (attempt === 0) this.#subscribe('SUBSCRIBE EVENTS')
+		if (attempt === 0) this.#subscribe(Lines.subscribe('EVENTS'))
 		const since = async (seq: number): Promise<boolean> => {
 			const reply = await this.ask(Lines.eventsSince(seq))
 			if (!reply.ok || this.#held !== held) return false
@@ -499,7 +499,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	#askWhoami(): void {
-		this.ask('WHOAMI')
+		this.ask(Lines.whoami)
 			.then((reply) => {
 				if (!reply.ok) return
 				const who = this.model.setWhoami(parseNode(reply.payload))
@@ -589,14 +589,21 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			this.#indexTimer = setTimeout(() => {
 				this.#indexTimer = null
 				if (str(at(this.model.state, P.projectIndex)) === this.#lastSig || !this.linked()) return
-				this.ask('INDEX')
+				this.ask(Lines.index)
 					.then((reply) => {
 						if (reply.ok) this.#index(parseNode(reply.payload))
 					})
 					.catch((e: unknown) => this.log('debug', `INDEX: ${e instanceof Error ? e.message : String(e)}`))
 			}, INDEX_WAIT_MS)
-		// Show Mode or the controllers moved: what this deck may run may have too.
-		const whoKey = JSON.stringify([at(s, P.showArmed), list(s, P.clients).length])
+		// Show Mode or the controllers moved, so what this deck may run may have too: WHOAMI's `may` follows Show Mode armed or not,
+		// its rules (remote view only …), its locks and blind, and the controllers.
+		const whoKey = JSON.stringify([
+			at(s, P.showArmed),
+			at(s, P.showRules),
+			at(s, P.showLocks),
+			at(s, P.showBlind),
+			list(s, P.clients).length,
+		])
 		if (this.#whoamiKey && whoKey !== this.#whoamiKey && !this.#whoamiTimer)
 			this.#whoamiTimer = setTimeout(() => {
 				this.#whoamiTimer = null

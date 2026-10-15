@@ -9,8 +9,8 @@ import {
 } from './channel.ts'
 import { readLine } from './grammar.ts'
 import { authProof, normaliseToken } from './pairing.ts'
-import { MODULE_VERSION } from '../version.ts'
 import { Words, isLockedOut, isNotPaired, isWrongToken } from '../words.ts'
+import { Lines } from '../lines.ts'
 
 /** Where the node is, as the connection's config says it. */
 /** How many of the last round trips the node's clock offset is chosen from. */
@@ -224,14 +224,14 @@ export class NodeSession {
 
 	async #handshake(generation: number): Promise<void> {
 		try {
-			const hello = await this.#request(`HELLO ${this.#host.helloName()} module=${MODULE_VERSION}`, undefined, true)
+			const hello = await this.#request(Lines.hello(this.#host.helloName()), undefined, true)
 			if (generation !== this.#generation) return
 			// Only what retrying cannot mend halts (a token, a lockout, a pin); any other refusal is the node's passing fault.
 			if (!hello.ok) return this.#dropAndRetry(hello.payload)
 			if (this.#nonce !== null) {
 				const token = normaliseToken(this.#host.token())
 				if (token.length === 0) return this.#fail(InstanceStatus.BadConfig, Words.tokenNeeded)
-				const proof = await this.#request(`AUTH-PROOF ${authProof(token, this.#nonce, this.#host.helloName())}`)
+				const proof = await this.#request(Lines.proof(authProof(token, this.#nonce, this.#host.helloName())))
 				if (generation !== this.#generation) return
 				if (!proof.ok) {
 					if (isWrongToken(proof.payload))
@@ -316,7 +316,7 @@ export class NodeSession {
 		if (this.#pinger) clearInterval(this.#pinger)
 		const ping = (): void => {
 			const t1 = this.#now()
-			this.#request(`PING ${t1}`)
+			this.#request(Lines.ping(t1))
 				.then((reply) => this.#pong(reply, t1))
 				.catch(() => undefined) // a lost PING is what the watchdog counts; nothing to say here
 		}

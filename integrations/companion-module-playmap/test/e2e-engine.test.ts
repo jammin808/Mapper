@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { InstanceStatus } from '@companion-module/base'
 import { boot, configFor } from './harness.ts'
+import { openChannel } from '../src/link/channel.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -93,7 +94,25 @@ void test(
 		const home = mkdtempSync(join(tmpdir(), 'playmap-e2e-'))
 		writeSettings(home, 0, 0)
 		let engine = await startEngine(home)
-		const m = await boot(configFor(engine.web, engine.wire), { token: TOKEN })
+		// Every line the module says, as it leaves (the engine's own channel underneath).
+		const said: string[] = []
+		const m = await boot(
+			configFor(engine.web, engine.wire),
+			{ token: TOKEN },
+			{
+				factory: (target, events) => {
+					const channel = openChannel(target, events)
+					return {
+						kind: channel.kind,
+						send: (line: string): void => {
+							said.push(line)
+							channel.send(line)
+						},
+						close: (): void => channel.close(),
+					}
+				},
+			},
+		)
 		try {
 			// Paired by proof over ws:// — the engine's own WHOAMI says the session is on its web port's line channel, not the
 			// TCP wire the module would fall back to.
@@ -135,6 +154,16 @@ void test(
 				`template group pl.${playlist}`,
 			)
 			assert.deepEqual(group()?.templateValues, [{ name: 'Red', value: item }])
+			// It came from the node's SUBSCRIBE INDEX push: the module never had to ask INDEX itself.
+			assert.ok(
+				said.some((l) => /^@c\d+ SUBSCRIBE INDEX$/u.test(l)),
+				'subscribed to INDEX',
+			)
+			assert.deepEqual(
+				said.filter((l) => /^@c\d+ INDEX$/u.test(l)),
+				[],
+				'no INDEX asked: the push brought it',
+			)
 
 			// The item key: its feedbacks placed, its down action pressed; the light moves when STATE does, not on the press.
 			await m.place('onair', 'item_on_air', { item })

@@ -192,8 +192,7 @@ export function variablesOf(
 	v.panic = str(at(s, P.panicOutcome))
 	v.blackout = bool(at(s, P.blackout))
 	v.frozen = bool(at(s, P.frozen))
-	const pattern = at(s, P.pattern)
-	v.pattern = pattern && typeof pattern === 'object' ? str((pattern as Record<string, unknown>).kind, 'on') : ''
+	v.pattern = at(s, P.pattern) != null ? str(at(s, P.patternKind), 'on') : ''
 	v.identify = bool(at(s, P.identify))
 	v.master = Math.round(num(at(s, P.masterLevel), s ? 1 : 0) * 100)
 

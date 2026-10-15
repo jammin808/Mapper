@@ -1,6 +1,6 @@
-import { quote } from './link/grammar.ts'
 import type { Reply } from './link/session.ts'
 import { parseNode } from './json.ts'
+import { Lines } from './lines.ts'
 
 /** The most pictures kept (about 3 MB at 96 px). */
 export const THUMB_CACHE = 256
@@ -119,7 +119,7 @@ export class Thumbs {
 		const key = `${ref}|${size}`
 		if (this.#inflight.has(key)) return
 		this.#inflight.add(key)
-		const line = `THUMB ${quote(ref)} ${size}x${size}` + (ifEtag ? ` IF ${quote(ifEtag)}` : '')
+		const line = Lines.thumb(ref, size, ifEtag)
 		this.#ask(line)
 			.then((reply) => {
 				if (!reply.ok) {

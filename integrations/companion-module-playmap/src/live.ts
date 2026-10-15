@@ -2,6 +2,7 @@ import { quote } from './link/grammar.ts'
 import type { NodeModel } from './state/model.ts'
 import { P, bool, field, list, num, str } from './state/paths.ts'
 import { projectorLight } from './state/variables.ts'
+import { Lines } from './lines.ts'
 
 /** What one Live slot shows and sends. */
 export interface Slot {
@@ -70,7 +71,7 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 				sub: onAir ? (now.state === 'playing' ? 'ON AIR' : now.state.toUpperCase()) : next ? 'NEXT' : '',
 				light: onAir ? (now.state === 'cued' ? 'amber' : 'green') : next ? 'amber' : 'grey',
 				thumbRef: item.source || null,
-				line: `PLAYLIST GO ${pl.id} ${item.id}`,
+				line: Lines.goItem(pl.id, item.id),
 			})
 		})
 	}
@@ -82,7 +83,7 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 				sub: p.itemLabel || p.state,
 				light: p.state === 'playing' ? 'green' : p.state === 'paused' || p.state === 'cued' ? 'amber' : 'grey',
 				thumbRef: `playlist:${p.id}`,
-				line: `PLAYLIST GO ${p.id}`,
+				line: Lines.go(p.id, null),
 			}),
 		)
 	if (rule === 'outputs')
@@ -93,7 +94,7 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 				sub: `${num(field(o, P.opFps))} fps`,
 				light: bool(field(o, P.opEnabled)) ? str(field(o, P.opLight), 'grey') : 'grey',
 				thumbRef: null,
-				line: `OUTPUT IDENTIFY ${str(field(o, P.opId))}`,
+				line: Lines.identifyOutput(str(field(o, P.opId))),
 			}),
 		)
 	if (rule === 'projectors')

@@ -20,6 +20,7 @@ import { groupOn, type PlayMapConfig } from './config.ts'
 import { RULES, SLOTS, fillHint, stronger } from './live.ts'
 import { colourOf, css, inkOn, lightExpression, rgbOf } from './palette/playmap.ts'
 import type { IndexDoc } from './state/index-doc.ts'
+import { P } from './state/paths.ts'
 
 type PresetAction = SomePresetActionEntry
 type ExprValue = { isExpression: true; value: string }
@@ -408,7 +409,7 @@ function simple(spec: KeySpec): CompanionSimplePresetDefinition {
 }
 
 /** The module's actions that answer a result (every generated `v_` action, and these). */
-const RESULT_ACTIONS = new Set([
+export const RESULT_ACTIONS = new Set([
 	'go_focused',
 	'next_focused',
 	'prev_focused',
@@ -587,7 +588,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		notes: "The node's headline, its light on the frame.",
 		keywords: ['headline', 'health', 'light'],
 		locals: [],
-		label: { feedbackId: 'state_path', options: { path: 'headline' } },
+		label: { feedbackId: 'state_path', options: { path: P.headline } },
 		grounds: [
 			{ feedbackId: 'node_light', options: { light: 'amber' }, colour: 'amber' },
 			{ feedbackId: 'node_light', options: { light: 'red' }, colour: 'red' },
@@ -608,8 +609,8 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		notes: 'The tempo heard in the audio: the key pulses on the beat while there is one.',
 		keywords: ['beat', 'bpm', 'tempo', 'audio'],
 		locals: [],
-		label: { feedbackId: 'state_path', options: { path: 'audio.bpm' } },
-		feedbackLocals: [{ name: 'bpm', feedbackId: 'state_path', options: { path: 'audio.bpm' } }],
+		label: { feedbackId: 'state_path', options: { path: P.bpm } },
+		feedbackLocals: [{ name: 'bpm', feedbackId: 'state_path', options: { path: P.bpm } }],
 		breathe: [
 			{
 				element: 'frame',

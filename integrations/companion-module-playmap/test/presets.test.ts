@@ -12,7 +12,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
 import { SLOTS } from '../src/live.ts'
-import { compositeDefinitions, presetDefinitions } from '../src/presets.ts'
+import { RESULT_ACTIONS, compositeDefinitions, presetDefinitions } from '../src/presets.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -553,6 +553,127 @@ void test('a node whose VERBS lacks a row a preset presses gets no such preset, 
 			[],
 			'the host’s preset sanitiser changed nothing',
 		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('every key wears the stale mark last, a press that answers a result stores it and lights the receipt dot, a twice-pressed key says SURE?', async () => {
+	const { node, m } = await linked()
+	try {
+		await m.host.until(() => Object.keys(m.host.presets).length > 0, 'presets')
+		interface Feedback {
+			feedbackId: string
+			options?: Record<string, unknown>
+			styleOverrides?: { elementId: string; elementProperty: string }[]
+			style?: Record<string, unknown>
+		}
+		interface Variant {
+			type: string
+			feedbacks: Feedback[]
+			steps: Record<string, unknown>[]
+			localVariables?: { variableName: string; variableType: string }[]
+		}
+		let stored = 0
+		for (const [id, preset] of Object.entries(m.host.presets)) {
+			const variants = (preset as { variants?: Variant[] }).variants ?? [preset as Variant]
+			for (const v of variants) {
+				const last = v.feedbacks.at(-1)
+				assert.equal(last?.feedbackId, 'stale', `${id} (${v.type}): stale is its last feedback, so it wins`)
+				if (v.type === 'layered')
+					assert.deepEqual(
+						last?.styleOverrides?.map((o) => `${o.elementId}.${o.elementProperty}`),
+						['root.opacity', 'mark.enabled'],
+						`${id}: a stale key dims and shows its mark`,
+					)
+				const text = JSON.stringify(v.steps)
+				const answers = [...text.matchAll(/"actionId":"([^"]+)"/gu)].some(
+					([, a]) => a !== undefined && (a.startsWith('v_') || RESULT_ACTIONS.has(a)),
+				)
+				if (!answers) continue
+				stored++
+				// Every action that answers a result stores it in the key's local `result`, which the key declares.
+				for (const action of actionsIn(v.steps))
+					if (action.actionId.startsWith('v_') || RESULT_ACTIONS.has(action.actionId))
+						assert.deepEqual(
+							action.storeResult,
+							{ type: 'local-variable', variableName: 'result' },
+							`${id}: ${action.actionId} stores its result`,
+						)
+				assert.ok(
+					v.localVariables?.some((l) => l.variableName === 'result' && l.variableType === 'simple'),
+					`${id} (${v.type}) declares its local result`,
+				)
+				if (v.type !== 'layered') continue
+				for (const stage of ['pending', 'failed'])
+					assert.ok(
+						v.feedbacks.some((f) => f.feedbackId === 'receipt' && f.options?.stage === stage),
+						`${id}: the receipt dot ${stage}`,
+					)
+				if (/"confirm":"twice"/u.test(text))
+					assert.ok(
+						v.feedbacks.some((f) => f.feedbackId === 'confirm_pending'),
+						`${id}: a twice-pressed key says SURE?`,
+					)
+			}
+		}
+		assert.ok(stored > 20, `${stored} keys store a result`)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+/** Every action entry in a preset's steps (down, up, rotations and duration groups), wherever it sits. */
+function actionsIn(value: unknown): { actionId: string; storeResult?: unknown }[] {
+	const out: { actionId: string; storeResult?: unknown }[] = []
+	const stack: unknown[] = [value]
+	while (stack.length > 0) {
+		const v = stack.pop()
+		if (v === null || typeof v !== 'object') continue
+		if (!Array.isArray(v) && typeof (v as { actionId?: unknown }).actionId === 'string')
+			out.push(v as { actionId: string; storeResult?: unknown })
+		else stack.push(...(Array.isArray(v) ? v : Object.values(v)))
+	}
+	return out
+}
+
+void test('an INDEX of 500 items in 20 playlists is variables, actions, feedbacks and presets within 100 ms (design 3.8)', async () => {
+	const big = (sig: string, trial: number): IndexJson => {
+		const doc = copy(fixture('index.json') as IndexJson)
+		doc.sig = sig
+		doc.playlists = Array.from({ length: 20 }, (_, p) => ({
+			id: `pl${String(100 + trial * 20 + p).padStart(8, '0')}`,
+			name: `List ${p + 1}`,
+			loop: false,
+			syncGroup: null,
+			items: Array.from({ length: 25 }, (_, i) => ({
+				id: `it${String(1000 + trial * 500 + p * 25 + i).padStart(8, '0')}`,
+				label: `Item ${p + 1}.${i + 1}`,
+				source: `color:#${(p * 25 + i).toString(16).padStart(6, '0').toUpperCase()}`,
+				kind: 'color',
+				lengthMs: 10000,
+			})),
+		}))
+		return doc
+	}
+	const { node, m } = await linked()
+	try {
+		await m.host.until(() => Object.keys(m.host.presets).length > 0, 'presets')
+		// The best of three, so the scheduler's noise is not the module's: each a new structure, from the push to the presets sent.
+		const took: number[] = []
+		for (const [trial, sig] of ['5a5a5a5a5a5a5a01', '5a5a5a5a5a5a5a02', '5a5a5a5a5a5a5a03'].entries()) {
+			const calls = m.host.presetCalls
+			const doc = big(sig, trial)
+			const started = performance.now()
+			node.pushIndex(doc)
+			await m.host.until(() => m.host.presetCalls > calls, `the presets for ${sig}`)
+			took.push(performance.now() - started)
+		}
+		const groups = JSON.stringify(m.host.structure).match(/"pl\.pl0000014\d"/gu) ?? []
+		assert.ok(groups.length > 0, 'the 20 playlists’ template groups are there')
+		assert.ok(Math.min(...took) <= 100, `INDEX to presets in ${took.map((t) => t.toFixed(1)).join(', ')} ms`)
 	} finally {
 		await m.stop()
 		await node.stop()

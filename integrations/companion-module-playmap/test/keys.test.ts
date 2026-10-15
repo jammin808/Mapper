@@ -137,3 +137,50 @@ void test('the Show Mode key says ARMED or REHEARSAL and the master dial its 0-1
 		await node.stop()
 	}
 })
+
+void test('a test pattern up says its kind, read from the STATE the engine wrote with one', async () => {
+	const node = await new FakeNode().start()
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await m.place('up', 'pattern_up', {})
+		await values(m, { pattern: '', up: false }, 'no pattern')
+		node.pushState(fixture('state-pattern.json'))
+		await values(m, { pattern: 'pattern.grid', up: true }, 'the grid up')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a key’s time left reads as m:ss or seconds; a projector’s score ring reads its calibration, else its solve', async () => {
+	const index = copy(fixture('index.json') as IndexJson)
+	index.projectors = [{ id: PJ, name: 'Left', output: 'op_1', device: null }]
+	const state = copy(fixture('state.json') as StateJson & { playlists: Record<string, unknown>[] })
+	state.stage.projectors = [{ id: PJ, name: 'Left', solved: true, residualPx: 0.8, grade: 'A' }]
+	// Paused, so no clock runs between pushes: 72.5 s left.
+	Object.assign(state.playlists[0] ?? {}, { state: 'paused', positionMs: 1000, lengthMs: 73500, remainingMs: 72500 })
+	const node = await new FakeNode({ index, state }).start()
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(() => m.instance.linked() && m.instance.model.index !== null, 'linked')
+		await m.place('clock', 'remaining', { playlist: SHOW.playlist, format: 'clock' })
+		await m.place('seconds', 'remaining', { playlist: SHOW.playlist, format: 'seconds' })
+		await m.place('none', 'remaining', { playlist: SHOW.loops, format: 'clock' })
+		await m.place('score', 'score', { projector: PJ })
+		await values(
+			m,
+			{ clock: '1:13', seconds: 73, none: '', score: 84 },
+			'time left rounded up; a solve 0.8 px off scores 84',
+		)
+
+		// The node's calibration score wins over the solve's.
+		const scored = copy(state) as unknown as { calibration: { targets: unknown[] } }
+		scored.calibration.targets = [{ id: PJ, score: 96.4, grade: 'A', words: 'Left is good' }]
+		node.pushState(scored)
+		await values(m, { score: 96 }, 'the calibration’s own score')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})

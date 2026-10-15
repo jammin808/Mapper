@@ -83,7 +83,7 @@ public sealed partial class CompanionContractTests
     {
         var states = Directory.GetFiles(Path.Combine(RepoRoot(), "tests", "fixtures", "state"), "*.json")
             .Where(f => !f.EndsWith(".cards.json", StringComparison.Ordinal))
-            .Append(Module("test", "fixtures", "state.json"))
+            .Concat(Directory.GetFiles(Module("test", "fixtures"), "state*.json"))
             .Select(f => JsonNode.Parse(Read(f))!)
             .ToList();
         var paths = Read(Module("test", "state-paths.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries);

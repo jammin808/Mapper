@@ -13,6 +13,7 @@ export const P = {
 	blackout: 'air.blackout',
 	frozen: 'air.frozen',
 	pattern: 'air.pattern',
+	patternKind: 'air.pattern.kind',
 	identify: 'air.identify',
 	masterLevel: 'air.master.level',
 	masterTo: 'air.master.to',
@@ -116,6 +117,8 @@ export const P = {
 	showArmed: 'show.armed',
 	showBy: 'show.by',
 	showBlind: 'show.blind',
+	showRules: 'show.rules',
+	showLocks: 'show.locks',
 	showMinGoMs: 'show.minGoMs',
 
 	calMoved: 'calibration.moved',

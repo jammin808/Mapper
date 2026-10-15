@@ -334,3 +334,34 @@ void test('a generator parameter turns by delta × step: GENERATOR SET … BY th
 		await node.stop()
 	}
 })
+
+void test('a surface’s opacity dial NUDGEs it by 0.05 a detent, signed, the turns within 30 ms one line', async () => {
+	const index = copy(fixture('index.json') as { surfaces: unknown[] })
+	index.surfaces = [{ id: 'sf00000010', name: 'Wall', tags: ['wall'], source: '' }]
+	const node = await new FakeNode({ token: TOKEN, index }).start()
+	const m = await boot(configFor(node.webPort, node.wirePort), { token: TOKEN })
+	try {
+		await m.host.until(() => m.instance.linked() && 'surface_opacity_key' in m.host.presets, 'linked, the opacity dial')
+		const wall = { surface: 'sf00000010' }
+		const nudges = (): string[] => node.sent().filter((l) => l.startsWith('NUDGE '))
+		const mark = async (n: number): Promise<void> => {
+			await m.press('enc_lens', { device: `dvmark${n}`, motor: 'ZOOM', step: '1', delta: 1 }, 'dial-mark')
+			await node.heard(new RegExp(`DEVICE LENS dvmark${n} ZOOM BY 1$`, 'u'))
+		}
+		await turn(m, 'surface_opacity_key', 3, wall)
+		await mark(1)
+		await turn(m, 'surface_opacity_key', -2, wall)
+		await mark(2)
+		await turn(m, 'surface_opacity_key', 1, wall)
+		await turn(m, 'surface_opacity_key', 1, wall)
+		await mark(3)
+		assert.deepEqual(nudges(), [
+			'NUDGE sf00000010 opacity +0.15',
+			'NUDGE sf00000010 opacity -0.1',
+			'NUDGE sf00000010 opacity +0.1',
+		])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})

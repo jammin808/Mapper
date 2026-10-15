@@ -12,11 +12,10 @@ import type { Ctx } from './context.ts'
 import type { EncoderTarget } from './encoders.ts'
 import { liveSlotOptions, slotOf } from './feedbacks.ts'
 import type { PressResult } from './guards.ts'
-import { quote } from './link/grammar.ts'
 import { RULES, fillHint } from './live.ts'
 import { P, at, num } from './state/paths.ts'
-import { MODULE_VERSION } from './version.ts'
 import { parseNode } from './json.ts'
+import { Lines } from './lines.ts'
 
 /** The verbs whose press is a GO of a playlist (the double-GO guard applies). */
 const GO_VERBS = new Set(['PLAYLIST GO', 'PLAYLIST NEXT', 'PLAYLIST PREV'])
@@ -35,30 +34,7 @@ export const PANIC_OUTCOMES = [
 	'HARD',
 ] as const
 
-/** Lines the smart actions write. */
-export const Lines = {
-	go: (playlist: string, expect: string | null): string =>
-		`PLAYLIST GO ${quote(playlist)}${expect ? ` EXPECT ${quote(expect)}` : ''}`,
-	next: (playlist: string, expect: string | null): string =>
-		`PLAYLIST NEXT ${quote(playlist)}${expect ? ` EXPECT ${quote(expect)}` : ''}`,
-	prev: (playlist: string): string => `PLAYLIST PREV ${quote(playlist)}`,
-	goItem: (playlist: string, item: string): string => `PLAYLIST GO ${quote(playlist)} ${quote(item)}`,
-	panic: (outcome: string): string => (outcome ? `PANIC ${outcome}` : 'PANIC'),
-	master: (level: number): string => `MASTER ${level}`,
-	rate: (playlist: string, rate: number): string => `VIDEO RATE ${rate} ON ${quote(playlist)}`,
-	seek: (playlist: string, seconds: number): string => `VIDEO SEEK ${seconds} ON ${quote(playlist)}`,
-	generatorBy: (generator: string, param: string, by: number): string =>
-		`GENERATOR SET ${quote(generator)} ${quote(param)} BY ${by}`,
-	lensBy: (device: string, motor: string, by: number): string => `DEVICE LENS ${quote(device)} ${motor} BY ${by}`,
-	nudge: (id: string, path: string, by: number): string =>
-		`NUDGE ${quote(id)} ${quote(path)} ${by >= 0 ? '+' : ''}${by}`,
-	thumb: (ref: string, size: number, etag?: string): string =>
-		`THUMB ${quote(ref)} ${size}x${size}` + (etag ? ` IF ${quote(etag)}` : ''),
-	hello: (name: string): string => `HELLO ${name} module=${MODULE_VERSION}`,
-	presence: (json: string): string => `PRESENCE ${json}`,
-	watchThumbs: (refs: readonly string[]): string => ['SUBSCRIBE THUMBS', ...refs.map(quote)].join(' '),
-	eventsSince: (seq: number): string => `EVENTS SINCE ${seq}`,
-} as const
+export { Lines } from './lines.ts'
 
 /** Every line the module's own actions, presets and link write (with sample ids), for the node's parser test. */
 export function fixedLines(): string[] {
@@ -71,8 +47,8 @@ export function fixedLines(): string[] {
 		Lines.prev(pl),
 		Lines.goItem(pl, it),
 		...PANIC_OUTCOMES.map(Lines.panic),
-		'BLACKOUT TOGGLE',
-		'FREEZE TOGGLE',
+		Lines.blackoutToggle,
+		Lines.freezeToggle,
 		'PANIC CLEAR',
 		Lines.master(55),
 		Lines.rate(pl, 1.05),
@@ -81,18 +57,18 @@ export function fixedLines(): string[] {
 		Lines.lensBy('dv0a1b2c3d', 'ZOOM', 2),
 		Lines.nudge('sf0a1b2c3d', 'opacity', 0.05),
 		Lines.nudge('sf0a1b2c3d', 'opacity', -0.05),
-		'OUTPUT IDENTIFY op_1',
+		Lines.identifyOutput('op_1'),
 		Lines.thumb('color:#FF0000', 96),
 		Lines.thumb('media:md0a1b2c3d', 144, 'media-5e6f7a8b9c0d1e2f-144x81-j'),
 		Lines.hello('Companion:FOH deck'),
-		`AUTH-PROOF ${'0'.repeat(64)}`,
-		'PING 1760101234567',
+		Lines.proof('0'.repeat(64)),
+		Lines.ping(1760101234567),
 		Lines.presence('{"kind":"companion","module":"1.0.0","live":"focused","page":"1/1","thumbs":0}'),
-		'WHOAMI',
-		'VERBS',
-		'INDEX',
-		'SUBSCRIBE INDEX',
-		'SUBSCRIBE EVENTS',
+		Lines.whoami,
+		Lines.verbs,
+		Lines.index,
+		Lines.subscribe('INDEX'),
+		Lines.subscribe('EVENTS'),
 		Lines.watchThumbs(['color:#FF0000', 'media:md0a1b2c3d']),
 		Lines.watchThumbs([]),
 		Lines.eventsSince(412),
@@ -320,13 +296,13 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 		name: 'Blackout: toggle',
 		options: [],
 		hasResult: true,
-		callback: async (action) => ctx.send('BLACKOUT TOGGLE', action.controlId),
+		callback: async (action) => ctx.send(Lines.blackoutToggle, action.controlId),
 	}
 	defs.freeze_toggle = {
 		name: 'Freeze: toggle',
 		options: [],
 		hasResult: true,
-		callback: async (action) => ctx.send('FREEZE TOGGLE', action.controlId),
+		callback: async (action) => ctx.send(Lines.freezeToggle, action.controlId),
 	}
 	defs.slot_press = {
 		name: 'Live: press a slot',

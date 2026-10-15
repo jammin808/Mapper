@@ -44,17 +44,26 @@ public sealed partial class CompanionModuleFixtureTests
         }
         Assert.Contains(intro, index, StringComparison.Ordinal);
 
+        // The same show with a test pattern up on the output: what a STATE says of the air when one is (state-pattern.json).
+        await rig.Ok("PATTERN grid ON op_1");
+        var patterned = rig.Engine.State().Json;
+        using (var s = JsonDocument.Parse(patterned))
+            Assert.Equal(JsonValueKind.Object, s.RootElement.GetProperty("air").GetProperty("pattern").ValueKind);
+
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         var stateFixture = Stable(state, ids);
         var indexFixture = Stable(index, ids);
+        var patternFixture = Stable(patterned, ids);
 
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
             await File.WriteAllTextAsync(FixturePath("state.json"), stateFixture);
             await File.WriteAllTextAsync(FixturePath("index.json"), indexFixture);
+            await File.WriteAllTextAsync(FixturePath("state-pattern.json"), patternFixture);
         }
         Assert.Equal((await File.ReadAllTextAsync(FixturePath("state.json"))).ReplaceLineEndings("\n"), stateFixture);
         Assert.Equal((await File.ReadAllTextAsync(FixturePath("index.json"))).ReplaceLineEndings("\n"), indexFixture);
+        Assert.Equal((await File.ReadAllTextAsync(FixturePath("state-pattern.json"))).ReplaceLineEndings("\n"), patternFixture);
     }
 
     /// <summary>The document with every show id renamed in order of first appearance (shared across the two files) and the
