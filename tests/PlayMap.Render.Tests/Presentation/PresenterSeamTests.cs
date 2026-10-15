@@ -14,7 +14,8 @@ namespace PlayMap.Render.Tests.Presentation;
 public sealed class PresenterSeamTests(GlFixture gl)
 {
     /// <summary>A presenter that keeps the pictures it was given and waits, as a vsync'd swap does, for the next vblank of a 60 Hz
-    /// grid on the monotonic clock (the one after it when asked to be late), returning just after it.</summary>
+    /// grid on the monotonic clock (the one after it when asked to be late), and says it returned just after that vblank — the
+    /// instant it scripted, whenever its thread got the CPU back (how the fit copes with late stamps is VblankClockTests').</summary>
     private sealed class ScriptedPresenter : IOutputPresenter
     {
         private const double Period = 1e9 / 60;
@@ -47,7 +48,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
             var spin = new SpinWait();
             while (MonoClock.Instance.NowNs < returns)
                 spin.SpinOnce(sleep1Threshold: -1);
-            LastSwapNs = MonoClock.Instance.NowNs;
+            LastSwapNs = returns;
             return PresentResult.Done(LastSwapNs);
         }
 
@@ -84,8 +85,8 @@ public sealed class PresenterSeamTests(GlFixture gl)
             Assert.Equal(PresentPath.GlWindow, present.Path);
             Assert.True(present.Measured);
             Assert.True(present.Settled);
-            // Real instants on a loaded machine: the fit is near the grid, and the frame made late is counted (a preempted test
-            // thread can add a miss of its own; the exact counting is VblankClockTests' synthetic work).
+            // The clock reads what the presenter says: the grid's rate, and the frame made late counted (a test thread that comes
+            // to a present after its vblank waits for the next one, a miss of its own; the exact counting is VblankClockTests').
             Assert.InRange(present.RefreshHz, 59.8, 60.2);
             Assert.Equal(90, present.Presented);
             Assert.InRange(present.MissedVblanks, 1, 10);

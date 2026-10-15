@@ -33,6 +33,37 @@ public sealed class VblankClockTests
         Assert.Equal(0, clock.Outliers);
     }
 
+    /// <summary>Swap returns as a loaded machine stamps them: one frame in twelve held up to 30 ms before its present (it then
+    /// waits for the next vblank: a real miss) and one in twelve stamped up to 30 ms after its vblank (its thread waited for the
+    /// CPU). A return is never early, so a late stamp shifts no later count and the median trim keeps it out of the rate: after
+    /// 90 frames the fit is on the display's rate within 0.05 Hz and its next vblank within a millisecond, on every one of forty
+    /// such machines.</summary>
+    [Fact]
+    public void SwapReturnsStampedLateByAStarvedThreadNeitherShiftTheCountNorBendTheRate()
+    {
+        for (ulong seed = 1; seed <= 40; seed++)
+        {
+            var rng = new Pcg32(seed);
+            var clock = new VblankClock(60);
+            var now = T0;
+            long vblank = 0;
+            for (var f = 0; f < 90; f++)
+            {
+                now += 1_000_000;
+                if (rng.NextDouble() < 1.0 / 12)
+                    now += (long)(rng.NextDouble() * 30_000_000);
+                vblank = T0 + (long)Math.Round((Math.Floor((now - T0) / Period60) + 1) * Period60);
+                now = Math.Max(now, vblank + 100_000);
+                if (rng.NextDouble() < 1.0 / 12)
+                    now += (long)(rng.NextDouble() * 30_000_000);
+                clock.AddSwapReturn(now);
+            }
+            Assert.True(clock.RefreshHz is > 59.95 and < 60.05, $"seed {seed}: {clock.RefreshHz} Hz");
+            var next = clock.NextVblank(vblank + 1_000_000) - (vblank + (long)Math.Round(Period60));
+            Assert.True(Math.Abs(next) < 1_000_000, $"seed {seed}: next vblank {next} ns off");
+        }
+    }
+
     [Fact]
     public void DisplaySideSamplesFitTheSameAndOnlyANewerCountIsTaken()
     {
