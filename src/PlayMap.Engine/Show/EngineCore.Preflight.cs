@@ -33,7 +33,8 @@ public sealed partial class EngineCore
     internal event Action<IPreflightCheck>? PreflightCheckFinished;
 
     private void StartPreflight() =>
-        _builtInChecks = [new OutputsCheck(), new MediaCheck(), new DevicesCheck(), new DiskCheck(), new SafetyCheck()];
+        _builtInChecks = [new OutputsCheck(), new MediaCheck(), new DevicesCheck(), new DiskCheck(), new SafetyCheck(), new MappingCheck(),
+            new ClockCheck(), new LinksCheck()];
 
     private Task<CommandReply> PreflightAsync(VerbCall c)
     {

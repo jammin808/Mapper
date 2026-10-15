@@ -15,7 +15,7 @@ public static class PreflightReports
         ("outputs", ["outputs", "machine"]),
         ("media", ["media", "disk"]),
         ("mapping", ["mapping", "devices"]),
-        ("sync and backup", ["sync", "fleet", "links"]),
+        ("sync and backup", ["sync", "clock", "fleet", "links"]),
         ("safety", ["safety"]),
     ];
 
