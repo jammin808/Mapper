@@ -20,7 +20,21 @@
       "to": 1,
       "untilLeaderNs": 0
     },
-    "panic": null
+    "panic": null,
+    "overlay": {
+      "on": false,
+      "outputs": [],
+      "layers": [
+        "cursor",
+        "outlines",
+        "handles",
+        "lattice"
+      ],
+      "handle": null,
+      "grid": false,
+      "cursors": 0,
+      "armed": false
+    }
   },
   "video": null,
   "playlists": [],
@@ -186,7 +200,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "4e4ba9bcf3395d73"
+    "index": "118a466aaad1c227"
   },
   "faults": [],
   "ai": {
@@ -316,5 +330,18 @@
     "unbound": [],
     "held": [],
     "flashLimited": -1
+  },
+  "calibration": {
+    "moved": [],
+    "task": null,
+    "targets": []
+  },
+  "onboarding": {
+    "stage": "none",
+    "startedAt": null,
+    "litAt": null,
+    "quadAt": null,
+    "contentAt": null,
+    "seconds": -1
   }
 }

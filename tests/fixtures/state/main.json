@@ -20,7 +20,21 @@
       "to": 1,
       "untilLeaderNs": 0
     },
-    "panic": null
+    "panic": null,
+    "overlay": {
+      "on": false,
+      "outputs": [],
+      "layers": [
+        "cursor",
+        "outlines",
+        "handles",
+        "lattice"
+      ],
+      "handle": null,
+      "grid": false,
+      "cursors": 0,
+      "armed": false
+    }
   },
   "video": null,
   "playlists": [],
@@ -97,14 +111,18 @@
         "name": "Left",
         "solved": false,
         "residualPx": 0,
-        "pins": 0
+        "pins": 0,
+        "grade": "",
+        "quads": 0
       },
       {
         "id": "pj_right",
         "name": "Right",
         "solved": false,
         "residualPx": 0,
-        "pins": 0
+        "pins": 0,
+        "grade": "",
+        "quads": 0
       }
     ],
     "scans": 0
@@ -152,7 +170,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "e03f6d8a9d80f810"
+    "index": "46677bba312163ea"
   },
   "faults": [],
   "ai": {
@@ -331,5 +349,57 @@
     "unbound": [],
     "held": [],
     "flashLimited": -1
+  },
+  "calibration": {
+    "moved": [],
+    "task": null,
+    "targets": [
+      {
+        "id": "pj_left",
+        "kind": "projector",
+        "name": "Left",
+        "score": -1,
+        "unit": "px",
+        "grade": "",
+        "light": "grey",
+        "source": "",
+        "words": "Left has no calibration result \u2014 PROJECTOR SOLVE pj_left, or CALIBRATION SAVE pj_left",
+        "worst": "",
+        "confidence": -1,
+        "snapshot": null,
+        "fallback": null,
+        "staged": null,
+        "history": 0,
+        "verifiedP95": -1,
+        "terms": []
+      },
+      {
+        "id": "pj_right",
+        "kind": "projector",
+        "name": "Right",
+        "score": -1,
+        "unit": "px",
+        "grade": "",
+        "light": "grey",
+        "source": "",
+        "words": "Right has no calibration result \u2014 PROJECTOR SOLVE pj_right, or CALIBRATION SAVE pj_right",
+        "worst": "",
+        "confidence": -1,
+        "snapshot": null,
+        "fallback": null,
+        "staged": null,
+        "history": 0,
+        "verifiedP95": -1,
+        "terms": []
+      }
+    ]
+  },
+  "onboarding": {
+    "stage": "none",
+    "startedAt": null,
+    "litAt": null,
+    "quadAt": null,
+    "contentAt": null,
+    "seconds": -1
   }
 }
