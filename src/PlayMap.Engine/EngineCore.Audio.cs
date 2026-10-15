@@ -102,13 +102,14 @@ public sealed partial class EngineCore
     }
 
     /// <summary>Opens, closes or retries the input when what the show asks differs from what is open (one open at a time, off the
-    /// lane).</summary>
+    /// lane: closing a device joins its reader, and resolving a name lists every backend's devices, so none of it runs on the lane's
+    /// thread).</summary>
     private void KeepListening()
     {
         var spec = ListenSpecNow();
         if (_listening is { IsCompleted: false } || !AudioRt.Due(spec, Services.Mono.NowNs))
             return;
-        _listening = ListenNowAsync(spec);
+        _listening = Task.Run(() => ListenNowAsync(spec), CancellationToken.None);
     }
 
     private async Task ListenNowAsync(ListenSpec spec)

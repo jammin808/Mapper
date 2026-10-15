@@ -141,6 +141,61 @@ public sealed class CaptureHubTests
         await rig.Refused("AUDIO LISTEN TEST WHISTLE");
     }
 
+    /// <summary>A backend whose listing waits until released (a sound server slow to answer).</summary>
+    private sealed class SlowInputs : IAudioInputs, IDisposable
+    {
+        private readonly ManualResetEventSlim _release = new(false);
+
+        public SemaphoreSlim Entered { get; } = new(0);
+
+        public volatile bool Block;
+
+        public void Release() => _release.Set();
+
+        public IReadOnlyList<AudioInputInfo> Inputs()
+        {
+            if (Block)
+            {
+                Entered.Release();
+                _release.Wait(TimeSpan.FromSeconds(30));
+            }
+            return [new AudioInputInfo("slow:mic", "Slow Mic", 2, [48000], "slow")];
+        }
+
+        public IAudioCapture Open(string key, int preferredRate, IAudioCaptureSink sink) => new FakeCapture(sink, 2);
+
+        public void Dispose()
+        {
+            _release.Dispose();
+            Entered.Dispose();
+        }
+    }
+
+    /// <summary>The lane's tick reopens the input the show names (an undo put it back), and the listing that resolves its name waits
+    /// on the backends: it runs off the lane, so the lane answers meanwhile.</summary>
+    [Fact]
+    public async Task TheLaneNeverWaitsOnADeviceListing()
+    {
+        using var slow = new SlowInputs();
+        await using var rig = new AudioRig();
+        rig.Engine.AudioRt.AddBackend("slow:", slow);
+        await rig.Ok("AUDIO LISTEN \"Slow Mic\"");
+        await rig.Ok("AUDIO LISTEN TEST CLICK");
+        slow.Block = true;
+        await rig.Ok("UNDO");
+        Assert.Equal("Slow Mic", rig.Engine.Store.Project.Audio.Input);
+        Assert.True(await slow.Entered.WaitAsync(TimeSpan.FromSeconds(10)), "the tick reopens the input the undo put back");
+        // The listing is waiting: the lane still answers.
+        var status = await rig.Run("TEMPO STATUS").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(status.Ok);
+        slow.Release();
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (rig.Engine.AudioRt.State is not { State: "listening", Key: "slow:mic" } && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+        Assert.Equal("listening", rig.Engine.AudioRt.State.State);
+        Assert.Equal("slow:mic", rig.Engine.AudioRt.State.Key);
+    }
+
     [Fact]
     public async Task HereKeepsThisMachinesOwnInputBesideTheShows()
     {
