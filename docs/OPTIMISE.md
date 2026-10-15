@@ -66,12 +66,13 @@ runs at a time, oldest first, through the worker:
 
 ## The governor
 
-Stepped once a second from what the engine already publishes; its thresholds are `NodeSettings.Optimise`.
+Stepped once a second from what the engine already publishes (outputs' dropped frames, open decoders' late frames, the LED
+sender's dropped and skipped frames and its late nodes); its thresholds are `NodeSettings.Optimise`.
 
 | State | When | The worker | Words |
 |---|---|---|---|
 | waiting | the show is armed | holds between frames; nothing starts | optimise waits: the show is armed |
-| paused | an output dropped or a source was late while a job ran, for `PauseAfterDropS` (60 s) after the last | holds | paused for 60 s: 1 frame dropped while it ran |
+| paused | an output or the LED sender dropped a frame, or a source or an LED node was late, while a job ran, for `PauseAfterDropS` (60 s) after the last | holds | paused for 60 s: 1 frame dropped while it ran |
 | trickle | something plays, and until 10 s after it stopped | a rest after each frame so the frame's whole cost (demux, decode, encode, mux) is `TrickleGpuDuty` (15 %) of the time; a job started at trickle also decodes in software on one thread | a show plays: one stream, GPU ≤ 15 % |
 | run | idle | no rest; a job started at run decodes on every core but one, hardware decode allowed | |
 

@@ -50,7 +50,8 @@ public sealed class OptimisePreflight : IPreflightCheck
 }
 
 /// <summary>The library items the show plays: what outputs and surfaces show, every item of a playlist they show, every visible
-/// layer of a canvas they show (nested, eight deep).</summary>
+/// layer of a canvas they show, every input a generator they show reads (GENERATOR INPUT), and what an enabled LED fixture samples
+/// (a source, or a canvas's sources); nested eight deep.</summary>
 public static class ShowMedia
 {
     public static IReadOnlySet<string> Of(Project project)
@@ -76,12 +77,26 @@ public static class ShowMedia
                         if (layer.Visible)
                             Add(layer.Source, depth + 1);
                     break;
+                case SourceKind.Generator when project.FindGenerator(source.Id) is { } generator:
+                    foreach (var input in generator.Inputs.Values)
+                        Add(input, depth + 1);
+                    break;
             }
         }
         foreach (var o in project.Outputs)
             Add(o.Source, 0);
         foreach (var s in project.Stage.Surfaces)
             Add(s.Content.Source, 0);
+        // LED fixtures sampling an output, a surface or the world read what those show (above); a source or a canvas is their own.
+        foreach (var f in project.Leds.Fixtures)
+        {
+            if (!f.Enabled)
+                continue;
+            if (f.Space == LedSpace.Canvas)
+                Add(SourceRef.Canvas(f.SpaceId), 0);
+            else if (f.Space == LedSpace.Source && SourceRef.TryParse(f.SpaceId, out var sampled))
+                Add(sampled, 0);
+        }
         return items;
     }
 }

@@ -58,6 +58,7 @@ public sealed class OptimiseService : IAsyncDisposable
     private long _idleSinceNs = long.MinValue;
     private int _restarts;
     private int _crashStreak;
+    private long _ledLateSteps;
     private bool _disposed;
     private readonly HashSet<string> _recording = new(StringComparer.Ordinal);
     private string _gl = "";
@@ -347,6 +348,14 @@ public sealed class OptimiseService : IAsyncDisposable
         if (engine.Services.Media is MediaBackend media)
             foreach (var d in media.OpenDecoders())
                 late += d.Source.Health.FramesLate;
+        // LED output is on the air as outputs are: frames the sender dropped or skipped count as dropped, and each step a node's
+        // frames leave late (its p95 over a frame) counts as a late frame, so a late node keeps the pause going while it stays late.
+        if (engine.Led.Output?.View() is { } led)
+        {
+            dropped += led.Dropped;
+            _ledLateSteps += led.Nodes.Count(n => n.State == "late");
+        }
+        late += _ledLateSteps;
         bool working;
         lock (_gate)
             working = _running is not null;

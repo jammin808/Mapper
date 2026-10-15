@@ -53,10 +53,15 @@ a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
 
 ## Preflight
 
-Section `optimise`: amber for each video the show plays at 4K or larger that this node decodes on the CPU (what plays here is not a
+Section `optimise`: amber for each video the show plays at 4K or larger (what outputs and surfaces show, through playlists, canvases
+and generators' inputs, and what enabled LED fixtures sample) that this node decodes on the CPU (what plays here is not a
 HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
 
 ## Papers note
+
+After the content and LED merges: the governor reads LED drops and late LED nodes, and "what the show plays" (preflight, the
+context's red) follows generator inputs and LED fixtures.
+
 
 For the integration docs pass: WIRE.md gains the six rows above (MEDIA ESTIMATE and MEDIA VERSION are trimmed: next round);
 ARCHITECTURE.md §1 gains the third process role, `PlayMap optimise-worker`; PLAYBACK.md's media chapter gains versions and `use`;

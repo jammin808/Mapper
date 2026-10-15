@@ -43,7 +43,7 @@ internal sealed class OptimiseRig : IAsyncDisposable
     public NodeHome Home => new(Path.Combine(Dir.FullName, "node"));
 
     public static OptimiseRig Start(Project? project = null, bool render = false, OptimiseOptions? options = null,
-        Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null)
+        Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null, Core.Led.ILedOutput? led = null)
     {
         FfmpegFactAttribute.UseDefaultLibraries();
         dir ??= Directory.CreateTempSubdirectory("playmap-optimise-");
@@ -67,6 +67,7 @@ internal sealed class OptimiseRig : IAsyncDisposable
             Optimise = service,
             ShowGate = gate,
             ProjectFolder = dir.FullName,
+            LedOutput = led,
         };
         var engine = new EngineCore(services, project ?? Project.CreateDefault("Optimise"));
         host?.Start(engine);
