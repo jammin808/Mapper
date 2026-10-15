@@ -50,7 +50,10 @@ public class GeneratedMenuTests
             Assert.NotEmpty(extras);
             Assert.Equal(extras, host.Extras);
             var menu = MenuOf(window, target);
-            var buttons = window.GetVisualDescendants().OfType<ActionMenuButton>().Select(b => b.Action).ToHashSet();
+            // The buttons of the inspector that shows this object (not any panel's).
+            var inspector = window.GetVisualDescendants().OfType<Views.InspectorView>().Single(v => ReferenceEquals(v.DataContext, host) && v.IsEffectivelyVisible);
+            var extrasRow = inspector.GetVisualDescendants().OfType<ItemsControl>().Single(i => i.Name == "InspectorExtras");
+            var buttons = extrasRow.GetVisualDescendants().OfType<ActionMenuButton>().Select(b => b.Action).ToHashSet();
             foreach (var e in extras.Where(e => e.HasChildren ? e.Children.Any(c => c.IsAvailable) : e.IsAvailable))
             {
                 // In the menu, with its sub-entries, and on the inspector's toolbar: the same instances.

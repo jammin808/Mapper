@@ -18,14 +18,15 @@ public sealed partial class FakeEngineLink
 
     private bool Armed => _sections.TryGetValue("show", out var s) && s is JsonObject o && o["armed"]?.GetValue<bool>() == true;
 
-    /// <summary>The engine's gate for the desk (role Operator) while armed: the policy's words, or null.</summary>
+    /// <summary>The engine's gate for the desk (its role) while armed: the policy's words, or null.</summary>
     private string? ArmedRefusal(WireLine line)
     {
         if (!Armed || VerbCatalog.Match(line) is not { } m)
             return null;
         var rules = Section("show")["rules"] as JsonObject;
         var facts = new ShowFacts(true, false, _blackout, rules?["remoteViewOnly"]?.GetValue<bool>() ?? false, rules?["disarmFrom"]?.GetValue<string>() ?? "paired");
-        var decision = ShowPolicy.Decide(m.Spec, line, ShowRole.Operator, facts);
+        var role = Enum.TryParse<ShowRole>(Role, ignoreCase: true, out var r) ? r : ShowRole.Remote;
+        var decision = ShowPolicy.Decide(m.Spec, line, role, facts);
         return decision.Verdict == ShowVerdict.Refuse ? decision.Words : null;
     }
 

@@ -110,6 +110,39 @@ public class CardTests(ITestOutputHelper output)
             Assert.Equal("OUTPUT STATS " + c.EntityId, c.Actions[0].Line);
         }
 
+        // Each dialect, against its own fixture's values.
+        using (var decodeDoc = JsonDocument.Parse(StateFixtures.Read("decode")))
+        {
+            var decode = CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == "decode"), FixtureRoot("decode"));
+            var platform = decodeDoc.RootElement.GetProperty("decode").GetProperty("platform");
+            var light = platform.GetProperty("light").GetString();
+            Assert.Equal(light, decode.Single(c => c.Descriptor.Path == "decode.platform").Light);   // a light given as a path
+            Assert.Equal(platform.GetProperty("words").GetString(), decode.Single(c => c.Descriptor.Path == "decode.platform").Words);   // words as a path
+            var source = decode.Single(c => c.Descriptor.Path == "decode.sources[]");
+            var first = decodeDoc.RootElement.GetProperty("decode").GetProperty("sources")[0];
+            Assert.Equal(first.GetProperty("media").GetString(), source.EntityId);   // "key": the entity is the media item
+            Assert.Equal("MEDIA INSPECT " + first.GetProperty("media").GetString(), source.Actions[0].Line);
+        }
+        using (var controlDoc = JsonDocument.Parse(StateFixtures.Read("control")))
+        {
+            var control = CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == "control"), FixtureRoot("control"));
+            var surfaces = controlDoc.RootElement.GetProperty("control").GetProperty("surfaces").EnumerateArray().ToList();
+            var surfaceCards = control.Where(c => c.Descriptor.Path == "control.surfaces[]").ToList();
+            Assert.Equal(surfaces.Count, surfaceCards.Count);
+            for (var i = 0; i < surfaceCards.Count; i++)
+            {
+                Assert.Equal(surfaces[i].GetProperty("name").GetString(), surfaceCards[i].Words);   // words as an element field
+                Assert.Equal(surfaces[i].GetProperty("light").GetString(), surfaceCards[i].Light);   // a value list over the element
+                Assert.Equal("Control surface · " + surfaces[i].GetProperty("name").GetString(), surfaceCards[i].Title);
+            }
+            var chase = control.Single(c => c.Descriptor.Path == "timecode.chases[]");
+            Assert.Equal("TIMECODE ENGAGE " + controlDoc.RootElement.GetProperty("timecode").GetProperty("chases")[0].GetProperty("playlist").GetString() + " ON", chase.Actions[0].Line);
+        }
+        var companion = CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == "companion"), FixtureRoot("companion"));
+        var clients = companion.Where(c => c.Descriptor.Path == "clients[]").ToList();
+        Assert.Equal(["green", "amber"], clients.Select(c => c.Light).ToArray());   // if-rules per element ("paired")
+        Assert.StartsWith("Controllers · ", clients[0].Title, StringComparison.Ordinal);   // "each" with a "label" field
+
         // A light from a value list over every element is the worst of them.
         var d = CardDescriptor.ParseFile("t", """[{"title":"T","path":"x","light":{"path":"x.items[].state","red":["bad"],"green":["ok"]},"words":"{n?{n} items:none}","fields":[{"label":"N","path":"n"}],"actions":["GET $(id)"]}]""")[0];
         var two = CardReader.Read(d, Root("""{"x":{"id":"op_1","n":2,"items":[{"state":"ok"},{"state":"bad"}]}}""")).Single();

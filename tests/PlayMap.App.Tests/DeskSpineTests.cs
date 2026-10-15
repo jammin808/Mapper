@@ -221,6 +221,8 @@ public class DeskSpineTests(ITestOutputHelper output)
         Assert.False(DeskDrop.Offer("playmap.test-drop", "in_arena", null));
         Assert.False(DeskDrop.Offer("playmap.other", "in_arena", "sf_1"));
         Assert.Equal([("in_arena", (object?)"sf_1"), ("in_arena", null)], dropped);
+        Assert.True(DeskDrop.Unregister("playmap.test-drop"));
+        Assert.False(DeskDrop.Offer("playmap.test-drop", "in_arena", "sf_1"));
 
         var ring = new ScoreRing { Value = 75, Maximum = 100 };
         Assert.Equal(0.75, ring.Fraction);
@@ -280,6 +282,13 @@ public class DeskSpineTests(ITestOutputHelper output)
         // One row only when everything fits on it; the panel wraps otherwise.
         if (!bar.IsTwoRow)
             Assert.True(bar.Children.Where(c => c.IsVisible).Sum(c => c.DesiredSize.Width) <= right);
+        // The transport is never squeezed below its buttons: every one is whole on screen.
+        var transport = MainWindowTests.Find<Border>(window, "MasterTransport");
+        foreach (var b in MainWindowTests.Find<ItemsControl>(window, "MasterButtons").GetVisualDescendants().OfType<Button>())
+        {
+            var left = b.TranslatePoint(new Point(0, 0), transport)!.Value.X;
+            Assert.True(left >= 0 && left + b.Bounds.Width <= transport.Bounds.Width + 0.5, $"a transport button is cut at {width} px");
+        }
         // The show cluster never shrinks, and it is all on screen.
         var cluster = MainWindowTests.Find<StackPanel>(window, "ShowCluster");
         Assert.True(cluster.Bounds.Width + 0.5 >= cluster.DesiredSize.Width);

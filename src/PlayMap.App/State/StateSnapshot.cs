@@ -101,23 +101,24 @@ public sealed record StateSnapshot(
         new MediaState(0, 0, true, []), new StageState(0, 0, [], 0), null, SyncState.None, LinkState.Off, LinkState.Off, [],
         new ProjectState("", "", 0, "", false), AiState.Off);
 
-    private readonly Dictionary<string, object?> _sections = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Key, Type Type), object?> _sections = [];
 
     /// <summary>The whole STATE object as read (a detached copy), for the sections round-2 packages read
     /// themselves; default for the empty snapshot.</summary>
     public JsonElement Root { get; init; }
 
-    /// <summary>A top-level STATE object read once per snapshot by its package's reader (null element when the
-    /// node does not publish it: the package's feature is absent there, so its controls hide).</summary>
+    /// <summary>A top-level STATE object read once per snapshot and reader type by its package's reader (null element
+    /// when the node does not publish it: the package's feature is absent there, so its controls hide). A null result is
+    /// kept too.</summary>
     public T Section<T>(string key, Func<JsonElement?, T> read)
     {
         ArgumentNullException.ThrowIfNull(read);
         lock (_sections)
         {
-            if (_sections.TryGetValue(key, out var cached) && cached is T hit)
-                return hit;
+            if (_sections.TryGetValue((key, typeof(T)), out var cached))
+                return (T)cached!;
             var value = read(Root.ValueKind == JsonValueKind.Object && Root.TryGetProperty(key, out var e) ? e : null);
-            _sections[key] = value;
+            _sections[(key, typeof(T))] = value;
             return value;
         }
     }

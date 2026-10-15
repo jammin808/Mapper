@@ -183,6 +183,13 @@ public sealed class CardsModule : DeskModule
             shown.Add(card);
         }
         _shown = shown;
+        // Only cards STATE still fills keep their view models.
+        if (_cards.Count > shown.Count)
+        {
+            var keep = shown.Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+            foreach (var k in _cards.Keys.Where(k => !keep.Contains(k)).ToList())
+                _cards.Remove(k);
+        }
         Health.Sync(shown);
         Inputs.Sync(shown);
     }

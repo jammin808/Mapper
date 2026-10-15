@@ -47,6 +47,13 @@ public static class DeskDrop
         }
     }
 
+    /// <summary>Takes a handler away (a module that leaves, a test).</summary>
+    public static bool Unregister(string format)
+    {
+        lock (Gate)
+            return Handlers.RemoveAll(h => h.Format == format) > 0;
+    }
+
     /// <summary>Offers dropped data in a format to the handlers (what a drop does; also the tests' way in).</summary>
     public static bool Offer(string format, object data, object? target)
     {

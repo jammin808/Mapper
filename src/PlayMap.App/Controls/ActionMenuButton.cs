@@ -43,6 +43,7 @@ public class ActionMenuButton : Button
             return;
         Content = a.HasChildren ? a.Label + " ▸" : a.Label;
         ToolTip.SetTip(this, a.Tip);
+        ToolTip.SetShowOnDisabled(this, true);
         IsVisible = a.HasChildren ? a.Children.Any(c => c.IsAvailable) : a.IsAvailable;
         IsEnabled = a.HasChildren || a.IsEnabled;
     }

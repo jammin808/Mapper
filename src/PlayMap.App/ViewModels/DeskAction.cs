@@ -107,11 +107,27 @@ public sealed class DeskAction : ObservableObject
     /// <summary>Live: its own condition holds and the gate (the show's policy, the locks) would not refuse its line.</summary>
     public bool IsEnabled => (_isEnabled?.Invoke() ?? true) && Refusal is null;
 
+    private (string Verb, long Stamp, string? Refusal, bool Available)? _asked;
+
     /// <summary>The gate's words when the line this action sends would be refused now ("Not while armed: …"), or null.</summary>
-    public string? Refusal => _session?.GateWords(Verb);
+    public string? Refusal => Ask().Refusal;
 
     /// <summary>False when the node does not run this action's verb (its package is absent there): the control hides.</summary>
-    public bool IsAvailable => _session?.Knows(Verb) ?? true;
+    public bool IsAvailable => Ask().Available;
+
+    /// <summary>The gate and the verb list asked once per line and per move of their facts (every binding reads them).</summary>
+    private (string Verb, long Stamp, string? Refusal, bool Available) Ask()
+    {
+        if (_session is not { } s)
+            return ("", 0, null, true);
+        var verb = Verb;
+        var stamp = s.GateStamp;
+        if (_asked is { } a && a.Stamp == stamp && string.Equals(a.Verb, verb, StringComparison.Ordinal))
+            return a;
+        var fresh = (verb, stamp, s.GateWords(verb), s.Knows(verb));
+        _asked = fresh;
+        return fresh;
+    }
 
     /// <summary>The menu's words: the label, and "· armed" or "· locked" while the gate refuses it.</summary>
     public string MenuLabel => Refusal is { } why
@@ -164,8 +180,7 @@ public static class DeskActions
         ArgumentNullException.ThrowIfNull(actions);
         foreach (var a in actions)
         {
-            foreach (var c in a.Children)
-                c.Refresh();
+            a.Children.RefreshAll();
             a.Refresh();
         }
     }

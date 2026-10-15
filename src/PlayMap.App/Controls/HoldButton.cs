@@ -55,14 +55,25 @@ public class HoldButton : Button
         _held = true;
         _pressedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         Progress = 0;
+        e.Pointer.Capture(this);
         _timer.Start();
         e.Handled = true;
+    }
+
+    /// <summary>A press dragged off the button lets go: the hold is only a hold while the pointer stays on it.</summary>
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        base.OnPointerMoved(e);
+        if (_held && !new Rect(Bounds.Size).Contains(e.GetPosition(this)))
+            Release();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
         Release();
+        e.Pointer.Capture(null);
         e.Handled = true;
     }
 

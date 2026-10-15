@@ -45,7 +45,12 @@ public sealed class ObjectMenusModule : DeskModule
     /// <summary>The effect kinds the node answered FX KINDS with.</summary>
     public ImmutableArray<(string Id, string Name)> FxKinds => _fxKinds;
 
-    public override void OnProject(Project project) => _project = project;
+    public override void OnProject(Project project)
+    {
+        _project = project;
+        // An object's entries are made from the project (a generator's numbers): made again on the next ask.
+        Rebuild();
+    }
 
     public override void OnState(StateSnapshot state)
     {

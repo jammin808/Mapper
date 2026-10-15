@@ -74,7 +74,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             IsHelpOpen = false;
             Drawers.Open = null;
         });
-        EscapeCommand = new RelayCommand(() => Escape.Escape());
+        EscapeCommand = new RelayCommand(() => Escape.Escape(IsTyping));
         DismissToast = new RelayCommand(t =>
         {
             if (t is Toast toast)
@@ -110,6 +110,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             if (m.EscapeOrder != int.MaxValue)
                 Escape.Add(new EscapeRung(m.EscapeOrder, m.GetType().Name, m.TryEscape));
         }
+        Escape.Add(new EscapeRung(EscapeLadder.PatternTask, "pattern task", CancelPatternTask));
+        Escape.Add(new EscapeRung(EscapeLadder.Selection, "selection", () =>
+        {
+            if (Workspace != Workspace.Map || Map.Inspector.Current is null)
+                return false;
+            Map.Select("", null);
+            return true;
+        }));
         Escape.Add(new EscapeRung(EscapeLadder.Draft, "draft", () =>
         {
             if (Workspace != Workspace.Map || !Map.Pen.IsDrawing)
@@ -150,6 +158,33 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     /// <summary>The desk's own preferences (Simple or Pro, Esc is panic).</summary>
     public DeskPrefs Prefs { get; }
+
+    /// <summary>True while a text field has the focus (the window sets it before each key): Esc is then the field's.</summary>
+    public bool IsTyping { get; set; }
+
+    /// <summary>The first rung: a scan, an align run or a calibration task putting patterns on the wall is cancelled — the
+    /// safe direction, the wall goes back to the show.</summary>
+    private bool CancelPatternTask()
+    {
+        var s = Session.State;
+        string? line = null;
+        if (s.Scan is { IsRunning: true })
+            line = "SCAN CANCEL";
+        else if (Running(s, "align", "run"))
+            line = "ALIGN CANCEL";
+        else if (Running(s, "calibration", "task"))
+            line = "CALIBRATION CANCEL";
+        if (line is null)
+            return false;
+        Session.Fire(line);
+        return true;
+    }
+
+    private static bool Running(StateSnapshot s, string section, string task) =>
+        s.Root.ValueKind == System.Text.Json.JsonValueKind.Object && s.Root.TryGetProperty(section, out var sec)
+        && sec.ValueKind == System.Text.Json.JsonValueKind.Object && sec.TryGetProperty(task, out var t)
+        && t.ValueKind == System.Text.Json.JsonValueKind.Object && t.TryGetProperty("state", out var st)
+        && st.ValueKind == System.Text.Json.JsonValueKind.String && st.GetString() is "running" or "starting" or "measuring" or "scanning";
 
     /// <summary>The Esc ladder (Esc's one row in the key table runs it).</summary>
     public EscapeLadder Escape { get; }
@@ -561,12 +596,13 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private void OnProject(Project project)
     {
+        foreach (var m in Modules)
+            m.OnProject(project);
+        Session.GateMoved();
         Play.OnProject(project);
         Map.OnProject(project);
         Scan.OnProject(project);
         Outputs.OnProject(project);
-        foreach (var m in Modules)
-            m.OnProject(project);
         BadgesChanged?.Invoke();
     }
 
@@ -678,6 +714,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private void OnState(StateSnapshot s)
     {
+        // The modules (the gate's facts among them) take the push first, so every action below asks the new gate.
+        foreach (var m in Modules)
+            m.OnState(s);
+        Session.GateMoved();
         if (Set(ref _isBlackout, s.Air.Blackout, nameof(IsBlackout)))
             Blackout.Refresh();
         Blackout.Refresh();
@@ -702,8 +742,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Scan.OnState(s);
         Outputs.OnState(s);
         Network.OnState(s);
-        foreach (var m in Modules)
-            m.OnState(s);
         var banners = Modules.SelectMany(m => m.Banners(s)).OrderBy(b => b.Priority).ThenBy(b => b.Id, StringComparer.Ordinal).ToList();
         if (!banners.SequenceEqual(Banners))
         {

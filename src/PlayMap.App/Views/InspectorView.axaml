@@ -356,7 +356,14 @@
         <ItemsControl x:Name="InspectorActions" ItemsSource="{Binding Current.Toolbar, FallbackValue={x:Null}}" ItemTemplate="{StaticResource ActionIcon}" ItemsPanel="{StaticResource Wrap}" />
         <!-- The modules' entries for this object: the same actions its right-click menu appends after the rule. -->
         <ItemsControl x:Name="InspectorExtras" ItemsSource="{Binding Extras}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" />
-        <ContentControl Content="{Binding Current}" />
+        <!-- While the gate would refuse an edit of this object (armed mapping, a lock), its fields grey and say why. -->
+        <Border Classes="toast refused" Padding="10,6" x:Name="EditRefusal" IsVisible="{Binding !Current.IsEditable, FallbackValue=False}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <PathIcon Data="{StaticResource Icon.lock}" Width="13" Height="13" />
+            <TextBlock Text="{Binding Current.EditRefusal, FallbackValue=''}" TextWrapping="Wrap" MaxWidth="280" />
+          </StackPanel>
+        </Border>
+        <ContentControl x:Name="InspectorFields" Content="{Binding Current}" IsEnabled="{Binding Current.IsEditable, FallbackValue=True}" />
         <!-- The modules' sections for this object (cards, effect slots…), each drawn by its registered view. -->
         <ItemsControl x:Name="InspectorSections" ItemsSource="{Binding Sections}" />
       </StackPanel>

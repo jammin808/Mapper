@@ -12,7 +12,7 @@ using PlayMap.Core.Wire;
 namespace PlayMap.App.ViewModels.Show;
 
 /// <summary>One lock as STATE.show.locks has it.</summary>
-public sealed record ShowLockState(string Target, string Kind, string By, string Words, bool Implicit);
+public sealed record ShowLockState(string Target, string Kind, string By, string Words, bool Implicit, long AtUnixMs);
 
 /// <summary>One output's part of a panic.</summary>
 public sealed record PanicOutputState(string Id, string Outcome, double Level);
@@ -46,7 +46,7 @@ public sealed record ShowSection(bool Present, bool Armed, string By, long Since
         var refused = s.Obj("refused");
         var preflight = s.Obj("preflight");
         return new ShowSection(true, s.Bool("armed"), s.Str("by"), s.Long("since"), outcome, by, panicSince, hard, outputs,
-            [.. s.Arr("locks").Select(l => new ShowLockState(l.Str("target"), l.Str("kind"), l.Str("by"), l.Str("words"), l.Bool("implicit")))],
+            [.. s.Arr("locks").Select(l => new ShowLockState(l.Str("target"), l.Str("kind"), l.Str("by"), l.Str("words"), l.Bool("implicit"), l.Long("at")))],
             rules?.Bool("remoteViewOnly") ?? false, rules?.Str("disarmFrom", "paired") ?? "paired", rules?.Bool("expectArmed") ?? false,
             (int)(refused?.Long("last60s") ?? 0), refused?.Str("last") ?? "",
             preflight?.Str("light", "grey") ?? "grey", preflight?.Str("ready") ?? "", preflight?.Str("firstOpen") ?? "", preflight?.Bool("running") ?? false);
@@ -73,8 +73,11 @@ public sealed class ShowStripViewModel : ObservableObject
 
         var areas = DeskAction.Local("show.lockArea", "Lock area", () => { }).Look("lock");
         foreach (var area in LockAreas.All)
-            areas.Children.Add(DeskAction.Send(session, "show.lockArea." + area, area, () => "LOCK AREA " + area,
-                isChecked: () => _show.LockOn(area) is { Kind: "area" }));
+            areas.Children.Add(DeskAction.Send(session, "show.lockArea." + area, area,
+                () => _show.LockOn(area) is { Kind: "area" } ? "UNLOCK AREA " + area : "LOCK AREA " + area,
+                isChecked: () => _show.LockOn(area) is { Kind: "area" },
+                // An armed show's own locks (mapping, layout) lift with SHOW DISARM, not UNLOCK.
+                isEnabled: () => session.IsLive && _show.LockOn(area) is not { Implicit: true }));
         var minGo = DeskAction.Local("show.mingo", "Min GO gap", () => { });
         foreach (var ms in new[] { 0, 300, 1000 })
             minGo.Children.Add(DeskAction.Send(session, "show.mingo." + ms.ToString(CultureInfo.InvariantCulture), ms.ToString(CultureInfo.InvariantCulture) + " ms",
@@ -163,7 +166,6 @@ public sealed class ShowStripViewModel : ObservableObject
         ArmMenu.RefreshAll();
         PanicMenu.RefreshAll();
         ReadyMenu.RefreshAll();
-        Raise(nameof(ArmTip), nameof(PanicTip));
     }
 }
 
@@ -181,8 +183,12 @@ public sealed class ShowStripModule : DeskModule
     private readonly DeskAction _clear;
     private readonly DeskAction _clearMenu;
     private readonly DeskAction _armNow;
+    private readonly ImmutableArray<DeskAction> _panicActions;
+    private readonly ImmutableArray<DeskAction> _rehearsalActions;
     private readonly Dictionary<string, DeskAction> _locks = new(StringComparer.Ordinal);
     private ShowSection _show = ShowSection.Absent;
+    private Project? _project;
+    private bool _airDark;
 
     public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth)
     {
@@ -196,6 +202,10 @@ public sealed class ShowStripModule : DeskModule
             _clearMenu.Children.Add(DeskAction.Send(session, "panic.clear." + ms.ToString(CultureInfo.InvariantCulture),
                 ms == 0 ? "At once" : (ms / 1000).ToString(CultureInfo.InvariantCulture) + " s", () => "PANIC CLEAR FADE " + ms.ToString(CultureInfo.InvariantCulture)));
         _armNow = DeskAction.Send(session, "show.armBanner", "Arm", () => "SHOW ARM").Look("arm");
+        // One array per banner for the module's life: a banner that has not changed compares equal, so a push during a
+        // panic fade leaves its buttons (and an open fade menu) where they are.
+        _panicActions = [_clear, _clearMenu];
+        _rehearsalActions = [_armNow];
     }
 
     public ShowStripViewModel Strip { get; }
@@ -206,9 +216,18 @@ public sealed class ShowStripModule : DeskModule
     {
         ArgumentNullException.ThrowIfNull(state);
         _show = state.Section("show", ShowSection.Read);
+        _airDark = state.Air.Blackout;
         Strip.Update(_show);
         foreach (var a in _locks.Values)
             a.Refresh();
+    }
+
+    public override void OnProject(Project project)
+    {
+        _project = project;
+        // Only objects that still exist keep their Lock entry.
+        foreach (var id in _locks.Keys.Where(id => ShowEntities.Find(project, id) is null).ToList())
+            _locks.Remove(id);
     }
 
     public override IEnumerable<Banner> Banners(StateSnapshot state)
@@ -225,10 +244,10 @@ public sealed class ShowStripModule : DeskModule
             var since = show.PanicSinceUnixMs > 0 ? " since " + ShowStripViewModel.Clock(show.PanicSinceUnixMs, "HH:mm:ss") : "";
             var by = show.PanicBy.Length > 0 ? " by " + show.PanicBy : "";
             var outputs = show.PanicOutputs.IsDefaultOrEmpty ? "" : " — " + string.Join(" · ", show.PanicOutputs.Select(o => o.Id + ": " + o.Outcome));
-            yield return new Banner("panic", "red", $"PANIC {(show.PanicHard ? "hard " : "")}{outcome}{since}{by}{outputs}", [_clear, _clearMenu], 0);
+            yield return new Banner("panic", "red", $"PANIC {(show.PanicHard ? "hard " : "")}{outcome}{since}{by}{outputs}", _panicActions, 0);
         }
         if (show.Present && show.ExpectArmed && !show.Armed && state.Playlists.Any(p => p.IsPlaying))
-            yield return new Banner("rehearsal", "amber", "rehearsal while playing — SHOW ARM before doors", [_armNow], 40);
+            yield return new Banner("rehearsal", "amber", "rehearsal while playing — SHOW ARM before doors", _rehearsalActions, 40);
     }
 
     public override IEnumerable<Shortcut> Shortcuts() =>
@@ -237,32 +256,49 @@ public sealed class ShowStripModule : DeskModule
         new("Ctrl+Shift+A", "Arm or disarm the show (SHOW ARM / SHOW DISARM)", "Show", Key.A, KeyModifiers.Control | KeyModifiers.Shift, Strip.Arm.Command) { WhileTyping = true },
     ];
 
-    /// <summary>The engine's own decision for the desk (role Operator) with the facts in STATE.show, then the locks: an
-    /// edit that touches a locked area or a locked entity is refused with the lock's words.</summary>
+    /// <summary>The engine's own decision for this desk's role (WHOAMI) with the facts in STATE.show, then the locks as the
+    /// engine's LockGuard holds them: an edit of the document in a locked area, of a locked entity (the one the line
+    /// names first), or of a surface or projector whose own Locked flag is set is refused with LockGuard's words.
+    /// Playback, the air, panic, commands to devices and reading are never held by a lock.</summary>
     public override string? Gate(WireLine line, VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(spec);
-        if (!_show.Present)
-            return null;
-        var facts = new ShowFacts(_show.Armed, false, false, _show.RemoteViewOnly, _show.DisarmFrom);
-        var decision = ShowPolicy.Decide(spec, line, ShowRole.Operator, facts);
-        if (decision.Verdict == ShowVerdict.Refuse)
-            return decision.Words;
-        // Locks hold edits of the document only: playback, the air, panic and reading go on (LockGuard's rule).
+        if (_show.Present)
+        {
+            var role = Enum.TryParse<ShowRole>(_session.Role, ignoreCase: true, out var r) ? r : ShowRole.Remote;
+            var facts = new ShowFacts(_show.Armed, false, _airDark, _show.RemoteViewOnly, _show.DisarmFrom);
+            var decision = ShowPolicy.Decide(spec, line, role, facts);
+            if (decision.Verdict == ShowVerdict.Refuse)
+                return decision.Words;
+        }
         if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK" || AreaOf(ShowPolicy.ClassOf(spec, line)) is not { } area)
             return null;
         if (_show.LockOn(area) is { Kind: "area" } al)
-            return $"Locked: {area} is locked{(al.By.Length > 0 ? " by " + al.By : "")}{(al.Words.Length > 0 ? " ('" + al.Words + "')" : "")}. UNLOCK AREA {area} first.";
-        for (var i = 1; i < line.Count; i++)
+            return $"{area} is locked by {al.By} ({(al.Words.Length > 0 ? $"'{al.Words}', " : "")}{LockGuard.Clock(al.AtUnixMs)}) — UNLOCK AREA {area} first";
+        var words = spec.Name.Split(' ').Length;
+        if (line.Count <= words)
+            return null;
+        var target = line.Word(words);
+        if (_show.LockOn(target) is { Kind: "entity" } el && _project is { } p && ShowEntities.Find(p, target) is { } entity)
         {
-            if (_show.LockOn(line.Word(i)) is { Kind: "entity" } el)
-                return $"Locked: {el.Target} is locked{(el.By.Length > 0 ? " by " + el.By : "")}{(el.Words.Length > 0 ? " ('" + el.Words + "')" : "")}. UNLOCK {el.Target} first.";
+            var (label, kind) = ShowEntities.Describe(entity);
+            return $"{label} ({kind}) is locked by {el.By} ({(el.Words.Length > 0 ? $"'{el.Words}', " : "")}{LockGuard.Clock(el.AtUnixMs)}) — UNLOCK {target} first";
+        }
+        // A surface's or projector's own Locked flag (the gizmo lock): only that flag may change.
+        var flagOnly = spec.Name == "SET" && line.Count > 2 && line.Word(2) == "locked";
+        if (!flagOnly && _project is { } q)
+        {
+            if (q.Stage.Surfaces.Find(target) is { Locked: true } sf)
+                return $"{sf.Name} (surface) is locked — SET {sf.Id} locked false first";
+            if (q.Stage.Projectors.Find(target) is { Locked: true } pj)
+                return $"{pj.Name} (projector) is locked — SET {pj.Id} locked false first";
         }
         return null;
     }
 
-    /// <summary>The lock area an edit of a class falls in (null: none, as LockGuard reads the areas).</summary>
+    /// <summary>The lock area an edit of a class falls in: the document's areas LockGuard compares, and the node's links
+    /// (the engine's door holds the network area). Device commands are not document edits, so no area holds them.</summary>
     private static string? AreaOf(ShowClass cls) => cls switch
     {
         ShowClass.Mapping => LockAreas.Mapping,
@@ -270,7 +306,6 @@ public sealed class ShowStripModule : DeskModule
         ShowClass.Content => LockAreas.Content,
         ShowClass.Playlists => LockAreas.Playlists,
         ShowClass.Media => LockAreas.Media,
-        ShowClass.DeviceSafe or ShowClass.DevicePower => LockAreas.Devices,
         ShowClass.Network => LockAreas.Network,
         _ => null,
     };
@@ -295,7 +330,7 @@ public sealed class ShowStripModule : DeskModule
         ArgumentNullException.ThrowIfNull(target);
         if (_show.LockOn(target.Id) is not { Kind: "entity" } l)
             return [];
-        return [new ObjectBadge("lock", "lock", "", "amber", $"Locked{(l.By.Length > 0 ? " by " + l.By : "")}{(l.Words.Length > 0 ? ": '" + l.Words + "'" : "")} — UNLOCK {l.Target} to change it")];
+        return [new ObjectBadge("lock", "lock", "", "amber", $"Locked by {l.By} ({(l.Words.Length > 0 ? $"'{l.Words}', " : "")}{LockGuard.Clock(l.AtUnixMs)}) — UNLOCK {l.Target} to change it")];
     }
 
     /// <summary>Esc's PANIC rung: in PLAY, with the desk's preference on, on a node with Show Mode.</summary>

@@ -247,7 +247,9 @@ public static partial class CardReader
             if (own.Count > 0)
                 return own;
         }
-        return Values(s.Root, path);
+        // A dotted path not in the block reads from the root (a sibling block's field); a bare name never does, so a block
+        // without "light" or "name" never shows the node's own.
+        return path.Contains('.', StringComparison.Ordinal) ? Values(s.Root, path) : [];
     }
 
     private static string Text(List<JsonElement> values) => values.Count == 0 ? "—" : Text(values[0]);

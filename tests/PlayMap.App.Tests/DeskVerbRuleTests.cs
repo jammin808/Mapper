@@ -111,6 +111,12 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         void Collect()
         {
             DeskHarness.Pump();
+            // Every module entry for an object being inspected is on that inspector's toolbar: the same instances.
+            foreach (var host in new[] { desk.Main.Play.Inspector, desk.Main.Map.Inspector, desk.Main.Outputs.Inspector })
+            {
+                if (host.Current is { } current)
+                    Assert.Equal(desk.Main.ExtrasFor(current), host.Extras);
+            }
             var (a, t, o) = Walk(desk.Main);
             all.AddRange(a);
             targets.AddRange(t);
@@ -168,7 +174,7 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
             }
         }
 
-        // Every module entry for an object is on its inspector's toolbar too (the menu and the toolbar never disagree).
+        // Every module entry for every object the desk names sends a catalogue line too.
         foreach (var t in targets.DistinctBy(t => t.Id))
             all.AddRange(desk.Main.ExtrasFor(t).SelectMany(x => x.Children.Prepend(x)));
 

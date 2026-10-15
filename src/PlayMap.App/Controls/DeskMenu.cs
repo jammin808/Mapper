@@ -111,6 +111,7 @@ public static class DeskMenu
         var verb = a.Verb;
         if (verb.Length > 0)
             ToolTip.SetTip(item, a.Refusal is { } why ? verb + "\n" + why : verb);
+        ToolTip.SetShowOnDisabled(item, true);
         if (a.IsDanger)
             item.Classes.Add("danger");
         foreach (var child in a.Children)

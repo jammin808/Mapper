@@ -142,6 +142,12 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
     /// <summary>The actions the inspector's bar shows (the menu holds them all).</summary>
     public IReadOnlyList<DeskAction> Toolbar => _actions.Toolbar();
 
+    /// <summary>Why the gate would refuse an edit of this object now (armed and it is mapping or layout, or a lock holds
+    /// it): the fields grey and show these words; null while its fields are live. Asked with the line a field sends.</summary>
+    public string? EditRefusal => Session.GateWords(VerbText.Set(Id, "name", "\"\""));
+
+    public bool IsEditable => EditRefusal is null;
+
     /// <summary>True while fields are being loaded from the mirror (a load never sends).</summary>
     protected bool Loading { get; private set; }
 
@@ -153,7 +159,10 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
         {
             var ok = Load(p, s);
             if (ok)
+            {
                 Actions.RefreshAll();
+                Raise(nameof(EditRefusal), nameof(IsEditable));
+            }
             return ok;
         }
         finally

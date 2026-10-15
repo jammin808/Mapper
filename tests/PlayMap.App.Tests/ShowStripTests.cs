@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.ViewModels;
+using PlayMap.Core.Model;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 
@@ -91,9 +92,15 @@ public class ShowStripTests
         Assert.False(button.IsEffectivelyEnabled);
 
         // A locked area greys its edits with the lock's words (show.json locks content: "show night").
-        var source = sf.Actions.Single(a => a.Id == "content").Children.First(c => c.Verb.StartsWith("SURFACE SOURCE", StringComparison.Ordinal));
+        var source = sf.Actions.Single(a => a.Id == "content").Children.First(c => c.Verb == $"SURFACE SOURCE {sf.Id} color:#FFFFFF");
         Assert.False(source.IsEnabled);
-        Assert.Equal("Locked: content is locked by Desk ('show night'). UNLOCK AREA content first.", source.Refusal);
+        // The words are the engine's LockGuard's for that edit under that lock.
+        var project = desk.Link.CurrentProject;
+        var surface = project.Stage.Surfaces.Find(sf.Id)!;
+        var locked = project with { Show = project.Show with { Locks = [new PlayMap.Core.Model.ShowLock("content", PlayMap.Core.Model.LockKind.Area, "Desk", 1760000000000, "show night")] } };
+        var edited = locked.WithStage(st => st with { Surfaces = st.Surfaces.Update(sf.Id, x => x with { Content = x.Content with { Source = PlayMap.Core.Model.SourceRef.Solid("#FFFFFF") } }) });
+        Assert.Equal(LockGuard.Check(locked, edited, armed: false), source.Refusal);
+        Assert.NotNull(surface);
 
         // The show stays live: transport, Blackout, PANIC, identify (setup is refused armed; transport is not).
         Assert.True(desk.Main.Blackout.IsEnabled);
@@ -101,16 +108,91 @@ public class ShowStripTests
         Assert.All(desk.Main.Master.Actions.Where(a => a.Verb.Length > 0), a => Assert.Null(a.Refusal));
         Assert.True(desk.Main.ShowModule.Strip.Arm.IsEnabled);
 
-        // The engine (here the fake, with the same policy) refuses the line with the same words if it is sent anyway.
-        var reply = await desk.Session.SendQuietAsync(remove.Verb, Ct);
-        Assert.False(reply.Ok);
-        Assert.Equal(expected, reply.Text);
+        // A real engine, armed, refuses the desk the same line with the same words.
+        await using (var engine = new PlayMap.Engine.EngineCore(PlayMap.Engine.EngineServices.ForTests(new PlayMap.Core.Time.ManualClock(5_000_000_000))))
+        {
+            var desk1 = new SessionInfo("d1", "desk", "127.0.0.1", true, "PlayMapDesk", true);
+            Assert.True(WireGrammar.TryParse("SHOW ARM", out var arm, out _));
+            Assert.True((await engine.HandleAsync(arm, desk1, Ct)).Ok);
+            var engineReply = await engine.HandleAsync(line, desk1, Ct);
+            Assert.False(engineReply.Ok);
+            Assert.Equal(expected, engineReply.Payload);
+        }
 
         // Disarmed, the mapping is live again at once.
         await desk.Session.SendAsync("SHOW DISARM", Ct);
         DeskHarness.Pump();
         Assert.True(remove.IsEnabled);
         Assert.Null(remove.Refusal);
+        Assert.True(button.IsEffectivelyEnabled);
+        Assert.True(MainWindowTests.Find<ContentControl>(window, "InspectorFields").IsEffectivelyEnabled || desk.Main.Map.Inspector.Current!.EditRefusal is not null);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ARemoteDeskIsGatedAsTheNodeTakesItAndLocksNeverHoldDeviceCommandsOrTheAir()
+    {
+        await using var desk = new DeskHarness(link => link.Role = "remote");
+        StateFixtures.Load(desk.Link, "show");
+        await desk.Session.SendAsync("PANIC CLEAR", Ct);
+        DeskHarness.Pump();
+        Assert.Equal("remote", desk.Session.Role);
+        var gate = desk.Session.GateWords;
+        // Armed, a remote desk may not edit content (an operator may): the node's words for its role.
+        var sf = desk.Link.CurrentProject.Stage.Surfaces[0].Id;
+        Assert.True(WireGrammar.TryParse($"SURFACE SOURCE {sf} color:#FFFFFF", out var l, out _));
+        var words = ShowPolicy.Decide(VerbCatalog.Match(l)!.Value.Spec, l, ShowRole.Remote, new ShowFacts(true, false, false, false, "paired")).Words;
+        Assert.NotNull(words);
+        Assert.Equal(words, gate(l.Raw));
+        Assert.Equal(words, (await desk.Session.SendQuietAsync(l.Raw, Ct)).Text);
+        // PANIC and the transport stay live for it too.
+        Assert.Null(gate("PANIC"));
+        Assert.Null(gate("BLACKOUT ON"));
+
+        // Disarmed, with every area locked: device commands, the air and playback are never held; edits are.
+        await desk.Session.SendAsync("SHOW DISARM", Ct);
+        foreach (var area in PlayMap.Core.Model.LockAreas.All.Where(a => a != "content"))
+            await desk.Session.SendAsync("LOCK AREA " + area, Ct);
+        DeskHarness.Pump();
+        Assert.Null(gate("DEVICE SHUTTER dv_1 CLOSE"));
+        Assert.Null(gate("INPUT SWITCH in_1 PRIMARY"));
+        Assert.Null(gate("PANIC"));
+        Assert.Null(gate("MASTER 50"));
+        Assert.Null(gate("PLAYLIST GO " + desk.Link.CurrentProject.Playlists[0].Id));
+        Assert.StartsWith("mapping is locked by Desk (", gate($"WARP RESET op_1"), StringComparison.Ordinal);
+        // A locked entity named second (the source, not the target) holds nothing.
+        var gn = desk.Link.CurrentProject.Generators[0].Id;
+        await desk.Session.SendAsync("UNLOCK AREA content", Ct);
+        await desk.Session.SendAsync("LOCK " + gn, Ct);
+        DeskHarness.Pump();
+        Assert.Null(gate($"SURFACE SOURCE {sf} generator:{gn}"));
+        Assert.Contains("is locked by Desk", gate($"GENERATOR SET {gn} speed 2") ?? "", StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task EscWhileAFieldTypesNeverPanicsAndThePanicBannerStaysPutThroughPushes()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.Load(desk.Link, "show");
+        desk.Main.Prefs.EscIsPanic = true;
+        var window = MainWindowTests.Open(desk);
+        var banner = Assert.Single(desk.Main.ShownBanners);
+        // Pushes during the panic leave the banner (and its buttons) where they are.
+        desk.Link.SetSection("probe", "{\"n\":1}");
+        desk.Link.SetSection("probe", "{\"n\":2}");
+        DeskHarness.Pump();
+        Assert.Same(banner, Assert.Single(desk.Main.ShownBanners));
+
+        await desk.Session.SendAsync("PANIC CLEAR", Ct);
+        DeskHarness.Pump();
+        desk.Link.ClearSent();
+        var box = new TextBox();
+        ((Panel)MainWindowTests.Find<Views.PlayView>(window, "PlayView").Parent!).Children.Add(box);
+        DeskHarness.Pump();
+        box.Focus();
+        DeskHarness.Pump();
+        Key(window, Avalonia.Input.Key.Escape);
+        Assert.DoesNotContain(desk.Verbs(), v => v.StartsWith("PANIC", StringComparison.Ordinal));
         window.Close();
     }
 
@@ -222,7 +304,8 @@ public class ShowStripTests
 
         // The locked surface's own edits grey with the lock's words; its unlock stays live.
         var remove = sf.Actions.Single(a => a.Id == "remove");
-        Assert.Equal($"Locked: {sf.Id} is locked by Desk. UNLOCK {sf.Id} first.", remove.Refusal);
+        Assert.StartsWith($"{desk.Link.CurrentProject.Stage.Surfaces.Find(sf.Id)!.Name} (surface) is locked by Desk (", remove.Refusal, StringComparison.Ordinal);
+        Assert.EndsWith($") — UNLOCK {sf.Id} first", remove.Refusal, StringComparison.Ordinal);
         Assert.True(lockAction.IsEnabled);
         await lockAction.Command.ExecuteAsync();
         DeskHarness.Pump();
@@ -235,7 +318,7 @@ public class ShowStripTests
         await desk.Session.SendAsync("LOCK " + first.Id, Ct);
         DeskHarness.Pump();
         Assert.All(first.Transport.Actions.Where(a => a.Verb.Length > 0), a => Assert.Null(a.Refusal));
-        Assert.Contains(first.Actions, a => a.Refusal is { } why && why.StartsWith("Locked: " + first.Id, StringComparison.Ordinal));
+        Assert.Contains(first.Actions, a => a.Refusal is { } why && why.EndsWith("— UNLOCK " + first.Id + " first", StringComparison.Ordinal));
         await desk.Session.SendAsync("UNLOCK " + first.Id, Ct);
         DeskHarness.Pump();
 

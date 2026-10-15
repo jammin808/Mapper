@@ -52,8 +52,16 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
-        // refusal repeated by a drag folds into one toast).
-        Throttle = new ThrottledSender((line, ct) => SendAsync(line, ct));
+        // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
+        Throttle = new ThrottledSender((line, ct) =>
+        {
+            if (GateWords(line) is { } why)
+            {
+                _post(() => Notify(ToastKind.Refused, why, line));
+                return Task.CompletedTask;
+            }
+            return SendAsync(line, ct);
+        });
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
@@ -61,6 +69,19 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
     private Func<string, string?>? _gateHook;
+    private string _role = "operator";
+    private long _gateStamp;
+
+    /// <summary>What Show Mode takes this desk for on the node (WHOAMI's role: "operator" for the desk on this machine or a
+    /// listed desk address, "remote" otherwise); the gate decides with it, as the engine does.</summary>
+    public string Role => _role;
+
+    /// <summary>Moves whenever what the gate reads may have moved (a STATE push, the node's verbs or the desk's role), so an
+    /// action re-asks the gate only then.</summary>
+    public long GateStamp => Interlocked.Read(ref _gateStamp);
+
+    /// <summary>Marks the gate's facts as moved (a module whose facts change outside a push calls it).</summary>
+    public void GateMoved() => Interlocked.Increment(ref _gateStamp);
 
     /// <summary>The verb names the node answered VERBS with at attach (empty until it answers: then every control
     /// shows). A control whose verb the node lacks hides, so a node without a package shows none of its controls.</summary>
@@ -146,24 +167,52 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _ = LoadVerbsAsync(link);
     }
 
+    /// <summary>The node's verbs and the desk's role, asked at attach and again whenever the link comes back live.</summary>
+    private void Reload()
+    {
+        if (_link is { } link)
+            _ = LoadVerbsAsync(link);
+    }
+
     /// <summary>Asks the node for its vocabulary (VERBS: a JSON list of rows, or names separated by spaces) and
     /// keeps the names; a node that does not answer leaves every control showing.</summary>
     private async Task LoadVerbsAsync(IEngineLink link)
     {
         var reply = await SendQuietAsync("VERBS");
-        if (!reply.Ok || !ReferenceEquals(link, _link))
+        var who = await SendQuietAsync("WHOAMI");
+        if (!ReferenceEquals(link, _link))
             return;
-        var names = ParseVerbs(reply.Text);
+        var names = reply.Ok ? ParseVerbs(reply.Text) : FrozenSet<string>.Empty;
+        var role = who.Ok ? RoleIn(who.Text) : null;
         _post(() =>
         {
             if (!ReferenceEquals(link, _link))
                 return;
-            _verbs = names;
+            if (reply.Ok)
+                _verbs = names;
+            if (role is not null)
+                _role = role;
+            GateMoved();
             VerbsUpdated?.Invoke();
         });
     }
 
-    /// <summary>The names in a VERBS reply.</summary>
+    /// <summary>The role in a WHOAMI reply, or null when it names none.</summary>
+    private static string? RoleIn(string text)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object && doc.RootElement.TryGetProperty("role", out var r)
+                && r.ValueKind == System.Text.Json.JsonValueKind.String ? r.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The names in a VERBS reply that the node answers now (a row with "available": false is left out).</summary>
     public static FrozenSet<string> ParseVerbs(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -178,7 +227,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
                 {
                     if (row.ValueKind == System.Text.Json.JsonValueKind.String)
                         names.Add(row.GetString() ?? "");
-                    else if (row.ValueKind == System.Text.Json.JsonValueKind.Object && row.TryGetProperty("name", out var n))
+                    else if (row.ValueKind == System.Text.Json.JsonValueKind.Object && row.TryGetProperty("name", out var n)
+                        && !(row.TryGetProperty("available", out var av) && av.ValueKind == System.Text.Json.JsonValueKind.False))
                         names.Add(n.GetString() ?? "");
                 }
                 return names.Where(n => n.Length > 0).ToFrozenSet(StringComparer.Ordinal);
@@ -212,6 +262,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _link.ProjectChanged -= OnProject;
         _link = null;
         _status = LinkStatus.Down;
+        _verbs = FrozenSet<string>.Empty;
+        _role = "operator";
+        GateMoved();
         Raise(nameof(Link), nameof(Status), nameof(IsLive));
         StatusUpdated?.Invoke(_status);
     }
@@ -319,6 +372,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             _status = s;
             Raise(nameof(Status), nameof(IsLive));
             StatusUpdated?.Invoke(s);
+            if (s == LinkStatus.Live)
+                Reload();
         });
     }
 
@@ -370,6 +425,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             return;
         }
         _state = next;
+        GateMoved();
         Raise(nameof(State));
         StateUpdated?.Invoke(next);
     }
