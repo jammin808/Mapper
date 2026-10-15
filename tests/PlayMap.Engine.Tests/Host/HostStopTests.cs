@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using PlayMap.Assistant;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Model;
@@ -21,8 +24,8 @@ namespace PlayMap.Engine.Tests.Host;
 /// part its line would start — align's runner already gone, control's OSC socket and bindings still live — a /playmap line over OSC,
 /// a bound OSC button and a line handed to the engine are each refused with the stopping words, journalled, and start no ALIGN RUN;
 /// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A line already waiting for
-/// the lane when the stop begins is refused the same way; a refusal keeps every secret the node holds out of the journal; the node's
-/// own lines (a panic's shutters and effects) still run.</summary>
+/// the lane when the stop begins is refused the same way; an assistant's line over MCP is refused, not queued for a person; a refusal
+/// keeps every secret the node holds out of the journal; the node's own lines (a panic's shutters and effects) still run.</summary>
 public sealed class HostStopTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";
@@ -59,6 +62,18 @@ public sealed class HostStopTests
                 // The host only logs what an extension throws on its way out: the test reads it here.
                 Fault = ex;
             }
+        }
+    }
+
+    /// <summary>An approval queue that keeps every line handed to it.</summary>
+    private sealed class KeptQueue : PlayMap.Net.IProposalSink
+    {
+        public ConcurrentQueue<string> Lines { get; } = new();
+
+        public ValueTask<string?> ProposeAsync(string line, string reason, VerbRisk risk, CancellationToken ct)
+        {
+            Lines.Enqueue(line);
+            return ValueTask.FromResult<string?>("p" + Lines.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
     }
 
@@ -199,6 +214,41 @@ public sealed class HostStopTests
         Assert.False(rig.Engine.Air.Blackout);
         Assert.False(rig.State().GetProperty("air").GetProperty("blackout").GetBoolean());
         Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Who, r.Line) == ("refused", EngineCore.StoppingWords, ShowRig.Desk.ClientName, "BLACKOUT ON"));
+    }
+
+    [Fact]
+    public async Task AnAssistantsHighRiskLineOverMcpIsRefusedWithTheWordsOnceTheStopBeginsNotQueuedForAPerson()
+    {
+        var queue = new KeptQueue();
+        var parts = EngineParts.Bare with
+        {
+            Extensions =
+            [
+                setup =>
+                {
+                    setup.Approvals.Use(queue);
+                    return new Probe();
+                },
+            ],
+        };
+        await using var node = await HostRig.StartAsync("Stopping node", parts: parts);
+        using var http = node.Http();
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(http.BaseAddress!, "/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+        }));
+
+        // The node has begun to stop while its web port is still open: a high-risk line (which waits for a person while "AI may act"
+        // is off) is refused with the words, never queued on a list that goes with the node.
+        node.Engine.BeginStop();
+        var run = await mcp.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = "BLACKOUT ON", ["reason"] = "a test asks" });
+        var text = string.Concat(run.Content.OfType<TextContentBlock>().Select(t => t.Text));
+        Assert.True(run.IsError, text);
+        Assert.Equal(EngineCore.StoppingWords, text);
+        Assert.Empty(queue.Lines);
+        Assert.False(node.State().GetProperty("air").GetProperty("blackout").GetBoolean());
+        Assert.Contains(node.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Who, r.Line) == ("refused", EngineCore.StoppingWords, "MCP", "BLACKOUT ON"));
     }
 
     [Fact]
