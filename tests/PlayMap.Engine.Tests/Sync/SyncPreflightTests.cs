@@ -79,7 +79,7 @@ public sealed class SyncPreflightTests
         var show = SyncRig.Show();
         await SyncRig.OpenShowAsync(leader, show with { Outputs = [show.Outputs[0], show.Outputs[0] with { Id = "op_2", Name = "Right", RefreshHz = 50 }] });
         await leader.OkAsync("SYNC LEAD show");
-        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("mixedRate").GetBoolean()));
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("verdict").GetString() == "mixed rate"));
         var row = Row(await PreflightAsync(leader), "sync:rates");
         Assert.Equal("red", row.GetProperty("light").GetString());
         Assert.Equal("SET op_2 refreshHz 60", row.GetProperty("fix").GetString());

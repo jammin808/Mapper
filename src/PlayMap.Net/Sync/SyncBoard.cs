@@ -62,8 +62,15 @@ public sealed class SyncBoard
     private readonly Lock _gate = new();
     private readonly List<Entry> _entries = [];
 
+    /// <summary>An output joining the lock for longer than this is amber.</summary>
+    public const long JoiningAmberNs = 5_000_000_000;
+
     private sealed record Entry(uint Node, uint Hash, string NodeText, VblankReport Report, long ReceivedMonoNs,
-        double UncertaintyNs, bool Local);
+        double UncertaintyNs, bool Local)
+    {
+        /// <summary>Since when (local monotonic) the output has reported joining, or long.MinValue.</summary>
+        public long JoiningSinceMonoNs { get; init; } = long.MinValue;
+    }
 
     /// <summary>Names an output the board hears by hash (the leader's own, a member's from its subscription).</summary>
     private readonly Dictionary<(uint Node, uint Hash), string> _names = [];
@@ -100,10 +107,18 @@ public sealed class SyncBoard
                     Stale++;
                     return false;
                 }
-                _entries[i] = old with { Report = report, ReceivedMonoNs = receivedMonoNs, UncertaintyNs = Math.Max(0, clockUncertaintyNs), Local = local };
+                _entries[i] = old with
+                {
+                    Report = report, ReceivedMonoNs = receivedMonoNs, UncertaintyNs = Math.Max(0, clockUncertaintyNs), Local = local,
+                    JoiningSinceMonoNs = report.State != LockState.Joining ? long.MinValue
+                        : old.JoiningSinceMonoNs == long.MinValue ? receivedMonoNs : old.JoiningSinceMonoNs,
+                };
                 return true;
             }
-            var entry = new Entry(node, hash, report.NodeText, report, receivedMonoNs, Math.Max(0, clockUncertaintyNs), local);
+            var entry = new Entry(node, hash, report.NodeText, report, receivedMonoNs, Math.Max(0, clockUncertaintyNs), local)
+            {
+                JoiningSinceMonoNs = report.State == LockState.Joining ? receivedMonoNs : long.MinValue,
+            };
             // The leader's own outputs come first, so the first of them is the reference.
             if (local)
                 _entries.Insert(_entries.FindLastIndex(e => e.Local) + 1, entry);
@@ -113,11 +128,26 @@ public sealed class SyncBoard
         }
     }
 
-    /// <summary>Forgets every entry (a node that stops leading).</summary>
+    /// <summary>Forgets the names a node's outputs were given (its subscription ended).</summary>
+    public void Unname(string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(nodeId);
+        var node = VblankReport.NodeNumber(nodeId);
+        lock (_gate)
+        {
+            foreach (var key in _names.Keys.Where(k => k.Node == node).ToList())
+                _names.Remove(key);
+        }
+    }
+
+    /// <summary>Forgets every entry and name (a node that stops leading).</summary>
     public void Clear()
     {
         lock (_gate)
+        {
             _entries.Clear();
+            _names.Clear();
+        }
     }
 
     /// <summary>The picture at a leader instant (phases are compared there) and a local monotonic instant (what is heard).
@@ -182,9 +212,15 @@ public sealed class SyncBoard
         var count = $"{Plural(nodes, "node")}, {Plural(heard.Count, "output")}";
         string verdict, words;
         Light light;
+        var fell = heard.FirstOrDefault(e => e.Report.State == LockState.FellOut);
+        var joining = heard.FirstOrDefault(e => e.JoiningSinceMonoNs != long.MinValue && nowMonoNs - e.JoiningSinceMonoNs > JoiningAmberNs);
         if (heard.Count == 0)
         {
             (verdict, light, words) = ("unknown", Light.Grey, $"{Plural(entries.Count, "output")} known, none heard in the last 5 s");
+        }
+        else if (fell is not null)
+        {
+            (verdict, light, words) = ("free-running", Light.Red, $"{count}: {Label(fell)} on {fell.NodeText} fell out of the lock — presenting free; SYNC REJOIN there when ready");
         }
         else if (mixed)
         {
@@ -195,6 +231,10 @@ public sealed class SyncBoard
         else if (heard.All(e => Locked(e.Report.State)))
         {
             (verdict, light, words) = ("same vblank", Light.Green, $"{count} on one vblank");
+        }
+        else if (joining is not null)
+        {
+            (verdict, light, words) = ("free-running", Light.Amber, $"{count}: {Label(joining)} on {joining.NodeText} has been joining the lock for over 5 s");
         }
         else
         {

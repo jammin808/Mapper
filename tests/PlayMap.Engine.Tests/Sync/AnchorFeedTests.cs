@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Tests.Host;
+using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Sync;
 
@@ -9,7 +10,7 @@ namespace PlayMap.Engine.Tests.Sync;
 /// both at the same instant (0.5 at +500 ms on each); its BLACKOUT blacks both at one leader instant; a dead leader leaves the
 /// follower free-wheeling and switching its next item at the anchored instant; a restarted follower follows again, its
 /// follow-blackout switch kept; HERE keeps a line on the leader.</summary>
-public sealed class AnchorFeedTests
+public sealed class AnchorFeedTests(ITestOutputHelper output)
 {
     private const long Second = SyncRig.Second;
     private const long Ahead = 7_300_000_000;
@@ -30,10 +31,15 @@ public sealed class AnchorFeedTests
         Assert.Equal(1, SyncRig.Sync(follower).GetProperty("steps").GetInt64());   // its own clock to the leader's: one step
 
         // GO on the leader: the follower adopts the same item and anchor through its own PLAYLIST ANCHOR.
+        var took = System.Diagnostics.Stopwatch.StartNew();
         await leader.OkAsync("PLAYLIST GO pl_show");
         var anchor = leader.Engine.AnchorJson("pl_show");
         Assert.NotNull(anchor);
-        Assert.True(await Eventually.TrueAsync(() => follower.Engine.AnchorJson("pl_show") == anchor), $"{follower.Engine.AnchorJson("pl_show")} != {anchor}");
+        Assert.True(await Eventually.TrueAsync(() => follower.Engine.AnchorJson("pl_show") == anchor, stepMs: 1), $"{follower.Engine.AnchorJson("pl_show")} != {anchor}");
+        // The design's bar is 200 ms on a show network; on this machine's loopback the measurement is recorded and only a 4x ceiling
+        // is asserted (PLAN 5.2).
+        output.WriteLine($"the follower adopted the leader's GO in {took.Elapsed.TotalMilliseconds:0.0} ms");
+        Assert.True(took.ElapsedMilliseconds <= 800, $"adopted in {took.ElapsedMilliseconds} ms");
         Assert.Equal(leader.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs, follower.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs);
         Assert.Contains("Sync test", follower.State().GetProperty("project").GetProperty("name").GetString(), StringComparison.Ordinal);
         Assert.True(await Eventually.TrueAsync(() => follower.Journal().Contains("Show: following A", StringComparison.Ordinal)), follower.Journal());
@@ -95,7 +101,7 @@ public sealed class AnchorFeedTests
         Assert.True(await Eventually.TrueAsync(() => follower.Journal().Contains("went quiet: free-wheeling", StringComparison.Ordinal)), follower.Journal());
         clock.AdvanceMs(1_500);
         Assert.Equal(1.5, SyncRig.Sync(follower).GetProperty("freewheelS").GetDouble());
-        Assert.Equal("red", SyncRig.Sync(follower).GetProperty("light").GetString());
+        Assert.Equal("red", SyncRig.GroupItem(follower).GetProperty("light").GetString());
         Assert.Contains("free-wheeling: FOH (0badc0de) is not heard", SyncRig.Sync(follower).GetProperty("words").GetString(), StringComparison.Ordinal);
 
         // Its own lane switches to B at the anchored instant, not a tick before.
@@ -111,30 +117,46 @@ public sealed class AnchorFeedTests
     }
 
     [Fact]
-    public async Task ARestartedFollowerFollowsItsLeaderAgainAndKeepsItsFollowBlackoutSwitch()
+    public async Task ARestartedFollowerFollowsItsLeaderAgainRejoinsTheShowWhereItIsAndKeepsItsSwitch()
     {
         var clock = new ManualClock(1_000 * Second);
         await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead));
+        await SyncRig.OpenShowAsync(leader);
         var first = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
         await using (first)
         {
             await SyncRig.GroupAsync(leader, first);
             Assert.StartsWith("already following FOH", (await first.RunAsync("SYNC FOLLOW show " + leader.Id)).Payload, StringComparison.Ordinal);
             await first.OkAsync("LINK PATTERNS FOLLOW-BLACKOUT OFF");
+            Assert.True(await Eventually.TrueAsync(() => first.Home.LoadSettings("unused").Sync.FollowPatternsBlackout == false));
             var kept = first.Home.LoadSettings("unused").Sync;
             Assert.Equal(("follow", "show", SyncRig.LeaderId, false), (kept.Role, kept.Group, kept.Leader, kept.FollowPatternsBlackout));
             Assert.Equal("lead", leader.Home.LoadSettings("unused").Sync.Role);
             await first.StopAsync();
 
+            // While it is away the show moves on: a GO, a NEXT and a blackout on the leader.
+            await leader.OkAsync("PLAYLIST GO pl_show");
+            clock.AdvanceMs(1_000);
+            await leader.OkAsync("PLAYLIST NEXT pl_show");
+            await leader.OkAsync("BLACKOUT ON");
+
             await using var again = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, dir: first.Dir);
+            await SyncRig.OpenShowAsync(again);
             Assert.False(again.State().GetProperty("air").GetProperty("followPatternsBlackout").GetBoolean());
+            Assert.False(again.State().GetProperty("air").GetProperty("blackout").GetBoolean());
             // Until it hears its leader it waits, and says for whom.
             Assert.Equal("connecting", SyncRig.Sync(again).GetProperty("feed").GetString());
+            Assert.Contains("waiting to hear 0badc0de", SyncRig.Sync(again).GetProperty("words").GetString(), StringComparison.Ordinal);
             HostRig.Introduce(leader, again);
             Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(again).GetProperty("role").GetString() == "follower"), again.Journal());
             Assert.Equal(SyncRig.LeaderId, SyncRig.Sync(again).GetProperty("leader").GetString());
             await SyncRig.CaughtUpAsync(leader, again);
             Assert.Contains("(kept from before the restart)", again.Journal(), StringComparison.Ordinal);
+
+            // Its new subscription hands it the latest anchor and the latest blackout: it rejoins the show where the show is.
+            Assert.True(await Eventually.TrueAsync(() => again.Engine.AnchorJson("pl_show") == leader.Engine.AnchorJson("pl_show")), again.Journal());
+            Assert.Equal("it_b", again.Engine.Playback.Lane("pl_show")!.ItemId);
+            Assert.True(await Eventually.TrueAsync(() => again.State().GetProperty("air").GetProperty("blackout").GetBoolean()), again.Journal());
         }
     }
 

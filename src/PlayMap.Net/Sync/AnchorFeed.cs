@@ -39,9 +39,17 @@ public sealed class AnchorFeed
 
     private sealed record Subscriber(AnchorMember Member, IPushSink Sink);
 
-    private sealed class Waiting(AnchorMember member)
+    /// <summary>Receipts kept waiting past their send's wait (members that accepted a line for a later instant), at most this many.</summary>
+    private const int LateKept = 256;
+
+    private sealed class Waiting(AnchorMember member, string line)
     {
         public AnchorMember Member { get; } = member;
+
+        public string Line { get; } = line;
+
+        /// <summary>The send stopped waiting: a final receipt from now on is a late one.</summary>
+        public bool Late { get; set; }
 
         public TaskCompletionSource<AirReceipt> Final { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -50,6 +58,10 @@ public sealed class AnchorFeed
 
     /// <summary>Raised (outside the feed's lock) when a member joins or leaves.</summary>
     public event Action? MembersChanged;
+
+    /// <summary>A member's final receipt for a line whose send stopped waiting with it accepted (a line for a later instant): the line
+    /// and the receipt.</summary>
+    public event Action<string, AirReceipt>? LateReceipt;
 
     /// <summary>The group's members now, in the order they joined: the subscribers that named their node (a subscriber that names
     /// none only reads the lines — a desk watching the group — and is never waited for).</summary>
@@ -81,7 +93,9 @@ public sealed class AnchorFeed
         var sub = new Subscriber(member, sink);
         lock (_gate)
         {
-            _subs.RemoveAll(s => s.Member.SessionId == member.SessionId || (member.Node.Length > 0 && s.Member.Node == member.Node));
+            // A member that came back on a new connection (same node, same address) replaces its old subscription.
+            _subs.RemoveAll(s => s.Member.SessionId == member.SessionId
+                || (member.Node.Length > 0 && s.Member.Node == member.Node && string.Equals(s.Member.Address, member.Address, StringComparison.Ordinal)));
             _subs.Add(sub);
             foreach (var (_, line) in _latest)
                 sink.InOrder(line);
@@ -123,7 +137,7 @@ public sealed class AnchorFeed
                 w.WriteNumber("leaderNs", leaderNs);
                 w.WriteEndObject();
             });
-            waits = [.. _subs.Where(s => s.Member.Node.Length > 0).Select(s => new Waiting(s.Member))];
+            waits = [.. _subs.Where(s => s.Member.Node.Length > 0).Select(s => new Waiting(s.Member, line))];
             foreach (var w in waits)
                 _waiting[(seq, w.Member.SessionId)] = w;
             dropped = PushLocked(kind is null ? null : group + " " + Air + " " + kind, $"{Word} {group} {Air} {json}");
@@ -152,7 +166,15 @@ public sealed class AnchorFeed
             lock (_gate)
             {
                 foreach (var w in waits)
-                    _waiting.Remove((seq, w.Member.SessionId));
+                {
+                    // A member that accepted a line for a later instant answers when it runs it: that receipt is kept for.
+                    if (w.Accepted is not null && !w.Final.Task.IsCompleted)
+                        w.Late = true;
+                    else
+                        _waiting.Remove((seq, w.Member.SessionId));
+                }
+                foreach (var old in _waiting.Where(kv => kv.Value.Late).OrderBy(kv => kv.Key.Seq).SkipLast(LateKept).Select(kv => kv.Key).ToList())
+                    _waiting.Remove(old);
             }
         }
     }
@@ -169,9 +191,20 @@ public sealed class AnchorFeed
         }
         var receipt = new AirReceipt(w.Member.Node, w.Member.Name, stage, appliedLeaderNs, words);
         if (stage == "accepted")
+        {
             w.Accepted = receipt;
-        else
-            w.Final.TrySetResult(receipt);
+            return true;
+        }
+        bool late;
+        lock (_gate)
+        {
+            late = w.Late;
+            if (late)
+                _waiting.Remove((seq, sessionId));
+        }
+        w.Final.TrySetResult(receipt);
+        if (late)
+            LateReceipt?.Invoke(w.Line, receipt);
         return true;
     }
 
@@ -264,8 +297,8 @@ public sealed class AnchorFeed
         {
             using var doc = JsonDocument.Parse(json);
             var r = doc.RootElement;
-            if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("seq", out var s) || !s.TryGetInt64(out seq)
-                || !r.TryGetProperty("leaderNs", out var l) || !l.TryGetInt64(out leaderNs)
+            if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("seq", out var s) || s.ValueKind != JsonValueKind.Number || !s.TryGetInt64(out seq)
+                || !r.TryGetProperty("leaderNs", out var l) || l.ValueKind != JsonValueKind.Number || !l.TryGetInt64(out leaderNs)
                 || !r.TryGetProperty("line", out var t) || t.ValueKind != JsonValueKind.String
                 || !r.TryGetProperty("feed", out var f) || f.ValueKind != JsonValueKind.String)
                 return false;

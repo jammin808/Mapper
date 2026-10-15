@@ -72,8 +72,9 @@ public readonly record struct LockRecord(bool Apply, uint SwapGroup, uint Barrie
             record = new LockRecord(apply.GetBoolean(), group, barrier, counter);
             return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
+            // Not JSON, or a field of another kind (a string where a number belongs): not a record.
             return false;
         }
     }

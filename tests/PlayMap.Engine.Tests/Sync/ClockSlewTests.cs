@@ -53,11 +53,41 @@ public sealed class ClockSlewTests
             clock.AdvanceMs(100);
             var now = node.Engine.LeaderNowNs;
             Assert.True(now >= last, "leader time ran backwards");
-            Assert.True(now - last <= 100_000_000 * (1 + 200e-6 + 500e-6) + 2, $"leader time ran {now - last} ns in 100 ms");
+            // The estimate carries no drift here (its samples all sit at one local instant), so the slew alone may speed it up.
+            Assert.True(now - last <= 100_000_000 * (1 + 200e-6) + 2, $"leader time ran {now - last} ns in 100 ms");
             last = now;
         }
         Assert.True(await Eventually.TrueAsync(() => Math.Abs(leader.Engine.LeaderNowNs - node.Engine.LeaderNowNs) < 50_000),
             $"{leader.Engine.LeaderNowNs - node.Engine.LeaderNowNs} ns apart");
         Assert.Equal(1, SyncRig.Sync(node).GetProperty("steps").GetInt64());
+        Assert.Equal(200, node.Engine.Services.Clock.SlewPpm, 1e-9);
+    }
+
+    [Fact]
+    public async Task AStepAfterAdoptionLeavesTheLeadersAnchorAndMovesTheRest()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var leaderClock = new MovableClock(clock, 7 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, leaderClock);
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await SyncRig.GroupAsync(leader, node);
+        await node.OkAsync("PLAYLIST GO pl_local");
+        await node.OkAsync("MASTER 50 FADE 4000");
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        Assert.True(await Eventually.TrueAsync(() => node.Engine.AnchorJson("pl_show") == leader.Engine.AnchorJson("pl_show")));
+        clock.AdvanceMs(1_000);
+        var local = Position(node, "pl_local");
+        var master = node.Engine.AirGain("op_1", node.Engine.LeaderNowNs);
+        Assert.Equal(0.875, master, 1e-6);   // a quarter of the way from 1 to 0.5
+
+        // The leader's clock jumps 5 ms (its machine stepped): the member steps with it.
+        leaderClock.OffsetNs = 7 * Second + 5_000_000;
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(node).GetProperty("steps").GetInt64() == 2), node.Journal());
+        Assert.Equal(5_000_000, node.Engine.Services.Clock.LastStepNs);
+        Assert.Equal(leader.Engine.AnchorJson("pl_show"), node.Engine.AnchorJson("pl_show"));   // already on the leader's line
+        Assert.Equal(local, Position(node, "pl_local"));                                         // moved with the step
+        Assert.Equal(master, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-6);         // the master's fade too
     }
 }

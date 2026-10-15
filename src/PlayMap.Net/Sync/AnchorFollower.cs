@@ -49,8 +49,11 @@ public sealed class AnchorFollower : IAsyncDisposable
 
     public string Address => _link.Address;
 
-    /// <summary>ANCHOR lines taken, and lines that were not one.</summary>
+    /// <summary>ANCHOR lines taken.</summary>
     public long Taken { get; private set; }
+
+    /// <summary>Times the leader closed the feed for overflow (each one dialled again).</summary>
+    public long Overflows { get; private set; }
 
     public void Start() => _link.Start();
 
@@ -68,6 +71,15 @@ public sealed class AnchorFollower : IAsyncDisposable
 
     private void OnLine(string line)
     {
+        // The leader closed this subscription (it fell too far behind): dial again, and the new subscription hands the latest of
+        // every key.
+        if (line.StartsWith("ANCHORS overflow", StringComparison.Ordinal))
+        {
+            _log.LogWarning("The leader at {Address} closed the anchor feed (overflow); dialling again.", Address);
+            Overflows++;
+            _link.Drop();
+            return;
+        }
         if (!AnchorFeed.TryParse(line, out var group, out var key, out var json))
             return;
         Taken++;

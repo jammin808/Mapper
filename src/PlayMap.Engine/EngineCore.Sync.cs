@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine;
@@ -175,10 +176,6 @@ public sealed partial class EngineCore
         var role = sync.Role;
         w.WriteString("group", role == "solo" && sync.Settings.Role == "solo" ? "" : sync.Settings.Group);
         w.WriteString("feed", sync.FeedWord);
-        w.WriteStartArray("members");
-        foreach (var m in sync.Members)
-            w.WriteStringValue(m);
-        w.WriteEndArray();
         w.WriteBoolean("slewing", clock.IsSlewing);
         w.WriteNumber("steps", Interlocked.Read(ref _syncSteps));
         w.WriteNumber("freewheelS", Math.Round(clock.HoldingNs / 1e9, 1));
@@ -224,10 +221,8 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }
         w.WriteEndArray();
-        var (verdict, light, words) = SyncVerdict(sync, picture);
+        var (verdict, _, words) = SyncVerdict(sync, picture);
         w.WriteString("verdict", verdict);
-        w.WriteBoolean("mixedRate", picture.MixedRate);
-        w.WriteString("light", ShowContext.LightWord(light));
         w.WriteString("words", words);
     }
 
@@ -288,8 +283,19 @@ public sealed partial class EngineCore
         var reply = RouteRoundOne(c.Spec, c.Args, c.Line, c.Session, c.Ct);
         if (!reply.Ok || c.Args.Count < 2 || !c.Args[0].Equals("FOLLOW-BLACKOUT", StringComparison.OrdinalIgnoreCase))
             return reply;
-        var kept = sync.PersistFollowBlackout(_air.FollowPatternsBlackout);
-        return kept.Length == 0 ? reply : reply with { Effect = reply.Effect + kept };
+        sync.PersistFollowBlackout(_air.FollowPatternsBlackout);
+        return reply;
+    }
+
+    /// <summary>Every synced playlist's anchor as it is now, to a feed (a node that begins to lead: a member that joins later is put
+    /// on the playing item). Any thread: published state only.</summary>
+    internal void PublishAnchors(Net.Sync.AnchorFeed feed)
+    {
+        foreach (var list in Store.Project.Playlists)
+        {
+            if (list.SyncGroup is { } group && AnchorJson(list.Id) is { } json)
+                feed.Publish(group, list.Id, json);
+        }
     }
 
     /// <summary>The follow-blackout switch as the node's settings keep it, put on the air at start.</summary>
@@ -305,9 +311,13 @@ public sealed partial class EngineCore
     internal Sync.LockRecord? LockRecordNow() =>
         LockBackend is { } backend ? new Sync.LockRecord(backend.Intent.Apply, backend.Intent.SwapGroup, backend.Intent.Barrier, backend.LocalAnchor()) : null;
 
+    /// <summary><see cref="AdoptLeaderLock"/> as one action on the lane (the armed and blackout facts it reads cannot move under it).</summary>
+    internal Task<(bool Taken, string Words)> AdoptLeaderLockAsync(Sync.LockRecord record) => _lane.RunAsync(() => AdoptLeaderLock(record));
+
     /// <summary>A member takes its leader's lock record: the counter anchor always (so its counts map to the same show time), and the
     /// leader's wish — joining when the leader applied the lock, leaving when it released it — unless this node's frame lock is off,
-    /// or (to join) the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY would.</summary>
+    /// or (to join) the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY would. On the
+    /// lane.</summary>
     internal (bool Taken, string Words) AdoptLeaderLock(Sync.LockRecord record)
     {
         if (LockBackend is not { } backend)
@@ -348,13 +358,16 @@ public sealed partial class EngineCore
         }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     /// <summary>The leader clock stepped by Δ (on the lane): every playing or cued playlist's anchor moves by +Δ, so its media
-    /// position is where it was; a group playlist that took its leader's anchor is on the leader's time line already and stays.</summary>
+    /// position is where it was; a group playlist that took its leader's anchor is on the leader's time line already and stays
+    /// (when the clock now reads that leader's line). Every other instant the air holds moves with them in the same action: the
+    /// identify deadline, the master's and the panic's fades and safe looks, the fades back from a panic, and the panic's
+    /// transport steps and lines still waiting for their instants — so nothing on the air jumps or fires early or late.</summary>
     private void RebaseOnStep(long delta)
     {
         Interlocked.Increment(ref _syncSteps);
         var p = Store.Project;
         var now = LeaderNowNs;
-        var adopted = Services.GroupSync?.Adopted ?? [];
+        var adopted = Services.Clock.IsFollowing ? Services.GroupSync?.Adopted ?? [] : [];
         var kept = 0;
         foreach (var (id, lane) in Playback.Snapshot.Playlists)
         {
@@ -369,12 +382,40 @@ public sealed partial class EngineCore
             if (Playback.Adopt(list, lane.Index, clip, now).Ok)
                 kept++;
         }
-        if (_air.IdentifyUntilLeaderNs != 0)
-            SetAir(a => a with { IdentifyUntilLeaderNs = a.IdentifyUntilLeaderNs + delta });
+        RebaseAir(delta);
         var who = Services.Clock.IsFollowing && Services.GroupSync is { Joining.Length: > 0 } s ? $"followed {s.Joining}: " : "";
         Journal.Add("sync", $"{who}show clock stepped {StepWords(delta)}; {kept} playlist{(kept == 1 ? "" : "s")} kept {(kept == 1 ? "its" : "their")} place");
         RaiseEvent("sync.stepped", now, w => w.WriteNumber("deltaNs", delta));
         FactsChanged();
+    }
+
+    /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane), then the levels the render
+    /// thread reads rebuilt from them.</summary>
+    private void RebaseAir(long delta)
+    {
+        static long At(long t, long d) => t is long.MinValue or long.MaxValue ? t : t + d;
+        static AirFade Fade(AirFade f, long d) => f == AirFade.Full ? f : f with { StartLeaderNs = At(f.StartLeaderNs, d) };
+        SetAir(a => a with
+        {
+            IdentifyUntilLeaderNs = a.IdentifyUntilLeaderNs == 0 ? 0 : a.IdentifyUntilLeaderNs + delta,
+            Master = Fade(a.Master, delta),
+            Panic = a.Panic is not { } panic ? null : panic with
+            {
+                SinceLeaderNs = At(panic.SinceLeaderNs, delta),
+                Outputs = [.. panic.Outputs.Select(o => o with
+                {
+                    Level = Fade(o.Level, delta),
+                    SafeFromLeaderNs = o.Safe is null ? o.SafeFromLeaderNs : At(o.SafeFromLeaderNs, delta),
+                    SafeUntilLeaderNs = At(o.SafeUntilLeaderNs, delta),
+                })],
+            },
+        });
+        _returns = [.. _returns.Select(r => r with { Level = Fade(r.Level, delta), SafeUntilLeaderNs = At(r.SafeUntilLeaderNs, delta) })];
+        for (var i = 0; i < _panicSteps.Count; i++)
+            _panicSteps[i] = _panicSteps[i] with { AtLeaderNs = At(_panicSteps[i].AtLeaderNs, delta) };
+        for (var i = 0; i < _panicLinesDue.Count; i++)
+            _panicLinesDue[i] = _panicLinesDue[i] with { AtLeaderNs = At(_panicLinesDue[i].AtLeaderNs, delta) };
+        RebuildLevels();
     }
 
     private static string StepWords(long delta)
@@ -395,7 +436,8 @@ public sealed partial class EngineCore
     /// journalled when it comes.</summary>
     private void FanOutAir(JournalRow row)
     {
-        if (row.Kind != "verb" || !row.Ok || row.Line is null || Services.GroupSync is not { Leads: true } sync || sync.Members.Count == 0)
+        // Sent with no member too: the feed keeps it as its kind's latest for a member that joins (or comes back) later.
+        if (row.Kind != "verb" || !row.Ok || row.Line is null || Services.GroupSync is not { Leads: true } sync)
             return;
         if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout) is not { } text)
             return;
@@ -432,15 +474,21 @@ public sealed partial class EngineCore
     internal bool IsLaneVerb(VerbSpec spec) => !_routes.TryOffLane(spec.Name, out _);
 
     /// <summary>A leader's air line on this member, run as if at the leader's instant (its fades start on the same frames); a verb
-    /// answered off the lane runs as any line does.</summary>
-    internal Task<CommandReply> RunAirLineAsync(WireLine line, VerbSpec spec, long atLeaderNs, SessionInfo session) =>
-        IsLaneVerb(spec)
-            ? _lane.RunAsync(() => RunAirLineOnLane(line, atLeaderNs, session))
-            : HandleAsync(line, session, CancellationToken.None).AsTask();
-
-    /// <summary>Runs a line on the lane with now pinned to <paramref name="atLeaderNs"/>; journalled as the router journals.</summary>
-    internal CommandReply RunAirLineOnLane(WireLine line, long atLeaderNs, SessionInfo session)
+    /// answered off the lane runs as any line does. Answers the reply and the leader instant the line took effect here: the
+    /// leader's instant, or this node's own now when the line ran after it (a switch such as BLACKOUT lands when it runs).</summary>
+    internal async Task<(CommandReply Reply, long RanAtLeaderNs)> RunAirLineAsync(WireLine line, VerbSpec spec, long atLeaderNs, SessionInfo session)
     {
+        if (IsLaneVerb(spec))
+            return await _lane.RunAsync(() => RunAirLineOnLane(line, atLeaderNs, session)).ConfigureAwait(false);
+        var ran = Math.Max(atLeaderNs, LeaderNowNs);
+        return (await HandleAsync(line, session, CancellationToken.None).ConfigureAwait(false), ran);
+    }
+
+    /// <summary>Runs a line on the lane with now pinned to <paramref name="atLeaderNs"/>; journalled as the router journals. Answers the
+    /// reply and the instant it took effect (the later of the pinned instant and the lane's own now).</summary>
+    internal (CommandReply Reply, long RanAtLeaderNs) RunAirLineOnLane(WireLine line, long atLeaderNs, SessionInfo session)
+    {
+        var ran = Math.Max(atLeaderNs, LeaderNowNs);
         CommandReply reply;
         try
         {
@@ -454,12 +502,12 @@ public sealed partial class EngineCore
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+            return (CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged"), ran);
         }
         if (!reply.Silent && IsJournalled(line))
             Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
                 session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        return reply;
+        return (reply, ran);
     }
 
     /// <summary>A leader's anchor taken through this node's own PLAYLIST ANCHOR, for the playlist of that id in the group, or else

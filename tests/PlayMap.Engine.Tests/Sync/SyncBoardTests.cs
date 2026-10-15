@@ -45,8 +45,9 @@ public sealed class SyncBoardTests
         var pair = sync.GetProperty("pairs").EnumerateArray().Single();
         Assert.Equal(phaseNs / 1000.0, pair.GetProperty("phaseUs").GetDouble(), 1e-3);
         Assert.Equal(verdict, sync.GetProperty("verdict").GetString());
-        Assert.Equal(light, sync.GetProperty("light").GetString());
-        Assert.Equal(memberHz != 60, sync.GetProperty("mixedRate").GetBoolean());
+        Assert.Equal(light, SyncRig.GroupItem(leader).GetProperty("light").GetString());
+        Assert.Equal(memberHz != 60, pair.GetProperty("mixedRate").GetBoolean());
+        Assert.Equal((SyncRig.LeaderId, SyncRig.FollowerId), (pair.GetProperty("aNode").GetString(), pair.GetProperty("bNode").GetString()));
         Assert.StartsWith("leading show with 1 member; 2 nodes, 2 outputs", sync.GetProperty("words").GetString(), StringComparison.Ordinal);
 
         // The member shows its own outputs; the verdict is the leader's.

@@ -51,6 +51,8 @@ public sealed class GroupAirTests
         Assert.True(await Eventually.TrueAsync(() => member.State().GetProperty("air").GetProperty("blackout").GetBoolean()));
         Assert.Equal(at, Assert.Single(events, e => e.Kind == "air.blackout").AtLeaderNs);
         Assert.False(leader.State().GetProperty("air").GetProperty("blackout").GetBoolean());   // sent, not run, on the leader
+        // The member's receipt when it ran the line reaches the leader after its send stopped waiting.
+        Assert.True(await Eventually.TrueAsync(() => leader.Journal().Contains("BLACKOUT ON on Stage: applied at its instant", StringComparison.Ordinal)), leader.Journal());
 
         // Lines that follow each other closely reach the member in the order they ran: a panic and its clear, a GO and a NEXT.
         await leader.OkAsync("PANIC FADE 0");
@@ -68,6 +70,41 @@ public sealed class GroupAirTests
         Assert.Equal("refused", refused.Stage);
         Assert.Contains("is not an air line a member runs from its leader", refused.Words, StringComparison.Ordinal);
         Assert.Equal("Sync test", member.State().GetProperty("project").GetProperty("name").GetString());
+
+        // A line that reaches the member after its instant runs as if at that instant: the fade starts where the leader's did, and
+        // the receipt says when it really took effect.
+        var late = leader.Engine.LeaderNowNs - 40_000_000;
+        var lead = member.Engine.Store.Project.Show.Rules.PanicLeadMs * 1_000_000L;
+        var ran = Assert.Single(await fanout.SendAsync("PANIC FADE 1000", late, CancellationToken.None));
+        Assert.Equal(("applied", member.Engine.LeaderNowNs), (ran.Stage, ran.AppliedLeaderNs));
+        Assert.Equal(late + lead, events.Last(e => e.Kind == "panic").AtLeaderNs);
+        Assert.Equal(0.5, member.Engine.AirGain("op_1", late + lead + 500_000_000), 1e-6);
+
+        // Receipts come only from a member's own subscription, for a line it was sent; anything else is refused with words.
+        await using var other = await leader.WireAsync();
+        Assert.StartsWith("ERR @c no air line 999 waits for a receipt from this session", await other.AskAsync("@c SYNC RECEIPT 999 APPLIED 0"), StringComparison.Ordinal);
+        Assert.StartsWith("ERR @d SYNC RECEIPT <seq>", await other.AskAsync("@d SYNC RECEIPT soon APPLIED 0"), StringComparison.Ordinal);
+        Assert.StartsWith("ERR @e SYNC RECEIPT <seq>", await other.AskAsync("@e SYNC RECEIPT 1 MAYBE 0"), StringComparison.Ordinal);
+
+        // A node is named only by itself: an unpaired session from elsewhere cannot claim a member's id.
+        var sync = leader.Engine.Services.GroupSync!;
+        var stranger = new PlayMap.Core.Wire.SessionInfo("x1", "wire", "10.0.0.66", false, "Someone", false);
+        var claim = sync.OpenAnchors([SyncRig.FollowerId, "op_1"], stranger, new NullSink());
+        Assert.StartsWith("SUBSCRIBE ANCHORS 9f8e7d6c: no PlayMap node 9f8e7d6c is heard from 10.0.0.66", claim.Refused, StringComparison.Ordinal);
+        Assert.Equal([SyncRig.FollowerId], fanout.Members);
+        var readOnly = sync.OpenAnchors([], stranger, new NullSink());
+        Assert.Null(readOnly.Refused);
+        readOnly.Sub!.Dispose();
+    }
+
+    private sealed class NullSink : PlayMap.Net.IPushSink
+    {
+        public void Latest(string key, string line)
+        {
+            // A reader that keeps nothing.
+        }
+
+        public bool InOrder(string line) => true;
     }
 
     private static async Task Ticked(HostRig rig)

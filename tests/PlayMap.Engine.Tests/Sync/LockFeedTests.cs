@@ -27,6 +27,8 @@ public sealed class LockFeedTests
             "{\"apply\":true,\"swapGroup\":-1,\"barrier\":1,\"counter\":null}",
             "{\"apply\":true,\"swapGroup\":1,\"barrier\":1}",
             "{\"apply\":true,\"swapGroup\":1,\"barrier\":1,\"counter\":\"soon\"}",
+            "{\"apply\":true,\"swapGroup\":\"1\",\"barrier\":1,\"counter\":null}",
+            "{\"apply\":true,\"swapGroup\":1,\"barrier\":1,\"counter\":{\"count24\":\"x\",\"leaderNs\":0,\"periodPs\":1,\"effectiveAt24\":0,\"seq\":1}}",
             "{\"apply\":true,\"swapGroup\":1,\"barrier\":1,\"counter\":{\"count24\":16777216,\"leaderNs\":0,\"periodPs\":1,\"effectiveAt24\":0,\"seq\":1}}",
             "{\"apply\":true,\"swapGroup\":1,\"barrier\":1,\"counter\":{\"count24\":1,\"leaderNs\":0,\"periodPs\":0,\"effectiveAt24\":0,\"seq\":1}}",
         })
@@ -79,4 +81,26 @@ public sealed class LockFeedTests
         Assert.Null(bare.Engine.LockRecordNow());
         Assert.Equal("no render host: the leader's frame lock is not taken here", bare.Engine.AdoptLeaderLock(new LockRecord(true, 1, 1, null)).Words);
     }
+}
+
+/// <summary>Which of a leader's own lines go to its group, and as what: PANIC (and its alias), PANIC CLEAR, BLACKOUT (a toggle as the
+/// state it left) and MASTER; HERE keeps a line local; nothing else is fanned out from the journal.</summary>
+public sealed class FanoutLineTests
+{
+    [Theory]
+    [InlineData("PANIC FADE 1000", false, "PANIC FADE 1000")]
+    [InlineData("PANIC OFF ON op_1", false, "PANIC OFF ON op_1")]
+    [InlineData("PANIC CLEAR FADE 500", false, "PANIC CLEAR FADE 500")]
+    [InlineData("BLACKOUT TOGGLE", true, "BLACKOUT ON")]
+    [InlineData("BLACKOUT TOGGLE", false, "BLACKOUT OFF")]
+    [InlineData("BLACKOUT ON", true, "BLACKOUT ON")]
+    [InlineData("MASTER 50 FADE 1000", false, "MASTER 50 FADE 1000")]
+    [InlineData("PANIC FADE 1000 HERE", false, null)]
+    [InlineData("MASTER 50 here", false, null)]
+    [InlineData("PANIC SET op_1 BLACK", false, null)]
+    [InlineData("SHOW ARM", false, null)]
+    [InlineData("PLAYLIST GO pl_show", false, null)]
+    [InlineData("NOT A VERB", false, null)]
+    public void OnlyTheAirVerbsGoAndHereKeepsALineLocal(string line, bool blackoutNow, string? sent) =>
+        Assert.Equal(sent, SyncNode.FanoutLine(line, blackoutNow));
 }

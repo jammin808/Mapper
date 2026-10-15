@@ -71,8 +71,12 @@ internal static class SyncRig
         Assert.True(await Eventually.TrueAsync(() => follower.Engine.LeaderNowNs == leader.Engine.LeaderNowNs),
             $"the follower reads {follower.Engine.LeaderNowNs}, the leader {leader.Engine.LeaderNowNs}");
         Assert.True(await Eventually.TrueAsync(() => Sync(follower).GetProperty("feed").GetString() == "live"), follower.Journal());
-        Assert.True(await Eventually.TrueAsync(() => Sync(leader).GetProperty("members").EnumerateArray().Any(m => m.GetString() == follower.Id)));
+        Assert.True(await Eventually.TrueAsync(() => leader.Engine.Services.Fanout!.Members.Contains(follower.Id)));
     }
+
+    /// <summary>The node's sync:&lt;group&gt; item in its context (its light is the group's as this node tells it).</summary>
+    public static JsonElement GroupItem(HostRig rig, string group = "show") =>
+        JsonDocument.Parse(rig.Engine.Context()).RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "sync:" + group).Clone();
 }
 
 /// <summary>A monotonic clock moved by an offset a test may change (another machine's clock, stepped or drifting).</summary>

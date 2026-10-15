@@ -26,8 +26,8 @@ public sealed class SyncStateFixtureTests
         {
             ["title"] = "Sync",
             ["path"] = "sync",
-            ["light"] = new JsonArray(new JsonObject { ["from"] = "light" }),
-            ["words"] = "{role} · {group} · {verdict}",
+            ["light"] = new JsonArray(Rule("if", "freewheelS", "red"), new JsonObject { ["light"] = "grey" }),
+            ["words"] = "{role} · {group} · {verdict} — {words}",
             ["fields"] = new JsonArray(Field("Role", "role"), Field("Group", "group"), Field("Leader", "leader"), Field("Feed", "feed"),
                 Field("Verdict", "verdict"), Field("Steps", "steps")),
             ["actions"] = new JsonArray("SYNC STATUS", "SYNC LEAD show", "SYNC FOLLOW show 0badc0de"),
@@ -99,6 +99,9 @@ public sealed class SyncStateFixtureTests
         var sync = JsonNode.Parse(status)!.AsObject();
         Assert.Equal("leader", sync["role"]!.GetValue<string>());
         Assert.Equal("free-running", sync["verdict"]!.GetValue<string>());
+        // Today's keys, then only SPINE §9's sync keys in their order (wp2-sync's, then wp2-output's).
+        Assert.Equal(["role", "leader", "offsetMs", "rttMs", "driftPpm", "groups", "group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs",
+            "verdict", "words", "latencyMs", "lock"], sync.Select(kv => kv.Key));
         var fixture = new JsonObject { ["sync"] = sync }.ToJsonString(Indented) + "\n";
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")

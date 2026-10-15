@@ -121,6 +121,18 @@ public sealed class PmvbCodecTests
         }
         Assert.Equal(0, accepted);
 
+        // The same with the magic and the version right, so every datagram reaches the field checks: still none taken.
+        for (var i = 0; i < 100_000; i++)
+        {
+            for (var j = 0; j < 64; j += 4)
+                BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(j), rng.NextUInt());
+            BinaryPrimitives.WriteUInt32LittleEndian(b, VblankReport.Magic);
+            b[4] = VblankReport.Version;
+            if (VblankReport.TryRead(b, out _))
+                accepted++;
+        }
+        Assert.Equal(0, accepted);
+
         // A good report with one byte changed is either refused or reads back as exactly those bytes: never guessed at.
         var good = Bytes(Good);
         for (var i = 0; i < 100_000; i++)

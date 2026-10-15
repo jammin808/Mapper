@@ -4,10 +4,14 @@
     "path": "sync",
     "light": [
       {
-        "from": "light"
+        "if": "freewheelS",
+        "light": "red"
+      },
+      {
+        "light": "grey"
       }
     ],
-    "words": "{role} \u00B7 {group} \u00B7 {verdict}",
+    "words": "{role} \u00B7 {group} \u00B7 {verdict} \u2014 {words}",
     "fields": [
       {
         "label": "Role",
