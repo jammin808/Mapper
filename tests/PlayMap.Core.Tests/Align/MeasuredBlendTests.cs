@@ -1,6 +1,7 @@
 using PlayMap.Core.Align;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using Xunit.Abstractions;
 
 namespace PlayMap.Core.Tests.Align;
 
@@ -10,7 +11,7 @@ namespace PlayMap.Core.Tests.Align;
 /// is even across the overlap within ±2 %; with the pedestal, black everywhere is within ±5 % of the deepest overlap (more than one
 /// pedestal-map pixel, 4 output px, from a raster's edge, where the step is as sharp as the quarter-raster map); with 30 %
 /// corner fall-off and uniformity 1, the white's p5/p95 is at least 0.95.</summary>
-public sealed class MeasuredBlendTests
+public sealed class MeasuredBlendTests(ITestOutputHelper output)
 {
     private const double Aspect = 3.0;
 
@@ -39,6 +40,7 @@ public sealed class MeasuredBlendTests
             }
             var single = line.Where(p => p.Covering == 1).Select(p => p.Light).ToList();
             var reference = AlignSim.Quantile(single, 0.5);
+            output.WriteLine($"v {v}: white {line.Min(p => p.Light) / reference:0.0000}–{line.Max(p => p.Light) / reference:0.0000} of the rest");
             Assert.Contains(line, p => p.Covering == 2);
             foreach (var (u, light, _) in line)
                 Assert.True(Math.Abs(light / reference - 1) <= 0.02, $"v {v}, u {u:0.000}: white {light / reference:0.000} of the rest");
@@ -71,6 +73,7 @@ public sealed class MeasuredBlendTests
         // The pedestal map is a quarter of the raster: within one of its pixels (4 output px) of a raster's edge, where another
         // projector's black begins, the step is only as sharp as the map.
         var judged = blacks.Where(b => b.Edge >= 4).ToList();
+        output.WriteLine($"black {judged.Min(b => b.Light) / deepest:0.0000}–{judged.Max(b => b.Light) / deepest:0.0000} of the deepest overlap over {judged.Count} points");
         Assert.True(judged.Count > 0.9 * blacks.Count, $"{judged.Count} of {blacks.Count} points are a map pixel from every edge");
         foreach (var (light, covering, _) in judged)
             Assert.True(Math.Abs(light / deepest - 1) <= 0.05, $"black {light / deepest:0.000} of the deepest overlap where {covering} reach");
@@ -103,6 +106,7 @@ public sealed class MeasuredBlendTests
         var before = AlignSim.Quantile(raw, 0.05) / AlignSim.Quantile(raw, 0.95);
         var after = AlignSim.Quantile(whites, 0.05) / AlignSim.Quantile(whites, 0.95);
         Assert.True(before < 0.9, $"the fall-off shows before the gain ({before:0.000})");
+        output.WriteLine($"white p5/p95 {before:0.000} before, {after:0.000} after");
         Assert.True(after >= 0.95, $"white p5/p95 {after:0.000} after uniformity 1");
     }
 

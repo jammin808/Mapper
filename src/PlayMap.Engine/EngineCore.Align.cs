@@ -4,32 +4,21 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine;
 
-/// <summary>wp2-align's hooks into the engine (EngineCore.Modules.cs): its verbs, lane work, STATE keys, context items,
-/// checks and recovery facts. The package fills each body.</summary>
+/// <summary>wp2-align's hooks into the engine (EngineCore.Modules.cs): the ALIGN verbs and INDEX section, STATE.align,
+/// outputs[].measured, the align context items and the groups' validation (Align/EngineCore.AlignVerbs.cs).</summary>
 public sealed partial class EngineCore
 {
-    partial void RouteAlign(VerbRoutes routes)
-    {
-        // wp2-align fills this.
-    }
+    partial void RouteAlign(VerbRoutes routes) => RouteAlignVerbs(routes);
 
-    partial void StateAlign(Utf8JsonWriter w)
-    {
-        // wp2-align fills this.
-    }
+    partial void StateAlign(Utf8JsonWriter w) => WriteAlign(w);
 
-    partial void OutputAlign(Utf8JsonWriter w, Output o)
-    {
-        // wp2-align fills this.
-    }
+    partial void OutputAlign(Utf8JsonWriter w, Output o) => WriteOutputMeasured(w, o);
 
-    partial void ContextAlign(List<ContextItem> items, List<ContextLink> links)
-    {
-        // wp2-align fills this.
-    }
+    partial void ContextAlign(List<ContextItem> items, List<ContextLink> links) => AlignContext(items);
 
     partial void ValidateAlign(Project p, object entity, ref string? why)
     {
-        // wp2-align fills this.
+        if (why is null && entity is AlignGroup g)
+            why = ValidateAlignGroup(p, g);
     }
 }

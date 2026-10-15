@@ -1,6 +1,7 @@
 using PlayMap.Core.Align;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using Xunit.Abstractions;
 
 namespace PlayMap.Core.Tests.Align;
 
@@ -9,7 +10,7 @@ namespace PlayMap.Core.Tests.Align;
 /// zero: the model is poorer than the world); straight lines of the canvas land straight on the screen within 0.5 projector px, and
 /// the canvas lands as a rectangle of its aspect. No parameter is asserted to come back exactly. A curved screen is refused in
 /// words.</summary>
-public sealed class FlatFitTests
+public sealed class FlatFitTests(ITestOutputHelper output)
 {
     private const double Aspect = 4.5;
 
@@ -21,6 +22,7 @@ public sealed class FlatFitTests
         Assert.True(result.Ok, result.Words);
         var planar = result.Planar!;
         Assert.True(planar.Flat, planar.Words);
+        output.WriteLine(planar.Words);
         Assert.InRange(planar.RmsPx, 1e-4, PlanarFit.TolerancePx);
         Assert.Equal("projectors", result.Rectification!.Source);
 
@@ -37,6 +39,7 @@ public sealed class FlatFitTests
                     points.Add((l.Screen, l.PxPerM));
             Assert.True(points.Count > 90, $"{from}–{to}: {points.Count} landings");
             var worst = WorstOffLinePx(points);
+            output.WriteLine($"line {from}–{to}: {worst:0.000} px off straight");
             Assert.True(worst <= 0.5, $"the canvas line {from}–{to} bends {worst:0.00} projector px on the screen");
         }
 
@@ -51,6 +54,7 @@ public sealed class FlatFitTests
             Assert.True(Math.Abs(angle - 90) < 0.5, $"corner {i}: {angle:0.00}°");
         }
         var aspect = (Vec2d.Distance(c[0], c[1]) + Vec2d.Distance(c[3], c[2])) / (Vec2d.Distance(c[0], c[3]) + Vec2d.Distance(c[1], c[2]));
+        output.WriteLine($"landed aspect {aspect:0.0000} of {Aspect}");
         Assert.True(Math.Abs(aspect / Aspect - 1) < 0.01, $"the canvas landed {aspect:0.000}:1, not {Aspect}:1");
     }
 
