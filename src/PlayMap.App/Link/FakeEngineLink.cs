@@ -141,6 +141,9 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// <summary>The project as the store holds it now (tests read the truth here).</summary>
     public Project CurrentProject => _store.Project;
 
+    /// <summary>Verbs this demo node leaves out of its VERBS answer (a node without a package), for tests.</summary>
+    public HashSet<string> WithoutVerbs { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Every line the desk sent, in order.</summary>
     public IReadOnlyList<string> SentLines
     {
@@ -337,7 +340,8 @@ public sealed partial class FakeEngineLink : IEngineLink
                 "PROJECT GET" => Ok(_projectMirror.Json),
                 "HELP" => Ok(string.Join(' ', VerbCatalog.All.Select(v => v.Name))),
                 // The engine's shape: one row per verb (the desk reads the names).
-                "VERBS" => Ok(System.Text.Json.JsonSerializer.Serialize(VerbCatalog.All.Select(v => new Dictionary<string, string> { ["name"] = v.Name }))),
+                "VERBS" => Ok(System.Text.Json.JsonSerializer.Serialize(VerbCatalog.All.Where(v => !WithoutVerbs.Contains(v.Name))
+                    .Select(v => new Dictionary<string, string> { ["name"] = v.Name }))),
                 "SET" => Set(line),
                 "ADD" => Add(line),
                 "REMOVE" => line.Count < 2 ? Err("REMOVE <id>") : Edit("remove " + line.Word(1), p => ProjectEdits.Remove(p, line.Word(1))),

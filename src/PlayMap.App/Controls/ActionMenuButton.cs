@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using PlayMap.App.ViewModels;
 
 namespace PlayMap.App.Controls;
@@ -13,8 +14,17 @@ public class ActionMenuButton : Button
 
     static ActionMenuButton()
     {
-        ActionProperty.Changed.AddClassHandler<ActionMenuButton>((b, _) => b.Sync());
+        ActionProperty.Changed.AddClassHandler<ActionMenuButton>((b, e) =>
+        {
+            if (e.OldValue is DeskAction old)
+                old.PropertyChanged -= b.OnActionChanged;
+            if (e.NewValue is DeskAction now && b.IsAttachedToVisualTree())
+                now.PropertyChanged += b.OnActionChanged;
+            b.Sync();
+        });
     }
+
+    private void OnActionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Sync();
 
     protected override Type StyleKeyOverride => typeof(Button);
 
@@ -56,6 +66,15 @@ public class ActionMenuButton : Button
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        if (Action is { } a)
+            a.PropertyChanged += OnActionChanged;
         Sync();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (Action is { } a)
+            a.PropertyChanged -= OnActionChanged;
+        base.OnDetachedFromVisualTree(e);
     }
 }

@@ -164,9 +164,9 @@ public static class DeskActions
         ArgumentNullException.ThrowIfNull(actions);
         foreach (var a in actions)
         {
-            a.Refresh();
             foreach (var c in a.Children)
                 c.Refresh();
+            a.Refresh();
         }
     }
 

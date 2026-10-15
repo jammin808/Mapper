@@ -23,6 +23,9 @@ public interface IMenuTarget
     string Id { get; }
 
     string Kind => MenuTargets.KindOf(Id);
+
+    /// <summary>The object's own actions (its menu before the modules' entries; Bind ▸ is built from them).</summary>
+    IReadOnlyList<DeskAction> MenuActions => [];
 }
 
 /// <summary>The kinds of the model's ids, by prefix (Core's <see cref="Ids"/>).</summary>

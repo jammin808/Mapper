@@ -96,6 +96,8 @@ public sealed class InspectorHost : ObservableObject
 /// (latest wins, ≈ 60 Hz); toggles and choices go at once.</summary>
 public abstract class InspectorViewModel : ObservableObject, IMenuTarget
 {
+    IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
+
     private static readonly long FreshTicks = Stopwatch.Frequency / 2;
     private readonly Dictionary<string, long> _edited = new(StringComparer.Ordinal);
     private string _title = "";

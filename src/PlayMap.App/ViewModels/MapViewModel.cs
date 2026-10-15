@@ -512,6 +512,8 @@ public sealed class OutlinerGroup : ObservableObject
 /// menu (the same actions as its inspector's).</summary>
 public sealed class OutlinerNode : ObservableObject, IMenuTarget
 {
+    IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
+
     private readonly MapViewModel _map;
     private string _name = "";
     private string _detail = "";
