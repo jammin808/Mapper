@@ -47,7 +47,7 @@ public sealed class MultiViewSolveTests(ITestOutputHelper output)
 
         var rig = r.Rig(MultiViewKit.Rig);
         var focal = Math.Abs(rig.Intrinsics.Fx / MultiViewKit.Scene.Phone.Fx - 1);
-        output.WriteLine(string.Create(Inv, $"phone focal {focal:P3} (σ {rig.FocalSigma:P3}), k1 {rig.Lens.K1:0.0000}, k2 {rig.Lens.K2:0.0000}; {r.Iterations} iterations"));
+        output.WriteLine(string.Create(Inv, $"phone focal {focal:P3} (σ {rig.FocalSigma:P3}), k1 {rig.Lens.K1:0.0000}, k2 {rig.Lens.K2:0.0000}; {r.Iterations} iterations, {MultiViewKit.SolveTook.TotalMilliseconds:0} ms"));
         Assert.False(rig.Held);
         Assert.True(focal < PhoneFocalTolerance, $"phone focal {focal:P3}");
         Assert.True(rig.FocalSigma < PhoneFocalTolerance);

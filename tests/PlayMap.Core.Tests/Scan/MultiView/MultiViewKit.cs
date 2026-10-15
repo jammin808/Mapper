@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using PlayMap.Core.Calibration;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -26,10 +27,10 @@ internal static class MultiViewKit
     private static readonly Lazy<IReadOnlyList<ViewDecode>> DecodesLazy = new(() =>
         [.. Captures.Select(c => new ViewDecode(c.ViewId, c.ProjectorId, new InverseCorrespondence(c.Map)))]);
     private static readonly Lazy<MultiViewInput> InputLazy = new(() => MakeInput(TrackSet.Build(Decodes)));
-    private static readonly Lazy<MultiViewResult> SolvedLazy = new(() => MultiViewCalibration.Solve(Input));
+    private static readonly Lazy<(MultiViewResult Value, TimeSpan Took)> SolvedLazy = new(() => Timed(() => MultiViewCalibration.Solve(Input)));
     private static readonly Lazy<Similarity3> ToWorldLazy = new(() => Registration(Solved));
-    private static readonly Lazy<IReadOnlyList<ProjectorDepthMap>> DenseLazy = new(() =>
-        [.. Solved.Projectors.Select(p => ProjectorDepth.Build(p, DepthViews(Solved, p.Id)))]);
+    private static readonly Lazy<(IReadOnlyList<ProjectorDepthMap> Value, TimeSpan Took)> DenseLazy = new(() =>
+        Timed<IReadOnlyList<ProjectorDepthMap>>(() => [.. Solved.Projectors.Select(p => ProjectorDepth.Build(p, DepthViews(Solved, p.Id)))]));
     private static readonly Lazy<IReadOnlyList<ProjectorDepthMap>> WorldDenseLazy = new(() =>
     {
         var world = Solved.Transformed(ToWorld, metric: true);
@@ -48,16 +49,29 @@ internal static class MultiViewKit
     public static MultiViewInput Input => InputLazy.Value;
 
     /// <summary>The scan solved once.</summary>
-    public static MultiViewResult Solved => SolvedLazy.Value;
+    public static MultiViewResult Solved => SolvedLazy.Value.Value;
+
+    /// <summary>How long the shared solve took (reported, not asserted: the machine is shared).</summary>
+    public static TimeSpan SolveTook => SolvedLazy.Value.Took;
 
     /// <summary>The shared solve's frame carried onto the world (<see cref="Registration"/>).</summary>
     public static Similarity3 ToWorld => ToWorldLazy.Value;
 
     /// <summary>Dense depth of every projector of the shared solve, from all three views.</summary>
-    public static IReadOnlyList<ProjectorDepthMap> Dense => DenseLazy.Value;
+    public static IReadOnlyList<ProjectorDepthMap> Dense => DenseLazy.Value.Value;
+
+    /// <summary>How long dense depth of both projectors took (reported, not asserted).</summary>
+    public static TimeSpan DenseTook => DenseLazy.Value.Took;
 
     /// <summary>Dense depth of every projector from the shared solve carried onto the world (metres).</summary>
     public static IReadOnlyList<ProjectorDepthMap> WorldDense => WorldDenseLazy.Value;
+
+    private static (T Value, TimeSpan Took) Timed<T>(Func<T> work)
+    {
+        var watch = Stopwatch.StartNew();
+        var value = work();
+        return (value, watch.Elapsed);
+    }
 
     /// <summary>The views of one projector as dense depth takes them from a solve.</summary>
     public static List<DepthView> DepthViews(MultiViewResult result, string projectorId) =>

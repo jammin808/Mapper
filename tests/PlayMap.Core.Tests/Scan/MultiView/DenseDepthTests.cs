@@ -24,6 +24,7 @@ public sealed class DenseDepthTests(ITestOutputHelper output)
     public void TheDenseSurfaceFromAllViewsLiesOnTheTruthMesh()
     {
         var toWorld = MultiViewKit.ToWorld;
+        output.WriteLine(string.Create(Inv, $"dense depth, 2 projectors at stride 2 from 3 views: {MultiViewKit.DenseTook.TotalMilliseconds:0} ms"));
         foreach (var map in MultiViewKit.Dense)
         {
             var errors = new List<double>();
