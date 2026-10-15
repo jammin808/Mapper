@@ -7,7 +7,9 @@ namespace PlayMap.Engine.Show;
 
 /// <summary>Mapping, through the calibration ledger: each projector an enabled output shows, with its current result's grade and a
 /// fallback to return to. Never calibrated, or failed with nothing to return to, is red with PROJECTOR SOLVE; failed with a fallback is
-/// red with CALIBRATION FALLBACK; C, or no fallback, is amber; A and B with a fallback are green.</summary>
+/// red with CALIBRATION FALLBACK; C, or no fallback, is amber; A and B with a fallback are green. A node that runs the calibration
+/// ledger's own check (wp2-wall's "calibration" rows, one per projector) answers through those rows alone, so one report never
+/// gives a projector two verdicts; show-ready's mapping step reads either.</summary>
 public sealed class MappingCheck : IPreflightCheck
 {
     public string Section => "mapping";
@@ -20,6 +22,8 @@ public sealed class MappingCheck : IPreflightCheck
     {
         ArgumentNullException.ThrowIfNull(context);
         var e = context.Engine;
+        if (e.PreflightChecks.Any(c => c.Section == "calibration"))
+            return Task.FromResult<IReadOnlyList<PreflightRow>>([]);
         var node = e.Services.Settings.Name;
         var p = e.Store.Project;
         var ledger = e.CalibrationLedgerService;

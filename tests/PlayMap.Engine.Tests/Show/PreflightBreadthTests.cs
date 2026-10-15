@@ -71,11 +71,70 @@ public sealed class PreflightBreadthTests
 
         await rig.Ok(unsolved.Fix!);
         var solved = Assert.Single(await Check(new MappingCheck(), rig.Engine));
-        Assert.NotEqual(Light.Red, solved.Light);
-        Assert.StartsWith(rig.Engine.CalibrationLedgerService.ScoreOf(rig.Engine.Store.Project, pj).Grade + " ", solved.Value, StringComparison.Ordinal);
-        Assert.Contains(solved.Light, new[] { Light.Green, Light.Amber });
-        if (solved.Light == Light.Amber)
-            Parses(solved);
+        Assert.Equal(Light.Green, solved.Light);
+        Assert.StartsWith("A ", solved.Value, StringComparison.Ordinal);
+
+        // A failed result made current over a good one: red, and the line that returns to the good one; it then passes.
+        var good = rig.Engine.Store.Project.FindProjector(pj)!.CalibrationId!;
+        await rig.Engine.Lane.RunAsync(() => rig.Engine.Store.Apply("a failed re-solve", p =>
+        {
+            var current = p.FindCalibration(good)!;
+            // The failed re-solve moved the projector: the air stands as the bad result until FALLBACK puts the good one back.
+            var moved = Pose.LookAt(new Core.Numerics.Vec3d(2, 1, -6), new Core.Numerics.Vec3d(0, 1.2, 0), Core.Numerics.Vec3d.UnitY);
+            var failed = current with
+            {
+                Id = "cs0f0f0f0f",
+                Score = current.Score with { Grade = "F", Value = 9, Words = "9.0 px: the re-solve failed" },
+                Projector = current.Projector! with { Pose = moved },
+            };
+            return p with
+            {
+                Stage = p.Stage with
+                {
+                    Calibrations = p.Stage.Calibrations.Add(failed),
+                    Projectors = p.Stage.Projectors.Update(pj, x => x with { Pose = moved, CalibrationId = failed.Id, FallbackId = good }),
+                },
+            };
+        }));
+        var failedRow = Assert.Single(await Check(new MappingCheck(), rig.Engine));
+        Assert.Equal((Light.Red, $"CALIBRATION FALLBACK {pj}"), (failedRow.Light, failedRow.Fix));
+        Parses(failedRow);
+        await rig.Ok(failedRow.Fix!);
+        Assert.Equal(Light.Green, Assert.Single(await Check(new MappingCheck(), rig.Engine)).Light);
+
+        // A C grade is amber with a line to solve again (FALLBACK recorded the good result again as the current one).
+        var standing = rig.Engine.Store.Project.FindProjector(pj)!.CalibrationId!;
+        await rig.Engine.Lane.RunAsync(() => rig.Engine.Store.Apply("a fair result", p => p with
+        {
+            Stage = p.Stage with
+            {
+                Calibrations = p.Stage.Calibrations.Update(standing, c => c with { Score = c.Score with { Grade = "C", Value = 3 } }),
+            },
+        }));
+        var fair = Assert.Single(await Check(new MappingCheck(), rig.Engine));
+        Assert.Equal((Light.Amber, $"PROJECTOR SOLVE {pj}"), (fair.Light, fair.Fix));
+    }
+
+    [Fact]
+    public async Task OneVerdictPerProjectorWhenTheLedgersOwnCheckRuns()
+    {
+        var wall = new FakeCheck("calibration");
+        await using var rig = new ShowRig(services: s => s with { PreflightChecks = [wall] });
+        await PinnedProjector(rig);
+        Assert.Empty(await Check(new MappingCheck(), rig.Engine));
+        Assert.Contains("calibration", PreflightReports.Steps.Single(st => st.Step == "mapping").Sections);
+    }
+
+    private sealed class FakeCheck(string section) : IPreflightCheck
+    {
+        public string Section => section;
+
+        public PreflightDepth MinDepth => PreflightDepth.Quick;
+
+        public TimeSpan Budget => TimeSpan.FromSeconds(1);
+
+        public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<PreflightRow>>([]);
     }
 
     [Fact]
