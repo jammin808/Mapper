@@ -1,1 +1,204 @@
-[]
+[
+  {
+    "title": "Audio",
+    "path": "audio",
+    "light": {
+      "path": "audio.input.state",
+      "red": [
+        "retrying"
+      ],
+      "amber": [
+        "opening"
+      ],
+      "green": [
+        "listening"
+      ]
+    },
+    "words": "audio.input.words",
+    "fields": [
+      {
+        "label": "Input",
+        "path": "audio.input.name"
+      },
+      {
+        "label": "Channels",
+        "path": "audio.input.channels"
+      },
+      {
+        "label": "Rate (Hz)",
+        "path": "audio.input.rateHz"
+      },
+      {
+        "label": "Level",
+        "path": "audio.level"
+      },
+      {
+        "label": "Bass",
+        "path": "audio.bass"
+      },
+      {
+        "label": "Mid",
+        "path": "audio.mid"
+      },
+      {
+        "label": "High",
+        "path": "audio.high"
+      },
+      {
+        "label": "Peak (dBFS)",
+        "path": "audio.peakDb"
+      },
+      {
+        "label": "Silent",
+        "path": "audio.silent"
+      },
+      {
+        "label": "Behind the sound (ms)",
+        "path": "audio.latencyMs.total"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Inputs",
+        "line": "AUDIO INPUTS"
+      },
+      {
+        "label": "Listen to the default input",
+        "line": "AUDIO LISTEN DEFAULT"
+      },
+      {
+        "label": "Test click",
+        "line": "AUDIO LISTEN TEST CLICK"
+      },
+      {
+        "label": "Stop listening",
+        "line": "AUDIO LISTEN OFF"
+      },
+      {
+        "label": "Auto gain",
+        "line": "AUDIO GAIN AUTO"
+      }
+    ]
+  },
+  {
+    "title": "Tempo",
+    "path": "audio.tempo",
+    "light": {
+      "path": "audio.tempo.lock",
+      "red": [
+        "lost"
+      ],
+      "amber": [
+        "searching",
+        "holding"
+      ],
+      "green": [
+        "manual",
+        "locked"
+      ]
+    },
+    "words": "audio.tempo.source",
+    "fields": [
+      {
+        "label": "BPM",
+        "path": "audio.tempo.bpm"
+      },
+      {
+        "label": "Beat",
+        "path": "audio.beat"
+      },
+      {
+        "label": "Bar",
+        "path": "audio.bar"
+      },
+      {
+        "label": "Beats a bar",
+        "path": "audio.tempo.beatsPerBar"
+      },
+      {
+        "label": "Bars a phrase",
+        "path": "audio.tempo.barsPerPhrase"
+      },
+      {
+        "label": "Source",
+        "path": "audio.tempo.source"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Tap",
+        "line": "TEMPO TAP"
+      },
+      {
+        "label": "Resync the bar",
+        "line": "TEMPO RESYNC BAR"
+      },
+      {
+        "label": "Half",
+        "line": "TEMPO HALF"
+      },
+      {
+        "label": "Double",
+        "line": "TEMPO DOUBLE"
+      },
+      {
+        "label": "BPM \u002B1",
+        "line": "TEMPO SET \u002B1"
+      },
+      {
+        "label": "BPM \u22121",
+        "line": "TEMPO SET -1"
+      }
+    ]
+  },
+  {
+    "title": "Modulation",
+    "path": "modulation",
+    "light": {
+      "path": "modulation.bypassed",
+      "amber": [
+        true
+      ],
+      "green": [
+        false
+      ]
+    },
+    "words": "modulation.unbound",
+    "fields": [
+      {
+        "label": "Bindings",
+        "path": "modulation.bindings"
+      },
+      {
+        "label": "Live (this node\u0027s sound)",
+        "path": "modulation.live"
+      },
+      {
+        "label": "Pure (the same everywhere)",
+        "path": "modulation.pure"
+      },
+      {
+        "label": "Held",
+        "path": "modulation.held"
+      },
+      {
+        "label": "Not applied",
+        "path": "modulation.unbound"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Hold every number",
+        "line": "MOD BYPASS ON"
+      },
+      {
+        "label": "Modulate again",
+        "line": "MOD BYPASS OFF"
+      },
+      {
+        "label": "Sources",
+        "line": "MOD SOURCES"
+      }
+    ]
+  }
+]

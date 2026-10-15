@@ -1,1 +1,64 @@
-{}
+{
+  "audio": {
+    "level": 0.022,
+    "bpm": 128,
+    "beat": 2,
+    "bar": 5,
+    "phrase": 1,
+    "phase": 0.608,
+    "bass": 0.023,
+    "mid": 0,
+    "high": 0,
+    "peakDb": -39,
+    "silent": false,
+    "input": {
+      "key": "test:drums",
+      "name": "Test drums",
+      "channels": "1\u002B2",
+      "rateHz": 48000,
+      "state": "listening",
+      "words": "",
+      "backend": "test",
+      "asked": "test:drums",
+      "here": false,
+      "silentForS": 0
+    },
+    "tempo": {
+      "source": "manual",
+      "lock": "manual",
+      "confidence": 1,
+      "bpm": 128,
+      "beatsPerBar": 3,
+      "barsPerPhrase": 4,
+      "inUse": true,
+      "epochUnixMs": 1759999995000,
+      "anchor": {
+        "leaderNs": 5040000000,
+        "beat": 10.08,
+        "bpm": 128,
+        "seq": 1,
+        "source": "set"
+      }
+    },
+    "latencyMs": {
+      "input": -1,
+      "analysis": 10.7,
+      "total": -1,
+      "acoustic": 0
+    }
+  },
+  "modulation": {
+    "bindings": 3,
+    "bypassed": false,
+    "live": 1,
+    "shared": 0,
+    "pure": 2,
+    "unbound": [
+      "Fractal speed: drawn at its base: a generator reads its bindings on its own render path, and the generators on this node do not yet"
+    ],
+    "held": [
+      "gn_julia"
+    ],
+    "flashLimited": -1
+  }
+}

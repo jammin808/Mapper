@@ -186,7 +186,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "8e7e7f3c410f0f81"
+    "index": "4e4ba9bcf3395d73"
   },
   "faults": [],
   "ai": {
@@ -264,5 +264,57 @@
       "inProcess": 0,
       "words": "FFGL plugins are not hosted by this build"
     }
+  },
+  "audio": {
+    "level": 0,
+    "bpm": 120,
+    "beat": null,
+    "bar": null,
+    "phrase": null,
+    "phase": null,
+    "bass": 0,
+    "mid": 0,
+    "high": 0,
+    "peakDb": -120,
+    "silent": true,
+    "input": {
+      "key": "",
+      "name": "",
+      "channels": "1\u002B2",
+      "rateHz": 0,
+      "state": "off",
+      "words": "",
+      "backend": "",
+      "asked": "",
+      "here": false,
+      "silentForS": 0
+    },
+    "tempo": {
+      "source": "manual",
+      "lock": "manual",
+      "confidence": 1,
+      "bpm": 120,
+      "beatsPerBar": 4,
+      "barsPerPhrase": 8,
+      "inUse": false,
+      "epochUnixMs": null,
+      "anchor": null
+    },
+    "latencyMs": {
+      "input": -1,
+      "analysis": 10.7,
+      "total": -1,
+      "acoustic": 0
+    }
+  },
+  "modulation": {
+    "bindings": 0,
+    "bypassed": false,
+    "live": 0,
+    "shared": 0,
+    "pure": 0,
+    "unbound": [],
+    "held": [],
+    "flashLimited": -1
   }
 }
