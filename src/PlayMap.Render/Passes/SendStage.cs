@@ -34,7 +34,7 @@ public sealed class SendPlanEntry
 
     public required int Height { get; init; }
 
-    /// <summary>Uyvy, Uyva or Bgra8 (resolved from the send's own format and the tap).</summary>
+    /// <summary>Uyvy, Uyva, P216, Pa16 or Bgra8 (resolved from the send's own format and the tap).</summary>
     public required SendFormat Format { get; init; }
 
     public required int FpsN { get; init; }

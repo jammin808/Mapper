@@ -232,7 +232,10 @@ public sealed class VideoIoVerbTests
         Assert.Equal("10.0.0.2,10.0.0.3", rig.State().GetProperty("ndi").GetProperty("discovery").GetString());
         Assert.Equal("video I/O already has NDI discovery server 10.0.0.2,10.0.0.3", await rig.Refused("VIDEOIO SET NDI-DISCOVERY 10.0.0.2,10.0.0.3"));
         r = await rig.Ok("VIDEOIO SET NDI-GROUPS stage,foh");
+        Assert.Equal("next start", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
+        r = await rig.Ok("VIDEOIO SET MAX-SEND-MBPS 400");
         Assert.Equal("now", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
+        Assert.Equal(400, saved.MaxSendMbps);
         Assert.Equal("stage,foh", rig.Engine.VideoIo.Settings.NdiGroups);
         await rig.Ok("VIDEOIO SET OMT OFF");
         Assert.Equal("off", rig.State().GetProperty("omt").GetProperty("state").GetString());

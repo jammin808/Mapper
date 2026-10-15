@@ -589,7 +589,8 @@ public sealed partial class EngineCore
             case "NDI-GROUPS":
                 var groups = value.Equals("OFF", StringComparison.OrdinalIgnoreCase) || value == "\"\"" ? "" : value;
                 next = s with { NdiGroups = groups };
-                (applies, effect) = ("now", groups.Length > 0 ? $"NDI groups {groups}" : "NDI groups: public");
+                // The runtime's finder, senders and configuration file take the groups when the provider starts.
+                (applies, effect) = ("next start", groups.Length > 0 ? $"NDI groups {groups}" : "NDI groups: public");
                 break;
             case "NDI-DISCOVERY":
                 var servers = onOff == false ? "" : value;
@@ -899,17 +900,19 @@ public sealed partial class EngineCore
         {
             var (state, stateWords) = InputState(input);
             var onAir = input.Tally == "program";
-            if (!onAir && state == "ok")
+            var standIn = input.Loss is "black" or "fallback" ? $"shows its {input.Loss}" : input.Using == "backup" ? "on its backup" : "";
+            if (!onAir && state == "ok" && standIn.Length == 0)
                 continue;
             var inLight = state switch
             {
+                "ok" when standIn.Length > 0 => Light.Amber,
                 "ok" => Light.Green,
                 "lost" or "failed" => onAir ? Light.Red : Light.Amber,
                 "connecting" => Light.Grey,
                 _ => Light.Amber,
             };
-            items.Add(new ContextItem("input:" + input.Id, "input", input.Item.Name, inLight,
-                stateWords.Length > 0 ? $"{state} — {stateWords}" : onAir ? "on air" : state));
+            var said = stateWords.Length > 0 ? $"{state} — {stateWords}" : onAir ? "on air" : state;
+            items.Add(new ContextItem("input:" + input.Id, "input", input.Item.Name, inLight, standIn.Length > 0 ? $"{said} · {standIn}" : said));
             foreach (var s in project.Stage.Surfaces)
                 if (s.Content.Source.Kind is SourceKind.Live or SourceKind.Media && s.Content.Source.Id == input.Id)
                     links.Add(new ContextLink("input:" + input.Id, "surface:" + s.Id, ContextLinkKinds.Feeds, inLight));

@@ -227,6 +227,7 @@ public sealed class VideoIoLossTests
             && j.Text.EndsWith("— showing its backup omt:STUDIO2 (Cam 1)", StringComparison.Ordinal));
         Assert.Single(events, e => e.Kind == "input.switched");
         Assert.Equal("amber", ContextLight(rig));
+        Assert.EndsWith("· on its backup", ContextState(rig, "input:" + id), StringComparison.Ordinal);
 
         // The primary comes back: the input stays on its backup (never flap on the air).
         for (var i = 0; i < 150; i++)
@@ -301,6 +302,12 @@ public sealed class VideoIoLossTests
         Assert.Contains("never a live input", await rig.Refused($"SET {id} live {{\"onLoss\":\"fallback\",\"fallback\":\"media:{other}\"}}"), StringComparison.Ordinal);
         Assert.Contains("names its picture in live.fallback", await rig.Refused($"SET {id} live {{\"onLoss\":\"fallback\"}}"), StringComparison.Ordinal);
         Assert.Contains("its own location", await rig.Refused($"SET {id} live {{\"backup\":\"omt:STUDIO (Cam 1)\"}}"), StringComparison.Ordinal);
+    }
+
+    private static string ContextState(VideoIoRig rig, string item)
+    {
+        using var ctx = JsonDocument.Parse(rig.Engine.Context());
+        return ctx.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == item).GetProperty("state").GetString()!;
     }
 
     private static string ContextLight(VideoIoRig rig)
