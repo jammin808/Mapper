@@ -48,7 +48,8 @@ public sealed partial class EngineCore
     private void RouteTimecode(VerbRoutes routes)
     {
         routes.Lane("TIMECODE STATUS", c => TimecodeStatus(c.Args));
-        routes.Lane("TIMECODE DEVICES", _ => TimecodeDevices());
+        // Listing the audio inputs waits on their backends (a sound server can be slow to answer): off the lane.
+        routes.OffLane("TIMECODE DEVICES", c => Task.Run(TimecodeDevices, c.Ct));
         routes.Lane("TIMECODE SOURCE", c => TimecodeSource(c.Args));
         routes.Lane("TIMECODE CHASE", c => TimecodeChaseVerb(c.Args));
         routes.Lane("TIMECODE ENGAGE", c => TimecodeEngage(c.Args));

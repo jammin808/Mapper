@@ -14,7 +14,8 @@ namespace PlayMap.Engine.Tests.Control;
 
 /// <summary>An engine with the control side attached as the host attaches it: its runtime always, and — when asked — the control
 /// service with its OSC socket on this slot's loopback address (port 0), a MIDI backend (the fake by default), the Art-Net socket on
-/// a loopback address of the slot's own, and audio inputs; on a manual clock or the real one.</summary>
+/// a loopback address of the slot's own, and audio inputs; on a manual clock or the real one; with any other services a test adds
+/// (another package's, such as the audio hub).</summary>
 internal sealed class ControlRig : IAsyncDisposable
 {
     public static readonly SessionInfo Desk = SessionInfo.Desk("t");
@@ -49,7 +50,8 @@ internal sealed class ControlRig : IAsyncDisposable
     }
 
     public static async Task<ControlRig> StartAsync(Project? project = null, bool service = false, IMidiBackend? midi = null, IAudioInputs? audio = null,
-        string? artNetAddress = null, ManualClock? clock = null, Func<ControlSettings, ControlSettings>? settings = null, Func<NodeSettings, NodeSettings>? node = null)
+        string? artNetAddress = null, ManualClock? clock = null, Func<ControlSettings, ControlSettings>? settings = null, Func<NodeSettings, NodeSettings>? node = null,
+        Func<EngineServices, EngineServices>? with = null)
     {
         var services = EngineServices.ForTests(clock ?? (IMonoClock)MonoClock.Instance);
         var control = settings?.Invoke(ControlSettings.Default) ?? ControlSettings.Default;
@@ -64,6 +66,8 @@ internal sealed class ControlRig : IAsyncDisposable
             svc = new ControlService(new ControlServiceOptions { Midi = midi, ArtNet = art, Audio = audio, OscBind = IPAddress.Parse(Loopback), OscPort = 0 });
             services = services with { Control = svc, ArtNet = art };
         }
+        if (with is not null)
+            services = with(services);
         var engine = new EngineCore(services, project);
         if (svc is not null)
             await svc.AttachAsync(engine);

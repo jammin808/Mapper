@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlayMap.Core.Audio;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
@@ -8,7 +9,10 @@ namespace PlayMap.Engine.Tc;
 /// <summary>An LTC source on an audio input: the capture's blocks through the decoder (on the capture thread), each frame's end
 /// mapped from its sample time to the monotonic clock and handed to the board as an observation. The sample clock is mapped by
 /// the lower envelope of (read instant − block end ÷ rate) over the last 10 s: scheduling only ever delays a read, so the earliest
-/// is the truest. An input that cannot open, or a node without audio inputs, says so as the source's state.</summary>
+/// is the truest. The input is opened as "&lt;device&gt;@&lt;channel&gt;" (the audio hub resolves the show's name for the device and
+/// hands this reader its one channel, sharing the device with every other listener); <see cref="Open"/> waits on the device, so
+/// its owner calls it, and <see cref="Dispose"/>, off its own loop. An input that cannot open, or a node without audio inputs, says
+/// so as the source's state.</summary>
 public sealed class LtcInput : IAudioCaptureSink, IDisposable
 {
     private const long WindowNs = 10_000_000_000;
@@ -19,7 +23,9 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     private readonly Lock _gate = new();
     private readonly Queue<(long At, double Offset)> _offsets = new();
     private readonly List<LtcFrameEvent> _frames = [];
-    private readonly IAudioCapture? _capture;
+    private readonly IAudioInputs? _audio;
+    private IAudioCapture? _capture;
+    private bool _closed;
     private LtcDecoder? _decoder;
     private LtcCounts _counted;
     private long _signalAt;
@@ -31,29 +37,55 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
         ArgumentNullException.ThrowIfNull(board);
         ArgumentNullException.ThrowIfNull(mono);
         Source = source;
+        _audio = audio;
         _board = board;
         _mono = mono;
         _signalAt = mono.NowNs;
-        if (audio is null)
+    }
+
+    /// <summary>The key this reader opens: the show's name for the device ("" = the default input) and its channel.</summary>
+    public string Key => string.Create(CultureInfo.InvariantCulture, $"{Source.Device}@{Source.Channel}");
+
+    /// <summary>Opens the input: waits while the device opens (the hub holds its lock meanwhile), so never on a loop that must keep
+    /// answering. An input closed before it opened opens nothing.</summary>
+    public void Open()
+    {
+        if (_audio is null)
         {
-            board.Fault(source.Id, "no audio inputs on this node (the audio hub is not running) — LTC cannot arrive here", mono.NowNs);
+            _board.Fault(Source.Id, "no audio inputs on this node (the audio hub is not running) — LTC cannot arrive here", _mono.NowNs);
             return;
         }
-        var key = source.Device;
-        if (key.Length == 0)
+        lock (_gate)
         {
-            var inputs = audio.Inputs();
-            key = inputs.FirstOrDefault(i => i.IsDefault)?.Key ?? (inputs.Count > 0 ? inputs[0].Key : "");
+            if (_closed || _capture is not null)
+                return;
         }
+        IAudioCapture capture;
         try
         {
-            _capture = audio.Open(key, 48000, this);
-            board.Input(source.Id, true, -120, $"listening on {key} channel {source.Channel}");
+            capture = _audio.Open(Key, 48000, this);
         }
         catch (AudioUnavailableException ex)
         {
-            board.Fault(source.Id, ex.Message, mono.NowNs);
+            _board.Fault(Source.Id, ex.Message, _mono.NowNs);
+            return;
         }
+        IAudioCapture? late = null;
+        lock (_gate)
+        {
+            if (_closed)
+                late = capture;
+            else
+                _capture = capture;
+        }
+        if (late is not null)
+        {
+            // Closed while the device opened: the open is given back at once.
+            late.Dispose();
+            return;
+        }
+        var device = Source.Device.Length == 0 ? "the default input" : Source.Device;
+        _board.Input(Source.Id, true, -120, string.Create(CultureInfo.InvariantCulture, $"listening on {device} channel {Source.Channel}"));
     }
 
     public TimecodeSource Source { get; }
@@ -73,7 +105,8 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
             while (_offsets.Count > 1 && readMonoNs - _offsets.Peek().At > WindowNs)
                 _offsets.Dequeue();
             var offset = _offsets.Min(o => o.Offset);
-            var channel = Math.Clamp(Source.Channel - 1, 0, channels - 1);
+            // The hub hands this reader its one channel; an input that hands every channel is read at the source's own.
+            var channel = channels == 1 ? 0 : Math.Clamp(Source.Channel - 1, 0, channels - 1);
             _frames.Clear();
             _decoder.Process(interleaved, channels, channel, firstSampleIndex, _frames);
             if (_decoder.HasSignal)
@@ -122,16 +155,25 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     /// <summary>The control loop's tick: an open input without signal for half a second is silent.</summary>
     public void Tick(long nowNs)
     {
-        if (_capture is null)
-            return;
         lock (_gate)
         {
-            if (_silent || nowNs - _signalAt < SilentAfterNs)
+            if (_capture is null || _silent || nowNs - _signalAt < SilentAfterNs)
                 return;
             _silent = true;
         }
         _board.Silent(Source.Id, nowNs);
     }
 
-    public void Dispose() => _capture?.Dispose();
+    /// <summary>Closes the input (waits while the hub lets the device go when this was its last listener).</summary>
+    public void Dispose()
+    {
+        IAudioCapture? capture;
+        lock (_gate)
+        {
+            _closed = true;
+            capture = _capture;
+            _capture = null;
+        }
+        capture?.Dispose();
+    }
 }

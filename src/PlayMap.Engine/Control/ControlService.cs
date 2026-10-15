@@ -60,6 +60,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private SacnReceiver? _sacn;
     private readonly Dictionary<string, MidiPort> _midiInputs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LtcInput> _ltc = new(StringComparer.Ordinal);
+    private readonly Lock _ltcGate = new();
+    private Task _ltcWork = Task.CompletedTask;
     private readonly ConcurrentDictionary<string, MtcParser> _mtc = new(StringComparer.Ordinal);
     private const long OscSenderIdleMs = 600_000;
 
@@ -145,8 +147,12 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             p.Input.Dispose();
         _midiInputs.Clear();
         foreach (var l in _ltc.Values)
-            l.Dispose();
+            OffLoop(l.Dispose);
         _ltc.Clear();
+        Task ltcWork;
+        lock (_ltcGate)
+            ltcWork = _ltcWork;
+        await ltcWork.ConfigureAwait(false);
         if (_artSubscribed && _options.ArtNet is { } art)
             art.Received -= OnArtNet;
         if (_sacn is not null)
@@ -788,11 +794,15 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             var s = ltc.FirstOrDefault(x => x.Id == id);
             if (s is not null && s.Device == input.Source.Device && s.Channel == input.Source.Channel && s.FloorDbfs == input.Source.FloorDbfs)
                 continue;
-            input.Dispose();
             _ltc.TryRemove(id, out _);
+            OffLoop(input.Dispose);
         }
         foreach (var s in ltc.Where(s => !_ltc.ContainsKey(s.Id)))
-            _ltc[s.Id] = new LtcInput(s, _options.Audio ?? engine.Services.AudioInputs, engine.TimecodeSources, engine.Services.Mono);
+        {
+            var input = new LtcInput(s, _options.Audio ?? engine.Services.AudioInputs, engine.TimecodeSources, engine.Services.Mono);
+            _ltc[s.Id] = input;
+            OffLoop(input.Open);
+        }
         foreach (var id in _mtc.Keys.Where(k => project.FindTimecodeSource(k) is not { Kind: TimecodeKind.Mtc }).ToList())
             _mtc.TryRemove(id, out _);
         foreach (var s in project.Timecode.Sources.Where(s => s.Kind == TimecodeKind.Mtc))
@@ -804,6 +814,28 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         foreach (var s in project.Timecode.Sources.Where(s => s.Kind == TimecodeKind.ArtNet))
             engine.TimecodeSources.Input(s.Id, _options.ArtNet is not null && _options.ArtNet.Problem is null, -120,
                 _options.ArtNet is null ? "no Art-Net socket on this node" : _options.ArtNet.Problem ?? "");
+    }
+
+    /// <summary>An LTC input's open or close, off the control loop (the audio hub holds its lock while a device opens, and a device
+    /// can take seconds): one at a time, in the order asked, so an input's close always follows its open. STATE moves once it is
+    /// done (the source's input is open, or says why not).</summary>
+    private void OffLoop(Action work)
+    {
+        lock (_ltcGate)
+        {
+            _ltcWork = _ltcWork.ContinueWith(_ =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    _engine?.Journal.Add("fault", "control: an LTC input: " + Journal.Describe(ex), "control", null, false);
+                }
+                _engine?.FactsChanged();
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        }
     }
 
     private void Mtc(string port, int piece, int value, long monoNs)
