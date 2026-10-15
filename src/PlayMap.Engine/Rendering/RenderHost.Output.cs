@@ -115,8 +115,7 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
     /// <summary>A lock view moved (render thread): the engine hears it off this thread.</summary>
     private void OnLockChanged()
     {
-        if (Volatile.Read(ref _engine) is { } engine)
-            ThreadPool.UnsafeQueueUserWorkItem(static e => e.FactsChanged(), engine, preferLocal: false);
+        Volatile.Read(ref _facts)?.Raise();
     }
 
     /// <summary>An output fell out of the lock (render thread): a fault row and a show event, off this thread.</summary>

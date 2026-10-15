@@ -39,7 +39,7 @@ public sealed partial class RenderHost
         if (version != _fxVersion)
         {
             _fxVersion = version;
-            ThreadPool.UnsafeQueueUserWorkItem(static e => e.FactsChanged(), engine, preferLocal: false);
+            Volatile.Read(ref _facts)?.Raise();
         }
     }
 

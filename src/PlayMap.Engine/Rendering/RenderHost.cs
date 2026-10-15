@@ -146,6 +146,7 @@ public sealed partial class RenderHost : IRenderHost
     private volatile bool _stopping;
     private volatile string? _startFailure;
     private EngineCore? _engine;
+    private FactsSignal? _facts;
     private int _started;
     private StageResources? _stage;
 #pragma warning disable CA2213 // As above: disposed by TearDown on the render thread.
@@ -276,6 +277,7 @@ public sealed partial class RenderHost : IRenderHost
         engine.BlendSolved += OnBlendSolved;
         if (engine.LastBlendSolve is { } solved)
             _stage.Offer(solved);
+        Volatile.Write(ref _facts, new FactsSignal(engine.FactsChanged));
         Volatile.Write(ref _engine, engine);
         engine.Services.Media?.UseGpu(_platform?.Share);
         engine.Previews.AttachRenderer(this);
@@ -558,7 +560,7 @@ public sealed partial class RenderHost : IRenderHost
             PollDisplays(engine, project, monoNow);
         }
         if (windows.Pump())
-            WindowsChanged(engine);
+            WindowsChanged();
 
         _sources!.BeginFrame(snap, renderer.Frame + 1);
         _scan.BeginFrame(project, air.EffectiveBlackout);
@@ -606,7 +608,7 @@ public sealed partial class RenderHost : IRenderHost
         _headless.OnPresented(finished);
         RenderPreviews(renderer, project, monoNow);
         if (UpdateHealth(renderer, windows))
-            WindowsChanged(engine);
+            WindowsChanged();
     }
 
     /// <summary>Whether any playlist is playing (the lock's boundary: an output that fell out rejoins only when none is, or blacked out).</summary>
@@ -651,7 +653,7 @@ public sealed partial class RenderHost : IRenderHost
         {
             RefreshDisplays();
             if (_windows!.Sync(project, _monitors))
-                WindowsChanged(engine);
+                WindowsChanged();
         }
         var slots = new List<HealthSlot>();
         foreach (var o in project.Outputs)
@@ -670,7 +672,7 @@ public sealed partial class RenderHost : IRenderHost
         if (before.SequenceEqual(_monitors))
             return;
         _windows!.Sync(project, _monitors);
-        WindowsChanged(engine);
+        WindowsChanged();
     }
 
     private void RefreshDisplays()
@@ -684,10 +686,10 @@ public sealed partial class RenderHost : IRenderHost
     }
 
     /// <summary>STATE's outputs moved: the engine hears it off this thread (its listeners do work).</summary>
-    private void WindowsChanged(EngineCore engine)
+    private void WindowsChanged()
     {
         _openWindows = _windows!.Open;
-        ThreadPool.UnsafeQueueUserWorkItem(static e => e.FactsChanged(), engine, preferLocal: false);
+        Volatile.Read(ref _facts)?.Raise();
     }
 
     /// <summary>Writes each output's numbers for STATE; true when what STATE's light is made of moved (a window
@@ -831,6 +833,8 @@ public sealed partial class RenderHost : IRenderHost
         await _exited.Task.ConfigureAwait(false);
         if (_stage is not null)
             await _stage.DisposeAsync().ConfigureAwait(false);
+        // The render thread has exited: nothing raises the signal any more.
+        Volatile.Read(ref _facts)?.Dispose();
         _wake.Dispose();
         _ready.Dispose();
     }
