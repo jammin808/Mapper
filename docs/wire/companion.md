@@ -20,8 +20,9 @@ parameters in VERBS, and the network announcement. `docs/COMPANION.md` says how 
 **Who a session is.** A HELLO name is a claim, and a claim only narrows: `Companion` or `Companion:<label>` is transport
 `companion`; `PlayMapDesk` is transport `desk` only on the TCP wire **and** with the node's token proved on that connection
 (`AUTH-PROOF`, or plain `AUTH` from this machine) **and** from this machine or an address listed in the node's
-`Companion.DeskAddresses` setting. Trust of an address is not proof; a WebSocket never yields `desk` (its transport is `ws`). A node
-that asks no token has no secret to prove, so there only this machine's desk is the desk.
+`Companion.DeskAddresses` setting. Trust of an address is not proof; a WebSocket never yields `desk` (its transport is `ws`). A
+trusted session (no `NONCE` at connect) that says `HELLO PlayMapDesk` on a node with a token is sent a `NONCE` after the `OK`, so the
+desk proves itself at once. A node that asks no token has no secret to prove, so there only this machine's desk is the desk.
 
 ## Verbs
 

@@ -40,7 +40,8 @@ A HELLO name is a claim, and a claim only narrows what a session may do. `Compan
 (transport `companion`, Show Mode's remote role). The desk is the operator, so its role is proved, never claimed: `PlayMapDesk` is the
 desk only on the TCP wire, with the node's token proved on that very connection, from this machine — the desk reads the token
 from the node's own settings file — or from an address the node lists in `Companion.DeskAddresses` for a desk on another machine.
-A client that is only trusted by address, or that says the desk's name on the WebSocket, is a remote client.
+A client that is only trusted by address, or that says the desk's name on the WebSocket, is a remote client; a trusted one that says the
+desk's name is sent a `NONCE` at once, so the desk's link proves the token without waiting.
 
 ## INDEX
 

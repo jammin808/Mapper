@@ -115,8 +115,14 @@ internal sealed class WireSession : IAsyncDisposable
         var token = Pairing.Normalise(settings.Token);
         if (token.Length == 0)
             return _loopback;
-        var proved = _pairedToken is not null && string.Equals(_pairedToken, token, StringComparison.Ordinal);
-        return proved && (_loopback || IsDeskAddress(_remote, settings));
+        return ProvedToken() && (_loopback || IsDeskAddress(_remote, settings));
+    }
+
+    /// <summary>The node's token now was proved on this connection (trust of the address is not proof).</summary>
+    private bool ProvedToken()
+    {
+        var token = Pairing.Normalise(_server.Settings.Token);
+        return token.Length > 0 && _pairedToken is not null && string.Equals(_pairedToken, token, StringComparison.Ordinal);
     }
 
     private static bool IsDeskAddress(IPAddress? remote, NodeSettings settings)
@@ -255,6 +261,12 @@ internal sealed class WireSession : IAsyncDisposable
                 {
                     Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
                     _wantsState = true;
+                }
+                if (!_strict && _helloName == DeskName && Paired && !ProvedToken() && Pairing.Normalise(_server.Settings.Token).Length > 0)
+                {
+                    // Trusted by address, so no NONCE came at connect; the desk role needs the token proved, so it is asked for now
+                    // (the desk proves at once instead of waiting to fall back on plain AUTH).
+                    Writer.Say("NONCE " + _nonce);
                 }
                 Register();
                 return true;

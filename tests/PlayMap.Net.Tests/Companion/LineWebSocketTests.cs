@@ -287,23 +287,57 @@ public sealed class DeskIdentityTests
         await using var server = new WireServer(TestSettings.Make(trustLoopback: true), endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 });
         server.Start();
 
-        // Trusted by address and claiming the desk's name: paired, but no desk.
+        // Trusted by address and claiming the desk's name: paired, but no desk — and asked at once to prove the token.
         await using (var claimer = await LineClient.ConnectAsync(server.Port))
         {
             Assert.Equal("OK", await claimer.AskAsync("HELLO PlayMapDesk"));
+            Assert.StartsWith("NONCE ", await claimer.ReplyAsync(), StringComparison.Ordinal);
             Assert.Equal("OK", await claimer.AskAsync("BLACKOUT ON"));
         }
         var claimed = endpoint.Lines.Single().Session;
         Assert.True(claimed.Paired);
         Assert.Equal("wire", claimed.Transport);
 
-        // The same name with the token proved on this connection (plain AUTH from this machine, as the desk's link does): the desk.
+        // The same name with the token proved on this connection (the proof answers the nonce it was asked with): the desk.
         await using (var desk = await LineClient.ConnectAsync(server.Port))
         {
             Assert.Equal("OK", await desk.AskAsync("HELLO PlayMapDesk"));
-            Assert.Equal("OK paired", await desk.AskAsync("AUTH " + TestSettings.Token));
+            var nonce = (await desk.ReplyAsync())!;
+            Assert.StartsWith("NONCE ", nonce, StringComparison.Ordinal);
+            Assert.Equal("OK paired", await desk.AskAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonce[6..], WireSession.DeskName)));
             Assert.Equal("OK", await desk.AskAsync("BLACKOUT OFF"));
         }
+        Assert.Equal("desk", endpoint.Lines.Last().Session.Transport);
+
+        // Plain AUTH from this machine (an older desk's link) proves it too.
+        await using (var older = await LineClient.ConnectAsync(server.Port))
+        {
+            Assert.Equal("OK", await older.AskAsync("HELLO PlayMapDesk"));
+            Assert.StartsWith("NONCE ", await older.ReplyAsync(), StringComparison.Ordinal);
+            Assert.Equal("OK paired", await older.AskAsync("AUTH " + TestSettings.Token));
+            Assert.Equal("OK", await older.AskAsync("BLACKOUT ON"));
+        }
+        Assert.Equal(("BLACKOUT", "desk"), (endpoint.Lines.Last().Line.Verb, endpoint.Lines.Last().Session.Transport));
+    }
+
+    [Fact]
+    public async Task TheDesksLinkProvesItselfAtOnceOnATrustedNode()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var server = new WireServer(TestSettings.Make(trustLoopback: true), endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 });
+        server.Start();
+        // The desk's own link, with a nonce wait far past this test's patience: it is the desk only if the node asks it to prove.
+        await using var link = new PlayMap.Net.Links.WireClient(new PlayMap.Net.Links.WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = server.Port,
+            ClientName = WireSession.DeskName,
+            Token = TestSettings.Token,
+            NonceWait = TimeSpan.FromMinutes(10),
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PlayMap.Net.Links.PairState.Paired));
+        Assert.True((await link.SendAsync("BLACKOUT ON", CancellationToken.None)).Ok);
         Assert.Equal("desk", endpoint.Lines.Last().Session.Transport);
     }
 
