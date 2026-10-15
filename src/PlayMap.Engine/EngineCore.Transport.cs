@@ -47,9 +47,12 @@ public sealed partial class EngineCore
                 "VIDEO RATE" => "RATE takes 0.05 to 20",
                 _ => $"{verb} is not a clip verb",
             });
+        var moved = isGo ? BlindOnGo(list.Id, now, switches: false) : null;
         var (ok, words) = Playback.Transport(list, op, now);
         if (ok && isGo)
-            NoteGo(list, now);
+            NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: $"{list.Name}: {words}") : CommandReply.Fail(words);
     }
 
@@ -206,9 +209,12 @@ public sealed partial class EngineCore
         }
         if (GoFence(list, expect, index, "next item") is { } fenced)
             return CommandReply.Fail(fenced);
-        var (ok, words) = Playback.Go(list, index, at!.Value);
+        var moved = BlindOnGo(list.Id, at!.Value, switches: true);
+        var (ok, words) = Playback.Go(list, index, at.Value);
         if (ok)
-            NoteGo(list, at.Value);
+            NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -239,9 +245,12 @@ public sealed partial class EngineCore
         var target = lane is null || lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, PlaybackLanes.OnAirIndex(lane, at!.Value), step);
         if (GoFence(list, expect, target, step > 0 ? "next item" : "previous item") is { } fenced)
             return CommandReply.Fail(fenced);
+        var moved = target >= 0 ? BlindOnGo(list.Id, at!.Value, switches: true) : null;
         var (ok, words) = Playback.Step(list, step, at!.Value);
         if (ok)
-            NoteGo(list, at.Value);
+            NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -284,13 +293,10 @@ public sealed partial class EngineCore
         return null;
     }
 
-    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here); a blind commit
-    /// waiting for a GO there lands at the GO's own start instant.</summary>
-    private void NoteGo(Playlist list, long startNs)
-    {
-        _lastGo[list.Id] = LeaderNowNs;
-        BlindOnGo(list.Id, startNs);
-    }
+    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here). A blind commit
+    /// waiting for a GO there was given the GO's instant before the GO was applied (<see cref="BlindOnGo"/>), so one snapshot carries
+    /// both.</summary>
+    private void NoteGo(Playlist list) => _lastGo[list.Id] = LeaderNowNs;
 
     private CommandReply PlaylistLoop(List<string> args)
     {

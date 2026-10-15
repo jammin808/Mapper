@@ -45,6 +45,8 @@ public sealed partial class EngineCore
         TickPanic(leaderNs);
         TickBlind(leaderNs);
         TickSound(leaderNs);
+        // Everything the show does on a tick is done: a reader that saw this instant sees its panic steps, commits and sound.
+        Volatile.Write(ref _showTickedNs, leaderNs);
     }
 
     partial void StateShow(Utf8JsonWriter w)
@@ -77,6 +79,7 @@ public sealed partial class EngineCore
 
     partial void SnapshotShow(ref EngineSnapshot snapshot) => SnapshotBlind(ref snapshot);
 
-    /// <summary>Off the lane, every document edit of the draft's owner goes to its draft (its gate already took the line).</summary>
-    private partial ProjectStore? BlindStoreFor(SessionInfo session) => DraftStoreFor(session);
+    /// <summary>Off the lane, a line's document edits go where its gate decided: the draft it was decided for (refused once that draft
+    /// ended or is landing), or live.</summary>
+    private partial ProjectStore? BlindStoreFor(SessionInfo session) => OffLaneStoreFor(session);
 }

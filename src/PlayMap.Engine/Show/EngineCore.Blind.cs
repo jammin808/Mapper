@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Model;
@@ -20,15 +21,50 @@ public sealed partial class EngineCore
     private volatile BlindDraft? _blind;
     private bool _promoting;
 
+    /// <summary>What the show's gate decided for each session's last off-lane line while a draft was open: the draft it sends the
+    /// line's edits to, or null for the live store. The edit is applied later, on the lane, and keeps that decision: a line decided
+    /// for a draft that has since ended or started landing is refused, never written live.</summary>
+    private readonly ConcurrentDictionary<(string Transport, string Session), BlindDraft?> _offLaneDraft = new();
+
     /// <summary>The draft now (any thread reads the published value).</summary>
     internal BlindDraft? BlindNow => _blind;
 
     /// <summary>Who holds the blind draft, or null.</summary>
     public string? BlindOwnerName => _blind?.OwnerName;
 
-    private bool OwnsDraft(SessionInfo session) => _blind is { } b && b.OwnerSession == session.SessionId;
+    private bool OwnsDraft(SessionInfo session) => _blind is { } b && b.Owner.Is(session);
 
-    private ProjectStore? DraftStoreFor(SessionInfo session) => _blind is { Commit: null } b && b.OwnerSession == session.SessionId ? b.Store : null;
+    private ProjectStore? DraftStoreFor(SessionInfo session) => _blind is { Commit: null } b && b.Owner.Is(session) ? b.Store : null;
+
+    /// <summary>Off the lane: notes the gate's decision for a session's line (the draft, or live) while a draft is open.</summary>
+    internal void NoteOffLaneDecision(SessionInfo session, ProjectStore? draft)
+    {
+        var key = (session.Transport, session.SessionId);
+        if (_blind is not { } b)
+        {
+            _offLaneDraft.TryRemove(key, out _);
+            return;
+        }
+        _offLaneDraft[key] = draft is not null && ReferenceEquals(draft, b.Store) ? b : null;
+    }
+
+    /// <summary>The store an off-lane line's document edit goes to (on the lane): what its gate decided — the draft while it is still
+    /// open and not landing, a closed store that refuses with words once it is not, or live; with no decision noted, the owner's
+    /// draft.</summary>
+    private ProjectStore? OffLaneStoreFor(SessionInfo session)
+    {
+        if (!_offLaneDraft.TryGetValue((session.Transport, session.SessionId), out var decided))
+            return DraftStoreFor(session);
+        if (decided is null)
+            return null;
+        if (ReferenceEquals(decided, _blind) && decided.Commit is null)
+            return decided.Store;
+        var closed = new ProjectStore(Store.Project);
+        closed.Guard = (_, _) => ReferenceEquals(decided, _blind)
+            ? "the blind draft this line was for is landing — nothing changed (BLIND DISCARD cancels the commit)"
+            : "the blind draft this line was for has ended — nothing changed";
+        return closed;
+    }
 
     /// <summary>The store guard while a commit waits: a live edit to an entity it lands is refused (its words say when it lands);
     /// the promotion itself passes.</summary>
@@ -64,15 +100,29 @@ public sealed partial class EngineCore
     {
         if (c.Args.Count > 0)
             return CommandReply.Fail("BLIND ON takes no words (one draft per node; ALL is next round)");
+        // A draft is a session's: a door whose every request is a session of its own could never edit the draft it opened.
+        if (c.Session.Transport is "mcp" or "http")
+            return CommandReply.Fail("a blind draft needs a lasting connection — BLIND ON from the desk, the wire or a WebSocket");
         if (_blind is { } held)
         {
-            if (held.OwnerSession == c.Session.SessionId)
+            if (held.Owner.Is(c.Session))
                 return CommandReply.Fail($"already blind — {Changes(held)} staged since {LockGuard.Clock(held.SinceUnixMs)}");
-            // A desk that reconnected (a new session, the same operator) takes its own draft back.
+            // A desk that reconnected (a new session, the same operator) takes its own draft back — only once the old session is
+            // gone, so two connected desks never edit one draft by turns without knowing.
             if (ShowRoleOf(c.Session) == ShowRole.Operator && string.Equals(held.OwnerName, c.Session.ClientName, StringComparison.Ordinal))
             {
-                held.OwnerSession = c.Session.SessionId;
+                if (Companion.Clients.Find(held.Owner.SessionId) is { } still && still.Transport == held.Owner.Transport)
+                    return CommandReply.Fail($"{held.OwnerName} holds the blind draft on another connection that is still open — it commits or discards it there");
+                var was = held.Owner;
+                held.Owner = DraftOwner.Of(c.Session);
+                Journal.Add("verb", $"{c.Session.ClientName} took its blind draft back on a new connection ({Changes(held)} staged)", c.Session.ClientName);
                 TouchShow();
+                RaiseEvent("show.blind", LeaderNowNs, w =>
+                {
+                    w.WriteBoolean("on", true);
+                    w.WriteString("owner", c.Session.ClientName);
+                    w.WriteString("takenFrom", was.SessionId);
+                });
                 return CommandReply.Success(JsonOut(WriteBlind), $"{c.Session.ClientName} takes its blind draft back ({Changes(held)} staged)");
             }
             return CommandReply.Fail($"{held.OwnerName} holds the blind draft ({Changes(held)} staged) — one draft per node: it commits or discards it first");
@@ -82,7 +132,9 @@ public sealed partial class EngineCore
         // A draft may move what an armed show locks (mapping, layout): that is what it is for. The show's explicit locks hold on it as
         // they hold live, so a draft never stages what its commit would be refused for.
         draft.Guard = (before, after) => LockGuard.Check(WithLiveLocks(before), WithLiveLocks(after), armed: false);
-        _blind = new BlindDraft(c.Session.SessionId, c.Session.ClientName, Services.Wall.UnixMs, draft, live);
+        // Decisions noted for an earlier draft are for a draft that is gone; each session's next off-lane line notes its own.
+        _offLaneDraft.Clear();
+        _blind = new BlindDraft(DraftOwner.Of(c.Session), Services.Wall.UnixMs, draft, live);
         draft.Changed += _ => DraftMoved();
         TouchShow();
         RaiseEvent("show.blind", LeaderNowNs, w =>
@@ -124,7 +176,7 @@ public sealed partial class EngineCore
 
     /// <summary>The draft is its owner's; the desk (an operator) may also land or drop a draft a session left behind.</summary>
     private CommandReply? BlindHandsOff(SessionInfo session, BlindDraft b) =>
-        b.OwnerSession == session.SessionId || ShowRoleOf(session) == ShowRole.Operator
+        b.Owner.Is(session) || ShowRoleOf(session) == ShowRole.Operator
             ? null
             : CommandReply.Fail($"the blind draft is {b.OwnerName}'s — it commits or discards it (or the desk does)");
 
@@ -185,6 +237,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail("not blind — nothing to discard");
         if (BlindHandsOff(c.Session, b) is { } not)
             return not;
+        // Within a commit lead of its instant the render may already draw the commit: it lands, and UNDO takes it back.
+        if (b.Commit is { } landing && LeaderNowNs >= landing.EffectiveLeaderNs - Store.Project.Show.Rules.CommitLeadMs * 1_000_000L)
+            return CommandReply.Fail($"the draft is landing now ({ClockAt(landing.EffectiveLeaderNs)}) — UNDO takes it back once it has landed");
         var n = b.Patch.Changes.Count;
         var pending = b.Commit is not null;
         EndBlind();
@@ -199,6 +254,7 @@ public sealed partial class EngineCore
 
     private void EndBlind()
     {
+        // The gate's decisions stay: a line decided for this draft whose edit arrives after it ended is refused, not written live.
         _blind = null;
         TouchShow();
         RaiseEvent("show.blind", LeaderNowNs, w => w.WriteBoolean("on", false));
@@ -244,13 +300,13 @@ public sealed partial class EngineCore
                 if (list is null)
                     return CommandReply.Fail(a.Count > 1 ? $"no playlist {a[1]}" : "no playlist is focused — BLIND COMMIT NEXT <playlist>");
                 var lane = Playback.Lane(list.Id);
-                if (lane is null || lane.IsIdle || lane.NextItemId is null || lane.SwitchAtLeaderNs == long.MaxValue || lane.SwitchAtLeaderNs <= now)
+                if (NextBoundary(lane) is not { } next || next <= now)
                     return CommandReply.Fail($"nothing ends on {list.Name} — use ON GO or AT");
-                if (lane.SwitchAtLeaderNs < now + lead)
-                    return CommandReply.Fail($"too close to the boundary — {list.Name} switches in {(lane.SwitchAtLeaderNs - now) / 1_000_000} ms; the next one, ON GO or AT");
+                if (next < now + lead)
+                    return CommandReply.Fail($"too close to the boundary — {list.Name} switches in {(next - now) / 1_000_000} ms; the next one, ON GO or AT");
                 boundary = CommitBoundary.Next;
                 playlist = list.Id;
-                effective = lane.SwitchAtLeaderNs;
+                effective = next;
                 break;
             }
             case "ON" when a.Count is 2 or 3 && a[1].Equals("GO", StringComparison.OrdinalIgnoreCase):
@@ -282,7 +338,10 @@ public sealed partial class EngineCore
         var root = patch.ApplyTo(live);
         if (LockGuard.Check(live, root, armed: false) is { } locked)
             return CommandReply.Fail(locked);
-        var commit = new BlindCommit(patch, boundary, playlist, effective, c.Session.ClientName, force, root, live);
+        var commit = new BlindCommit(patch, boundary, playlist, effective, c.Session.ClientName, force, root, live)
+        {
+            ByOperator = ShowRoleOf(c.Session) is ShowRole.Operator or ShowRole.System,
+        };
         b.Commit = commit;
         TouchShow();
         return new CommandReply(true, JsonOut(w => WriteCommit(w, commit)),
@@ -290,23 +349,57 @@ public sealed partial class EngineCore
             Applied: false);
     }
 
-    /// <summary>A GO (PLAYLIST GO, NEXT, PREV, VIDEO PLAY or RESTART) accepted on a playlist, starting at a leader instant: a commit
-    /// waiting for a GO there takes that instant, so the draft lands on the same frame as the item.</summary>
-    private void BlindOnGo(string playlistId, long startNs)
+    /// <summary>The instant a playlist's next item first shows (its transition window's opening, or the switch for a cut), or null
+    /// when nothing is scheduled to follow.</summary>
+    private static long? NextBoundary(Playback.PlaylistPlayback? lane) =>
+        lane is null || lane.IsIdle || lane.NextItemId is null || lane.SwitchAtLeaderNs == long.MaxValue ? null : lane.NextShowsAtNs;
+
+    /// <summary>Before a GO (PLAYLIST GO, NEXT, PREV, VIDEO PLAY or RESTART) is applied on a playlist starting at a leader instant: a
+    /// commit waiting for a GO there takes the GO's own instant, and one waiting for that playlist's next switch does too when the GO
+    /// changes the item (<paramref name="switches"/>: the GO is the switch; a PLAY that resumes the same item is not). Nothing is
+    /// published here — the GO's own playback change publishes the snapshot, so the item and the draft land on the same frame.
+    /// Answers the commit as it was, for <see cref="BlindGoRefused"/> when the GO is refused after all.</summary>
+    private BlindCommit? BlindOnGo(string playlistId, long startNs, bool switches)
     {
-        if (_blind?.Commit is not { Boundary: CommitBoundary.OnGo, EffectiveLeaderNs: long.MaxValue } commit
-            || (commit.PlaylistId is { } only && only != playlistId))
-            return;
-        _blind.Commit = commit with { EffectiveLeaderNs = startNs, PlaylistId = playlistId };
-        TouchShow();
+        if (_blind?.Commit is not { } commit || (commit.PlaylistId is { } only && only != playlistId))
+            return null;
+        if (commit is { Boundary: CommitBoundary.OnGo, EffectiveLeaderNs: long.MaxValue })
+            _blind.Commit = commit with { EffectiveLeaderNs = startNs, PlaylistId = playlistId };
+        else if (switches && commit.Boundary == CommitBoundary.Next && startNs < commit.EffectiveLeaderNs)
+            _blind.Commit = commit with { EffectiveLeaderNs = startNs, Pinned = true };
+        else
+            return null;
+        return commit;
+    }
+
+    /// <summary>The GO a commit was moved for did not happen: the commit waits as it did.</summary>
+    private void BlindGoRefused(BlindCommit? before)
+    {
+        if (before is not null && _blind is { } b)
+            b.Commit = before;
     }
 
     /// <summary>On the lane's tick: a commit whose instant came is published as one undo step and the draft ends. The render thread
     /// has drawn its root since that instant; this makes it the document.</summary>
     private void TickBlind(long leaderNs)
     {
+        if (_blind is { } open && open.Base.Project.Id != Store.Project.Id)
+        {
+            // Another show was opened under the draft: the draft and its commit were for the show that left.
+            Journal.Add("refused", $"the blind draft by {open.OwnerName} ended: another show was opened ({Changes(open)} were staged)", open.OwnerName, ok: false);
+            EndBlind();
+            return;
+        }
         if (_blind is not { Commit: { } commit } b || leaderNs < commit.EffectiveLeaderNs)
             return;
+        if (_showMode.Armed && !commit.ByOperator)
+        {
+            // An armed show lands only the desk's commits; a commit a remote scheduled in rehearsal waits for the desk.
+            b.Commit = null;
+            Journal.Add("refused", $"{commit.Label} by {commit.By} did not land: an armed show lands only an operator's commit — the draft stays; the desk can BLIND COMMIT it", commit.By, ok: false);
+            TouchShow();
+            return;
+        }
         var root = commit.Patch.ApplyTo(Store.Project);
         EditResult r;
         _promoting = true;
@@ -338,21 +431,33 @@ public sealed partial class EngineCore
     }
 
     /// <summary>The snapshot's draft (for the editor's draft view) and a waiting commit's root, carried over whatever changed live
-    /// since it was made (lane).</summary>
+    /// since it was made, at an instant that follows its playlist's next switch until a GO pins it (lane). A commit the air would not
+    /// keep — one an armed show would not land, one a lock now refuses, one for a show that is no longer open — is not published, so
+    /// the render never draws what the lane will not land.</summary>
     private void SnapshotBlind(ref EngineSnapshot snapshot)
     {
         if (_blind is not { } b)
             return;
+        var live = snapshot.Project.Project;
+        if (b.Base.Project.Id != live.Id)
+            return;
         var pending = (PendingCommit?)null;
         if (b.Commit is { } commit)
         {
-            var live = snapshot.Project.Project;
-            if (!ReferenceEquals(commit.LiveAt, live))
+            if (commit is { Boundary: CommitBoundary.Next, Pinned: false } && LeaderNowNs < commit.EffectiveLeaderNs
+                && commit.PlaylistId is { } pl && snapshot.Playback.Playlists.TryGetValue(pl, out var lane))
             {
-                commit = commit with { Root = commit.Patch.ApplyTo(live), LiveAt = live };
-                b.Commit = commit;
+                var next = NextBoundary(lane) ?? long.MaxValue;
+                if (next != commit.EffectiveLeaderNs)
+                    commit = commit with { EffectiveLeaderNs = next };
             }
-            pending = new PendingCommit(commit.Root, commit.EffectiveLeaderNs, commit.Label, commit.Patch.Changes.Count);
+            if (!ReferenceEquals(commit.LiveAt, live))
+                commit = commit with { Root = commit.Patch.ApplyTo(live), LiveAt = live };
+            if (!ReferenceEquals(commit, b.Commit))
+                b.Commit = commit;
+            var lands = (commit.ByOperator || !_showMode.Armed) && LockGuard.Check(live, commit.Root, armed: false) is null;
+            if (lands)
+                pending = new PendingCommit(commit.Root, commit.EffectiveLeaderNs, commit.Label, commit.Patch.Changes.Count);
         }
         snapshot = snapshot with { Draft = b.Store.Current, Pending = pending };
     }

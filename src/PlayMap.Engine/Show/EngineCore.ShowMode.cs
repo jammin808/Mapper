@@ -112,10 +112,23 @@ public sealed partial class EngineCore : IShowDecisions
     /// into its draft (<paramref name="draft"/>), refused while that draft is landing.</summary>
     private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
     {
+        var refused = ShowGateDecide(spec, line, session, out draft);
+        // Off the lane the line's edits are applied later, through EditAsync on the lane: they keep this decision.
+        if (refused is null && !_lane.IsOnLane)
+            NoteOffLaneDecision(session, draft);
+        return refused;
+    }
+
+    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    {
         draft = null;
         // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
         if (!IsAvailable(spec))
             return null;
+        // Another show opened under a draft would leave the draft and its commit for a show that is gone.
+        if (_blind is { } open && spec.Name is "PROJECT OPEN" or "PROJECT NEW")
+            return RefuseAtGate(spec, line, session,
+                $"a blind draft is open ({open.OwnerName}, {Changes(open)}) — BLIND COMMIT or BLIND DISCARD before opening another show");
         var d = DecideShow(spec, line, session);
         switch (d.Verdict)
         {

@@ -326,4 +326,171 @@ public sealed class BlindTests
         Assert.Equal(("amber", "landing next"), IndexRows(rig)["BLIND DISCARD"]);
         Assert.Equal("pl_show", Blind(rig).GetProperty("commit").GetProperty("playlist").GetString());
     }
+
+    private static List<ShowEvent> Events(ShowRig rig)
+    {
+        var events = new List<ShowEvent>();
+        rig.Engine.EventRaised += e =>
+        {
+            lock (events)
+                events.Add(e);
+        };
+        return events;
+    }
+
+    [Fact]
+    public async Task CommitNextFollowsThePlaylistAndAGoThatComesFirstIsTheSwitch()
+    {
+        await using var rig = new ShowRig();
+        var start = rig.Now;
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Advance(6_000);
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        await rig.Ok("BLIND COMMIT NEXT pl_show");
+        Assert.Equal(start + 10_000_000_000, rig.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+
+        // Paused, nothing ends: the commit waits; played again, it follows the new switch.
+        await rig.Ok("VIDEO PAUSE ON pl_show");
+        Assert.Equal(long.MaxValue, rig.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+        rig.Advance(1_000);
+        await rig.Ok("VIDEO PLAY ON pl_show");
+        Assert.Equal(start + 11_000_000_000, rig.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+
+        // The operator GOs before the switch: the GO is the switch, and the draft lands with it, not at the old instant.
+        rig.Advance(1_000);
+        var go = rig.Now + 100_000_000;
+        await rig.Ok("PLAYLIST GO pl_show AT +100");
+        Assert.Equal(go, rig.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+        Assert.Equal("it_b", rig.Engine.Playback.Lane("pl_show")!.At(go).ItemId);
+        rig.Clock.NowNs = go;
+        await rig.Ticked();
+        Assert.Equal("#FF0000", Background(rig));
+    }
+
+    [Fact]
+    public async Task ADeskTakesItsDraftBackOnlyOnceTheOldConnectionIsGone()
+    {
+        await using var rig = new ShowRig();
+        var events = Events(rig);
+        var registry = (PlayMap.Net.Companion.IClientRegistry)rig.Engine;
+        registry.Hello(ShowRig.Desk, "tcp");
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        var again = Core.Wire.SessionInfo.Desk("d2");
+        Assert.Equal("Desk holds the blind draft on another connection that is still open — it commits or discards it there", await rig.Refused("BLIND ON", again));
+        // The old desk's edits still go to its draft.
+        await rig.Ok("SET op_1 name \"Left\"");
+        Assert.Equal("Output 1", rig.Engine.Store.Project.Outputs[0].Name);
+
+        registry.Gone(ShowRig.Desk.SessionId);
+        await rig.Ok("BLIND ON", again);
+        Assert.Contains(rig.Engine.Journal.Recent(10), r => r.Text.StartsWith("Desk took its blind draft back on a new connection", StringComparison.Ordinal));
+        lock (events)
+            Assert.Contains(events, e => e.Kind == "show.blind" && e.FieldsJson.Contains("\"takenFrom\":\"d1\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TheDraftIsItsSessionsByDoorAndId()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("BLIND ON");
+        // Another door numbers its sessions alike: the same id on the WebSocket is not the draft's owner.
+        var twin = new Core.Wire.SessionInfo(ShowRig.Desk.SessionId, "ws", "10.0.0.9", false, "Browser", true);
+        await rig.Ok("SET op_1 name \"Live\"", twin);
+        Assert.Equal("Live", rig.Engine.Store.Project.Outputs[0].Name);
+        Assert.Equal("the blind draft is Desk's — it commits or discards it (or the desk does)", await rig.Refused("BLIND DISCARD", twin));
+        // A door whose every request is a session of its own cannot hold a draft.
+        Assert.Equal("a blind draft needs a lasting connection — BLIND ON from the desk, the wire or a WebSocket", await rig.Refused("BLIND ON", ShowRig.Mcp));
+    }
+
+    [Fact]
+    public async Task ARemotesCommitScheduledInRehearsalWaitsForTheDeskOnceArmed()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("BLIND ON", ShowRig.Remote);
+        await rig.Ok("SET op_1 rotation 90", ShowRig.Remote);
+        await rig.Ok("BLIND COMMIT ON GO", ShowRig.Remote);
+        Assert.NotNull(rig.Engine.Snapshot.Pending);
+        await rig.Ok("SHOW ARM");
+        // Armed, the render is never handed a commit the lane will not land.
+        Assert.Null(rig.Engine.Snapshot.Pending);
+        await rig.Ok("PLAYLIST GO pl_show");
+        rig.Advance(10);
+        await rig.Ticked();
+        Assert.Equal(0, rig.Engine.Store.Project.Outputs[0].Rotation);
+        Assert.Contains(rig.Engine.Journal.Recent(10), r => r.Kind == "refused" && r.Text.Contains("an armed show lands only an operator's commit", StringComparison.Ordinal));
+        Assert.Equal(1, Blind(rig).GetProperty("changes").GetInt32());
+        Assert.Equal(JsonValueKind.Null, Blind(rig).GetProperty("commit").ValueKind);
+        // The desk lands it.
+        await rig.Ok("BLIND COMMIT");
+        rig.Advance(40);
+        await rig.Ticked();
+        Assert.Equal(90, rig.Engine.Store.Project.Outputs[0].Rotation);
+    }
+
+    [Fact]
+    public async Task AnOffLaneLineKeepsWhereItsGateSentIt()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("BLIND ON");
+        // A line of a class no draft takes (a projector link) goes live even from the draft's owner.
+        await rig.Ok("DEVICE ADD Left pjlink 10.0.0.31 OUTPUT op_1");
+        Assert.Single(rig.Engine.Store.Project.Stage.Devices);
+        Assert.Empty(rig.Engine.Snapshot.Draft!.Project.Stage.Devices);
+
+        // A line its gate sent to the draft, whose edit arrives after the draft ended, is refused — never written live.
+        rig.Engine.NoteOffLaneDecision(ShowRig.Desk, rig.Engine.BlindNow!.Store);
+        await rig.Ok("BLIND DISCARD");
+        var late = await rig.Engine.EditAsync(ShowRig.Desk, "a late draft edit", p => p with { Name = "Late" });
+        Assert.False(late.Changed);
+        Assert.Equal("the blind draft this line was for has ended — nothing changed", late.Effect);
+        Assert.Equal("Show test", rig.Engine.Store.Project.Name);
+    }
+
+    [Fact]
+    public async Task ALockThatWouldRefuseAWaitingCommitWaitsAndALandingDraftIsNotDiscarded()
+    {
+        await using var rig = new ShowRig();
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        await rig.Ok("BLIND COMMIT AT +500");
+        var refused = await rig.Refused("LOCK cv_main");
+        Assert.StartsWith("a blind commit lands cv_main at ", refused, StringComparison.Ordinal);
+        Assert.EndsWith("— LOCK it once the commit has landed, or BLIND DISCARD first", refused, StringComparison.Ordinal);
+        Assert.Equal("a blind draft is open (Desk, 1 change) — BLIND COMMIT or BLIND DISCARD before opening another show", await rig.Refused("PROJECT NEW"));
+        await rig.Ok("LOCK op_1");
+        Assert.NotNull(rig.Engine.Snapshot.Pending);
+
+        // Within a commit lead of its instant the draft is landing: DISCARD is refused, and it lands.
+        rig.Advance(480);
+        Assert.StartsWith("the draft is landing now", await rig.Refused("BLIND DISCARD"), StringComparison.Ordinal);
+        rig.Advance(20);
+        await rig.Ticked();
+        Assert.Equal("#FF0000", Background(rig));
+    }
+
+    [Fact]
+    public async Task TheDraftAndItsCommitRaiseTheirEventsAtTheirInstants()
+    {
+        await using var rig = new ShowRig();
+        var events = Events(rig);
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        await rig.Ok("BLIND COMMIT AT +200");
+        var at = rig.Engine.Snapshot.Pending!.EffectiveLeaderNs;
+        rig.Advance(200);
+        await rig.Ticked();
+        ShowEvent on, commit;
+        lock (events)
+        {
+            on = events.Single(e => e.Kind == "show.blind");
+            commit = events.Single(e => e.Kind == "show.commit");
+        }
+        Assert.Contains("\"on\":true", on.FieldsJson, StringComparison.Ordinal);
+        Assert.Contains("\"owner\":\"Desk\"", on.FieldsJson, StringComparison.Ordinal);
+        Assert.Equal(at, commit.AtLeaderNs);
+        Assert.Contains("\"changes\":1", commit.FieldsJson, StringComparison.Ordinal);
+        Assert.Contains("\"boundary\":\"at\"", commit.FieldsJson, StringComparison.Ordinal);
+    }
 }
