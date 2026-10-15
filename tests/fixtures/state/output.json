@@ -186,7 +186,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "8e7e7f3c410f0f81"
+    "index": "b34f005008c62349"
   },
   "faults": [],
   "ai": {
@@ -222,6 +222,37 @@
     },
     "preflight": null,
     "minGoMs": 0
+  },
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [],
+    "light": "green",
+    "headline": "1 machine \u00B7 0 outputs \u00B7 all green"
+  },
+  "eye": {
+    "headline": "1 machine \u00B7 0 outputs \u00B7 all green",
+    "worst": "",
+    "worstLight": "green",
+    "worstWords": "",
+    "counts": {
+      "green": 1,
+      "amber": 0,
+      "red": 0,
+      "grey": 0,
+      "things": 1,
+      "links": 0
+    },
+    "focus": "",
+    "lens": "all",
+    "problems": []
   },
   "decode": {
     "platform": {

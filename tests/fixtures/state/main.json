@@ -152,7 +152,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "4cf80d14ff078097"
+    "index": "87b1ec986bfcaa4c"
   },
   "faults": [],
   "ai": {
@@ -237,6 +237,37 @@
     },
     "preflight": null,
     "minGoMs": 0
+  },
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [],
+    "light": "grey",
+    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet"
+  },
+  "eye": {
+    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",
+    "worst": "",
+    "worstLight": "grey",
+    "worstWords": "",
+    "counts": {
+      "green": 0,
+      "amber": 0,
+      "red": 0,
+      "grey": 3,
+      "things": 3,
+      "links": 0
+    },
+    "focus": "",
+    "lens": "all",
+    "problems": []
   },
   "decode": {
     "platform": {
