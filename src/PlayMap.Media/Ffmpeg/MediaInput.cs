@@ -34,6 +34,20 @@ public sealed class MediaOpenException : Exception
     public MediaProblem Problem { get; }
 }
 
+/// <summary>A user-space library FFmpeg binds a hardware device to through stubs that abort the process when the library is
+/// missing or lacks a symbol, and the newest symbol this FFmpeg calls from it (present only from <paramref name="Needs"/>).</summary>
+public readonly record struct HardwareLibrary(string Library, string Export, string Needs);
+
+/// <summary>What a <see cref="HardwareLibrary"/> is on this machine.</summary>
+public enum LibraryFound
+{
+    Usable,
+    /// <summary>The library does not load.</summary>
+    Missing,
+    /// <summary>It loads but lacks the symbol: an older release than this FFmpeg calls into.</summary>
+    TooOld,
+}
+
 /// <summary>How a decoder is opened.</summary>
 public sealed record DecoderOptions
 {
@@ -48,9 +62,9 @@ public sealed record DecoderOptions
     /// <summary>Decoder threads; 0 lets FFmpeg pick by core count.</summary>
     public int Threads { get; init; }
 
-    /// <summary>Whether a native library loads, by file name; null asks the runtime (<see cref="HardwareLibraries"/>).
-    /// A test seam for a machine without a device's libraries.</summary>
-    internal Func<string, bool>? LibraryProbe { get; init; }
+    /// <summary>What a device's library is on this machine (<see cref="StreamDecoder.HardwareLibraries"/>); null asks the
+    /// runtime. A test seam for a machine without a device's libraries, or with ones too old.</summary>
+    internal Func<HardwareLibrary, LibraryFound>? LibraryProbe { get; init; }
 
     /// <summary>Live input: slice threads only and the low-delay flag, so a frame leaves the decoder as soon as
     /// its packet arrives (frame threads hold one frame per thread).</summary>
@@ -255,6 +269,9 @@ internal sealed unsafe class StreamDecoder : IDisposable
 
     public bool Hardware => _hwDevice is not null;
 
+    /// <summary>The hardware device's type by FFmpeg's name ("vaapi", "cuda"), or "" for software.</summary>
+    public string Device => _hwDevice is null ? "" : ffmpeg.av_hwdevice_get_type_name(((AVHWDeviceContext*)_hwDevice->data)->type);
+
     /// <summary>Why the decoder is not on a better path, in words ("vaapi skipped: libva-drm.so.2 is not on this
     /// machine; cuda: no device"); empty when the first device tried opened.</summary>
     public string Why { get; }
@@ -338,31 +355,49 @@ internal sealed unsafe class StreamDecoder : IDisposable
         }
     }
 
-    /// <summary>The user-space libraries FFmpeg binds to a device type through generated stubs that abort the whole
-    /// process when the library is missing (this FFmpeg build's VA-API, and QSV whose Linux child device is VA-API). The
-    /// types FFmpeg loads itself and fails with an error code (CUDA, Vulkan, OpenCL) need no entry.</summary>
-    public static IReadOnlyList<string> HardwareLibraries(AVHWDeviceType type) =>
+    /// <summary>The user-space libraries FFmpeg binds a device type to through generated stubs that abort the whole process
+    /// when a library is missing or a symbol it calls is not in it: this FFmpeg build's VA-API (reached through a DRM render
+    /// node only, see <see cref="TryHardwareCore"/>), and QSV, whose Linux child device is VA-API. vaMapBuffer2, called when a
+    /// frame is read back, is the newest libva symbol it calls. The types FFmpeg loads itself and fails with an error code
+    /// (CUDA, Vulkan, OpenCL) need no entry.</summary>
+    public static IReadOnlyList<HardwareLibrary> HardwareLibraries(AVHWDeviceType type) =>
         !OperatingSystem.IsLinux() ? []
-        : type is AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI or AVHWDeviceType.AV_HWDEVICE_TYPE_QSV ? ["libva.so.2", "libva-drm.so.2"]
-        : [];
+        : type is AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI or AVHWDeviceType.AV_HWDEVICE_TYPE_QSV
+            ? [new("libva.so.2", "vaMapBuffer2", "libva 2.21"), new("libva-drm.so.2", "vaGetDisplayDRM", "libva 2.0")]
+            : [];
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> Loadable = new(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<HardwareLibrary, LibraryFound> Found = new();
 
-    private static bool LibraryLoads(string name) =>
-        Loadable.GetOrAdd(name, static n => NativeLibrary.TryLoad(n, out _));
+    /// <summary>Loads the library to look for the symbol and lets it go again (FFmpeg's stub loads it itself when the device is
+    /// asked for); the answer does not change while the process runs.</summary>
+    private static LibraryFound Probe(HardwareLibrary library) =>
+        Found.GetOrAdd(library, static l =>
+        {
+            if (!NativeLibrary.TryLoad(l.Library, out var handle))
+                return LibraryFound.Missing;
+            var has = NativeLibrary.TryGetExport(handle, l.Export, out _);
+            NativeLibrary.Free(handle);
+            return has ? LibraryFound.Usable : LibraryFound.TooOld;
+        });
 
-    /// <summary>The first library the device type needs that does not load, or null.</summary>
-    private static string? MissingLibrary(AVHWDeviceType type, Func<string, bool>? probe)
+    /// <summary>Why the device type cannot be asked for on this machine, or null when every library it needs is usable.</summary>
+    private static string? Unusable(AVHWDeviceType type, Func<HardwareLibrary, LibraryFound>? probe)
     {
         foreach (var library in HardwareLibraries(type))
         {
-            if (!(probe ?? LibraryLoads)(library))
-                return library;
+            switch ((probe ?? Probe)(library))
+            {
+                case LibraryFound.Missing:
+                    return $"{library.Library} is not on this machine";
+                case LibraryFound.TooOld:
+                    return $"{library.Library} has no {library.Export} (this FFmpeg needs {library.Needs} or later)";
+            }
         }
         return null;
     }
 
-    private static string Words(string a, string b) => a.Length == 0 ? b : a + "; " + b;
+    /// <summary>The ladder's words with one more rung's.</summary>
+    internal static string Words(string a, string b) => a.Length == 0 ? b : a + "; " + b;
 
     private static (nint Device, AVPixelFormat Format, string Why) TryHardwareCore(AVCodec* codec, AVHWDeviceType type)
     {
@@ -375,7 +410,13 @@ internal sealed unsafe class StreamDecoder : IDisposable
             if (config->device_type != type || (config->methods & (int)AvCodecHwConfigMethod.AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) == 0)
                 continue;
             AVBufferRef* device = null;
-            var r = ffmpeg.av_hwdevice_ctx_create(&device, type, null, null, 0);
+            AVDictionary* options = null;
+            // VA-API through a DRM render node only: this build binds libX11 and libva-x11 through the same aborting stubs,
+            // and a show node's decoder has no business with a desktop's X connection.
+            if (type == AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI && OperatingSystem.IsLinux())
+                ffmpeg.av_dict_set(&options, "connection_type", "drm", 0);
+            var r = ffmpeg.av_hwdevice_ctx_create(&device, type, null, options, 0);
+            ffmpeg.av_dict_free(&options);
             if (r < 0)
                 return (0, AVPixelFormat.AV_PIX_FMT_NONE, $"{typeName}: no device ({FfmpegUtil.ErrorText(r)})");
             return ((nint)device, config->pix_fmt, "");
@@ -395,9 +436,9 @@ internal sealed unsafe class StreamDecoder : IDisposable
         foreach (var type in types)
         {
             var typeName = ffmpeg.av_hwdevice_get_type_name(type);
-            if (MissingLibrary(type, options.LibraryProbe) is { } missing)
+            if (Unusable(type, options.LibraryProbe) is { } unusable)
             {
-                why = Words(why, $"{typeName} skipped: {missing} is not on this machine");
+                why = Words(why, $"{typeName} skipped: {unusable}");
                 continue;
             }
             var (device, pixFormat, refused) = TryHardwareCore(codec, type);

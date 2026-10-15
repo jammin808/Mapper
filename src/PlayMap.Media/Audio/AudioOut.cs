@@ -184,11 +184,14 @@ public sealed unsafe class AudioOut : IDisposable
     public static AudioOut OpenDevice(string? deviceName = null) => OpenDevice(deviceName, OpenAlLibrary.Current);
 
     /// <summary><see cref="OpenDevice(string?)"/> given the process's OpenAL load (a failed load is the null output with
-    /// its words).</summary>
+    /// its words). Every output speaks through the process's one load, so a loaded state must be that one.</summary>
     internal static AudioOut OpenDevice(string? deviceName, OpenAlLibrary.State library)
     {
+        ArgumentNullException.ThrowIfNull(library);
         if (library.Handle == 0)
             return OpenNull(library.Words);
+        if (!ReferenceEquals(library, OpenAlLibrary.Current))
+            throw new ArgumentException("an output opens only through the process's OpenAL load", nameof(library));
         var device = OpenAlLibrary.Alc.OpenDevice(deviceName!);
         if (device is null)
             return OpenNull("no audio device" + (deviceName is null ? "" : " named " + deviceName));

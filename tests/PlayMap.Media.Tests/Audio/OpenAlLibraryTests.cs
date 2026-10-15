@@ -16,9 +16,9 @@ public class OpenAlLibraryTests
             return;
         // The mapping the loader made, as the kernel lists it: the file under the app's runtimes folder, not a system one.
         var mapped = File.ReadAllLines("/proc/self/maps")
-            .Select(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            .Where(f => f.Length >= 6 && Path.GetFileName(f[5]).StartsWith("libopenal.so", StringComparison.Ordinal))
-            .Select(f => f[5])
+            .Select(l => l.Split(' ', 6, StringSplitOptions.RemoveEmptyEntries))   // the path, the sixth field, may hold spaces
+            .Where(f => f.Length == 6 && Path.GetFileName(f[5].Trim()).StartsWith("libopenal.so", StringComparison.Ordinal))
+            .Select(f => f[5].Trim())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var file = Assert.Single(mapped);

@@ -552,7 +552,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
                 // profile or size): say what is really decoding.
                 _hardware = false;
                 _decoderName = FfmpegUtil.Text(_decoder.Context->codec->name);
-                _why = "the hardware device handed this stream back to software";
+                _why = StreamDecoder.Words(_decoder.Why, _decoder.Device + " handed this stream back to software");
             }
             var layout = _writer!.LayoutFor(src, out var plan);
             if (!layout.Equals(_reserved))

@@ -72,9 +72,10 @@ know GL). Only App references Avalonia.
   opening for a fade, its middle for a dip) and prepared ahead, and the renderer mixes the two pictures in linear
   light (`Transitions`). The window is a function of the two anchors, so every node mixes the same pictures at the
   same instant. A GO taken by hand cuts.
-- Audio is slaved to the timeline by resampling (±0.5 %). It plays through the OpenAL Soft that ships beside PlayMap,
-  found in the app's own native folders before the system's (`Media/Audio/OpenAlLibrary`); a node where no OpenAL loads
-  plays on the null output, whose status says why.
+- Audio is slaved to the timeline by resampling (±0.5 %). `Media/Audio/AudioOut` plays through the OpenAL Soft that ships
+  beside PlayMap, found in the app's own native folders before the system's (`OpenAlLibrary`); where no OpenAL loads, its
+  device output is the null one and `AudioOut.Status` says why (no engine part opens an audio output yet, so these words
+  reach no STATE).
 
 ## 5. Rendering
 

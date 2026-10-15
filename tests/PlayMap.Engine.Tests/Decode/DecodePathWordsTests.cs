@@ -12,11 +12,15 @@ namespace PlayMap.Engine.Tests.Decode;
 
 /// <summary>An H.264 clip on a node, on this machine as it is: the output shows the clip's frame for the leader's time, and
 /// STATE.decode.sources[] says the decoder's path and why it is not on a better one. On a machine without libva (CI, a bare
-/// Ubuntu; tools/without-libs.sh makes one) VA-API is skipped with those words instead of aborting the node.</summary>
+/// Ubuntu; tools/without-libs.sh makes one), or with one older than this FFmpeg calls into (Ubuntu 24.04's), VA-API is skipped
+/// with those words instead of aborting the node.</summary>
 [Collection("render host")]
 public sealed class DecodePathWordsTests
 {
-    [Fact]
+    /// <summary>The library and the newest symbol this FFmpeg calls from it, as the decoder's ladder checks them.</summary>
+    private static readonly (string Library, string Export)[] Vaapi = [("libva.so.2", "vaMapBuffer2"), ("libva-drm.so.2", "vaGetDisplayDRM")];
+
+    [FfmpegFact]
     public async Task AClipPlaysAndStateSaysWhyItsDecoderIsNotOnABetterPath()
     {
         var dir = Directory.CreateTempSubdirectory("playmap-decode-words-");
@@ -55,10 +59,25 @@ public sealed class DecodePathWordsTests
             var why = source.GetProperty("why").GetString()!;
             if (!OperatingSystem.IsLinux())
                 return;
-            var missing = new[] { "libva.so.2", "libva-drm.so.2" }.FirstOrDefault(l => !NativeLibrary.TryLoad(l, out _));
-            if (missing is not null)
+            string? unusable = null;
+            foreach (var (library, export) in Vaapi)
             {
-                Assert.StartsWith($"vaapi skipped: {missing} is not on this machine", why, StringComparison.Ordinal);
+                if (!NativeLibrary.TryLoad(library, out var handle))
+                {
+                    unusable = $"{library} is not on this machine";
+                    break;
+                }
+                var has = NativeLibrary.TryGetExport(handle, export, out _);
+                NativeLibrary.Free(handle);
+                if (!has)
+                {
+                    unusable = $"{library} has no {export}";
+                    break;
+                }
+            }
+            if (unusable is not null)
+            {
+                Assert.StartsWith("vaapi skipped: " + unusable, why, StringComparison.Ordinal);
                 // The next rung: CUDA either decodes (and says nothing) or says why not, and the clip is in software.
                 Assert.Equal(why.Contains("cuda", StringComparison.Ordinal) ? "software" : "hw-copy-back", path);
             }
