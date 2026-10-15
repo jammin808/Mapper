@@ -13,7 +13,7 @@ namespace PlayMap.Engine.Tests.Companion;
 /// web port serves THUMB's pictures with their ETag.</summary>
 public sealed class CompanionWireTests
 {
-    private sealed class Lines(ClientWebSocket socket) : IAsyncDisposable
+    internal sealed class Lines(ClientWebSocket socket) : IAsyncDisposable
     {
         private readonly byte[] _buffer = new byte[1 << 20];
 
@@ -91,29 +91,6 @@ public sealed class CompanionWireTests
     }
 
     [Fact]
-    public async Task OnAnArmedNodeWhoAmIListsWhatItMayRunAndARefusalReachesTheDeckWithWords()
-    {
-        await using var rig = await HostRig.StartAsync();
-        var list = await rig.OkAsync("PLAYLIST NEW Show");
-        await rig.OkAsync($"PLAYLIST ADD {list} color:#FF0000 Red");
-        await rig.OkAsync("SHOW ARM");
-
-        await using var ws = await Lines.ConnectAsync(rig.Network.HttpPort);
-        Assert.StartsWith("OK @h", await ws.AskAsync("h", "HELLO Companion:FOH deck"), StringComparison.Ordinal);
-        var me = JsonDocument.Parse((await ws.AskAsync("w", "WHOAMI"))["OK @w ".Length..]).RootElement;
-        Assert.True(me.GetProperty("armed").GetBoolean());
-        Assert.Equal(JsonValueKind.Array, me.GetProperty("may").ValueKind);
-        var may = me.GetProperty("may").EnumerateArray().Select(v => v.GetString()).ToList();
-        Assert.Contains("WHOAMI", may);
-        Assert.DoesNotContain("PLAYLIST NEW", may);
-
-        var refused = await ws.AskAsync("e", "PLAYLIST NEW Encore");
-        Assert.StartsWith("ERR @e ", refused, StringComparison.Ordinal);
-        Assert.True(refused.Length > "ERR @e ".Length + 10, refused);
-        Assert.Single(rig.State().GetProperty("playlists").EnumerateArray());
-    }
-
-    [Fact]
     public async Task TheWebPortServesAPictureWithItsEtag()
     {
         await using var rig = await HostRig.StartAsync();
@@ -133,5 +110,34 @@ public sealed class CompanionWireTests
         using var none = await http.GetAsync("/api/thumb?ref=media:md00000042");
         Assert.Equal(HttpStatusCode.NotFound, none.StatusCode);
         Assert.Contains("no media md00000042", await none.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+}
+
+/// <summary>Show Mode and a controller together (the merge gate's show × companion test): on an armed node WHOAMI gives the deck the
+/// verbs it may run, and a line the gate refuses reaches the deck over the WebSocket in the gate's own words, with nothing moved.</summary>
+public sealed class CompanionArmedTests
+{
+    [Fact]
+    public async Task OnAnArmedNodeWhoAmIListsWhatItMayRunAndARefusalReachesTheDeckWithWords()
+    {
+        await using var rig = await HostRig.StartAsync();
+        var list = await rig.OkAsync("PLAYLIST NEW Show");
+        await rig.OkAsync($"PLAYLIST ADD {list} color:#FF0000 Red");
+        await rig.OkAsync("SHOW ARM");
+
+        await using var ws = await CompanionWireTests.Lines.ConnectAsync(rig.Network.HttpPort);
+        Assert.StartsWith("OK @h", await ws.AskAsync("h", "HELLO Companion:FOH deck"), StringComparison.Ordinal);
+        var me = JsonDocument.Parse((await ws.AskAsync("w", "WHOAMI"))["OK @w ".Length..]).RootElement;
+        Assert.True(me.GetProperty("armed").GetBoolean());
+        Assert.Equal(JsonValueKind.Array, me.GetProperty("may").ValueKind);
+        var may = me.GetProperty("may").EnumerateArray().Select(v => v.GetString()).ToList();
+        Assert.Contains("WHOAMI", may);
+        Assert.DoesNotContain("PLAYLIST NEW", may);
+
+        // The gate's own words reach the deck, and nothing moved.
+        var refused = await ws.AskAsync("e", "PLAYLIST NEW Encore");
+        Assert.StartsWith("ERR @e Not while armed: PLAYLIST NEW ", refused, StringComparison.Ordinal);
+        Assert.Single(rig.State().GetProperty("playlists").EnumerateArray());
+        Assert.True(rig.State().GetProperty("show").GetProperty("armed").GetBoolean());
     }
 }
