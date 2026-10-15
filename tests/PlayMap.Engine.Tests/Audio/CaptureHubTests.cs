@@ -83,6 +83,21 @@ public sealed class CaptureHubTests
         Assert.Empty(hub.OpenDevices());
     }
 
+    /// <summary>A timecode reader that names its input as the show does ("" for the default, a device's name) opens the device the
+    /// name stands for here, and shares it with the analyser.</summary>
+    [Fact]
+    public void AShowsNameOpensTheInputItStandsFor()
+    {
+        var fake = new FakeAudioInputs();
+        using var hub = new AudioInputHub().Add("fake:", fake);
+        using var byDefault = hub.Open("@7", 48000, new Sink());
+        using var byName = hub.Open("Desk Mixer@1+2", 48000, new Sink());
+        Assert.Equal(1, fake.Opens);
+        Assert.Equal(2, hub.OpenDevices()["fake:desk"]);
+        using var empty = new AudioInputHub();
+        Assert.Contains("no default", Assert.Throws<AudioUnavailableException>(() => empty.Open("", 48000, new Sink())).Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DeviceNamesMatchAcrossSockets()
     {

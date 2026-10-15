@@ -5,8 +5,8 @@ namespace PlayMap.Core.Audio;
 /// <summary>The machine's sound inputs behind one door: each backend serves the keys that start with its prefix ("test:", "file:",
 /// "pulse:", "wasapi:" …), a device is opened once whoever listens, and its samples fan out to every listener with that listener's
 /// channel pick — the analyser on 1+2 and a timecode reader on 7 share one open. A key may carry its pick after an '@'
-/// ("pulse:default@7"); without one the listener gets every channel. Resolve turns the show's names ("default", "system", a
-/// device's name) into a key. The capture thread never blocks here: listeners are an array swapped whole.</summary>
+/// ("pulse:default@7"); without one the listener gets every channel. A show's name ("" or "default", "system", a device's name)
+/// opens the input it resolves to here. The capture thread never blocks here: listeners are an array swapped whole.</summary>
 public sealed class AudioInputHub : IAudioInputs, IDisposable
 {
     private readonly Lock _gate = new();
@@ -62,6 +62,15 @@ public sealed class AudioInputHub : IAudioInputs, IDisposable
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(sink);
         var (device, pick) = Split(key);
+        if (!Serves(device))
+        {
+            // A show's name ("", "default", "system", a device's name) opens the input it stands for here.
+            var named = Resolve(device.Length == 0 ? "default" : device)
+                ?? throw new AudioUnavailableException(device.Length == 0
+                    ? "this node has no default sound input"
+                    : $"no sound backend on this node serves '{device}', and no input here is named so");
+            device = named.Key;
+        }
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -80,6 +89,13 @@ public sealed class AudioInputHub : IAudioInputs, IDisposable
         }
     }
 
+    /// <summary>True when a backend serves keys like this one.</summary>
+    private bool Serves(string device)
+    {
+        lock (_gate)
+            return device.Length > 0 && _backends.Any(b => device.StartsWith(b.Prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>Device keys open now, with their listener counts.</summary>
     public IReadOnlyDictionary<string, int> OpenDevices()
     {
@@ -92,7 +108,7 @@ public sealed class AudioInputHub : IAudioInputs, IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
         var at = key.LastIndexOf('@');
-        if (at > 0 && ChannelPick.TryParse(key[(at + 1)..], out var pick, out _))
+        if (at >= 0 && ChannelPick.TryParse(key[(at + 1)..], out var pick, out _))
             return (key[..at], pick);
         return (key, ChannelPick.All);
     }
