@@ -57,6 +57,8 @@ public sealed class LedFramePool : ILedFrameSink
         LedFrame? f = null;
         lock (_gate)
         {
+            if (_closed)
+                return null;
             for (var i = 0; i < Size && f is null; i++)
             {
                 if (!_free[i])
@@ -91,6 +93,8 @@ public sealed class LedFramePool : ILedFrameSink
         ArgumentNullException.ThrowIfNull(frame);
         lock (_gate)
         {
+            if (_closed)
+                return;
             if (_count == Size)
             {
                 var oldest = _queue[_head]!;
@@ -102,8 +106,31 @@ public sealed class LedFramePool : ILedFrameSink
             }
             _queue[(_head + _count) % Size] = frame;
             _count++;
+            // Under the gate, so nothing is woken once Close has returned.
+            Submitted?.Invoke();
         }
-        Submitted?.Invoke();
+    }
+
+    private bool _closed;
+
+    /// <summary>The sender is gone: from now on renting answers null and submitting does nothing, quietly (a render thread still
+    /// drawing during shutdown neither throws nor wakes a disposed sender).</summary>
+    public void Close()
+    {
+        lock (_gate)
+        {
+            _closed = true;
+            Submitted = null;
+        }
+    }
+
+    public bool Closed
+    {
+        get
+        {
+            lock (_gate)
+                return _closed;
+        }
     }
 
     /// <summary>The oldest queued frame, or null; give it back with <see cref="Return"/>.</summary>
@@ -202,4 +229,10 @@ public interface ILedOutput : IAsyncDisposable
 
     /// <summary>The bytes last sent to a node's universe (DDP: the 512-byte block), and the leader instant of their frame.</summary>
     bool TryMonitor(string nodeId, int universe, Span<byte> slots, out long leaderNs);
+
+    /// <summary>A number that moves exactly when what STATE shows about the nodes moves (allocation-free; read on the engine's tick).</summary>
+    int Shown() => 0;
+
+    /// <summary>The machine master as the sender holds it (the last request included).</summary>
+    bool Master => true;
 }

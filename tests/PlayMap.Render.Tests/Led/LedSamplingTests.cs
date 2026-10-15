@@ -399,4 +399,52 @@ public sealed class LedSamplingTests(GlFixture gl)
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
         Assert.True(pass.Frames >= 330);
     });
+
+    /// <summary>Pictures that count how often a group's picture is asked for.</summary>
+    private sealed class Counting(ILedPictures inner) : ILedPictures
+    {
+        public int Asked;
+
+        public GpuTexture? Picture(LedGroup group)
+        {
+            Asked++;
+            return inner.Picture(group);
+        }
+    }
+
+    private sealed class RawOutput(string outputId) : IRawOutputs
+    {
+        public SourceRef? For(string id) => id == outputId ? SourceRef.Solid("#FFFFFF") : null;
+    }
+
+    [Fact]
+    public void BlackoutResolvesNoPictureAndARawOutputsFixturesAreDark() => gl.Run(ctx =>
+    {
+        var d = ctx.Device;
+        using var pics = new Pictures();
+        Fill(d, pics, 31);
+        var show = Rig(LedSampling.Point);
+        var plan = LedPlanBuilder.Build(show, 200, 1);
+        var counting = new Counting(pics);
+        var pool = new LedFramePool();
+        using var pass = new LedPass(d, counting) { Sink = pool };
+        pass.Offer(plan);
+        Run(ctx, pass, pool, show, 1_000_000_000);
+        Assert.True(counting.Asked > 0);
+        // Blackout on every fixture: nothing can light, so no picture is resolved; the frame sent is black with its constants.
+        counting.Asked = 0;
+        Assert.Equal(LedReference.Black(plan), Run(ctx, pass, pool, show, 1_100_000_000, blackout: true));
+        Assert.Equal(0, counting.Asked);
+        // An output on a raw frame (a scan or an align run): its fixture is dark, the rest of the rig plays.
+        pass.Raw = new RawOutput(Output);
+        var gpu = Run(ctx, pass, pool, show, 1_200_000_000);
+        var air = new float[plan.Fixtures.Length * 4];
+        LedAir.Fill(plan, LedLive.Initial, 1_200_000_000, false, id => id == Output ? 0f : 1f, 1f, air);
+        var cpu = LedReference.Patch(plan, LedReference.Sample(plan, pics.Reference), air, 1, LedTestKind.None, 0);
+        Assert.Equal(cpu, gpu);
+        var lf3 = plan.Fixture("lf00000003")!;
+        var row = plan.RowOf(Node, 0);
+        Assert.Contains(gpu, b => b != 0);
+        Assert.True(lf3.Pixels > 0 && row >= 0);
+    });
 }

@@ -158,6 +158,24 @@ public sealed class LedHostTests
     }
 
     [Fact]
+    public async Task WithOutputOffNothingIsSampled()
+    {
+        await using var rig = LedHostRig.Start(Show());
+        await LedVerbTests.Ok(rig.Engine, "LED OUTPUT ON");
+        await rig.Step();
+        var pass = rig.Engine.Led.Pass!;
+        Assert.True(pass.Frames > 0);
+        await LedVerbTests.Ok(rig.Engine, "LED OUTPUT OFF");
+        await rig.Step();
+        var frames = pass.Frames;
+        await rig.Step();
+        await rig.Step();
+        // The machine sends nothing, so the frame resolves and samples nothing for LEDs.
+        Assert.Equal(frames, pass.Frames);
+        Assert.Equal("off", LedVerbTests.Led(rig.Engine).GetProperty("nodes")[0].GetProperty("state").GetString());
+    }
+
+    [Fact]
     public async Task TwoEnginesAtTheSameLeaderInstantsSendTheSamePayloads()
     {
         await using var a = LedHostRig.Start(Show());

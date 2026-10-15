@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
@@ -634,43 +635,82 @@ public sealed class LedSender : ILedOutput
             runs.TryGetValue(p.Id, out var run);
             seen.TryGetValue(p.Host, out var heard);
             var (fps, late) = run is null ? (0, 0) : Rates(run, now);
-            string state, why;
-            if (!master)
-                (state, why) = ("off", "this machine does not send LED data — LED OUTPUT ON");
-            else if (program.Refused.Length > 0)
-                (state, why) = ("refused", program.Refused);
-            else if (p.Universes.IsEmpty)
-                (state, why) = ("idle", p.Why.Length > 0 ? p.Why : "nothing is patched to it");
-            else if (run is { Stopped: true })
-                (state, why) = ("off", "stopped — LED OUTPUT ON " + p.Id);
-            else if (p.Target is null && !p.Multicast)
-                (state, why) = ("unreachable", p.Why);
-            else if (run is not null && run.FailedAt > now - 2_000_000_000)
-                (state, why) = ("unreachable", run.FailWords);
-            else if (heard is not null && now - heard.SeenMonoNs > _options.SilentNs)
-                (state, why) = ("unreachable", $"silent to ArtPoll for {(now - heard.SeenMonoNs) / 1_000_000_000} s after it had answered");
-            else if (run is null || run.Frames == 0)
-                (state, why) = ("idle", "no frame has been sent to it yet");
-            else if (late > 1000.0 / 60)
-                (state, why) = ("late", $"frames leave {late:0.0} ms after their instant");
-            else
-                (state, why) = ("sending", "");
+            var state = StateOf(p, run, heard, master, program, now, late);
+            var why = state switch
+            {
+                "off" when !master => "this machine does not send LED data — LED OUTPUT ON",
+                "off" => "stopped — LED OUTPUT ON " + p.Id,
+                "refused" => program.Refused,
+                "idle" when p.Universes.IsEmpty => p.Why.Length > 0 ? p.Why : "nothing is patched to it",
+                "idle" => "no frame has been sent to it yet",
+                "unreachable" when p.Target is null && !p.Multicast => p.Why,
+                "unreachable" when run is not null && run.FailedAt > now - 2_000_000_000 => run.FailWords,
+                "unreachable" => $"silent to ArtPoll for {(now - heard!.SeenMonoNs) / 1_000_000_000} s after it had answered",
+                "late" => string.Create(CultureInfo.InvariantCulture, $"frames leave {late:0.0} ms after their instant"),
+                _ => "",
+            };
             nodes.Add(new LedNodeView(p.Id, state, fps, p.Universes.Length, late, run?.LastLeader ?? 0, heard, why, run?.Frames ?? 0, run?.Packets ?? 0));
         }
         return new LedOutputView(master, nodes.ToImmutable(), _pool.Dropped + _pool.Skipped, Stale);
     }
 
-    /// <summary>Frames a second over the last two seconds, and the 95th percentile of their lateness, ms.</summary>
+    /// <summary>A node's state word, from what the sender observed.</summary>
+    private string StateOf(LedNodeProgram p, NodeRun? run, LedNodeSeen? heard, bool master, LedSendProgram program, long now, double late)
+    {
+        if (!master)
+            return "off";
+        if (program.Refused.Length > 0)
+            return "refused";
+        if (p.Universes.IsEmpty)
+            return "idle";
+        if (run is { Stopped: true })
+            return "off";
+        if ((p.Target is null && !p.Multicast) || (run is not null && run.FailedAt > now - 2_000_000_000)
+            || (heard is not null && now - heard.SeenMonoNs > _options.SilentNs))
+            return "unreachable";
+        if (run is null || run.Frames == 0)
+            return "idle";
+        return late > 1000.0 / 60 ? "late" : "sending";
+    }
+
+    /// <summary>A number that moves exactly when something STATE shows about the nodes moves (each node's state word, frames a
+    /// second, lateness, how long ago it answered, to STATE's precision); allocation-free, for the engine's tick.</summary>
+    public int Shown()
+    {
+        var now = _options.Clock.NowNs;
+        var hash = new HashCode();
+        lock (_gate)
+        {
+            var master = _masterChange ?? _master;
+            var program = _incoming ?? _program;
+            hash.Add(master);
+            foreach (var p in program.Nodes)
+            {
+                _nodes.TryGetValue(p.Id, out var run);
+                _seen.TryGetValue(p.Host, out var heard);
+                var (fps, late) = run is null ? (0, 0) : Rates(run, now);
+                hash.Add(StateOf(p, run, heard, master, program, now, late));
+                hash.Add(Math.Round(fps, 2));
+                hash.Add(Math.Round(late, 3));
+                hash.Add(heard is null ? -1 : (now - heard.SeenMonoNs) / 100_000_000);
+            }
+        }
+        return hash.ToHashCode();
+    }
+
+    /// <summary>Frames a second over the last two seconds, and the 95th percentile of their lateness, ms (allocation-free).</summary>
     private static (double Fps, double LateP95) Rates(NodeRun run, long now)
     {
-        var late = new List<double>();
+        Span<double> late = stackalloc double[Ring];
+        var n = 0;
         for (var i = 0; i < Ring; i++)
             if (run.SentAt[i] != 0 && run.SentAt[i] > now - 2_000_000_000)
-                late.Add(run.LateMs[i]);
-        if (late.Count == 0)
+                late[n++] = run.LateMs[i];
+        if (n == 0)
             return (0, 0);
-        late.Sort();
-        return (late.Count / 2.0, late[(int)Math.Ceiling(late.Count * 0.95) - 1]);
+        var used = late[..n];
+        used.Sort();
+        return (n / 2.0, used[(int)Math.Ceiling(n * 0.95) - 1]);
     }
 
     public bool TryMonitor(string nodeId, int universe, Span<byte> slots, out long leaderNs)
@@ -696,8 +736,12 @@ public sealed class LedSender : ILedOutput
             return _seen.TryGetValue(host, out var s) ? s : null;
     }
 
+    /// <summary>A node that stops leaves its rig dark, as LED OUTPUT OFF does: every node still sending gets one black frame (and
+    /// sACN three terminations) before the sockets close. The sink refuses from the first moment, so a render thread still drawing
+    /// neither throws nor wakes a disposed sender.</summary>
     public async ValueTask DisposeAsync()
     {
+        _pool.Close();
         Thread? thread;
         lock (_gate)
         {
@@ -707,6 +751,13 @@ public sealed class LedSender : ILedOutput
         _wake.Set();
         if (thread is not null)
             await Task.Run(() => thread.Join(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+        if (_master && _program.Refused.Length == 0)
+        {
+            var now = _options.Clock.NowNs;
+            foreach (var run in _nodes.Values)
+                if (!run.Stopped)
+                    Stop(run, true, now);
+        }
         if (_listening && _options.ArtNet is { } art)
             art.Received -= OnArtNet;
         _socket.Dispose();

@@ -57,6 +57,20 @@ back, then the latch — ArtSync to the node, the sACN synchronization packet wh
 device's last packet. A universe not sent for 900 ms is sent again with its last payload. Art-Net nodes are polled (directed) every
 3 s while output runs; their ArtPollReply fills `seen`. WLED devices get 8-bit DDP only.
 
+## When the air is not the show
+
+| Moment | What the LEDs do | Why |
+|---|---|---|
+| Blackout | One black frame each frame (colour and dimmer slots 0, constants kept); no picture is resolved or sampled while every fixture follows blackout | Blackout wins before any pass; a node set not to follow blackout keeps sampling |
+| Freeze, or a panic FREEZE on any output | The colours hold | As the outputs hold |
+| A panic SAFE look on any output | Fixtures that follow no single output go dark; an output's own fixtures sample its final picture (the safe look) | The rig has no safe look of its own: dark is the safe choice |
+| A scan or an align run (an output on a raw frame) | That output's fixtures go **dark**, and its picture is not sampled; the rest of the rig plays | The output shows a measurement pattern, not the show; holding would leave a stale look up for the run's length, and LED light near the surface would spoil the camera's capture |
+| `LED OUTPUT OFF` (machine or node) | One black frame, latched, then silence; sACN adds three terminations; `HOLD` skips both. No sampling while this machine sends nothing | The air rules |
+| The node stops (shutdown) | The same as `LED OUTPUT OFF`: every node still sending gets one black frame and, on sACN, three terminations, before the sockets close | A stopped node must not leave the rig holding its last look; Art-Net nodes hold DMX indefinitely |
+
+Values STATE shows that move on their own (a node's state words, frames a second, lateness, how long ago it answered, the
+locate's time left) are written afresh on STATE's next read when they move, with nothing playing, without moving its revision.
+
 ## Import
 
 `LED IMPORT <path> AS CSV` reads a pixel list in MADRIX/Capture-style columns (Fixture or Display Name, Pixel or Index, X, Y, Z,
