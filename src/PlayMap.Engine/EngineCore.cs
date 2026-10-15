@@ -220,11 +220,15 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     internal void BeginStop() => Interlocked.Exchange(ref _stopping, 1);
 
     /// <summary>A line that arrived once the node began to stop: refused with the words, and journalled as any refusal of its verb is
-    /// (when <paramref name="journal"/>: a binding's gesture is journalled by its owner, once).</summary>
+    /// (when <paramref name="journal"/>: a binding's gesture is journalled by its owner, once) — an operations line with every
+    /// secret the node holds masked, as <see cref="RunOpsAsync"/> keeps it.</summary>
     private CommandReply RefusedStopping(WireLine line, SessionInfo session, bool journal)
     {
-        if (journal && IsJournalled(line))
-            Journal.Add("refused", StoppingWords, session.ClientName, VerbCatalog.Redacted(line), false);
+        if (journal && VerbCatalog.Match(line) is { } m && IsJournalled(m.Spec))
+        {
+            var shown = IsOpsVerb(m.Spec) && !_routes.TryOffLane(m.Spec.Name, out _) ? OpsShown(m.Spec, line) : VerbCatalog.Redacted(line);
+            Journal.Add("refused", StoppingWords, session.ClientName, shown, false);
+        }
         return CommandReply.Fail(StoppingWords);
     }
 

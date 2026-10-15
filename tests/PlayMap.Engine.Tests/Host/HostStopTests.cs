@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using PlayMap.Assistant;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
+using PlayMap.Devices.Tests.Simulators;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Control;
+using PlayMap.Engine.Devices;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Align;
 using PlayMap.Engine.Tests.Control;
@@ -15,7 +18,8 @@ namespace PlayMap.Engine.Tests.Host;
 /// <summary>A node whose host has begun to stop takes no more lines, from any source. In the window where a line source outlives the
 /// part its line would start — align's runner already gone, control's OSC socket and bindings still live — a /playmap line over OSC,
 /// a bound OSC button and a line handed to the engine are each refused with the stopping words, journalled, and start no ALIGN RUN;
-/// the host's own last work still happens: the recovery record holds the show and the journal is flushed.</summary>
+/// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A refusal keeps every
+/// secret the node holds out of the journal.</summary>
 public sealed class HostStopTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";
@@ -162,5 +166,46 @@ public sealed class HostStopTests
         Assert.Equal(path, record.ProjectPath);
         Assert.Contains(group, record.UnsavedProjectJson, StringComparison.Ordinal);
         Assert.Contains(binding, record.UnsavedProjectJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALineRefusedAsTheNodeStopsKeepsEverySecretTheNodeHoldsOutOfTheJournal()
+    {
+        const string ApiKey = "sk-ant-api03-ZYXWVUTSRQPONMLKJIHGFEDCBA0123456789";
+        const string ProjectorSecret = "pj-secret-Hx7Q2";
+        await using var projector = new PjLinkSimulator(ProjectorSecret);
+        var rig = new OpsRig();
+        try
+        {
+            var id = await rig.Ok($"DEVICE ADD Box pjlink 127.0.0.1:{projector.Port}");
+            await rig.Ok($"CREDENTIAL SET {id} {ProjectorSecret}");
+            await rig.Ok($"CREDENTIAL SET {NodeCredentialStore.AssistantKey} {ApiKey}");
+
+            // Operations lines, each carrying a secret the node holds, arrive once the node has begun to stop.
+            rig.Engine.BeginStop();
+            var asked = await rig.Run($"ASK \"is {ApiKey} still the key\"");
+            var raw = await rig.Run($"DEVICE RAW {id} \"%1PASS {ProjectorSecret}\"");
+            Assert.Equal((false, EngineCore.StoppingWords), (asked.Ok, asked.Payload));
+            Assert.Equal((false, EngineCore.StoppingWords), (raw.Ok, raw.Payload));
+
+            // Each is journalled as its verb's refusal, with the secret masked as the operations path masks it.
+            var rows = rig.Engine.Journal.Recent(50).Where(r => r.Kind == "refused" && r.Text == EngineCore.StoppingWords).ToList();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(rows, r => r.Line!.StartsWith("ASK ", StringComparison.Ordinal) && r.Line.Contains(SecretRedactor.Mask, StringComparison.Ordinal));
+            Assert.Contains(rows, r => r.Line!.StartsWith($"DEVICE RAW {id} ", StringComparison.Ordinal) && r.Line.Contains(SecretRedactor.Mask, StringComparison.Ordinal));
+            var journal = string.Join("\n", rig.Engine.Journal.Recent(500).Select(r => $"{r.Text} {r.Line} {r.Who}"));
+            await rig.DisposeAsync();
+            var file = rig.JournalText();
+            foreach (var secret in new[] { ApiKey, ProjectorSecret })
+            {
+                Assert.DoesNotContain(secret, journal, StringComparison.Ordinal);
+                Assert.DoesNotContain(secret, file, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
     }
 }
