@@ -17,8 +17,9 @@ public static class PreflightRunner
     /// <summary>How often the runner looks at the clock while checks run (the budget itself is on the monotonic clock).</summary>
     public static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(10);
 
+    /// <param name="finished">Hears each check once its row is taken (done, faulted or cut), so nothing later can cut it.</param>
     public static async Task<(IReadOnlyList<PreflightRow> Rows, bool Complete)> RunAsync(IReadOnlyList<IPreflightCheck> checks,
-        PreflightContext context, Core.Time.IMonoClock mono, string node, CancellationToken ct)
+        PreflightContext context, Core.Time.IMonoClock mono, string node, CancellationToken ct, Action<IPreflightCheck>? finished = null)
     {
         ArgumentNullException.ThrowIfNull(checks);
         ArgumentNullException.ThrowIfNull(context);
@@ -67,7 +68,9 @@ public static class PreflightRunner
                     else
                     {
                         open++;
+                        continue;
                     }
+                    finished?.Invoke(check);
                 }
                 if (open == 0)
                     break;

@@ -29,6 +29,9 @@ public sealed partial class EngineCore
     /// <summary>Completes with each report as it is published (tests and automations wait on it).</summary>
     public event Action<PreflightReport>? PreflightDone;
 
+    /// <summary>Each check of a running preflight once the runner has taken its row: from then on no clock can cut it.</summary>
+    internal event Action<IPreflightCheck>? PreflightCheckFinished;
+
     private void StartPreflight() =>
         _builtInChecks = [new OutputsCheck(), new MediaCheck(), new DevicesCheck(), new DiskCheck(), new SafetyCheck()];
 
@@ -73,8 +76,8 @@ public sealed partial class EngineCore
         try
         {
             var context = new PreflightContext(this, PreflightDepth.Quick, _showMode.Armed);
-            var (rows, complete) = await PreflightRunner.RunAsync(PreflightChecks, context, Services.Mono, Services.Settings.Name, CancellationToken.None)
-                .ConfigureAwait(false);
+            var (rows, complete) = await PreflightRunner.RunAsync(PreflightChecks, context, Services.Mono, Services.Settings.Name, CancellationToken.None,
+                c => PreflightCheckFinished?.Invoke(c)).ConfigureAwait(false);
             report = new PreflightReport(id, Services.Wall.UnixMs, PreflightDepth.Quick, (Services.Mono.NowNs - start) / 1_000_000, rows,
                 PreflightReports.Ready(rows), complete);
         }

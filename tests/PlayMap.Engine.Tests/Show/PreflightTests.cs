@@ -198,6 +198,16 @@ public sealed class PreflightTests
                 lock (events)
                     events.Add(e);
             };
+            // Moving the clock an hour cuts every check still running: only the hanging one may be, so the jump waits for the rest.
+            var others = rig.Engine.PreflightChecks.Count(c => !ReferenceEquals(c, hanging) && c.MinDepth <= PreflightDepth.Quick);
+            var othersDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finishedOthers = 0;
+            rig.Engine.PreflightCheckFinished += c =>
+            {
+                if (!ReferenceEquals(c, hanging) && Interlocked.Increment(ref finishedOthers) == others)
+                    othersDone.TrySetResult();
+            };
+            Assert.True(others > 0);
             var reply = await rig.Run("PREFLIGHT");
             Assert.True(reply.Ok, reply.Payload);
             Assert.False(reply.Applied);
@@ -210,6 +220,7 @@ public sealed class PreflightTests
             // The budget is an hour of the node's monotonic clock: only moving that clock ends the hanging check, so a runner that
             // timed it on real time would still be waiting when this test gives up.
             await hanging.Started.WaitAsync(TimeSpan.FromSeconds(30));
+            await othersDone.Task.WaitAsync(TimeSpan.FromSeconds(30));
             rig.Advance(3_600_000);
             Assert.True(await ShowRig.Eventually(() => !rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean()));
 
