@@ -52,6 +52,7 @@ internal sealed class StageRenderer : IDisposable
     private int _lineCount;
     private int _chainWidth;
     private int _chainHeight;
+    private readonly Dictionary<string, (Intrinsics From, Intrinsics Scaled)> _optics = new(StringComparer.Ordinal);
 
     /// <summary>What a chained surface's content is made with: the same on every projector, so every one shows one picture.</summary>
     private static readonly GeneratorContext ChainContext = new("Stage", 0, "#3EC1F3", false);
@@ -133,9 +134,7 @@ internal sealed class StageRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(projector);
-        var k = projector.Intrinsics.Width == target.Width && projector.Intrinsics.Height == target.Height
-            ? projector.Intrinsics
-            : projector.Intrinsics.Scaled(target.Width, target.Height);
+        var k = OpticsAt(projector, target.Width, target.Height);
         var haveBounds = WorldBounds(project, resources, out var min, out var max);
         var (near, far) = Planes(projector.Pose, haveBounds, min, max);
         var viewProj = ViewProjection(k, projector.Pose, near, far);
@@ -145,6 +144,20 @@ internal sealed class StageRenderer : IDisposable
         DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null,
             projector.Id);
         target.Color.Version++;
+    }
+
+    /// <summary>A projector's optics at a raster: its own when the sizes agree, else scaled — made once per projector, optics and
+    /// raster and kept, so a projector drawn at another raster than its lens's allocates nothing frame after frame.</summary>
+    private Intrinsics OpticsAt(Projector projector, int width, int height)
+    {
+        var k = projector.Intrinsics;
+        if (k.Width == width && k.Height == height)
+            return k;
+        if (_optics.TryGetValue(projector.Id, out var kept) && ReferenceEquals(kept.From, k) && kept.Scaled.Width == width && kept.Scaled.Height == height)
+            return kept.Scaled;
+        var scaled = k.Scaled(width, height);
+        _optics[projector.Id] = (k, scaled);
+        return scaled;
     }
 
     /// <summary>The editor's view: the floor, the surfaces (their content or their colour), the selection
