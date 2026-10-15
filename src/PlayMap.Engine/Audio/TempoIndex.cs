@@ -4,8 +4,9 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Audio;
 
-/// <summary>INDEX section "tempo": one row, the beat clock (its tempo as the label, its source as the state), and a deck's keys for
-/// it — TAP, RESYNC (the bar), HALF, DOUBLE, and the BPM on an encoder (a turn is ±1 BPM, scheduled like any change).</summary>
+/// <summary>INDEX section "tempo": one row, the beat clock (its tempo as the label, its source as the state, lit as the context lights
+/// it), and a deck's keys for it — TAP, RESYNC (the bar), HALF, DOUBLE, and the BPM on an encoder (a turn is ±1 BPM, scheduled like
+/// any change). Each key's press is the catalogue's for its verb (these are low-risk Perform rows: instant).</summary>
 internal sealed class TempoIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "tempo";
@@ -16,8 +17,8 @@ internal sealed class TempoIndex(EngineCore engine) : IIndexContributor
         new IndexKey("Resync", "TEMPO RESYNC BAR", "audio.beat", "instant"),
         new IndexKey("Half", "TEMPO HALF", "audio.tempo.bpm", "instant"),
         new IndexKey("Double", "TEMPO DOUBLE", "audio.tempo.bpm", "instant"),
-        new IndexKey("BPM +", "TEMPO SET +1", "audio.tempo.bpm", "hold"),
-        new IndexKey("BPM −", "TEMPO SET -1", "audio.tempo.bpm", "hold"),
+        new IndexKey("BPM +", "TEMPO SET +1", "audio.tempo.bpm", "instant"),
+        new IndexKey("BPM −", "TEMPO SET -1", "audio.tempo.bpm", "instant"),
     ]);
 
     public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
@@ -31,7 +32,7 @@ internal sealed class TempoIndex(EngineCore engine) : IIndexContributor
         w.WriteString("kind", "tempo");
         w.WriteString("label", clock.Bpm.ToString("0.#", CultureInfo.InvariantCulture) + " BPM");
         w.WriteString("parent", "");
-        w.WriteString("light", "green");
+        w.WriteString("light", engine.TempoLightNow);
         w.WriteString("state", project.Tempo.Source);
         w.WriteEndObject();
         w.WriteEndArray();

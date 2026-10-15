@@ -274,29 +274,48 @@ public sealed class AudioFixtureTests
         var section = Assert.Single(rig.Engine.Routes.IndexSections, s => s.Section == "tempo");
         Assert.Equal("tempo", section.Hint.RowKind);
         foreach (var key in section.Hint.Keys)
+        {
             Assert.True(WireGrammar.TryParse(key.DownLine, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && rig.Engine.IsAvailable(m.Spec), key.DownLine);
+            // A key presses as the catalogue says its verb is pressed (a controller holds only what the catalogue holds).
+            Assert.Equal(VerbParams.Press(VerbCatalog.Match(parsed)!.Value.Spec), key.Press);
+        }
         Assert.Contains(section.Hint.Keys, k => k.DownLine == "TEMPO TAP");
         Assert.Contains(section.Hint.Keys, k => k.DownLine == "TEMPO RESYNC BAR");
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms))
-            section.WriteRows(rig.Engine.Store.Project, rig.Engine.Snapshot, w);
-        using var doc = JsonDocument.Parse(ms.ToArray());
-        var row = Assert.Single(doc.RootElement.EnumerateArray());
+        JsonElement Row()
+        {
+            using var ms = new MemoryStream();
+            using (var w = new Utf8JsonWriter(ms))
+                section.WriteRows(rig.Engine.Store.Project, rig.Engine.Snapshot, w);
+            using var doc = JsonDocument.Parse(ms.ToArray());
+            return Assert.Single(doc.RootElement.EnumerateArray()).Clone();
+        }
+        string ContextLight(string id)
+        {
+            using var ctx = JsonDocument.Parse(rig.Engine.Context());
+            return ctx.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == id)
+                .GetProperty("light").GetString()!;
+        }
+        var row = Row();
         Assert.Equal(["id", "kind", "label", "parent", "light", "state"], row.EnumerateObject().Select(p => p.Name));
         Assert.Equal("120 BPM", row.GetProperty("label").GetString());
+        // The row is lit as the context lights the clock: grey until something uses it.
+        Assert.Equal("grey", row.GetProperty("light").GetString());
+        Assert.Equal("grey", ContextLight("tempo"));
         // BPM on an encoder: a turn moves it by one.
         await rig.Ok("TEMPO SET +1");
         Assert.Equal(121, rig.Engine.Store.Project.Tempo.Bpm);
         await rig.Ok("TEMPO SET -1");
         Assert.Equal(120, rig.Engine.Store.Project.Tempo.Bpm);
 
-        using var ctx = JsonDocument.Parse(rig.Engine.Context());
-        var items = ctx.RootElement.GetProperty("items").EnumerateArray().ToDictionary(i => i.GetProperty("id").GetString()!);
-        Assert.Equal("grey", items["audio"].GetProperty("light").GetString());
-        Assert.Equal("green", items["tempo"].GetProperty("light").GetString());
+        Assert.Equal("grey", ContextLight("audio"));
+        Assert.Equal("green", ContextLight("tempo"));
+        Assert.Equal("green", Row().GetProperty("light").GetString());
         await rig.Ok("MOD BIND ly_base opacity audio:bass");
-        using var red = JsonDocument.Parse(rig.Engine.Context());
-        var audio = red.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "audio");
-        Assert.Equal("red", audio.GetProperty("light").GetString());
+        Assert.Equal("red", ContextLight("audio"));
+        // Detection searching for a beat is amber on both.
+        await rig.Ok("TEMPO SOURCE DETECT");
+        Assert.Equal("amber", ContextLight("tempo"));
+        Assert.Equal("amber", Row().GetProperty("light").GetString());
+        Assert.Equal("detect", Row().GetProperty("state").GetString());
     }
 }

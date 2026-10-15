@@ -288,14 +288,20 @@ public sealed partial class EngineCore
         items.Add(new ContextItem("audio", "audio", "Audio", light, words));
         var tempo = rt.Tempo;
         var tempoWords = Inv($"{tempo.Bpm:0.#} BPM · {tempo.BeatsPerBar} beats a bar · {Store.Project.Tempo.Source}");
-        var tempoLight = TempoLockNow switch
-        {
-            "searching" or "holding" => Light.Amber,
-            "lost" => Light.Red,
-            _ => _tempoInUse ? Light.Green : Light.Grey,
-        };
-        items.Add(new ContextItem("tempo", "tempo", "Tempo", tempoLight, tempoWords + (TempoLockNow is "manual" or "locked" ? "" : " · " + TempoLockNow)));
+        items.Add(new ContextItem("tempo", "tempo", "Tempo", TempoLight, tempoWords + (TempoLockNow is "manual" or "locked" ? "" : " · " + TempoLockNow)));
     }
+
+    /// <summary>The beat clock's light, as the context and INDEX show it: amber searching or holding, red lost, green in use, grey
+    /// before anything uses it.</summary>
+    private Light TempoLight => TempoLockNow switch
+    {
+        "searching" or "holding" => Light.Amber,
+        "lost" => Light.Red,
+        _ => _tempoInUse ? Light.Green : Light.Grey,
+    };
+
+    /// <summary><see cref="TempoLight"/> as INDEX writes a light.</summary>
+    internal string TempoLightNow => TempoLight.ToString().ToLowerInvariant();
 
     partial void ValidateAudio(Project p, object entity, ref string? why)
     {

@@ -69,13 +69,15 @@ manual".
 
 ## INDEX
 
-Section `tempo` (row kind `tempo`): one row `{id:"tempo", label:"128 BPM", state:<source>}`; keys **Tap** (`TEMPO TAP`), **Resync**
-(`TEMPO RESYNC BAR`), **Half**, **Double**, **BPM +** / **BPM −** (`TEMPO SET +1` / `-1`, hold: an encoder).
+Section `tempo` (row kind `tempo`): one row `{id:"tempo", label:"128 BPM", light:<the context's tempo light>, state:<source>}`;
+keys **Tap** (`TEMPO TAP`), **Resync** (`TEMPO RESYNC BAR`), **Half**, **Double**, **BPM +** / **BPM −** (`TEMPO SET +1` / `-1`,
+an encoder's turn). Every key presses as the catalogue presses its verb: instant.
 
 ## Preflight
 
 Section `audio`: one row — green "not needed" when no binding reads the sound; green "listening"; amber "silent" (more than 10 s)
-or "opening"; red "missing" (the device's words) or "off", both with the fix `AUDIO LISTEN DEFAULT`.
+or "opening" (an input that stops delivering without a fault counts as silent from a second after its last sound); red "missing"
+(the device's words) or "off", both with the fix `AUDIO LISTEN DEFAULT`.
 
 ## Papers note
 
