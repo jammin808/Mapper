@@ -285,11 +285,11 @@ public sealed partial class EngineCore
             return FromEdit(Edits.Apply($"remove control surface {s.Name}", pp => pp with { Control = pp.Control with { Surfaces = pp.Control.Surfaces.RemoveId(s.Id) } }));
         }
         if (args.Count < 3 || !args[0].Equals("ADD", StringComparison.OrdinalIgnoreCase))
-            return CommandReply.Fail("CONTROL SURFACE ADD <name> MIDI|OSC|ARTNET [<match>] [PROFILE <id>] | CONTROL SURFACE REMOVE <surface>");
+            return CommandReply.Fail("CONTROL SURFACE ADD <name> MIDI|OSC|ARTNET|SACN [<match>] [PROFILE <id>] | CONTROL SURFACE REMOVE <surface>");
         var name = args[1];
         var kind = args[2].ToLowerInvariant();
-        if (kind is not ("midi" or "osc" or "artnet"))
-            return CommandReply.Fail(kind == "sacn" ? "sACN input is not in this build — ARTNET, MIDI or OSC" : "a surface is MIDI, OSC or ARTNET");
+        if (kind is not ("midi" or "osc" or "artnet" or "sacn"))
+            return CommandReply.Fail("a surface is MIDI, OSC, ARTNET or SACN");
         var rest = args.Skip(3).ToList();
         var profile = "";
         var at = rest.FindIndex(w => w.Equals("PROFILE", StringComparison.OrdinalIgnoreCase));
@@ -372,22 +372,29 @@ public sealed partial class EngineCore
 
     private CommandReply ControlDmx(List<string> args)
     {
-        if (args.Count is < 2 or > 3 || !args[0].Equals("ARTNET", StringComparison.OrdinalIgnoreCase) || !TryOnOff(args[1], out var on))
-            return CommandReply.Fail(args.Count > 0 && args[0].Equals("SACN", StringComparison.OrdinalIgnoreCase)
-                ? "sACN input is not in this build — CONTROL DMX ARTNET ON|OFF [<interface address>]"
-                : "CONTROL DMX ARTNET ON|OFF [<interface address>]");
+        const string Syntax = "CONTROL DMX ARTNET|SACN ON|OFF [<interface address>]";
+        if (args.Count is < 2 or > 3 || !TryOnOff(args[1], out var on))
+            return CommandReply.Fail(Syntax);
+        var sacn = args[0].Equals("SACN", StringComparison.OrdinalIgnoreCase);
+        if (!sacn && !args[0].Equals("ARTNET", StringComparison.OrdinalIgnoreCase))
+            return CommandReply.Fail(Syntax);
         var nic = args.Count == 3 ? args[2] : null;
         if (nic is not null && !System.Net.IPAddress.TryParse(nic, out _))
             return CommandReply.Fail($"{nic} is no interface address");
         var s = ControlInput.Settings;
-        if (s.ArtNetEnabled == on && (nic is null || string.Equals(nic, s.ArtNetInterface, StringComparison.Ordinal)))
-            return CommandReply.Fail(on ? "Art-Net control input is already on" : "Art-Net control input is already off");
-        if (ControlInput.ChangeSettings(c => c with { ArtNetEnabled = on, ArtNetInterface = nic ?? c.ArtNetInterface }) is { } why)
+        var (name, enabled, iface) = sacn ? ("sACN", s.SacnEnabled, s.SacnInterface) : ("Art-Net", s.ArtNetEnabled, s.ArtNetInterface);
+        if (enabled == on && (nic is null || string.Equals(nic, iface, StringComparison.Ordinal)))
+            return CommandReply.Fail($"{name} control input is already {(on ? "on" : "off")}");
+        if (ControlInput.ChangeSettings(c => sacn ? c with { SacnEnabled = on, SacnInterface = nic ?? c.SacnInterface }
+                : c with { ArtNetEnabled = on, ArtNetInterface = nic ?? c.ArtNetInterface }) is { } why)
             return CommandReply.Fail("the setting could not be kept: " + why);
-        var problem = Services.ArtNet?.Problem;
-        return CommandReply.Success(effect: on
-            ? $"Art-Net control input on{(nic is null ? "" : " at " + nic)}{(problem is null ? "" : " — " + problem)} — STATE says what it hears"
-            : "Art-Net control input off — DMX no longer fires bindings");
+        if (!on)
+            return CommandReply.Success(effect: $"{name} control input off — DMX no longer fires bindings");
+        // The Art-Net socket is the node's, shared with LED output: it moves to another interface when the node starts again.
+        var moves = !sacn && nic is not null && Services.ArtNet is { } art && !Equals(art.Interface, System.Net.IPAddress.Parse(nic))
+            ? $" — the Art-Net socket stays on {art.Interface?.ToString() ?? "all interfaces"} until the node starts again" : "";
+        var problem = sacn ? null : Services.ArtNet?.Problem;
+        return CommandReply.Success(effect: $"{name} control input on{(nic is null ? "" : " at " + nic)}{moves}{(problem is null ? "" : " — " + problem)} — STATE says what it hears");
     }
 
     private async Task<CommandReply> ControlInjectAsync(VerbCall c)
@@ -500,8 +507,6 @@ public sealed partial class EngineCore
         var targetText = line.RestAfter(2 + to + 1);
         if (TargetLine.Parse(targetText, out why) is not { } target)
             return CommandReply.Fail(why);
-        if (input.Source == InputSource.Sacn)
-            return CommandReply.Fail("sACN input is not in this build — bind Art-Net, MIDI or OSC");
         var binding = new ControlBinding("", "", input.Format(), target.Text, ControlShape.Default, ControlFeedback.Default, true);
         return AddBindings([binding], $"bind {input.Format()}");
     }
@@ -525,15 +530,17 @@ public sealed partial class EngineCore
             if (personality != DmxPersonality.Id)
                 return CommandReply.Fail($"no DMX personality {personality} — \"{DmxPersonality.Id}\" is built in");
             var source = (Str("source") ?? "artnet").ToLowerInvariant();
-            if (source != "artnet")
-                return CommandReply.Fail(source == "sacn" ? "sACN input is not in this build — \"source\":\"artnet\"" : "a personality listens on \"artnet\"");
-            var universe = Int("universe") ?? 0;
+            if (source is not ("artnet" or "sacn"))
+                return CommandReply.Fail("a personality listens on \"artnet\" or \"sacn\"");
+            var sacn = source == "sacn";
+            var universe = Int("universe") ?? (sacn ? 1 : 0);
             var start = Int("address") ?? Int("start") ?? 1;
             var surface = Str("surface") ?? "";
-            if (universe is < 0 or > 32767 || start is < 1 or > 512)
-                return CommandReply.Fail("a personality's universe is 0–32767 and its address 1–512");
+            if ((sacn ? universe is < 1 or > 63999 : universe is < 0 or > 32767) || start is < 1 or > 512)
+                return CommandReply.Fail(sacn ? "a personality's sACN universe is 1–63999 and its address 1–512" : "a personality's universe is 0–32767 and its address 1–512");
             var n = 0;
-            var (bindings, sheet, channels) = DmxPersonality.Build(p, InputSource.ArtNet, universe, start, surface, () => "bd_new" + (n++).ToString(CultureInfo.InvariantCulture));
+            var (bindings, sheet, channels) = DmxPersonality.Build(p, sacn ? InputSource.Sacn : InputSource.ArtNet, universe, start, surface,
+                () => "bd_new" + (n++).ToString(CultureInfo.InvariantCulture));
             if (channels == 0)
                 return CommandReply.Fail("the show has no surface or output for a personality to drive");
             if (start + channels - 1 > 512)
@@ -619,17 +626,17 @@ public sealed partial class EngineCore
         if (args.Count == 1 && IsOff(args[0]))
             return ControlInput.CancelLearn() ? CommandReply.Success(effect: "learn stopped — nothing was bound") : CommandReply.Fail("not learning");
         if (args.Count == 0)
-            return CommandReply.Fail("BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET] <target line> | BIND LEARN OFF");
+            return CommandReply.Fail("BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET|SACN] <target line> | BIND LEARN OFF");
         var from = "";
         var skip = 2;
         if (args[0].Equals("FROM", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Count < 3)
-                return CommandReply.Fail("BIND LEARN FROM <surface>|MIDI|OSC|ARTNET <target line>");
+                return CommandReply.Fail("BIND LEARN FROM <surface>|MIDI|OSC|ARTNET|SACN <target line>");
             from = args[1];
             var p = Store.Project;
-            if (from.ToUpperInvariant() is not ("MIDI" or "OSC" or "ARTNET") && !p.Control.Surfaces.Any(s => s.Name.Equals(from, StringComparison.OrdinalIgnoreCase)))
-                return CommandReply.Fail(from.Equals("SACN", StringComparison.OrdinalIgnoreCase) ? "sACN input is not in this build" : $"no control surface {from}");
+            if (from.ToUpperInvariant() is not ("MIDI" or "OSC" or "ARTNET" or "SACN") && !p.Control.Surfaces.Any(s => s.Name.Equals(from, StringComparison.OrdinalIgnoreCase)))
+                return CommandReply.Fail($"no control surface {from}");
             skip += 2;
         }
         var text = line.RestAfter(skip);
@@ -763,6 +770,10 @@ public sealed partial class EngineCore
             w.WriteStartObject("dmx");
             w.WriteStartObject("artnet");
             w.WriteBoolean("enabled", settings.ArtNetEnabled);
+            w.WriteBoolean("open", false);
+            w.WriteEndObject();
+            w.WriteStartObject("sacn");
+            w.WriteBoolean("enabled", settings.SacnEnabled);
             w.WriteBoolean("open", false);
             w.WriteEndObject();
             w.WriteEndObject();

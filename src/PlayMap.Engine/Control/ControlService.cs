@@ -40,9 +40,10 @@ public sealed record ControlServiceOptions
     public ulong Seed { get; init; } = 0x5EED_A27E;
 }
 
-/// <summary>The node's control inputs, attached to the running engine: the OSC socket (lines under /playmap and bound addresses),
-/// the MIDI ports (each through its own parser), the Art-Net consumer (DMX for bindings when Art-Net input is on; ArtTimeCode
-/// for timecode sources; ArtPoll answered), and the timecode inputs (LTC through the audio inputs, MTC through the MIDI ports,
+/// <summary>The node's control inputs, attached to the running engine: the OSC socket (lines under /playmap and bound addresses, and
+/// feedback back to its clients), the MIDI ports (each through its own parser), the Art-Net consumer (DMX for bindings when Art-Net
+/// input is on; ArtTimeCode for timecode sources; ArtPoll answered), the sACN receiver (DMX for bindings when sACN input is on, the
+/// sources of a universe merged by priority), and the timecode inputs (LTC through the audio inputs, MTC through the MIDI ports,
 /// Art-Net). Driver threads parse and enqueue; one control loop drains in arrival order (an axis keeps only its latest value per
 /// drain; edges are never dropped) and runs every 10 ms for the timed work. Ports and sockets that cannot open say why in STATE
 /// and the node's faults; the node runs on without them.</summary>
@@ -55,6 +56,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private readonly bool _ownsMidi;
     private IMidiBackend _midi;
     private readonly ArtNetDmxInput _artIn;
+    private readonly SacnDmxInput _sacnIn = new();
+    private SacnReceiver? _sacn;
     private readonly Dictionary<string, MidiPort> _midiInputs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LtcInput> _ltc = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, MtcParser> _mtc = new(StringComparer.Ordinal);
@@ -70,7 +73,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private string? _oscProblem;
     private string _midiWords = "";
     private long _lastRescanNs;
-    private (long, long, long, long, long, long, int, long, long, int) _counts;
+    private (long, long, long, long, long, long, int, long, long, int, (long, long, long, int)) _counts;
     private long _countsAtNs = long.MinValue;
     private Project? _seen;
     private long _oscRefused;
@@ -86,6 +89,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         _artIn = new ArtNetDmxInput(_options.Seed);
         _surfaceOfSender = SurfaceOfSender;
         _sendFeedback = (bytes, to) => _osc.Send(bytes, to);
+        _sacnIn.SurfaceOf = SacnSurfaceOf;
     }
 
     private IMidiBackend Midi => _midi;
@@ -143,6 +147,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         _ltc.Clear();
         if (_artSubscribed && _options.ArtNet is { } art)
             art.Received -= OnArtNet;
+        if (_sacn is not null)
+            await _sacn.DisposeAsync().ConfigureAwait(false);
         if (_ownsMidi)
             _midi.Dispose();
         _stop.Dispose();
@@ -209,6 +215,17 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
                 case WorkKind.Want:
                     _artIn.Want(w.Channels!);
                     break;
+                case WorkKind.Sacn:
+                    await SacnAsync(w.Bytes!, w.Address, w.AtNs, ct).ConfigureAwait(false);
+                    break;
+                case WorkKind.WantSacn:
+                    _sacnIn.Want(w.Channels!);
+                    if (_sacn is { } sacn)
+                    {
+                        sacn.Listen(_sacnIn.Universes);
+                        engine.FactsChanged();
+                    }
+                    break;
                 default:
                     ticked = true;
                     break;
@@ -233,6 +250,11 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         _artIn.Tick(now, events);
         foreach (var e in events)
             await engine.ControlInput.ProcessAsync(e, ct).ConfigureAwait(false);
+        events.Clear();
+        _sacnIn.Tick(now, events);
+        if (engine.ControlInput.Settings.SacnEnabled)
+            foreach (var e in events)
+                await engine.ControlInput.ProcessAsync(e, ct).ConfigureAwait(false);
         foreach (var due in _artIn.TakeDuePolls(now))
             ReplyToPoll(due.To);
         foreach (var l in _ltc.Values)
@@ -241,7 +263,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             _feedback.Pass(engine, engine.ControlInput.Settings, _surfaces, _surfaceOfSender, _sendFeedback, now);
         // Counters move STATE at most four times a second.
         var counts = (_artIn.Frames, _artIn.Dropped, _artIn.Polls, _artIn.Malformed, Interlocked.Read(ref _oscRefused), Interlocked.Read(ref _oscMalformed), _oscSenders.Count,
-            _feedback.Sent, _feedback.Echoes, _feedback.ClientCount);
+            _feedback.Sent, _feedback.Echoes, _feedback.ClientCount, (_sacnIn.Frames, _sacnIn.Dropped, _sacnIn.Previews, _sacnIn.Sources.Count));
         if (counts != _counts && (_countsAtNs == long.MinValue || now - _countsAtNs >= 250_000_000))
         {
             _counts = counts;
@@ -263,6 +285,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         _surfaces = project.Control.Surfaces;
         ReconcileMidi(project, settings);
         ReconcileArtNet(project, settings);
+        ReconcileSacn(project, settings);
         ReconcileTimecode(project);
         _engine?.FactsChanged();
     }
@@ -618,6 +641,113 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         art.Send(_pollReply.AsSpan(0, n), art.AddressOf(new IPEndPoint(new IPAddress(BitConverterBig(to)), ArtNet.Port)));
     }
 
+    // ---- sACN ----
+
+    /// <summary>sACN input on and its receiver open.</summary>
+    public bool SacnListening => _engine?.ControlInput.Settings.SacnEnabled == true && _sacn is { IsOpen: true, Problem: null };
+
+    public string? SacnProblem => _engine?.ControlInput.Settings.SacnEnabled == true ? _sacn?.Problem : null;
+
+    /// <summary>Opens the receiver while sACN input is on (on the configured interface: a changed interface opens a new one), and
+    /// joins the groups of the universes the bindings read; closes it when input is off.</summary>
+    private void ReconcileSacn(Project project, ControlSettings settings)
+    {
+        if (!settings.SacnEnabled)
+        {
+            if (_sacn is { } closing)
+            {
+                closing.Received -= OnSacn;
+                closing.Close();
+                _sacn = null;
+            }
+            return;
+        }
+        var iface = settings.SacnInterface.Length > 0 && IPAddress.TryParse(settings.SacnInterface, out var a) ? a : null;
+        if (_sacn is { } open && !Equals(open.Interface, iface))
+        {
+            open.Received -= OnSacn;
+            open.Close();
+            _sacn = null;
+        }
+        if (_sacn is null)
+        {
+            _sacn = new SacnReceiver(iface?.ToString() ?? "");
+            _sacn.Received += OnSacn;
+        }
+        var channels = new List<DmxChannel>();
+        foreach (var b in project.Control.Bindings.Where(b => b.Enabled))
+            if (InputAddress.Parse(b.Input, out _) is { Source: InputSource.Sacn } c)
+                channels.Add(new DmxChannel(c.Universe, c.Number, c.Fine));
+        _work.Writer.TryWrite(new Work(WorkKind.WantSacn, default, null, null, 0, [.. channels]));
+    }
+
+    private void OnSacn(ReadOnlySpan<byte> packet, SocketAddress from)
+    {
+        var address = from.Family == System.Net.Sockets.AddressFamily.InterNetwork && from.Size >= 8
+            ? (uint)(from[4] << 24 | from[5] << 16 | from[6] << 8 | from[7]) : 0u;
+        var at = _engine?.Services.Mono.NowNs ?? 0;
+        _work.Writer.TryWrite(new Work(WorkKind.Sacn, default, packet.ToArray(), null, address) { AtNs = at });
+    }
+
+    /// <summary>The sACN surface a source is: the first enabled one whose match is empty, its address or its CID.</summary>
+    private string SacnSurfaceOf(uint address, Guid cid)
+    {
+        var ip = new IPAddress(BitConverterBig(address)).ToString();
+        return _surfaces.FirstOrDefault(s => s.Kind == "sacn" && s.Enabled && (s.Match.Length == 0 || s.Match == ip
+            || (Guid.TryParse(s.Match, out var g) && g == cid)))?.Name ?? "";
+    }
+
+    private async Task SacnAsync(byte[] packet, uint from, long now, CancellationToken ct)
+    {
+        var engine = _engine!;
+        var settings = engine.ControlInput.Settings;
+        if (!settings.SacnEnabled)
+            return;
+        // A source the node does not allow takes no part in the merge.
+        if (settings.DmxAllow.Length > 0 && !settings.DmxAllow.Contains(new IPAddress(BitConverterBig(from)).ToString(), StringComparer.Ordinal))
+            return;
+        _sacnIn.LearnAll = engine.ControlInput.Learning is not null;
+        _sacnIn.AcceptPreview = _surfaces.Any(s => s.Kind == "sacn" && s.Enabled && s.AcceptPreview);
+        var events = new List<InputEvent>();
+        _sacnIn.Receive(packet, from, now, events);
+        foreach (var e in events)
+            await engine.ControlInput.ProcessAsync(e, ct).ConfigureAwait(false);
+    }
+
+    private void WriteSacnState(Utf8JsonWriter w)
+    {
+        var settings = _engine?.ControlInput.Settings ?? ControlSettings.Default;
+        w.WriteStartObject();
+        w.WriteBoolean("enabled", settings.SacnEnabled);
+        w.WriteBoolean("open", _sacn?.IsOpen == true);
+        w.WriteString("interface", settings.SacnInterface.Length == 0 ? "all" : settings.SacnInterface);
+        if (SacnProblem is { } problem)
+            w.WriteString("words", problem);
+        w.WriteStartArray("universes");
+        foreach (var u in _sacn?.Joined ?? [])
+            w.WriteNumberValue(u);
+        w.WriteEndArray();
+        w.WriteStartArray("sources");
+        foreach (var (universe, sources) in _sacnIn.Sources.OrderBy(kv => kv.Key))
+        {
+            foreach (var src in sources)
+            {
+                w.WriteStartObject();
+                w.WriteNumber("universe", universe);
+                w.WriteString("cid", src.Cid.ToString("D"));
+                w.WriteString("name", src.Name);
+                w.WriteString("address", new IPAddress(BitConverterBig(src.Address)).ToString());
+                w.WriteNumber("priority", src.Priority);
+                w.WriteEndObject();
+            }
+        }
+        w.WriteEndArray();
+        w.WriteNumber("frames", _sacnIn.Frames);
+        w.WriteNumber("dropped", _sacnIn.Dropped);
+        w.WriteNumber("previews", _sacnIn.Previews);
+        w.WriteEndObject();
+    }
+
     // ---- timecode inputs ----
 
     private void ReconcileTimecode(Project project)
@@ -695,6 +825,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             "midi" => PortOf(surface) is not null,
             "osc" => OscOpen,
             "artnet" => ArtNetListening,
+            "sacn" => SacnListening,
             _ => false,
         };
     }
@@ -707,6 +838,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         {
             "osc" => OscProblem,
             "artnet" => ArtNetProblem,
+            "sacn" => SacnProblem,
             "midi" => MidiRefused(surface),
             _ => null,
         };
@@ -722,6 +854,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
                 return OscOpen;
             case InputSource.ArtNet:
                 return ArtNetListening ? true : null;
+            case InputSource.Sacn:
+                return SacnListening ? true : null;
             case InputSource.Midi:
                 if (input.Surface.Length == 0)
                 {
@@ -741,6 +875,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             faults.Add(new NodeFault("osc", osc));
         if (ArtNetProblem is { } art)
             faults.Add(new NodeFault("artnet", art));
+        if (SacnProblem is { } sacn)
+            faults.Add(new NodeFault("sacn", sacn));
         if (Midi.Unavailable is { } midi && _surfaces.Any(s => s.Kind == "midi" && s.Enabled))
             faults.Add(new NodeFault("midi", midi));
         return faults;
@@ -756,6 +892,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         WriteOscState(w);
         w.WritePropertyName("artnet");
         WriteArtNetState(w);
+        w.WritePropertyName("sacn");
+        WriteSacnState(w);
         w.WriteEndObject();
     }
 
@@ -771,6 +909,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         w.WriteStartObject("dmx");
         w.WritePropertyName("artnet");
         WriteArtNetState(w);
+        w.WritePropertyName("sacn");
+        WriteSacnState(w);
         w.WriteEndObject();
     }
 
@@ -835,10 +975,10 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         w.WriteEndObject();
     }
 
-    private enum WorkKind : byte { Event, Osc, ArtNet, Tick, Settings, Ports, Want }
+    private enum WorkKind : byte { Event, Osc, ArtNet, Tick, Settings, Ports, Want, Sacn, WantSacn }
 
-    /// <summary>One piece of the loop's work: an input event, an OSC datagram, an Art-Net packet, the tick, a settings or port change,
-    /// or the DMX channels the bindings want.</summary>
+    /// <summary>One piece of the loop's work: an input event, an OSC datagram, an Art-Net or sACN packet, the tick, a settings or port
+    /// change, or the DMX channels the bindings want.</summary>
     private readonly record struct Work(WorkKind Kind, InputEvent Event, byte[]? Bytes, IPEndPoint? From, uint Address, DmxChannel[]? Channels = null)
     {
         /// <summary>When a packet arrived (mono ns).</summary>

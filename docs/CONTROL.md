@@ -1,14 +1,14 @@
 # Control input: OSC, MIDI, Art-Net and bindings
 
-A node takes control from the outside world three ways — OSC over UDP, MIDI from the machine's ports, and DMX over Art-Net — and
-turns every move into a wire line. The show names its controllers (**surfaces**, `ct…`) and its **bindings** (`bd…`): an input
+A node takes control from the outside world four ways — OSC over UDP, MIDI from the machine's ports, and DMX over Art-Net or sACN —
+and turns every move into a wire line. The show names its controllers (**surfaces**, `ct…`) and its **bindings** (`bd…`): an input
 bound to a line. A binding's line goes through the same router and the same show gate as a line typed on the desk, Patterns' or
 an assistant's: there is no private path from a fader to the show. The verbs are in `docs/wire/control.md`.
 
 ## Surfaces and bindings
 
-A surface is a name the bindings use (`APC40`), its kind (MIDI, OSC, Art-Net) and a match: a port-name glob for MIDI, a sender
-address for OSC, a source address for Art-Net. Which port a surface is on *this machine* is the node's, not the show's:
+A surface is a name the bindings use (`APC40`), its kind (MIDI, OSC, Art-Net, sACN) and a match: a port-name glob for MIDI, a sender
+address for OSC, a source address for Art-Net, a source address or CID for sACN. Which port a surface is on *this machine* is the node's, not the show's:
 `CONTROL ALIAS APC40 "USB MIDI 2"` keeps it in the node's settings, so the same show runs on two machines whose ports are named
 differently. A binding names one input in words and one target line:
 
@@ -26,7 +26,7 @@ is refused with the reason — a query (it would change nothing), a session or a
 another binding verb. A binding to a high-risk line is itself high risk: an assistant's `BIND ADD … TO BLACKOUT ON` needs a person.
 
 `BIND ADD` keeps any other binding on the same input and says so ("also bound to bd…"), so one fader may drive several targets on
-purpose. `BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET] <target>` binds the next control that moves, and **replaces** what that input
+purpose. `BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET|SACN] <target>` binds the next control that moves, and **replaces** what that input
 was bound to, saying what it replaced ("MIDI CC 1 7 → Lobby opacity (was Stage opacity)"). Learn never binds a release, a fader's
 jitter (three steps from its first reading) or a DMX channel that does not move; a continuous control on a target with a number
 makes it `*`, a pad keeps the number. It runs for 30 s, or until `BIND LEARN OFF`; STATE says what it waits for.
@@ -98,9 +98,20 @@ once), and only the channels bindings read become events. An ArtPoll is answered
 random delay of up to 1 s, naming the universes the bindings read. "Art-Net™ Designed by and Copyright Artistic Licence Holdings
 Ltd."
 
+## sACN
+
+`CONTROL DMX SACN ON [<interface address>]` turns sACN (ANSI E1.31, written from the standard) → bindings on (off by default). The
+receiver listens on UDP 5568 at the interface and joins the multicast group of every universe a binding reads (239.255.u/256.u%256);
+on Linux each group has a socket bound to the group's own address. The sources of a universe merge as the standard asks: the
+highest priority wins, equal priorities merge highest-takes-precedence per channel (a 16-bit pair as one value), a late packet is
+dropped (§6.7.2), a source that terminates or is silent for 2.5 s gives way to those left — a backup console at a lower priority
+takes over — and when none is left the channels hold. Preview data is ignored unless an sACN surface accepts it; synchronized data
+waits for its synchronization packet once one has been seen. A surface matched by a console's CID or address hears the channels
+that console sets.
+
 ### The built-in DMX personality
 
-`BIND ADD {"personality":"playmap","universe":3,"address":101}` installs a channel block in one undo step and answers the channel
+`BIND ADD {"personality":"playmap","universe":3,"address":101}` (`"source":"sacn"` for sACN) installs a channel block in one undo step and answers the channel
 sheet for the lighting designer. Per surface, in the show's order, four channels: **intensity** (opacity), **source index** (the
 item of the playlist it shows; 0 = no change), **speed** (that playlist's rate, 50 % = 1×, 0.25×–4×), **shown** (above 56 % on,
 below 44 % off); then per output one channel, its **master** (brightness 0–1). A surface that shows no playlist keeps its index and
@@ -108,7 +119,8 @@ speed channels, unbound, so the sheet never shifts.
 
 ## STATE, context, preflight, INDEX
 
-`STATE.control` holds the OSC socket (with its feedback clients and counts), the MIDI backend and its ports, the Art-Net socket and its counts, each surface with its
+`STATE.control` holds the OSC socket (with its feedback clients and counts), the MIDI backend and its ports, the Art-Net socket and the
+sACN receiver (its groups and sources) with their counts, each surface with its
 port and light, the bindings' counts (live, waiting, unplugged), learn and the last input (moving STATE at most five times a
 second; `CONTROL MONITOR` shows the last 64 inputs). The context has an item per surface linked `controls` to what its bindings
 act on, and items while learning or with input off. Preflight's `control` section checks every bound source can be heard, with
@@ -118,4 +130,5 @@ the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards `cont
 
 Controller profiles and MIDI feedback (lamps, motor faders, receipts that flash while accepted), feedback from a STATE predicate
 (`feedback.when`), the `/playmap/state` mirror and `/playmap/subscribe`, OSCQuery (9944), timetagged bundles run at their instant,
-sACN, MIDI out, CoreMIDI, Windows MIDI Services, input forwarding, MIDI clock — the next round.
+sACN discovery, per-channel priority (START code 0xDD), a surface's LTP merge and release on loss, MIDI out, CoreMIDI, Windows MIDI
+Services, input forwarding, MIDI clock — the next round.

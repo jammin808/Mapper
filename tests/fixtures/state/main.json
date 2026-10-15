@@ -191,6 +191,10 @@
       "artnet": {
         "enabled": false,
         "open": false
+      },
+      "sacn": {
+        "enabled": false,
+        "open": false
       }
     },
     "surfaces": [],

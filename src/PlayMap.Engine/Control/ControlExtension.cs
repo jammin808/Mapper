@@ -72,9 +72,9 @@ public sealed class ControlExtension : IEngineExtension
     }
 }
 
-/// <summary>Preflight's control rows: every surface a binding names is heard (its MIDI port is here, its OSC or Art-Net socket is
-/// open). A surface whose port is missing is amber with the alias line that names this machine's port; Art-Net bindings with
-/// Art-Net input off are red with the line that turns it on; a socket the node could not open is red. No bindings: one grey row.</summary>
+/// <summary>Preflight's control rows: every surface a binding names is heard (its MIDI port is here, its OSC, Art-Net or sACN socket
+/// is open). A surface whose port is missing is amber with the alias line that names this machine's port; Art-Net or sACN bindings
+/// with that input off are red with the line that turns it on; a socket the node could not open is red. No bindings: one grey row.</summary>
 internal sealed class ControlPreflight : IPreflightCheck
 {
     public string Section => "control";
@@ -114,6 +114,14 @@ internal sealed class ControlPreflight : IPreflightCheck
                 : service is null ? (Light.Grey, "none", "no control service on this node", (string?)null)
                 : (Light.Green, "open", "listening for DMX", (string?)null);
             rows.Add(new PreflightRow("control:artnet", node, Section, "Art-Net", light, value, note, fix));
+        }
+        if (used.Any(a => a.Source == Core.Control.InputSource.Sacn))
+        {
+            var (light, value, note, fix) = !settings.SacnEnabled ? (Light.Red, "off", "sACN input is off while bindings read DMX", "CONTROL DMX SACN ON")
+                : service?.SacnProblem is { } problem ? (Light.Red, "refused", problem, (string?)null)
+                : service is null ? (Light.Grey, "none", "no control service on this node", (string?)null)
+                : (Light.Green, "open", "listening for DMX", (string?)null);
+            rows.Add(new PreflightRow("control:sacn", node, Section, "sACN", light, value, note, fix));
         }
         foreach (var s in p.Control.Surfaces.Where(s => s.Enabled && s.Kind == "midi"))
         {

@@ -35,6 +35,16 @@
         "frames": 0,
         "dropped": 0,
         "polls": 0
+      },
+      "sacn": {
+        "enabled": false,
+        "open": false,
+        "interface": "all",
+        "universes": [],
+        "sources": [],
+        "frames": 0,
+        "dropped": 0,
+        "previews": 0
       }
     },
     "surfaces": [

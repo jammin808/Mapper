@@ -216,7 +216,7 @@ public sealed class BindingEngineTests
             await rig.Refused("ADD binding {\"input\":\"OSC /x\",\"target\":\"STATE\"}"));
         Assert.Equal("the binding's input: 'KEYS' is no input — MIDI, OSC, ARTNET or SACN",
             await rig.Refused("BIND ADD {\"input\":\"KEYS a\",\"target\":\"BLACKOUT TOGGLE\"}"));
-        Assert.Equal("sACN input is not in this build — bind Art-Net, MIDI or OSC", await rig.Refused("BIND ADD SACN 1 1 TO BLACKOUT TOGGLE"));
+        Assert.Equal("SACN [<surface>] <universe 1-63999> <channel 1-512>[+<fine>]", await rig.Refused("BIND ADD SACN 0 1 TO BLACKOUT TOGGLE"));
         // Risk: a binding to a high-risk line is itself high risk.
         Assert.True(WireGrammar.TryParse("BIND ADD MIDI NOTE 1 1 TO BLACKOUT ON", out var line, out _));
         Assert.Equal(VerbRisk.High, VerbCatalog.RiskOf(line));
