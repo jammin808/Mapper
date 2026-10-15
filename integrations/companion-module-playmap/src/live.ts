@@ -154,6 +154,8 @@ export class LivePage {
 	rule: string
 	readonly #page = new Map<string, number>()
 	readonly #frozen = new Map<string, string[]>()
+	/** Each source's slot → entity map as the keys last showed it unarmed: what an arm freezes, whatever moved since. */
+	readonly #shown = new Map<string, string[]>()
 	readonly #hints = new Map<string, ReturnType<typeof setTimeout>>()
 
 	constructor(rule: string) {
@@ -212,27 +214,30 @@ export class LivePage {
 	/** Lays every source out again (and lets go of an armed freeze until the next layout while armed). */
 	refresh(): void {
 		this.#frozen.clear()
+		this.#shown.clear()
 	}
 
 	clear(): void {
 		for (const t of this.#hints.values()) clearTimeout(t)
 		this.#hints.clear()
 		this.#frozen.clear()
+		this.#shown.clear()
 	}
 
 	#arranged(rule: string, model: NodeModel, nodeNow: number, pressOf: PressOf): Slot[] {
 		const fresh = layout(rule, model, nodeNow, pressOf)
 		if (!model.armed) {
 			this.#frozen.delete(rule)
-			return fresh
-		}
-		const keys = this.#frozen.get(rule)
-		if (!keys) {
-			this.#frozen.set(
+			this.#shown.set(
 				rule,
 				fresh.map((s) => s.key),
 			)
 			return fresh
+		}
+		let keys = this.#frozen.get(rule)
+		if (!keys) {
+			keys = this.#shown.get(rule) ?? fresh.map((s) => s.key)
+			this.#frozen.set(rule, keys)
 		}
 		const byKey = new Map(fresh.map((s) => [s.key, s]))
 		return keys.map((k) => byKey.get(k) ?? { ...REMOVED, key: k })

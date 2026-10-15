@@ -67,17 +67,19 @@ export class Thumbs {
 		return [...new Set([...this.#placed.values()].map((p) => p.ref))].sort()
 	}
 
-	/** `THUMBS {ref: etag|null}`: a watched picture whose ETag moved since the last push is fetched again. */
+	/** `THUMBS {ref: etag|null}`: a watched picture whose ETag moved since the last push is fetched again; on the first push after a
+	 * (re)subscribe, a held picture whose ETag is not the pushed one is asked again `IF` its own (the node answers `same` when it is). */
 	pushed(etags: Record<string, unknown>): void {
 		for (const [ref, etag] of Object.entries(etags)) {
 			const e = typeof etag === 'string' ? etag : null
 			const had = this.#pushed.has(ref)
 			const before = this.#pushed.get(ref)
 			this.#pushed.set(ref, e)
-			if (!had || before === e) continue
+			if (had && before === e) continue
 			for (const p of this.#placed.values())
 				if (p.ref === ref) {
 					const cached = this.#cache.get(`${ref}|${p.size}`)
+					if (!had && (!cached || cached.etag === e)) continue
 					this.#fetch(ref, p.size, cached?.etag)
 				}
 		}

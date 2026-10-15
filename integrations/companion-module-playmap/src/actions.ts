@@ -58,7 +58,7 @@ export const Lines = {
 		`THUMB ${quote(ref)} ${size}x${size}` + (etag ? ` IF ${quote(etag)}` : ''),
 	hello: (name: string): string => `HELLO ${name} module=${MODULE_VERSION}`,
 	presence: (json: string): string => `PRESENCE ${json}`,
-	watchThumbs: (refs: readonly string[]): string => `SUBSCRIBE THUMBS ${refs.map(quote).join(' ')}`,
+	watchThumbs: (refs: readonly string[]): string => ['SUBSCRIBE THUMBS', ...refs.map(quote)].join(' '),
 	eventsSince: (seq: number): string => `EVENTS SINCE ${seq}`,
 } as const
 
@@ -96,6 +96,7 @@ export function fixedLines(): string[] {
 		'SUBSCRIBE INDEX',
 		'SUBSCRIBE EVENTS',
 		Lines.watchThumbs(['color:#FF0000', 'media:md0a1b2c3d']),
+		Lines.watchThumbs([]),
 		Lines.eventsSince(412),
 	]
 }

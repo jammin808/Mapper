@@ -146,8 +146,9 @@ first reply, and lights a corner dot on its key: amber while sent or accepted, c
 the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
 blackout and freeze toggles; a section key; the Live page; `raw` (any line but the session's and the secret ones) and `ask_node` (a
 question, its answer as the result). Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
-value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY` and `DEVICE LENS … BY` (relative); turns
-within 30 ms are one line.
+value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a surface's
+opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local variable `result`,
+for an *if* block on the key.
 
 **Press shapes** come from each row's `press`: Panic, Air and Transport rows fire on the down, never held; a high-risk row is held 0.8 s;
 a projector's power is two presses within 3 s (the module keeps the first — a preset cannot reset a button's step). The double-GO guard
@@ -160,7 +161,9 @@ reads WHOAMI's `may`.
 
 **Presets** are fixed for a config and never change with the show; only the structure does. Template groups are keyed by entity id
 (`pl.<id>` lists a playlist's items), so a linked key follows its item through renames and reorders. Every preset is an `alternatives`
-pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. A package's INDEX
+pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. Keys breathe with
+no traffic, in Companion's own expressions: Show Mode's frame on `oscillate(2000)` while armed, the headline's mark on `blink(500)` while
+a fault stands, the Beat key on `oscillate(60000 / bpm, 'square')`, a projector's ground in `colorMix` from red to green by its score. A package's INDEX
 section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says. The **Live page** is
 one template group of 32 slots whose source is the page variable `pm_live`; the module lays the slots out from INDEX and STATE and, while
 the show is armed, keeps each slot on its entity (lights and labels still move; a gone one reads REMOVED) until RE-LAY or disarming.
@@ -182,4 +185,5 @@ Key pages authored on the desk (`KEYS …`) and `COMPANION PAGE`/`COMPANION ADD`
 `ACTION` pushes) and with it the module's typed recorder (a port of `VerbCatalog.Match` turning `ACTION <line>` into typed actions) and
 `SELECT` for learn; live output and projector thumbnails from preview views with leases; streamed `ASK` replies; Show Bus hello discovery
 in the module; the desk's Decks drawer; browsing (OSCQuery, WLED) on the same responder; the TLS fingerprint in the TXT record; the
-back-port of id-keyed template groups, value feedbacks and the secret token to Patterns' module.
+back-port of id-keyed template groups, value feedbacks and the secret token to Patterns' module; Live slots that press projectors
+(identify, shutter on hold) and surfaces (show or hide), once STATE names a projector's device link and a surface's shown state.

@@ -35,6 +35,13 @@ export class EventLog {
 	last: NodeEvent | null = null
 	readonly #recent: NodeEvent[] = []
 
+	/** The node's newest seq is below the last one heard: the node started again and numbers its events afresh. */
+	restarted(): void {
+		this.lastSeq = 0
+		this.last = null
+		this.#recent.length = 0
+	}
+
 	/** Takes an event; false for one already heard (a replay overlapping a push). */
 	take(e: NodeEvent): boolean {
 		if (e.seq <= this.lastSeq) return false

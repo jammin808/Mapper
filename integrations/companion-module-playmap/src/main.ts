@@ -105,6 +105,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#protoWarning: string | null = null
 	#lastError = ''
 	#definedVariables = ''
+	/** Events pushed while an EVENTS SINCE replay is in flight, taken after it; null when no replay is. */
+	#held: unknown[] | null = null
 	/** What the instance last handed Companion's presets (the test reads it to compare with what the host kept). */
 	lastPresets: { structure: unknown; presets: unknown } | null = null
 
@@ -216,6 +218,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	recheckLater(feedbackId: string, ms: number): void {
+		// A stopped connection keeps no timer: the host may still ask a feedback once after destroy.
+		if (!this.#session) return
 		const before = this.#rechecks.get(feedbackId)
 		if (before) clearTimeout(before)
 		this.#rechecks.set(
@@ -299,6 +303,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	/** The link dropped: what the node said is no longer a fact, so it is emptied and every feedback checked again (a dead key never
 	 * stays green). INDEX's names are kept so keys still say what they are, dimmed. */
 	#emptied(): void {
+		const held = this.#held
+		this.#held = null
+		if (held) this.#takeAll(held)
 		this.model.state = null
 		this.model.whoami = null
 		this.#whoamiKey = ''
@@ -330,19 +337,46 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe('SUBSCRIBE INDEX')
-		this.#subscribe('SUBSCRIBE EVENTS')
-		if (this.events.lastSeq > 0)
-			this.ask(Lines.eventsSince(this.events.lastSeq))
-				.then((reply) => {
-					if (!reply.ok) return
-					const o = JSON.parse(reply.payload) as { events?: unknown }
-					for (const e of Array.isArray(o.events) ? o.events : []) this.#event(e)
-				})
-				.catch((e: unknown) => this.log('debug', `EVENTS SINCE: ${e instanceof Error ? e.message : String(e)}`))
+		if (this.events.lastSeq > 0) this.#replayEvents()
+		else this.#subscribe('SUBSCRIBE EVENTS')
 		this.thumbs.relinked()
 		// A greeting STATE may have come before the pairing finished: the clocks start now if something plays.
 		this.#runTicker()
 		this.#dirty()
+	}
+
+	/** Opens EVENTS and replays what this deck missed since the last seq it took. Events pushed while the replay is in flight are held
+	 * and taken after it, oldest first, so the last seq taken never passes a replayed event and every event is taken once. */
+	#replayEvents(): void {
+		const held: unknown[] = []
+		this.#held = held
+		this.#subscribe('SUBSCRIBE EVENTS')
+		const since = async (seq: number): Promise<void> => {
+			const reply = await this.ask(Lines.eventsSince(seq))
+			if (!reply.ok || this.#held !== held) return
+			const o = JSON.parse(reply.payload) as { seq?: unknown; events?: unknown }
+			// A node whose newest seq is below the last one heard started again: its events are numbered afresh, from the start.
+			if (typeof o.seq === 'number' && o.seq < this.events.lastSeq) {
+				this.events.restarted()
+				return since(0)
+			}
+			this.#takeAll(Array.isArray(o.events) ? o.events : [])
+		}
+		since(this.events.lastSeq)
+			.catch((e: unknown) => this.log('debug', `EVENTS SINCE: ${e instanceof Error ? e.message : String(e)}`))
+			.finally(() => {
+				if (this.#held !== held) return
+				this.#held = null
+				this.#takeAll(held)
+			})
+	}
+
+	#takeAll(events: readonly unknown[]): void {
+		const read = events.map(readEvent).filter((e) => e !== null)
+		read.sort((a, b) => a.seq - b.seq)
+		let took = false
+		for (const e of read) took = this.events.take(e) || took
+		if (took) this.#touch('events')
 	}
 
 	#subscribe(line: string): void {
@@ -385,13 +419,19 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		}, 1000)
 	}
 
+	/** The watched set replaces the node's last one, so an empty set (the last picture key gone) is told too. */
 	#watchThumbs(refs: string[]): void {
-		if (refs.length === 0 || !this.linked()) return
+		if (!this.linked()) return
 		this.#subscribe(Lines.watchThumbs(refs.slice(0, 128)))
 		this.#presenceSoon()
 	}
 
 	#push(word: string, rest: string): void {
+		// The node closed this session's EVENTS (it read too slowly, or too many came at once): open it again and replay the gap.
+		if (word === 'EVENTS' && /^overflow\b/u.test(rest)) {
+			this.#replayEvents()
+			return
+		}
 		let json: unknown
 		try {
 			json = rest ? JSON.parse(rest) : null
@@ -474,6 +514,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	#event(json: unknown): void {
+		if (this.#held) {
+			this.#held.push(json)
+			return
+		}
 		const e = readEvent(json)
 		if (!e || !this.events.take(e)) return
 		this.#touch('events')

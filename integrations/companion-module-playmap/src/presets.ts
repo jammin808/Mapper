@@ -73,6 +73,20 @@ interface KeySpec {
 	readonly lockVerb?: string
 	/** A Live slot: empty dims it, a short press on a held slot says HOLD. */
 	readonly slot?: CompanionOptionValues
+	/** Local variables driven by a value feedback, for expressions on the key. */
+	readonly feedbackLocals?: readonly {
+		readonly name: string
+		readonly feedbackId: string
+		readonly options: CompanionOptionValues
+	}[]
+	/** Element properties drawn by an expression that moves with no traffic (oscillate, blink, colorMix): always, or while a boolean
+	 * feedback holds. */
+	readonly breathe?: readonly {
+		readonly element: string
+		readonly property: string
+		readonly expression: string
+		readonly when?: { readonly feedbackId: string; readonly options: CompanionOptionValues }
+	}[]
 }
 
 const ROOT = 'root'
@@ -294,6 +308,17 @@ function layered(spec: KeySpec): CompanionLayeredButtonPresetDefinition {
 		feedbacks.push({ feedbackId: 'slot_empty', options: spec.slot, styleOverrides: [override(ROOT, 'opacity', 25)] })
 		feedbacks.push({ feedbackId: 'slot_hint', options: spec.slot, styleOverrides: [override('hint', 'enabled', true)] })
 	}
+	for (const b of spec.breathe ?? [])
+		if (b.when)
+			feedbacks.push({
+				feedbackId: b.when.feedbackId,
+				options: b.when.options,
+				styleOverrides: [override(b.element, b.property, expr(b.expression))],
+			})
+		else {
+			const element = children.find((c) => c.id === b.element) as Record<string, unknown> | undefined
+			if (element) element[b.property] = expr(b.expression)
+		}
 	// Last, so it wins (the lowest feedback in the list wins): a key the node no longer answers is dimmed with a mark.
 	feedbacks.push({
 		feedbackId: 'stale',
@@ -315,7 +340,19 @@ function layered(spec: KeySpec): CompanionLayeredButtonPresetDefinition {
 }
 
 function localsOf(spec: KeySpec): CompanionPresetLocalVariable[] {
-	return spec.locals.map((l) => ({ variableType: 'simple', variableName: l.name, startupValue: l.startup }))
+	return [
+		...spec.locals.map((l): CompanionPresetLocalVariable => ({
+			variableType: 'simple',
+			variableName: l.name,
+			startupValue: l.startup,
+		})),
+		...(spec.feedbackLocals ?? []).map((l): CompanionPresetLocalVariable => ({
+			variableType: 'feedback',
+			variableName: l.name,
+			feedbackId: l.feedbackId,
+			options: l.options,
+		})),
+	]
 }
 
 /** The same key for hosts that cannot draw layered keys: its label through a feedback-based local variable. */
@@ -528,6 +565,14 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		locals: [],
 		label: { feedbackId: 'state_path', options: { path: 'show.armed' } },
 		grounds: [{ feedbackId: 'show_armed', options: {}, colour: colourOf('show', 'armed') }],
+		breathe: [
+			{
+				element: 'frame',
+				property: 'opacity',
+				expression: '40 + 60 * oscillate(2000)',
+				when: { feedbackId: 'show_armed', options: {} },
+			},
+		],
 		press: 'instant',
 		receipt: false,
 	})
@@ -540,6 +585,31 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		grounds: [
 			{ feedbackId: 'node_light', options: { light: 'amber' }, colour: 'amber' },
 			{ feedbackId: 'node_light', options: { light: 'red' }, colour: 'red' },
+		],
+		breathe: [
+			{
+				element: 'mark',
+				property: 'enabled',
+				expression: 'blink(500)',
+				when: { feedbackId: 'fault_any', options: {} },
+			},
+		],
+		press: 'instant',
+		receipt: false,
+	})
+	presets.show_beat = key({
+		name: 'Beat',
+		notes: 'The tempo heard in the audio: the key pulses on the beat while there is one.',
+		keywords: ['beat', 'bpm', 'tempo', 'audio'],
+		locals: [],
+		label: { feedbackId: 'state_path', options: { path: 'audio.bpm' } },
+		feedbackLocals: [{ name: 'bpm', feedbackId: 'state_path', options: { path: 'audio.bpm' } }],
+		breathe: [
+			{
+				element: 'frame',
+				property: 'opacity',
+				expression: "$(local:bpm) > 0 ? 30 + 70 * oscillate(60000 / $(local:bpm), 'square') : 100",
+			},
 		],
 		press: 'instant',
 		receipt: false,
@@ -598,6 +668,10 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		sub: { feedbackId: 'state_word', options: { ref: local('projector') } },
 		light: { feedbackId: 'light', options: { ref: local('projector') } },
 		gauge: { feedbackId: 'score', options: { projector: local('projector') }, ring: true, max: 100 },
+		feedbackLocals: [{ name: 'score', feedbackId: 'score', options: { projector: local('projector') } }],
+		breathe: [
+			{ element: 'frame', property: 'color', expression: "colorMix('#E0342E', '#1E9E5A', $(local:score) / 100)" },
+		],
 		press: 'instant',
 		receipt: false,
 	})
@@ -832,7 +906,7 @@ export function presetStructure(
 					id: 'show_air',
 					type: 'simple',
 					name: 'Air',
-					presets: ['show_blackout', 'show_freeze', 'show_mode', 'show_headline'],
+					presets: ['show_blackout', 'show_freeze', 'show_mode', 'show_headline', 'show_beat'],
 				},
 				{
 					id: 'show_panic',

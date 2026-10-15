@@ -10,13 +10,13 @@ PlayMap's whole show as live keys: the playlists and their items, the outputs an
 
 The status says what is wrong in words:
 
-| Status | What to do |
-|---|---|
-| This node asks for its pairing token | Type the token from the Network drawer |
-| The pairing token is not this node's | Type it again; the link stops until you do, so wrong tokens are not spent |
-| The node's own words (refused upgrade) | The node answers its own address and names only: connect by its address, or add the name you use to the node's web hosts |
-| No answer from the node for 4 s — keys dimmed | The node or the network is busy; keys come back by themselves |
-| Node speaks line protocol N | Update this module |
+| Status                                        | What to do                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| This node asks for its pairing token          | Type the token from the Network drawer                                                                                   |
+| The pairing token is not this node's          | Type it again; the link stops until you do, so wrong tokens are not spent                                                |
+| The node's own words (refused upgrade)        | The node answers its own address and names only: connect by its address, or add the name you use to the node's web hosts |
+| No answer from the node for 4 s — keys dimmed | The node or the network is busy; keys come back by themselves                                                            |
+| Node speaks line protocol N                   | Update this module                                                                                                       |
 
 ## Keys
 
@@ -39,7 +39,7 @@ The press shape comes from the node's vocabulary:
 - **Held 0.8 s** — verbs that change the air at high risk (show or hide a surface …): the key says HOLD… while held.
 - **Two presses** — a projector's power: the first held press says SURE? for 3 s, the second sends.
 
-A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and *if* blocks can branch on it.
+A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and _if_ blocks can branch on it.
 
 ### Show Mode
 
@@ -49,14 +49,14 @@ While the show is armed the node says which verbs this deck may run (`WHOAMI`); 
 
 Install it once: drag the **Live slots** template group onto a page. Set the page variable `pm_live` on that page to its source:
 
-| `pm_live` | The slots show |
-|---|---|
-| `focused` (empty) | the focused playlist's items — press to GO |
-| `playlist:<id>` | that playlist's items |
-| `playlists` | the playlists — press to GO |
-| `outputs` | the outputs — press to identify |
-| `projectors`, `surfaces`, `peers`, `faults` | their lights and words |
-| `section:<name>` | a package's rows (`section:fx`, `section:show` …) |
+| `pm_live`                                   | The slots show                                    |
+| ------------------------------------------- | ------------------------------------------------- |
+| `focused` (empty)                           | the focused playlist's items — press to GO        |
+| `playlist:<id>`                             | that playlist's items                             |
+| `playlists`                                 | the playlists — press to GO                       |
+| `outputs`                                   | the outputs — press to identify                   |
+| `projectors`, `surfaces`, `peers`, `faults` | their lights and words                            |
+| `section:<name>`                            | a package's rows (`section:fx`, `section:show` …) |
 
 PAGE + and PAGE − turn its pages (`live_page` reads `2/5`). While the show is armed the slots are frozen in place: lights, labels and pictures still move, positions do not, and a slot whose thing is gone reads REMOVED. RE-LAY (or disarming) lays the page out again. A slot that needs a hold says HOLD on a short press.
 
@@ -66,7 +66,7 @@ PAGE + and PAGE − turn its pages (`live_page` reads `2/5`). While the show is 
 
 ## Recipes
 
-These use only Companion 5.1's own expression functions.
+These use only Companion 5.1's own expression functions. The presets already breathe this way: Show Mode pulses while armed, the headline's ⚠ blinks on a fault, the Beat key pulses on the beat, and a projector's ground runs from red to green with its score.
 
 **An armed key breathes.** On a key's red frame, set the opacity to an expression:
 
@@ -92,11 +92,11 @@ colorMix('#E0342E', '#1E9E5A', $(local:score) / 100)
 $(playmap:video_remaining_s) <= 10 && $(playmap:video_playing) ? '#E0342E' : '#14161C'
 ```
 
-**One page, any projector.** Put the projector key on a page, set its `projector` option to `$(page:pm_projector)`, and set the page variable `pm_projector` to a projector's id (page variables are set with the internal action *Page Variable: Set value*). The same works for `pm_surface` and the Live page's `pm_live`.
+**One page, any projector.** Put the projector key on a page, set its `projector` option to `$(page:pm_projector)`, and set the page variable `pm_projector` to a projector's id (page variables are set with the internal action _Page Variable: Set value_). The same works for `pm_surface` and the Live page's `pm_live`.
 
-**GO on every page.** Copy the GO key, then *Paste as reference* on each page: one key, pressed and lit everywhere.
+**GO, PANIC and BLACKOUT on every page.** Copy the GO, PANIC and BLACKOUT keys, then _Paste as reference_ on each page: one key each, pressed and lit everywhere.
 
-**Triggers from the show.** A trigger with the condition *PlayMap: Event: happened just now* (`event_pulse`, kind `item.end`) turns the page or presses a key when an item ends; kind `fault.raised` pages the technician; *PlayMap: Show: armed* (`show_armed`) sends every surface to the Show page when the show is armed. `event_last_kind` changing is a `variable_changed` trigger.
+**Triggers from the show.** A trigger with the condition _PlayMap: Event: happened just now_ (`event_pulse`, kind `item.end`) turns the page or presses a key when an item ends; kind `fault.raised` pages the technician; kind `scan.done` sounds a beep; _PlayMap: Show: armed_ (`show_armed`) sends every surface to the Show page when the show is armed. `event_last_kind` changing is a `variable_changed` trigger.
 
 **Round a rate for a label.**
 
