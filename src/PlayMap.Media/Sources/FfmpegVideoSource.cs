@@ -105,6 +105,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
         var wake = new Action(() => _wake.Set());
         _queue = new FrameQueue(_options.Queue, _stats, wake);
         _pool = new FramePool(_queue.Capacity + 4, wake);
+        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate);
         _queue.SetLoopInitial(_options.Loop, _options.InNs, _options.OutNs);
         _thread = new Thread(Run) { IsBackground = true, Name = "decode " + System.IO.Path.GetFileName(path) };
         _thread.Start();
@@ -134,6 +135,9 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     /// <summary>The managed bytes the decode thread had allocated when it published its latest frame (the
     /// allocation-free frame path is measured by its staying flat).</summary>
     internal long DecodeThreadAllocatedBytes => Interlocked.Read(ref _threadAllocated);
+
+    /// <summary>The frame queue's lock (a test holds it to make the decode thread wait for it).</summary>
+    internal Lock QueueGate => _queue.Gate;
 
     /// <summary>Waits until the frame for the media time is decoded (preroll), or the timeout. Not for the
     /// render thread.</summary>
@@ -168,6 +172,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private void Run()
     {
+        LockWaits.PrepareThisThread();
         try
         {
             if (!Open())

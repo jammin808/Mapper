@@ -72,6 +72,12 @@ internal sealed class FrameQueue : IDisposable
     private long _durationNs;
     private long _loopSerial;
 
+    /// <summary>The lock both sides take (a test holds it to make the decode thread wait for it).</summary>
+    internal Lock Gate => _gate;
+
+    /// <summary>The lease pool's lock.</summary>
+    internal Lock LeaseGate => _leases.Gate;
+
     public FrameQueue(QueueSettings settings, SourceStats stats, Action wake)
     {
         _settings = settings;

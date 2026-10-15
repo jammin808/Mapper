@@ -15,6 +15,8 @@ internal sealed class SourceStats
     private long _dropped;
     private long _late;
 
+    internal Lock Gate => _gate;
+
     public long Decoded => Interlocked.Read(ref _decoded);
     public long Dropped => Interlocked.Read(ref _dropped);
     public long Late => Interlocked.Read(ref _late);
