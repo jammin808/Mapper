@@ -94,3 +94,10 @@ Round 2 W1 notes:
   over the wire (SUBSCRIBE CONTEXT); opening it is the owner's call. No verb accepts a changed fleet pin (the preflight row
   names keys/fleet-pins.json). The Patterns-side Eye patch is prepared for Patterns' maintainers and not applied (kept outside
   this tree).
+- wp2-control (merged): LTC readers open and close off the control loop through audio's capture hub ("<device>@<channel>");
+  PANIC BLACK, HARD, REWIND and NEXT disengage a chase (receipt `released`), CLEAR does not re-engage. Open: after a restart
+  the recovery record keeps which chases are disengaged but not that a panic did it (the words fall back to "plays by hand");
+  a device whose open never returns holds the hub's lock, so ControlService.DisposeAsync and the hub's Dispose wait on it
+  (needs a bounded open in audio's hub); an engine built without the audio part (tests only) has no hub, so LTC and TIMECODE
+  DEVICES say so. The context's command list sorts TIMECODE CHASE, ENGAGE and INTERNAL with the transport verbs, which moves
+  SYNC LEAD, SYNC FOLLOW and LINK PATTERNS out of the Eye's first 64 — which 64 the Eye sees is the owner's call.
