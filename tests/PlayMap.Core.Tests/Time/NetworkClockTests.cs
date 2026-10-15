@@ -147,7 +147,7 @@ public sealed class NetworkClockTests
     }
 
     [Fact]
-    public async Task APinnedInstantIsNowOnItsOwnThreadOnly()
+    public void APinnedInstantIsNowOnItsOwnThreadOnly()
     {
         var local = new ManualClock(1_000 * Ms);
         var clock = new NetworkClock(local);
@@ -157,7 +157,12 @@ public sealed class NetworkClockTests
             using (clock.Pin(99))
                 Assert.Equal(99, clock.NowNs);
             Assert.Equal(77, clock.NowNs);
-            Assert.Equal(1_000 * Ms, await Task.Run(() => clock.NowNs));
+            // Another thread reads the clock (a thread of its own: a pin is synchronous work's, never held across an await).
+            long other = 0;
+            var reader = new Thread(() => other = clock.NowNs);
+            reader.Start();
+            reader.Join();
+            Assert.Equal(1_000 * Ms, other);
             Assert.Equal(1_000 * Ms, new NetworkClock(local).NowNs);
         }
         Assert.Equal(1_000 * Ms, clock.NowNs);

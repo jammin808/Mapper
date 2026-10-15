@@ -244,7 +244,8 @@ public sealed class NetworkClock
     }
 
     /// <summary>Reads <paramref name="leaderNs"/> as now on this thread until the scope is disposed: a line that a group's leader
-    /// ran at an instant runs here as if at that instant (its fades start on the same frames). Other threads are not affected.</summary>
+    /// ran at an instant runs here as if at that instant (its fades start on the same frames). Other threads are not affected. The
+    /// pin belongs to synchronous work: a scope held across an await would leave the pin on a pool thread.</summary>
     public PinScope Pin(long leaderNs)
     {
         var scope = new PinScope(t_pinned, t_pinnedNs);
