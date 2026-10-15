@@ -89,7 +89,14 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
 
     /// <summary>The frame's air is drawn (its outputs and sends): live inputs drawn from here until the next frame — previews — are
     /// drawn for preview, not for program (tally).</summary>
-    public void EndAir() => _air = false;
+    public void EndAir()
+    {
+        _air = false;
+        AirEnds++;
+    }
+
+    /// <summary>Frames whose air was marked ended (render thread writes; read by tests and health).</summary>
+    public long AirEnds { get; private set; }
 
     /// <summary>Why a library item could not be opened, or null.</summary>
     public string? Problem(string mediaOrItemId) =>

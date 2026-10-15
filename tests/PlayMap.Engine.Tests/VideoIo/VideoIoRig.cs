@@ -41,9 +41,14 @@ internal sealed class FakeVideoProvider(LiveProtocol protocol, IMonoClock clock)
         EndpointsChanged?.Invoke();
     }
 
+    /// <summary>Words the next receivers say at once (the protocol made them, and they failed), or "".</summary>
+    public string FailOnOpen { get; set; } = "";
+
     public ILiveSource Open(string address, bool byUrl, LiveSettings settings, string key)
     {
         var s = new FakeLiveSource(protocol, key, settings, clock, address);
+        if (FailOnOpen.Length > 0)
+            s.Says(FailOnOpen);
         Opened.Add(s);
         return s;
     }

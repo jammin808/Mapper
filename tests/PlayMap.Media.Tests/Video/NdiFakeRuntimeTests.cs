@@ -254,6 +254,31 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         Assert.Equal((ColorMatrix.Bt601, TransferFunction.Hlg), Tagged("<ndi_color_info transfer=\"bt_2100_hlg\" matrix=\"bt_601\"/>", 1920, 1080));
         // Other metadata is no colour: the size's rule stands.
         Assert.Equal((ColorMatrix.Bt709, TransferFunction.Sdr), Tagged("<ndi_capabilities ntk_ptz=\"true\"/>", 1280, 720));
+        // Either quote and spaces around '=' are XML; only the colour element's own attributes count.
+        Assert.Equal((ColorMatrix.Bt2020, TransferFunction.Pq), Tagged("<ndi_color_info transfer = 'bt_2100_pq' matrix='bt_2020'/>", 1920, 1080));
+        Assert.Equal((ColorMatrix.Bt709, TransferFunction.Sdr),
+            Tagged("<ndi_metadata_group><ndi_color_info transfer=\"bt_709\" matrix=\"bt_709\"/><grade lut=\"bt_2100_pq\" matrix=\"bt_2020\"/></ndi_metadata_group>", 3840, 2160));
+    }
+
+    [NdiFact]
+    public async Task ABgraSendCarriesNoYuvTagAndAConfigurationThatCannotBeWrittenIsSaidNotThrown()
+    {
+        // The configuration folder is a file: NDI runs (on mDNS and the public group) and says why its groups are not applied.
+        var blocked = Path.Combine(_config, "not-a-folder");
+        await File.WriteAllTextAsync(blocked, "");
+        using var ndi = new NdiProvider(new NdiOptions(FakeNdi.Folder63, "", "stage", blocked), MonoClock.Instance);
+        Assert.Equal("ready", ndi.Status.State);
+        Assert.Contains("could not be written", ndi.Status.Words, StringComparison.Ordinal);
+        const int w = 64, h = 16;
+        using var sink = ndi.Create(new SendSpec("sd_b", "Rgb", w, h, 60, 1, SendFormat.Bgra8, "default", "", "", true));
+        using var source = ndi.Open("FAKEHOST (Rgb)", byUrl: false, LiveSettings.Default, "md_rgb");
+        var bytes = Enumerable.Repeat((byte)0x80, w * h * 4).ToArray();
+        sink.Offer(new ArrayFrame(bytes, w, h, SendFormat.Bgra8, 16_666_600, 4 * w));
+        await Until(() => source.Live.Received >= 1, "the BGRA frame received");
+        using var lease = source.Acquire(0)!;
+        Assert.Equal(PixelLayout.Bgra8, lease.Layout);
+        // No tag: the runtime's own rule by size reads a 64×16 frame as BT.601 (a YUV send at this size says BT.709).
+        Assert.Equal(ColorMatrix.Bt601, lease.Matrix);
     }
 
     [NdiFact]

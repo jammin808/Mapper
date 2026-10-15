@@ -82,6 +82,11 @@ internal sealed class LiveInput
     /// once per loss, cleared when the feed is back).</summary>
     public string Loss { get; set; } = "";
 
+    /// <summary>The settings and project the loss route was worked out for (the route is worked out again when either moves).</summary>
+    public LiveSettings? LossFor { get; set; }
+
+    public Project? LossIn { get; set; }
+
     /// <summary>When the feed has been steady since, while a loss holds (long.MinValue when not counting).</summary>
     public long SteadySinceNs { get; set; } = long.MinValue;
 

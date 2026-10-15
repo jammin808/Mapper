@@ -140,8 +140,9 @@ public sealed class OmtLoopbackTests
     }
 }
 
-/// <summary>A live input on the air through the render host: drawn by an output, it is on program (the frame's air drew it) and a warm
-/// frame allocates nothing on the render thread, with the hub made before the host starts as the node's own extension makes it.</summary>
+/// <summary>A live input on the air through the render host: drawn by an output, it is on program (the frame's air drew it), the last
+/// pass marks each frame's air ended on the host's own sources (so what is drawn after it, the previews, is preview), and a warm frame
+/// allocates nothing on the render thread with the hub made before the frames run.</summary>
 [Collection("render host")]
 public sealed class LiveOnAirHostTests
 {
@@ -170,7 +171,10 @@ public sealed class LiveOnAirHostTests
         host.Start(engine);
         try
         {
+            var endsBefore = host.AirEnds;
             await host.FramesAsync(40).WaitAsync(HostRig.Patience);
+            // Every frame's air was marked ended on the sources the frame drew from.
+            Assert.True(host.AirEnds - endsBefore >= 39, $"{host.AirEnds - endsBefore} air ends in 40 frames");
             engine.VideoIo.Tick();
             engine.FactsChanged();
             var row = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").GetProperty("inputs")[0];

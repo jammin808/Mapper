@@ -68,14 +68,15 @@ internal sealed class SendsIndex(EngineCore engine) : IIndexContributor
         foreach (var send in project.Sends)
         {
             slots.TryGetValue(send.Id, out var slot);
-            var failed = slot is { Problem.Length: > 0 };
+            // Lit as the context lights it, from the same state.
+            var (state, _) = EngineCore.SendState(send, slot);
             w.WriteStartObject();
             w.WriteString("id", send.Id);
             w.WriteString("kind", "send");
             w.WriteString("label", send.Name);
             w.WriteString("parent", SendShape.TryTap(send.Tap, out var kind, out var target, out _, out _) && kind != SendTapKind.Source ? target : "");
-            w.WriteString("light", !send.Enabled ? "grey" : failed ? "red" : "green");
-            w.WriteString("state", !send.Enabled ? "off" : failed ? "failed" : "on");
+            w.WriteString("light", state switch { "failed" => "red", "sending" or "idle" => "green", _ => "grey" });
+            w.WriteString("state", state);
             w.WriteEndObject();
         }
         w.WriteEndArray();

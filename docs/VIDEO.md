@@ -28,10 +28,12 @@ media item shows it: a surface, an output in source mode, a playlist item, a pre
   pair's and the next) into the picture the renderer samples; `PackReference.Unpack` is its CPU twin.
 - **Health.** The state follows the age of the newest frame on the node's monotonic clock: `ok`, `stale` past three periods of its
   own measured rate (or `StaleMs`), `lost` past `LostMs` (1 s), `failed` with the protocol's words. `INPUT RECONNECT` closes and
-  reopens the receiver (refused while it delivers) and answers at the first frame.
+  reopens the receiver (refused while it delivers, and for a cold input nothing shows) and answers at the first frame, or is refused
+  with the protocol's words when it will not make the receiver.
 - **Tally.** The hub sees every consumer: an input the renderer drew into the air (an output or a send) in the last 250 ms is on
-  program unless the air is blacked out; one drawn otherwise (a preview, the multiview, a scan camera) is on preview. The sender is
-  told on change (NDI `recv_set_tally`, OMT `SetTally`), and the feed not in use is told it is on nothing.
+  program unless the air is blacked out (the frame's last pass marks the end of its air); one drawn otherwise (the desk's editor and
+  projector views, any other consumer that holds the input) is on preview. The sender is told on change (NDI `recv_set_tally`, OMT
+  `SetTally`), and the feed not in use is told it is on nothing.
 - **The loss policy.** The feed in use is lost when its receiver says lost or failed, when it could not open, or when it has given
   no frame `LostMs` after it opened. A **backup** feed (`INPUT BACKUP`, warm beside the primary) takes over when the feed in use is
   lost and the other delivers — a pointer swap at each consumer's next acquire, journalled and raised once. A switch only ever
@@ -56,9 +58,11 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   are counted. A frame due while every slot is still with the sender is counted busy, never waited for.
 - **What the air shows.** An output tap is the output's final raster, so blackout, freeze, the test pattern, a safe look, the
   master and panic gain and covered or held outputs reach the send exactly as they reach the projector; a disabled output's tap
-  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what every output takes: black in a
-  blackout, the test pattern or safe look while it covers every output, a hold while every output holds, and the brightest
-  output's gain (its signal scaled as an output's final stage scales its own), so it is dark only when every output is.
+  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what the outputs that show the show
+  take: black in a blackout, the safe look or the test pattern while it covers every output (the safe look first, as an output
+  decides, stretched over the picture), a hold while every output showing the show holds, and the brightest such output's gain
+  (its signal clamped and scaled as an output's final stage does). When no output shows the show and they do not share a safe
+  look (a mixed panic plan), it is black. A send larger than the GPU's textures is refused in words and never packed.
 - **Senders.** Each sender has a worker thread: the newest frame wins (an older one waiting is released and counted dropped), the
   frame is sent (OMT encodes VMX; NDI `send_send_video_async_v2`, each frame tagged BT.709 so no receiver guesses its colour from
   its size), and an idle sender releases what it holds after 200 ms. Receivers

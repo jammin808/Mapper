@@ -46,7 +46,8 @@ public sealed class SendPlanEntry
     /// <summary>Pack and read back only while a receiver is connected.</summary>
     public bool OnlyWhenWatched { get; init; } = true;
 
-    /// <summary>Blackout reaches a canvas or source tap too (an output tap is the output's own picture).</summary>
+    /// <summary>A canvas or source tap takes what the air does to the outputs: blackout, the pattern, the safe look, holds and the
+    /// air's gain (an output tap is the output's own picture, which has them already).</summary>
     public bool FollowAir { get; init; } = true;
 
     /// <summary>The sender, once made; null while it binds.</summary>
@@ -67,6 +68,12 @@ public sealed class SendPlanEntry
 
     /// <summary>Frames due while every read-back slot was still held by the sender.</summary>
     public long Busy => Volatile.Read(ref _busy);
+
+    /// <summary>Why the send cannot be packed on this GPU (its packed target is larger than the GPU's largest texture), or "": set once
+    /// by the render thread, read by STATE.</summary>
+    public string Refused { get; private set; } = "";
+
+    internal void Refuse(string words) => Refused = words;
 
     /// <summary>Frames due while the tap had no picture (an output off, a canvas not drawn): sent black.</summary>
     public long Blank => Volatile.Read(ref _blank);
@@ -91,14 +98,17 @@ public sealed class SendPlanEntry
 
     /// <summary>Whether a frame is due at a leader instant: frame k = ⌊leaderNs·N / (D·10⁹)⌋ fires once, when k passes the last
     /// sent, so nodes on one show clock send on one grid and a slower send decimates exactly. Render thread.</summary>
+    /// <summary>How far back (in frames of the send's grid) leader time may jitter before it counts as a step that re-arms the grid.</summary>
+    public const long RearmFrames = 2;
+
     public bool Due(long leaderNs)
     {
         if (FpsN <= 0 || FpsD <= 0)
             return false;
         var k = (long)Math.Floor(leaderNs * (double)FpsN / (FpsD * 1e9));
-        // Leader time that went back more than a second (a node that joined a leader with an earlier epoch) re-arms the grid,
-        // rather than holding the send until time passes where it was.
-        if (k <= LastK && LastK - k <= Math.Max(1, FpsN / Math.Max(1, FpsD)))
+        // Leader time that went back more than a couple of frames (a node that joined a leader with an earlier epoch) re-arms the
+        // grid at once, rather than holding the send until time passes where it was; a frame or two back is jitter, not a step.
+        if (k <= LastK && LastK - k <= RearmFrames)
             return false;
         LastK = k;
         return true;
@@ -167,8 +177,11 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 entry.CountBusy();
                 continue;
             }
-            // A hold on every output (FREEZE, or a FREEZE outcome) holds a send that follows the air as it holds an output: its last
-            // packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
+            // A packed target larger than this GPU's textures is refused once, in words, never thrown on the render thread each frame.
+            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device))
+                continue;
+            // A hold on every output that shows the show (FREEZE, or a FREEZE outcome) holds a send that follows the air as it holds an
+            // output: its last packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
             var follows = entry.Kind != SendTapKind.Output && entry.FollowAir;
             var held = follows && _airHeld && !frame.Blackout
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
@@ -180,10 +193,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
             }
             else
             {
-                var picture = Tap(entry, in frame);
+                var picture = Tap(entry, in frame, out var fit);
                 if (picture is null)
                     entry.CountBlank();
-                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, entry.Fit, follows ? _airGain : 1f);
+                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
             }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
             ring.Request(packed, entry.Format, entry.Width, entry.Height, bytes, stride, frame.LeaderNs, entry.FpsN, entry.FpsD);
@@ -191,9 +204,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         }
     }
 
-    /// <summary>What the air does to every output this frame: the brightest output's gain, the safe look when every output shows the
-    /// same one, and whether every output holds. With no enabled output (or no levels) the air is untouched but for FREEZE.
-    /// Allocation-free.</summary>
+    /// <summary>What the air does to the show this frame, from the enabled outputs that show it (no safe look on them): the brightest
+    /// of their gains, and whether all of them hold. When no output shows the show (every one on a safe look), the safe look if they
+    /// all show the same one, at the brightest of their gains, else black. With no enabled output (or no levels) the air is untouched
+    /// but for FREEZE. Allocation-free.</summary>
     private void ReadAir(in Engine.PassFrame frame)
     {
         _airGain = 1;
@@ -202,44 +216,81 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         if (frame.Levels is not { } levels)
             return;
         var any = false;
-        var gain = 0f;
-        SourceRef? safe = null;
-        var allSafe = true;
+        var showing = false;
+        var showGain = 0f;
         var allHeld = true;
+        var safeGain = 0f;
+        SourceRef? safe = null;
+        var oneLook = true;
         foreach (var o in frame.Project.Outputs)
         {
             if (!o.Enabled)
                 continue;
             any = true;
-            gain = Math.Max(gain, levels.Gain(o.Id, frame.LeaderNs));
-            var look = levels.Override(o.Id, frame.LeaderNs);
-            if (look is not { IsNone: false } || (safe is not null && !Equals(safe, look)))
-                allSafe = false;
-            else
-                safe ??= look;
+            var gain = levels.Gain(o.Id, frame.LeaderNs);
+            if (levels.Override(o.Id, frame.LeaderNs) is { IsNone: false } look)
+            {
+                safeGain = Math.Max(safeGain, gain);
+                if (safe is null)
+                    safe = look;
+                else if (!Equals(safe, look))
+                    oneLook = false;
+                continue;
+            }
+            showing = true;
+            showGain = Math.Max(showGain, gain);
             allHeld &= frame.Held(o.Id);
         }
         if (!any)
             return;
-        _airGain = Math.Clamp(gain, 0f, 1f);
-        _airSafe = allSafe ? safe : null;
-        _airHeld = allHeld;
+        if (showing)
+        {
+            _airGain = Math.Clamp(showGain, 0f, 1f);
+            _airHeld = allHeld;
+            return;
+        }
+        _airSafe = oneLook ? safe : null;
+        _airGain = oneLook ? Math.Clamp(safeGain, 0f, 1f) : 0f;
+        _airHeld = false;
+    }
+
+    /// <summary>Whether this entry's targets (its packed target, and the picture scaled to its size) are larger than this GPU's
+    /// largest texture; refuses it once, in words, when they are.</summary>
+    private static bool TooLarge(SendPlanEntry entry, Gpu.GlDevice device)
+    {
+        var (tw, th) = Video.PackPass.TargetSize(entry.Format, entry.Width, entry.Height);
+        var most = device.MaxTextureSize;
+        if (Math.Max(Math.Max(tw, th), Math.Max(entry.Width, entry.Height)) <= most)
+            return false;
+        entry.Refuse(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{entry.Name}: {entry.Width}×{entry.Height} packs into a {tw}×{th} target, larger than this GPU's {most}"));
+        return true;
     }
 
     /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster, so blackout, a test
     /// pattern or a safe look on it, its gain and a hold reach the send exactly as they reach the output; a disabled output sends
     /// black. A canvas or source tap that follows the air is black in blackout and shows the air's test pattern or safe look while it
     /// covers every output.</summary>
-    private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame)
+    private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
     {
+        fit = entry.Fit;
         if (entry.Kind != SendTapKind.Output && entry.FollowAir)
         {
             if (frame.Blackout)
                 return null;
-            if (frame.PatternOverride is { IsNone: false } pattern && frame.PatternOutputs.IsDefaultOrEmpty)
-                return renderer.SourcePicture(pattern, entry.Width, entry.Height);
+            // As an output decides: the safe look before the pattern, each stretched over the whole picture as the output stage does.
             if (_airSafe is { } safe)
+            {
+                fit = SendFit.Stretch;
                 return renderer.SourcePicture(safe, entry.Width, entry.Height);
+            }
+            if (frame.PatternOverride is { IsNone: false } pattern && frame.PatternOutputs.IsDefaultOrEmpty)
+            {
+                fit = SendFit.Stretch;
+                return renderer.SourcePicture(pattern, entry.Width, entry.Height);
+            }
+            if (_airGain <= 0)
+                return null;
         }
         return entry.Kind switch
         {

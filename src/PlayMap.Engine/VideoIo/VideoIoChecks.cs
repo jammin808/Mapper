@@ -35,10 +35,13 @@ internal static class VideoIoChecks
             var id = $"videoio.{name.ToLowerInvariant()}.runtime";
             var why = hub.Unavailable(protocol, sending: false) ?? hub.Unavailable(protocol, sending: true);
             var status = hub.InputProvider(protocol)?.Status ?? hub.SendProvider(protocol)?.Status;
-            rows.Add(why is null
-                ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Green, "ready",
-                    status is { Version.Length: > 0 } ? $"{name} {status.Version}" + (status.Path.Length > 0 ? $" at {status.Path}" : "") : $"{name} is ready", null)
-                : new PreflightRow(id, node, Section, $"{name} runtime", Light.Red, "missing", why, FixFor(protocol, hub.Settings)));
+            var ready = status is { Version.Length: > 0 } ? $"{name} {status.Version}" + (status.Path.Length > 0 ? $" at {status.Path}" : "") : $"{name} is ready";
+            rows.Add(why is not null
+                ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Red, "missing", why, FixFor(protocol, hub.Settings))
+                // Running now, off from the next start: the show's inputs and sends of it will receive and send nothing after a restart.
+                : hub.OffAtNextStart(protocol) is { } off
+                    ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Amber, "off at next start", $"{ready} — {off}", FixFor(protocol, hub.Settings))
+                    : new PreflightRow(id, node, Section, $"{name} runtime", Light.Green, "ready", ready, null));
         }
         foreach (var input in inputs)
         {
@@ -68,8 +71,8 @@ internal static class VideoIoChecks
             if (!slot.Send.Enabled)
                 continue;
             var id = "videoio.send." + slot.Send.Id;
-            if (slot.Problem.Length > 0)
-                rows.Add(new PreflightRow(id, node, Section, slot.Send.Name, Light.Red, "failed", slot.Problem, $"SEND ENABLE {slot.Send.Id} OFF"));
+            if ((slot.Problem.Length > 0 ? slot.Problem : slot.Plan?.Refused ?? "") is { Length: > 0 } failed)
+                rows.Add(new PreflightRow(id, node, Section, slot.Send.Name, Light.Red, "failed", failed, $"SEND ENABLE {slot.Send.Id} OFF"));
             else if (slot.Sink is { } sink)
                 rows.Add(new PreflightRow(id, node, Section, slot.Send.Name, Light.Green, "sending",
                     $"{sink.FullName} · {sink.Connections} receiver{(sink.Connections == 1 ? "" : "s")}", null));

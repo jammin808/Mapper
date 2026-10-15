@@ -289,23 +289,30 @@
   "videoio": {
     "ndi": {
       "state": "absent",
-      "atNextStart": "on",
       "version": "",
       "path": "",
       "words": "NDI is not available on this node: no NDI runtime was loaded \u2014 install the NDI 6 runtime (https://ndi.video) and set PLAYMAP_NDI_DIR to its folder",
       "link": "https://ndi.video",
       "groups": "",
       "discovery": "",
-      "advertisers": false
+      "advertisers": false,
+      "next": {
+        "state": "on",
+        "groups": "",
+        "discovery": ""
+      }
     },
     "omt": {
       "state": "failed",
-      "atNextStart": "on",
       "version": "",
       "vmx": "missing",
       "mdns": "none",
       "server": "",
-      "words": "OMT is not available on this node"
+      "words": "OMT is not available on this node",
+      "next": {
+        "state": "on",
+        "server": ""
+      }
     },
     "spout": {
       "state": "unavailable",

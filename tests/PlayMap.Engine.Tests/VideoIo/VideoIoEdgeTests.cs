@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Preflight;
 using PlayMap.Engine.Playback;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.VideoIo;
@@ -108,7 +109,109 @@ public sealed class VideoIoEdgeTests
         rig.Omt.Opened.Single().Push();
         rig.AdvanceMs(1_200);
         rig.Omt.Status = new ProviderStatus("failed", "", "", "the codec went away", "");
-        Assert.Equal("the codec went away", await rig.Refused($"INPUT RECONNECT {id}"));
+        Assert.Equal("Cam 1: the codec went away", await rig.Refused($"INPUT RECONNECT {id}"));
+        // The attempt is journalled before the old receiver goes, refused or not.
+        Assert.Contains(rig.Engine.Journal.Recent(50), j => j.Kind == "videoio" && j.Text == "PlayMapDesk reconnects Cam 1");
+        // The protocol is back: tried again, never refused from memory; a receiver that fails at once is refused with its words.
+        rig.Omt.Status = new ProviderStatus("ready", "fake 1.0", "/fake/omt", "", "");
+        rig.Omt.FailOnOpen = "no route to STUDIO";
+        Assert.Equal("Cam 1: no route to STUDIO", await rig.Refused($"INPUT RECONNECT {id}"));
+        rig.Omt.FailOnOpen = "";
+        var reconnect = rig.Run($"INPUT RECONNECT {id}");
+        while (!reconnect.IsCompleted)
+        {
+            rig.Omt.Opened[^1].Push();
+            await Task.Yield();
+        }
+        Assert.Equal("reconnected Cam 1: frames are arriving", (await reconnect).Effect);
+    }
+
+    [Fact]
+    public async Task AColdInputNothingShowsIsNotReconnected()
+    {
+        await using var rig = new VideoIoRig();
+        var cold = VideoIoRig.IdOf(await rig.Ok("INPUT ADD \"omt:STUDIO (Cam 3)\" COLD"));
+        Assert.Equal("Cam 3 is cold and nothing shows it — it connects when something does", await rig.Refused($"INPUT RECONNECT {cold}"));
+        Assert.Equal("every open live input delivers — nothing to reconnect", await rig.Refused("INPUT RECONNECT ALL"));
+        Assert.Empty(rig.Omt.Opened);
+    }
+
+    [Fact]
+    public async Task AProtocolOffFromTheNextStartTakesNoNewWorkWhicheverVerbAsks()
+    {
+        await using var rig = new VideoIoRig();
+        var id = VideoIoRig.IdOf(await rig.Ok("INPUT ADD \"omt:STUDIO (Cam 1)\""));
+        var send = VideoIoRig.IdOf(await rig.Ok("SEND ADD OMT Main output:op_1"));
+        await rig.Ok($"SEND ENABLE {send} OFF");
+        await rig.Ok("VIDEOIO SET OMT OFF");
+        const string off = "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it";
+        Assert.Equal(off, await rig.Refused($"INPUT BACKUP {id} \"omt:STUDIO2 (Cam 1)\""));
+        Assert.Contains(off, await rig.Refused($"SET {send} enabled true"), StringComparison.Ordinal);
+        Assert.Contains(off, await rig.Refused("ADD send {\"name\":\"Other\",\"protocol\":\"omt\",\"tap\":\"output:op_1\",\"enabled\":true}"),
+            StringComparison.Ordinal);
+        Assert.Contains(off, await rig.Refused("ADD media {\"name\":\"Cam 9\",\"kind\":\"stream\",\"location\":\"omt:STUDIO (Cam 9)\"}"),
+            StringComparison.Ordinal);
+        // What runs is untouched: the input still has its receiver, and an edit of it that adds no new work is taken.
+        await rig.Ok($"SET {id} name \"Cam A\"");
+        Assert.False(rig.Omt.Opened.Single().Closed);
+        // STATE says what runs and what the next start brings; preflight warns, amber, with the line that keeps it.
+        var omt = rig.State().GetProperty("omt");
+        Assert.Equal("ready", omt.GetProperty("state").GetString());
+        Assert.Equal("off", omt.GetProperty("next").GetProperty("state").GetString());
+        var row = (await new VideoIoPreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false),
+            CancellationToken.None)).Single(r => r.Id == "videoio.omt.runtime");
+        Assert.Equal((Light.Amber, "off at next start", "VIDEOIO SET OMT ON"), (row.Light, row.Value, row.Fix));
+    }
+
+    [Fact]
+    public async Task ASendTapsSomethingRealAndALargerOutputIsHeldToTheGuard()
+    {
+        await using var rig = new VideoIoRig(settings: VideoIoSettings.Default with { MaxSendMbps = 150 });
+        Assert.Equal("Main taps media:md_typo0001, which is not in the project", await rig.Refused("SEND ADD NDI Main source:media:md_typo0001"));
+        var a = VideoIoRig.IdOf(await rig.Ok("SEND ADD OMT A output:op_1"));
+        await rig.Ok($"SEND ENABLE {a} OFF");
+        await rig.Ok($"SET {a} tap \"output:op_9\"");
+        Assert.Equal("A taps output op_9, which is not in the project", await rig.Refused($"SEND ENABLE {a} ON"));
+        await rig.Ok($"SET {a} tap \"output:op_1\"");
+        await rig.Ok($"SEND ENABLE {a} ON");
+        Assert.Contains("taps nothing", await rig.Refused("ADD send {\"name\":\"Empty\",\"protocol\":\"omt\",\"enabled\":true}"), StringComparison.Ordinal);
+        // op_1 at 1280×720@60 ≈ 88 Mb/s; 2560 wide would make the send ≈ 177 Mb/s, past the 150 limit.
+        Assert.StartsWith("1 send ≈ 177 Mb/s > 150 Mb/s", await rig.Refused("SET op_1 width 2560"), StringComparison.Ordinal);
+        await rig.Ok("SET op_1 width 640");
+    }
+
+    [Fact]
+    public async Task AnUnfitFallbackNeverBlocksAnEditThatLeavesItAlone()
+    {
+        var project = VideoIoRig.Show() with
+        {
+            Media =
+            [
+                Stream("md_cam", "omt:STUDIO (Cam 1)") with { Live = LiveSettings.Default with { OnLoss = LiveLoss.Fallback, Fallback = "playlist:pl_cams" } },
+                Stream("md_cam2", "omt:STUDIO (Cam 2)"),
+            ],
+            Playlists = [new Playlist("pl_cams", "Cams", [PlaylistItem.For("it_1", SourceRef.Media("md_cam2"), "Cam 2")], false, null)],
+        };
+        await using var rig = new VideoIoRig(project);
+        await rig.Ok("SET md_cam name \"Cam A\"");
+        await rig.Ok("SET md_cam live {\"onLoss\":\"fallback\",\"fallback\":\"playlist:pl_cams\",\"lostMs\":500}");
+        // A fallback set or changed is checked: a live one is refused.
+        Assert.Contains("never a live input", await rig.Refused("SET md_cam live {\"onLoss\":\"fallback\",\"fallback\":\"media:md_cam2\"}"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task VideoIoSetSpoutWithNoSpoutProviderIsRefusedAndAGpuProvidersSendSaysWhyItSendsNothing()
+    {
+        await using var bare = new VideoIoRig();
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal("Spout is Windows only", await bare.Refused("VIDEOIO SET SPOUT OFF"));
+        await using var rig = new VideoIoRig(gpu: new GpuProvider());
+        await rig.Ok("VIDEOIO SET SPOUT OFF");
+        var id = VideoIoRig.IdOf(await rig.Ok("SEND ADD SPOUT Main output:op_1"));
+        var row = rig.Send(id);
+        Assert.Equal("failed", row.GetProperty("state").GetString());
+        Assert.Equal("Spout sends are drawn by Spout's own GPU stage, which this node does not run", row.GetProperty("words").GetString());
     }
 
     [Fact]
@@ -233,16 +336,5 @@ public sealed class VideoIoEdgeTests
         rig.Engine.VideoIo.Tick();
         Assert.Equal("black", rig.Input("md_cam").GetProperty("loss").GetString());
         Assert.Equal(SourceRef.None, rig.Engine.VideoIo.InputOf("md_cam")!.LossRoute);
-    }
-
-    [Fact]
-    public async Task AGpuSendProvidersProtocolIsNotFailedForHavingNoReadBackSender()
-    {
-        await using var rig = new VideoIoRig(gpu: new GpuProvider());
-        var id = VideoIoRig.IdOf(await rig.Ok("SEND ADD SPOUT Main output:op_1"));
-        var row = rig.Send(id);
-        Assert.NotEqual("failed", row.GetProperty("state").GetString());
-        Assert.Equal("", row.GetProperty("words").GetString());
-        Assert.Empty(rig.Engine.VideoIo.Plan);
     }
 }

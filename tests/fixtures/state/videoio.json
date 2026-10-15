@@ -2,23 +2,30 @@
   "videoio": {
     "ndi": {
       "state": "ready",
-      "atNextStart": "on",
       "version": "fake 1.0",
       "path": "/fake/ndi",
       "words": "",
       "link": "https://ndi.video",
       "groups": "",
       "discovery": "",
-      "advertisers": false
+      "advertisers": false,
+      "next": {
+        "state": "on",
+        "groups": "",
+        "discovery": ""
+      }
     },
     "omt": {
       "state": "ready",
-      "atNextStart": "on",
       "version": "fake 1.0",
       "vmx": "avx2",
       "mdns": "none",
       "server": "",
-      "words": ""
+      "words": "",
+      "next": {
+        "state": "on",
+        "server": ""
+      }
     },
     "spout": {
       "state": "unavailable",

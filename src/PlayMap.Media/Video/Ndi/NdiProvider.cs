@@ -22,6 +22,7 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
 {
     private readonly IMonoClock _clock;
     private readonly NdiOptions _options;
+    private readonly string _configWhy = "";
     private readonly NdiRuntime? _runtime;
     private readonly string _why;
     private readonly Lock _gate = new();
@@ -41,8 +42,15 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
         _clock = clock;
         _groups = options.Groups.Length > 0 ? Marshal.StringToCoTaskMemUTF8(options.Groups) : 0;
         // The configuration (discovery server, groups) is in place before the runtime is loaded and initialised, whichever of the
-        // two reads it.
-        WriteConfig();
+        // two reads it; one that cannot be written is said, and NDI runs on mDNS and the public group.
+        try
+        {
+            WriteConfig();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _configWhy = $"NDI's discovery and groups are not applied: its configuration could not be written in {_options.ConfigFolder} ({ex.Message})";
+        }
         _runtime = NdiRuntime.Load(options.RuntimePath, out _why);
         if (_runtime is null)
             return;
@@ -67,7 +75,7 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
     public LiveProtocol Protocol => LiveProtocol.Ndi;
 
     public ProviderStatus Status => _initialized
-        ? new ProviderStatus("ready", _runtime!.Version, _runtime.Path, "", NdiRuntime.Link)
+        ? new ProviderStatus("ready", _runtime!.Version, _runtime.Path, _configWhy, NdiRuntime.Link)
         : new ProviderStatus(_runtime is null ? "absent" : "failed", _runtime?.Version ?? "", _runtime?.Path ?? "", _why, NdiRuntime.Link);
 
     public bool Advertising => _sendAdvertiser != 0 && _recvAdvertiser != 0;
@@ -247,6 +255,9 @@ internal sealed unsafe class NdiSource : LiveSource
     private int _weaveWidth;
     private int _weaveHeight;
     private long _weaveStamp;
+    private ColorMatrix _weaveMatrix;
+    private TransferFunction _weaveTransfer;
+    private bool _fieldLost;
 
     public NdiSource(NdiProvider provider, NdiRuntime runtime, string address, bool byUrl, LiveSettings settings, string key, IMonoClock clock)
         : base(LiveProtocol.Ndi, key, settings, clock)
@@ -353,19 +364,26 @@ internal sealed unsafe class NdiSource : LiveSource
         {
             if (!_weaving || _weaveLayout != layout || _weaveWidth != w || _weaveHeight != h)
             {
+                // A field 1 whose field 0 already counted as lost (no slot for it) is the same lost picture, counted once.
+                if (!_fieldLost)
+                    CountDropped();
+                _fieldLost = false;
                 AbandonWeave();
-                CountDropped();
                 return;
             }
             _weaving = false;
             CopyRows(in frame, layout, w, h, 1, 2);
-            PublishFrame(frame.Metadata, layout, w, height, _weaveStamp);
+            // The frame's colour: field 1's tag, else field 0's, else the size's rule.
+            var (matrix, transfer) = frame.Metadata != 0 ? ColorInfo(frame.Metadata, w, height) : (_weaveMatrix, _weaveTransfer);
+            PublishFrame(layout, w, height, _weaveStamp, matrix, transfer);
             return;
         }
         AbandonWeave();
+        _fieldLost = false;
         if (!Pool.TryBeginWrite(layout, w, height, out var planes))
         {
-            CountDropped();
+            // The pool counted the drop.
+            _fieldLost = field;
             return;
         }
         _planeCount = planes.Length;
@@ -376,12 +394,14 @@ internal sealed unsafe class NdiSource : LiveSource
         }
         CopyRows(in frame, layout, w, h, 0, field ? 2 : 1);
         var stamp = frame.Timestamp == NdiTimestamps.Undefined || frame.Timestamp <= 0 ? long.MinValue : frame.Timestamp * 100;
+        var (colour, curve) = ColorInfo(frame.Metadata, w, height);
         if (field)
         {
             (_weaving, _weaveLayout, _weaveWidth, _weaveHeight, _weaveStamp) = (true, layout, w, h, stamp);
+            (_weaveMatrix, _weaveTransfer) = (colour, curve);
             return;
         }
-        PublishFrame(frame.Metadata, layout, w, height, stamp);
+        PublishFrame(layout, w, height, stamp, colour, curve);
     }
 
     /// <summary>Copies a frame's (or a field's) rows into the planes being written: row y to row y·step + offset. NDI lays planes one
@@ -401,12 +421,11 @@ internal sealed unsafe class NdiSource : LiveSource
         }
     }
 
-    private void PublishFrame(nint metadata, PixelLayout layout, int w, int h, long stamp)
+    private void PublishFrame(PixelLayout layout, int w, int h, long stamp, ColorMatrix matrix, TransferFunction transfer)
     {
         long bytes = 0;
         for (var i = 0; i < _planeCount; i++)
             bytes += (long)_planeStride[i] * h;
-        var (matrix, transfer) = ColorInfo(metadata, w, h);
         var arrival = Clock.NowNs;
         Pool.Publish(stamp, arrival, matrix, ColorRange.Limited, transfer);
         Delivered(layout, w, h, bytes, arrival);
@@ -432,19 +451,55 @@ internal sealed unsafe class NdiSource : LiveSource
         if (metadata == 0)
             return (matrix, transfer);
         var text = MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)metadata);
-        if (text.IndexOf("ndi_color_info"u8) < 0)
+        // Only the ndi_color_info element's own attributes count (it may sit in an ndi_metadata_group beside other elements).
+        var at = text.IndexOf("<ndi_color_info"u8);
+        if (at < 0)
             return (matrix, transfer);
-        if (text.IndexOf("bt_2100_pq"u8) >= 0)
+        var element = text[at..];
+        var close = element.IndexOf((byte)'>');
+        if (close > 0)
+            element = element[..close];
+        var curve = Attribute(element, "transfer"u8);
+        if (curve.SequenceEqual("bt_2100_pq"u8))
             transfer = TransferFunction.Pq;
-        else if (text.IndexOf("bt_2100_hlg"u8) >= 0)
+        else if (curve.SequenceEqual("bt_2100_hlg"u8))
             transfer = TransferFunction.Hlg;
-        if (text.IndexOf("matrix=\"bt_2020\""u8) >= 0 || text.IndexOf("matrix=\"bt_2100\""u8) >= 0)
+        var coefficients = Attribute(element, "matrix"u8);
+        if (coefficients.SequenceEqual("bt_2020"u8) || coefficients.SequenceEqual("bt_2100"u8))
             matrix = ColorMatrix.Bt2020;
-        else if (text.IndexOf("matrix=\"bt_601\""u8) >= 0)
+        else if (coefficients.SequenceEqual("bt_601"u8))
             matrix = ColorMatrix.Bt601;
-        else if (text.IndexOf("matrix=\"bt_709\""u8) >= 0)
+        else if (coefficients.SequenceEqual("bt_709"u8))
             matrix = ColorMatrix.Bt709;
         return (matrix, transfer);
+    }
+
+    /// <summary>An XML attribute's value in an element (name = "value" or 'value', spaces allowed around the =), or empty.</summary>
+    private static ReadOnlySpan<byte> Attribute(ReadOnlySpan<byte> element, ReadOnlySpan<byte> name)
+    {
+        var from = 0;
+        while (from < element.Length)
+        {
+            var i = element[from..].IndexOf(name);
+            if (i < 0)
+                return default;
+            i += from;
+            from = i + name.Length;
+            // A whole attribute name: not the tail of another.
+            if (i > 0 && element[i - 1] is not ((byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r'))
+                continue;
+            var rest = element[from..].TrimStart(" \t\r\n"u8);
+            if (rest.IsEmpty || rest[0] != (byte)'=')
+                continue;
+            rest = rest[1..].TrimStart(" \t\r\n"u8);
+            if (rest.IsEmpty || rest[0] is not ((byte)'"' or (byte)'\''))
+                continue;
+            var quote = rest[0];
+            rest = rest[1..];
+            var end = rest.IndexOf(quote);
+            return end < 0 ? default : rest[..end];
+        }
+        return default;
     }
 
     protected override void Close()
@@ -523,9 +578,10 @@ internal sealed unsafe class NdiSink : SendSink
             Timecode = frame.LeaderNs / 100,
             Data = frame.Data,
             LineStrideInBytes = frame.Stride,
-            // PlayMap packs BT.709 limited range at every size: said on every frame, since without it a receiver reads a UHD frame as
-            // Rec.2020 and an SD one as BT.601. The literal is the assembly's own read-only data, valid for as long as NDI reads it.
-            Metadata = (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(ColorTag)),
+            // PlayMap packs YUV in BT.709 limited range at every size: said on every such frame, since without it a receiver reads a UHD
+            // frame as Rec.2020 and an SD one as BT.601. A BGRA frame is RGB, which the runtime converts by its own rule: no tag. The
+            // literal is the assembly's own read-only data, valid for as long as NDI reads it.
+            Metadata = frame.Format == SendFormat.Bgra8 ? 0 : (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(ColorTag)),
             Timestamp = 0,
         };
         _runtime.SendVideoAsync(_send, &video);

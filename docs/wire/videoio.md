@@ -16,7 +16,7 @@ or "no Spout provider on this node".
 | `INPUT FALLBACK` | `INPUT FALLBACK <input> HOLD\|BLACK\|<source>` | effect "Cam 1 on loss: shows Standby loop" | review | yes |
 | `INPUT BACKUP` | `INPUT BACKUP <input> <uri>\|OFF` | effect | review | yes |
 | `INPUT SWITCH` | `INPUT SWITCH <input> PRIMARY\|BACKUP` | `{"using","firstFrameMs"}` at the next frame (off the lane) | high | yes |
-| `INPUT RECONNECT` | `INPUT RECONNECT <input>\|ALL` | effect at the first frame, else accepted (off the lane) | high | yes |
+| `INPUT RECONNECT` | `INPUT RECONNECT <input>\|ALL` | effect at the first frame, else accepted; refused with the protocol's words when it will not make the receiver (off the lane) | high | yes |
 | `SEND LIST` | `SEND LIST` | `STATE.videoio.sends` | low | no |
 | `SEND ADD` | `SEND ADD NDI\|OMT\|SPOUT <name> <tap> [<w>x<h>] [@<fps>] [UYVY\|UYVA\|P216\|PA16\|BGRA8] [QUALITY LOW\|MEDIUM\|HIGH] [ALWAYS]` | `{"id","fullName","w","h","estMbps"}` | review | yes |
 | `SEND ENABLE` | `SEND ENABLE <send> ON\|OFF` | effect ("2 receivers lost this picture") | high (`ON` review) | yes |
@@ -40,7 +40,8 @@ cannot receive). `INPUT SWITCH` is a person's word: refused "already on its prim
 "Cam 1's backup has given no frame yet", "… has given no frame for 1.5 s"; answered at the next frame from the feed switched to,
 or accepted when none came in 3 s.
 
-**Sends.** A tap is `output:<id>` (the final picture of an output), `canvas:<id>` or `source:<sourceref>`; `prewarp:` is refused
+**Sends.** A tap is `output:<id>` (the final picture of an output), `canvas:<id>` or `source:<sourceref>`, and names something in
+the show; `prewarp:` is refused
 ("prewarp taps are next round"). The size defaults to the tap's (a source tap's to 1920×1080) and is fitted to the format: UYVY,
 P216 and PA16 to even widths, UYVA to a multiple of 4 — the effect says so ("1918 → 1916 (UYVA needs a multiple of 4)"). The rate
 defaults to the output's refresh, else the show's; 23.976, 29.97, 59.94 and 119.88 are sent as 1001 rationals. `QUALITY` is OMT's
@@ -49,30 +50,37 @@ defaults to the output's refresh, else the show's; 23.976, 29.97, 59.94 and 119.
 of a send (`SET sd… fps 120`, `ADD send {…}`) that would take the node's enabled sends past `MAX-SEND-MBPS`, or 70 % of the NIC's
 link when that is 0 ("3 sends ≈ 820 Mb/s > 700 Mb/s (70 % of eth0's 1000 Mb/s) — VIDEOIO SET MAX-SEND-MBPS <n> to allow more"); an
 edit that lowers the total is never refused. The estimate is OMT 0.8 / 1.6 / 2.4 bits a pixel (low / medium / high) and NDI 1.0.
-A packed target is a texture of at most 16384 rows: a PA16 send is at most 5461 rows tall, P216 8192, UYVA 10922.
+A packed target is a texture of at most 16384 rows: a PA16 send is at most 5461 rows tall, P216 8192, UYVA 10922; a send whose
+targets are larger than this GPU's textures is refused in STATE (`failed`, with the GPU's limit) and never packed. A larger output
+or canvas (`SET op… width`) is held to the guard too, for the sends that tap it.
 
 **VIDEOIO SET.** `MAX-SEND-MBPS` applies now; `NDI`, `NDI-GROUPS`, `NDI-DISCOVERY`, `OMT`, `OMT-DISCOVERY` and `SPOUT` apply at
-the next engine start (the runtimes read them when they load): what runs keeps running and STATE shows it (`state`, with
-`atNextStart`); a protocol turned `OFF` refuses new inputs and sends of it at once ("OMT is off from the next engine start —
-VIDEOIO SET OMT ON keeps it"). Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
+the next engine start (the runtimes read them when they load): what runs keeps running and STATE shows it (`state`, `groups`,
+`discovery`, `server`), with what the next start brings beside it (`next`); a protocol turned `OFF` takes no new work of it from
+then on, whichever verb asks (INPUT ADD, INPUT BACKUP, SEND ADD, SEND ENABLE ON, or an `ADD`/`SET` that adds or enables one:
+"OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it"), and preflight and the context go amber. `SPOUT` is refused
+on a node with no Spout provider. Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
 
 Generic verbs keep working: `SET md… live {"pacing":"smooth"}`, `SET sd… width 1280`, `REMOVE sd…`, `REMOVE md…`, `ADD send {…}`.
-The checks refuse a send name outside 1–48 printable characters, a tap that does not parse or names nothing in the show, fps outside 0–240, a size outside
+The checks refuse a send name outside 1–48 printable characters, an enabled send whose tap is empty, does not parse or names nothing
+in the show, fps outside 0–240, a size outside
 0×0 (the tap's) to 16384×16384, a quality other than default/low/medium/high, a format NDI and OMT do not send this round
 (RGBA8, RGB10A2, RGBA16F), a duplicate name per protocol; and on a live item `lostMs` outside 100–60000, `staleMs` above
 `lostMs`, `recoverMs` outside 0–600000, a backup that is not a live URI or is the item's own location, a fallback that is live or
-shows a live input however deep (a playlist's items, a canvas's layers) or names nothing in the show, and `onLoss` fallback with no
-fallback. An item a fallback names cannot be removed while it does.
+shows a live input (a playlist's items, a canvas's layers, to eight deep; deeper is refused, since it cannot be shown clear) or names
+nothing in the show — checked when the fallback is set or changed, so an edit that leaves it alone is never refused for it — and
+`onLoss` fallback with no fallback. An item a fallback names cannot be removed while it does; a fallback that came to show a live
+input since is black on loss.
 
 ## STATE
 
 Top level `videoio` (after `decode`):
 
 ```json
-"videoio":{"ndi":{"state":"ready|absent|failed|off","atNextStart":"on|off","version":"6.3.2","path":"/usr/lib/libndi.so.6","words":"","link":"https://ndi.video",
-                  "groups":"","discovery":"","advertisers":true},
-           "omt":{"state":"ready|failed|off","atNextStart":"on|off","version":"1.0.0.20","vmx":"avx2|sse42|neon|scalar|missing","mdns":"avahi|dnsapi|bonjour|none",
-                  "server":"","words":""},
+"videoio":{"ndi":{"state":"ready|absent|failed|off","version":"6.3.2","path":"/usr/lib/libndi.so.6","words":"","link":"https://ndi.video",
+                  "groups":"","discovery":"","advertisers":true,"next":{"state":"on|off","groups":"","discovery":""}},
+           "omt":{"state":"ready|failed|off","version":"1.0.0.20","vmx":"avx2|sse42|neon|scalar|missing","mdns":"avahi|dnsapi|bonjour|none",
+                  "server":"","words":"","next":{"state":"on|off","server":""}},
            "spout":{"state":"unavailable","version":"","senders":0,"words":"no Spout provider on this node (Spout is Windows only)"},
            "discoveredCount":2,
            "discovered":[{"uri":"omt:STUDIO (Cam 1)","proto":"omt","name":"Cam 1","host":"STUDIO","address":"10.0.0.5:6400","added":"md…"}],
@@ -100,11 +108,14 @@ Top level `videoio` (after `decode`):
   found it lost until it is back (a held picture at its first steady frame; black and a fallback after `live.recoverMs` of steady
   frames). `using` is the feed consumers read; a backup takes over when the feed in use is lost and the other delivers.
 - `tally` is `program` when the renderer drew the input into the air (an output or a send) in the last 250 ms and the air is not
-  blacked out, `preview` when it was drawn otherwise (a preview, a scan camera) or under a blackout; it is told to the sender on
-  change, and the feed not in use is told it is on nothing.
-- `ndi.state` / `omt.state` is what runs; `atNextStart` what `VIDEOIO SET` asked for the next start.
+  blacked out, `preview` when it was drawn otherwise (the desk's editor and projector views, any other consumer that holds the
+  input) or under a blackout; it is told to the sender on change, and the feed not in use is told it is on nothing.
+- `ndi` / `omt` say what runs (the state, groups, discovery and server the runtime started with); `next` what `VIDEOIO SET` asked
+  for the next start. A ready runtime may still have words: NDI's configuration could not be written, so its discovery server and
+  groups are not applied.
 - A send's `state`: `sending` (frames go out), `idle` (no receiver, `onlyWhenWatched`), `off`, `failed` (`words`: no runtime, a tap
-  with nothing behind it, a refused sender), `starting`. `skippedUnwatched` counts frames not packed because nobody watched.
+  with nothing behind it, a refused sender, a packed target larger than this GPU's textures, a GPU protocol whose stage this node
+  does not run), `starting`. `skippedUnwatched` counts frames not packed because nobody watched.
 - `discovered` is at most 64 rows (`discoveredCount` is all of them), sorted by URI; `added` is the library id that names it.
 
 ## Context
@@ -125,7 +136,8 @@ again"). Each is journalled once per loss, kind `videoio`.
 
 Section `video`: a row per live input (kind `input`, its state, lit as the context lights it); keys Reconnect (`INPUT RECONNECT
 $(id)`), Backup (`INPUT SWITCH $(id) BACKUP`), Primary (`INPUT SWITCH $(id) PRIMARY`), all `hold`. Section `sends`: a row per send
-(kind `send`, `on|off|failed`, parent the tapped output or canvas); keys On and Off (`SEND ENABLE $(id) ON|OFF`), `hold`.
+(kind `send`, its STATE state `sending|idle|off|failed|starting`, lit as the context lights it, parent the tapped output or
+canvas); keys On and Off (`SEND ENABLE $(id) ON|OFF`), `hold`.
 
 ## Preflight
 

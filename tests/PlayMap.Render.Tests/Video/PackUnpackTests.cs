@@ -325,12 +325,13 @@ public sealed class PackUnpackTests(GlFixture gl)
         });
     }
 
-    /// <summary>The air's levels a test sets: one gain, one safe look and one hold for every output.</summary>
-    private sealed class FixedLevels(float gain, SourceRef? safe = null, bool hold = false) : IAirLevels
+    /// <summary>The air's levels a test sets: one gain, one safe look and one hold for every output, or one per output by id.</summary>
+    private sealed class FixedLevels(float gain, SourceRef? safe = null, bool hold = false, Dictionary<string, (float Gain, SourceRef? Safe)>? per = null)
+        : IAirLevels
     {
-        public float Gain(string outputId, long leaderNs) => gain;
+        public float Gain(string outputId, long leaderNs) => per is not null && per.TryGetValue(outputId, out var p) ? p.Gain : gain;
 
-        public SourceRef? Override(string outputId, long leaderNs) => safe;
+        public SourceRef? Override(string outputId, long leaderNs) => per is not null && per.TryGetValue(outputId, out var p) ? p.Safe : safe;
 
         public bool Hold(string outputId, long leaderNs) => hold;
     }
@@ -346,8 +347,11 @@ public sealed class PackUnpackTests(GlFixture gl)
             static Canvas Card(string colour) =>
                 new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
             var shown = Scene.SourceOutput("op_1", SourceRef.Solid("#202020"), w, h);
-            var off = Scene.SourceOutput("op_2", SourceRef.Solid("#FFFFFF"), w, h) with { Enabled = false };
-            var project = Scene.Project([], [shown, off], [Card("#808080")]);
+            var other = Scene.SourceOutput("op_3", SourceRef.Solid("#202020"), w, h);
+            var on = Scene.SourceOutput("op_2", SourceRef.Solid("#FFFFFF"), w, h);
+            // op_2 is drawn first, then disabled: its last picture is still there, and the send must not carry it.
+            var drawn = Scene.Project([], [shown, other, on], [Card("#808080")]);
+            var project = Scene.Project([], [shown, other, on with { Enabled = false }], [Card("#808080")]);
             var sink = new TestSink(hold: false);
             var offSink = new TestSink(hold: false);
             SendPlanEntry Entry(string id, SendTapKind kind, string target, ISendSink to) => new()
@@ -361,19 +365,22 @@ public sealed class PackUnpackTests(GlFixture gl)
             var passes = ImmutableArray.Create<IFramePass>(stage);
             var i = 0L;
             // One frame of the 60 Hz grid with the air as given; answers the canvas send's centre pixel (B, G, R, A).
-            byte[] Frame(Project p, IAirLevels? levels = null, bool blackout = false)
+            byte[] Frame(Project p, IAirLevels? levels = null, bool blackout = false, SourceRef? pattern = null, int x = w / 2)
             {
+                var inputs = Scene.Inputs(p) with { Passes = passes, Levels = levels, Blackout = blackout, PatternOverride = pattern };
                 i++;
-                engine.Render(Scene.Inputs(p, (i + 0.5) / 60.0) with { Passes = passes, Levels = levels, Blackout = blackout });
+                engine.Render(inputs with { LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
                 c.Device.Finish();
                 i++;
                 // The read-back of the frame packed above is collected and offered on the next frame.
-                engine.Render(Scene.Inputs(p, (i + 0.5) / 60.0) with { Passes = passes, Levels = levels, Blackout = blackout });
+                engine.Render(inputs with { LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
                 c.Device.Finish();
                 var f = sink.Frames[^1];
-                var o = ((h / 2) * w + w / 2) * 4;
+                var o = ((h / 2) * w + x) * 4;
                 return f[o..(o + 4)];
             }
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(drawn));
+            Assert.Equal([0xFF, 0xFF, 0xFF, 0xFF], offSink.Frames[^1][(((h / 2) * w + w / 2) * 4)..(((h / 2) * w + w / 2) * 4 + 4)]);
             Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(project));
             // A disabled output's tap sends black, counted blank, though its last picture is still there.
             var o2 = ((h / 2) * w + w / 2) * 4;
@@ -385,8 +392,19 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal(0xFF, half[3]);
             // Every output dark (a panic fade, the master at 0): the send is dark.
             Assert.Equal([0, 0, 0, 0xFF], Frame(project, new FixedLevels(0f)));
-            // The safe look on every output: the send shows it.
+            // The safe look on every output: the send shows it, over the whole picture as an output stretches it, and before a pattern
+            // (as an output decides).
             Assert.Equal([0x00, 0x00, 0xFF, 0xFF], Frame(project, new FixedLevels(1f, SourceRef.Solid("#FF0000"))));
+            Assert.Equal([0x00, 0x00, 0xFF, 0xFF], Frame(project, new FixedLevels(1f, SourceRef.Solid("#FF0000")), x: 0));
+            Assert.Equal([0x00, 0x00, 0xFF, 0xFF], Frame(project, new FixedLevels(1f, SourceRef.Solid("#FF0000")), pattern: SourceRef.Solid("#00FF00")));
+            Assert.Equal([0x00, 0xFF, 0x00, 0xFF], Frame(project, pattern: SourceRef.Solid("#00FF00")));
+            // A mixed panic plan: op_1 on its safe look, op_3 black. No output shows the show at any brightness, and they do not share
+            // a look: the send is black, never the show at full brightness.
+            var mixed = new FixedLevels(1f, per: new() { ["op_1"] = (1f, SourceRef.Solid("#FF0000")), ["op_3"] = (0f, null) });
+            Assert.Equal([0, 0, 0, 0xFF], Frame(project, mixed));
+            // op_3 still shows the show at half: the send carries the show at that gain.
+            var half3 = new FixedLevels(1f, per: new() { ["op_1"] = (1f, SourceRef.Solid("#FF0000")), ["op_3"] = (0.5f, null) });
+            Assert.InRange(Frame(project, half3)[0], 0x3F, 0x41);
             // Blackout: black.
             Assert.Equal([0, 0, 0, 0xFF], Frame(project, blackout: true));
             // A hold on every output holds the send: the card changes, the send does not.
@@ -396,6 +414,52 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(changed));
             Assert.Empty(c.Device.TakeErrors());
         });
+    }
+
+    [Fact]
+    public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
+    {
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            var project = Scene.Project([], [Scene.SourceOutput("op_1", SourceRef.Solid("#336699"), 64, 36)]);
+            var sink = new TestSink(hold: false);
+            var wide = c.Device.MaxTextureSize + 2;
+            var entry = new SendPlanEntry
+            {
+                Id = "sd_w", Name = "Wide", Kind = SendTapKind.Output, Target = "op_1", Width = wide, Height = 2, Format = SendFormat.Bgra8,
+                FpsN = 60, FpsD = 1, Fit = SendFit.Fit, Sink = sink,
+            };
+            using var stage = new SendStage(engine) { Plan = [entry] };
+            for (var i = 1; i <= 3; i++)
+                engine.Render(Scene.Inputs(project, (i + 0.5) / 60.0) with { Passes = [stage] });
+            c.Device.Finish();
+            Assert.Contains($"larger than this GPU's {c.Device.MaxTextureSize}", entry.Refused, StringComparison.Ordinal);
+            Assert.Equal(0, entry.Packed);
+            Assert.Empty(sink.Frames);
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
+    public void TheLeaderGridSendsEachFrameOnceAndReArmsAfterTimeStepsBack()
+    {
+        var entry = new SendPlanEntry
+        {
+            Id = "sd_g", Name = "Grid", Kind = SendTapKind.Output, Target = "op_1", Width = 64, Height = 36, Format = SendFormat.Uyvy,
+            FpsN = 60, FpsD = 1, Fit = SendFit.Fit,
+        };
+        static long At(double frame) => (long)(frame / 60.0 * 1e9);
+        Assert.True(entry.Due(At(100.5)));
+        Assert.False(entry.Due(At(100.7)));
+        Assert.True(entry.Due(At(101.5)));
+        // A frame or two back is jitter: nothing is sent again.
+        Assert.False(entry.Due(At(99.5)));
+        // Time stepped back further (a leader with an earlier epoch): the grid re-arms at once, and runs on from there.
+        Assert.True(entry.Due(At(40.5)));
+        Assert.False(entry.Due(At(40.6)));
+        Assert.True(entry.Due(At(41.5)));
     }
 
     [Fact]

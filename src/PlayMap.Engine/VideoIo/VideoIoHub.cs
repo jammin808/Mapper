@@ -58,6 +58,8 @@ public sealed class VideoIoHub : IDisposable
     private long _signature;
     private int _inputCount;
     private int _disposed;
+    private (string Interface, NicInfo Nic, long AtNs)? _nic;
+    private readonly Lock _nicGate = new();
 
     public VideoIoHub(EngineCore engine)
     {
@@ -79,6 +81,22 @@ public sealed class VideoIoHub : IDisposable
 
     /// <summary>Keeps changed settings on the machine (set by the exe's part; null in tests, which keep them in memory).</summary>
     public Action<VideoIoSettings>? Save { get; set; }
+
+    /// <summary>The network interface sends go out of and its link, read at most every two seconds (an edit that checks the bandwidth
+    /// guard never lists the machine's interfaces under the store's write lock more often than that).</summary>
+    internal NicInfo Nic()
+    {
+        var now = _mono();
+        var name = Settings.Interface;
+        lock (_nicGate)
+        {
+            if (_nic is { } known && known.Interface == name && now - known.AtNs < 2_000_000_000)
+                return known.Nic;
+            var nic = NicInfo.Read(name);
+            _nic = (name, nic, now);
+            return nic;
+        }
+    }
 
     /// <summary>Whether any live input is kept (the render thread asks once a frame, without locking).</summary>
     public bool HasInputs => Volatile.Read(ref _inputCount) > 0;
@@ -134,10 +152,8 @@ public sealed class VideoIoHub : IDisposable
             return saved.OmtEnabled
                 ? "OMT turns on at the next engine start (it was off when this one started)"
                 : "OMT is off on this node — VIDEOIO SET OMT ON (applies at the next engine start)";
-        if (adding && protocol == LiveProtocol.Ndi && !saved.NdiEnabled)
-            return "NDI is off from the next engine start — VIDEOIO SET NDI ON keeps it";
-        if (adding && protocol == LiveProtocol.Omt && !saved.OmtEnabled)
-            return "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it";
+        if (adding && OffAtNextStart(protocol) is { } off)
+            return off;
         ProviderStatus? status = sending
             ? SendProvider(protocol)?.Status
             : InputProvider(protocol)?.Status;
@@ -149,6 +165,15 @@ public sealed class VideoIoHub : IDisposable
             return status.Words.Length > 0 ? status.Words : $"{Name(protocol)} is {status.State} on this node";
         return null;
     }
+
+    /// <summary>The words when a protocol runs now but is off from the next engine start (VIDEOIO SET … OFF since this one started),
+    /// else null.</summary>
+    public string? OffAtNextStart(LiveProtocol protocol) => protocol switch
+    {
+        LiveProtocol.Ndi when _running.NdiEnabled && !Settings.NdiEnabled => "NDI is off from the next engine start — VIDEOIO SET NDI ON keeps it",
+        LiveProtocol.Omt when _running.OmtEnabled && !Settings.OmtEnabled => "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it",
+        _ => null,
+    };
 
     /// <summary>The words for a protocol nobody provides here.</summary>
     public static string NoProvider(LiveProtocol protocol) => protocol switch
@@ -317,6 +342,16 @@ public sealed class VideoIoHub : IDisposable
         }
     }
 
+    /// <summary>A cold input nothing shows: both receivers closed, and nothing of its last connection kept (its feed, its loss, why it
+    /// would not open) — it is not received, so it is neither lost nor failed until something shows it.</summary>
+    private static void CloseCold(LiveInput input)
+    {
+        CloseInput(input);
+        ResetFeed(input);
+        input.Problem = "";
+        input.BackupProblem = "";
+    }
+
     /// <summary>Back to the primary with no loss held (a new location, the backup gone).</summary>
     private static void ResetFeed(LiveInput input)
     {
@@ -393,8 +428,8 @@ public sealed class VideoIoHub : IDisposable
             input.InProject = true;
             if (settings.Warm || input.Handles > 0)
                 OpenInput(input);
-            else if (input.Primary is not null || input.Backup is not null)
-                CloseInput(input);
+            else if (input.Primary is not null || input.Backup is not null || input.Problem.Length > 0)
+                CloseCold(input);
         }
         foreach (var input in _inputs.Values)
             if (!seen.Contains(input.Id))
@@ -420,11 +455,10 @@ public sealed class VideoIoHub : IDisposable
             if (!input.InProject && input.Handles <= 0)
                 (gone ??= []).Add(id);
             else if (input.InProject && input.Handles <= 0 && !(input.Item.Live ?? LiveSettings.Default).Warm
-                     && (input.Primary is not null || input.Backup is not null))
+                     && (input.Primary is not null || input.Backup is not null || input.Problem.Length > 0 || input.BackupProblem.Length > 0))
             {
                 // A cold input is received only while something shows it.
-                CloseInput(input);
-                ResetFeed(input);
+                CloseCold(input);
             }
         }
         if (gone is not null)
@@ -481,7 +515,9 @@ public sealed class VideoIoHub : IDisposable
                 // A protocol whose senders draw on the GPU (Spout) registers a GPU provider and draws through its own stage: no
                 // read-back plan here, and no failure either.
                 CloseSink(slot);
-                slot.Problem = GpuSendProvider(send.Protocol) is not null ? "" : NoProvider(protocol);
+                slot.Problem = GpuSendProvider(send.Protocol) is not null
+                    ? $"{Name(protocol)} sends are drawn by {Name(protocol)}'s own GPU stage, which this node does not run"
+                    : NoProvider(protocol);
                 slot.Plan = null;
                 continue;
             }
@@ -756,14 +792,25 @@ public sealed class VideoIoHub : IDisposable
             input.Loss = "";
             return new LossNews("input.switched", input.Id, input.Item.Name, words, onBackup ? "primary" : "backup");
         }
-        var route = settings.OnLoss switch
+        // The route is worked out again only when the policy or the project moved (a long outage costs nothing per tick).
+        SourceRef? route;
+        if (input.Loss.Length > 0 && ReferenceEquals(input.LossFor, settings) && ReferenceEquals(input.LossIn, project))
         {
-            LiveLoss.Black => SourceRef.None,
-            // A fallback that went from the project, or came to show a live input, is black: never a dangling or live picture.
-            LiveLoss.Fallback when SourceRef.TryParse(settings.Fallback, out var fallback) && Fallbacks.Fits(project, fallback) is null => fallback,
-            LiveLoss.Fallback => SourceRef.None,
-            _ => null,
-        };
+            route = input.LossRoute;
+        }
+        else
+        {
+            route = settings.OnLoss switch
+            {
+                LiveLoss.Black => SourceRef.None,
+                // A fallback that went from the project, or came to show a live input, is black: never a dangling or live picture.
+                LiveLoss.Fallback when SourceRef.TryParse(settings.Fallback, out var fallback) && Fallbacks.Fits(project, fallback) is null => fallback,
+                LiveLoss.Fallback => SourceRef.None,
+                _ => null,
+            };
+            input.LossFor = settings;
+            input.LossIn = project;
+        }
         var shows = route is null ? "hold" : route.IsNone ? "black" : "fallback";
         if (input.Loss == shows && Equals(input.LossRoute, route))
             return null;
@@ -838,7 +885,8 @@ public sealed class VideoIoHub : IDisposable
     {
         lock (_gate)
         {
-            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
+            // The input, and the feed the verb checked, must both still be there.
+            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input) || (backup ? input.Backup : input.Primary) is null)
                 return false;
             input.Use(backup);
             input.LossRoute = null;
@@ -929,27 +977,39 @@ internal static class Fallbacks
             return null;
         if (!Exists(project, source))
             return $"no {source.Kind.ToString().ToLowerInvariant()} {source.Id} in the project";
-        return ShowsLive(project, source, 0, []) is { } live
-            ? $"{source} shows the live input {live}: a fallback is a picture this node always has"
-            : null;
+        return ShowsLive(project, source, 0, []) switch
+        {
+            null => null,
+            Deep => $"{source} nests more than {MaxDepth} deep: a fallback is a picture this node always has, and this one cannot be shown to be",
+            var live => $"{source} shows the live input {live}: a fallback is a picture this node always has",
+        };
     }
 
-    private static bool Exists(Project project, SourceRef source) => source.Kind switch
+    /// <summary>Whether a source names something in the project (a colour, black and the timer always do; a live ref names a stream
+    /// item or a camera rig).</summary>
+    public static bool Exists(Project project, SourceRef source) => source.Kind switch
     {
         SourceKind.Media => project.FindMedia(source.Id) is not null,
         SourceKind.Generator => project.FindGenerator(source.Id) is not null,
         SourceKind.Canvas => project.FindCanvas(source.Id) is not null,
         SourceKind.Playlist => project.FindPlaylist(source.Id) is not null,
-        SourceKind.Live => true,
+        SourceKind.Live => project.FindMedia(source.Id) is not null || project.Stage.Cameras.Find(source.Id) is not null,
         _ => true,
     };
 
-    /// <summary>The first live input a source shows, as its ref, or null.</summary>
+    private const string Deep = "\0deep";
+
+    /// <summary>The first live input a source shows, as its ref; <see cref="Deep"/> when it nests past <see cref="MaxDepth"/> (fails
+    /// closed: what cannot be searched is not taken as clear); null when it shows none. A node already searched (a loop) is clear.</summary>
     private static string? ShowsLive(Project project, SourceRef source, int depth, HashSet<string> seen)
     {
         if (source.Kind is SourceKind.Live || source.Kind is SourceKind.Media && project.FindMedia(source.Id) is { Kind: MediaKind.Stream })
             return source.ToString();
-        if (depth >= MaxDepth || !seen.Add(source.ToString()))
+        if (source.Kind is not (SourceKind.Playlist or SourceKind.Canvas))
+            return null;
+        if (depth >= MaxDepth)
+            return Deep;
+        if (!seen.Add(source.ToString()))
             return null;
         switch (source.Kind)
         {
@@ -1016,6 +1076,11 @@ internal sealed record SendShape(SendTapKind Kind, string Target, SourceRef? Sou
                 (w, h, fps) = (canvas.Width, canvas.Height, 0);
                 break;
             default:
+                if (source is { } tapped && !Fallbacks.Exists(project, tapped))
+                {
+                    words = $"{send.Name} taps {tapped}, which is not in the project";
+                    return null;
+                }
                 (w, h, fps) = (1920, 1080, 0);
                 break;
         }

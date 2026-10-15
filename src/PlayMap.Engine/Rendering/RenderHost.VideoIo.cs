@@ -22,11 +22,13 @@ public sealed partial class RenderHost
     {
         if (_sendStage is not { } stage || _airEnd is not { } end)
             return;
-        var plan = snap.Project.Project.Sends.IsEmpty && !stage.Busy ? [] : engine.VideoIo.Plan;
+        // The hub is the engine's (made at its start); a frame only reads it, never makes it.
+        var hub = engine.VideoIoMade;
+        var plan = hub is null || (snap.Project.Project.Sends.IsEmpty && !stage.Busy) ? [] : hub.Plan;
         stage.Plan = plan;
         var with = !plan.IsEmpty || stage.Busy;
         // The air's end is marked only while a live input is kept: a frame with none has nothing to tally.
-        var air = engine.VideoIoMade?.HasInputs ?? false;
+        var air = hub?.HasInputs ?? false;
         if (!with && !air)
             return;
         var shape = (with ? 1 : 0) | (air ? 2 : 0);
@@ -42,10 +44,13 @@ public sealed partial class RenderHost
         inputs = inputs with { Passes = _sendPasses };
     }
 
+    /// <summary>Frames whose air the last pass marked ended on the render host's own sources.</summary>
+    internal long AirEnds => _sources?.AirEnds ?? 0;
+
     partial void OnContextVideoIo(RenderEngine renderer)
     {
         _sendStage = new SendStage(renderer);
-        _airEnd = new AirEnd(_sources);
+        _airEnd = new AirEnd(this);
     }
 
     partial void OnContextLostVideoIo()
@@ -59,13 +64,14 @@ public sealed partial class RenderHost
 
     /// <summary>The last pass of every frame: its outputs and sends are drawn, so what the renderer's sources lend from here on is
     /// drawn for preview.</summary>
-    private sealed class AirEnd(EngineSources? sources) : IFramePass
+    /// <summary>It reads the host's sources when the frame ends: they are made at Start, after the context this pass is made with.</summary>
+    private sealed class AirEnd(RenderHost host) : IFramePass
     {
         public string Name => "videoio.air";
 
         public int Order => int.MaxValue;
 
-        public void FrameEnd(in PassFrame frame) => sources?.EndAir();
+        public void FrameEnd(in PassFrame frame) => host._sources?.EndAir();
 
         public void Dispose()
         {

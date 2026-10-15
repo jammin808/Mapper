@@ -13,7 +13,8 @@ namespace PlayMap.Render.Shaders;
 /// and PA16 (target w/2 × 2h or 3h: rows [0, h) the Y plane, [h, 2h) the UV plane, [2h, 3h) PA16's alpha plane, each texel two
 /// 16-bit samples as little-endian byte pairs, so a 16-bit sample is exact in an 8-bit target on every context). Every value is
 /// rounded half up to its code before it is written, so the target stores the code exactly — <c>PackReference.Pack</c> is its CPU
-/// twin. uGain scales the colour (not alpha) before it is encoded: the air's gain on a send that follows it, 1 otherwise.</para></summary>
+/// twin. The colour is clamped to 0..1 and then scaled by uGain before it is encoded, as an output's final stage clamps and then
+/// takes the air's gain: the air's gain on a send that follows it, 1 otherwise. Alpha (the key) is the tap's own.</para></summary>
 public static partial class ShaderLibrary
 {
     private const string VideoUnpackFs = """
@@ -83,7 +84,7 @@ public static partial class ShaderLibrary
 
         vec4 at(int x, int row) {
             vec4 t = texelFetch(uPicture, ivec2(clamp(x, 0, uWidth - 1), row), 0);
-            return vec4(t.rgb * uGain, t.a);
+            return vec4(clamp(t.rgb, 0.0, 1.0) * uGain, t.a);
         }
 
         float code(float c) {

@@ -255,7 +255,8 @@ public abstract class SendSink : ISendSink
         lock (_offerGate)
             _stopping = true;
         _wake.Set();
-        if (_thread.ThreadState != System.Threading.ThreadState.Unstarted)
+        // ThreadState is a set of flags (a background thread not yet started is Unstarted | Background).
+        if ((_thread.ThreadState & System.Threading.ThreadState.Unstarted) == 0)
         {
             _thread.Join();
         }

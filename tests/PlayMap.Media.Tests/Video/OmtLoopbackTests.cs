@@ -227,10 +227,12 @@ public sealed class OmtLoopbackTests : IDisposable
         await Until(() => sink.Tally == (true, false), "program tally at the sender");
         source.SetTally(program: false, preview: true);
         await Until(() => sink.Tally == (false, true), "preview tally at the sender");
-        // The sender itself encodes at the new quality from its next frame: changed in place, not made again.
-        Assert.Equal(libomtnet.OMTQuality.Default, sink.EncoderQuality);
+        // The sender itself holds the new quality: changed in place on the same sender, not made again.
+        Assert.Equal(libomtnet.OMTQuality.Default, sink.SenderQuality);
+        var url = sink.Url;
         sink.Update(sink.Spec with { Quality = "high" });
-        Assert.Equal(libomtnet.OMTQuality.High, sink.EncoderQuality);
+        Assert.Equal(libomtnet.OMTQuality.High, sink.SenderQuality);
+        Assert.Equal(url, sink.Url);
     }
 
     [OmtFact]

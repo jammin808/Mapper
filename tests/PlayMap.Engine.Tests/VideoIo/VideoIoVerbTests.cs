@@ -229,7 +229,9 @@ public sealed class VideoIoVerbTests
         var r = await rig.Ok("VIDEOIO SET NDI-DISCOVERY 10.0.0.2,10.0.0.3");
         Assert.Equal("next start", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
         Assert.Equal("10.0.0.2,10.0.0.3", saved!.NdiDiscovery);
-        Assert.Equal("10.0.0.2,10.0.0.3", rig.State().GetProperty("ndi").GetProperty("discovery").GetString());
+        // STATE says what runs (the runtime took its discovery when it started) and what the next start brings.
+        Assert.Equal("", rig.State().GetProperty("ndi").GetProperty("discovery").GetString());
+        Assert.Equal("10.0.0.2,10.0.0.3", rig.State().GetProperty("ndi").GetProperty("next").GetProperty("discovery").GetString());
         Assert.Equal("video I/O already has NDI discovery server 10.0.0.2,10.0.0.3", await rig.Refused("VIDEOIO SET NDI-DISCOVERY 10.0.0.2,10.0.0.3"));
         r = await rig.Ok("VIDEOIO SET NDI-GROUPS stage,foh");
         Assert.Equal("next start", JsonDocument.Parse(r.Payload!).RootElement.GetProperty("applies").GetString());
@@ -244,7 +246,7 @@ public sealed class VideoIoVerbTests
         await rig.Ok("SET op_1 name \"Left wall\"");
         rig.Engine.VideoIo.Tick();
         Assert.Equal("ready", rig.State().GetProperty("omt").GetProperty("state").GetString());
-        Assert.Equal("off", rig.State().GetProperty("omt").GetProperty("atNextStart").GetString());
+        Assert.Equal("off", rig.State().GetProperty("omt").GetProperty("next").GetProperty("state").GetString());
         Assert.Equal("sending", rig.Send(running).GetProperty("state").GetString());
         Assert.Equal(0, rig.Omt.Sinks.Single().Closes);
         Assert.Equal("OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it", await rig.Refused("INPUT ADD omt://10.0.0.7:6400"));

@@ -20,50 +20,63 @@ public sealed unsafe class LiveFramePoolTests
     [Fact]
     public void AWriterAndReadersOnTheirOwnThreadsNeverSeeAFrameChangeUnderALease()
     {
-        // The writer fills each frame with one byte value; three readers acquire, check every byte of the frame they hold is the
-        // same, and that what they see never goes backwards. Fixed counts, no sleeps: the threads race for as long as the writes take.
+        // The writer fills each frame with one byte value and stamps it; three readers, all running before the writer starts,
+        // acquire, hold the lease while the writer publishes two more frames, and check every byte is still the one stamped and that
+        // stamps never go backwards. Fixed counts and a start barrier, no sleeps.
         using var pool = new LiveFramePool(4);
         const int frames = 20_000;
         var failures = 0;
+        var acquired = 0;
+        var heldAcross = 0;
         var done = 0;
-        var writer = new Thread(() =>
+        using var ready = new CountdownEvent(3);
+        static bool Same(VideoFrameLease lease, byte value)
         {
-            for (var k = 1; k <= frames; k++)
-            {
-                if (!pool.TryBeginWrite(PixelLayout.Uyvy, 64, 8, out var planes))
-                    continue;
-                var value = (byte)(k % 251 + 1);
-                foreach (var p in planes)
-                    new Span<byte>((void*)p.Data, p.Stride * p.Height).Fill(value);
-                pool.Publish(k, k);
-            }
-            Volatile.Write(ref done, 1);
-        });
+            var span = new ReadOnlySpan<byte>((void*)lease.Planes[0].Data, lease.Planes[0].Stride * lease.Planes[0].Height);
+            return !span.ContainsAnyExcept(value);
+        }
         var readers = Enumerable.Range(0, 3).Select(_ => new Thread(() =>
         {
+            ready.Signal();
             long last = 0;
             while (Volatile.Read(ref done) == 0)
             {
                 using var lease = pool.Acquire();
                 if (lease is null)
                     continue;
-                var span = new ReadOnlySpan<byte>((void*)lease.Planes[0].Data, lease.Planes[0].Stride * lease.Planes[0].Height);
-                var first = span[0];
-                if (span.ContainsAnyExcept(first) || lease.SenderTimestampNs < last || (byte)(lease.SenderTimestampNs % 251 + 1) != first)
+                Interlocked.Increment(ref acquired);
+                var value = (byte)(lease.SenderTimestampNs % 251 + 1);
+                if (!Same(lease, value) || lease.SenderTimestampNs < last)
                     Interlocked.Increment(ref failures);
                 last = lease.SenderTimestampNs;
-                // A frame held across the writer's next frames is still the same frame.
-                if (span.ContainsAnyExcept(first))
+                // Held while the writer moves on two frames: still the same frame.
+                var published = pool.Published;
+                var spin = new SpinWait();
+                while (pool.Published < published + 2 && Volatile.Read(ref done) == 0)
+                    spin.SpinOnce(-1);
+                if (pool.Published >= published + 2)
+                    Interlocked.Increment(ref heldAcross);
+                if (!Same(lease, value))
                     Interlocked.Increment(ref failures);
             }
         })).ToList();
-        writer.Start();
         readers.ForEach(r => r.Start());
-        writer.Join();
+        ready.Wait();
+        for (var k = 1; k <= frames; k++)
+        {
+            if (!pool.TryBeginWrite(PixelLayout.Uyvy, 64, 8, out var planes))
+                continue;
+            var value = (byte)(k % 251 + 1);
+            foreach (var p in planes)
+                new Span<byte>((void*)p.Data, p.Stride * p.Height).Fill(value);
+            pool.Publish(k, k);
+        }
+        Volatile.Write(ref done, 1);
         readers.ForEach(r => r.Join());
         Assert.Equal(0, failures);
+        Assert.True(acquired > 0, "no reader acquired while the writer ran");
+        Assert.True(heldAcross > 0, "no lease was held across the writer's frames");
         Assert.Equal(0, pool.Held);
-        Assert.True(pool.Published > 0);
     }
 
     [Fact]
