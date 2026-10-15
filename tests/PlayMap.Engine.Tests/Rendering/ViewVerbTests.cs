@@ -184,18 +184,21 @@ public sealed class RenderedViewTests
     public async Task AnOutputViewReachesItsRingAtTheOutputsAspectAtMostTenTimesASecond()
     {
         await using var rig = HostRig.Start(HostRig.WithOutputs(HostRig.Screen("op_a", SourceRef.Solid("#0000FF"), 64, 40)));
+        // The clock starts before any picture is asked for: a frame ends after it starts, and the view is shown after that
+        // frame, so the first frame that asks for a picture began after the clock did.
+        var clock = Stopwatch.StartNew();
+        await rig.Host.FramesAsync(1).WaitAsync(HostRig.Patience);
         await rig.Ok("VIEW op-op_a SHOW output:op_a 480x270");
         var path = rig.Engine.Previews.RingPath("op-op_a");
         var (info, px) = await Frame(path);
         Assert.Equal((432, 270), (info.Width, info.Height));
         Assert.Equal((0, 0, 255), HostRig.At(px, info.Width, 200, 100));
 
-        var first = info.Sequence;
-        var clock = Stopwatch.StartNew();
         await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
-        var (later, _) = await Frame(path, first);
+        var (later, _) = await Frame(path, info.Sequence);
         var seconds = clock.Elapsed.TotalSeconds;
-        Assert.True(later.Sequence - first <= seconds * 10 + 2, $"{later.Sequence - first} pictures in {seconds:0.00} s");
+        // Picture n was asked for at least (n − 1) × 100 ms after the first, and landed before it was read.
+        Assert.True(later.Sequence <= seconds * 10 + 1, $"{later.Sequence} pictures in {seconds:0.00} s");
 
         Assert.True((await rig.Run("VIEW op-op_a HIDE")).Ok);
         Assert.False((await rig.Run("VIEW op-op_a HIDE")).Ok);
