@@ -128,6 +128,14 @@ public sealed class TimecodeEngineTests
         Assert.Equal("Show already chases FOH", await rig.Refused("TIMECODE CHASE Show FOH"));
         Assert.Equal("Show is already engaged", await rig.Refused("TIMECODE ENGAGE Show ON"));
         Assert.Equal("Show chases only FOH — TIMECODE CHASE Show OFF first", await rig.Refused("TIMECODE SOURCE REMOVE FOH"));
+        // Disengaged, the chase still names its source: removing it is refused the same way, and the chase keeps it.
+        await rig.Ok("TIMECODE ENGAGE Show OFF");
+        Assert.Equal("Show chases only FOH — TIMECODE CHASE Show OFF first", await rig.Refused("TIMECODE SOURCE REMOVE FOH"));
+        Assert.Single(rig.Engine.Store.Project.FindPlaylist("pl_show")!.Chase!.Sources);
+        // A rule is a word: an enum's number is no rule.
+        Assert.Equal("ONLOSS HOLD|STOP|CONTINUE", await rig.Refused("TIMECODE SET Show ONLOSS 1"));
+        Assert.Equal("GAP BLACK|HOLD", await rig.Refused("TIMECODE SET Show GAP 1"));
+        await rig.Ok("TIMECODE ENGAGE Show ON");
         Assert.Equal("Show: picture 40 ms later than its timecode", (await rig.Ok("TIMECODE SET Show DELAY 40")).Effect);
         Assert.Equal("Show is already so", await rig.Refused("TIMECODE SET Show DELAY 40"));
         Assert.Equal("DELAY is −2000 to 2000 ms", await rig.Refused("TIMECODE SET Show DELAY 5000"));

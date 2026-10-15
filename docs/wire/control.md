@@ -91,7 +91,7 @@ Top level `control` and `timecode` (after `videoio`), and `playlists[].chase` (`
   "learning":null|{"target","words","until","from"}, "learnt":null|"MIDI CC 1 7 → Lobby opacity (was Stage opacity)",
   "last":null|{"input","value","binding"|null,"at"}},
 "timecode": {"sources":[{"id","name","kind":"ltc|mtc|artnet|internal","device","state","text","df","format","detected","fpsMeasured",
-    "speedPpm","sigmaUs","levelDb"?,"level"?,"open","errors":{"biphase","missing","duplicate","discontinuity","invalid","badBcd","parity"},
+    "speedPpm","jitterUs","levelDb"?,"level"?,"open","errors":{"biphase","missing","duplicate","discontinuity","invalid","badBcd","parity"},
     "userBits","ageMs","latencyMs","words"}],
   "chases":[{"playlist","sources","active","mode":"locked","engaged","state","text","item"|null,"rate","delayMs","freewheelMs",
     "freewheelLeftMs"|null,"onLoss","gap","lastJump"|null,"words"}]}

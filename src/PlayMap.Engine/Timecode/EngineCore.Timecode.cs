@@ -326,8 +326,8 @@ public sealed partial class EngineCore
             TimecodeSources.Reconcile(Store.Project);
             if (sub == "RESET")
                 return TimecodeSources.Reset(s.Id) ? CommandReply.Success(effect: $"{s.Name}: its error counts start again") : CommandReply.Fail($"{s.Name} has no counts yet");
-            var only = Edits.Project.Playlists.FirstOrDefault(l => l.Chase is { } c && c.Sources.Length == 1 && c.Sources[0] == s.Id
-                && (!_chases.TryGetValue(l.Id, out var run) || run.Engaged));
+            // A chase is never left without a source (disengaged or not): its playlist is handed back first.
+            var only = Edits.Project.Playlists.FirstOrDefault(l => l.Chase is { } c && c.Sources.Length == 1 && c.Sources[0] == s.Id);
             if (only is not null)
                 return CommandReply.Fail($"{only.Name} chases only {s.Name} — TIMECODE CHASE {only.Name} OFF first");
             return FromEdit(Edits.Apply($"remove timecode source {s.Name}", p => p with
@@ -537,7 +537,7 @@ public sealed partial class EngineCore
                 effect = $"{list.Name}: rides a dropout for {Fmt(free / 1e6)} ms";
                 break;
             case "ONLOSS":
-                if (!Enum.TryParse<ChaseLoss>(value, true, out var loss) || int.TryParse(value, out _))
+                if (!Enum.TryParse<ChaseLoss>(value, true, out var loss) || !value.All(char.IsAsciiLetter))
                     return CommandReply.Fail("ONLOSS HOLD|STOP|CONTINUE");
                 next = chase with { OnLoss = loss };
                 effect = $"{list.Name}: when the code stops it {loss.ToString().ToLowerInvariant()}s";
@@ -559,7 +559,7 @@ public sealed partial class EngineCore
                 }
                 break;
             case "GAP":
-                if (!Enum.TryParse<ChaseGap>(value, true, out var gap) || int.TryParse(value, out _))
+                if (!Enum.TryParse<ChaseGap>(value, true, out var gap) || !value.All(char.IsAsciiLetter))
                     return CommandReply.Fail("GAP BLACK|HOLD");
                 next = chase with { Gap = gap };
                 effect = $"{list.Name}: between items it {(gap == ChaseGap.Black ? "shows black" : "holds the last frame")}";
@@ -687,7 +687,8 @@ public sealed partial class EngineCore
         w.WriteString("detected", r.Format?.Text ?? "");
         w.WriteNumber("fpsMeasured", Math.Round(r.MeasuredFps, 4));
         w.WriteNumber("speedPpm", r.Line is { Running: true } l ? Math.Round((l.Rate - 1) * 1e6) : 0);
-        w.WriteNumber("sigmaUs", r.Line is { } line ? Math.Round(line.SigmaNs / 1000, 1) : 0);
+        // The observations' scatter about the fitted line (its residual σ), as STATE's shape names it.
+        w.WriteNumber("jitterUs", r.Line is { } line ? Math.Round(line.SigmaNs / 1000, 1) : 0);
         if (s.Kind == TimecodeKind.Ltc)
         {
             w.WriteNumber("levelDb", Math.Round(level, 1));

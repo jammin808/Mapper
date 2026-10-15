@@ -101,7 +101,7 @@
         "detected": "25",
         "fpsMeasured": 25,
         "speedPpm": 0,
-        "sigmaUs": 0,
+        "jitterUs": 0,
         "open": true,
         "errors": {
           "biphase": 0,
@@ -129,7 +129,7 @@
         "detected": "",
         "fpsMeasured": 0,
         "speedPpm": 0,
-        "sigmaUs": 0,
+        "jitterUs": 0,
         "levelDb": -120,
         "level": "red",
         "open": false,
