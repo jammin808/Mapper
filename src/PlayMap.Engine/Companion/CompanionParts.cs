@@ -12,6 +12,11 @@ internal sealed class CompanionParts
 {
     private readonly EngineCore _engine;
     private readonly Lock _gate = new();
+    /// <summary>One INDEX push at a time, and a subscription's first INDEX inside it: a push made from an older snapshot never lands
+    /// after one made from a newer.</summary>
+    private readonly Lock _indexPush = new();
+    /// <summary>One THUMBS round at a time, for the same reason.</summary>
+    private readonly Lock _thumbsPush = new();
     private readonly List<IndexWatch> _indexWatches = [];
     private readonly List<ThumbWatch> _thumbWatches = [];
     private Dictionary<string, string> _faults = new(StringComparer.Ordinal);
@@ -19,6 +24,7 @@ internal sealed class CompanionParts
     private int _indexQueued;
     private int _thumbsQueued;
     private int _diffing;
+    private int _diffAgain;
 
     public CompanionParts(EngineCore engine)
     {
@@ -106,29 +112,38 @@ internal sealed class CompanionParts
     {
         if (args.Count > 0)
             return PushOpen.Refuse("SUBSCRIBE INDEX takes no words after it");
-        var doc = Index();
-        var watch = new IndexWatch(this, sink) { Sig = doc.Sig, Labels = doc.Labels };
-        sink.Latest("index", "INDEX " + doc.Json);
-        lock (_gate)
-            _indexWatches.Add(watch);
+        var watch = new IndexWatch(this, sink);
+        lock (_indexPush)
+        {
+            // Listed before its first INDEX is made, so a change after that INDEX queues a push that finds it.
+            lock (_gate)
+                _indexWatches.Add(watch);
+            var doc = Index();
+            watch.Sig = doc.Sig;
+            watch.Labels = doc.Labels;
+            sink.Latest("index", "INDEX " + doc.Json);
+        }
         return PushOpen.Open(watch);
     }
 
     private void PushIndex()
     {
-        List<IndexWatch> watches;
-        lock (_gate)
-            watches = [.. _indexWatches];
-        if (watches.Count == 0)
-            return;
-        var doc = Index();
-        foreach (var w in watches)
+        lock (_indexPush)
         {
-            if (w.Sig == doc.Sig && w.Labels == doc.Labels)
-                continue;
-            w.Sig = doc.Sig;
-            w.Labels = doc.Labels;
-            w.Sink.Latest("index", "INDEX " + doc.Json);
+            List<IndexWatch> watches;
+            lock (_gate)
+                watches = [.. _indexWatches];
+            if (watches.Count == 0)
+                return;
+            var doc = Index();
+            foreach (var w in watches)
+            {
+                if (w.Sig == doc.Sig && w.Labels == doc.Labels)
+                    continue;
+                w.Sig = doc.Sig;
+                w.Labels = doc.Labels;
+                w.Sink.Latest("index", "INDEX " + doc.Json);
+            }
         }
     }
 
@@ -147,9 +162,12 @@ internal sealed class CompanionParts
         if (refs.Count > max)
             return PushOpen.Refuse($"SUBSCRIBE THUMBS watches at most {max} pictures; this asked {refs.Count}");
         var watch = new ThumbWatch(this, sink, refs);
-        watch.Push(Etags(refs));
-        lock (_gate)
-            _thumbWatches.Add(watch);
+        lock (_thumbsPush)
+        {
+            lock (_gate)
+                _thumbWatches.Add(watch);
+            watch.Push(Etags(refs));
+        }
         return PushOpen.Open(watch);
     }
 
@@ -163,41 +181,56 @@ internal sealed class CompanionParts
 
     private void PushThumbs()
     {
-        List<ThumbWatch> watches;
-        lock (_gate)
-            watches = [.. _thumbWatches];
-        foreach (var w in watches)
-            w.Push(Etags(w.Refs));
+        lock (_thumbsPush)
+        {
+            List<ThumbWatch> watches;
+            lock (_gate)
+                watches = [.. _thumbWatches];
+            foreach (var w in watches)
+                w.Push(Etags(w.Refs));
+        }
     }
 
-    /// <summary>fault.raised and fault.cleared from the node's faults as STATE lists them (a part's new words raise it again).</summary>
+    /// <summary>fault.raised and fault.cleared from the node's faults as STATE lists them (a part's new words raise it again). One
+    /// diff runs at a time; a STATE move while one runs (its own events' moves among them) makes it look once more, so a change that
+    /// came in meanwhile is never lost.</summary>
     private void DiffFaults()
     {
-        if (_engine.Services.Faults is not { } source || Interlocked.Exchange(ref _diffing, 1) != 0)
+        if (_engine.Services.Faults is not { } source)
             return;
-        try
+        Interlocked.Exchange(ref _diffAgain, 1);
+        while (Volatile.Read(ref _diffAgain) != 0 && Interlocked.CompareExchange(ref _diffing, 1, 0) == 0)
         {
-            var now = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var f in source.Faults())
-                now[f.Part] = f.Words;
-            Dictionary<string, string> before;
-            lock (_gate)
+            try
             {
-                before = _faults;
-                _faults = now;
+                while (Interlocked.Exchange(ref _diffAgain, 0) != 0)
+                    DiffOnce(source);
             }
-            var at = _engine.LeaderNowNs;
-            foreach (var (part, words) in now)
-                if (!before.TryGetValue(part, out var old) || old != words)
-                    _engine.RaiseEvent("fault.raised", at, w => { w.WriteString("part", part); w.WriteString("words", words); });
-            foreach (var (part, words) in before)
-                if (!now.ContainsKey(part))
-                    _engine.RaiseEvent("fault.cleared", at, w => { w.WriteString("part", part); w.WriteString("words", words); });
+            finally
+            {
+                Interlocked.Exchange(ref _diffing, 0);
+            }
         }
-        finally
+    }
+
+    private void DiffOnce(INodeFaults source)
+    {
+        var now = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var f in source.Faults())
+            now[f.Part] = f.Words;
+        Dictionary<string, string> before;
+        lock (_gate)
         {
-            Interlocked.Exchange(ref _diffing, 0);
+            before = _faults;
+            _faults = now;
         }
+        var at = _engine.LeaderNowNs;
+        foreach (var (part, words) in now)
+            if (!before.TryGetValue(part, out var old) || old != words)
+                _engine.RaiseEvent("fault.raised", at, w => { w.WriteString("part", part); w.WriteString("words", words); });
+        foreach (var (part, words) in before)
+            if (!now.ContainsKey(part))
+                _engine.RaiseEvent("fault.cleared", at, w => { w.WriteString("part", part); w.WriteString("words", words); });
     }
 
     private void Drop(IndexWatch w)
