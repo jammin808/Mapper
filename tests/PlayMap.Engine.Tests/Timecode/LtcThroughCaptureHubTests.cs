@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -105,15 +106,34 @@ public sealed class LtcThroughCaptureHubTests
         }
     }
 
+    /// <summary>The node's audio inputs as the packages see them (EngineServices.AudioInputs): the hub, with each key opened through
+    /// it and the channels the open hands back recorded.</summary>
+    private sealed class Seen(AudioInputHub hub) : IAudioInputs
+    {
+        public AudioInputHub Hub { get; } = hub;
+
+        public ConcurrentQueue<(string Key, int Channels)> Opened { get; } = new();
+
+        public IReadOnlyList<AudioInputInfo> Inputs() => Hub.Inputs();
+
+        public IAudioCapture Open(string key, int preferredRate, IAudioCaptureSink sink)
+        {
+            var capture = Hub.Open(key, preferredRate, sink);
+            Opened.Enqueue((key, capture.Channels));
+            return capture;
+        }
+    }
+
     /// <summary>The audio part as the exe composes it (AudioExtension): its runtime, and the runtime's hub as the node's audio
-    /// inputs, with the given backends.</summary>
-    private static Func<EngineServices, EngineServices> WithAudio(Action<AudioRuntime> made, bool paced, params (string Prefix, IAudioInputs Backend)[] backends) => s =>
+    /// inputs (seen through <see cref="Seen"/>), with the given backends.</summary>
+    private static Func<EngineServices, EngineServices> WithAudio(Action<AudioRuntime, Seen> made, bool paced, params (string Prefix, IAudioInputs Backend)[] backends) => s =>
     {
         var runtime = new AudioRuntime(s.Mono, s.Clock, paced);
         foreach (var (prefix, backend) in backends)
             runtime.AddBackend(prefix, backend);
-        made(runtime);
-        return s with { AudioRuntime = runtime, AudioInputs = runtime.Hub, Modulation = runtime.RenderBus, AudioFrames = runtime.RenderBus };
+        var seen = new Seen(runtime.Hub);
+        made(runtime, seen);
+        return s with { AudioRuntime = runtime, AudioInputs = seen, Modulation = runtime.RenderBus, AudioFrames = runtime.RenderBus };
     };
 
     [Fact]
@@ -122,16 +142,20 @@ public sealed class LtcThroughCaptureHubTests
         var clock = new ManualClock(5_000_000_000);
         using var mixer = new Mixer();
         AudioRuntime? audio = null;
+        Seen? seen = null;
         await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), service: true, clock: clock,
-            with: WithAudio(r => audio = r, false, ("desk:", mixer)));
+            with: WithAudio((r, s) => (audio, seen) = (r, s), false, ("desk:", mixer)));
         using var runtime = audio!;
-        Assert.Same(runtime.Hub, rig.Engine.Services.AudioInputs);
+        Assert.Same(runtime.Hub, seen!.Hub);
+        Assert.Same(seen, rig.Engine.Services.AudioInputs);
         await rig.Ok("AUDIO LISTEN desk:mixer CHANNELS 1+2");
         Assert.Equal("listening", runtime.State.State);
         // The show names the device as people do, with the channel the code is on: the reader joins the analyser's open.
         await rig.Ok("TIMECODE SOURCE ADD FOH LTC \"Desk mixer:7\"");
         await ControlRig.Until(() => runtime.Hub.OpenDevices().GetValueOrDefault(Mixer.Key) == 2, "the LTC reader joined the device");
         Assert.Equal((1, 1), (mixer.Opens, runtime.Hub.Opens));
+        // The reader opened "<the show's name>@<channel>" through the node's audio inputs, and the hub handed it that one channel.
+        Assert.Equal([("Desk mixer@7", 1)], seen.Opened.ToArray());
         await rig.Ok("TIMECODE CHASE Show FOH");
 
         // Two seconds of code from 01:00:03:00 on channel 7, in 10 ms blocks, the node's clock moving with the audio.
@@ -181,8 +205,9 @@ public sealed class LtcThroughCaptureHubTests
         try
         {
             AudioRuntime? audio = null;
+            Seen? seen = null;
             await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), service: true,
-                with: WithAudio(r => audio = r, true, (FileAudioInputs.Prefix, new FileAudioInputs())));
+                with: WithAudio((r, s) => (audio, seen) = (r, s), true, (FileAudioInputs.Prefix, new FileAudioInputs())));
             using var runtime = audio!;
             await rig.Ok($"TIMECODE SOURCE ADD FOH LTC \"file:{path}:2\"");
             await rig.Ok("TIMECODE CHASE Show FOH");
@@ -192,6 +217,7 @@ public sealed class LtcThroughCaptureHubTests
             Assert.Equal(("rolling", "25"), (source.GetProperty("state").GetString(), source.GetProperty("detected").GetString()));
             Assert.Equal("it_a", Chase(rig).GetProperty("item").GetString());
             Assert.Equal(1, runtime.Hub.OpenDevices()["file:" + path]);
+            Assert.Equal([($"file:{path}@2", 1)], seen!.Opened.ToArray());
             var lane = rig.Engine.Playback.Lane("pl_show")!;
             Assert.Equal(("it_a", TransportState.Playing), (lane.ItemId, lane.Clip.State));
             Assert.InRange(lane.Clip.Anchor.Rate, 0.99, 1.01);
@@ -210,7 +236,7 @@ public sealed class LtcThroughCaptureHubTests
         using var mixer = new Mixer();
         AudioRuntime? audio = null;
         await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), service: true,
-            with: WithAudio(r => audio = r, true, ("desk:", mixer)));
+            with: WithAudio((r, _) => audio = r, true, ("desk:", mixer)));
         using var runtime = audio!;
         mixer.Hold();
         await rig.Ok("TIMECODE SOURCE ADD FOH LTC desk:mixer:7");
@@ -235,7 +261,7 @@ public sealed class LtcThroughCaptureHubTests
     {
         using var mixer = new Mixer();
         AudioRuntime? audio = null;
-        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), with: WithAudio(r => audio = r, true, ("desk:", mixer)));
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), with: WithAudio((r, _) => audio = r, true, ("desk:", mixer)));
         using var runtime = audio!;
         mixer.Hold();
         mixer.HoldListing = true;
