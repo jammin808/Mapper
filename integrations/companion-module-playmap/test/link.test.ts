@@ -7,6 +7,7 @@ import { FakeNode } from './fake-node.ts'
 import { boot, configFor } from './harness.ts'
 import { authProof } from '../src/link/pairing.ts'
 import { Words } from '../src/words.ts'
+import { parseAddress, type PlayMapConfig } from '../src/config.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -133,6 +134,119 @@ void test('replies are matched by their @id, whatever order they come in', async
 		assert.equal((await first).payload, '{"which":"list"}')
 		assert.equal((await second).payload, '{"which":"get"}')
 		assert.deepEqual(held, ['list'])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('an address is read as an operator types it; one no link could open halts with words, never an exception', async () => {
+	assert.deepEqual(parseAddress('10.0.0.5', 9940), { host: '10.0.0.5', port: 9940 })
+	assert.deepEqual(parseAddress(' 10.0.0.5:9950 ', 9940), { host: '10.0.0.5', port: 9950 })
+	assert.deepEqual(parseAddress('[fe80::1]:9941', 9940), { host: 'fe80::1', port: 9941 })
+	assert.deepEqual(parseAddress('fe80::1', 9940), { host: 'fe80::1', port: 9940 })
+	assert.deepEqual(parseAddress('ws://stage-left.local:9942/ws', 9940), { host: 'stage-left.local', port: 9942 })
+	for (const bad of ['studio a', '10.0.0.5:99999', '10.0.0.5:abc', 'node@host', '[fe80::1'])
+		assert.equal(parseAddress(bad, 9940), null, bad)
+
+	const node = await new FakeNode({ token: TOKEN }).start()
+	try {
+		// A typed address with its port, and a picked node (as Companion hands it) over a typed address: both pair.
+		const configs: PlayMapConfig[] = [
+			{ host: `127.0.0.1:${node.webPort}`, port: 1 },
+			{ node: `127.0.0.1:${node.webPort}`, host: '10.9.9.9', port: 1 },
+		]
+		for (const config of configs) {
+			const m = await boot(config, { token: TOKEN })
+			try {
+				await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, JSON.stringify(config))
+			} finally {
+				await m.stop()
+			}
+		}
+		for (const host of ['studio a', 'http://10.0.0.5:abc']) {
+			const m = await boot({ host, port: node.webPort }, { token: TOKEN })
+			try {
+				await m.host.until(() => m.host.status?.status === InstanceStatus.BadConfig, host)
+				assert.equal(m.host.status?.message, Words.badAddress(host))
+				assert.equal(m.instance.link(), 'halted')
+			} finally {
+				await m.stop()
+			}
+		}
+	} finally {
+		await node.stop()
+	}
+})
+
+void test('a token changed on the node halts the live link with words; the old one is never proved again', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const m = await boot(configFor(node.webPort), { token: TOKEN })
+	try {
+		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired')
+		const proofs = node.sent().filter((l) => l.startsWith('AUTH-PROOF')).length
+		// PAIRING NEW on the node: every paired session is unpaired at once.
+		for (const s of node.sessions) s.paired = false
+		const r = (await m.press('blackout_toggle', {}, 'key-bo')) as { ok: boolean; stage: string }
+		assert.equal(r.ok, false)
+		await m.host.until(() => m.host.status?.status === InstanceStatus.AuthenticationFailure, 'unpaired')
+		assert.equal(m.host.status?.message, Words.unpaired)
+		assert.equal(m.instance.link(), 'halted')
+		assert.equal(
+			node.sent().filter((l) => l.startsWith('AUTH-PROOF')).length,
+			proofs,
+			'the old token is not proved again',
+		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a HELLO the node fails to greet is tried again after the backoff; only a token, a lockout or a pin halts', async () => {
+	const node = await new FakeNode({ token: TOKEN, helloFaults: 1 }).start()
+	const m = await boot(configFor(node.webPort), { token: TOKEN }, { random: () => 0 })
+	try {
+		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired on the second try')
+		assert.equal(node.sent().filter((l) => l.startsWith('HELLO')).length, 2)
+		assert.ok(m.host.statuses.every((s) => s.status !== InstanceStatus.UnknownError || m.instance.link() !== 'halted'))
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a config edit that moves nothing the link depends on keeps it, and keeps a halt; a new token pairs again', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const config: PlayMapConfig = configFor(node.webPort)
+	const m = await boot(config, { token: 'K7QM-3XWD-WRNG' })
+	try {
+		await m.host.until(() => m.host.status?.status === InstanceStatus.AuthenticationFailure, 'a wrong token halts')
+		const proofs = (): number => node.sent().filter((l) => l.startsWith('AUTH-PROOF')).length
+		const halted = proofs()
+		// A preset group and the bank size: the halt holds, no wrong token is spent.
+		await m.wrapper.configUpdateAndLabel(
+			'FOH deck',
+			{ ...config, g_fleet: false, bank_size: 4 },
+			{ token: 'K7QM-3XWD-WRNG' },
+		)
+		assert.equal(m.instance.link(), 'halted')
+		assert.equal(proofs(), halted, 'no proof on an edit that does not touch the token')
+		// The right token: proved, paired.
+		await m.wrapper.configUpdateAndLabel('FOH deck', { ...config, g_fleet: false, bank_size: 4 }, { token: TOKEN })
+		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired with the new token')
+		const session = [...node.sessions][0]
+		const hellos = node.sent().filter((l) => l.startsWith('HELLO')).length
+		// Another unrelated edit: the same session, no new HELLO.
+		await m.wrapper.configUpdateAndLabel(
+			'FOH deck',
+			{ ...config, g_fleet: true, live_rule: 'outputs' },
+			{ token: TOKEN },
+		)
+		await m.instance.ask('WHOAMI')
+		assert.deepEqual([...node.sessions], [session])
+		assert.equal(node.sent().filter((l) => l.startsWith('HELLO')).length, hellos)
+		assert.equal(m.instance.link(), 'live')
 	} finally {
 		await m.stop()
 		await node.stop()

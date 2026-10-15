@@ -95,9 +95,12 @@ void test(
 		let engine = await startEngine(home)
 		const m = await boot(configFor(engine.web, engine.wire), { token: TOKEN })
 		try {
-			// Paired by proof over ws://.
+			// Paired by proof over ws:// — the engine's own WHOAMI says the session is on its web port's line channel, not the
+			// TCP wire the module would fall back to.
 			await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired')
 			assert.equal(m.instance.link(), 'live')
+			const who = JSON.parse((await m.instance.ask('WHOAMI')).payload) as { channel?: string; paired?: boolean }
+			assert.equal(who.channel, 'ws')
 			await m.host.until(() => m.host.variables.get('node_name') === 'E2E node', 'STATE from the engine')
 
 			// Actions make a playlist.
@@ -146,11 +149,21 @@ void test(
 			await m.host.until(() => m.host.variables.get(`pl.${playlist}.state`) === 'playing', 'the playlist playing')
 			assert.equal(m.host.feedbackValues.get('stale'), false)
 
-			// Killed: the link drops, the state is emptied, every key is checked again and dims.
+			// Killed: the link drops, the state is emptied, every key is checked again and dims — within 4.5 s (design M12), the
+			// status saying in words that the node is not there and when the link tries again.
+			const killed = performance.now()
 			await kill(engine)
-			await m.host.until(() => m.host.feedbackValues.get('onair') === false, 'the on-air key off once the node is gone')
-			await m.host.until(() => m.host.feedbackValues.get('stale') === true, 'keys dimmed')
+			await m.host.until(
+				() => m.host.feedbackValues.get('onair') === false && m.host.feedbackValues.get('stale') === true,
+				'the on-air key off and every key dimmed once the node is gone',
+			)
+			assert.ok(
+				performance.now() - killed <= 4500,
+				`keys off ${Math.round(performance.now() - killed)} ms after the kill`,
+			)
 			assert.notEqual(m.instance.link(), 'live')
+			assert.equal(m.host.status?.status, InstanceStatus.ConnectionFailure)
+			assert.match(m.host.status?.message ?? '', /^No link to the node at .* — trying again in \d+ s$/u)
 			assert.equal(m.host.variables.get(`pl.${playlist}.state`), '')
 
 			// Back on the same ports: paired again by proof, and green.

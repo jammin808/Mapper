@@ -10,9 +10,12 @@ import {
 import { readLine } from './grammar.ts'
 import { authProof, normaliseToken } from './pairing.ts'
 import { MODULE_VERSION } from '../version.ts'
-import { Words, isLockedOut, isWrongToken } from '../words.ts'
+import { Words, isLockedOut, isNotPaired, isWrongToken } from '../words.ts'
 
 /** Where the node is, as the connection's config says it. */
+/** How many of the last round trips the node's clock offset is chosen from. */
+const CLOCK_SAMPLES = 8
+
 export interface NodeTarget {
 	readonly host: string
 	/** The web port (the line channel's door). */
@@ -40,7 +43,7 @@ export interface SessionHost {
 	/** "Companion:<label>": the HELLO name and the proof's message. */
 	helloName(): string
 	token(): string
-	target(): NodeTarget | null
+	target(): NodeTarget | { readonly error: string } | null
 	status(status: InstanceStatus, words: string | null): void
 	link(state: LinkState): void
 	/** Paired (or the node asked no proof): subscriptions and questions may start. */
@@ -103,8 +106,9 @@ export class NodeSession {
 	#watchdog: ReturnType<typeof setInterval> | null = null
 	#pinger: ReturnType<typeof setInterval> | null = null
 	#reconnect: ReturnType<typeof setTimeout> | null = null
-	#bestRtt = Number.POSITIVE_INFINITY
-	#rttAge = 0
+	/** The last CLOCK_SAMPLES round trips; the node's offset is the one with the least delay among them. */
+	readonly #samples: { rtt: number; offset: number }[] = []
+	#offset: number | null = null
 
 	constructor(host: SessionHost, options: SessionOptions = {}) {
 		this.#host = host
@@ -174,8 +178,8 @@ export class NodeSession {
 		this.#reconnect = null
 		if (this.#stopped) return
 		const t = this.#host.target()
-		if (!t) {
-			this.#host.status(InstanceStatus.BadConfig, Words.noTarget)
+		if (!t || 'error' in t) {
+			this.#host.status(InstanceStatus.BadConfig, t ? t.error : Words.noTarget)
 			this.#setState('halted')
 			return
 		}
@@ -190,7 +194,18 @@ export class NodeSession {
 		this.#dropWhy = null
 		this.#setState('connecting')
 		if (this.#attempts === 0) this.#host.status(InstanceStatus.Connecting, null)
-		this.#channel = this.#factory(target, {
+		// A channel that cannot even be opened (an address the platform refuses) halts with words, never throws into Companion.
+		try {
+			this.#channel = this.#open(target, generation)
+		} catch (e) {
+			this.#channel = null
+			this.#host.status(InstanceStatus.BadConfig, e instanceof Error ? e.message : String(e))
+			this.#setState('halted')
+		}
+	}
+
+	#open(target: ChannelTarget, generation: number): LineChannel {
+		return this.#factory(target, {
 			open: (info) => {
 				if (generation !== this.#generation) return
 				if (target.kind === 'wss' && !target.pin && info.fingerprint) this.#host.pinLearned(info.fingerprint)
@@ -211,7 +226,8 @@ export class NodeSession {
 		try {
 			const hello = await this.#request(`HELLO ${this.#host.helloName()} module=${MODULE_VERSION}`, undefined, true)
 			if (generation !== this.#generation) return
-			if (!hello.ok) return this.#fail(InstanceStatus.UnknownError, hello.payload)
+			// Only what retrying cannot mend halts (a token, a lockout, a pin); any other refusal is the node's passing fault.
+			if (!hello.ok) return this.#dropAndRetry(hello.payload)
 			if (this.#nonce !== null) {
 				const token = normaliseToken(this.#host.token())
 				if (token.length === 0) return this.#fail(InstanceStatus.BadConfig, Words.tokenNeeded)
@@ -222,7 +238,7 @@ export class NodeSession {
 						return this.#fail(InstanceStatus.AuthenticationFailure, Words.wrongToken(proof.payload))
 					if (isLockedOut(proof.payload))
 						return this.#fail(InstanceStatus.AuthenticationFailure, Words.lockedOut(proof.payload))
-					return this.#fail(InstanceStatus.UnknownError, proof.payload)
+					return this.#dropAndRetry(proof.payload)
 				}
 			}
 			this.#paired = true
@@ -259,6 +275,13 @@ export class NodeSession {
 			this.#pending.delete(line.id)
 			clearTimeout(pending.timer)
 			if (pending.hello && line.word === 'OK') this.#helloDone = true
+			// A paired session the node now calls unpaired: its token was changed on the node. Proving the old one again would only
+			// spend the address's wrong tokens, so the link halts until the token is typed again.
+			if (line.word === 'ERR' && this.#paired && isNotPaired(line.rest)) {
+				pending.resolve({ ok: false, accepted: false, payload: line.rest })
+				this.#fail(InstanceStatus.AuthenticationFailure, Words.unpaired)
+				return
+			}
 			pending.resolve({
 				ok: line.word === 'OK',
 				accepted: line.word === 'OK' && line.rest.startsWith('{"stage":"accepted"'),
@@ -310,11 +333,12 @@ export class NodeSession {
 		const t3 = Number(words[3])
 		if (!Number.isFinite(t2) || !Number.isFinite(t3)) return
 		const rtt = t4 - t1 - (t3 - t2)
-		this.#rttAge++
-		if (rtt <= this.#bestRtt || this.#rttAge > 8) {
-			this.#bestRtt = rtt
-			this.#rttAge = 0
-			this.#host.offset((t2 - t1 + (t3 - t4)) / 2)
+		this.#samples.push({ rtt, offset: (t2 - t1 + (t3 - t4)) / 2 })
+		if (this.#samples.length > CLOCK_SAMPLES) this.#samples.shift()
+		const best = this.#samples.reduce((a, b) => (b.rtt < a.rtt ? b : a))
+		if (best.offset !== this.#offset) {
+			this.#offset = best.offset
+			this.#host.offset(best.offset)
 		}
 	}
 
@@ -368,7 +392,8 @@ export class NodeSession {
 		this.#channel = null
 		this.#paired = false
 		this.#helloDone = false
-		this.#bestRtt = Number.POSITIVE_INFINITY
+		this.#samples.length = 0
+		this.#offset = null
 		for (const [, p] of this.#pending) {
 			clearTimeout(p.timer)
 			p.reject(new Error(info ? `the link to the node dropped (${info.reason})` : 'the link to the node closed'))

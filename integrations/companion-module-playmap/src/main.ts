@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
 	InstanceBase,
 	InstanceStatus,
@@ -30,6 +31,7 @@ import { Thumbs } from './thumbs.ts'
 import { KNOWN_LINE_PROTOCOL, MODULE_VERSION } from './version.ts'
 import { Words } from './words.ts'
 import { parseNode } from './json.ts'
+import { normaliseToken } from './link/pairing.ts'
 
 export { MODULE_VERSION } from './version.ts'
 
@@ -137,14 +139,25 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	async configUpdated(config: PlayMapConfig, secrets: PlayMapSecrets | undefined): Promise<void> {
-		this.#stop()
+		const before = this.#linkKey()
 		this.config = config
 		this.#secrets = secrets ?? {}
 		this.live.rule = typeof config.live_rule === 'string' && config.live_rule ? config.live_rule : this.live.rule
 		this.#presetsKey = ''
 		this.#structureKey = ''
+		// An edit that moves nothing the link depends on (a preset group, the bank size, the Live source) keeps it — and keeps a halt,
+		// so a deck halted on a wrong token never spends the address's wrong tokens on an unrelated edit.
+		const relink = !this.#session || this.#linkKey() !== before
+		if (relink) this.#stop()
 		this.#defineAll()
-		this.#start()
+		if (relink) this.#start()
+	}
+
+	/** What the link depends on: where it goes, the name it says and what proves it (the token as a hash, never kept as text). */
+	#linkKey(): string {
+		const token = typeof this.#secrets.token === 'string' ? normaliseToken(this.#secrets.token) : ''
+		const proof = createHash('sha256').update(token, 'utf8').digest('hex')
+		return JSON.stringify([connectionTarget(this.config), this.label, proof])
 	}
 
 	async destroy(): Promise<void> {

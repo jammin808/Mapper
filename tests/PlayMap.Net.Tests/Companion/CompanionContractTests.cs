@@ -114,6 +114,8 @@ public sealed partial class CompanionContractTests
         Assert.Equal(version, manifest["version"]!.GetValue<string>());
         Assert.Equal(version, ModuleVersion().Match(code).Groups[1].Value);
         Assert.Equal(Controllers.LineProtocol.ToString(System.Globalization.CultureInfo.InvariantCulture), LineProtocol().Match(code).Groups[1].Value);
+        // The subprotocol the module asks for is the one the web port's line channel answers.
+        Assert.Equal(PlayMap.Net.Wire.WebSocketLineChannel.SubProtocol, SubProtocol().Match(code).Groups[1].Value);
         Assert.Equal("jammin808-playmap", manifest["id"]!.GetValue<string>());
         Assert.Equal("MIT", package["license"]!.GetValue<string>());
         Assert.Equal("GPL-3.0-only", manifest["license"]!.GetValue<string>());
@@ -134,4 +136,7 @@ public sealed partial class CompanionContractTests
 
     [GeneratedRegex(@"KNOWN_LINE_PROTOCOL\s*=\s*(\d+)", RegexOptions.CultureInvariant)]
     private static partial Regex LineProtocol();
+
+    [GeneratedRegex(@"SUBPROTOCOL\s*=\s*'([^']+)'", RegexOptions.CultureInvariant)]
+    private static partial Regex SubProtocol();
 }

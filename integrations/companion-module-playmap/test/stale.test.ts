@@ -50,7 +50,9 @@ void test('silence dims every key at 4 s and drops the link at 10 s; it opens ag
 		// 10 s: dropped, emptied, every feedback checked again; no new channel before the backoff.
 		await advance(t.mock.timers, 5500, 250)
 		assert.equal(ch.closed, false, 'still open before 10 s')
-		while (!ch.closed) await advance(t.mock.timers, 10, 10)
+		// Dropped by 10 s and one watchdog look (250 ms) past it, never later.
+		for (let waited = 0; waited < 450 && !ch.closed; waited += 10) await advance(t.mock.timers, 10, 10)
+		assert.equal(ch.closed, true, 'dropped once 10 s pass')
 		assert.equal(m.instance.link(), 'connecting')
 		assert.equal(m.instance.model.state, null)
 		assert.equal(m.host.status?.status, InstanceStatus.ConnectionFailure)

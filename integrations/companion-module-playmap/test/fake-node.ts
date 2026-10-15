@@ -29,6 +29,8 @@ export interface FakeNodeOptions {
 	noLineChannel?: boolean
 	/** The node's clock minus the test machine's (ms). */
 	clockOffsetMs?: number
+	/** HELLO is answered with the node's fault words this many times first (a session verb that faulted). */
+	helloFaults?: number
 }
 
 /** One connected session as the fake node keeps it. */
@@ -58,6 +60,7 @@ export class FakeNode {
 	#http: Server | null = null
 	#wss: WebSocketServer | null = null
 	#screens: WebSocketServer | null = null
+	#helloFaulted = 0
 	/** Sockets an older node's /ws took (no line channel on them). */
 	readonly screens: WebSocket[] = []
 	#tcp: TcpServer | null = null
@@ -228,6 +231,11 @@ export class FakeNode {
 		const ok = (payload?: string): void => session.send(`OK${id ? ` @${id}` : ''}${payload ? ` ${payload}` : ''}`)
 		const err = (words: string): void => session.send(`ERR${id ? ` @${id}` : ''} ${words}`)
 		if (verb === 'HELLO') {
+			if (this.#helloFaulted < (this.options.helloFaults ?? 0)) {
+				this.#helloFaulted++
+				err('the node faulted while greeting — try again')
+				return
+			}
 			session.name = line
 				.slice(6)
 				.replace(/ module=.*$/u, '')

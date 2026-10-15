@@ -6,6 +6,11 @@ import { parseNode } from './json.ts'
 export const THUMB_CACHE = 256
 /** Placed-picture changes are told to the node at most this often. */
 export const WATCH_DEBOUNCE_MS = 250
+/** The most one picture may weigh (base64 characters): a key's picture is 144 px at most, so a reply past this is refused. */
+export const MAX_PICTURE_CHARS = 256 * 1024
+/** The most every picture held may weigh together (base64 characters); the least recently shown go first past it. */
+export const MAX_CACHE_CHARS = 16 * 1024 * 1024
+const PICTURE_TYPES = new Set(['image/jpeg', 'image/png'])
 
 interface Cached {
 	readonly etag: string
@@ -17,6 +22,8 @@ interface Cached {
  * A feedback asking for a picture not held yet gets "" at once and is checked again when it arrives. */
 export class Thumbs {
 	readonly #cache = new Map<string, Cached>()
+	/** The base64 characters every held picture weighs together. */
+	#chars = 0
 	readonly #inflight = new Set<string>()
 	readonly #placed = new Map<string, { ref: string; size: number }>()
 	readonly #pushed = new Map<string, string | null>()
@@ -74,7 +81,10 @@ export class Thumbs {
 	/** `THUMBS {ref: etag|null}`: a watched picture whose ETag moved since the last push is fetched again; on the first push after a
 	 * (re)subscribe, a held picture whose ETag is not the pushed one is asked again `IF` its own (the node answers `same` when it is). */
 	pushed(etags: Record<string, unknown>): void {
+		const placed = new Set(this.placedRefs())
 		for (const [ref, etag] of Object.entries(etags)) {
+			// Only refs a key shows are kept: a push naming others cannot grow what the module holds.
+			if (!placed.has(ref)) continue
 			const e = typeof etag === 'string' ? etag : null
 			const had = this.#pushed.has(ref)
 			const before = this.#pushed.get(ref)
@@ -121,12 +131,18 @@ export class Thumbs {
 				const o = parseNode(reply.payload) as { etag?: unknown; same?: unknown; mime?: unknown; data?: unknown }
 				if (o.same === true) return
 				if (typeof o.data !== 'string' || typeof o.mime !== 'string' || typeof o.etag !== 'string') return
-				this.#cache.delete(key)
-				this.#cache.set(key, { etag: o.etag, uri: `data:${o.mime};base64,${o.data}` })
-				while (this.#cache.size > THUMB_CACHE) {
-					const oldest = this.#cache.keys().next().value
-					if (oldest === undefined) break
-					this.#cache.delete(oldest)
+				// A picture of another type, or heavier than a key's picture can be, is no picture.
+				if (!PICTURE_TYPES.has(o.mime) || o.data.length > MAX_PICTURE_CHARS || !/^[A-Za-z0-9+/=]*$/u.test(o.data)) {
+					this.#refused.add(key)
+					this.#drop(ref, size)
+					return
+				}
+				this.#evict(key)
+				this.#cache.set(key, { etag: o.etag.slice(0, 256), uri: `data:${o.mime};base64,${o.data}` })
+				this.#chars += o.data.length
+				for (const oldest of this.#cache.keys()) {
+					if (this.#cache.size <= THUMB_CACHE && this.#chars <= MAX_CACHE_CHARS) break
+					this.#evict(oldest)
 				}
 				const ids = [...this.#placed.entries()].filter(([, p]) => p.ref === ref && p.size === size).map(([id]) => id)
 				if (ids.length > 0) this.#recheck(ids)
@@ -135,12 +151,19 @@ export class Thumbs {
 			.finally(() => this.#inflight.delete(key))
 	}
 
+	/** Lets go of one held picture. */
+	#evict(key: string): boolean {
+		const held = this.#cache.get(key)
+		if (!held) return false
+		this.#chars -= held.uri.length - held.uri.indexOf(',') - 1
+		return this.#cache.delete(key)
+	}
+
 	/** Lets go of a ref's pictures (one size, or every size) and rechecks the keys that showed one. */
 	#drop(ref: string, size: number | null): void {
 		let dropped = false
 		for (const key of [...this.#cache.keys()])
-			if (size === null ? key.startsWith(`${ref}|`) : key === `${ref}|${size}`)
-				dropped = this.#cache.delete(key) || dropped
+			if (size === null ? key.startsWith(`${ref}|`) : key === `${ref}|${size}`) dropped = this.#evict(key) || dropped
 		if (!dropped) return
 		const ids = [...this.#placed.entries()]
 			.filter(([, p]) => p.ref === ref && (size === null || p.size === size))
@@ -165,6 +188,7 @@ export class Thumbs {
 		this.#watchTimer = null
 		this.#placed.clear()
 		this.#cache.clear()
+		this.#chars = 0
 		this.#pushed.clear()
 		this.#refused.clear()
 		this.#watched = ''

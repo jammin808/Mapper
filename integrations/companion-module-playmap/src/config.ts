@@ -1,6 +1,7 @@
 import type { JsonObject, SomeCompanionConfigField } from '@companion-module/base'
 import type { NodeTarget } from './link/session.ts'
 import { RULES } from './live.ts'
+import { Words } from './words.ts'
 
 /** The preset groups a connection can tick, so a deck lists only what it uses. */
 export const GROUPS = [
@@ -124,20 +125,41 @@ export function configFields(): SomeCompanionConfigField[] {
 	]
 }
 
-/** Where the link goes: the picked node (Companion hands "address:port") or the typed address. Null when neither is set. */
-export function connectionTarget(config: PlayMapConfig): NodeTarget | null {
+/** An address as an operator types it or Companion hands it: a host, an IPv4 or bracketed IPv6 address with or without ":port", a
+ * bare IPv6 address, a scheme or a path left off. Null for one no link could open (a space, a stray character, a port past 65535). */
+export function parseAddress(text: string, defaultPort: number): { host: string; port: number } | null {
+	let host = text
+		.trim()
+		.replace(/^[a-z][a-z0-9+.-]*:\/\//iu, '')
+		.replace(/\/.*$/u, '')
+	let port = defaultPort
+	const bracketed = /^\[([^\]]+)\](?::(\d+))?$/u.exec(host)
+	if (bracketed) {
+		host = bracketed[1] ?? ''
+		if (bracketed[2]) port = Number(bracketed[2])
+	} else if ((host.match(/:/gu) ?? []).length === 1) {
+		const [name = '', p = ''] = host.split(':')
+		if (!/^\d+$/u.test(p)) return null
+		host = name
+		port = Number(p)
+	}
+	if (!host || !/^[A-Za-z0-9.:%_-]+$/u.test(host) || !Number.isInteger(port) || port < 1 || port > 65535) return null
+	return { host, port }
+}
+
+/** Where the link goes: the picked node (Companion hands "address:port") or the typed address. Null when neither is set; words
+ * when what is set is no address a link could open. */
+export function connectionTarget(config: PlayMapConfig): NodeTarget | { readonly error: string } | null {
 	const channel: NodeTarget['channel'] = config.channel === 'wss' ? 'wss' : config.channel === 'tcp' ? 'tcp' : 'ws'
 	const wirePort = num(config.wire_port, DEFAULT_WIRE_PORT)
 	const pin = typeof config.tls_pin === 'string' ? config.tls_pin.trim() : ''
 	const picked = typeof config.node === 'string' ? config.node.trim() : ''
-	if (picked) {
-		const m = /^(.*):(\d+)$/u.exec(picked)
-		const host = (m?.[1] ?? picked).replace(/^\[|\]$/g, '')
-		return { host, port: m ? Number(m[2]) : DEFAULT_PORT, wirePort, channel, pin }
-	}
-	const host = typeof config.host === 'string' ? config.host.trim() : ''
-	if (!host) return null
-	return { host, port: num(config.port, DEFAULT_PORT), wirePort, channel, pin }
+	const typed = typeof config.host === 'string' ? config.host.trim() : ''
+	const text = picked || typed
+	if (!text) return null
+	const address = parseAddress(text, picked ? DEFAULT_PORT : num(config.port, DEFAULT_PORT))
+	if (!address) return { error: Words.badAddress(text) }
+	return { host: address.host, port: address.port, wirePort, channel, pin }
 }
 
 /** A group's tick (on unless unticked). */

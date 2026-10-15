@@ -11,7 +11,7 @@ import type { HostFeedbackValue } from '@companion-module/host'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
 import { advance, fakeChannels, settle, type FakeChannel, type FakeTimers } from './fake-channel.ts'
-import { THUMB_CACHE, Thumbs, WATCH_DEBOUNCE_MS } from '../src/thumbs.ts'
+import { MAX_CACHE_CHARS, MAX_PICTURE_CHARS, THUMB_CACHE, Thumbs, WATCH_DEBOUNCE_MS } from '../src/thumbs.ts'
 import type { SessionOptions } from '../src/link/session.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
@@ -463,6 +463,44 @@ void test('the cache keeps the 256 pictures shown last: one more lets go of the 
 		assert.equal(thumbs.get('k1', ref(1), 96, true), '', 'the least recently shown was let go')
 		assert.deepEqual(asked.slice(THUMB_CACHE + 1), [`THUMB ${ref(1)} 96x96`])
 		await settle()
+	} finally {
+		thumbs.clear()
+	}
+})
+
+void test('a picture of another type, or heavier than a key’s picture can be, is refused and not asked again; the cache has a weight', async () => {
+	const asked: string[] = []
+	const replies: Record<string, { mime: string; chars: number }> = {
+		'color:#000001': { mime: 'image/png', chars: MAX_PICTURE_CHARS + 4 },
+		'color:#000002': { mime: 'text/html', chars: 8 },
+	}
+	const thumbs = new Thumbs(
+		async (line) => {
+			asked.push(line)
+			const ref = line.split(' ')[1] ?? ''
+			const r = replies[ref] ?? { mime: 'image/png', chars: MAX_PICTURE_CHARS }
+			const data = 'A'.repeat(r.chars)
+			return { ok: true, accepted: false, payload: JSON.stringify({ ref, etag: `e-${ref}`, mime: r.mime, data }) }
+		},
+		() => undefined,
+		() => undefined,
+	)
+	try {
+		for (const ref of Object.keys(replies)) assert.equal(thumbs.get(ref, ref, 96, true), '')
+		await settle()
+		for (const ref of Object.keys(replies)) assert.equal(thumbs.get(ref, ref, 96, true), '', `${ref}: no picture`)
+		assert.equal(asked.length, 2, 'a refused picture is not asked again on its own')
+
+		// Pictures of the heaviest a key may take: the cache keeps no more than its weight, the least recently shown going first.
+		const n = Math.floor(MAX_CACHE_CHARS / MAX_PICTURE_CHARS) + 2
+		const ref = (i: number): string => `color:#${(16 + i).toString(16).toUpperCase().padStart(6, '0')}`
+		for (let i = 0; i < n; i++) thumbs.get(`h${i}`, ref(i), 96, true)
+		await settle()
+		const held = Array.from({ length: n }, (_, i) => thumbs.get(`h${i}`, ref(i), 96, false) !== '').filter(
+			Boolean,
+		).length
+		assert.equal(held, Math.floor(MAX_CACHE_CHARS / MAX_PICTURE_CHARS))
+		assert.equal(thumbs.get('h0', ref(0), 96, false), '', 'the first shown went first')
 	} finally {
 		thumbs.clear()
 	}
