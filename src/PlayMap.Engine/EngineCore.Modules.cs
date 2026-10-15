@@ -208,7 +208,8 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     /// <summary>STATE's new top-level keys, in this order, after "cameras". STATE is written on whichever thread asks for it and
     /// cached by <see cref="StateKey"/>: every State, Air, Output … hook reads published state only (never the lane's working
-    /// fields), and a package whose facts move outside the project, the playback and the air calls <see cref="FactsChanged"/>.</summary>
+    /// fields), a package whose facts move outside the project, the playback and the air calls <see cref="FactsChanged"/>, and one
+    /// whose shown values move with time on their own calls <see cref="Moved"/> when they move.</summary>
     internal void WriteModuleState(Utf8JsonWriter w)
     {
         StateShow(w); StateFleet(w); StateDecode(w); StateVideoIo(w); StateControl(w); StateCompanion(w); StateFx(w);

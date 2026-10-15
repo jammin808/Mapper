@@ -24,6 +24,7 @@ public sealed partial class EngineCore
     private volatile ImmutableDictionary<string, ChaseView> _chaseViews = ImmutableDictionary<string, ChaseView>.Empty.WithComparers(StringComparer.Ordinal);
     private Project? _timecodeProject;
     private int _timecodeFacts;
+    private int _timecodeShown;
 
     /// <summary>The show's timecode sources at run time (fed by the control service's inputs, read by the chase).</summary>
     public TimecodeBoard TimecodeSources { get; } = new();
@@ -98,13 +99,15 @@ public sealed partial class EngineCore
         PublishTimecodeFacts(p, mono);
     }
 
-    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves (the code's frames never move it; its
-    /// text is written from the line when STATE is read).</summary>
+    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves. A source's frame or a chase's code
+    /// moved: STATE is written afresh on its next read (<see cref="Moved"/>) with its revision where it is, so STATE says the code as
+    /// it is whether or not anything plays, and its pushes do not rise to the frame rate.</summary>
     private void PublishTimecodeFacts(Project p, long mono)
     {
         if (p.Timecode.Sources.IsEmpty && _chaseViews.IsEmpty && _timecodeFacts == 0)
             return;
         var facts = new HashCode();
+        var shown = new HashCode();
         foreach (var s in p.Timecode.Sources)
         {
             var r = TimecodeSources.ReadingOf(s.Id, mono);
@@ -112,6 +115,7 @@ public sealed partial class EngineCore
             facts.Add(r.State);
             facts.Add(r.Format?.Text);
             facts.Add(r.Words);
+            shown.Add(r.Frame);
         }
         foreach (var (id, v) in _chaseViews)
         {
@@ -120,6 +124,13 @@ public sealed partial class EngineCore
             facts.Add(v.Engaged);
             facts.Add(v.Active);
             facts.Add(v.ItemId);
+            shown.Add(v.Text);
+        }
+        var frames = shown.ToHashCode();
+        if (frames != _timecodeShown)
+        {
+            _timecodeShown = frames;
+            Moved();
         }
         var signature = facts.ToHashCode();
         if (signature == _timecodeFacts)

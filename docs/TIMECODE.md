@@ -80,7 +80,9 @@ FREEZE and SAFE leave the chase engaged.
 `STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, the fit's scatter as `jitterUs`, level,
 counts, words) and the chases (state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each
 playlist carries `chase`. A source's or a chase's state, format or words changing moves STATE's revision; the code's frames never
-do (its text is written from the line when STATE is read), so STATE pushes do not rise to the frame rate. The context has
+do, so STATE pushes do not rise to the frame rate. STATE is written afresh once a source's frame or a chase's code has moved (the
+lane's tick notes it), so a read while the code rolls says the code as it is — with nothing playing too — and STATE is not written
+again while the code stands still. The context has
 `timecode:<tc>` and `chase:<pl>` items; controllers hear the events `chase.locked` and `chase.lost` (the freewheel ran out and the
 loss rule took over). Preflight's `timecode` section checks every chased playlist's source is present and rolling. INDEX's
 `timecode` section lists the chased playlists with an Engage key.
