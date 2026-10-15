@@ -37,9 +37,9 @@ public sealed record EngineHostOptions
 /// the engine; puts the project back (the command line's, else the recovery record's); then starts the render host,
 /// the extensions, the line wire, the web port, the hello, the clock sync and the links. A part that fails leaves the
 /// node up without it and says so in STATE's faults; only a node with no door at all (neither the wire nor the web
-/// port could listen) refuses to start, with <see cref="BindRefusedException"/>. <see cref="DisposeAsync"/> undoes it
-/// in reverse — every part closed even when one before it throws — and writes the recovery record and flushes the
-/// journal on the way out. One host per process.</summary>
+/// port could listen) refuses to start, with <see cref="BindRefusedException"/>. <see cref="DisposeAsync"/> first stops
+/// the engine taking lines, then undoes the start in reverse — every part closed even when one before it throws — and
+/// writes the recovery record and flushes the journal on the way out. One host per process.</summary>
 public sealed class EngineHost : IAsyncDisposable
 {
     private readonly EngineOptions _options;
@@ -331,15 +331,18 @@ public sealed class EngineHost : IAsyncDisposable
         }
     }
 
-    /// <summary>Undoes <see cref="StartAsync"/> in reverse: the network host closes the links, the clock sync, the
-    /// hello, the web port and the wire (so no line reaches the node from here on); the extensions stop in reverse
-    /// order; the render host stops; the recovery record is written; the engine stops and its journal is flushed; the
-    /// scan backend, the media backend and the certificate go last. Every part is closed even when one throws.</summary>
+    /// <summary>Undoes <see cref="StartAsync"/> in reverse. First the engine stops taking lines: from here on every line
+    /// from any source — a door, a link, a binding, OSC, the assistant, an approval — is refused with the words why, so
+    /// no line source that closes later starts work on a part closed before it. Then the network host closes the links,
+    /// the clock sync, the hello, the web port and the wire; the extensions stop in reverse order; the render host stops;
+    /// the recovery record is written; the engine stops and its journal is flushed; the scan backend, the media backend
+    /// and the certificate go last. Every part is closed even when one throws.</summary>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _phase, 3) == 3)
             return;
         await _stop.CancelAsync();
+        _engine?.BeginStop();
         await Quietly("the recovery writer", () => _recovery);
         await Quietly("the network", async () =>
         {

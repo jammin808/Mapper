@@ -51,7 +51,17 @@ public sealed partial class EngineCore : IShowDecisions
         return ShowPolicy.Decide(spec, line, ShowRoleOf(session), in facts);
     }
 
-    ShowDecision IShowDecisions.Decide(VerbSpec spec, WireLine line, SessionInfo session) => DecideShow(spec, line, session);
+    /// <summary>The node's answer to a caller outside the engine before it runs or queues a line (the MCP tools): once the node has
+    /// begun to stop, a line from outside it is refused with the stopping words and journalled as any refusal of its verb, so it is
+    /// never queued for a person on a list that goes with the node; else what the show's table says.</summary>
+    ShowDecision IShowDecisions.Decide(VerbSpec spec, WireLine line, SessionInfo session)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(session);
+        if (RefusedAsStopping(session))
+            return new ShowDecision(ShowVerdict.Refuse, RefusedStopping(line, session, journal: true).Payload);
+        return DecideShow(spec, line, session);
+    }
 
     private void StartShow()
     {

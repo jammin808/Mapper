@@ -15,7 +15,8 @@ namespace PlayMap.Engine.Host;
 /// nothing reaches the node before the extension is attached (an approval queue handed to
 /// <see cref="ExtensionSetup.Approvals"/> here is in place before the first MCP call);</item>
 /// <item><see cref="IAsyncDisposable.DisposeAsync"/>: after every transport has closed, in reverse order of start,
-/// before the render host and the engine go.</item>
+/// before the render host and the engine go. The engine refuses every line by then, so a line source an extension
+/// owns (OSC, MIDI, DMX, its bindings) cannot start work on a part disposed before it.</item>
 /// </list>
 /// An extension whose factory, Configure or start throws is left out; its words become a fault in STATE and the
 /// node runs without it.</summary>
