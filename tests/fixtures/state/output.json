@@ -202,7 +202,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "0fda314ed399e81e"
+    "index": "9e5a43ffac3a4826"
   },
   "faults": [],
   "ai": {
@@ -227,7 +227,8 @@
       "expectArmed": false,
       "defaultOutcome": "black",
       "defaultFadeMs": 1000,
-      "panicLeadMs": 0
+      "panicLeadMs": 0,
+      "commitLeadMs": 34
     },
     "blind": null,
     "panic": null,
@@ -237,6 +238,7 @@
       "last": ""
     },
     "preflight": null,
+    "sound": null,
     "minGoMs": 0
   },
   "fleet": {

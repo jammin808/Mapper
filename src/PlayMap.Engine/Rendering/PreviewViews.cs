@@ -21,6 +21,13 @@ public enum ViewKind
 /// ("smart" or "confidence" for a scan) and the size the viewer asked for.</summary>
 public sealed record ViewRequest(string ViewId, ViewKind Kind, string? TargetId, string? Variant, int Width, int Height)
 {
+    /// <summary>An editor view of the blind draft instead of the air ("editor DRAFT"): drawn by the show's draft feed, never on an
+    /// output (wp2-blind).</summary>
+    public bool Draft { get; init; }
+
+    /// <summary>Drawn by the render host's own views (the editor of the air, outputs, projectors); every other view is a feed's.</summary>
+    public bool Rendered => (Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector) && !Draft;
+
     /// <summary>The largest picture any view is drawn at (a bigger ask is fitted inside, keeping its aspect).</summary>
     public const int MaxWidth = 1920;
     public const int MaxHeight = 1200;
@@ -28,7 +35,7 @@ public sealed record ViewRequest(string ViewId, ViewKind Kind, string? TargetId,
     /// <summary>The "what" word as the desk writes it.</summary>
     public string What => Kind switch
     {
-        ViewKind.Editor => "editor",
+        ViewKind.Editor => Draft ? "editor DRAFT" : "editor",
         ViewKind.Scan => $"scan:{TargetId}:{Variant}",
         _ => $"{Kind.ToString().ToLowerInvariant()}:{TargetId}",
     };
@@ -77,6 +84,9 @@ public sealed record ViewRequest(string ViewId, ViewKind Kind, string? TargetId,
             ViewKind.Camera => (960, 540),
             _ => (1280, 720),
         };
+        var draft = kind == ViewKind.Editor && size is not null && size.Equals("DRAFT", StringComparison.OrdinalIgnoreCase);
+        if (draft)
+            size = null;
         if (size is not null)
         {
             var x = size.IndexOf('x', StringComparison.OrdinalIgnoreCase);
@@ -87,7 +97,7 @@ public sealed record ViewRequest(string ViewId, ViewKind Kind, string? TargetId,
                 return null;
             }
         }
-        return new ViewRequest(viewId, kind, target, variant, w, h);
+        return new ViewRequest(viewId, kind, target, variant, w, h) { Draft = draft };
     }
 
     /// <summary>The largest size of the asked aspect that fits both the ask and the cap.</summary>
@@ -243,6 +253,10 @@ public sealed class PreviewViews : IDisposable
     private readonly Dictionary<string, FeedView> _fed = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ViewRequest> _shown = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _renewed = new(StringComparer.Ordinal);
+
+    /// <summary>View ids the render host has drawn into: their rings stay mapped a while after they are hidden, so a draft view never
+    /// takes one of these ids (its ring would be a second writer on the same file).</summary>
+    private readonly HashSet<string> _renderedIds = new(StringComparer.Ordinal);
     private readonly IMonoClock _clock;
     private IViewRenderer? _renderer;
 
@@ -270,7 +284,7 @@ public sealed class PreviewViews : IDisposable
         {
             _renderer = renderer;
             if (renderer is null)
-                foreach (var id in _shown.Where(kv => kv.Value.Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector).Select(kv => kv.Key).ToList())
+                foreach (var id in _shown.Where(kv => kv.Value.Rendered).Select(kv => kv.Key).ToList())
                 {
                     _shown.Remove(id);
                     _renewed.Remove(id);
@@ -278,7 +292,7 @@ public sealed class PreviewViews : IDisposable
         }
     }
 
-    /// <summary>A feed for a kind of view: "camera" or "scan" (another registration replaces it).</summary>
+    /// <summary>A feed for a kind of view: "camera", "scan" or "draft" (another registration replaces it).</summary>
     public void Register(string kind, IPreviewFeed? feed)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -302,23 +316,28 @@ public sealed class PreviewViews : IDisposable
                 _renewed[request.ViewId] = _clock.NowNs;
                 return null;
             }
-            switch (request.Kind)
+            switch (request.Rendered)
             {
-                case ViewKind.Editor or ViewKind.Output or ViewKind.Projector:
+                case true:
                 {
                     if (_renderer is null)
                         return "this node draws no pictures (no OpenGL here) — the view is the desk's own";
                     StopFeed(request.ViewId);
                     if (_renderer.Show(request) is { } refused)
                         return refused;
+                    _renderedIds.Add(request.ViewId);
                     break;
                 }
                 default:
                 {
-                    var kind = request.Kind == ViewKind.Camera ? "camera" : "scan";
-                    if (!_feeds.TryGetValue(kind, out var feed))
-                        return $"no {kind} pictures on this node yet";
-                    if (had is not null && had.Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector)
+                    var kind = request.Kind switch { ViewKind.Camera => "camera", ViewKind.Editor => "draft", _ => "scan" };
+                    if (kind == "draft" && _renderedIds.Contains(request.ViewId))
+                        return $"{request.ViewId} has drawn the air — a draft view takes a view id of its own (VIEW {request.ViewId}-draft SHOW editor DRAFT)";
+                    // The render host draws the draft views itself (wp2-blind): attached, it is the draft feed.
+                    var feed = _feeds.GetValueOrDefault(kind) ?? (kind == "draft" ? _renderer as IPreviewFeed : null);
+                    if (feed is null)
+                        return kind == "draft" ? "this node draws no draft view (no OpenGL here)" : $"no {kind} pictures on this node yet";
+                    if (had is not null && had.Rendered)
                         _renderer?.Hide(request.ViewId);
                     // The desk opens a view's ring once: a view shown again keeps its ring (frames are thinned to it).
                     PreviewSink sink;
@@ -410,7 +429,7 @@ public sealed class PreviewViews : IDisposable
             _renewed.Remove(viewId);
             if (!_shown.Remove(viewId, out var had))
                 return $"no view {viewId} is shown";
-            if (had.Kind is ViewKind.Editor or ViewKind.Output or ViewKind.Projector)
+            if (had.Rendered)
                 _renderer?.Hide(viewId);
             else
                 StopFeed(viewId);

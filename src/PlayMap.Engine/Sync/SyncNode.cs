@@ -30,6 +30,10 @@ public sealed record SyncNodeOptions
     /// <summary>How long the leader waits for each member's receipt of an air line.</summary>
     public TimeSpan ReceiptWait { get; init; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>How long the leader waits for each member's report (<c>PREFLIGHT … WAIT</c>): a member checks itself under its own
+    /// checks' budgets (up to 5 s each), so its report is not an air line's receipt.</summary>
+    public TimeSpan ReportWait { get; init; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Where this node's outputs' vblanks are read (null: the render host's numbers).</summary>
     public Func<EngineCore, IVblankSource>? Vblanks { get; init; }
 }
@@ -344,8 +348,31 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(line);
         if (!Leads || _settings.Group.Length == 0)
             return [];
-        var receipts = await Feed.SendAirAsync(_settings.Group, KindOf(line), line, atLeaderNs, _o.ReceiptWait, ct).ConfigureAwait(false);
+        var wait = WireGrammar.TryParse(line, out var parsed, out _) && AsksForReport(parsed) ? _o.ReportWait : _o.ReceiptWait;
+        var receipts = await Feed.SendAirAsync(_settings.Group, KindOf(line), line, atLeaderNs, wait, ct).ConfigureAwait(false);
         return [.. receipts.Select(r => new FanoutReceipt(r.Node, r.Name, r.Stage, r.AppliedLeaderNs, r.Words))];
+    }
+
+    /// <summary>A line a member answers with its finished report rather than an effect: <c>PREFLIGHT … WAIT</c>.</summary>
+    internal static bool AsksForReport(WireLine line) =>
+        VerbCatalog.Match(line) is { Spec.Name: "PREFLIGHT" } && line.Words.Skip(1).Any(w => w.Equals("WAIT", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The longest report a receipt carries: one wire line, less room for the receipt's own words.</summary>
+    private const int ReportBytes = WireGrammar.MaxLineBytes - 256;
+
+    /// <summary>What a member's receipt says: a refusal's words; for a line that asks for the member's report (<c>PREFLIGHT …
+    /// WAIT</c>), the finished report itself (compact JSON, one word to the end of the receipt's line), or why it does not fit in
+    /// one; else what the line did here.</summary>
+    internal static string ReceiptWords(WireLine line, CommandReply reply)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(reply);
+        if (!reply.Ok)
+            return reply.Payload ?? "refused";
+        if (!reply.Applied || !AsksForReport(line) || reply.Payload is not { Length: > 0 } report || report[0] != '{')
+            return reply.Effect;
+        return System.Text.Encoding.UTF8.GetByteCount(report) <= ReportBytes ? report
+            : "its report is longer than one line — PREFLIGHT REPORT on that node reads it";
     }
 
     /// <summary>The air line a leader's own line becomes for its members (BLACKOUT TOGGLE as the state it left; a panic's AT &lt;unix ms&gt;
@@ -494,13 +521,26 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             Background(ReceiptWhenRunAsync(due, seq, link));
             return;
         }
+        else if (m.Spec.Name == "PREFLIGHT")
+        {
+            // A preflight takes its checks' time and moves nothing on the air: it runs beside the feed, so a later air line (a
+            // PANIC) is never held behind it; its receipt follows when it ends.
+            Background(RunBesideAsync(engine, line, m.Spec, at, seq, link));
+            return;
+        }
         else
         {
             (reply, var ran) = await engine.RunAirLineAsync(line, m.Spec, at, LeaderSession).ConfigureAwait(false);
-            await Receipt(link, seq, ran, reply).ConfigureAwait(false);
+            await Receipt(link, seq, ran, line, reply).ConfigureAwait(false);
             return;
         }
-        await Receipt(link, seq, at, reply).ConfigureAwait(false);
+        await Receipt(link, seq, at, line, reply).ConfigureAwait(false);
+    }
+
+    private async Task RunBesideAsync(EngineCore engine, WireLine line, VerbSpec spec, long at, long seq, AnchorFollower link)
+    {
+        var (reply, ran) = await engine.RunAirLineAsync(line, spec, at, LeaderSession).ConfigureAwait(false);
+        await Receipt(link, seq, ran, line, reply).ConfigureAwait(false);
     }
 
     /// <summary>A lane line whose instant is still to come, or that arrives behind lines still waiting, joins the queue the lane's tick
@@ -545,13 +585,13 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private async Task ReceiptWhenRunAsync(DueAir due, long seq, AnchorFollower link)
     {
         var (reply, ran) = await due.Done.Task.WaitAsync(_stop.Token).ConfigureAwait(false);
-        await Receipt(link, seq, ran, reply).ConfigureAwait(false);
+        await Receipt(link, seq, ran, due.Line, reply).ConfigureAwait(false);
     }
 
     /// <summary>The member's answer: applied (with the leader instant it took effect here) only when the line says it applied;
-    /// accepted when it only started (PREFLIGHT); refused with its words.</summary>
-    private Task<bool> Receipt(AnchorFollower link, long seq, long ran, CommandReply reply) =>
-        link.ReceiptAsync(seq, !reply.Ok ? "refused" : reply.Applied ? "applied" : "accepted", ran, reply.Ok ? reply.Effect : reply.Payload ?? "refused", _stop.Token);
+    /// accepted when it only started (PREFLIGHT without WAIT); refused with its words (<see cref="ReceiptWords"/>).</summary>
+    private Task<bool> Receipt(AnchorFollower link, long seq, long ran, WireLine line, CommandReply reply) =>
+        link.ReceiptAsync(seq, !reply.Ok ? "refused" : reply.Applied ? "applied" : "accepted", ran, ReceiptWords(line, reply), _stop.Token);
 
     /// <summary>On the lane, each tick: queued air lines run from the head while their instant has come, each pinned to it, in the
     /// order they arrived; a silent leader is free-wheeled on.</summary>

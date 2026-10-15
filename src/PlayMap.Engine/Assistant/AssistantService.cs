@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Assistant;
+using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 using PlayMap.Devices.Model;
 using PlayMap.Engine.Devices;
@@ -363,7 +364,7 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
 
 /// <summary>The engine as the queue and the conversations reach it, bound once the engine exists: before that a
 /// line is refused with the reason, and STATE and the context are empty objects.</summary>
-internal sealed class DeferredEndpoint : IWireEndpoint, IVerbAvailability
+internal sealed class DeferredEndpoint : IWireEndpoint, IVerbAvailability, IShowDecisions
 {
     private volatile EngineCore? _engine;
     private Action<long>? _stateChanged;
@@ -394,6 +395,10 @@ internal sealed class DeferredEndpoint : IWireEndpoint, IVerbAvailability
     public bool IsAvailable(VerbSpec spec) => _engine?.IsAvailable(spec) ?? VerbAvailability.RoundOne.IsAvailable(spec);
 
     public string Context() => _engine?.Context() ?? "{}";
+
+    /// <summary>The node's Show Mode, as the assistant's tools ask it before they run or queue a line; refused before it is attached.</summary>
+    public ShowDecision Decide(VerbSpec spec, WireLine line, SessionInfo session) =>
+        _engine is { } e ? e.DecideShow(spec, line, session) : new ShowDecision(ShowVerdict.Refuse, "the assistant is not attached to a node");
 
     public (string Json, long Revision) ProjectJson() => _engine?.ProjectJson() ?? ("{}", 0);
 

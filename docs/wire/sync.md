@@ -47,19 +47,26 @@ line on the same connection:
 ```
 
 `ACCEPTED` first when the line's instant is still to come or a line before it still waits (or when the line only started, as
-PREFLIGHT does); `APPLIED` with
+`PREFLIGHT` without `WAIT` does); `APPLIED` with
 the leader instant the line took effect there — the leader's instant, or the member's own now when the line reached it later (a
 fade still runs as if from the leader's instant; a switch such as BLACKOUT lands when it runs); `REFUSED` with the member's words
 when its gate or the line refuses — a `PANIC` from no later than the panic it is in is "already in this panic since …" (the same
 press handed again). A member's answer for a line due after the leader stopped waiting reaches the leader as a
-late receipt (journalled "BLACKOUT ON on Stage: applied at its instant").
+late receipt (journalled "BLACKOUT ON on Stage: applied at its instant"). A `PREFLIGHT` runs beside the feed, so a later air line
+is never held behind a member's checks; for `PREFLIGHT QUICK WAIT` the words are the member's finished report as compact JSON
+(one word to the end of the line; a report longer than one line says so in words instead), and the leader waits up to 10 s for it:
+
+```
+@s9 SYNC RECEIPT 5 APPLIED 1009300000000 {"id":"pf3c9e1a7b","depth":"quick","rows":[…],"nodes":[…],…}
+```
 
 ## IFleetFanout (for wp2-blind and wp2-backup)
 
 `EngineServices.Fanout` (the sync part) — `Members`: the node ids subscribed as members while this node leads (empty otherwise);
 `SendAsync(line, atLeaderNs, ct)`: pushes `ANCHOR <group> @air {…}` to every subscriber and answers one `FanoutReceipt(Node,
 Name, Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `accepted` (its instant is still to come) or
-`silent` (no answer within 2 s: one deadline for every member of the send). The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
+`silent` (no answer within 2 s, or 10 s for a report: one deadline for every member of the send); an applied receipt's `Words` is
+the member's report for `PREFLIGHT … WAIT`, else what the line did there. The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
 sync part when they run (from the journal's verb rows; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes
 as `AT +<ms>`): a package must not send them through `SendAsync` again.
 
@@ -113,4 +120,3 @@ Seams outside this package that would close what SYNC.md lists as not yet (spine
 - A step epoch (or the clock mapping) in the published snapshot, so a frame never pairs a stepped clock with an unrebased snapshot;
   the frame-lock counter's anchor moved by a step.
 - A group lead for switches (`BLACKOUT`): the leader takes it at now + lead and sends that instant, so members land on its frame.
-- `PREFLIGHT ALL` sending through show's `FanOut` as `SHOW ARM ALL` does.

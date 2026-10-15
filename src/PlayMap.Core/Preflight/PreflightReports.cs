@@ -14,8 +14,8 @@ public static class PreflightReports
     [
         ("outputs", ["outputs", "machine"]),
         ("media", ["media", "disk"]),
-        ("mapping", ["mapping", "devices"]),
-        ("sync and backup", ["sync", "fleet", "links"]),
+        ("mapping", ["mapping", "calibration", "devices"]),
+        ("sync and backup", ["sync", "clock", "fleet", "links"]),
         ("safety", ["safety"]),
     ];
 
@@ -135,6 +135,23 @@ public static class PreflightReports
                 w.WriteNull("fix");
             else
                 w.WriteString("fix", row.Fix);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        // One section per node, in the order the rows name them (a group's preflight lists every member): made from the rows.
+        w.WriteStartArray("nodes");
+        foreach (var node in report.Rows.Select(r => r.Node).Distinct(StringComparer.Ordinal))
+        {
+            var mine = report.Rows.Where(r => r.Node == node).ToList();
+            var (ng, na, nr, nn) = Counts(mine);
+            w.WriteStartObject();
+            w.WriteString("node", node);
+            w.WriteString("light", ShowContext.LightWord(Worst(mine)));
+            w.WriteNumber("green", ng);
+            w.WriteNumber("amber", na);
+            w.WriteNumber("red", nr);
+            w.WriteNumber("grey", nn);
+            w.WriteString("ready", ReadyWords(Ready(mine)));
             w.WriteEndObject();
         }
         w.WriteEndArray();

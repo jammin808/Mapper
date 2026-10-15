@@ -11,10 +11,16 @@ public static class ShowPolicy
 {
     private static readonly ShowDecision Allowed = new(ShowVerdict.Allow, null);
 
+    /// <summary>The role a session plays, with no proof of the node's token on its connection: see the overload.</summary>
+    public static ShowRole RoleOf(SessionInfo session, IReadOnlyCollection<string> operators) => RoleOf(session, operators, proved: false);
+
     /// <summary>The role a session plays: the desk is the operator; an assistant or MCP client is an assistant; a person's
-    /// approval of one is approved; a fleet peer or the node itself is a peer or the system; any other paired client is a remote
-    /// (an operator when its HELLO name or address is listed in the node's operators); an unpaired one only observes.</summary>
-    public static ShowRole RoleOf(SessionInfo session, IReadOnlyCollection<string> operators)
+    /// approval of one is approved; a fleet peer or the node itself is a peer or the system; any other paired client is a remote,
+    /// or an operator when the node's operators list names it. A name is a claim, so the list grants the role only to a session
+    /// that <paramref name="proved"/> the node's token on its own connection (trust of an address is not proof), and only by an
+    /// address rule: an entry that is an address names that address; "name@address" names both; a bare name names only a session
+    /// from this machine. An unpaired session only observes.</summary>
+    public static ShowRole RoleOf(SessionInfo session, IReadOnlyCollection<string> operators, bool proved)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(operators);
@@ -33,13 +39,42 @@ public static class ShowPolicy
             case "system":
                 return ShowRole.System;
         }
+        if (!proved)
+            return ShowRole.Remote;
         foreach (var o in operators)
         {
-            if (o.Length > 0 && (string.Equals(o, session.ClientName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(o, session.RemoteAddress, StringComparison.OrdinalIgnoreCase)))
+            if (Names(o.Trim(), session))
                 return ShowRole.Operator;
         }
         return ShowRole.Remote;
+    }
+
+    /// <summary>One operators entry against a session: an address (IPv4 or IPv6, compared as text after trimming), "name@address",
+    /// or a bare name from this machine only.</summary>
+    private static bool Names(string entry, SessionInfo session)
+    {
+        if (entry.Length == 0)
+            return false;
+        var at = entry.LastIndexOf('@');
+        if (at > 0 && at < entry.Length - 1)
+        {
+            return string.Equals(entry[..at].Trim(), session.ClientName, StringComparison.OrdinalIgnoreCase)
+                && SameAddress(entry[(at + 1)..].Trim(), session.RemoteAddress);
+        }
+        if (System.Net.IPAddress.TryParse(entry, out _))
+            return SameAddress(entry, session.RemoteAddress);
+        return session.IsLoopback && string.Equals(entry, session.ClientName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SameAddress(string listed, string remote)
+    {
+        if (!System.Net.IPAddress.TryParse(listed, out var a) || !System.Net.IPAddress.TryParse(remote, out var b))
+            return false;
+        if (a.IsIPv4MappedToIPv6)
+            a = a.MapToIPv4();
+        if (b.IsIPv4MappedToIPv6)
+            b = b.MapToIPv4();
+        return a.Equals(b);
     }
 
     /// <summary>The line's class: the row's own, or for a generic edit (SET, ADD, REMOVE, MOVE, NUDGE) the class of the id it
@@ -113,6 +148,13 @@ public static class ShowPolicy
             return Allowed;
         if (role == ShowRole.Observer)
             return Refuse("this client only reads — pair it (its token) to run lines");
+        // The session that holds the blind draft edits the draft, armed or not: its document edits never reach the air.
+        if (facts.BlindOwner && role is not (ShowRole.Peer or ShowRole.System) && Draftable(spec, cls))
+            return Draft;
+        // Landing a draft is a person's at the desk: an assistant's BLIND COMMIT is refused rather than queued, because the approval
+        // would run under a session that neither holds the draft nor may land one while armed.
+        if (role == ShowRole.Assistant && Is(spec, "BLIND COMMIT"))
+            return Refuse("an assistant's blind draft is landed by a person: BLIND DIFF shows it, BLIND COMMIT on the desk lands it");
         if (!facts.Armed)
             return Allowed;
         // An approved assistant's line gets what a remote client gets and never more, so a read-only remote reads only for it too.
@@ -122,7 +164,7 @@ public static class ShowPolicy
         return role switch
         {
             ShowRole.System => Allowed,
-            ShowRole.Peer => Peer(spec, cls),
+            ShowRole.Peer => Peer(spec, cls, in facts),
             ShowRole.Assistant => Assistant(spec, cls),
             ShowRole.Operator => Operator(spec, line, cls),
             ShowRole.Approved => Approved(spec, line, cls, facts),
@@ -130,13 +172,28 @@ public static class ShowPolicy
         };
     }
 
+    private static readonly ShowDecision Draft = new(ShowVerdict.BlindOnly, null);
+
+    /// <summary>A line whose edits a blind draft takes: content, the running order, mapping, layout, media, and the draft's own
+    /// UNDO and REDO.</summary>
+    public static bool Draftable(VerbSpec spec, ShowClass cls)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        return cls is ShowClass.Content or ShowClass.Playlists or ShowClass.Mapping or ShowClass.Layout or ShowClass.Media
+            || (cls == ShowClass.Project && (Is(spec, "UNDO") || Is(spec, "REDO")));
+    }
+
     /// <summary>True for PANIC itself: the stop, never refused for a person.</summary>
     private static bool IsStop(VerbSpec spec) => string.Equals(spec.Name, "PANIC", StringComparison.Ordinal);
 
-    private static ShowDecision Peer(VerbSpec spec, ShowClass cls) => cls switch
+    /// <summary>A fleet peer runs the group's air and the show's group lines, never heavy or set-up work; a show whose DISARM-FROM is
+    /// the desk keeps DISARM and UNLOCK to its own desk, whichever node's line asks.</summary>
+    private static ShowDecision Peer(VerbSpec spec, ShowClass cls, in ShowFacts facts) => cls switch
     {
         ShowClass.Heavy or ShowClass.Setup or ShowClass.DevicePower or ShowClass.Project or ShowClass.Admin =>
             Refuse(Armed(spec, What(cls), "SHOW DISARM on this node first")),
+        ShowClass.Show when (Is(spec, "SHOW DISARM") || Is(spec, "UNLOCK")) && string.Equals(facts.DisarmFrom, "desk", StringComparison.OrdinalIgnoreCase) =>
+            Refuse(Armed(spec, "is this node's own desk's on this show (DISARM-FROM DESK)", "Its desk can do it")),
         _ => Allowed,
     };
 
@@ -144,6 +201,8 @@ public static class ShowPolicy
     {
         ShowClass.Admin => Refuse(string.Concat(spec.Name, " touches this machine's secrets: an assistant never runs it")),
         ShowClass.Heavy or ShowClass.Setup => Refuse(Armed(spec, What(cls), "SHOW DISARM first; then propose it")),
+        // An assistant drafts blind while armed (its edits stay off the air); landing the draft is a person's (refused above).
+        ShowClass.Show when spec.Name.StartsWith("BLIND", StringComparison.Ordinal) => Allowed,
         _ => new ShowDecision(ShowVerdict.Propose, string.Concat(spec.Name,
             " waits for a person while the show is armed: an assistant proposes, a person approves or runs it")),
     };

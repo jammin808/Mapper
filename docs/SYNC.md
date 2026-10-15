@@ -68,9 +68,11 @@ in order:
 - **`ANCHOR <group> @air {"feed","seq","line","leaderNs"}`**: the group's air. On a leader, `PANIC`, `PANIC CLEAR`, `BLACKOUT` (a toggle
   is sent as the state it left) and `MASTER` go to every member as they ran here (`HERE` keeps a line local, and so does a panic
   line that names outputs: they are this node's). A panic's `AT <unix ms>` goes as `AT +<ms>` from the line's instant, read on the
-  leader's wall clock. Show's `SHOW ARM|DISARM ALL` use the same path through `IFleetFanout` (`PREFLIGHT ALL` checks for members
-  but does not send yet: show's). A member runs `PANIC`, `PANIC CLEAR`,
-  `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM` and `PREFLIGHT` from its leader and refuses anything else with words. A lane
+  leader's wall clock. Show's `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` use the same path through `IFleetFanout`, once per
+  line, at the instant the leader's own half ran. A member runs `PANIC`, `PANIC CLEAR`,
+  `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM` and `PREFLIGHT` from its leader and refuses anything else with words. A
+  `PREFLIGHT` runs beside the feed (a later air line is never held behind its checks); for `PREFLIGHT QUICK WAIT` the member's
+  receipt carries its finished report, and the leader waits up to 10 s for it (a member's checks run under their own budgets). A lane
   verb runs pinned to the leader's instant: at once when that instant has come and nothing waits before it, else in arrival order
   from the lane's tick once its instant has come (the member answers `accepted` first). A `PANIC` from no later than the panic
   the member is in is that press handed again: refused as such, never a second (hard) press. Every member answers each line with `SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns>

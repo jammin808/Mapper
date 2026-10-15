@@ -634,7 +634,6 @@ public sealed partial class EngineCore
         if (settled && !_airSettledNoted)
             FactsChanged();
         _airSettledNoted = settled;
-        Volatile.Write(ref _showTickedNs, now);
     }
 
     /// <summary>Builds the render thread's levels from the air now (null when nothing differs from full).</summary>

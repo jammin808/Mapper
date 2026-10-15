@@ -37,7 +37,24 @@ public sealed partial class EngineCore : IShowDecisions
         }
     }
 
-    public ShowRole ShowRoleOf(SessionInfo session) => ShowPolicy.RoleOf(session, _operators);
+    public ShowRole ShowRoleOf(SessionInfo session) => ShowPolicy.RoleOf(session, _operators, ProvedOnConnection(session));
+
+    /// <summary>Whether a session proved the node's token on its own connection, as far as the session says: on a node that asks
+    /// one, a session paired from an address the node does not trust paired by proof (trust is not proof); a node that asks none has
+    /// no secret to prove, so only this machine counts — the rule the desk's own role follows. The session carries no proof bit of
+    /// its own, so a session from a trusted address (this machine, when loopback is trusted) never counts.</summary>
+    private bool ProvedOnConnection(SessionInfo session)
+    {
+        var settings = Services.Settings;
+        // Only the doors a client dials in through can carry a proof; a link this node opened (Patterns, Stagewatch) proved nothing.
+        if (!session.Paired || session.Transport is not ("wire" or "ws" or "http" or "companion"))
+            return false;
+        if (!PlayMap.Net.NetAddress.TokenNeeded(settings))
+            return session.IsLoopback;
+        // Paired from an address the node does not trust means paired by the token; an address it trusts (this machine with
+        // loopback trusted, the trusted list) may have paired without one, so it never counts as proof — fail closed.
+        return System.Net.IPAddress.TryParse(session.RemoteAddress, out var remote) && !PlayMap.Net.NetAddress.IsTrusted(remote, settings);
+    }
 
     /// <summary>What the show's table says about a line from a session now, from published state only (any thread).</summary>
     public ShowDecision DecideShow(VerbSpec spec, WireLine line, SessionInfo session)
@@ -47,7 +64,7 @@ public sealed partial class EngineCore : IShowDecisions
         ArgumentNullException.ThrowIfNull(session);
         var rules = Store.Project.Show.Rules;
         var air = _snapshot.Air;
-        var facts = new ShowFacts(_showMode.Armed, false, air.EffectiveBlackout, rules.RemoteViewOnlyWhenArmed, rules.DisarmFrom);
+        var facts = new ShowFacts(_showMode.Armed, OwnsDraft(session), air.EffectiveBlackout, rules.RemoteViewOnlyWhenArmed, rules.DisarmFrom);
         return ShowPolicy.Decide(spec, line, ShowRoleOf(session), in facts);
     }
 
@@ -66,7 +83,9 @@ public sealed partial class EngineCore : IShowDecisions
     private void StartShow()
     {
         _operators = [.. Services.Settings.Show.Operators];
-        Store.Guard = (before, after) => LockGuard.Check(before, after, _showMode.Armed);
+        // A blind commit landing is the sanctioned way past the armed show's implicit locks; the show's own locks still hold on it.
+        Store.Guard = (before, after) => _promoting ? LockGuard.Check(before, after, armed: false)
+            : LockGuard.Check(before, after, _showMode.Armed && !_mirroring) ?? PendingGuard(before, after);
         _showGate = new EngineShowGate(this);
         if (Services.ShowGate is LateShowGate late)
             _ = late.Bind(_showGate);
@@ -74,13 +93,52 @@ public sealed partial class EngineCore : IShowDecisions
         RebuildLevels();
     }
 
-    /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line
-    /// an assistant may only propose waits on this node's list for a person.</summary>
-    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session)
+    /// <summary>True on the lane while a fleet mirror's edit is applied (<see cref="MirrorEditAsync"/>).</summary>
+    private bool _mirroring;
+
+    /// <summary>An edit a fleet mirror applies to keep this node's document identical to the machine it mirrors (a hot backup
+    /// copying its primary's mapping, wp2-backup): on the lane, one undo step, past the implicit mapping and layout locks an armed
+    /// show adds — the primary's own gate already decided the edit — while the show's explicit locks and a waiting blind commit
+    /// still hold it. Never for a line from a client: the caller is the fleet part, after its own proof of the peer.</summary>
+    public Task<EditResult> MirrorEditAsync(string label, Func<Project, Project> edit)
     {
+        ArgumentNullException.ThrowIfNull(edit);
+        return _lane.RunAsync(() =>
+        {
+            _mirroring = true;
+            try
+            {
+                return Store.Apply(label, edit);
+            }
+            finally
+            {
+                _mirroring = false;
+            }
+        });
+    }
+
+    /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line
+    /// an assistant may only propose waits on this node's list for a person; a draftable line from the blind draft's owner runs
+    /// into its draft (<paramref name="draft"/>), refused while that draft is landing.</summary>
+    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    {
+        var refused = ShowGateDecide(spec, line, session, out draft);
+        // Off the lane the line's edits are applied later, through EditAsync on the lane: they keep this decision.
+        if (refused is null && !_lane.IsOnLane)
+            NoteOffLaneDecision(session, draft);
+        return refused;
+    }
+
+    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    {
+        draft = null;
         // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
         if (!IsAvailable(spec))
             return null;
+        // Another show opened under a draft would leave the draft and its commit for a show that is gone.
+        if (_blind is { } open && spec.Name is "PROJECT OPEN" or "PROJECT NEW")
+            return RefuseAtGate(spec, line, session,
+                $"a blind draft is open ({open.OwnerName}, {Changes(open)}) — BLIND COMMIT or BLIND DISCARD before opening another show");
         var d = DecideShow(spec, line, session);
         switch (d.Verdict)
         {
@@ -88,6 +146,11 @@ public sealed partial class EngineCore : IShowDecisions
                 if (ShowPolicy.ClassOf(spec, line) == ShowClass.Network && Store.Project.Show.Locks.FirstOrDefault(l => l.Kind == LockKind.Area && l.Target == LockAreas.Network) is { } held)
                     return RefuseAtGate(spec, line, session, $"network is locked by {held.By} ({LockGuard.Clock(held.AtUnixMs)}) — UNLOCK AREA network first");
                 return null;
+            case ShowVerdict.BlindOnly:
+                if (_blind is { Commit: { } landing })
+                    return RefuseAtGate(spec, line, session, $"the blind draft lands {When(landing)} — no more edits to it; BLIND DISCARD cancels the commit");
+                draft = DraftStoreFor(session);
+                return draft is null ? RefuseAtGate(spec, line, session, "this session holds no blind draft — BLIND ON first") : null;
             case ShowVerdict.Propose:
                 return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person");
             default:
@@ -127,54 +190,108 @@ public sealed partial class EngineCore : IShowDecisions
         return CommandReply.Fail($"{words} — queued for a person as proposal {id}");
     }
 
-    private CommandReply ShowArm(VerbCall c)
+    /// <summary>SHOW ARM [ALL] [words]: this node arms on the lane; ALL then sends the same line to every member of the group this
+    /// node leads and answers with each member's receipt (applied, refused with its words, or silent).</summary>
+    private Task<CommandReply> ShowArmAsync(VerbCall c)
     {
         var (all, rest) = TakeAll(c.Args);
         if (all && FanoutMembers() == 0)
-            return CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only");
+            return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only"));
+        var words = string.Join(' ', rest);
+        return ShowGroupAsync(c, all, () => ShowArm(c.Session, words), words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM",
+            "already armed by ");
+    }
+
+    /// <summary>SHOW DISARM [ALL], as ARM.</summary>
+    private Task<CommandReply> ShowDisarmAsync(VerbCall c)
+    {
+        var (all, rest) = TakeAll(c.Args);
+        if (rest.Count > 0)
+            return Task.FromResult(CommandReply.Fail("SHOW DISARM [ALL]"));
+        if (all && FanoutMembers() == 0)
+            return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW DISARM disarms this node only"));
+        // The group's members run the line as a peer of this node, past their own remote rules: only an operator here may send it.
+        if (all && ShowRoleOf(c.Session) is not (ShowRole.Operator or ShowRole.System))
+            return Task.FromResult(RefuseAtGate(c.Spec, c.Line, c.Session, "SHOW DISARM ALL disarms every node of the group: the desk's (an operator's) only"));
+        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed");
+    }
+
+    /// <summary>This node's half on the lane, then (ALL) the group's at the leader instant this node's half ran: a node already in the
+    /// asked mode still sends the line on, so ALL brings every member to it. The reply lists this node and then each member with its
+    /// receipt.</summary>
+    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords)
+    {
+        var (local, at) = await _lane.RunAsync(() => (here(), LeaderNowNs)).ConfigureAwait(false);
+        if (!all)
+            return local;
+        var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);
+        if (!local.Ok && !already)
+            return local;
+        var receipts = await FanOutAsync(line, at, c.Ct).ConfigureAwait(false);
+        var mode = _showMode;
+        var refused = receipts.Count(r => r.Stage != "applied");
+        return new CommandReply(true, JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("armed", mode.Armed);
+            w.WriteString("by", mode.By);
+            w.WriteNumber("since", mode.SinceUnixMs);
+            w.WriteNumber("members", receipts.Count);
+            w.WriteStartArray("nodes");
+            WriteReceipt(w, new FanoutReceipt(Services.Settings.NodeId, Services.Settings.Name, already ? "already" : "applied", at,
+                already ? local.Payload ?? "" : local.Effect));
+            foreach (var r in receipts)
+                WriteReceipt(w, r);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }), $"{line} on this node and {receipts.Count} member{(receipts.Count == 1 ? "" : "s")}{(refused > 0 ? $" ({refused} did not apply it)" : "")}");
+    }
+
+    private static void WriteReceipt(Utf8JsonWriter w, FanoutReceipt r)
+    {
+        w.WriteStartObject();
+        w.WriteString("node", r.Node);
+        w.WriteString("name", r.Name);
+        w.WriteString("stage", r.Stage);
+        if (r.Stage == "applied")
+            w.WriteNumber("appliedLeaderNs", r.AppliedLeaderNs);
+        w.WriteString("words", r.Words);
+        w.WriteEndObject();
+    }
+
+    private CommandReply ShowArm(SessionInfo session, string words)
+    {
         var mode = _showMode;
         if (mode.Armed)
             return CommandReply.Fail($"already armed by {mode.By} since {LockGuard.Clock(mode.SinceUnixMs)}");
-        var words = string.Join(' ', rest);
-        _showMode = new ShowMode(true, c.Session.ClientName, Services.Wall.UnixMs, words);
+        _showMode = new ShowMode(true, session.ClientName, Services.Wall.UnixMs, words);
         TouchShow();
-        RaiseEvent("show.armed", LeaderNowNs, w => w.WriteString("by", c.Session.ClientName));
-        var members = all ? FanOut(words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM") : 0;
+        RaiseEvent("show.armed", LeaderNowNs, w => w.WriteString("by", session.ClientName));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteBoolean("armed", true);
-            w.WriteString("by", c.Session.ClientName);
+            w.WriteString("by", session.ClientName);
             w.WriteNumber("since", _showMode.SinceUnixMs);
-            if (all)
-                w.WriteNumber("members", members);
             w.WriteEndObject();
-        }), $"armed by {c.Session.ClientName}{(words.Length > 0 ? " — " + words : "")}");
+        }), $"armed by {session.ClientName}{(words.Length > 0 ? " — " + words : "")}");
     }
 
-    private CommandReply ShowDisarm(VerbCall c)
+    private CommandReply ShowDisarm(SessionInfo session)
     {
-        var (all, rest) = TakeAll(c.Args);
-        if (rest.Count > 0)
-            return CommandReply.Fail("SHOW DISARM [ALL]");
-        if (all && FanoutMembers() == 0)
-            return CommandReply.Fail("no fleet fan-out on this node — SHOW DISARM disarms this node only");
         if (!_showMode.Armed)
             return CommandReply.Fail("not armed — the show is in rehearsal");
         _showMode = ShowMode.Rehearsal;
         TouchShow();
-        RaiseEvent("show.disarmed", LeaderNowNs, w => w.WriteString("by", c.Session.ClientName));
-        var members = all ? FanOut("SHOW DISARM") : 0;
+        RaiseEvent("show.disarmed", LeaderNowNs, w => w.WriteString("by", session.ClientName));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteBoolean("armed", false);
             w.WriteNumber("landed", 0);
             w.WriteNumber("setAside", 0);
-            if (all)
-                w.WriteNumber("members", members);
             w.WriteEndObject();
-        }), $"disarmed by {c.Session.ClientName}");
+        }), $"disarmed by {session.ClientName}");
     }
 
     private CommandReply ShowSet(VerbCall c)
@@ -216,8 +333,12 @@ public sealed partial class EngineCore : IShowDecisions
                 next = rules with { PanicLeadMs = lead };
                 said = $"a panic lands {lead} ms ahead on the show clock";
                 break;
-            case "COMMIT-LEAD":
-                return CommandReply.Fail("COMMIT-LEAD times blind commits, and this node has no blind editing yet");
+            case "COMMIT-LEAD" when a.Count == 2:
+                if (!int.TryParse(a[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var commitLead) || commitLead is < 0 or > 2_000)
+                    return CommandReply.Fail("COMMIT-LEAD takes 0 to 2000 ms");
+                next = rules with { CommitLeadMs = commitLead };
+                said = $"a blind commit lands at least {commitLead} ms ahead on the show clock";
+                break;
             default:
                 return CommandReply.Fail(Syntax);
         }
@@ -232,27 +353,38 @@ public sealed partial class EngineCore : IShowDecisions
 
     private int FanoutMembers() => Services.Fanout?.Members.Count ?? 0;
 
-    /// <summary>Sends an air line to the group this node leads; each member's receipt is journalled when it comes. Answers how many
-    /// members it went to.</summary>
-    private int FanOut(string text)
+    /// <summary>Sends a line to the group this node leads at a leader instant and waits for every member's receipt (the fan-out
+    /// times silent members out with words); each is journalled. A fan-out that faults is one receipt saying so. The group's air
+    /// lines (PANIC, PANIC CLEAR, BLACKOUT, MASTER) never come here: the sync part fans them out when they run.</summary>
+    private async Task<IReadOnlyList<FanoutReceipt>> FanOutAsync(string text, long atLeaderNs, CancellationToken ct)
     {
         if (Services.Fanout is not { } fanout)
-            return 0;
-        var members = fanout.Members.Count;
-        var at = LeaderNowNs;
-        _ = Task.Run(async () =>
+            return [];
+        IReadOnlyList<FanoutReceipt> receipts;
+        try
         {
-            try
-            {
-                foreach (var r in await fanout.SendAsync(text, at, CancellationToken.None).ConfigureAwait(false))
-                    Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage != "refused");
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
-            }
-        }, CancellationToken.None);
-        return members;
+            receipts = await fanout.SendAsync(text, atLeaderNs, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
+            return [new FanoutReceipt("", "the group", "fault", 0, Journal.Describe(ex))];
+        }
+        // A member's reply that is a document (a preflight report) rides in the receipt, never in the journal's row.
+        foreach (var r in receipts)
+        {
+            var words = r.Words.TrimStart() is { Length: > 0 } w && w[0] is not ('{' or '[') ? " — " + FirstLine(w) : "";
+            Journal.Add(r.Stage == "applied" ? "fleet" : "refused", $"{FirstLine(text)} on {r.Name}: {r.Stage}{words}", ok: r.Stage == "applied");
+        }
+        return receipts;
+    }
+
+    /// <summary>The first line of words (a member's report rides in its receipt; the journal keeps one line of it).</summary>
+    private static string FirstLine(string words)
+    {
+        var cut = words.IndexOfAny(['\n', '\r']);
+        var line = cut < 0 ? words : words[..cut];
+        return line.Length <= 160 ? line : string.Concat(line.AsSpan(0, 157), "…");
     }
 
     private static string Quote(string words) => "\"" + words.Replace("\"", "'", StringComparison.Ordinal) + "\"";
@@ -285,8 +417,10 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteString("defaultOutcome", PanicMath.Json(rules.DefaultOutcome));
         w.WriteNumber("defaultFadeMs", rules.DefaultFadeMs);
         w.WriteNumber("panicLeadMs", rules.PanicLeadMs);
+        w.WriteNumber("commitLeadMs", rules.CommitLeadMs);
         w.WriteEndObject();
-        w.WriteNull("blind");
+        w.WritePropertyName("blind");
+        WriteBlind(w);
         w.WritePropertyName("panic");
         WritePanic(w, air.Panic);
         w.WritePropertyName("locks");
@@ -298,6 +432,8 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteEndObject();
         w.WritePropertyName("preflight");
         WritePreflightSummary(w);
+        w.WritePropertyName("sound");
+        WriteSound(w);
         w.WriteNumber("minGoMs", mode.Armed ? rules.MinGoMsArmed : rules.MinGoMsRehearsal);
         w.WriteEndObject();
     }
@@ -314,6 +450,12 @@ public sealed partial class EngineCore : IShowDecisions
         {
             show = new ContextItem("show", "show", "Show", Light.Red,
                 $"PANIC {PanicMath.Json(panic.Outcome)}{(panic.Hard ? " (hard)" : "")} since {Seconds(panic.SinceUnixMs)} — PANIC CLEAR");
+        }
+        else if (_blind is { } blind)
+        {
+            var landing = blind.Commit is { } commit ? $", landing {When(commit)}" : " — BLIND COMMIT or BLIND DISCARD";
+            show = new ContextItem("show", "show", "Show", Light.Amber,
+                $"{(mode.Armed ? "ARMED · " : "")}blind editing by {blind.OwnerName}: {Changes(blind)} staged{landing}");
         }
         else if (mode.Armed)
         {
