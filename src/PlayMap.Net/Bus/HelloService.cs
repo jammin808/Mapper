@@ -85,6 +85,10 @@ public sealed class HelloService : IAsyncDisposable
         set => _targets = Checked(value);
     }
 
+    /// <summary>The capabilities round 2 adds to the contract's: <c>eye</c> (EYE / EYE STATUS answer the board in Patterns' EyeJson
+    /// shape) and <c>show</c> (Show Mode's facts in STATE and the context) — sixteen in all, every one a strict reader keeps.</summary>
+    public static readonly IReadOnlyList<string> RoundTwoCaps = ["eye", "show"];
+
     /// <summary>PlayMap's hello: kind playmap, its ports (http, ws and https on one port when it serves TLS, wire,
     /// sync), its capabilities, its clock and its certificate's fingerprint. No show data, no secret.</summary>
     public static ShowBusHello PlayMapHello(NodeSettings settings, long clockUnixMs, string? tlsFingerprint, string? host = null)
@@ -100,7 +104,8 @@ public sealed class HelloService : IAsyncDisposable
         if (tlsFingerprint is not null)
             ports["https"] = settings.HttpPort;
         return new ShowBusHello(ShowBusConstants.KindPlayMap, 1, 1, settings.NodeId, settings.Name, host ?? Environment.MachineName,
-            ports, ShowBusHello.PlayMapCaps, clockUnixMs, null, tlsFingerprint);
+            ports, [.. ShowBusHello.PlayMapCaps, .. RoundTwoCaps.Where(c => !ShowBusHello.PlayMapCaps.Contains(c, StringComparer.Ordinal))],
+            clockUnixMs, null, tlsFingerprint);
     }
 
     public void Start()

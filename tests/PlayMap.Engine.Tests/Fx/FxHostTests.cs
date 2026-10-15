@@ -14,8 +14,9 @@ namespace PlayMap.Engine.Tests.Fx;
 
 /// <summary>Effects on a running render host: a slot STATE first shows compiling becomes ok once the renderer draws it and the
 /// output shows the effect; a file that does not compile is faulted in STATE at its line and the output shows its input; the
-/// preflight check reds it with the line that takes it off the air; a warm frame with a chain allocates nothing on the frame
-/// path; and STATE.fx from a real scenario is the committed fixture, with the card descriptor that reads it.</summary>
+/// preflight check reds it with the line that takes it off the air; a warm frame with an output chain, or with layer and surface
+/// chains seen by two projectors, allocates nothing on the frame path; and STATE.fx from a real scenario is the committed fixture,
+/// with the card descriptor that reads it.</summary>
 [Collection("render host")]
 public sealed class FxHostTests
 {
@@ -159,10 +160,63 @@ public sealed class FxHostTests
         Assert.Equal(before.FramePathAllocatedBytes, after.FramePathAllocatedBytes);
     }
 
+    [Fact]
+    public async Task AWarmFrameWithLayerAndSurfaceChainsAllocatesNothingOnTheFramePath()
+    {
+        // Two projectors on a wall showing the main canvas: its layer's chain, the wall's (a history effect, and one at half
+        // scale), a layer that is not visible and an item that is not playing, both with chains that say why they are not drawn.
+        var wall = BlendSolveTests.TwoProjectorsOnAWall();
+        var project = wall with
+        {
+            Outputs = [.. wall.Outputs.Select(o => o with { Width = 320, Height = 180 })],
+            Canvases = wall.Canvases.Update("cv_main", c => c with
+            {
+                Width = 320,
+                Height = 180,
+                Layers =
+                [
+                    .. c.Layers.Select(l => l with { Rect = new RectD(0, 0, 320, 180), Fx = new FxChain([Slot("fx00000001", "fx.invert")]) }),
+                    new Layer("ly_off", "Off", SourceRef.Solid("#284664"), new RectD(0, 0, 320, 180), 1, LayerBlend.Normal, false)
+                    {
+                        Fx = new FxChain([Slot("fx00000004", "fx.blur")]),
+                    },
+                ],
+            }),
+            Stage = wall.Stage with
+            {
+                Surfaces = wall.Stage.Surfaces.Update("sf_wall", s => s with
+                {
+                    Content = SurfaceContent.Empty with { Source = SourceRef.Canvas("cv_main") },
+                    Fx = new FxChain([Slot("fx00000002", "fx.feedback"), Slot("fx00000003", "fx.vignette") with { Scale = 0.5 }]),
+                }),
+            },
+            Playlists =
+            [
+                new Playlist("pl_off", "Off", [PlaylistItem.For("it_off", SourceRef.Generator("gn_testcard"), "Off") with
+                {
+                    Fx = new FxChain([Slot("fx00000005", "fx.invert")]),
+                }], false, null),
+            ],
+        };
+        await using var rig = HostRig.Start(project);
+        await rig.Host.Stage!.WhenSettledAsync(rig.Engine.Store.Current.Revision).WaitAsync(HostRig.Patience);
+        foreach (var id in new[] { "fx00000001", "fx00000002", "fx00000003" })
+            Assert.Equal("ok", (await Settled(rig, id)).GetProperty("state").GetString());
+        static Func<JsonElement, bool> Says(string words) => s => s.GetProperty("words").GetString() == words;
+        Assert.Equal("idle", (await Settled(rig, "fx00000004", Says("not drawn: the layer is not visible"))).GetProperty("state").GetString());
+        Assert.Equal("idle", (await Settled(rig, "fx00000005", Says("not drawn: its playlist is not showing it"))).GetProperty("state").GetString());
+        await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
+        var before = rig.Host.Stats;
+        await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
+        var after = rig.Host.Stats;
+        Assert.True(after.Frames - before.Frames >= 90);
+        Assert.Equal(before.FramePathAllocatedBytes, after.FramePathAllocatedBytes);
+    }
+
     private static FxSlot Slot(string id, string kind) => new(id, kind, "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0);
 
     /// <summary>The fixture's show: an output chain with an effect drawing, one bypassed, a history effect and a file that does not
-    /// compile; a layer chain this build keeps but does not draw.</summary>
+    /// compile; a layer chain on a canvas no output shows, which says so.</summary>
     private static Project FixtureShow()
     {
         var asset = new FxAsset("fa00000001", "Broken", FxFormat.Isf, "", FxCatalog.ContentHash(Broken, null)) { Source = Broken };

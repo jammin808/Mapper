@@ -206,6 +206,10 @@ public sealed class FxChainRunner : IDisposable
     /// <summary>True when the owner's chain was applied or skipped this frame. Render thread.</summary>
     public bool Met(string ownerId) => _owners.TryGetValue(ownerId, out var owner) && owner.LastUsed == _frame;
 
+    /// <summary>True when the owner's chain was applied or skipped the frame before this one (it was on the air, or kept while the
+    /// air kept it off). Render thread.</summary>
+    public bool MetLast(string ownerId) => _owners.TryGetValue(ownerId, out var owner) && owner.LastUsed == _frame - 1;
+
     /// <summary>A chain the frame did not run because its owner showed something else (blackout, a test pattern, a safe look, a
     /// scan frame): each slot that is not bypassed says why in <paramref name="words"/> (it is idle, not drawing), or, with null
     /// words (a held picture, which still shows what the chain made), keeps its last state. Either way its renderer, buffers
@@ -231,6 +235,26 @@ public sealed class FxChainRunner : IDisposable
                 live.Set(FxSlotState.Bypassed, slot.Bypass ? "bypassed" : "mix 0", _frame);
             else if (words is null)
                 live.Touch(_frame);
+            else
+                live.Set(FxSlotState.Idle, words, _frame);
+        }
+    }
+
+    /// <summary>A chain the frame did not run because its owner is out of the picture (a layer or surface that is not visible, a
+    /// canvas nothing shows, an item its playlist is not showing): each slot that is not bypassed says why in
+    /// <paramref name="words"/>, and nothing of the chain is kept for it — its renderers, buffers and targets go once unused for
+    /// <see cref="IdleFrames"/> frames, as any unused slot's do. Render thread; allocates nothing once the slots are known.</summary>
+    public void Report(FxChain chain, string words)
+    {
+        ArgumentNullException.ThrowIfNull(chain);
+        ArgumentNullException.ThrowIfNull(words);
+        if (chain.IsEmpty)
+            return;
+        foreach (var slot in chain.Slots)
+        {
+            var live = Stats.For(slot.Id);
+            if (slot.Bypass || slot.Mix <= 0)
+                live.Set(FxSlotState.Bypassed, slot.Bypass ? "bypassed" : "mix 0", _frame);
             else
                 live.Set(FxSlotState.Idle, words, _frame);
         }
