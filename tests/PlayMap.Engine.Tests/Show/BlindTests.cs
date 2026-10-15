@@ -300,4 +300,30 @@ public sealed class BlindTests
         var commit = JsonDocument.Parse(await rig.Ok("BLIND COMMIT")).RootElement;
         Assert.Equal(t + 100_000_000, commit.GetProperty("effectiveLeaderNs").GetInt64());
     }
+
+    private static Dictionary<string, (string Light, string State)> IndexRows(ShowRig rig)
+    {
+        var section = Assert.Single(rig.Engine.Routes.IndexSections, x => x.Section == "show");
+        using var buffer = new MemoryStream();
+        using (var w = new Utf8JsonWriter(buffer))
+            section.WriteRows(rig.Engine.Store.Project, rig.Engine.Snapshot, w);
+        return JsonDocument.Parse(buffer.ToArray()).RootElement.EnumerateArray()
+            .ToDictionary(r => r.GetProperty("id").GetString()!, r => (r.GetProperty("light").GetString()!, r.GetProperty("state").GetString()!));
+    }
+
+    [Fact]
+    public async Task TheIndexsShowSectionHoldsTheDraftsCommitNextAndDiscardKeys()
+    {
+        await using var rig = new ShowRig();
+        Assert.Equal(("grey", "no draft"), IndexRows(rig)["BLIND COMMIT NEXT"]);
+        Assert.Equal(("grey", "no draft"), IndexRows(rig)["BLIND DISCARD"]);
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        Assert.Equal(("amber", "1 staged"), IndexRows(rig)["BLIND COMMIT NEXT"]);
+        await rig.Ok("PLAYLIST GO pl_show");
+        // The key's line lands the draft at the focused playlist's next switch.
+        await rig.Ok("BLIND COMMIT NEXT");
+        Assert.Equal(("amber", "landing next"), IndexRows(rig)["BLIND DISCARD"]);
+        Assert.Equal("pl_show", Blind(rig).GetProperty("commit").GetProperty("playlist").GetString());
+    }
 }

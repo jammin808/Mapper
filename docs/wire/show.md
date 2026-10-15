@@ -1,9 +1,9 @@
 # wp2-show on the wire
 
 What Show Mode, locks, panic, the master, the GO fence and preflight add to the wire. Every row below is routed (VERBS marks it
-`"available"`). The block's `BLIND …` rows stay in the catalogue for blind editing (wp2-blind, this package's continuation) and
-answer "… is not available on this node yet" until it routes them; `SHOW SET COMMIT-LEAD` (blind commits) and the group forms
-(`ALL`, without a sync fan-out) are refused with words.
+`"available"`). wp2-blind (this package's continuation) routes the block's `BLIND …` rows, `SHOW SET COMMIT-LEAD`, the group forms
+(`ALL`, through a fleet fan-out) and `PREFLIGHT … WAIT`, and adds `STATE.show.sound`: docs/wire/blind.md. Where this page and that
+one differ, that one is current.
 
 ## Verbs
 
