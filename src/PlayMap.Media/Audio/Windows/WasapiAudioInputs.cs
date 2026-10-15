@@ -50,8 +50,9 @@ public sealed class WasapiAudioInputs : IAudioInputs, IAudioInputsWords
                 list.Add(new AudioInputInfo(ExcludeSelf, "Everything but PlayMap", 2, [48000], Backend) { Kind = AudioInputKind.ProcessLoopback });
             _words = list.Count == 0 ? "Windows lists no active sound endpoint on this machine" : "";
         }
-        catch (Exception e) when (e is COMException or InvalidOperationException or UnauthorizedAccessException)
+        catch (Exception e)
         {
+            // Enumeration never throws: a machine whose audio service is absent (a CI runner) lists nothing, in words.
             _words = "WASAPI cannot list the endpoints: " + e.Message;
             list.Clear();
         }
