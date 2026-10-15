@@ -43,17 +43,24 @@ Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the 
 (its first is the node starting). A node without the fleet's part (a bare engine) reads every machine number −1.
 
 HEALTH is pushed (`SUBSCRIBE HEALTH`, the `/health` WebSocket) at once, once a second, and at once when any light moves — a clock
-that runs only while someone watches.
+that runs only while someone watches. The `/health` WebSocket feeds at most 64 sockets at once (a monitor holds one per peer); one more
+is refused with 503 and words, and a GET still reads the record.
+
+The fleet's part also watches this machine's own lights once a second on the fleet's clock: when a category's, an output's or the
+machine's light moves, the engine's facts move, so STATE (`fleet`, `eye`), the context's `machine` item and HEALTH's watchers say it
+within the second with nothing else moving. Numbers that wander inside one light move nothing. Both clocks stop with the node.
 
 ## The fleet monitor
 
-For every live PlayMap peer the hello hears (at most 32), the monitor opens the peer's `/health` WebSocket: `wss://` when the hello
+For every live PlayMap peer the hello hears (at most 32 subscriptions at once; a peer that comes back waits for a place like a new
+one), the monitor opens the peer's `/health` WebSocket: `wss://` when the hello
 offers TLS, the certificate checked against the pin (and the hello's fingerprint) and pinned on the first record that is the peer's
 own; `ws://` when it offers none. A peer appears on the board when its first record arrives; its liveness is the silence since its
 last record on the monitor's clock (an injected `TimeProvider`): stale at 3 s, gone at 6 s. A gone machine stays on the board, red
 "gone quiet 12 s", until it is heard again — never removed silently. A subscription that ends is dialled again after 0.5 s, doubling
 to 8 s while nothing is heard. A changed certificate is refused and shown red with words until the operator decides (the pins are
-`keys/fleet-pins.json` beside the node's own). The board changes (and STATE moves) only when what it shows moved — a light, a
+`keys/fleet-pins.json` beside the node's own). The monitor keeps at most 64 machines (twice its subscriptions, at least 64): when it is
+full, a machine it dialled and never heard (on no board) is let go to make room; a machine the board shows is never let go. The board changes (and STATE moves) only when what it shows moved — a light, a
 headline, a liveness — never for a record that says the same.
 
 ## The board
@@ -88,6 +95,6 @@ pin valid. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL le
 
 ## Threads
 
-The sampler and the HEALTH clock run on timers of their own; the monitor's subscriptions on the thread pool; the board is built from
+The sampler, the light watch and the HEALTH clock run on timers of their own; the monitor's subscriptions on the thread pool; the board is built from
 published state on whichever thread asks (FLEET, STATE, INDEX), never on the lane; the lane only stamps its tick (one lock, no
 allocation).

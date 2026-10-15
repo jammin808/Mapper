@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.WebSockets;
@@ -5,9 +6,11 @@ using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Fleet;
+using PlayMap.Core.Time;
 using PlayMap.Engine.Fleet;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Net.Bus;
 using PlayMap.Net.Fleet;
 
 namespace PlayMap.Engine.Tests.Fleet;
@@ -158,5 +161,94 @@ public sealed class FleetMonitorTests
                 return false;
             }
         }));
+    }
+
+    /// <summary>A transport whose subscriptions are held open, no record ever sent, until the test ends one.</summary>
+    private sealed class HeldFeeds : IHealthFeeds
+    {
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> _held = new(StringComparer.Ordinal);
+
+        public ConcurrentDictionary<string, int> Dialled { get; } = new(StringComparer.Ordinal);
+
+        public async Task<FeedEnd> RunAsync(FleetDial dial, Action<HealthRecord> onRecord, Action<string> onPin, CancellationToken ct)
+        {
+            Dialled.AddOrUpdate(dial.NodeId, 1, (_, n) => n + 1);
+            await Held(dial.NodeId).Task.WaitAsync(ct);
+            _held.TryRemove(dial.NodeId, out _);
+            return new FeedEnd(dial.Name + " ended", false, false);
+        }
+
+        public void End(string id) => Held(id).TrySetResult();
+
+        private TaskCompletionSource Held(string id) =>
+            _held.GetOrAdd(id, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+    }
+
+    private static ShowBusHello Hello(string id, string host = "show-pc") =>
+        new(ShowBusConstants.KindPlayMap, 1, 1, id, "N-" + id, host, new Dictionary<string, int> { ["http"] = 9940 }, ShowBusHello.PlayMapCaps, 0,
+            null, null);
+
+    private static (PeerTable Table, ManualClock Mono, HeldFeeds Feeds, FleetMonitor Monitor) Rig(int max)
+    {
+        var mono = new ManualClock();
+        var table = new PeerTable(mono);
+        var feeds = new HeldFeeds();
+        var monitor = new FleetMonitor(new FleetMonitorOptions { SelfId = "5e1f0000", Table = () => table, Feeds = feeds, Time = new ManualTime(), Max = max });
+        monitor.Start();
+        return (table, mono, feeds, monitor);
+    }
+
+    [Fact]
+    public async Task NoMoreThanItsNumberOfPeersAreSubscribedEvenWhenOneComesBack()
+    {
+        var (table, mono, feeds, monitor) = Rig(max: 2);
+        await using (monitor)
+        {
+            table.Hear(Hello("a0000001"), "10.0.0.1");
+            table.Hear(Hello("b0000002"), "10.0.0.2");
+            table.Hear(Hello("c0000003"), "10.0.0.3");
+            Assert.Equal(2, monitor.Subscriptions);
+            Assert.True(await Eventually.TrueAsync(() => feeds.Dialled.Count == 2));
+            Assert.False(feeds.Dialled.ContainsKey("c0000003"));
+
+            // A is forgotten by the hello and its subscription ends; C takes the place.
+            mono.AdvanceMs(ShowBusConstants.ForgetMs - 1000);
+            table.Hear(Hello("b0000002"), "10.0.0.2");
+            table.Hear(Hello("c0000003"), "10.0.0.3");
+            mono.AdvanceMs(2000);
+            table.Sweep();
+            feeds.End("a0000001");
+            Assert.True(await Eventually.TrueAsync(() => monitor.Subscriptions == 1));
+            table.Hear(Hello("c0000003", "show-pc-2"), "10.0.0.3");
+            Assert.Equal(2, monitor.Subscriptions);
+
+            // A comes back while two are subscribed: it waits like any other machine.
+            table.Hear(Hello("a0000001"), "10.0.0.1");
+            Assert.Equal(2, monitor.Subscriptions);
+            Assert.True(await Eventually.TrueAsync(() => feeds.Dialled.ContainsKey("c0000003")));
+            Assert.Equal(1, feeds.Dialled["a0000001"]);
+        }
+    }
+
+    [Fact]
+    public async Task MachinesNeverHeardAreLetGoSoTheMonitorKeepsABoundedNumber()
+    {
+        var (table, mono, feeds, monitor) = Rig(max: 2);
+        await using (monitor)
+        {
+            for (var i = 0; i < 80; i++)
+            {
+                var id = i.ToString("x8", CultureInfo.InvariantCulture);
+                table.Hear(Hello(id), "10.0.1.1");
+                Assert.Equal(1, monitor.Subscriptions);
+                mono.AdvanceMs(ShowBusConstants.ForgetMs + 1);
+                table.Sweep();
+                feeds.End(id);
+                Assert.True(await Eventually.TrueAsync(() => monitor.Subscriptions == 0), id);
+            }
+            Assert.Equal(80, feeds.Dialled.Count);
+            Assert.Equal(monitor.Kept, monitor.Count);
+            Assert.Empty(monitor.Peers());   // none was heard: none is on the board
+        }
     }
 }

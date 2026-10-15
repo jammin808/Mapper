@@ -27,7 +27,8 @@ public sealed record FleetMonitorOptions
     public ILogger? Log { get; init; }
 }
 
-/// <summary>Every live PlayMap peer's health, subscribed once each (at most <see cref="FleetMonitorOptions.Max"/>), latest wins. A peer
+/// <summary>Every live PlayMap peer's health, subscribed once each (at most <see cref="FleetMonitorOptions.Max"/> at once, a peer dialled
+/// again counted like a new one), latest wins. A peer
 /// appears when its first record arrives; its liveness is the silence since its last record on the injected clock — stale at 3 s,
 /// gone at 6 s — and a gone machine stays, red, until it is heard again or the node restarts. A subscription that ends is dialled
 /// again after 0.5 s, doubling to 8 s while nothing is heard (on the same clock). <see cref="Changed"/> is raised when what a board
@@ -58,7 +59,7 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
         get
         {
             lock (_gate)
-                return _entries.Values.Count(e => e.Running);
+                return RunningCount();
         }
     }
 
@@ -114,13 +115,13 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
             if (_entries.TryGetValue(peer.Id, out var known))
             {
                 known.Dial = DialOf(peer);
-                if (known.Running)
+                if (known.Running || RunningCount() >= _o.Max)
                     return;
                 entry = known;
             }
             else
             {
-                if (_entries.Values.Count(e => e.Running) >= _o.Max)
+                if (RunningCount() >= _o.Max || !RoomForOneMore())
                     return;
                 entry = new Entry(peer.Id) { Name = peer.Name, Dial = DialOf(peer), HeardTs = _o.Time.GetTimestamp() };
                 _entries[peer.Id] = entry;
@@ -130,6 +131,35 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
             var token = _stop.Token;
             _feeds.Add(Task.Run(() => FeedAsync(entry, token), CancellationToken.None));
         }
+    }
+
+    /// <summary>The most machines the monitor keeps (twice the subscriptions, at least 64): a machine the board shows stays until the
+    /// node restarts; one never heard is let go to make room.</summary>
+    public int Kept => Math.Max(64, _o.Max * 2);
+
+    /// <summary>Machines kept now (heard or not).</summary>
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+                return _entries.Count;
+        }
+    }
+
+    private int RunningCount() => _entries.Values.Count(e => e.Running);
+
+    /// <summary>Under the gate: true when one more machine can be kept, after letting go of one that is not dialled and was never
+    /// heard (it is on no board); false when every kept machine is one the board shows.</summary>
+    private bool RoomForOneMore()
+    {
+        if (_entries.Count < Kept)
+            return true;
+        var unheard = _entries.Values.FirstOrDefault(e => !e.Running && e.Health is null && !e.Refused);
+        if (unheard is null)
+            return false;
+        _entries.Remove(unheard.Id);
+        return true;
     }
 
     private static FleetDial DialOf(ShowBusPeer peer) =>
