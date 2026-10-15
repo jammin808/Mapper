@@ -28,6 +28,7 @@ public sealed class ArtNetDmxInput
     private readonly List<PollDue> _polls = [];
     private Pcg32 _random;
     private HashSet<DmxChannel> _wanted = [];
+    private readonly HashSet<DmxChannel> _fresh = [];
     private long _lastSyncNs = long.MinValue;
 
     public ArtNetDmxInput(ulong seed)
@@ -53,10 +54,17 @@ public sealed class ArtNetDmxInput
     /// <summary>Whether frames wait for ArtSync now.</summary>
     public bool Synced(long nowNs) => _lastSyncNs != long.MinValue && nowNs - _lastSyncNs < SyncTimeoutNs;
 
+    /// <summary>The channels bindings read. A channel newly wanted is sent with the next frame of its universe even when it did not
+    /// change (a binding made after the console's last move takes the console's level at its next refresh).</summary>
     public void Want(IEnumerable<DmxChannel> channels)
     {
         ArgumentNullException.ThrowIfNull(channels);
-        _wanted = [.. channels];
+        HashSet<DmxChannel> next = [.. channels];
+        foreach (var c in next)
+            if (!_wanted.Contains(c))
+                _fresh.Add(c);
+        _fresh.IntersectWith(next);
+        _wanted = next;
     }
 
     /// <summary>One packet from a source: events for the channels that changed go into <paramref name="events"/>; a poll schedules
@@ -186,7 +194,8 @@ public sealed class ArtNetDmxInput
                 continue;
             var c = w.Channel - 1;
             var f = w.Fine - 1;
-            var changed = first || before[c] != frame[c] || (w.Fine > 0 && before[f] != frame[f]);
+            var fresh = _fresh.Remove(w);
+            var changed = first || fresh || before[c] != frame[c] || (w.Fine > 0 && before[f] != frame[f]);
             if (!changed)
                 continue;
             var raw = w.Fine > 0 ? (frame[c] << 8) | frame[f] : frame[c];

@@ -130,6 +130,26 @@ public sealed class BindingEngineTests
     }
 
     [Fact]
+    public async Task AFaderOnARefusedTargetIsOneRefusedRowNotOnePerMove()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(Show(), clock: clock);
+        await rig.Ok("BIND ADD OSC /bad TO SET sf_gone opacity *");
+        foreach (var v in new[] { 0.2, 0.4, 0.6 })
+        {
+            clock.AdvanceMs(20);
+            var fired = JsonDocument.Parse((await rig.Ok("CONTROL INJECT OSC /bad " + v.ToString(System.Globalization.CultureInfo.InvariantCulture))).Payload!).RootElement.GetProperty("fired")[0];
+            Assert.Equal((false, "nothing has the id sf_gone"), (fired.GetProperty("ok").GetBoolean(), fired.GetProperty("reply").GetString()));
+        }
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "refused");
+        clock.AdvanceMs(500);
+        await rig.Engine.ControlInput.PollAsync(clock.NowNs);
+        var row = Assert.Single(rig.Engine.Journal.Recent(200), r => r.Kind == "refused");
+        Assert.Equal("OSC /bad → sf_gone opacity refused 3 times: nothing has the id sf_gone", row.Text);
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "control");
+    }
+
+    [Fact]
     public async Task LearnBindsTheNextControlThatMovesAndSaysWhatItReplaced()
     {
         await using var rig = await ControlRig.StartAsync(Show());

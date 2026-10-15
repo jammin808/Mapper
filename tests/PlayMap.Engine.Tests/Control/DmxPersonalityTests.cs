@@ -55,10 +55,25 @@ public sealed class DmxPersonalityTests
         channels[113] = 102;
         var packet = new byte[18 + 512];
         var n = ArtNet.WriteDmx(packet, 1, 3, channels);
-        desk.SendTo(packet.AsSpan(0, n), System.Net.Sockets.SocketFlags.None, new IPEndPoint(IPAddress.Parse(address), ArtNet.Port));
+        // A console refreshes its universe (Art-Net 4: at least every 4 s; here every 50 ms).
+        using var refresh = new CancellationTokenSource();
+        var console = Task.Run(async () =>
+        {
+            byte sequence = 1;
+            while (!refresh.IsCancellationRequested)
+            {
+                packet[12] = sequence++;
+                if (sequence == 0)
+                    sequence = 1;
+                desk.SendTo(packet.AsSpan(0, n), System.Net.Sockets.SocketFlags.None, new IPEndPoint(IPAddress.Parse(address), ArtNet.Port));
+                await Task.Delay(50);
+            }
+        });
         await ControlRig.Until(() => Math.Abs(rig.Engine.Store.Project.FindSurface("sf_lobby")!.Opacity - 128 / 255.0) < 1e-4, "Lobby at 50 %");
         await ControlRig.Until(() => Math.Abs(rig.Engine.Store.Project.FindOutput("op_2")!.Color.Brightness - 0.4) < 1e-6, "Out 2 at 40 %");
         await ControlRig.Until(() => rig.Engine.Playback.Lane("pl_show")?.ItemId == "it_b", "Wall's playlist at item 2");
+        await refresh.CancelAsync();
+        await console;
         var p = rig.Engine.Store.Project;
         Assert.Equal(1, p.FindSurface("sf_stage")!.Opacity, 6);
         Assert.Equal(0.4, p.FindOutput("op_2")!.Color.Brightness, 6);

@@ -235,10 +235,8 @@ public sealed class ControlRuntime
         var words = r.Input.Format();
         var session = new SessionInfo("bind:" + r.Binding.Id, "binding", "", false, $"binding:{r.Binding.Id} ({words})", true);
         var reply = await _engine.RunBindingLineAsync(fire.Line, session, journalLine: !fire.Gesture, ct).ConfigureAwait(false);
-        if (fire.Gesture && reply.Ok)
-            Gestured(r, fire, _engine.Services.Mono.NowNs);
-        else if (fire.Gesture)
-            _engine.Journal.Add("refused", reply.Payload ?? "refused", $"binding:{r.Binding.Id} ({words})", fire.Line, false);
+        if (fire.Gesture)
+            Gestured(r, fire, _engine.Services.Mono.NowNs, reply.Ok ? null : reply.Payload ?? "refused");
         return new FiredLine(r.Binding.Id, fire.Line, reply.Ok, reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : reply.Payload ?? "") : reply.Payload ?? "refused");
     }
 
@@ -303,17 +301,27 @@ public sealed class ControlRuntime
 
     // ---- gestures ----
 
-    private void Gestured(BindingRuntime r, BindingFire fire, long nowNs)
+    /// <summary>One line of a gesture, taken or refused: the gesture is journalled once when it closes, with its refusals counted
+    /// (a fader on a refused target is one row, not one per move).</summary>
+    private void Gestured(BindingRuntime r, BindingFire fire, long nowNs, string? refused)
     {
         if (!_gestures.TryGetValue(r.Binding.Id, out var g) || nowNs - g.LastNs > GestureIdleNs)
         {
             if (g is not null)
                 Close(r.Binding.Id, g);
-            g = new Gesture(r.Input.Format(), _engine.BindingWords(_engine.Store.Project, r.Binding), fire.Value, nowNs);
+            g = new Gesture(r.Input.Format(), _engine.BindingWords(_engine.Store.Project, r.Binding), fire.Value, nowNs, fire.Line);
             _gestures[r.Binding.Id] = g;
         }
-        g.To = fire.Value;
         g.LastNs = nowNs;
+        if (refused is not null)
+        {
+            g.Refused++;
+            g.Why = refused;
+            return;
+        }
+        if (g.Edits == 0)
+            g.From = fire.Value;
+        g.To = fire.Value;
         g.Edits++;
     }
 
@@ -332,9 +340,16 @@ public sealed class ControlRuntime
     {
         var target = g.Words[(g.Words.IndexOf('→', StringComparison.Ordinal) + 1)..].Trim();
         var seconds = (g.LastNs - g.FirstNs) / 1e9;
-        var text = string.Create(CultureInfo.InvariantCulture,
-            $"{g.Input} → {target} {Num(g.From)} → {Num(g.To)} over {seconds:0.0} s ({g.Edits} edit{(g.Edits == 1 ? "" : "s")})");
-        _engine.Journal.Add("control", text, $"binding:{bindingId} ({g.Input})");
+        var who = $"binding:{bindingId} ({g.Input})";
+        if (g.Edits > 0)
+        {
+            var text = string.Create(CultureInfo.InvariantCulture,
+                $"{g.Input} → {target} {Num(g.From)} → {Num(g.To)} over {seconds:0.0} s ({g.Edits} edit{(g.Edits == 1 ? "" : "s")})");
+            _engine.Journal.Add("control", text, who);
+        }
+        if (g.Refused > 0)
+            _engine.Journal.Add("refused", string.Create(CultureInfo.InvariantCulture, $"{g.Input} → {target} refused {g.Refused} time{(g.Refused == 1 ? "" : "s")}: {g.Why}"),
+                who, g.Line, false);
     }
 
     private static string Num(double v) => double.IsNaN(v) ? "?" : v.ToString("0.###", CultureInfo.InvariantCulture);
@@ -349,15 +364,18 @@ public sealed class ControlRuntime
         }
     }
 
-    private sealed class Gesture(string input, string words, double from, long firstNs)
+    private sealed class Gesture(string input, string words, double from, long firstNs, string line)
     {
         public string Input { get; } = input;
         public string Words { get; } = words;
-        public double From { get; } = from;
+        public string Line { get; } = line;
+        public double From { get; set; } = from;
         public long FirstNs { get; } = firstNs;
         public double To { get; set; } = from;
         public long LastNs { get; set; } = firstNs;
         public int Edits { get; set; }
+        public int Refused { get; set; }
+        public string Why { get; set; } = "";
     }
 
     /// <summary>The bindings of one show revision by input: exact addresses, any-surface addresses, OSC patterns; and why each

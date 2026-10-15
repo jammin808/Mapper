@@ -164,8 +164,8 @@ public sealed partial class EngineCore
         return reply;
     }
 
-    /// <summary>A device verb is answered by the operations edge (TryOps), not the lane.</summary>
-    private static bool IsOpsVerb(VerbSpec spec) => spec.Category == VerbCategory.Device;
+    /// <summary>A verb the operations edge answers (TryOps: devices, the assistant, scanning a surface), not the lane.</summary>
+    private static bool IsOpsVerb(VerbSpec spec) => OpsVerbs.Contains(spec.Name);
 
     /// <summary>A number of an entity by its field path (takeover, encoders and NUDGE read it), or null.</summary>
     internal double? ReadNumber(string id, string path)

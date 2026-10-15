@@ -52,6 +52,24 @@ public sealed class ArtNetInTests
     }
 
     [Fact]
+    public void AChannelBoundAfterTheConsolesLastMoveTakesItsLevelAtTheNextRefresh()
+    {
+        var input = new ArtNetDmxInput(1);
+        input.Want([new DmxChannel(0, 1, 0)]);
+        var events = new List<InputEvent>();
+        input.Receive(Dmx(0, 0, 10, 20), Desk, 1, events, out _);
+        Assert.Equal([1], events.Select(e => e.Address.Number));
+        events.Clear();
+        input.Want([new DmxChannel(0, 1, 0), new DmxChannel(0, 2, 0)]);
+        input.Receive(Dmx(0, 0, 10, 20), Desk, 2, events, out _);
+        var fresh = Assert.Single(events);
+        Assert.Equal((2, 20), (fresh.Address.Number, fresh.Raw));
+        events.Clear();
+        input.Receive(Dmx(0, 0, 10, 20), Desk, 3, events, out _);
+        Assert.Empty(events);
+    }
+
+    [Fact]
     public void AfterAnArtSyncFramesWaitForTheNextAndFourSecondsWithoutOneReleaseThem()
     {
         var input = new ArtNetDmxInput(1);
