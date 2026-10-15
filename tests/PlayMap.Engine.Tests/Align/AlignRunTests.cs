@@ -48,7 +48,15 @@ public sealed class AlignRunTests
         var folder = Path.Combine(rig.Folder.FullName, "align", run);
         Assert.True(File.Exists(Path.Combine(folder, "run.json")));
         Assert.True(File.Exists(Path.Combine(folder, "warp-op1.pfm")) && File.Exists(Path.Combine(folder, "blend-op2.pfm")));
-        Assert.Equal("staged", AlignArchive.Load(rig.Folder.FullName, run)!.State);
+        // run.json reads back as the run the runner holds: its score whole (what ACCEPT records in the ledger) and each output's result.
+        var kept = AlignArchive.Load(rig.Folder.FullName, run)!;
+        var held = rig.Runner.Finished(run)!;
+        Assert.Equal("staged", kept.State);
+        Assert.Equal((held.Score.Value, held.Score.Unit, held.Score.Grade, held.Score.RmsPx, held.Score.P95Px, held.Score.Confidence, held.Score.Source, held.Score.Words),
+            (kept.Score.Value, kept.Score.Unit, kept.Score.Grade, kept.Score.RmsPx, kept.Score.P95Px, kept.Score.Confidence, kept.Score.Source, kept.Score.Words));
+        Assert.True(held.Score.RmsPx > 0 && held.Score.Confidence > 0, "the score carries the seam and the coverage");
+        Assert.Equal(held.Score.Terms.ToList(), kept.Score.Terms.ToList());
+        Assert.Equal(held.Outputs.Select(o => (o.OutputId, o.Measured)), kept.Outputs.Select(o => (o.OutputId, o.Measured)));
 
         await rig.Ok($"ALIGN ACCEPT {group}");
         await rig.Engine.AlignFiles.Settled;

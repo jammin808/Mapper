@@ -114,12 +114,17 @@ public static partial class AlignArchive
         });
     }
 
+    /// <summary>A score whole, every number as it is: read back, it is the score the run staged, so a run accepted from its folder
+    /// puts the same result in the ledger as one accepted from the runner.</summary>
     internal static void WriteScore(Utf8JsonWriter w, QualityScore s)
     {
         w.WriteStartObject();
-        Number(w, "value", s.Value);
+        Exact(w, "value", s.Value);
         w.WriteString("unit", s.Unit);
         w.WriteString("grade", s.Grade);
+        Exact(w, "rmsPx", s.RmsPx);
+        Exact(w, "p95Px", s.P95Px);
+        Exact(w, "confidence", s.Confidence);
         w.WriteString("source", s.Source);
         w.WriteString("words", s.Words);
         w.WriteStartArray("terms");
@@ -128,11 +133,13 @@ public static partial class AlignArchive
             w.WriteStartObject();
             w.WriteString("code", t.Code);
             w.WriteString("words", t.Words);
-            Number(w, "value", t.Value);
+            Exact(w, "value", t.Value);
             w.WriteString("unit", t.Unit);
-            Number(w, "penalty", t.Penalty);
+            Exact(w, "penalty", t.Penalty);
             w.WriteString("light", t.Light);
+            w.WriteString("where", t.Where);
             w.WriteString("fix", t.Fix);
+            w.WriteString("hint", t.Hint);
             w.WriteEndObject();
         }
         w.WriteEndArray();
@@ -147,8 +154,19 @@ public static partial class AlignArchive
             w.WriteNull(name);
     }
 
+    private static void Exact(Utf8JsonWriter w, string name, double value)
+    {
+        if (double.IsFinite(value))
+            w.WriteNumber(name, value);
+        else
+            w.WriteNull(name);
+    }
+
     private static double Num(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : double.NaN;
+
+    private static string Text(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
 
     private static AlignRunRecord Read(JsonElement e)
     {
@@ -165,10 +183,11 @@ public static partial class AlignArchive
         foreach (var t in s.GetProperty("terms").EnumerateArray())
         {
             terms.Add(new ScoreTerm(t.GetProperty("code").GetString()!, t.GetProperty("words").GetString() ?? "", Num(t, "value"), t.GetProperty("unit").GetString() ?? "",
-                Num(t, "penalty"), t.GetProperty("light").GetString() ?? "", "", t.GetProperty("fix").GetString() ?? "", ""));
+                Num(t, "penalty"), t.GetProperty("light").GetString() ?? "", Text(t, "where"), t.GetProperty("fix").GetString() ?? "", Text(t, "hint")));
         }
-        var score = new QualityScore(Num(s, "value"), s.GetProperty("unit").GetString() ?? "points", s.GetProperty("grade").GetString() ?? "", 0, 0, 0,
-            terms.ToImmutable(), s.GetProperty("words").GetString() ?? "")
+        static double Or0(double v) => double.IsNaN(v) ? 0 : v;
+        var score = new QualityScore(Num(s, "value"), s.GetProperty("unit").GetString() ?? "points", s.GetProperty("grade").GetString() ?? "",
+            Or0(Num(s, "rmsPx")), Or0(Num(s, "p95Px")), Or0(Num(s, "confidence")), terms.ToImmutable(), s.GetProperty("words").GetString() ?? "")
         {
             Source = s.GetProperty("source").GetString() ?? "align",
         };
