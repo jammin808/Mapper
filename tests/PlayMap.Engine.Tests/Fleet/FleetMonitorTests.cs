@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Net;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Bus;
@@ -6,6 +8,7 @@ using PlayMap.Core.Fleet;
 using PlayMap.Engine.Fleet;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Net.Fleet;
 
 namespace PlayMap.Engine.Tests.Fleet;
 
@@ -113,5 +116,47 @@ public sealed class FleetMonitorTests
         using var state = await http.GetAsync(new Uri("/api/state", UriKind.Relative));
         Assert.NotEqual(HttpStatusCode.OK, state.StatusCode);
         Assert.False(rig.State().GetProperty("air").GetProperty("blackout").GetBoolean());
+    }
+
+    [Fact]
+    public async Task TheHealthSocketFeedsAtMostItsNumberAndRefusesOneMore()
+    {
+        var time = new ManualTime();
+        var parts = new EngineParts
+        {
+            Extensions = [setup => new FleetExtension(setup, new FleetOptions { Time = time, Reader = new UnknownMachineReader("not read in tests"), HealthFeeds = 1 })],
+        };
+        await using var rig = await HostRig.StartAsync("FOH-A", parts: parts);
+        var uri = new Uri(string.Create(CultureInfo.InvariantCulture, $"ws://127.0.0.1:{rig.Network.HttpPort}/health"));
+        using var first = new ClientWebSocket();
+        await first.ConnectAsync(uri, CancellationToken.None);
+        var buffer = new byte[64 * 1024];
+        var received = await first.ReceiveAsync(buffer, CancellationToken.None);
+        Assert.Equal(rig.Id, HealthJson.Parse(Encoding.UTF8.GetString(buffer, 0, received.Count))!.Facts.Node);
+
+        // One more socket is refused (503); a GET still reads the record.
+        using var second = new ClientWebSocket();
+        second.Options.CollectHttpResponseDetails = true;
+        await Assert.ThrowsAsync<WebSocketException>(() => second.ConnectAsync(uri, CancellationToken.None));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, second.HttpStatusCode);
+        using var http = rig.Http();
+        using (var get = await http.GetAsync(new Uri("/health", UriKind.Relative)))
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+
+        // A socket that closes frees its place.
+        await first.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        Assert.True(await Eventually.TrueAsync(async () =>
+        {
+            using var again = new ClientWebSocket();
+            try
+            {
+                await again.ConnectAsync(uri, CancellationToken.None);
+                return true;
+            }
+            catch (WebSocketException)
+            {
+                return false;
+            }
+        }));
     }
 }

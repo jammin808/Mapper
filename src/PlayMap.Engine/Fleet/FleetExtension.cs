@@ -16,11 +16,15 @@ public sealed record FleetOptions
 
     /// <summary>The transport to the peers' health; null = the WebSocket client over the fleet's own pin file.</summary>
     public Func<PinStore, IHealthFeeds>? Feeds { get; init; }
+
+    /// <summary>The most <c>/health</c> sockets this node feeds at once.</summary>
+    public int HealthFeeds { get; init; } = HealthWebModule.MaxFeeds;
 }
 
-/// <summary>wp2-fleet's part of the node: the machine sampler (its own one-second timer), the fleet monitor over the hello's peers (when
-/// the node's settings keep it on), the hub HEALTH is published through, <c>/health</c> and <c>/fleet</c> on the web port, the fleet's
-/// preflight rows, and the peers' lights in STATE and the context. Everything it holds is let go when the node stops.</summary>
+/// <summary>wp2-fleet's part of the node: the machine sampler (its own one-second timer), the watch on this machine's own lights, the
+/// fleet monitor over the hello's peers (when the node's settings keep it on), the hub HEALTH is published through, <c>/health</c> and
+/// <c>/fleet</c> on the web port, the fleet's preflight rows, and the peers' lights in STATE and the context. Everything it holds is let
+/// go when the node stops.</summary>
 public sealed class FleetExtension : IEngineExtension
 {
     /// <summary>The fleet's pins, beside the node's own in its keys folder (fingerprints are public).</summary>
@@ -54,7 +58,7 @@ public sealed class FleetExtension : IEngineExtension
                 Log = log,
             });
         }
-        setup.Network.AddWebModule(new HealthWebModule(_hub, () => _engine is { } e ? HealthJson.Write(e.HealthNow()) : "{}"));
+        setup.Network.AddWebModule(new HealthWebModule(_hub, () => _engine is { } e ? HealthJson.Write(e.HealthNow()) : "{}", _options.HealthFeeds));
         setup.Network.AddWebModule(new FleetWebModule(() => _engine is { } e ? e.FleetBoardJson() : "{}"));
     }
 
@@ -79,6 +83,7 @@ public sealed class FleetExtension : IEngineExtension
         ArgumentNullException.ThrowIfNull(engine);
         _engine = engine;
         _sampler.Start();
+        engine.Fleet.Start();
         if (_monitor is { } monitor)
         {
             // The hello starts with the network, after the extensions: the monitor takes its peer table on the first fact after.
@@ -90,6 +95,8 @@ public sealed class FleetExtension : IEngineExtension
 
     public async ValueTask DisposeAsync()
     {
+        if (_engine is { } engine)
+            await engine.Fleet.StopAsync();
         if (_monitor is not null)
             await _monitor.DisposeAsync();
         _sampler.Dispose();

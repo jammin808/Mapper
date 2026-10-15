@@ -134,4 +134,39 @@ public sealed class HealthTests
         // Nobody watches: the clock stops.
         Assert.Equal(0, time.Waiting);
     }
+
+    private static (string Fleet, string Eye) Lights(EngineCore engine)
+    {
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        return (doc.RootElement.GetProperty("fleet").GetProperty("light").GetString()!,
+            doc.RootElement.GetProperty("eye").GetProperty("worstLight").GetString()!);
+    }
+
+    [Fact]
+    public async Task AMachineLightThatMovesMovesStateWithNoOtherFact()
+    {
+        var time = new ManualTime();
+        var sampler = new FakeSampler();
+        await using var engine = new EngineCore(Services(time, sampler: sampler), Project.CreateDefault("Show"));
+        engine.Fleet.Start();
+        Assert.Equal(("green", "green"), Lights(engine));
+        var key = engine.StateKey();
+
+        // Numbers that wander inside one light move nothing.
+        sampler.Latest = sampler.Latest with { CpuPct = 41 };
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(key, engine.StateKey());
+
+        // The CPU crosses into red with nothing else moving: STATE's fleet light, its eye row and the context's machine item say it
+        // within the second.
+        sampler.Latest = sampler.Latest with { CpuPct = 97 };
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.NotEqual(key, engine.StateKey());
+        Assert.Equal(("red", "red"), Lights(engine));
+        Assert.Equal(Light.Red, ContextBuilder.Build(engine).Items.Single(i => i.Id == "machine").Light);
+
+        // Stopped with the node: no clock is left.
+        await engine.Fleet.StopAsync();
+        Assert.Equal(0, time.Waiting);
+    }
 }

@@ -9,8 +9,10 @@ using PlayMap.Net.Fleet;
 namespace PlayMap.Engine.Fleet;
 
 /// <summary>The fleet package's runtime inside the engine: HEALTH's publisher (a clock runs only while someone watches: a record at
-/// least once a second, and at once when any light moves), the control lane's tick gaps (the watchdog's measure), and the machines this
-/// node has known (kept across a restart, so preflight can say who is expected).</summary>
+/// least once a second, and at once when any light moves), the watch on this machine's own lights (once a second while the fleet's
+/// part runs: a light that moves moves the engine's facts, so STATE, the context and the board say it without waiting for another
+/// fact), the control lane's tick gaps (the watchdog's measure), and the machines this node has known (kept across a restart, so
+/// preflight can say who is expected).</summary>
 internal sealed class FleetParts
 {
     private readonly EngineCore _engine;
@@ -18,7 +20,10 @@ internal sealed class FleetParts
     private readonly TimeSpan _every;
     private readonly Lock _gate = new();
     private ITimer? _timer;
+    private ITimer? _lights;
     private string _lastSignature = "";
+    private string _selfSignature = "";
+    private bool _stopped;
     private int _watchers;
     private readonly Lock _lane = new();
     private int _queued;
@@ -65,14 +70,14 @@ internal sealed class FleetParts
         });
     }
 
-    /// <summary>Builds the record now and hands it to the watchers when it is due or a light moved.</summary>
+    /// <summary>Builds the record now and hands it to the watchers when it is due or a light moved (nothing once stopped).</summary>
     public void Publish(bool due)
     {
         var record = _engine.HealthNow();
         var signature = Signature(record);
         lock (_gate)
         {
-            if (!due && signature == _lastSignature)
+            if (_stopped || (!due && signature == _lastSignature))
                 return;
             _lastSignature = signature;
         }
@@ -97,9 +102,9 @@ internal sealed class FleetParts
         bool joined;
         lock (_gate)
         {
-            joined = count > _watchers;
+            joined = count > _watchers && !_stopped;
             _watchers = count;
-            if (count > 0 && _timer is null)
+            if (count > 0 && _timer is null && !_stopped)
             {
                 _timer = _time.CreateTimer(_ => Publish(due: true), null, _every, _every);
             }
@@ -111,6 +116,53 @@ internal sealed class FleetParts
         }
         if (joined)
             Publish(due: true);
+    }
+
+    /// <summary>Starts the watch on this machine's own lights (the fleet's part calls it when the node starts): once a second on the
+    /// fleet's clock, the record's lights are compared with the last ones seen.</summary>
+    public void Start()
+    {
+        var signature = Signature(_engine.HealthNow());
+        lock (_gate)
+        {
+            if (_stopped || _lights is not null)
+                return;
+            _selfSignature = signature;
+            _lights = _time.CreateTimer(_ => WatchLights(), null, _every, _every);
+        }
+    }
+
+    /// <summary>A light of this machine moved (a category's, an output's, the machine's): the engine's facts move, so STATE.fleet,
+    /// STATE.eye, the context's machine item and HEALTH's watchers hear it now. The same lights move nothing (no churn while numbers
+    /// wander inside one light).</summary>
+    public void WatchLights()
+    {
+        var signature = Signature(_engine.HealthNow());
+        lock (_gate)
+        {
+            if (_stopped || signature == _selfSignature)
+                return;
+            _selfSignature = signature;
+        }
+        _engine.FactsChanged();
+    }
+
+    /// <summary>Stops both clocks (the light watch and HEALTH's push) and waits for a tick under way; nothing starts them again. The
+    /// fleet's part calls it when the node stops, before the parts HEALTH reads from go.</summary>
+    public async ValueTask StopAsync()
+    {
+        ITimer? lights;
+        ITimer? push;
+        lock (_gate)
+        {
+            _stopped = true;
+            (lights, _lights) = (_lights, null);
+            (push, _timer) = (_timer, null);
+        }
+        if (lights is not null)
+            await lights.DisposeAsync();
+        if (push is not null)
+            await push.DisposeAsync();
     }
 
     /// <summary>On the lane, each 10 ms tick: the widest gap between ticks, kept per one-second window on the engine's monotonic

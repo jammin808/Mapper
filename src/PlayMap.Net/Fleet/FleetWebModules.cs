@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
@@ -39,9 +40,19 @@ public static class FleetWeb
     }
 }
 
-/// <summary><c>/health</c>: GET answers the record now; a WebSocket hears every record the hub publishes (the latest at once).</summary>
-public sealed class HealthWebModule(HealthHub hub, Func<string> now) : IWebModule
+/// <summary><c>/health</c>: GET answers the record now; a WebSocket hears every record the hub publishes (the latest at once). At most
+/// <see cref="MaxFeeds"/> sockets are fed at once (a fleet monitor holds one per peer, at most 32 peers); one more is refused with
+/// words, and a GET still reads the record.</summary>
+public sealed class HealthWebModule(HealthHub hub, Func<string> now, int maxFeeds = HealthWebModule.MaxFeeds) : IWebModule
 {
+    /// <summary>The most <c>/health</c> sockets fed at once, by default.</summary>
+    public const int MaxFeeds = 64;
+
+    private int _feeds;
+
+    /// <summary>Sockets fed now.</summary>
+    public int Feeds => Volatile.Read(ref _feeds);
+
     public string Name => "health";
 
     public string PathPrefix => "/health";
@@ -61,8 +72,25 @@ public sealed class HealthWebModule(HealthHub hub, Func<string> now) : IWebModul
             await FleetWeb.WriteJsonAsync(context, now());
             return;
         }
-        using var socket = await context.WebSockets.AcceptWebSocketAsync();
-        await FeedAsync(socket, context.RequestAborted);
+        if (Interlocked.Increment(ref _feeds) > maxFeeds)
+        {
+            Interlocked.Decrement(ref _feeds);
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"this node already feeds its health to {maxFeeds} watchers: one more is refused until one closes (GET /health reads it once)"),
+                context.RequestAborted);
+            return;
+        }
+        try
+        {
+            using var socket = await context.WebSockets.AcceptWebSocketAsync();
+            await FeedAsync(socket, context.RequestAborted);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _feeds);
+        }
     }
 
     /// <summary>Sends each record the hub publishes until the peer closes or goes; a slow peer gets the newest, never a queue.</summary>
@@ -71,6 +99,8 @@ public sealed class HealthWebModule(HealthHub hub, Func<string> now) : IWebModul
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(aborted);
         using var wake = new SemaphoreSlim(0, 1);
         string? pending = null;
+        // The hub may hand a record on after this feed has ended (it took its list of watchers first): the wake is then gone, and the
+        // record is for nobody. Nothing a watcher does reaches the publisher.
         void Take(string json)
         {
             Volatile.Write(ref pending, json);
@@ -80,9 +110,9 @@ public sealed class HealthWebModule(HealthHub hub, Func<string> now) : IWebModul
                 {
                     wake.Release();
                 }
-                catch (SemaphoreFullException)
+                catch (Exception ex) when (ex is SemaphoreFullException or ObjectDisposedException)
                 {
-                    // Another record woke the sender first: it sends the newest.
+                    // Another record woke the sender first (it sends the newest), or the feed has ended.
                 }
             }
         }
