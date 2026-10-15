@@ -60,6 +60,8 @@ public sealed class OscCodecTests
     [InlineData("78797a00", "an OSC address starts with '/'")]
     [InlineData("2f7800002c690000", "an OSC argument is cut short")]
     [InlineData("2f7800002c73000061626364", "an OSC string has no terminating zero")]
+    [InlineData("2f7800002c6200007fffffff", "an OSC blob is cut short")]
+    [InlineData("2362756e646c650000000000000000017ffffffc2f780000", "an OSC bundle element's size is wrong")]
     public void AMalformedPacketIsRefusedWithWordsNeverThrown(string hex, string why)
     {
         Assert.False(OscCodec.TryRead(Convert.FromHexString(hex), out _, out var reason));

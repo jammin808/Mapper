@@ -156,7 +156,7 @@ public static class OscCodec
             }
             var size = BinaryPrimitives.ReadInt32BigEndian(data[at..]);
             at += 4;
-            if (size <= 0 || size % 4 != 0 || at + size > data.Length)
+            if (size <= 0 || size % 4 != 0 || size > data.Length - at)
             {
                 why = "an OSC bundle element's size is wrong";
                 return false;
@@ -280,7 +280,8 @@ public static class OscCodec
 
     private static bool Need(ReadOnlySpan<byte> data, int at, int n, out string why)
     {
-        why = at + n <= data.Length ? "" : "an OSC argument is cut short";
+        // Compared as a remainder: a size near int.MaxValue read off the wire never wraps past the end.
+        why = n <= data.Length - at ? "" : "an OSC argument is cut short";
         return why.Length == 0;
     }
 
