@@ -44,11 +44,14 @@ jobs:
           if [ -n "$present" ]; then echo "::error::the runner has $present; run the suites through tools/without-libs.sh"; exit 1; fi
       - name: Test (every project to its end; one crash hides no other result)
         run: |
+          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
+          # project runs.
           failed=""
           for project in tests/*/*.csproj; do
             name=$(basename "$project" .csproj)
             echo "::group::$name"
-            dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" || failed="$failed $name"
+            dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" \
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none || failed="$failed $name"
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
