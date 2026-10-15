@@ -1,1 +1,127 @@
-[]
+[
+  {
+    "title": "Fleet",
+    "path": "fleet",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{headline}",
+    "fields": [
+      {
+        "label": "Role",
+        "path": "role"
+      },
+      {
+        "label": "Epoch",
+        "path": "epoch"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Backs up",
+        "path": "of"
+      },
+      {
+        "label": "Succession",
+        "path": "succession"
+      },
+      {
+        "label": "Machines",
+        "path": "nodes"
+      }
+    ],
+    "actions": [
+      "FLEET",
+      "FLEET LENS PROBLEMS",
+      "FLEET NEXT",
+      "HEALTH"
+    ]
+  },
+  {
+    "title": "Machines",
+    "path": "fleet.nodes",
+    "light": [
+      {
+        "from": "0.light"
+      }
+    ],
+    "words": "{count} machines",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "0.name"
+      },
+      {
+        "label": "Light",
+        "path": "0.light"
+      },
+      {
+        "label": "Headline",
+        "path": "0.headline"
+      },
+      {
+        "label": "Heard",
+        "path": "0.heard"
+      },
+      {
+        "label": "Role",
+        "path": "0.role"
+      },
+      {
+        "label": "Build",
+        "path": "0.build"
+      }
+    ],
+    "actions": [
+      "FLEET FOCUS $(id)",
+      "FLEET RESET"
+    ]
+  },
+  {
+    "title": "Eye",
+    "path": "eye",
+    "light": [
+      {
+        "from": "worstLight"
+      }
+    ],
+    "words": "{headline}",
+    "fields": [
+      {
+        "label": "Worst",
+        "path": "worstWords"
+      },
+      {
+        "label": "Red",
+        "path": "counts.red"
+      },
+      {
+        "label": "Amber",
+        "path": "counts.amber"
+      },
+      {
+        "label": "Things",
+        "path": "counts.things"
+      },
+      {
+        "label": "Lens",
+        "path": "lens"
+      },
+      {
+        "label": "Focus",
+        "path": "focus"
+      }
+    ],
+    "actions": [
+      "FLEET NEXT",
+      "FLEET PREV",
+      "FLEET LENS PROBLEMS",
+      "FLEET LENS ALL",
+      "FLEET RESET"
+    ]
+  }
+]

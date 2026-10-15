@@ -208,14 +208,18 @@ public sealed partial class EngineCore
         var r = Edits.Apply($"add {kind.Name} to {owner.Name}", pp =>
         {
             id = pp.NewId(Ids.Fx);
-            var slot = new FxSlot(id, kind.Id, name, ParamSet.Empty, false, 1, FxBlend.Normal, 1, LeaderNowNs);
+            // An item's effect counts its time from the item's start (origin 0: the owner's); any other from the instant it was added.
+            var slot = new FxSlot(id, kind.Id, name, ParamSet.Empty, false, 1, FxBlend.Normal, 1, owner.Kind == "item" ? 0 : LeaderNowNs);
             return WithChain(pp, owner.Id, c => c with { Slots = c.Slots.Insert(Math.Min(at, c.Slots.Length), slot) });
         });
         if (!r.Changed)
             return FromEdit(r);
-        var drawn = owner.Kind == "output"
-            ? owner.Drawn ? " — compiling" : " — its output is off"
-            : $"; this build draws effects on outputs only, so the {owner.Kind}'s chain is kept, not drawn";
+        var drawn = owner.Kind switch
+        {
+            "canvas" => "; " + FxBoard.CanvasWords,
+            "output" => owner.Drawn ? " — compiling" : " — its output is off",
+            _ => $" — compiling when its {owner.Kind} is on the air",
+        };
         return CommandReply.Success(id, $"added {kind.Name} to {owner.Kind} {owner.Name}{drawn}");
     }
 

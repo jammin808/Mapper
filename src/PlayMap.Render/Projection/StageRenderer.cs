@@ -27,7 +27,12 @@ public sealed record EditorCamera(
 /// drawn top row first; the mirror turns the winding over, which the device's cull state accounts for. Depth
 /// testing is on. A surface's content is sampled through its UVs (with the region's offset and scale), from
 /// a canvas region, or projected from a viewpoint; a surface-aware effect is drawn from the surface's own
-/// world position, normal and UVs. The surface mask (UV space) and the opacity scale the light.</summary>
+/// world position, normal and UVs. The surface mask (UV space) and the opacity scale the light.
+///
+/// A surface whose effect chain draws has its content made once a frame, at the frame's chain size (<see cref="BeginFrame"/>),
+/// and passed through the frame's passes; every projector pass that frame, and a preview after it, samples that one picture, so
+/// an effect that integrates from frame to frame steps once a frame and every projector shows the same picture. A preview of a
+/// chained surface the frame did not draw shows its content without the passes (previews run none).</summary>
 internal sealed class StageRenderer : IDisposable
 {
     private const int LineFloats = 7;
@@ -45,6 +50,12 @@ internal sealed class StageRenderer : IDisposable
     private readonly VertexArray _lineVao;
     private float[] _lines = new float[LineFloats * 512];
     private int _lineCount;
+    private int _chainWidth;
+    private int _chainHeight;
+    private readonly Dictionary<string, (Intrinsics From, Intrinsics Scaled)> _optics = new(StringComparer.Ordinal);
+
+    /// <summary>What a chained surface's content is made with: the same on every projector, so every one shows one picture.</summary>
+    private static readonly GeneratorContext ChainContext = new("Stage", 0, "#3EC1F3", false);
 
     public StageRenderer(RenderServices services, GpuCaches caches)
     {
@@ -53,6 +64,14 @@ internal sealed class StageRenderer : IDisposable
         _lineBuffer = services.Device.CreateBuffer(BufferKind.Vertex);
         services.Device.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
         _lineVao = services.Device.CreateVertexArray(LineLayout, _lineBuffer);
+    }
+
+    /// <summary>The size a chained surface's content is made at this frame (the largest projector raster); 0 × 0 makes it at the
+    /// size of the raster that draws it. Set by the engine once a frame, before any projector pass.</summary>
+    public void BeginFrame(int chainWidth, int chainHeight)
+    {
+        _chainWidth = chainWidth;
+        _chainHeight = chainHeight;
     }
 
     /// <summary>The view-projection a camera sees the world with, for a target drawn top row first.</summary>
@@ -115,9 +134,7 @@ internal sealed class StageRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(projector);
-        var k = projector.Intrinsics.Width == target.Width && projector.Intrinsics.Height == target.Height
-            ? projector.Intrinsics
-            : projector.Intrinsics.Scaled(target.Width, target.Height);
+        var k = OpticsAt(projector, target.Width, target.Height);
         var haveBounds = WorldBounds(project, resources, out var min, out var max);
         var (near, far) = Planes(projector.Pose, haveBounds, min, max);
         var viewProj = ViewProjection(k, projector.Pose, near, far);
@@ -127,6 +144,20 @@ internal sealed class StageRenderer : IDisposable
         DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null,
             projector.Id);
         target.Color.Version++;
+    }
+
+    /// <summary>A projector's optics at a raster: its own when the sizes agree, else scaled — made once per projector, optics and
+    /// raster and kept, so a projector drawn at another raster than its lens's allocates nothing frame after frame.</summary>
+    private Intrinsics OpticsAt(Projector projector, int width, int height)
+    {
+        var k = projector.Intrinsics;
+        if (k.Width == width && k.Height == height)
+            return k;
+        if (_optics.TryGetValue(projector.Id, out var kept) && ReferenceEquals(kept.From, k) && kept.Scaled.Width == width && kept.Scaled.Height == height)
+            return kept.Scaled;
+        var scaled = k.Scaled(width, height);
+        _optics[projector.Id] = (k, scaled);
+        return scaled;
     }
 
     /// <summary>The editor's view: the floor, the surfaces (their content or their colour), the selection
@@ -187,7 +218,12 @@ internal sealed class StageRenderer : IDisposable
         // not do so between this pass's draws.
         var surfaces = project.Stage.Surfaces;
         if (_textures.Length < surfaces.Length)
+        {
             _textures = new GpuTexture?[surfaces.Length * 2];
+            Array.Resize(ref _chained, surfaces.Length * 2);
+            Array.Resize(ref _chainedFor, surfaces.Length * 2);
+            Array.Resize(ref _chainedFrame, surfaces.Length * 2);
+        }
         for (var i = 0; i < surfaces.Length; i++)
         {
             var s = surfaces[i];
@@ -195,7 +231,8 @@ internal sealed class StageRenderer : IDisposable
                 && (s.Pixel is null || string.Equals(s.Pixel.ProjectorId, pixelProjector, StringComparison.Ordinal));
             _textures[i] = !drawn ? null
                 : s.Pixel is not null && s.Content.Source.IsNone ? UvChecker()
-                : sources.Resolve(s.Content.Source, target.Width, target.Height, context);
+                : !FxChains.Draws(s.Fx) ? sources.Resolve(s.Content.Source, target.Width, target.Height, context)
+                : Chained(i, s, sources, target, context);
         }
 
         d.BindTarget(target);
@@ -259,6 +296,27 @@ internal sealed class StageRenderer : IDisposable
     }
 
     private GpuTexture?[] _textures = new GpuTexture?[16];
+    private GpuTexture?[] _chained = new GpuTexture?[16];
+    private Surface?[] _chainedFor = new Surface?[16];
+    private long[] _chainedFrame = new long[16];
+
+    /// <summary>A chained surface's content this frame: made once (at the frame's chain size, with <see cref="ChainContext"/>) and
+    /// passed through the frame's passes, then kept by its place in the surface list for the frame's other passes. Outside the
+    /// frame's passes (a preview after the frame) a surface the frame did not draw is resolved as an unchained one is.</summary>
+    private GpuTexture Chained(int i, Surface s, SourceResolver sources, RenderTarget target, GeneratorContext context)
+    {
+        var frame = sources.FrameNumber;
+        if (_chainedFrame[i] == frame && ReferenceEquals(_chainedFor[i], s))
+            return _chained[i]!;
+        if (!sources.RunsPasses)
+            return sources.Resolve(s.Content.Source, target.Width, target.Height, context);
+        var (w, h) = _chainWidth > 0 && _chainHeight > 0 ? (_chainWidth, _chainHeight) : (target.Width, target.Height);
+        var picture = sources.SurfacePicture(s, sources.Resolve(s.Content.Source, w, h, ChainContext));
+        _chained[i] = picture;
+        _chainedFor[i] = s;
+        _chainedFrame[i] = frame;
+        return picture;
+    }
 
     /// <summary>A pixel quad's GPU triangles, kept while its quad (by reference) and the raster size stay the same.</summary>
     private sealed class PixelEntry : IDisposable
