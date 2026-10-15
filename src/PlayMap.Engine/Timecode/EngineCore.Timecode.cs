@@ -893,22 +893,53 @@ public sealed partial class EngineCore
         return null;
     }
 
+    /// <summary>The disengaged chases (their playlists' ids), and what disengaged each one other than TIMECODE ENGAGE (a panic) as
+    /// a JSON object of playlist id → words, so a restart keeps the way back in STATE's words.</summary>
     private void RecoverySaveTimecode(IDictionary<string, string> into)
     {
-        var off = _chases.Where(kv => !kv.Value.Engaged).Select(kv => kv.Key).Order(StringComparer.Ordinal).ToList();
-        if (off.Count > 0)
-            into["control.disengaged"] = string.Join(',', off);
+        var off = _chases.Where(kv => !kv.Value.Engaged).OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+        if (off.Count == 0)
+            return;
+        into["control.disengaged"] = string.Join(',', off.Select(kv => kv.Key));
+        if (off.Any(kv => kv.Value.DisengagedBy is not null))
+        {
+            into["control.disengagedBy"] = JsonOut(w =>
+            {
+                w.WriteStartObject();
+                foreach (var (id, run) in off.Where(kv => kv.Value.DisengagedBy is not null))
+                    w.WriteString(id, run.DisengagedBy);
+                w.WriteEndObject();
+            });
+        }
     }
 
     private void RecoveryLoadTimecode(IReadOnlyDictionary<string, string> from)
     {
         if (!from.TryGetValue("control.disengaged", out var off))
             return;
+        var by = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (from.TryGetValue("control.disengagedBy", out var json))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var p in doc.RootElement.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String))
+                        by[p.Name] = p.Value.GetString()!;
+                }
+            }
+            catch (JsonException ex)
+            {
+                Journal.Add("recovery", "the disengaged chases' reasons could not be read: " + ex.Message, ok: false);
+            }
+        }
         foreach (var id in off.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             if (!_chases.TryGetValue(id, out var run))
                 _chases[id] = run = new ChaseRun();
             run.Engaged = false;
+            run.DisengagedBy = by.GetValueOrDefault(id);
         }
     }
 

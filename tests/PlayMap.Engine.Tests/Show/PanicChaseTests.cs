@@ -235,4 +235,24 @@ public sealed class PanicChaseTests
         Assert.Equal(("it_a", "playing", 4000L), Published(rig));
         Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Text.Contains("stops chasing", StringComparison.Ordinal));
     }
+
+    /// <summary>A chase a panic disengaged comes back after a restart still disengaged by the panic, with the way back in its words.</summary>
+    [Fact]
+    public async Task AChaseDisengagedByAPanicSaysSoAfterARestart()
+    {
+        await using var rig = await Chased();
+        await rig.Ok("PANIC HARD");
+        Assert.Equal(Disengaged("HARD"), Chase(rig).GetProperty("words").GetString());
+        var saved = rig.Engine.SaveModuleRecovery();
+        await using var again = new ShowRig(rig.Engine.Store.Project);
+        again.Engine.LoadModuleRecovery(saved);
+        await again.Engine.StepChasesAsync();
+        var chase = Chase(again);
+        Assert.Equal(("disengaged", false, Disengaged("HARD")),
+            (chase.GetProperty("state").GetString(), chase.GetProperty("engaged").GetBoolean(), chase.GetProperty("words").GetString()));
+        // TIMECODE ENGAGE is still the way back, and the words go with the panic's reason.
+        await again.Ok("TIMECODE ENGAGE Show ON");
+        await again.Ok("TIMECODE ENGAGE Show OFF");
+        Assert.Equal("disengaged — Show plays by hand", Chase(again).GetProperty("words").GetString());
+    }
 }
