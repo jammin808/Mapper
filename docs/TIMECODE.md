@@ -69,7 +69,9 @@ at most four times a second; a region change takes effect at once. While a chase
 `VIDEO` clip verbs on its playlist are refused with "Main chases FOH (locked) — TIMECODE ENGAGE Main OFF to drive it by hand".
 Which chases are disengaged is kept for recovery. A `PANIC` whose outcome moves transport (BLACK, HARD, REWIND, NEXT) disengages a
 chased playlist's chase at its step's instant, so the panic holds whatever the code does; the chase's words say "disengaged by PANIC
-BLACK — TIMECODE ENGAGE Main ON to follow the code again", and `PANIC CLEAR` leaves it so. RUN, FREEZE and SAFE leave it engaged.
+BLACK — TIMECODE ENGAGE Main ON to follow the code again", and `PANIC CLEAR` leaves it so. Caught between two items (`GAP BLACK`),
+the playlist is left with nothing loaded, so the next item does not start under the panic when its code comes. RUN, FREEZE and
+SAFE leave the chase engaged.
 
 ## STATE, context, preflight, INDEX
 
