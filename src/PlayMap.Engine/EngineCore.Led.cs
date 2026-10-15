@@ -33,6 +33,7 @@ public sealed partial class EngineCore
         routes.Lane("LED LOCATE", c => LedLocate(c.Args));
         routes.Lane("LED LEVEL", c => LedLevel(c.Args));
         routes.Lane("LED MONITOR", c => LedMonitor(c.Args));
+        routes.OffLane("LED IMPORT", LedImportAsync);
         routes.Index(new LedIndex(this));
         // The plan follows the published project: rebuilt on the lane when the rig or what it samples changed, so the render
         // thread and the sender have it before the next frame.
@@ -250,6 +251,121 @@ public sealed partial class EngineCore
                 why = $"ON takes canvas:<id>, output:<id>, surface:<id> or source:<ref> — not {word}";
                 return false;
         }
+    }
+
+    // ---- LED IMPORT ----
+
+    /// <summary>A pixel list from this machine's disk, one points fixture per fixture name, added as one undo step; patched when the
+    /// file gives addresses and a node is named (or the rig has one). Read off the lane; the edit goes through it.</summary>
+    private async Task<CommandReply> LedImportAsync(VerbCall call)
+    {
+        const string usage = "LED IMPORT <path> [AS CSV] [ON <space>] [SCALE <x>] [NODE <node>]";
+        var args = call.Args;
+        if (args.Count < 1)
+            return CommandReply.Fail(usage);
+        var path = args[0];
+        string? spaceWord = null, nodeWord = null;
+        var scale = 1.0;
+        for (var i = 1; i < args.Count; i++)
+        {
+            var word = args[i].ToUpperInvariant();
+            if (i + 1 >= args.Count)
+                return CommandReply.Fail(usage);
+            var value = args[++i];
+            switch (word)
+            {
+                case "AS" when value.Equals("CSV", StringComparison.OrdinalIgnoreCase):
+                    break;
+                case "AS":
+                    return CommandReply.Fail($"this node imports CSV pixel lists — not {value} (MVR and GDTF are next round)");
+                case "ON":
+                    spaceWord = value;
+                    break;
+                case "SCALE" when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && double.IsFinite(s) && s > 0:
+                    scale = s;
+                    break;
+                case "SCALE":
+                    return CommandReply.Fail("SCALE is a number above 0");
+                case "NODE":
+                    nodeWord = value;
+                    break;
+                default:
+                    return CommandReply.Fail(usage);
+            }
+        }
+        string text;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return CommandReply.Fail($"no file {path} on this machine");
+            if (info.Length > 64L * 1024 * 1024)
+                return CommandReply.Fail($"{path} is larger than 64 MB");
+            text = await File.ReadAllTextAsync(path, call.Ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return CommandReply.Fail($"{path} could not be read: {ex.Message}");
+        }
+        if (!LedCsvReader.TryRead(text, scale, out var read, out var why))
+            return CommandReply.Fail(why);
+        var warnings = new List<string>();
+        var ids = new List<string>();
+        var r = await EditAsync(call.Session, $"import {read.Length} LED fixture{(read.Length == 1 ? "" : "s")} from {Path.GetFileName(path)}", p =>
+        {
+            ids.Clear();
+            warnings.Clear();
+            if (!TryLedSpace(p, spaceWord, out var space, out var spaceId, out _, out _, out var spaceWhy))
+                throw new EditRefusedException(spaceWhy);
+            LedNode? node = null;
+            if (nodeWord is not null)
+                node = FindLedNode(p, nodeWord) ?? throw new EditRefusedException($"no LED node {nodeWord}");
+            else if (p.Leds.Nodes.Length == 1)
+                node = p.Leds.Nodes[0];
+            var fixtures = p.Leds.Fixtures;
+            foreach (var f in read)
+            {
+                var type = f.Type.Length > 0 ? LedBuiltinTypes.Resolve(p.Leds, f.Type) ?? LedBuiltinTypes.Resolve(p.Leds, f.Type.ToLowerInvariant()) : null;
+                if (f.Type.Length > 0 && type is null)
+                    warnings.Add($"{f.Name}: no type {f.Type} — imported as RGB");
+                LedPatch? patch = null;
+                if (f.Address > 0 && node is not null)
+                    patch = new LedPatch(node.Id, f.Universe, f.Address);
+                else if (f.Address > 0)
+                    warnings.Add($"{f.Name}: the file gives {f.Universe}.{f.Address} but no node is named — unpatched (NODE <node>)");
+                var id = p.NewId(Ids.LedFixture);
+                ids.Add(id);
+                fixtures = fixtures.Add(new LedFixture(id, f.Name, type?.Id ?? "builtin:rgb", space, spaceId, Transform3.Identity,
+                    new LedLayout(LedShape.Points, f.Points.Length, 1, Vec3d.Zero, LedStart.TopLeft, false, false, f.Points), patch, LedSampling.Point, 0,
+                    LedColor.Neutral, true, false, false, "#FF8800", []));
+                p = p with { Leds = p.Leds with { Fixtures = fixtures } };
+            }
+            return p;
+        }).ConfigureAwait(false);
+        if (!r.Changed)
+            return FromEdit(r);
+        var plan = Led.PlanFor(Store.Project);
+        foreach (var c in plan.Conflicts.Where(c => c.Fixtures.Any(ids.Contains)))
+            warnings.Add($"{string.Join(" and ", c.Fixtures)} overlap on {c.Universe}.{c.From}–{c.Universe}.{c.To}");
+        var pixels = read.Sum(f => f.Points.Length);
+        var json = JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteNumber("fixtures", read.Length);
+            w.WriteNumber("types", 0);
+            w.WriteNumber("nodes", 0);
+            w.WriteNumber("pixels", pixels);
+            w.WriteStartArray("ids");
+            foreach (var id in ids)
+                w.WriteStringValue(id);
+            w.WriteEndArray();
+            w.WriteStartArray("warnings");
+            foreach (var x in warnings)
+                w.WriteStringValue(x);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+        return CommandReply.Success(json, $"imported {read.Length} LED fixture{(read.Length == 1 ? "" : "s")}, {pixels} px, from {Path.GetFileName(path)}");
     }
 
     // ---- patching ----

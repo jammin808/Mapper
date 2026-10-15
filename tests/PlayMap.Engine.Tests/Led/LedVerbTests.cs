@@ -200,3 +200,40 @@ public sealed class LedVerbTests
         Assert.StartsWith("lf", id, StringComparison.Ordinal);
     }
 }
+
+/// <summary>LED IMPORT AS CSV: one undo step for the whole file, patched to the named node, refusals with the file's line.</summary>
+public sealed class LedImportTests
+{
+    [Fact]
+    public async Task ACsvIsImportedAsOneUndoStep()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-led-");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "rig.csv");
+            await File.WriteAllTextAsync(path, "Fixture,Pixel,X,Y,Universe,Channel\nTop,1,0,1,4,1\nTop,2,10,1,4,4\nSide,1,0,20,5,1\n");
+            var p = Project.CreateDefault("LED") with { Canvases = [new Canvas("cv00000001", "Wall", 640, 360, "#000000", [])] };
+            await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), p);
+            await LedVerbTests.Ok(engine, """ADD lednode {"name":"PixLite","host":"10.0.0.21","enabled":true}""");
+            var revision = engine.Store.Current.Revision;
+            var json = JsonDocument.Parse(await LedVerbTests.Ok(engine, $"LED IMPORT \"{path}\" AS CSV NODE PixLite SCALE 2")).RootElement;
+            Assert.Equal((2, 3), (json.GetProperty("fixtures").GetInt32(), json.GetProperty("pixels").GetInt32()));
+            Assert.Equal(revision + 1, engine.Store.Current.Revision);
+            var fixtures = engine.Store.Project.Leds.Fixtures;
+            Assert.Equal(["Top", "Side"], fixtures.Select(f => f.Name));
+            Assert.Equal([0.0, 20], fixtures[0].Layout.Points.Select(x => x.X));
+            Assert.Equal((4, 1), (fixtures[0].Patch!.Universe, fixtures[0].Patch!.Address));
+            Assert.Equal(2, LedVerbTests.Led(engine).GetProperty("universes").GetInt32());
+            await LedVerbTests.Ok(engine, "UNDO");
+            Assert.Empty(engine.Store.Project.Leds.Fixtures);
+            await File.WriteAllTextAsync(path, "X,Y\n1,nope\n");
+            Assert.Equal("line 2, column 2 (y): 'nope' is not a number", await LedVerbTests.No(engine, $"LED IMPORT \"{path}\""));
+            Assert.StartsWith("this node imports CSV pixel lists", await LedVerbTests.No(engine, $"LED IMPORT \"{path}\" AS MVR"), StringComparison.Ordinal);
+            Assert.StartsWith("no file", await LedVerbTests.No(engine, $"LED IMPORT \"{Path.Combine(dir.FullName, "none.csv")}\""), StringComparison.Ordinal);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+}

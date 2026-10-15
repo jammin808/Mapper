@@ -57,6 +57,13 @@ back, then the latch — ArtSync to the node, the sACN synchronization packet wh
 device's last packet. A universe not sent for 900 ms is sent again with its last payload. Art-Net nodes are polled (directed) every
 3 s while output runs; their ArtPollReply fills `seen`. WLED devices get 8-bit DDP only.
 
+## Import
+
+`LED IMPORT <path> AS CSV` reads a pixel list in MADRIX/Capture-style columns (Fixture or Display Name, Pixel or Index, X, Y, Z,
+Universe, Channel or Address, DMX Address as `U.A` or absolute, Type or Mode; comma, semicolon or tab; invariant culture): one
+points fixture per name, in pixel order, scaled by `SCALE`, patched from its first pixel's address to the node named. The whole
+file is one undo step; an error names its line and column.
+
 ## Manual checks (lab)
 
 Real PixLite/Falcon/ENTTEC nodes with ArtSync; WLED on an ESP32 by DDP; sACN through IGMP-snooping switches; jumbo frames; the
@@ -64,7 +71,7 @@ send thread's timer on Windows; ArtPollReply offsets against a capture from a re
 
 ## Next round
 
-CSV, GDTF and MVR import; `LED DISCOVER` (ArtPoll broadcast, WLED by mDNS); world sampling (nearest surface, viewpoint); the power
+GDTF and MVR import; `LED DISCOVER` (ArtPoll broadcast, WLED by mDNS); world sampling (nearest surface, viewpoint); the power
 cap; camera auto-locate; redundancy; sACN discovery; temporal dither; the desk's LED tool, patch editor, DMX monitor and previs;
 ArtSync as a directed broadcast (sent to each node's address this round); off-lane plan builds for very large rigs; surface chains
 (a surface's effects are not on its LED pixels this round).
