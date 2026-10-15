@@ -24,7 +24,8 @@ export interface FakeNodeOptions {
 	whoami?: unknown
 	/** Answer the upgrade with this HTTP status and the node's JSON words. */
 	refuse?: { status: number; error: string }
-	/** The web port has no line channel (an older node): the upgrade is answered 404. */
+	/** The web port has no line channel (an older node): its /ws is the screens' JSON socket, answered with no subprotocol. An older
+	 * node's token gate (401) or a port with no /ws at all (404) is `refuse`. */
 	noLineChannel?: boolean
 	/** The node's clock minus the test machine's (ms). */
 	clockOffsetMs?: number
@@ -56,6 +57,9 @@ export class FakeNode {
 	wirePort = 0
 	#http: Server | null = null
 	#wss: WebSocketServer | null = null
+	#screens: WebSocketServer | null = null
+	/** Sockets an older node's /ws took (no line channel on them). */
+	readonly screens: WebSocket[] = []
 	#tcp: TcpServer | null = null
 	#waits: { match: (l: string) => boolean; done: (l: string) => void }[] = []
 
@@ -82,6 +86,8 @@ export class FakeNode {
 			noServer: true,
 			handleProtocols: (protocols) => (protocols.has('playmap.lines.v1') ? 'playmap.lines.v1' : false),
 		})
+		// An older node's /ws: the screens' JSON socket, which takes no subprotocol.
+		this.#screens = new WebSocketServer({ noServer: true, handleProtocols: () => false })
 		this.#http = createHttpServer((_req, res) => {
 			res.writeHead(404)
 			res.end()
@@ -98,7 +104,9 @@ export class FakeNode {
 	async stop(): Promise<void> {
 		for (const s of this.sessions) s.close(1001)
 		this.sessions.clear()
+		for (const ws of this.screens) ws.terminate()
 		await new Promise<void>((resolve) => (this.#wss ? this.#wss.close(() => resolve()) : resolve()))
+		await new Promise<void>((resolve) => (this.#screens ? this.#screens.close(() => resolve()) : resolve()))
 		await new Promise<void>((resolve) => (this.#http ? this.#http.close(() => resolve()) : resolve()))
 		this.#http?.closeAllConnections()
 		await new Promise<void>((resolve) => (this.#tcp ? this.#tcp.close(() => resolve()) : resolve()))
@@ -138,8 +146,7 @@ export class FakeNode {
 	}
 
 	#upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-		const refuse =
-			this.options.refuse ?? (this.options.noLineChannel ? { status: 404, error: 'no such route' } : undefined)
+		const refuse = this.options.refuse
 		if (refuse) {
 			const body = JSON.stringify({ error: refuse.error })
 			socket.end(
@@ -149,6 +156,10 @@ export class FakeNode {
 		}
 		if (req.headers.origin) {
 			socket.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+			return
+		}
+		if (this.options.noLineChannel) {
+			this.#screens?.handleUpgrade(req, socket, head, (ws: WebSocket) => this.screens.push(ws))
 			return
 		}
 		this.#wss?.handleUpgrade(req, socket, head, (ws: WebSocket) => this.#serveWs(ws))

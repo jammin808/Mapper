@@ -54,7 +54,8 @@ that lights it, the press shape). The module builds a preset section per hint, s
 
 Two signatures keep a deck quiet: `sig` moves only when the structure does (ids and kinds, an item's source kind, a generator's
 parameter names, a section's rows and hint), `labels` only when names do. STATE carries `project.index` (the `sig`), so a controller
-that does not subscribe still knows when to ask. `SUBSCRIBE INDEX` pushes when either moves, latest wins; a burst of edits is one push.
+that does not subscribe still knows when to ask. `SUBSCRIBE INDEX` pushes when either moves, or when a section row's light or state
+moves with the show (both signatures kept, so a deck relights its keys and rebuilds nothing), latest wins; a burst of edits is one push.
 
 ## EVENTS
 
@@ -118,8 +119,8 @@ neither runs nor waits for a person; what it holds for a person goes to the node
 
 **The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
 link and refusing another), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
-is a Companion secret and never rides a line. A node whose web port has no line channel (an upgrade answered 400 or 404) is reached on
-the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
+is a Companion secret and never rides a line. A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
+upgrade is answered 400, 401 or 404) is reached on the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
 required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
 2 s is the watchdog and the clock (the round trip with the least delay of the last eight gives the node's offset). No line for 4 s is
 **stale**: the status says so and every key dims with a ⚠. 10 s drops the link: what the node said is emptied, every feedback is checked
@@ -165,7 +166,8 @@ reads WHOAMI's `may`.
 pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. Keys breathe with
 no traffic, in Companion's own expressions: Show Mode's frame on `oscillate(2000)` while armed, the headline's mark on `blink(500)` while
 a fault stands, the Beat key on `oscillate(60000 / bpm, 'square')`, a projector's ground in `colorMix` from red to green by its score. A package's INDEX
-section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says. The **Live page** is
+section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says, lit by the
+hint's feedback when it is a STATE path to a light (`outputs.$(id).present.light`), else by the row's light. The **Live page** is
 one template group of 32 slots whose source is the page variable `pm_live`; the module lays the slots out from INDEX and STATE and, while
 the show is armed, keeps each slot on its entity (lights and labels still move; a gone one reads REMOVED) until RE-LAY or disarming.
 

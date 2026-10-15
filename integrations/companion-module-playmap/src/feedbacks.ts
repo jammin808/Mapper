@@ -539,7 +539,7 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 		},
 		section_value: {
 			type: 'value',
-			name: "Value: a package section's key (its feedback path)",
+			name: "Value: a package section key's light",
 			options: [
 				{ type: 'textinput', id: 'section', label: 'Section', default: '' },
 				{ type: 'textinput', id: 'row', label: 'Row id', default: '' },
@@ -651,12 +651,20 @@ function thumbOf(ctx: Ctx, feedbackId: string, ref: string, size: number): strin
 	return ctx.thumbs.get(feedbackId, source, size, ctx.linked())
 }
 
-/** A section key's light or value: "$(light)" is the row's light as INDEX wrote it; a path is read from STATE with the row's id in. */
+const LIGHT_WORDS = new Set(['green', 'amber', 'red', 'grey'])
+
+/** A section key's light: a hint feedback that is a STATE path (the row's id in for "$(id)") to a light word lights it from STATE;
+ * otherwise ("$(light)", none, or a name that is no STATE light) it is the row's light, which INDEX pushes again when it moves. A
+ * link that is not live shows grey. */
 export function sectionValue(ctx: Ctx, sectionId: string, rowId: string, keyIndex: number): JsonValue {
 	const section = ctx.model.index?.sections.find((s) => s.section === sectionId)
 	const row = section?.rows.find((r) => r.id === rowId)
-	const key = section?.keys[keyIndex]
-	if (!section || !row || !key?.feedback) return row ? row.light : ''
-	if (key.feedback === '$(light)') return ctx.link() === 'live' ? row.light : 'grey'
-	return statePath(ctx.model.state, fillHint(key.feedback, row).replaceAll('"', ''))
+	if (!section || !row) return ''
+	if (ctx.link() !== 'live') return 'grey'
+	const feedback = section.keys[keyIndex]?.feedback
+	if (feedback && feedback !== '$(light)') {
+		const value = statePath(ctx.model.state, fillHint(feedback, row).replaceAll('"', ''))
+		if (typeof value === 'string' && LIGHT_WORDS.has(value)) return value
+	}
+	return LIGHT_WORDS.has(row.light) ? row.light : 'grey'
 }

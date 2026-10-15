@@ -324,6 +324,46 @@ void test('a THUMBS push whose ETag moved for a placed ref fetches it again with
 	}
 })
 
+void test('a picture the node says is gone (null in THUMBS), or refused when asked again, leaves its keys with none', async () => {
+	const { node, m } = await linked()
+	try {
+		const { red, blue } = items()
+		// Asked again, the node has no picture of it now.
+		node.handlers.set('THUMB', (line) => (line.includes(' IF ') ? 'ERR Show is idle — no item on it' : undefined))
+		await placeTogether(m, {
+			red: { options: { ref: red.id, size: 96 } },
+			blue: { options: { ref: blue.id, size: 96 } },
+		})
+		await values(m, { red: pictureOf(red.source), blue: pictureOf(blue.source) }, 'the first pictures')
+		node.push('THUMBS ' + JSON.stringify({ [red.source]: null, [blue.source]: `etag-${blue.source}-1` }))
+		await values(m, { red: '', blue: pictureOf(blue.source) }, 'null: the key shows none, never the last picture')
+		node.push('THUMBS ' + JSON.stringify({ [red.source]: null, [blue.source]: `etag-${blue.source}-2` }))
+		await node.heard(sentLine(`THUMB ${blue.source} 96x96 IF etag-${blue.source}-1`))
+		await values(m, { red: '', blue: '' }, 'refused when asked again: the key shows none')
+		await m.instance.ask('WHOAMI')
+		assert.deepEqual(thumbLines(node, red.source), [`THUMB ${red.source} 96x96`], 'a picture that is gone is not asked')
+		assert.deepEqual(
+			thumbLines(node, blue.source),
+			[`THUMB ${blue.source} 96x96`, `THUMB ${blue.source} 96x96 IF etag-${blue.source}-1`],
+			'a refused picture is not asked again on its own',
+		)
+
+		// Until the node says it moved: then it is asked, and shown.
+		node.handlers.delete('THUMB')
+		node.push(
+			'THUMBS ' + JSON.stringify({ [red.source]: `etag-${red.source}-1`, [blue.source]: `etag-${blue.source}-3` }),
+		)
+		await values(
+			m,
+			{ red: pictureOf(red.source), blue: pictureOf(blue.source) },
+			'a picture again once the node has one',
+		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('a refused THUMB leaves the key without a picture, and the module runs on', async () => {
 	const { node, m } = await linked()
 	try {

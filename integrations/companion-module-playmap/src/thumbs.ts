@@ -19,6 +19,8 @@ export class Thumbs {
 	readonly #inflight = new Set<string>()
 	readonly #placed = new Map<string, { ref: string; size: number }>()
 	readonly #pushed = new Map<string, string | null>()
+	/** Ref and size the node refused (no picture of it now): not asked again until a push says its picture moved, or a relink. */
+	readonly #refused = new Set<string>()
 	readonly #ask: (line: string) => Promise<Reply>
 	readonly #recheck: (feedbackIds: string[]) => void
 	readonly #watch: (refs: string[]) => void
@@ -53,7 +55,8 @@ export class Thumbs {
 			this.#cache.delete(key)
 			this.#cache.set(key, hit)
 		}
-		if (linked && !hit) this.#fetch(r, size, undefined)
+		// A ref the node says has no picture now (null in THUMBS, or refused) is not asked until a push says it moved.
+		if (linked && !hit && this.#pushed.get(r) !== null && !this.#refused.has(key)) this.#fetch(r, size, undefined)
 		return hit?.uri ?? ''
 	}
 
@@ -76,6 +79,12 @@ export class Thumbs {
 			const before = this.#pushed.get(ref)
 			this.#pushed.set(ref, e)
 			if (had && before === e) continue
+			for (const key of [...this.#refused]) if (key.startsWith(`${ref}|`)) this.#refused.delete(key)
+			if (e === null) {
+				// No picture of it now (a playlist that stopped, a source gone): the key shows none, never the last one.
+				this.#drop(ref, null)
+				continue
+			}
 			for (const p of this.#placed.values())
 				if (p.ref === ref) {
 					const cached = this.#cache.get(`${ref}|${p.size}`)
@@ -89,6 +98,7 @@ export class Thumbs {
 	relinked(): void {
 		this.#watched = ''
 		this.#pushed.clear()
+		this.#refused.clear()
 		this.#scheduleWatch()
 		for (const p of this.#placed.values())
 			if (!this.#cache.has(`${p.ref}|${p.size}`)) this.#fetch(p.ref, p.size, undefined)
@@ -101,7 +111,12 @@ export class Thumbs {
 		const line = `THUMB ${quote(ref)} ${size}x${size}` + (ifEtag ? ` IF ${quote(ifEtag)}` : '')
 		this.#ask(line)
 			.then((reply) => {
-				if (!reply.ok) return
+				if (!reply.ok) {
+					// Refused (no picture of it now): what was held is not this ref's picture any more.
+					this.#refused.add(key)
+					this.#drop(ref, size)
+					return
+				}
 				const o = JSON.parse(reply.payload) as { etag?: unknown; same?: unknown; mime?: unknown; data?: unknown }
 				if (o.same === true) return
 				if (typeof o.data !== 'string' || typeof o.mime !== 'string' || typeof o.etag !== 'string') return
@@ -117,6 +132,19 @@ export class Thumbs {
 			})
 			.catch(() => undefined) // no picture (refused, or the link dropped): the key shows none, and the next push or relink asks again
 			.finally(() => this.#inflight.delete(key))
+	}
+
+	/** Lets go of a ref's pictures (one size, or every size) and rechecks the keys that showed one. */
+	#drop(ref: string, size: number | null): void {
+		let dropped = false
+		for (const key of [...this.#cache.keys()])
+			if (size === null ? key.startsWith(`${ref}|`) : key === `${ref}|${size}`)
+				dropped = this.#cache.delete(key) || dropped
+		if (!dropped) return
+		const ids = [...this.#placed.entries()]
+			.filter(([, p]) => p.ref === ref && (size === null || p.size === size))
+			.map(([id]) => id)
+		if (ids.length > 0) this.#recheck(ids)
 	}
 
 	#scheduleWatch(): void {
@@ -137,6 +165,7 @@ export class Thumbs {
 		this.#placed.clear()
 		this.#cache.clear()
 		this.#pushed.clear()
+		this.#refused.clear()
 		this.#watched = ''
 	}
 }

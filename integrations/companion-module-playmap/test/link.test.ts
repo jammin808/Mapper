@@ -89,19 +89,27 @@ void test("a refused upgrade shows the node's own words from the body, never a g
 	}
 })
 
-void test('a node without a line channel on its web port is linked over the TCP line wire', async () => {
-	const node = await new FakeNode({ token: TOKEN, noLineChannel: true }).start()
-	const m = await boot(configFor(node.webPort, node.wirePort), { token: TOKEN })
-	try {
-		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'status ok')
-		await node.heard('AUTH-PROOF')
-		assert.equal([...node.sessions][0]?.kind, 'tcp')
-		await m.host.until(() => m.host.variables.get('node_name') === 'Test node', 'STATE over TCP')
-	} finally {
-		await m.stop()
-		await node.stop()
-	}
-})
+for (const [older, options] of [
+	['its /ws takes no subprotocol (the screens’ socket)', { noLineChannel: true }],
+	['its web token gate answers 401', { refuse: { status: 401, error: 'this node needs its token' } }],
+	['its web port has no /ws (404)', { refuse: { status: 404, error: 'no such route' } }],
+] as const)
+	void test(`an older node is linked over the TCP line wire: ${older}`, async () => {
+		const node = await new FakeNode({ token: TOKEN, ...options }).start()
+		const m = await boot(configFor(node.webPort, node.wirePort), { token: TOKEN })
+		try {
+			await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'status ok')
+			await node.heard('AUTH-PROOF')
+			assert.deepEqual(
+				[...node.sessions].map((s) => s.kind),
+				['tcp'],
+			)
+			await m.host.until(() => m.host.variables.get('node_name') === 'Test node', 'STATE over TCP')
+		} finally {
+			await m.stop()
+			await node.stop()
+		}
+	})
 
 void test('replies are matched by their @id, whatever order they come in', async () => {
 	const node = await new FakeNode().start()

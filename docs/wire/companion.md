@@ -40,7 +40,7 @@ desk proves itself at once. A node that asks no token has no secret to prove, so
 
 | Push | Shape | Delivery |
 |---|---|---|
-| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves | latest wins |
+| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves, or a section row's `light` or `state` | latest wins |
 | `EVENT {…}` | `{"seq","at","leaderNs","kind",…fields}` | in order; a session that falls behind or is sent more than 64 in a second is closed with `EVENTS overflow — … EVENTS SINCE <seq> …` |
 | `THUMBS {…}` | `SUBSCRIBE THUMBS <ref>…` (≤ 128, paired only): `{"<ref>":"<etag>"\|null,…}` for the whole watched set, at once and when any moves | latest wins |
 

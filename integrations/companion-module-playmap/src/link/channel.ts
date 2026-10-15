@@ -76,12 +76,20 @@ function openWebSocket(target: ChannelTarget, events: ChannelEvents): LineChanne
 		done = true
 		events.closed(info)
 	}
+	// Before ws checks the answer itself: the certificate first, then the subprotocol. An older node answers its /ws (the screens'
+	// JSON socket) with none, which ws would only call an error; the line wire is then on TCP.
 	ws.on('upgrade', (res: IncomingMessage) => {
-		if (target.kind !== 'wss') return
-		const cert = (res.socket as TLSSocket).getPeerCertificate?.()
-		fingerprint = cert?.fingerprint256
-		if (target.pin && normalisePin(fingerprint ?? '') !== normalisePin(target.pin)) {
-			finish({ reason: 'the certificate is not the pinned one', pinMismatch: true })
+		if (target.kind === 'wss') {
+			const cert = (res.socket as TLSSocket).getPeerCertificate?.()
+			fingerprint = cert?.fingerprint256
+			if (target.pin && normalisePin(fingerprint ?? '') !== normalisePin(target.pin)) {
+				finish({ reason: 'the certificate is not the pinned one', pinMismatch: true })
+				ws.terminate()
+				return
+			}
+		}
+		if (res.headers['sec-websocket-protocol'] !== SUBPROTOCOL) {
+			finish({ reason: 'the node has no line channel on its web port', fallback: true })
 			ws.terminate()
 		}
 	})
@@ -105,7 +113,8 @@ function openWebSocket(target: ChannelTarget, events: ChannelEvents): LineChanne
 				reason: `HTTP ${status}`,
 				httpStatus: status,
 				...(words !== undefined ? { httpWords: words } : {}),
-				fallback: status === 400 || status === 404 || status === 426,
+				// 401: an older node's web token gate (a node with the line channel pairs on the line and never asks a header token).
+				fallback: status === 400 || status === 401 || status === 404 || status === 426,
 			})
 			req.destroy()
 		})
