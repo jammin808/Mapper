@@ -46,6 +46,11 @@ public interface IFrameLockDriver : IDisposable
 
     /// <summary>The board's frame count for the output's swap group (24 bits); false when there is none to read.</summary>
     bool TryFrameCount(string outputId, IOutputPresenter? presenter, out uint count24);
+
+    /// <summary>The tier's own wait for the output's barrier (its waitable, with a timeout of 3 refreshes) did not signal: the
+    /// barrier stalled. False for a tier with no waitable. Never judged from how long a present call took, which holds the node's
+    /// own work (a software rasteriser, a display server's round trip, a starved thread) and no barrier at all.</summary>
+    bool WaitTimedOut(string outputId) => false;
 }
 
 /// <summary>The tier on a node with no framelock: no board, no swap groups; every output presents free, measured.</summary>
@@ -106,6 +111,9 @@ public sealed class FakeFrameLockDriver : IFrameLockDriver
 
     /// <summary>The counts stop advancing (a barrier that stalled).</summary>
     public bool Stalled { get; set; }
+
+    /// <summary>The barrier's wait times out for every joined output (a barrier that stopped signalling).</summary>
+    public bool BarrierWaitTimesOut { get; set; }
 
     /// <summary>Joins refused with these words (null: joins succeed).</summary>
     public string? RefuseJoins { get; set; }
@@ -182,6 +190,12 @@ public sealed class FakeFrameLockDriver : IFrameLockDriver
             count24 = c;
             return true;
         }
+    }
+
+    public bool WaitTimedOut(string outputId)
+    {
+        lock (_gate)
+            return BarrierWaitTimesOut && _counts.ContainsKey(outputId);
     }
 
     public void Dispose()

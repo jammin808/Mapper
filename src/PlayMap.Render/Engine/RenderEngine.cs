@@ -54,8 +54,6 @@ public sealed class RenderEngine : IDisposable
         public PresentClock Clock = new(60, measured: false, PresentPath.Offscreen);
         /// <summary>The refresh an offscreen output is measured against (its configured rate).</summary>
         public double OffscreenHz;
-        /// <summary>How long the last present call took (the pacing presenter's includes its wait for the vblank).</summary>
-        public long PresentWaitNs;
         public GpuTimer? Timer;
         public bool HasPicture;
         /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
@@ -205,9 +203,6 @@ public sealed class RenderEngine : IDisposable
     public PresentSnapshot? Present(string outputId) =>
         _outputs.TryGetValue(outputId, out var st) ? st.Clock.Snapshot(MonoClock.Instance.NowNs) : null;
 
-    /// <summary>How long the output's last present call took, ns (0 offscreen): the watchdog's evidence of a stalled barrier.</summary>
-    public long PresentWaitNs(string outputId) => _outputs.TryGetValue(outputId, out var st) ? st.PresentWaitNs : 0;
-
     /// <summary>The time the last frame spent in present calls, ms (the pacing presenter's wait for the vblank included).</summary>
     public double LastPresentMs { get; private set; }
 
@@ -307,9 +302,7 @@ public sealed class RenderEngine : IDisposable
         {
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null || st.Final is null)
                 continue;
-            var callNs = MonoClock.Instance.NowNs;
             var presented = st.Window.Present(st.Final.Color);
-            st.PresentWaitNs = MonoClock.Instance.NowNs - callNs;
             if (presented.Queued)
                 st.Pacer.OnPresented(presented.ReturnedNs);
             st.Clock.OnPresented(in presented);

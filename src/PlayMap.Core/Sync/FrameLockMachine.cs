@@ -105,7 +105,7 @@ public static class LockReasons
 /// retried until a new one (<see cref="LockIntent.Seq"/>).</item>
 /// <item><b>Confirm.</b> Joining, 120 refreshes in a row with the count advancing by exactly one (mod 2²⁴), the board synced and the
 /// barrier bound → framelocked (house-locked on house sync). Not within 5 s → fell out.</item>
-/// <item><b>Fall out.</b> Joining or locked, and the present's wait timed out (the barrier stalled), the count stood still for 3
+/// <item><b>Fall out.</b> Joining or locked, and the barrier's own wait timed out (the driver's fact), the count stood still for 3
 /// periods, the board was unsynced for 3 periods (locked only: a short loss is debounced), the device was busy, or the display
 /// changed → Unbind, Leave, RestorePresent, Alarm; <see cref="LockState.FellOut"/> with the reason. The output keeps presenting
 /// on its own vblank: nothing here ever waits.</item>
@@ -345,7 +345,7 @@ public sealed class FrameLockMachine
         return LockActions.Unbind | LockActions.Leave | LockActions.RestorePresent | LockActions.Alarm;
     }
 
-    /// <summary>What breaks a lock (or a join): a present whose wait timed out, a count that stood still for 3 periods, a busy device,
+    /// <summary>What breaks a lock (or a join): the barrier's wait timed out, a count that stood still for 3 periods, a busy device,
     /// a changed display; and, once locked, a board unsynced for 3 periods (a join waits for the board up to its 5 s).</summary>
     private bool Breaks(in LockFacts f, bool joining, out string reason, out string words)
     {
