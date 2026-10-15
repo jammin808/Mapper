@@ -12,8 +12,8 @@ import {
 	type JsonValue,
 	type SomeCompanionConfigField,
 } from '@companion-module/base'
-import { Lines, actionDefinitions, rowOfLine } from './actions.ts'
-import { BUNDLED_VERBS, readVerbs, type VerbRow } from './catalog/verbs.ts'
+import { Lines, actionDefinitions, fence, rowOfLine } from './actions.ts'
+import { BUNDLED_VERBS, pressOfLine, readVerbs, type VerbRow } from './catalog/verbs.ts'
 import { configFields, connectionTarget, num, type PlayMapConfig, type PlayMapSecrets } from './config.ts'
 import type { Ctx, SendOptions } from './context.ts'
 import { Encoders } from './encoders.ts'
@@ -29,6 +29,7 @@ import { changedValues, variableDefinitions, variablesOf } from './state/variabl
 import { Thumbs } from './thumbs.ts'
 import { KNOWN_LINE_PROTOCOL, MODULE_VERSION } from './version.ts'
 import { Words } from './words.ts'
+import { parseNode } from './json.ts'
 
 export { MODULE_VERSION } from './version.ts'
 
@@ -66,6 +67,19 @@ export interface PlayMapTestHooks {
 /** A PlayMap node as a Companion connection: one link (the web port's line channel, or the TCP wire), STATE and INDEX diffed into
  * variables and the feedback types they move, actions generated from the node's vocabulary, presets keyed by entity id. The node is
  * the only authority: a key's light is STATE, never the press. */
+/** An EVENTS SINCE replay that is not answered is asked again this often, this many times in all, before the gap is given up. */
+const REPLAY_RETRY_MS = 2000
+const REPLAY_TRIES = 3
+
+/** A press whose answer came after the connection was destroyed. */
+const notSentAfterStop: PressResult = {
+	ok: false,
+	stage: 'not-sent',
+	effect: '',
+	error: 'the connection stopped',
+	reply: '',
+}
+
 export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implements Ctx {
 	/** Set by a test before init (the host never sets it). */
 	static testHooks: PlayMapTestHooks = {}
@@ -105,8 +119,12 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#protoWarning: string | null = null
 	#lastError = ''
 	#definedVariables = ''
+	/** Destroyed: nothing more reaches the host and no timer is armed. */
+	#destroyed = false
 	/** Events pushed while an EVENTS SINCE replay is in flight, taken after it; null when no replay is. */
 	#held: unknown[] | null = null
+	#replayTimer: ReturnType<typeof setTimeout> | null = null
+	#pairedBefore = false
 	/** What the instance last handed Companion's presets (the test reads it to compare with what the host kept). */
 	lastPresets: { structure: unknown; presets: unknown } | null = null
 
@@ -130,6 +148,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	async destroy(): Promise<void> {
+		this.#destroyed = true
 		this.#stop()
 		this.thumbs.clear()
 	}
@@ -157,20 +176,27 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	async send(line: string, controlId: string, options: SendOptions = {}): Promise<PressResult> {
+		const fenced = fence(this.verbs, line)
+		if (!fenced.ok) return this.receipts.notSent(controlId, fenced.verb, fenced.error)
+		// Past the fence a line carries no secret, so its receipt may name its first two words ("FREEZE ON").
+		const verb = line.trim().split(/\s+/u).slice(0, 2).join(' ')
 		if (options.goPlaylist && !this.goGuard.allow(options.goPlaylist, this.minGoMs()))
 			return this.receipts.notSent(
 				controlId,
-				line,
+				verb,
 				`pressed again within ${this.minGoMs()} ms — the double-GO guard held it`,
 			)
 		const session = this.#session
-		if (!session?.linked) return this.receipts.notSent(controlId, line, 'the node is not linked')
+		if (!session?.linked) return this.receipts.notSent(controlId, verb, 'the node is not linked')
 		this.receipts.sent(controlId)
 		try {
 			const reply = await session.ask(line)
-			return this.receipts.replied(controlId, line, reply, numOf(at(this.model.state, P.seq)))
+			if (this.#destroyed) return notSentAfterStop
+			return this.receipts.replied(controlId, verb, reply, numOf(at(this.model.state, P.seq)))
 		} catch (e) {
-			return this.receipts.notSent(controlId, line, e instanceof Error ? e.message : String(e))
+			// A press in flight when the connection stopped answers its caller and touches nothing of a stopped instance.
+			if (this.#destroyed) return notSentAfterStop
+			return this.receipts.notSent(controlId, verb, e instanceof Error ? e.message : String(e))
 		}
 	}
 
@@ -210,7 +236,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	pressOf(line: string): 'instant' | 'hold' | 'double' {
-		return rowOfLine(this.verbs, line)?.press ?? 'instant'
+		const row = rowOfLine(this.verbs, line)
+		return row ? pressOfLine(row, line) : 'instant'
 	}
 
 	override checkFeedbacks(...types: string[]): void {
@@ -303,9 +330,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	/** The link dropped: what the node said is no longer a fact, so it is emptied and every feedback checked again (a dead key never
 	 * stays green). INDEX's names are kept so keys still say what they are, dimmed. */
 	#emptied(): void {
-		const held = this.#held
+		// Events held for a replay that never came are left in the node's ring: the next pairing asks for them again.
 		this.#held = null
-		if (held) this.#takeAll(held)
+		if (this.#replayTimer) clearTimeout(this.#replayTimer)
+		this.#replayTimer = null
 		this.model.state = null
 		this.model.whoami = null
 		this.#whoamiKey = ''
@@ -327,18 +355,29 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.ask('VERBS')
 			.then((reply) => {
 				if (!reply.ok) return
-				const rows = readVerbs(JSON.parse(reply.payload))
+				const rows = readVerbs(parseNode(reply.payload))
 				if (rows.length === 0) return
 				const key = (r: readonly VerbRow[]): string =>
 					r.map((v) => `${v.name}|${v.available}|${v.press}|${v.syntax}`).join('\n')
 				if (key(rows) === key(this.verbs)) return
+				// The node's vocabulary is taken only once actions build from it; otherwise the deck keeps the one it has.
+				const before = this.verbs
 				this.verbs = rows
-				this.setActionDefinitions(actionDefinitions(this))
+				let definitions
+				try {
+					definitions = actionDefinitions(this)
+				} catch (e) {
+					this.verbs = before
+					throw e
+				}
+				this.setActionDefinitions(definitions)
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe('SUBSCRIBE INDEX')
-		if (this.events.lastSeq > 0) this.#replayEvents()
+		// A first pairing has missed nothing; a later one replays what was raised while the link was down.
+		if (this.#pairedBefore && this.events.from() > 0) this.#replayEvents()
 		else this.#subscribe('SUBSCRIBE EVENTS')
+		this.#pairedBefore = true
 		this.thumbs.relinked()
 		// A greeting STATE may have come before the pairing finished: the clocks start now if something plays.
 		this.#runTicker()
@@ -347,28 +386,42 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 
 	/** Opens EVENTS and replays what this deck missed since the last seq it took. Events pushed while the replay is in flight are held
 	 * and taken after it, oldest first, so the last seq taken never passes a replayed event and every event is taken once. */
-	#replayEvents(): void {
-		const held: unknown[] = []
+	#replayEvents(attempt = 0, carried: readonly unknown[] = []): void {
+		const held: unknown[] = [...carried]
 		this.#held = held
-		this.#subscribe('SUBSCRIBE EVENTS')
-		const since = async (seq: number): Promise<void> => {
+		if (attempt === 0) this.#subscribe('SUBSCRIBE EVENTS')
+		const since = async (seq: number): Promise<boolean> => {
 			const reply = await this.ask(Lines.eventsSince(seq))
-			if (!reply.ok || this.#held !== held) return
-			const o = JSON.parse(reply.payload) as { seq?: unknown; events?: unknown }
+			if (!reply.ok || this.#held !== held) return false
+			const o = parseNode(reply.payload) as { seq?: unknown; events?: unknown }
 			// A node whose newest seq is below the last one heard started again: its events are numbered afresh, from the start.
-			if (typeof o.seq === 'number' && o.seq < this.events.lastSeq) {
+			if (typeof o.seq === 'number' && o.seq < this.events.from()) {
 				this.events.restarted()
 				return since(0)
 			}
 			this.#takeAll(Array.isArray(o.events) ? o.events : [])
+			return true
 		}
-		since(this.events.lastSeq)
-			.catch((e: unknown) => this.log('debug', `EVENTS SINCE: ${e instanceof Error ? e.message : String(e)}`))
-			.finally(() => {
-				if (this.#held !== held) return
-				this.#held = null
-				this.#takeAll(held)
-			})
+		const settle = (took: boolean): void => {
+			if (this.#held !== held) return
+			if (!took && this.linked() && attempt < REPLAY_TRIES - 1) {
+				// Not replayed: what was held, and what comes meanwhile, waits for the next ask, so the last seq taken never passes
+				// the gap.
+				this.#replayTimer = setTimeout(() => {
+					this.#replayTimer = null
+					if (this.linked() && this.#held === held) this.#replayEvents(attempt + 1, held)
+				}, REPLAY_RETRY_MS)
+				return
+			}
+			// Replayed (or given up on after its tries, the gap said in the log): what came meanwhile is taken after it.
+			if (!took) this.log('warn', `events the node raised while the link was down could not be replayed`)
+			this.#held = null
+			this.#takeAll(held)
+		}
+		since(this.events.from()).then(settle, (e: unknown) => {
+			this.log('debug', `EVENTS SINCE: ${e instanceof Error ? e.message : String(e)}`)
+			settle(false)
+		})
 	}
 
 	#takeAll(events: readonly unknown[]): void {
@@ -391,7 +444,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.ask('WHOAMI')
 			.then((reply) => {
 				if (!reply.ok) return
-				const who = this.model.setWhoami(JSON.parse(reply.payload))
+				const who = this.model.setWhoami(parseNode(reply.payload))
 				this.#protoWarning =
 					who.proto > KNOWN_LINE_PROTOCOL ? Words.newerProtocol(who.proto, KNOWN_LINE_PROTOCOL) : null
 				if (this.#protoWarning) this.updateStatus(InstanceStatus.UnknownWarning, this.#protoWarning)
@@ -434,11 +487,20 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		}
 		let json: unknown
 		try {
-			json = rest ? JSON.parse(rest) : null
+			json = rest ? parseNode(rest) : null
 		} catch {
-			this.log('debug', `a ${word} push that is not JSON`)
+			this.log('debug', `a ${word} push that is not JSON, or nests past what a node writes`)
 			return
 		}
+		// Nothing a push holds may throw out of the channel's callback into Companion's process.
+		try {
+			this.#take(word, json)
+		} catch (e) {
+			this.log('error', `a ${word} push could not be taken: ${e instanceof Error ? e.message : String(e)}`)
+		}
+	}
+
+	#take(word: string, json: unknown): void {
 		switch (word) {
 			case 'STATE':
 				this.#state(json)
@@ -460,6 +522,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#state(json: unknown): void {
 		this.model.setState(json)
 		const s = this.model.state
+		if (this.events.baseline === 0 && this.events.lastSeq === 0) this.events.baseline = numOf(at(s, P.eventsSeq))
 		this.receipts.stateMoved(numOf(at(s, P.seq)))
 		this.encoders.stateMoved()
 		// A node whose INDEX moved says so in STATE; if no INDEX push follows (a node without SUBSCRIBE INDEX), it is asked.
@@ -470,7 +533,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				if (str(at(this.model.state, P.projectIndex)) === this.#lastSig || !this.linked()) return
 				this.ask('INDEX')
 					.then((reply) => {
-						if (reply.ok) this.#index(JSON.parse(reply.payload))
+						if (reply.ok) this.#index(parseNode(reply.payload))
 					})
 					.catch((e: unknown) => this.log('debug', `INDEX: ${e instanceof Error ? e.message : String(e)}`))
 			}, INDEX_WAIT_MS)
@@ -575,7 +638,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	#dirty(): void {
-		if (this.#flushTimer) return
+		if (this.#flushTimer || this.#destroyed) return
 		this.#flushTimer = setTimeout(() => {
 			this.#flushTimer = null
 			this.#flush()
@@ -590,6 +653,15 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 
 	/** The variables that changed and the feedback types whose STATE slice moved, sent together. */
 	#flush(): void {
+		// A timer's callback: nothing may throw out of it into Companion's process.
+		try {
+			this.#publish()
+		} catch (e) {
+			this.log('error', `variables and feedbacks could not be published: ${e instanceof Error ? e.message : String(e)}`)
+		}
+	}
+
+	#publish(): void {
 		const nodeNow = this.nodeNow()
 		const last = this.events.last
 		const vars = variablesOf(

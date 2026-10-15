@@ -13,7 +13,7 @@ import { advance, fakeChannels, settle } from './fake-channel.ts'
 import { boot, configFor, type Booted } from './harness.ts'
 import { allLines, statePaths } from './emitted.ts'
 import { PANIC_OUTCOMES, actionDefinitions, rowOfLine } from '../src/actions.ts'
-import { BUNDLED_VERBS, EXCLUDED, actionIdOf, generatedRows, type VerbRow } from '../src/catalog/verbs.ts'
+import { BUNDLED_VERBS, EXCLUDED, actionIdOf, generatedRows, pressOfLine, type VerbRow } from '../src/catalog/verbs.ts'
 import { lineOf, optionIdOf, sampleOf } from '../src/catalog/write.ts'
 import type { PlayMapConfig } from '../src/config.ts'
 import { stepsFor } from '../src/presets.ts'
@@ -291,7 +291,9 @@ void test('one action per catalogue row but the module’s own words and secrets
 			// The press shape is the row's: a double row confirms twice by default, every other row sends on the press.
 			const confirm = def.options.find((o) => o.id === 'confirm') as { default?: unknown } | undefined
 			assert.equal(confirm?.default, row.press === 'double' ? 'twice' : 'none', `${id} confirm`)
-			assert.equal(m.instance.pressOf(sampleLine(row)), row.press, `${row.name} press`)
+			// A line's press is its row's, unless a word of it names a risk (press.test.ts holds that rule).
+			if (row.riskWhen.length === 0) assert.equal(m.instance.pressOf(sampleLine(row)), row.press, `${row.name} press`)
+			else assert.equal(m.instance.pressOf(sampleLine(row)), pressOfLine(row, sampleLine(row)), `${row.name} press`)
 		}
 		// The air and transport verbs are instant on every key the module makes of them.
 		for (const line of [

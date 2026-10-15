@@ -118,7 +118,7 @@ neither runs nor waits for a person; what it holds for a person goes to the node
 `companion/HELP.md` is the operator's page; this is how it works.
 
 **The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
-link and refusing another), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
+link and refusing another — a refusal's status and words included — and never falling back to plain TCP), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
 is a Companion secret and never rides a line. A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
 upgrade is answered 400, 401 or 404) is reached on the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
 required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
@@ -126,11 +126,15 @@ required) shows the node's own words from the body. Every line carries `@c<n>`; 
 **stale**: the status says so and every key dims with a ⚠. 10 s drops the link: what the node said is emptied, every feedback is checked
 again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token or a locked-out
 address halts the link until the config changes, so a deck never spends the address's wrong tokens. Lines the module sends are held to the
-node's 64 KiB; what the node sends is not (VERBS and INDEX are long).
+node's 64 KiB; what the node sends is not (VERBS and INDEX are long), but JSON nested past 64 levels is dropped, every VERBS field is
+type-checked (a vocabulary that builds no actions is not taken), and nothing a push holds can throw into Companion's process.
 
 **Once paired** it says `PRESENCE` (its version, its Live source and page, how many pictures it holds), asks `WHOAMI` (again when Show
 Mode or the controllers move) and `VERBS`, subscribes to `INDEX` and `EVENTS`, asks `EVENTS SINCE <seq>` for what a drop missed, and
-watches the pictures its keys show with `SUBSCRIBE THUMBS`.
+watches the pictures its keys show with `SUBSCRIBE THUMBS`. After a drop it replays from the last event it took (or, having taken
+none, from the node's `events.seq` when it first heard it); events pushed while the replay is in flight wait for it, a replay the node
+does not answer is asked again (three tries, 2 s apart) and one the link drops leaves them untaken, so the last seq never passes a gap;
+a node whose newest seq is below it started again and is replayed from its first. An `EVENTS overflow` line replays the same way.
 
 **STATE and INDEX.** STATE is read through one table of paths (`src/state/paths.ts`); the node's contract test finds every one of them in
 a STATE the engine wrote. Variables are computed from it as a pure function of STATE, the module's own facts and the node's clock, diffed,
@@ -145,13 +149,15 @@ options from `params` — entity dropdowns from INDEX, literal choices, keyword 
 line written by the node's grammar. Every press returns its receipt as the action's result (`ok`, `stage`, `effect`, `error`) on the node's
 first reply, and lights a corner dot on its key: amber while sent or accepted, cleared when STATE moves past it, red for 2 s on `ERR` with
 the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
-blackout and freeze toggles; a section key; the Live page; `raw` (any line but the session's and the secret ones) and `ask_node` (a
-question, its answer as the result). Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
+blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
+answer as the result). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence: it must start with
+a verb of the node, never the session's words, a secret's or pairing's, nor carry one (`BIND ADD … TO AUTH …`); a refusal names only
+the verb, never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
 value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a surface's
 opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local variable `result`,
 for an *if* block on the key.
 
-**Press shapes** come from each row's `press`: Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
+**Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
 are held 0.8 s;
 a projector's power is two presses within 3 s (the module keeps the first — a preset cannot reset a button's step). The double-GO guard
 holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.

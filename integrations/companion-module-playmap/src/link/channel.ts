@@ -95,6 +95,15 @@ function openWebSocket(target: ChannelTarget, events: ChannelEvents): LineChanne
 	})
 	ws.on('unexpected-response', (req, res) => {
 		const status = res.statusCode ?? 0
+		// Over wss nothing of an answer is trusted, its status and words included, before its certificate is the pinned one.
+		if (target.kind === 'wss' && target.pin) {
+			const seen = (res.socket as TLSSocket).getPeerCertificate?.()?.fingerprint256 ?? ''
+			if (normalisePin(seen) !== normalisePin(target.pin)) {
+				finish({ reason: 'the certificate is not the pinned one', pinMismatch: true })
+				req.destroy()
+				return
+			}
+		}
 		let body = ''
 		res.setEncoding('utf8')
 		res.on('data', (chunk: string) => {

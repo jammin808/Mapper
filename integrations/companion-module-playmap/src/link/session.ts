@@ -332,7 +332,9 @@ export class NodeSession {
 		}
 		if (info.pinMismatch) return this.#fail(InstanceStatus.AuthenticationFailure, Words.pinMismatch)
 		if (info.code === 4401) return this.#fail(InstanceStatus.AuthenticationFailure, Words.lockedOut(info.reason))
-		if (info.fallback && target.kind !== 'tcp') {
+		// Only a plain ws link falls back to plain TCP: a wss link never trades its certificate for cleartext.
+		if (info.fallback && target.kind === 'wss') return this.#fail(InstanceStatus.BadConfig, Words.noLineChannelTls)
+		if (info.fallback && target.kind === 'ws') {
 			this.#useTcp = true
 			this.#setState('connecting')
 			this.#reconnect = setTimeout(() => this.#connect(), 0)

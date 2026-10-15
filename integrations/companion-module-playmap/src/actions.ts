@@ -16,6 +16,7 @@ import { quote } from './link/grammar.ts'
 import { RULES, fillHint } from './live.ts'
 import { P, at, num } from './state/paths.ts'
 import { MODULE_VERSION } from './version.ts'
+import { parseNode } from './json.ts'
 
 /** The verbs whose EXPECT names the item they would play next (VIDEO's name the item on the air). */
 const NEXT_EXPECT = new Set(['PLAYLIST GO', 'PLAYLIST NEXT'])
@@ -181,6 +182,36 @@ export function rowOfLine(rows: readonly VerbRow[], line: string): VerbRow | und
 	const two = `${words[0] ?? ''} ${words[1] ?? ''}`.toUpperCase()
 	const one = (words[0] ?? '').toUpperCase()
 	return rows.find((r) => r.name === two) ?? rows.find((r) => r.name === one)
+}
+
+/** A row whose line carries another line for the node to run later (BIND ADD … TO <target line>). */
+const carriesLine = (row: VerbRow): boolean =>
+	row.formParams.some((f) => f.some((p) => p.kind === 'line' && (p.name === 'to' || p.name === 'target')))
+
+/** The one fence every key's line passes before it is sent, whoever wrote it (a generated action, raw, a section key or Live slot
+ * from INDEX): a line must start with a verb of the node, never one the module keeps to itself (the session's words, secrets,
+ * pairing), nor carry one inside it. What it refuses names only the verb, never the operator's words (a token typed as a line). */
+export function fence(
+	rows: readonly VerbRow[],
+	line: string,
+): { ok: true } | { ok: false; verb: string; error: string } {
+	const row = rowOfLine(rows, line)
+	if (!row) return { ok: false, verb: 'line', error: 'no verb of the node starts this line' }
+	if (EXCLUDED.has(row.name))
+		return { ok: false, verb: row.name, error: `${row.name} is the module's own, never sent from a key` }
+	if (carriesLine(row)) {
+		const words = line.trim().split(/\s+/u)
+		for (let i = row.name.split(' ').length; i < words.length; i++) {
+			const inner = rowOfLine(rows, words.slice(i).join(' '))
+			if (inner && EXCLUDED.has(inner.name))
+				return {
+					ok: false,
+					verb: row.name,
+					error: `${row.name} would carry ${inner.name}, which is never sent from a key`,
+				}
+		}
+	}
+	return { ok: true }
 }
 
 /** An encoder's turn of $(this:delta): the delta option's evaluated number. */
@@ -373,7 +404,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 				const reply = await ctx.ask(line)
 				let value: JsonValue = reply.payload
 				try {
-					value = JSON.parse(reply.payload) as JsonValue
+					value = parseNode(reply.payload) as JsonValue
 				} catch {
 					value = reply.payload // words, not JSON: the result is the words
 				}
@@ -391,12 +422,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 		options: [{ type: 'textinput', id: 'line', label: 'Line', default: '' }],
 		hasResult: true,
 		callback: async (action) => {
-			const line = text(action.options.line)
-			const row = rowOfLine(ctx.verbs, line)
-			if (!row) return ctx.receipts.notSent(action.controlId, line || 'line', 'no verb of the node starts this line')
-			if (EXCLUDED.has(row.name))
-				return ctx.receipts.notSent(action.controlId, line, `${row.name} is the module's own, never sent from a key`)
-			return ctx.send(line, action.controlId)
+			return ctx.send(text(action.options.line), action.controlId)
 		},
 	}
 	defs.enc_master = encoder(ctx, 'Encoder: grand master', 'MASTER, 0-100', [], 5, (_o, step) => ({

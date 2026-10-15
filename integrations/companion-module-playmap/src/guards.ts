@@ -1,5 +1,6 @@
 import type { JsonValue } from '@companion-module/base'
 import type { Reply } from './link/session.ts'
+import { parseNode } from './json.ts'
 
 /** A press's receipt on its key: pending (sent, or accepted and its effect not yet in STATE), failed (refused, red for 2 s with the
  * node's words), or clear. The key's main light never moves on a press: only STATE moves it (attempts are not facts). */
@@ -48,8 +49,9 @@ export class Receipts {
 	}
 
 	/** The node's one reply to a press, with the STATE seq heard when it came. */
-	replied(controlId: string, line: string, reply: Reply, stateSeq: number): PressResult {
-		const verb = line.split(' ').slice(0, 2).join(' ')
+	/** The node's first reply to a key's line. `verb` names it: a line's first words once the fence has passed it, else the row's
+	 * name only — a receipt never repeats words that may hold a secret. */
+	replied(controlId: string, verb: string, reply: Reply, stateSeq: number): PressResult {
 		let result: PressResult
 		if (!reply.ok) {
 			this.#by.set(controlId, { stage: 'failed', words: reply.payload, until: this.#now() + FAILED_MS, seq: null })
@@ -72,10 +74,11 @@ export class Receipts {
 	}
 
 	/** The press never reached the node (no link, no answer in time, refused by the module's own guard). */
-	notSent(controlId: string, line: string, why: string): PressResult {
+	/** A key's line that never left the module. `verb` names it as `replied` says. */
+	notSent(controlId: string, verb: string, why: string): PressResult {
 		this.#by.set(controlId, { stage: 'failed', words: why, until: this.#now() + FAILED_MS, seq: null })
 		this.lastRefusal = why
-		this.lastReceipt = `not sent: ${line.split(' ').slice(0, 2).join(' ')} — ${why}`
+		this.lastReceipt = `not sent: ${verb} — ${why}`
 		this.#schedule()
 		this.#changed()
 		return { ok: false, stage: 'not-sent', effect: '', error: why, reply: '' }
@@ -134,7 +137,7 @@ export class Receipts {
 
 function acceptedEffect(payload: string): string {
 	try {
-		const o = JSON.parse(payload) as { effect?: unknown }
+		const o = parseNode(payload) as { effect?: unknown }
 		return typeof o.effect === 'string' ? o.effect : ''
 	} catch {
 		return ''

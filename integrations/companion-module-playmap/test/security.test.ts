@@ -1,0 +1,160 @@
+// A node's data is data, never instructions, and a key never carries what the deck keeps to itself: a STATE nested past what a node
+// writes is dropped (no stack runs out in Companion's process); a VERBS answer whose parameters are of the wrong type keeps the deck
+// working; a line a section key, a Live slot, raw or a generated action would send passes one fence — no session word, secret or
+// pairing verb, at its head or carried inside it, ever reaches the node — and a refusal names only the verb, never the operator's
+// words (a token typed as a line stays out of every variable); a press answered after destroy touches nothing of the host.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import type { CompanionOptionValues } from '@companion-module/base'
+import { FakeNode, copy, fixture } from './fake-node.ts'
+import { boot, configFor, type Booted } from './harness.ts'
+
+const TOKEN = 'K7QM-3XWD-P9RA'
+
+interface IndexJson {
+	sig: string
+	sections: {
+		section: string
+		hint: { keys: { line: string }[] }
+		rows: { id: string; label: string; light: string }[]
+	}[]
+}
+
+async function linked(): Promise<{ node: FakeNode; m: Booted }> {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const m = await boot(configFor(node.webPort), { token: TOKEN })
+	await m.host.until(
+		() => m.instance.linked() && m.host.variables.get('node_name') === 'Test node',
+		'linked, STATE heard',
+	)
+	return { node, m }
+}
+
+/** Every variable value the host holds, as text. */
+const allValues = (m: Booted): string => [...m.host.variables.values()].map((v) => JSON.stringify(v ?? null)).join('\n')
+
+void test('a STATE nested past what a node writes is dropped; the module runs on and the link stays live', async () => {
+	const { node, m } = await linked()
+	const uncaught: unknown[] = []
+	const onUncaught = (e: unknown): void => {
+		uncaught.push(e)
+	}
+	process.on('uncaughtException', onUncaught)
+	try {
+		const deep = '['.repeat(100_000) + ']'.repeat(100_000)
+		node.push(`STATE {"name":"x","faults":${deep}}`)
+		node.push(`INDEX {"sig":"deep","labels":"deep","playlists":${deep}}`)
+		// The next lines on the link are answered, so both pushes were read before them.
+		await m.instance.ask('WHOAMI')
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		await m.instance.ask('WHOAMI')
+		assert.deepEqual(uncaught, [])
+		assert.equal(m.instance.link(), 'live')
+		assert.equal(m.host.variables.get('node_name'), 'Test node', 'the nested STATE was not taken')
+	} finally {
+		process.off('uncaughtException', onUncaught)
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a VERBS answer with parameters of the wrong type keeps the deck working through the next INDEX', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	node.handlers.set(
+		'VERBS',
+		() =>
+			'OK ' +
+			JSON.stringify([
+				{
+					name: 'PLAYLIST GO',
+					syntax: 'PLAYLIST GO <playlist>',
+					formParams: [[{ name: 'playlist', kind: 'entity', values: 'abc' }]],
+				},
+				{ name: 'MASTER', syntax: 'MASTER <n>', formParams: [[{ name: 'n', kind: 'number', min: 'zero' }]] },
+			]),
+	)
+	const m = await boot(configFor(node.webPort), { token: TOKEN })
+	try {
+		await m.host.until(
+			() => m.host.actions.has('v_master') && !m.host.actions.has('v_blackout'),
+			'the node’s vocabulary taken',
+		)
+		// A parameter whose fields are of the wrong type is left out; the row stays.
+		assert.deepEqual(
+			m.host.actions.get('v_master')?.options.map((o) => o.id),
+			['confirm'],
+		)
+		const index = copy(fixture('index.json') as IndexJson)
+		index.sig = 'moved'
+		node.push('INDEX ' + JSON.stringify(index))
+		await m.host.until(() => m.instance.model.index?.sig === 'moved', 'the next INDEX taken')
+		assert.equal(m.instance.link(), 'live')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('no key sends a session, secret or pairing verb, at the head of its line or carried in it; a refusal names only the verb', async () => {
+	const { node, m } = await linked()
+	try {
+		// A node whose INDEX lists a section row whose id is a line the deck keeps to itself.
+		const index = copy(fixture('index.json') as IndexJson)
+		const eye = index.sections.find((s) => s.section === 'eye')
+		assert.ok(eye && eye.hint.keys[0]?.line === '$(id)')
+		eye.rows.push({ id: 'PAIRING NEW', label: 'NEW TOKEN', light: 'grey' })
+		node.push('INDEX ' + JSON.stringify(index))
+		await m.host.until(
+			() => m.instance.model.index?.sections.some((s) => s.rows.some((r) => r.id === 'PAIRING NEW')) === true,
+			'INDEX',
+		)
+		const slot = eye.rows.length
+
+		const presses: [string, CompanionOptionValues][] = [
+			['section_press', { section: 'eye', row: 'PAIRING NEW', key: 0, confirm: 'none' }],
+			['slot_press', { rule: 'section:eye', n: slot, held: true }],
+			['raw', { line: `AUTH ${TOKEN}` }],
+			['raw', { line: TOKEN }],
+			['raw', { line: 'BIND ADD MIDI 1 TO CREDENTIAL SET dv1 admin hunter2' }],
+			['raw', { line: `BIND LEARN AUTH ${TOKEN}` }],
+			['v_bind_add', { input: 'MIDI 1', to: `AUTH ${TOKEN}`, confirm: 'none' }],
+		]
+		for (const [actionId, options] of presses) {
+			const r = (await m.press(actionId, options, `key-${actionId}`)) as { ok: boolean; stage: string }
+			assert.equal(r.ok, false, `${actionId} ${JSON.stringify(options)}`)
+			assert.equal(r.stage, 'not-sent', `${actionId} ${JSON.stringify(options)}`)
+		}
+		await m.instance.ask('WHOAMI')
+		const heard = node.sent().join('\n')
+		for (const word of ['PAIRING NEW', TOKEN, 'hunter2', 'CREDENTIAL', 'BIND'])
+			assert.ok(!heard.includes(word), `the node never heard ${word}`)
+		await m.host.until(
+			() => JSON.stringify(m.host.variables.get('last_receipt') ?? '').startsWith('"not sent: BIND'),
+			'receipts published',
+		)
+		assert.ok(!allValues(m).includes(TOKEN), 'no variable holds the token')
+		assert.ok(!allValues(m).includes('hunter2'), 'no variable holds a secret')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a press answered after destroy touches nothing of the host', async () => {
+	const { node, m } = await linked()
+	try {
+		node.handlers.set('BLACKOUT', () => null) // never answered
+		const press = m.press('blackout_toggle', {}, 'key-bo')
+		await node.heard(/BLACKOUT TOGGLE$/u)
+		await m.stop()
+		const calls = m.host.variableCalls
+		const r = (await press) as { ok: boolean; stage: string; error: string }
+		assert.equal(r.stage, 'not-sent')
+		assert.equal(r.error, 'the connection stopped')
+		// No failed receipt is kept (its clearing would arm a 2 s timer) and nothing more reached the host.
+		assert.equal(m.instance.receipts.stage('key-bo'), null)
+		assert.equal(m.host.variableCalls, calls)
+	} finally {
+		await node.stop()
+	}
+})

@@ -1,5 +1,6 @@
 import { quote } from './link/grammar.ts'
 import type { Reply } from './link/session.ts'
+import { parseNode } from './json.ts'
 
 /** The most pictures kept (about 3 MB at 96 px). */
 export const THUMB_CACHE = 256
@@ -117,7 +118,7 @@ export class Thumbs {
 					this.#drop(ref, size)
 					return
 				}
-				const o = JSON.parse(reply.payload) as { etag?: unknown; same?: unknown; mime?: unknown; data?: unknown }
+				const o = parseNode(reply.payload) as { etag?: unknown; same?: unknown; mime?: unknown; data?: unknown }
 				if (o.same === true) return
 				if (typeof o.data !== 'string' || typeof o.mime !== 'string' || typeof o.etag !== 'string') return
 				this.#cache.delete(key)

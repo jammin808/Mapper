@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { X509Certificate } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:https'
+import { createServer as createTcpServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -22,8 +23,8 @@ interface TlsNode {
 	stop(): Promise<void>
 }
 
-/** A node that asks no token, on wss with a certificate made for this test. */
-async function tlsNode(dir: string): Promise<TlsNode> {
+/** A node that asks no token, on wss with a certificate made for this test; `refuse` answers every upgrade with that status. */
+async function tlsNode(dir: string, refuse?: number): Promise<TlsNode> {
 	const key = join(dir, 'key.pem')
 	const cert = join(dir, 'cert.pem')
 	execFileSync(
@@ -50,8 +51,18 @@ async function tlsNode(dir: string): Promise<TlsNode> {
 	const pem = readFileSync(cert)
 	const server: Server = createServer({ key: readFileSync(key), cert: pem })
 	const wss = new WebSocketServer({
-		server,
+		noServer: true,
 		handleProtocols: (protocols) => (protocols.has('playmap.lines.v1') ? 'playmap.lines.v1' : false),
+	})
+	server.on('upgrade', (req, socket, head) => {
+		if (refuse === undefined) {
+			wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
+			return
+		}
+		const body = JSON.stringify({ error: 'no such route' })
+		socket.end(
+			`HTTP/1.1 ${refuse} Refused\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}`,
+		)
 	})
 	const lines: string[] = []
 	wss.on('connection', (ws) => {
@@ -124,3 +135,39 @@ void test('a certificate that is not the pinned one halts the link before any li
 		rmSync(dir, { recursive: true, force: true })
 	}
 })
+
+for (const [pinned, expected] of [
+	['the pinned certificate', 'BadConfig'],
+	['a certificate that is not the pinned one', 'AuthenticationFailure'],
+] as const)
+	void test(`a wss upgrade answered 404 by ${pinned} never falls back to plain TCP`, async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'playmap-tls-'))
+		const node = await tlsNode(dir, 404)
+		const tcp: Socket[] = []
+		const wire = createTcpServer((socket) => tcp.push(socket))
+		await new Promise<void>((resolve) => wire.listen(0, '127.0.0.1', resolve))
+		const wirePort = (wire.address() as { port: number }).port
+		try {
+			const pin =
+				expected === 'BadConfig'
+					? node.fingerprint
+					: 'AA:' + node.fingerprint.slice(3).replace(/[0-9A-F]/gu, (c) => (c === 'F' ? '0' : 'F'))
+			const m = await boot(
+				{ host: '127.0.0.1', port: node.port, channel: 'wss', tls_pin: pin, wire_port: wirePort },
+				{},
+			)
+			try {
+				await m.host.until(() => m.host.status?.status === InstanceStatus[expected], expected)
+				assert.equal(m.host.status?.message, expected === 'BadConfig' ? Words.noLineChannelTls : Words.pinMismatch)
+				assert.equal(m.instance.link(), 'halted')
+				assert.equal(tcp.length, 0, 'no plain TCP link is tried')
+			} finally {
+				await m.stop()
+			}
+		} finally {
+			for (const s of tcp) s.destroy()
+			await new Promise<void>((resolve) => wire.close(() => resolve()))
+			await node.stop()
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})

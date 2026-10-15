@@ -326,6 +326,114 @@ void test('a node that started again numbers its events afresh: the re-paired li
 	}
 })
 
+void test('a deck that heard no event yet replays, after a drop, from the seq of the node it first heard', async () => {
+	const node = await new FakeNode().start()
+	const ring: Record<string, unknown>[] = [
+		eventJson(1, node.now(), 'show.armed'),
+		eventJson(2, node.now(), 'item.start'),
+	]
+	const asked: string[] = []
+	serveRing(node, ring, asked)
+	const m = await boot(configFor(node.webPort), {}, { random: () => 0 })
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		assert.deepEqual(asked, [], 'a first pairing replays nothing')
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.host.variables.get('link') !== 'live', 'the link down')
+		ring.push(eventJson(3, node.now(), 'fault.raised', { ref: 'op_1', words: 'Output 1 lost its display' }))
+		await seqHeard(m, 3, 'the event raised during the drop')
+		assert.deepEqual(asked, ['2'], 'from the greeting STATE’s events.seq')
+		assert.deepEqual(taken(m), [3])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a replay the link drops before it is answered leaves what was held untaken: the next pairing asks from the same seq', async () => {
+	const node = await new FakeNode().start()
+	const ring: Record<string, unknown>[] = []
+	const asked: string[] = []
+	let answer = true
+	serveRing(node, ring, asked)
+	const served = node.handlers.get('EVENTS SINCE')
+	node.handlers.set('EVENTS SINCE', (line, words) => {
+		if (answer) return served?.(line, words)
+		asked.push(words[2] ?? '')
+		// Not answered: the node pushes a newer event, then the link drops.
+		node.push(eventLine(9, node.now(), 'scan.done'))
+		setImmediate(() => {
+			for (const s of [...node.sessions]) s.close(1001)
+		})
+		return null
+	})
+	const m = await boot(configFor(node.webPort), {}, { random: () => 0 })
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		const five = eventJson(5, node.now(), 'item.end')
+		ring.push(five)
+		node.push('EVENT ' + JSON.stringify(five))
+		await seqHeard(m, 5, 'event 5')
+		answer = false
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => asked.length === 1, 'the first replay asked')
+		ring.push(
+			eventJson(6, node.now(), 'fault.raised'),
+			eventJson(7, node.now(), 'show.armed'),
+			eventJson(8, node.now(), 'item.start'),
+		)
+		ring.push(eventJson(9, node.now(), 'scan.done'))
+		answer = true
+		await seqHeard(m, 9, 'every event once the replay is answered')
+		assert.deepEqual(asked, ['5', '5'], 'the second replay asked from the same seq, not past the held 9')
+		assert.deepEqual(taken(m), [5, 6, 7, 8, 9])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a replay the node refuses is asked again while the link stays up; what came meanwhile waits for it', async () => {
+	const node = await new FakeNode().start()
+	const ring: Record<string, unknown>[] = []
+	const asked: string[] = []
+	let refuse = 0
+	serveRing(node, ring, asked)
+	const served = node.handlers.get('EVENTS SINCE')
+	node.handlers.set('EVENTS SINCE', (line, words) => {
+		if (refuse === 0) return served?.(line, words)
+		refuse--
+		asked.push(words[2] ?? '')
+		node.push(eventLine(9, node.now(), 'scan.done'))
+		return 'ERR busy — ask again'
+	})
+	const m = await boot(configFor(node.webPort), {}, { random: () => 0 })
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		const five = eventJson(5, node.now(), 'item.end')
+		ring.push(five)
+		node.push('EVENT ' + JSON.stringify(five))
+		await seqHeard(m, 5, 'event 5')
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.host.variables.get('link') !== 'live', 'the link down')
+		ring.push(
+			eventJson(6, node.now(), 'fault.raised'),
+			eventJson(7, node.now(), 'show.armed'),
+			eventJson(9, node.now(), 'scan.done'),
+		)
+		refuse = 1
+		await seqHeard(m, 9, 'every event after the second ask')
+		assert.deepEqual(asked, ['5', '5'], 'refused, then asked again from the same seq')
+		assert.deepEqual(taken(m), [5, 6, 7, 9])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('an event pushed while the replay is in flight does not hide the replayed events older than it', async () => {
 	const node = await new FakeNode().start()
 	const ring: Record<string, unknown>[] = []

@@ -30,6 +30,12 @@ export interface VerbRow {
 	readonly formParams: readonly (readonly VerbParam[])[]
 	/** How a key sends it: at once, held to confirm, or pressed twice. */
 	readonly press: 'instant' | 'hold' | 'double'
+	/** Per-argument risk: the word at `arg` (0-based after the verb's words; -1 anywhere) sets the line's risk. The first match wins. */
+	readonly riskWhen: readonly {
+		readonly arg: number
+		readonly word: string
+		readonly risk: 'low' | 'review' | 'high'
+	}[]
 }
 
 /** The rows the module never makes an action of: the session's own words (the module says them itself), pictures (the module asks
@@ -63,11 +69,58 @@ export const EXCLUDED: ReadonlySet<string> = new Set([
 
 const KINDS = new Set(['entity', 'enum', 'number', 'integer', 'text', 'json', 'time', 'ref', 'line', 'flag'])
 
+const isText = (v: unknown): boolean => v === undefined || v === null || typeof v === 'string'
+const isNumber = (v: unknown): boolean => v === undefined || v === null || (typeof v === 'number' && Number.isFinite(v))
+const isFlag = (v: unknown): boolean => v === undefined || v === null || typeof v === 'boolean'
+
+/** One parameter, every field checked: a node's VERBS is data, and a field of the wrong type leaves the parameter out. */
 function readParam(p: unknown): VerbParam | null {
-	if (!p || typeof p !== 'object') return null
+	if (!p || typeof p !== 'object' || Array.isArray(p)) return null
 	const o = p as Record<string, unknown>
 	if (typeof o.name !== 'string' || typeof o.kind !== 'string' || !KINDS.has(o.kind)) return null
-	return o as unknown as VerbParam
+	if (![o.prefix, o.keyword, o.alt].every(isText) || ![o.min, o.max, o.step].every(isNumber)) return null
+	if (![o.optional, o.repeats].every(isFlag)) return null
+	if (o.values !== undefined && o.values !== null)
+		if (!Array.isArray(o.values) || !o.values.every((v) => typeof v === 'string')) return null
+	const out: Record<string, unknown> = { name: o.name, kind: o.kind }
+	for (const k of ['optional', 'prefix', 'keyword', 'values', 'min', 'max', 'step', 'alt', 'repeats'] as const)
+		if (o[k] !== undefined && o[k] !== null) out[k] = o[k]
+	return out as unknown as VerbParam
+}
+
+const RISKS = new Set(['low', 'review', 'high'])
+
+function readRiskWhen(v: unknown): VerbRow['riskWhen'] {
+	if (!Array.isArray(v)) return []
+	return v.flatMap((w) => {
+		if (!w || typeof w !== 'object') return []
+		const o = w as Record<string, unknown>
+		return typeof o.arg === 'number' &&
+			Number.isInteger(o.arg) &&
+			typeof o.word === 'string' &&
+			typeof o.risk === 'string' &&
+			RISKS.has(o.risk)
+			? [{ arg: o.arg, word: o.word.toUpperCase(), risk: o.risk as 'low' | 'review' | 'high' }]
+			: []
+	})
+}
+
+/** Show classes whose rows fire at once whatever the line says (a show's emergency and its GO are never held). */
+const NEVER_HELD = new Set(['panic', 'air', 'transport'])
+
+/** How a key sends this line of this row: the row's press, made hold when a word of the line raises it to high risk (DECODE POLICY
+ * … FORCE), or instant when a word lowers a held high-risk row (MEDIA OPTIMISE CANCEL), as the node's own press rule would. */
+export function pressOfLine(row: VerbRow, line: string): VerbRow['press'] {
+	if (row.press === 'double' || NEVER_HELD.has(row.show)) return row.press
+	const args = line
+		.trim()
+		.split(/\s+/u)
+		.slice(row.name.split(' ').length)
+		.map((w) => w.toUpperCase())
+	const when = row.riskWhen.find((w) => (w.arg < 0 ? args.includes(w.word) : args[w.arg] === w.word))
+	if (!when) return row.press
+	if (when.risk === 'high') return 'hold'
+	return row.risk === 'high' ? 'instant' : row.press
 }
 
 /** Reads VERBS' JSON (the bundled copy, or the node's own answer). A row the module cannot read is left out, never guessed. */
@@ -94,6 +147,7 @@ export function readVerbs(json: unknown): VerbRow[] {
 			forms: Array.isArray(o.forms) ? o.forms.filter((f): f is string => typeof f === 'string') : [o.syntax],
 			formParams: formParams.length > 0 ? formParams : [[]],
 			press: o.press === 'hold' || o.press === 'double' ? o.press : 'instant',
+			riskWhen: readRiskWhen(o.riskWhen),
 		})
 	}
 	return rows

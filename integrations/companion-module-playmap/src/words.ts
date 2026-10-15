@@ -15,6 +15,8 @@ export const Words = {
 	unreachable: (where: string, seconds: number): string =>
 		`No link to the node at ${where} — trying again in ${seconds} s`,
 	refusedUpgrade: (status: number): string => `The node refused the link (HTTP ${status})`,
+	noLineChannelTls:
+		'This node has no line channel on its HTTPS port — pick the TCP link in this connection (a wss link never falls back to plain TCP)',
 } as const
 
 /** A node's refusal that means the token is wrong, not that the line was. */

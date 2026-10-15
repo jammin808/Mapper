@@ -32,14 +32,22 @@ export function readEvent(json: unknown): NodeEvent | null {
  * what is left of its window. */
 export class EventLog {
 	lastSeq = 0
+	/** The node's events.seq when this deck first heard its STATE: a deck that took no event yet replays from it after a drop. */
+	baseline = 0
 	last: NodeEvent | null = null
 	readonly #recent: NodeEvent[] = []
 
 	/** The node's newest seq is below the last one heard: the node started again and numbers its events afresh. */
 	restarted(): void {
 		this.lastSeq = 0
+		this.baseline = 0
 		this.last = null
 		this.#recent.length = 0
+	}
+
+	/** Where a replay starts: past the last event taken, or past the node's seq when this deck first heard it. */
+	from(): number {
+		return Math.max(this.lastSeq, this.baseline)
 	}
 
 	/** Takes an event; false for one already heard (a replay overlapping a push). */
