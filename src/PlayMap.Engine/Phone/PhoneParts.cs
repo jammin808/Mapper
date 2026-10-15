@@ -16,6 +16,9 @@ namespace PlayMap.Engine.Phone;
 /// </summary>
 internal sealed class PhoneExtension : IEngineExtension
 {
+    /// <summary>The factory the exe's composition adds (EngineParts.Phone.cs).</summary>
+    public static readonly EngineExtensionFactory Factory = setup => new PhoneExtension(setup);
+
     private readonly PhoneHub _hub;
     private readonly NetworkHost _network;
     private readonly NodeSettings _settings;

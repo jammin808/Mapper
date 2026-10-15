@@ -317,8 +317,23 @@ internal sealed class FakePhone : IAsyncDisposable
         await _ws.SendAsync(frame, WebSocketMessageType.Binary, true, _stop.Token);
     }
 
+    /// <summary>Hangs up as a page closing does (a close frame, answered), then stops.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (_ws.State == WebSocketState.Open)
+        {
+            using var bye = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", bye.Token);
+                if (_loop is not null)
+                    await _loop.WaitAsync(bye.Token);
+            }
+            catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or TimeoutException)
+            {
+                // The node went first.
+            }
+        }
         await _stop.CancelAsync();
         if (_loop is not null)
             await _loop;
@@ -428,9 +443,9 @@ internal sealed class PhoneScanRig : IAsyncDisposable
 
     /// <summary>A phone invited from the desk and joined; its rig made calibrated at the camera's true place (a phone whose optics
     /// an earlier scan solved).</summary>
-    public async Task<FakePhone> JoinAsync(bool locks = true, double gainWalk = 0)
+    public async Task<FakePhone> JoinAsync(bool locks = true, double gainWalk = 0, string name = "Pixel 8")
     {
-        var invite = await Ok("PHONE INVITE Pixel 8");
+        var invite = await Ok("PHONE INVITE " + name);
         var ticket = new Uri(invite.GetProperty("url").GetString()!).Fragment["#t=".Length..];
         var phone = new FakePhone(Display, Camera, locks, gainWalk);
         await phone.JoinAsync(Host.Port, ticket);
@@ -450,12 +465,25 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         return Runner.View!;
     }
 
+    /// <summary>Leaves the rig's folder after it is disposed (a test reads the journal file, then calls <see cref="DeleteFolder"/>).</summary>
+    public bool KeepFolder { get; set; }
+
+    private int _disposed;
+
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
         await Host.DisposeAsync();
         await Hub.DisposeAsync();
         await _ops.DisposeAsync();
         await Engine.DisposeAsync();
+        if (!KeepFolder)
+            DeleteFolder();
+    }
+
+    public void DeleteFolder()
+    {
         try
         {
             Directory.Delete(Folder, recursive: true);

@@ -307,7 +307,10 @@ public sealed class PhoneHub : IAsyncDisposable
                 }
                 r = await socket.ReceiveAsync(buffer.AsMemory(length), timeout.Token);
                 if (r.MessageType == WebSocketMessageType.Close)
+                {
+                    await RefuseAsync(socket, WebSocketCloseStatus.NormalClosure, "bye", ct);
                     return null;
+                }
                 length += r.Count;
             }
             while (!r.EndOfMessage);

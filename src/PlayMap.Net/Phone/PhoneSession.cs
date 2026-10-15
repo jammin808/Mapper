@@ -358,7 +358,11 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
                 {
                     r = await _socket.ReceiveAsync(buffer, ct).ConfigureAwait(false);
                     if (r.MessageType == WebSocketMessageType.Close)
+                    {
+                        // The close is answered, so the phone's side ends cleanly too.
+                        await CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct).ConfigureAwait(false);
                         return "said goodbye (its page closed)";
+                    }
                     var max = r.MessageType == WebSocketMessageType.Text ? _options.MaxTextBytes : _options.MaxBinaryBytes;
                     if (message.WrittenCount + r.Count > Math.Min(max, limit))
                         return await CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too big", ct).ConfigureAwait(false);

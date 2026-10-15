@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddPhoneParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(setup => new Phone.PhoneExtension(setup));
+        extensions.Add(Phone.PhoneExtension.Factory);
     }
 }
