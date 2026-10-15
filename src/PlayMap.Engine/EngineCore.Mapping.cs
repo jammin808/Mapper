@@ -13,7 +13,9 @@ public sealed partial class EngineCore
 {
     /// <summary>PROJECTOR SOLVE: the pose (and the unlocked optics) from the projector's pins. "LOCK SHIFT|FOCAL|
     /// NONE" overrides the projector's own locks for this solve and is kept on it. A solve worse than the one the
-    /// projector has is still applied — the operator asked — but the words say it got worse.</summary>
+    /// projector has is still applied — the operator asked — but the words say it got worse. The calibration ledger records
+    /// the result, scored, in the same edit (one undo step); the first result of a projector is its fallback. The round-one
+    /// router hands this verb no session, so the result's "who" is the verb's own name.</summary>
     private CommandReply SolveProjector(List<string> args)
     {
         var pj = Edits.Project.FindProjector(args[0]) ?? Edits.Project.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
@@ -43,23 +45,19 @@ public sealed partial class EngineCore
         if (solution.Inliers.Count(x => x) < 4 || double.IsNaN(solution.RmsPx))
             return CommandReply.Fail($"{pj.Name}: no solve — {solution.Words}");
         var before = pj.SolveResidualPx;
-        var r = Edits.Apply($"solve {pj.Name}", p => p.WithStage(st => st with
-        {
-            Projectors = st.Projectors.Update(pj.Id, x => x with
-            {
-                Intrinsics = solution.Intrinsics,
-                Lens = solution.Lens,
-                Pose = solution.Pose,
-                Locks = locks,
-                SolveResidualPx = Math.Max(solution.RmsPx, 1e-6),
-            }),
-        }));
+        var (r, snapshot, score, _) = RecordSolve(pj, locks, solution, "PROJECTOR SOLVE");
         if (!r.Changed)
             return FromEdit(r);
         var worse = before > 0 && solution.RmsPx > before * 1.5 ? $" (worse than the {before:0.0} px it had — check the pins)" : "";
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
+            w.WriteString("snapshot", snapshot);
+            w.WriteStartObject("score");
+            w.WriteNumber("value", score.Value);
+            w.WriteString("grade", score.Grade);
+            w.WriteString("words", score.Words);
+            w.WriteEndObject();
             w.WriteNumber("rmsPx", Math.Round(solution.RmsPx, 3));
             w.WriteStartArray("residualsPx");
             foreach (var e in solution.ResidualsPx)
@@ -71,7 +69,7 @@ public sealed partial class EngineCore
             w.WriteEndArray();
             w.WriteString("words", solution.Words);
             w.WriteEndObject();
-        }), $"{pj.Name}: {solution.Words}{worse}");
+        }), $"{pj.Name}: {solution.Words}{worse} — {score.Words} ({snapshot})");
     }
 
     private StageMeshes? _meshes;
@@ -164,6 +162,7 @@ public sealed partial class EngineCore
         var cameraId = rig?.Id ?? p.NewId(Ids.Camera);
         string surfaceId = "";
         var suggestions = new List<(string Id, Scanning.PlaneSuggestion Plane)>();
+        var snapshots = new Dictionary<string, (string Id, QualityScore Score)>(StringComparer.Ordinal);
         var r = Edits.Apply($"apply {scan.Name}", project =>
         {
             surfaceId = project.NewId(Ids.Surface);
@@ -177,7 +176,7 @@ public sealed partial class EngineCore
                 while (!taken.Add(id));
                 suggestions.Add((id, plane));
             }
-            return project.WithStage(st =>
+            var placed = project.WithStage(st =>
             {
                 var projectors = st.Projectors;
                 foreach (var x in applyTo)
@@ -209,6 +208,7 @@ public sealed partial class EngineCore
                     Scans = st.Scans.Update(scan.Id, s => s with { MeshId = meshId, CameraId = cameraId }),
                 };
             });
+            return RecordScanResults(placed, scan, outcome, applyTo, snapshots);
         });
         if (!r.Changed)
             return FromEdit(r);
@@ -240,6 +240,15 @@ public sealed partial class EngineCore
                 w.WriteBoolean("solved", x.Solved);
                 w.WriteNumber("rmsPx", Math.Round(x.RmsPx, 3));
                 w.WriteNumber("throwRatio", Math.Round(x.Intrinsics.ThrowRatio, 4));
+                if (snapshots.TryGetValue(x.ProjectorId, out var recorded))
+                {
+                    w.WriteString("snapshot", recorded.Id);
+                    w.WriteStartObject("score");
+                    w.WriteNumber("value", recorded.Score.Value);
+                    w.WriteString("grade", recorded.Score.Grade);
+                    w.WriteString("words", recorded.Score.Words);
+                    w.WriteEndObject();
+                }
                 w.WriteString("words", x.Words);
                 w.WriteEndObject();
             }
@@ -378,6 +387,26 @@ public sealed partial class EngineCore
                     $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}"))
                 : FromEdit(r);
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>SCAN APPLY's results in the calibration ledger, inside its edit: each projector the scan placed gets a result with the
+    /// scan's score (its dense fit, its decoded share, one view), applied as current — its fallback too when it has none.</summary>
+    private Project RecordScanResults(Project project, ScanRecord scan, Scanning.ScanOutcome outcome, List<Scanning.ScannedProjector> applied,
+        Dictionary<string, (string Id, QualityScore Score)> snapshots)
+    {
+        snapshots.Clear();
+        foreach (var x in applied)
+        {
+            if (project.FindProjector(x.ProjectorId) is not { } pj || outcome.ScoreInputs(x.ProjectorId) is not { } inputs)
+                continue;
+            var score = Core.Calibration.Scoring.CalibrationScoring.ForScan(inputs);
+            var id = project.NewId(Ids.Calibration);
+            var snap = Wall.CalibrationLedger.Of(pj, id, Wall.CalibrationLedger.NameFor(project, pj.Id, CalibrationSource.Scan), score, CalibrationSource.Scan,
+                "SCAN APPLY", Services.Wall.UnixMs, scanId: scan.Id);
+            (project, _) = Wall.CalibrationLedger.Record(project, snap, apply: true);
+            snapshots[pj.Id] = (id, score);
+        }
+        return project;
     }
 
     private static string PlaneColour(string kind) => kind switch

@@ -136,11 +136,17 @@ public sealed class RoutesTests
     public async Task AnEphemeralVerbIsNeverJournalled()
     {
         await using var engine = new EngineCore(EngineServices.ForTests());
-        var spec = Unrouted(engine, v => v.Ephemeral && v.Mutates);
-        engine.Routes.Lane(spec.Name, _ => CommandReply.Success(effect: "a cursor moved"));
+        // An ephemeral row no package routes yet, answered by a stand-in; once every such row is routed, a routed one answers
+        // itself (accepted or refused, it is never journalled either way).
+        var spec = VerbCatalog.All.FirstOrDefault(v => v.Round == 2 && !v.Internal && v.Ephemeral && v.Mutates && !engine.Routes.IsRouted(v.Name));
+        var stand = spec is not null;
+        if (stand)
+            engine.Routes.Lane(spec!.Name, _ => CommandReply.Success(effect: "a cursor moved"));
+        spec ??= VerbCatalog.All.First(v => v.Round == 2 && !v.Internal && v.Ephemeral && v.Mutates);
         var before = engine.Journal.Recent(100).Count;
 
-        Assert.True((await Run(engine, spec.Name, Desk)).Ok);
+        var reply = await Run(engine, spec.Name, Desk);
+        Assert.True(reply.Ok || !stand, reply.Payload);
 
         Assert.Equal(before, engine.Journal.Recent(100).Count);
         Assert.DoesNotContain(engine.Journal.Recent(100), r => r.Text == "a cursor moved");

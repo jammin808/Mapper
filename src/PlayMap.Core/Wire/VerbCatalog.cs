@@ -507,8 +507,7 @@ public static class VerbCatalog
         V2("HANDLE NEXT", "HANDLE NEXT", "The next handle", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
         V2("HANDLE PREV", "HANDLE PREV", "The previous handle", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
         V2("HANDLE NUDGE", "HANDLE NUDGE <dx> <dy> [PX|RASTER]", "Moves the selected handle (encoders and dials)", VerbCategory.Mapping, VerbRisk.Review, true) with { Gesture = true },
-        V2("OVERLAY", "OVERLAY ON|OFF|TOGGLE|KEEP [ON <output>|ALL] [LAYERS <cursor,outlines,names,handles,lattice,pins>|EDIT|ALL]", "The edit overlay on the wall, drawn through each output's warp; KEEP renews this session's lease (it lapses 15 s after the last)", VerbCategory.Output, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("OVERLAY GRID", "OVERLAY GRID [<output>|ALL] [<seconds 0.5-30>]", "Flashes a fine grid through the warp to judge alignment", VerbCategory.Output, VerbRisk.Review, true) with { Show = ShowClass.Setup },
+        V2("OVERLAY", "OVERLAY ON|OFF|TOGGLE|KEEP [ON <output>|ALL] [LAYERS <cursor,outlines,handles,lattice>|EDIT|ALL]", "The edit overlay on the wall, drawn through each output's warp; KEEP renews this session's lease (it lapses 15 s after the last)", VerbCategory.Output, VerbRisk.Review, true) with { Show = ShowClass.Setup },
         V2("CURSOR", "CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb] | CURSOR OFF", "This session's cursor on the wall (0–1 across the output)", VerbCategory.Output, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
 
         // Explainable score, results ledger, fallback, history, re-solving the projector that moved (wp2-wall).
@@ -519,7 +518,7 @@ public static class VerbCatalog
         V2("CALIBRATION ACCEPT", "CALIBRATION ACCEPT <projector>|<output>|ALL|<snapshot>", "Accepts the current (or a staged) result: it becomes the fallback", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FALLBACK", "CALIBRATION FALLBACK <projector>|<output>|ALL", "Back to the fallback result, exactly", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FORGET", "CALIBRATION FORGET <snapshot>", "Forgets a kept result (never the current, fallback or staged one)", VerbCategory.Calibration, VerbRisk.Review, true),
-        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>… [CAMERA <camera>] [STAGE]", "Re-solves only the projectors named from a fresh capture of each against the stage, scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>… [STAGE]", "Re-solves only the projectors named from their pins as they stand (dragged onto the wall's features), scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("CALIBRATION CANCEL", "CALIBRATION CANCEL", "Stops a calibration task and gives the outputs back", VerbCategory.Calibration, VerbRisk.Low, true) with { Show = ShowClass.Perform },
     ];
 

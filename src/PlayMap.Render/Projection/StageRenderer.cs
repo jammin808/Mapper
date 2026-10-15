@@ -1,6 +1,7 @@
 using System.Numerics;
 using PlayMap.Core.Content;
 using PlayMap.Core.Geometry;
+using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
@@ -123,7 +124,8 @@ internal sealed class StageRenderer : IDisposable
         var d = _services.Device;
         d.BindTarget(target);
         d.ClearWithDepth(0, 0, 0, 1);
-        DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null);
+        DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null,
+            projector.Id);
         target.Color.Version++;
     }
 
@@ -146,7 +148,7 @@ internal sealed class StageRenderer : IDisposable
         d.ClearWithDepth(0.07f, 0.075f, 0.09f, 1);
         var context = new GeneratorContext("Editor", 0, "#3EC1F3", false);
         DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, camera.Pose.Position,
-            haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: !camera.ShowContent, camera.Selected);
+            haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: !camera.ShowContent, camera.Selected, null);
 
         _lineCount = 0;
         if (camera.ShowFloor)
@@ -173,8 +175,11 @@ internal sealed class StageRenderer : IDisposable
         target.Color.Version++;
     }
 
+    /// <summary>The 3D surfaces, then — in the projector pass of <paramref name="pixelProjector"/> — that projector's pixel quads over
+    /// them (2D is a layer on top, depth test off), each in surface-list order.</summary>
     private void DrawSurfaces(RenderTarget target, Project project, IStageResources resources, SourceResolver sources, in GeneratorFrame frame,
-        GeneratorContext context, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, bool tint, IReadOnlySet<string>? selected)
+        GeneratorContext context, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, bool tint, IReadOnlySet<string>? selected,
+        string? pixelProjector)
     {
         var d = _services.Device;
         var p = d.Program("stage");
@@ -186,8 +191,11 @@ internal sealed class StageRenderer : IDisposable
         for (var i = 0; i < surfaces.Length; i++)
         {
             var s = surfaces[i];
-            var drawn = s.Visible && s.Opacity > 0 && !tint && sources.EffectOf(s.Content.Source) is null;
-            _textures[i] = drawn ? sources.Resolve(s.Content.Source, target.Width, target.Height, context) : null;
+            var drawn = s.Visible && s.Opacity > 0 && !tint && sources.EffectOf(s.Content.Source) is null
+                && (s.Pixel is null || string.Equals(s.Pixel.ProjectorId, pixelProjector, StringComparison.Ordinal));
+            _textures[i] = !drawn ? null
+                : s.Pixel is not null && s.Content.Source.IsNone ? UvChecker()
+                : sources.Resolve(s.Content.Source, target.Width, target.Height, context);
         }
 
         d.BindTarget(target);
@@ -245,10 +253,139 @@ internal sealed class StageRenderer : IDisposable
             }
         }
         d.SetDepth(false, false);
+        if (pixelProjector is not null)
+            DrawPixelSurfaces(target, project, resources, pixelProjector);
         Array.Clear(_textures, 0, surfaces.Length);
     }
 
     private GpuTexture?[] _textures = new GpuTexture?[16];
+
+    /// <summary>A pixel quad's GPU triangles, kept while its quad (by reference) and the raster size stay the same.</summary>
+    private sealed class PixelEntry : IDisposable
+    {
+        public required PixelQuad Quad { get; init; }
+        public required int Width { get; init; }
+        public required int Height { get; init; }
+        public required GpuBuffer Buffer { get; init; }
+        public required VertexArray Vao { get; init; }
+        public required int Count { get; init; }
+        public long LastUsed;
+
+        public void Dispose()
+        {
+            Vao.Dispose();
+            Buffer.Dispose();
+        }
+    }
+
+    private static readonly VertexAttribute[] PixelLayout =
+    [
+        new(0, 2, PixelQuadMath.VertexFloats * 4, 0),
+        new(1, 3, PixelQuadMath.VertexFloats * 4, 8),
+    ];
+
+    /// <summary>Frames without a draw after which a pixel quad's GPU triangles are let go.</summary>
+    private const int PixelIdlePasses = 240;
+
+    private readonly Dictionary<string, PixelEntry> _pixels = new(StringComparer.Ordinal);
+    private readonly List<string> _pixelStale = [];
+    private long _pixelPass;
+    private GpuTexture? _uvChecker;
+
+    /// <summary>Pixel quads built so far (a quad that keeps coming back unchanged is built once).</summary>
+    public int PixelQuadBuilds { get; private set; }
+
+    /// <summary>The test card a quad shows until it is given a source (the UV checker, labelled squares A1, B2…), drawn once.</summary>
+    private GpuTexture UvChecker()
+    {
+        if (_uvChecker is not null)
+            return _uvChecker;
+        const int Size = 1024;
+        var kind = GeneratorCatalog.Find("pattern.uvchecker")!;
+        using var bitmap = new SkiaSharp.SKBitmap(new SkiaSharp.SKImageInfo(Size, Size, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul));
+        using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+        {
+            var pattern = new Generators.Skia.UvCheckerPattern();
+            pattern.Draw(new Generators.Skia.PatternCanvas(canvas, _services.Kit, Size, Size, kind, ParamSet.Empty, new GeneratorContext("Quad", 0, "#FFFFFF", false)));
+            canvas.Flush();
+        }
+        _uvChecker = _services.Device.CreateTexture(Size, Size, TextureFormat.Rgba8);
+        _services.Device.UploadPointer(_uvChecker, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        return _uvChecker;
+    }
+
+    /// <summary>Every visible pixel quad of this projector over what the pass drew: depth test off, its content through its own
+    /// homogeneous coordinates, the surface mask and the opacity as for a stage surface. Its texture was resolved with the 3D
+    /// surfaces' (a source may draw, and must not between this pass's draws).</summary>
+    private void DrawPixelSurfaces(RenderTarget target, Project project, IStageResources resources, string projectorId)
+    {
+        _pixelPass++;
+        var d = _services.Device;
+        var p = d.Program("pixelsurface");
+        d.BindTarget(target);
+        d.SetBlend(BlendMode.Opaque);
+        d.SetDepth(false, false);
+        p.Set("uTarget", (float)target.Width, (float)target.Height);
+        var surfaces = project.Stage.Surfaces;
+        for (var i = 0; i < surfaces.Length; i++)
+        {
+            var s = surfaces[i];
+            if (s.Pixel is not { } quad || _textures[i] is not { } texture || !string.Equals(quad.ProjectorId, projectorId, StringComparison.Ordinal))
+                continue;
+            if (PixelGeometry(s.Id, quad, target.Width, target.Height) is not { } entry)
+                continue;
+            var r = s.Content.Region;
+            p.Set("uRegion", (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
+            p.Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1));
+            var mask = resources.SurfaceMask(s.Id);
+            p.SetInt("uHasMask", mask is null ? 0 : 1);
+            d.BindSampler(p, "uMask", 1, mask is null ? _services.White : _caches.Coverage(mask));
+            d.BindSampler(p, "uSource", 0, texture);
+            d.Draw(p, entry.Vao, PrimitiveKind.Triangles, entry.Count);
+        }
+        if (_pixelPass % 60 == 0)
+            SweepPixels();
+    }
+
+    private PixelEntry? PixelGeometry(string surfaceId, PixelQuad quad, int width, int height)
+    {
+        if (_pixels.TryGetValue(surfaceId, out var e) && ReferenceEquals(e.Quad, quad) && e.Width == width && e.Height == height)
+        {
+            e.LastUsed = _pixelPass;
+            return e;
+        }
+        if (e is not null)
+        {
+            e.Dispose();
+            _pixels.Remove(surfaceId);
+        }
+        if (PixelQuadShape.Of(quad) is not { } shape)
+            return null;
+        var count = PixelQuadMath.VertexCount(quad);
+        var data = new float[count * PixelQuadMath.VertexFloats];
+        PixelQuadMath.WriteVertices(shape, width, height, data);
+        var d = _services.Device;
+        var buffer = d.CreateBuffer(BufferKind.Vertex);
+        d.SetBufferData<float>(buffer, data, dynamic: false);
+        var vao = d.CreateVertexArray(PixelLayout, buffer);
+        e = new PixelEntry { Quad = quad, Width = width, Height = height, Buffer = buffer, Vao = vao, Count = count, LastUsed = _pixelPass };
+        _pixels[surfaceId] = e;
+        PixelQuadBuilds++;
+        return e;
+    }
+
+    private void SweepPixels()
+    {
+        foreach (var (id, e) in _pixels)
+            if (_pixelPass - e.LastUsed > PixelIdlePasses)
+                _pixelStale.Add(id);
+        foreach (var id in _pixelStale)
+        {
+            _pixels[id].Dispose();
+            _pixels.Remove(id);
+        }
+        _pixelStale.Clear();
+    }
 
     /// <summary>The content uniforms of a surface: mode 0 through its UVs (Region offsets and scales them in
     /// UV units; a canvas region is in canvas pixels), mode 1 projected from its viewpoint.</summary>
@@ -361,5 +498,9 @@ internal sealed class StageRenderer : IDisposable
     {
         _lineVao.Dispose();
         _lineBuffer.Dispose();
+        foreach (var e in _pixels.Values)
+            e.Dispose();
+        _pixels.Clear();
+        _uvChecker?.Dispose();
     }
 }

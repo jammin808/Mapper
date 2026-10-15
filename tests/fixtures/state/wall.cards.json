@@ -1,1 +1,174 @@
-[]
+[
+  {
+    "title": "Calibration",
+    "path": "calibration.targets.0",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{name}: {words}",
+    "fields": [
+      {
+        "label": "Grade",
+        "path": "grade"
+      },
+      {
+        "label": "Score",
+        "path": "score"
+      },
+      {
+        "label": "Worst",
+        "path": "worst"
+      },
+      {
+        "label": "Current",
+        "path": "snapshot"
+      },
+      {
+        "label": "Fallback",
+        "path": "fallback"
+      },
+      {
+        "label": "Staged",
+        "path": "staged"
+      }
+    ],
+    "actions": [
+      "CALIBRATION RESOLVE $(id)",
+      "CALIBRATION ACCEPT $(id)",
+      "CALIBRATION FALLBACK $(id)",
+      "CALIBRATION HISTORY $(id)"
+    ]
+  },
+  {
+    "title": "Calibration task",
+    "path": "calibration.task",
+    "light": [
+      {
+        "if": "state",
+        "light": "amber"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{kind} {state} \u00B7 {words}",
+    "fields": [
+      {
+        "label": "Task",
+        "path": "id"
+      },
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Projector",
+        "path": "projector"
+      },
+      {
+        "label": "Progress",
+        "path": "progress"
+      }
+    ],
+    "actions": [
+      "CALIBRATION CANCEL",
+      "CALIBRATION STATUS"
+    ]
+  },
+  {
+    "title": "Edit overlay",
+    "path": "air.overlay",
+    "light": [
+      {
+        "if": "on",
+        "light": "amber"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{on?overlay on:overlay off} \u00B7 {cursors} cursors",
+    "fields": [
+      {
+        "label": "On",
+        "path": "on"
+      },
+      {
+        "label": "Outputs",
+        "path": "outputs"
+      },
+      {
+        "label": "Layers",
+        "path": "layers"
+      },
+      {
+        "label": "Handle",
+        "path": "handle"
+      },
+      {
+        "label": "Cursors",
+        "path": "cursors"
+      },
+      {
+        "label": "Armed",
+        "path": "armed"
+      }
+    ],
+    "actions": [
+      "OVERLAY ON",
+      "OVERLAY OFF",
+      "OVERLAY KEEP",
+      "HANDLE NEXT",
+      "HANDLE PREV"
+    ]
+  },
+  {
+    "title": "First map",
+    "path": "onboarding",
+    "light": [
+      {
+        "if": "contentAt",
+        "light": "green"
+      },
+      {
+        "if": "litAt",
+        "light": "amber"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{stage} \u00B7 {seconds} s",
+    "fields": [
+      {
+        "label": "Stage",
+        "path": "stage"
+      },
+      {
+        "label": "Lit",
+        "path": "litAt"
+      },
+      {
+        "label": "First quad",
+        "path": "quadAt"
+      },
+      {
+        "label": "First content",
+        "path": "contentAt"
+      },
+      {
+        "label": "Seconds",
+        "path": "seconds"
+      }
+    ],
+    "actions": [
+      "LIGHT WALL #1"
+    ]
+  }
+]
