@@ -23,9 +23,6 @@ public sealed class OpsHostTests
     private const string Password = "JBMIA-pj1";
 
     /// <summary>The operations parts with no PJLink socket (tests share the machine) and quick projector timings.</summary>
-    /// <summary>How often the desk renews the views it shows (MainViewModel: every 5 s, a third of the node's 15 s lease).</summary>
-    private static readonly TimeSpan DeskRenewsViews = TimeSpan.FromSeconds(5);
-
     internal static OpsPartsOptions Quick(ScanRunnerOptions? scan = null) => new()
     {
         Scan = scan ?? new ScanRunnerOptions(),
@@ -94,7 +91,7 @@ public sealed class OpsHostTests
             var renewed = Stopwatch.StartNew();
             Assert.True(await Eventually.TrueAsync(async () =>
             {
-                if (renewed.Elapsed >= DeskRenewsViews)
+                if (renewed.Elapsed >= OpsRig.DeskRenewsViews)
                 {
                     Answer(await wire.AskAsync("@k VIEW cam KEEP"), "k");
                     renewed.Restart();

@@ -181,7 +181,9 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
             var scanId = JsonDocument.Parse(started.Payload!).RootElement.GetProperty("scan").GetString()!;
             Assert.StartsWith(Ids.Scan, scanId, StringComparison.Ordinal);
             Assert.False((await rig.Run("SCAN START sim")).Ok);
-            Assert.True(await OpsRig.Eventually(() => rig.Scanner.Current?.State is "done" or "failed" or "cancelled", 120_000), "the scan never ended");
+            // A scan under load can outlast the view's 15 s lease: the desk keeps renewing the view it shows meanwhile.
+            Assert.True(await rig.EventuallyShowing(() => rig.Scanner.Current?.State is "done" or "failed" or "cancelled", 120_000, "scan-camera"),
+                "the scan never ended");
             Assert.True(rig.Scanner.Current!.State == "done", rig.Scanner.Current.Words);
             lock (stages)
             {
@@ -228,7 +230,8 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
             // Scan frames reached the camera view (thinned in time), and the still came back after; the smart scan and
             // the confidence are drawn at the projector's raster when the desk asks.
             // The camera view is published off the scan's thread, thinned in time: wait for it rather than read it at once.
-            Assert.True(await OpsRig.Eventually(() => rig.Picture("scan-camera") is { Sequence: > 2 }), "the camera view never came");
+            Assert.True(await rig.EventuallyShowing(() => rig.Picture("scan-camera") is { Sequence: > 2 }, 10_000, "scan-camera"),
+                "the camera view never came; views: " + rig.ViewRows());
             var seen = rig.Picture("scan-camera")!.Value;
             Assert.Equal((320, 240), (seen.Width, seen.Height));
             await rig.Ok($"VIEW review SHOW scan:{scanId}:smart 1280x720");
