@@ -109,6 +109,11 @@ refused, grey no bindings — linked `controls` to the surfaces, playlists and o
 `follows` to its sources): green locked/rolling, amber freewheel/outside/acquiring or disengaged while code rolls, red held, stopped,
 or a source a chase needs that is unavailable or lost.
 
+## Events
+
+`chase.locked` when a chase locks to its code and `chase.lost` when its freewheel runs out and its loss rule (hold, stop, continue)
+takes over, each with `{playlist, source, state}`.
+
 ## INDEX
 
 Section `timecode`: one row per chased playlist (`{id, kind:"chase", label, parent, light, state}`), preset "Timecode" with an

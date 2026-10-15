@@ -152,7 +152,20 @@ public sealed partial class EngineCore
         run.Memory = memory;
         run.Plan = plan;
         if (before != memory.State)
+        {
             Journal.Add("timecode", $"{list.Name}: {StateWord(memory.State)} — {plan.Words}", "timecode");
+            // Controllers hear a chase lock to its code, and lose it (the freewheel ran out and its rule took over).
+            if (memory.State == ChaseState.Locked || memory.State is ChaseState.Held or ChaseState.Stopped or ChaseState.Free)
+            {
+                var (id, source, state) = (list.Id, run.Active, StateWord(memory.State));
+                RaiseEvent(memory.State == ChaseState.Locked ? "chase.locked" : "chase.lost", leaderNs, w =>
+                {
+                    w.WriteString("playlist", id);
+                    w.WriteString("source", source);
+                    w.WriteString("state", state);
+                });
+            }
+        }
         Playback.Guard(list, $"{list.Name} chases {sourceName} ({StateWord(plan.State)}) — TIMECODE ENGAGE {list.Name} OFF to drive it by hand", leaderNs);
         Apply(list, regions.Regions, plan, format, run, leaderNs);
         var freewheelLeft = plan.State == ChaseState.Freewheel && memory.FreewheelSinceNs != long.MinValue

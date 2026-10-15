@@ -92,6 +92,39 @@ public sealed class TimecodeEngineTests
     }
 
     [Fact]
+    public async Task ControllersHearAChaseLockAndLoseItsCode()
+    {
+        var clock = new ManualClock(5_000_000_000);
+        var audio = new FakeAudioInputs();
+        await using var rig = await ControlRig.StartAsync(Show(), service: true, audio: audio, clock: clock);
+        var events = new System.Collections.Concurrent.ConcurrentQueue<Engine.ShowEvent>();
+        rig.Engine.EventRaised += events.Enqueue;
+        await rig.Ok("TIMECODE SOURCE ADD FOH LTC");
+        await ControlRig.Until(() => audio.Sink is not null, "the LTC input opened");
+        await rig.Ok("TIMECODE CHASE Show FOH");
+        Assert.True(TcFormat.Fps25.TryParseLabel("01:00:03:00", out var from));
+        await Feed(rig, audio, clock, from, 2, 0, clock.NowNs);
+        var source = rig.Engine.Store.Project.Timecode.Sources[0].Id;
+        var locked = Assert.Single(events, e => e.Kind == "chase.locked");
+        Assert.Equal(("pl_show", source, "locked"), Fields(locked));
+        Assert.DoesNotContain(events, e => e.Kind == "chase.lost");
+        // The code stops: the chase rides the dropout for its freewheel (500 ms), then holds by rule.
+        clock.AdvanceMs(200);
+        await rig.Engine.StepChasesAsync();
+        Assert.Equal("freewheel", rig.State().GetProperty("timecode").GetProperty("chases")[0].GetProperty("state").GetString());
+        clock.AdvanceMs(1000);
+        await rig.Engine.StepChasesAsync();
+        Assert.Equal("held", rig.State().GetProperty("timecode").GetProperty("chases")[0].GetProperty("state").GetString());
+        Assert.Equal(("pl_show", source, "held"), Fields(Assert.Single(events, e => e.Kind == "chase.lost")));
+
+        static (string, string, string) Fields(Engine.ShowEvent e)
+        {
+            var f = JsonDocument.Parse(e.FieldsJson).RootElement;
+            return (f.GetProperty("playlist").GetString()!, f.GetProperty("source").GetString()!, f.GetProperty("state").GetString()!);
+        }
+    }
+
+    [Fact]
     public async Task AnInternalSourceRollsAndAChaseFollowsItExactly()
     {
         var clock = new ManualClock(5_000_000_000);

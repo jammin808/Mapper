@@ -71,12 +71,13 @@ Which chases are disengaged is kept for recovery.
 
 ## STATE, context, preflight, INDEX
 
-`STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, fit σ, level, counts, words) and the chases
-(state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each playlist carries `chase`. A source's
-or a chase's state, format or words changing moves STATE's revision; the code's frames never do (its text is written from the line
-when STATE is read), so STATE pushes do not rise to the frame rate. The
-context has `timecode:<tc>` and `chase:<pl>` items. Preflight's `timecode` section checks every chased playlist's source is present
-and rolling. INDEX's `timecode` section lists the chased playlists with an Engage key.
+`STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, the fit's scatter as `jitterUs`, level,
+counts, words) and the chases (state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each
+playlist carries `chase`. A source's or a chase's state, format or words changing moves STATE's revision; the code's frames never
+do (its text is written from the line when STATE is read), so STATE pushes do not rise to the frame rate. The context has
+`timecode:<tc>` and `chase:<pl>` items; controllers hear the events `chase.locked` and `chase.lost` (the freewheel ran out and the
+loss rule took over). Preflight's `timecode` section checks every chased playlist's source is present and rolling. INDEX's
+`timecode` section lists the chased playlists with an Engage key.
 
 ## Not in this build
 
