@@ -214,6 +214,42 @@ public sealed class PanicChaseTests
         Assert.False(rig.Engine.IsAnimating);
     }
 
+    /// <summary>A chase disengaged by hand between two items leaves its switch to the next item standing (the playlist plays on by hand
+    /// from there): a panic that pauses it leaves nothing loaded, so that item does not start under the panic either. Nothing chases
+    /// the playlist, so nothing is released and the chase's words stay its own.</summary>
+    [Fact]
+    public async Task BetweenItemsADisengagedChasesNextItemDoesNotStartUnderThePanic()
+    {
+        var p = ShowRig.OneScreen();
+        var list = p.Playlists[0];
+        var items = list.Items.SetItem(0, list.Items[0] with { TcIn = "01:00:00:00" }).SetItem(1, list.Items[1] with { TcIn = "01:00:20:00" });
+        await using var rig = new ShowRig(p with { Playlists = [list with { Items = items }] });
+        await rig.Ok("TIMECODE SOURCE ADD Rehearsal INTERNAL FORMAT 25");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal LOCATE 01:00:12:00");
+        await rig.Ok("TIMECODE CHASE Show Rehearsal");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal PLAY");
+        await rig.Engine.StepChasesAsync();
+        Assert.Equal("outside", Chase(rig).GetProperty("state").GetString());
+        await rig.Ok("TIMECODE ENGAGE Show OFF");
+        await Advance(rig, 100);
+        var gap = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal((false, null, "it_b"), (gap.IsIdle, gap.ItemId, gap.NextItemId));
+
+        var reply = await rig.Run("PANIC BLACK FADE 500");
+        Assert.True(reply.Ok, reply.Payload);
+        Assert.Empty(JsonDocument.Parse(reply.Payload!).RootElement.GetProperty("released").EnumerateArray());
+        await Advance(rig, 500);
+        Assert.Equal(("none", "idle", -1L), Published(rig));
+        // 01:00:20:00 comes and goes: B does not start.
+        await Advance(rig, 9000);
+        Assert.Equal(("none", "idle", -1L), Published(rig));
+        Assert.False(rig.Engine.IsAnimating);
+        var chase = Chase(rig);
+        Assert.Equal(("disengaged", false, "disengaged — Show plays by hand"),
+            (chase.GetProperty("state").GetString(), chase.GetProperty("engaged").GetBoolean(), chase.GetProperty("words").GetString()));
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Kind == "panic" && !r.Ok);
+    }
+
     [Theory]
     [InlineData("RUN")]
     [InlineData("SAFE")]

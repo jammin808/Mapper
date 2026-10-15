@@ -71,8 +71,9 @@ Which chases are disengaged, and what disengaged each (a panic), is kept for rec
 (BLACK, HARD, REWIND, NEXT) disengages a chased playlist's chase at its step's instant, so the panic holds whatever the code does;
 the chase's words say "disengaged by PANIC BLACK — TIMECODE ENGAGE Main ON to follow the code again" (after a restart too), and
 `PANIC CLEAR` leaves it so. Caught between two items (`GAP BLACK`), the playlist is left with nothing loaded, so the next item does
-not start under the panic when its code comes. A chase turned off just before the panic, whose guard the lane has not yet lifted,
-lets go the same way. RUN, FREEZE and SAFE leave the chase engaged.
+not start under the panic when its code comes; so is a playlist whose chase was disengaged by hand between two items (it would play
+on into that item). A chase turned off just before the panic, whose guard the lane has not yet lifted, lets go the same way. RUN,
+FREEZE and SAFE leave the chase engaged.
 
 ## STATE, context, preflight, INDEX
 

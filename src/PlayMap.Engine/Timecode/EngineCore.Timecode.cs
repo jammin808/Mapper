@@ -193,8 +193,10 @@ public sealed partial class EngineCore
     /// OFF does: the guard lifted, the lane playing on by hand from where it is), so the panic's outcome holds; STATE shows it
     /// disengaged by the panic until TIMECODE ENGAGE puts it back (PANIC CLEAR does not). Between two items the lane holds nothing but
     /// the chase's own switch to the next one at its code: letting go there leaves nothing loaded, so that item does not start under
-    /// the panic. A chase already disengaged is left alone. A chase turned off (by its verb, an edit or an undo) that this lane has not
-    /// ticked over yet still guards the playlist: it lets go the same way, with nothing to say, since nothing chases the playlist.</summary>
+    /// the panic. A chase already disengaged keeps its words, but a lane it left between two items still holds that switch (the
+    /// playlist plays on by hand from there): it is left with nothing loaded the same way. A chase turned off (by its verb, an edit or
+    /// an undo) that this lane has not ticked over yet still guards the playlist: it lets go the same way. Neither has anything to
+    /// say, since nothing chases the playlist.</summary>
     partial void ReleaseForPanic(Playlist list, PanicOutcome outcome, long atLeaderNs, bool commit, ref string? words)
     {
         if (list.Chase is not { } chase)
@@ -204,7 +206,11 @@ public sealed partial class EngineCore
             return;
         }
         if (_chases.TryGetValue(list.Id, out var run) && !run.Engaged)
+        {
+            if (commit)
+                LetGoForPanic(list, atLeaderNs);
             return;
+        }
         var by = "PANIC " + PanicMath.Word(outcome);
         var active = run?.Active is { Length: > 0 } a ? a : chase.Sources.FirstOrDefault() ?? "";
         words = $"{list.Name} stops chasing {SourceName(active)}: disengaged by {by} — TIMECODE ENGAGE {list.Name} ON to follow the code again";
