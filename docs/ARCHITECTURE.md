@@ -97,8 +97,9 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
 - A chased playlist's media time is a line fitted to the code's arrivals, `media(L) = In + (tc(L − delay) − S) · rate`,
   never integrated (docs/TIMECODE.md).
 - The beat clock is kept as anchors on leader time, as a transport is; sound levels are live readings. The modulation bus reads
-  both at the frame's leader instant and moves a drawn copy of each bound number while the project keeps its base
-  (docs/AUDIO.md).
+  both at the frame's leader instant and moves a drawn copy of each bound number of a layer, a surface or an effect slot, while
+  the project keeps its base; a generator's renderer evaluates its own bindings through the same bus, for the kinds that read
+  their numbers every frame (docs/AUDIO.md).
 - An item that comes in with a Fade or a Dip of T overlaps the item it follows: its window is the outgoing item's
   last T before the switch (cut to what both can give), the incoming item is anchored to start in it (at its
   opening for a fade, its middle for a dip) and prepared ahead, and the renderer mixes the two pictures in linear

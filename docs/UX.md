@@ -1,10 +1,10 @@
 # UX: a smooth, intuitive, efficient desk
 
-*Interaction design and workflows for PlayMap, as of 12 Oct 2026. Every third-party fact has a source URL. Third-party UI details come from vendor documentation read during research; the final check could not re-open most vendor domains, so treat them as reported. Time targets are **targets** that we will measure; none has been measured. **Estimate** marks our judgement.*
+*Interaction design and workflows for PlayMap's desk. Every third-party fact has a source URL. Third-party UI details come from vendor documentation read during research; the final check could not re-open most vendor domains, so treat them as reported. Time targets are **targets** that we will measure; none has been measured. **Estimate** marks our judgement.*
 
 ## 1. Where we start from
 
-The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the Outputs and Network drawers, view models, a demo engine (`FakeEngineLink`) and drag tests through the real input path. It has never talked to a real engine; that integration is in progress. Nothing in this paper has been tried on a real wall.
+The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the Outputs and Network drawers, view models, a demo engine (`FakeEngineLink`) for offline use and drag tests through the real input path. It starts and watches this machine's engine, or attaches to a node on the network over the line wire. The round-two verbs (show safety, locks, effects, bindings and the rest) run over the wire, HTTP, MCP and bindings until the desk's controls for them land. Nothing in this paper has been tried on a real wall.
 
 Three foundations are worth keeping:
 
@@ -72,7 +72,7 @@ Playlists show no mapping fields. The surface inspector shows a "Mapping is shar
 
 ### 3.4 The verb-first contract
 
-A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test fails if any button, menu item or shortcut maps to a verb that is not in the catalogue. The catalogue has 78 verbs and does not yet cover pin warp, masks and the pen, projector power/shutter/lens, click-to-surface, coverage, audio, live inputs or output layout.
+A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test is to fail if any button, menu item or shortcut maps to a verb that is not in the catalogue (ROADMAP R1.8; not written yet). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
 
 Typed parameters then generate, at no extra cost: the last-action panel, the palette entry, the "Bind…" target, the Companion action, the MCP tool and the integrator command sheet.
 

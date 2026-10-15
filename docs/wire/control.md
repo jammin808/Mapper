@@ -36,7 +36,7 @@ refused as targets.
 | `TIMECODE SOURCE` | `TIMECODE SOURCE ADD <name> LTC [<device>[:<channel>]] [FORMAT <fmt>] \| … MTC <port> [FORMAT <fmt>] \| … ARTNET [STREAM <n>] [FORMAT <fmt>] \| … INTERNAL [FORMAT <fmt>] \| TIMECODE SOURCE REMOVE <source> \| TIMECODE SOURCE RESET <source>` | ADD answers `{"id":"tc…"}` as accepted ("opening … — STATE says when code arrives"); REMOVE is refused while an engaged chase has it as its only source; RESET clears the counts | review (RESET low) | yes |
 | `TIMECODE CHASE` | `TIMECODE CHASE <playlist> <source>[,<backup>…]\|OFF` | accepted "Main chases FOH LTC (locked), engaged — waiting for code"; refused: no source, already so, a sync follower | high | yes |
 | `TIMECODE ENGAGE` | `TIMECODE ENGAGE <playlist>\|ALL ON\|OFF\|TOGGLE` | "Main engaged: takes FOH LTC at its next frame" / "Main disengaged: plays on by hand from 01:02:03:04"; refused when nothing changes | high | yes |
-| `TIMECODE SET` | `TIMECODE SET <playlist> DELAY <±ms> \| … FREEWHEEL <ms> \| … ONLOSS HOLD\|STOP\|CONTINUE \| … JUMP <ms>\|AUTO \| … GAP BLACK\|HOLD` | effect "Main: picture 40 ms later than its timecode"; DELAY −2000…2000, FREEWHEEL 0…10000; JUMP 1…10000 (code further off its line is a jump, relocated at once; less is drift the fit takes in; AUTO = max(2 frames, 5σ)); a value that is not a number ("NaN") is refused, and a generic `SET` of `chase.delayNs`/`freewheelNs`/`jumpNs` is held to the same bounds | review | yes |
+| `TIMECODE SET` | `TIMECODE SET <playlist> DELAY <±ms> \| … FREEWHEEL <ms> \| … ONLOSS HOLD\|STOP\|CONTINUE \| … JUMP <ms>\|AUTO \| … GAP BLACK\|HOLD` | effect "Main: picture 40 ms later than its timecode"; DELAY −2000…2000, FREEWHEEL 0…10000; JUMP 1…10000 is the chase's own jump threshold, which judges its sources' code in a tracker of its own: code further off its line is a jump, taken when the next frame agrees (a lone outlier counts invalid); less is drift the fit takes in; AUTO = max(2 frames, 5σ), the source's own judgement; a value that is not a number ("NaN") is refused, and a generic `SET` of `chase.delayNs`/`freewheelNs`/`jumpNs` is held to the same bounds | review | yes |
 | `TIMECODE IN` | `TIMECODE IN <playlist> <item> <HH:MM:SS:FF>\|NOW\|OFF` | effect "Song 2 starts at 01:04:10:00 (in Main)"; a drop-frame label that does not exist is refused with the first that does | review | yes |
 | `TIMECODE INTERNAL` | `TIMECODE INTERNAL <source> PLAY\|STOP \| … LOCATE <tc> \| … RATE <0.5-2>` | effect "Rehearsal rolling from 01:00:00:00" | high | yes |
 
@@ -76,7 +76,7 @@ TIMECODE ENGAGE Main OFF to drive it by hand".
 
 ## STATE
 
-Top level `control` and `timecode` (after `videoio`), and `playlists[].chase` (`null` or `{state, source, text, engaged}`):
+Top level `control` and `timecode` (after `decode`), and `playlists[].chase` (`null` or `{state, source, text, engaged}`):
 
 ```jsonc
 "control": {"enabled":true,"axisHz":100,
@@ -128,9 +128,7 @@ Sections `control` (Art-Net or sACN bindings with that input off: red, fix `CONT
 `timecode` (a chased playlist's source rolling: green; not: amber, red when its input could not open, fix
 `TIMECODE ENGAGE <playlist> OFF`; disengaged: amber, fix `TIMECODE ENGAGE <playlist> ON`).
 
-## Papers note
-
-For the integration docs pass (WIRE.md, ARCHITECTURE.md, ROADMAP.md, UX.md):
+## In short
 
 - Control input: OSC on UDP 9943 (the `/playmap` address space above), MIDI (ALSA sequencer on Linux, WinMM on Windows, the fake
   backend in tests; CoreMIDI next round), Art-Net 4 input on the node's one Art-Net socket (`EngineServices.ArtNet`, shared with

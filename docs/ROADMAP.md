@@ -1,6 +1,6 @@
 # Roadmap
 
-*A prioritised roadmap for PlayMap as of 15 Oct 2026. Effort and impact are **estimates**. Evidence for each item is in docs/COMPETITIVE.md, docs/UX.md and docs/XR.md. Time targets live in one place: docs/UX.md §5.0.*
+*A prioritised roadmap for PlayMap. Effort and impact are **estimates**. Evidence for each item is in docs/COMPETITIVE.md, docs/UX.md and docs/XR.md. Time targets live in one place: docs/UX.md §5.0.*
 
 ## 0. Where we are, and the rule that governs everything
 
