@@ -1,0 +1,13 @@
+{
+  "name": "playmap-phonescan-e2e",
+  "private": true,
+  "type": "module",
+  "description": "The phone camera page's checks: its tag reader and frames against PlayMap's Core, the invite's QR code through an outside decoder, the page in Chromium.",
+  "scripts": {
+    "test": "node --test \"unit/*.test.mjs\""
+  },
+  "devDependencies": {
+    "jsqr": "1.4.0",
+    "playwright": "1.56.1"
+  }
+}

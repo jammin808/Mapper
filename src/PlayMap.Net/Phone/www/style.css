@@ -1,0 +1,11 @@
+:root { color-scheme: dark; --red: #c8352e; --dim: #7a2a26; --text: #f2d7d4; }
+html, body { margin: 0; background: #000; color: var(--text); font: 18px/1.4 system-ui, sans-serif; }
+main { padding: 24px 20px; max-width: 34rem; margin: 0 auto; }
+h1 { font-size: 1.4rem; color: var(--red); margin: 0 0 1rem; }
+button { font: inherit; font-size: 1.3rem; padding: 0.9rem 1.6rem; border-radius: 0.6rem; border: 0; background: var(--red); color: #000; width: 100%; }
+a { color: var(--red); }
+.small { font-size: 0.85rem; color: #b98f8b; }
+.say { border-left: 4px solid var(--red); padding-left: 0.6rem; }
+#chips { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+#chips li { border: 1px solid var(--dim); border-radius: 1rem; padding: 0.2rem 0.7rem; font-size: 0.9rem; }
+#chips li.ok { border-color: var(--red); }
