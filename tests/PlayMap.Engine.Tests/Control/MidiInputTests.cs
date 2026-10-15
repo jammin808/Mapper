@@ -33,6 +33,8 @@ public sealed class MidiInputTests
         Assert.Equal(2, inputs.Count);
         Assert.Equal(surface.GetProperty("id").GetString(), inputs.First(i => i.GetProperty("name").GetString() == "APC40 mkII").GetProperty("surface").GetString());
         Assert.Equal("fake", control.GetProperty("midi").GetProperty("backend").GetString());
+        // The monitor's row is written once the binding's line has run (the playlist may play a moment before it).
+        await ControlRig.Until(() => rig.Engine.ControlInput.Monitor(1)[0].Input == "MIDI APC40 NOTE 1 53", "the monitor's row");
         var monitor = JsonDocument.Parse((await rig.Ok("CONTROL MONITOR 4")).Payload!).RootElement;
         Assert.Equal("MIDI APC40 NOTE 1 53", monitor[0].GetProperty("input").GetString());
         Assert.StartsWith("bd", monitor[0].GetProperty("binding").GetString(), StringComparison.Ordinal);
