@@ -63,8 +63,6 @@ public sealed unsafe class AudioOut : IDisposable
     private const int AlcFrequency = 0x1007;
     private const int AlSampleOffsetLatencySoft = 0x1200;
 
-    private static readonly Lazy<ALContext> Alc = new(() => ALContext.GetApi(true));
-    private static readonly Lazy<AL> Al = new(() => AL.GetApi(true));
     private static readonly Lock GlobalContextGate = new();
 
     private readonly Lock _gate = new();
@@ -106,12 +104,12 @@ public sealed unsafe class AudioOut : IDisposable
         _clock = clock;
         if (mode != AudioOutMode.Null)
         {
-            var alc = Alc.Value;
+            var alc = OpenAlLibrary.Alc;
             _setThreadContext = (delegate* unmanaged[Cdecl]<Context*, byte>)alc.GetProcAddress(null, "alcSetThreadContext");
             _renderSamples = (delegate* unmanaged[Cdecl]<Device*, void*, int, void>)alc.GetProcAddress(null, "alcRenderSamplesSOFT");
             using (Use())
             {
-                var al = Al.Value;
+                var al = OpenAlLibrary.Al;
                 _getSourceI64 = (delegate* unmanaged[Cdecl]<uint, int, long*, void>)al.GetProcAddress("alGetSourcei64vSOFT");
                 _source = al.GenSource();
                 fixed (uint* b = _buffers)
@@ -183,33 +181,34 @@ public sealed unsafe class AudioOut : IDisposable
 
     /// <summary>Opens the default (or a named) OpenAL Soft device; when there is none the output is the null one
     /// and <see cref="Status"/> says why.</summary>
-    public static AudioOut OpenDevice(string? deviceName = null)
+    public static AudioOut OpenDevice(string? deviceName = null) => OpenDevice(deviceName, OpenAlLibrary.Current);
+
+    /// <summary><see cref="OpenDevice(string?)"/> given the process's OpenAL load (a failed load is the null output with
+    /// its words).</summary>
+    internal static AudioOut OpenDevice(string? deviceName, OpenAlLibrary.State library)
     {
-        Device* device;
-        try
-        {
-            device = Alc.Value.OpenDevice(deviceName!);
-        }
-        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException)
-        {
-            return OpenNull("no OpenAL library: " + e.Message);
-        }
+        if (library.Handle == 0)
+            return OpenNull(library.Words);
+        var device = OpenAlLibrary.Alc.OpenDevice(deviceName!);
         if (device is null)
             return OpenNull("no audio device" + (deviceName is null ? "" : " named " + deviceName));
-        var context = Alc.Value.CreateContext(device, null);
+        var context = OpenAlLibrary.Alc.CreateContext(device, null);
         if (context is null)
         {
-            Alc.Value.CloseDevice(device);
+            OpenAlLibrary.Alc.CloseDevice(device);
             return OpenNull("the audio device refused a context");
         }
         return new AudioOut(AudioOutMode.Device, deviceName ?? "default device", device, context, MonoClock.Instance);
     }
 
     /// <summary>Opens OpenAL Soft's loopback device (float stereo 48 kHz): the mix is pulled by
-    /// <see cref="Render"/>.</summary>
+    /// <see cref="Render"/>. Throws <see cref="InvalidOperationException"/> with the reason when no OpenAL loads or the
+    /// loopback device cannot open.</summary>
     public static AudioOut OpenLoopback()
     {
-        var alc = Alc.Value;
+        if (!OpenAlLibrary.Loaded)
+            throw new InvalidOperationException(OpenAlLibrary.Words);
+        var alc = OpenAlLibrary.Alc;
         var open = (delegate* unmanaged[Cdecl]<byte*, Device*>)alc.GetProcAddress(null, "alcLoopbackOpenDeviceSOFT");
         if (open is null)
             throw new InvalidOperationException("this OpenAL has no loopback device (ALC_SOFT_loopback)");
@@ -296,14 +295,14 @@ public sealed unsafe class AudioOut : IDisposable
             {
                 using (Use())
                 {
-                    var al = Al.Value;
+                    var al = OpenAlLibrary.Al;
                     al.SourceStop(_source);
                     al.SetSourceProperty(_source, SourceInteger.Buffer, 0);
                     al.DeleteSource(_source);
                     fixed (uint* b = _buffers)
                         al.DeleteBuffers(QueueBlocks, b);
                 }
-                var alc = Alc.Value;
+                var alc = OpenAlLibrary.Alc;
                 if (_setThreadContext is null)
                 {
                     lock (GlobalContextGate)
@@ -328,7 +327,7 @@ public sealed unsafe class AudioOut : IDisposable
             return;
         if (_volumeDirty && Mode != AudioOutMode.Null)
         {
-            Al.Value.SetSourceProperty(_source, SourceFloat.Gain, _volume);
+            OpenAlLibrary.Al.SetSourceProperty(_source, SourceFloat.Gain, _volume);
             _volumeDirty = false;
         }
         var now = timeline.Now();
@@ -338,7 +337,7 @@ public sealed unsafe class AudioOut : IDisposable
             {
                 _paused = true;
                 if (Mode != AudioOutMode.Null)
-                    Al.Value.SourcePause(_source);
+                    OpenAlLibrary.Al.SourcePause(_source);
             }
             return;
         }
@@ -353,7 +352,7 @@ public sealed unsafe class AudioOut : IDisposable
             _paused = false;
             _nullLastNs = _clock.NowNs;
             if (Mode != AudioOutMode.Null)
-                Al.Value.SourcePlay(_source);
+                OpenAlLibrary.Al.SourcePlay(_source);
         }
         if (Mode == AudioOutMode.Null)
             AdvanceNullLocked(decoder);
@@ -386,7 +385,7 @@ public sealed unsafe class AudioOut : IDisposable
         SetPitchLocked(rate);
         if (Mode == AudioOutMode.Null)
             return;
-        var al = Al.Value;
+        var al = OpenAlLibrary.Al;
         al.SourceStop(_source);
         // Detaching the buffer list unqueues everything, played or not.
         al.SetSourceProperty(_source, SourceInteger.Buffer, 0);
@@ -403,13 +402,13 @@ public sealed unsafe class AudioOut : IDisposable
             return;
         _pitch = p;
         if (Mode != AudioOutMode.Null)
-            Al.Value.SetSourceProperty(_source, SourceFloat.Pitch, (float)p);
+            OpenAlLibrary.Al.SetSourceProperty(_source, SourceFloat.Pitch, (float)p);
     }
 
     // Unqueues played buffers; the queue's head moves on by their frames.
     private void ReclaimLocked()
     {
-        var al = Al.Value;
+        var al = OpenAlLibrary.Al;
         al.GetSourceProperty(_source, GetSourceInteger.BuffersProcessed, out int processed);
         while (processed-- > 0 && _queued.Count > 0)
         {
@@ -423,7 +422,7 @@ public sealed unsafe class AudioOut : IDisposable
 
     private void RefillLocked(FfmpegAudioDecoder decoder)
     {
-        var al = Al.Value;
+        var al = OpenAlLibrary.Al;
         while (_free.Count > 0)
         {
             var n = decoder.Read(_block);
@@ -468,7 +467,7 @@ public sealed unsafe class AudioOut : IDisposable
             var latencyNs = Mode == AudioOutMode.Device ? values[1] : 0;
             return FfmpegAudioDecoder.SampleToNs(_headSample) + (long)Math.Round(offsetFrames * 1e9 / FfmpegAudioDecoder.SampleRate) - (long)(latencyNs * _pitch);
         }
-        Al.Value.GetSourceProperty(_source, GetSourceInteger.SampleOffset, out int offset);
+        OpenAlLibrary.Al.GetSourceProperty(_source, GetSourceInteger.SampleOffset, out int offset);
         return FfmpegAudioDecoder.SampleToNs(_headSample + offset);
     }
 
@@ -478,7 +477,7 @@ public sealed unsafe class AudioOut : IDisposable
         {
             using (Use())
             {
-                var al = Al.Value;
+                var al = OpenAlLibrary.Al;
                 al.SourceStop(_source);
                 al.SetSourceProperty(_source, SourceInteger.Buffer, 0);
                 while (_queued.Count > 0)
@@ -528,7 +527,7 @@ public sealed unsafe class AudioOut : IDisposable
             return new ContextScope(this, global: false);
         }
         GlobalContextGate.Enter();
-        Alc.Value.MakeContextCurrent(_context);
+        OpenAlLibrary.Alc.MakeContextCurrent(_context);
         return new ContextScope(this, global: true);
     }
 

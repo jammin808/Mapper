@@ -54,6 +54,6 @@ internal sealed class SourceStats
         return used[Math.Clamp(index, 0, n - 1)];
     }
 
-    public SourceHealth Health(bool ready, string status, string decoder, bool hardware) =>
-        new(ready, status, Decoded, Dropped, Late, Math.Round(DecodeMsP95(), 3), decoder, hardware);
+    public SourceHealth Health(bool ready, string status, string decoder, bool hardware, string why = "") =>
+        new(ready, status, Decoded, Dropped, Late, Math.Round(DecodeMsP95(), 3), decoder, hardware) { Why = why };
 }

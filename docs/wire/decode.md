@@ -56,7 +56,9 @@ the context came through, as that binding's own library answered on the render t
 - `hapLayers4k60` is null until measured (the preflight check measures it once, on a worker: the second stage of a synthetic 4K
   HAP Q frame on one core; upload excluded).
 - `sources` lists every clip decoder open on the node (HAP and FFmpeg), with why it is not on a better path (`why`: "this GPU's
-  GL lacks S3TC; FFmpeg decodes HAP on the CPU", or the source's own failure).
+  GL lacks S3TC; FFmpeg decodes HAP on the CPU", or the source's own failure). An FFmpeg clip's `why` names each hardware rung
+  it passed and why ("vaapi skipped: libva-drm.so.2 is not on this machine; cuda: no device (…)"); a device whose user-space
+  library FFmpeg binds through process-aborting stubs (VA-API, QSV on Linux) is asked for only when that library loads.
 - `light`: red when a decoder failed, or a HAP R / HAP HDR item is in the show on a GPU without BPTC; amber when a HAP source has
   refused frames; green otherwise.
 
