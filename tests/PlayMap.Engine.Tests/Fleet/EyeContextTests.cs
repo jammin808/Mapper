@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Tests.Show;
+using PlayMap.Net.Bus;
 
 namespace PlayMap.Engine.Tests.Fleet;
 
@@ -84,5 +85,20 @@ public sealed class EyeContextTests
         Assert.Contains("solo", machine.State, StringComparison.Ordinal);
         Assert.Contains("build " + StateWriter.Version, machine.State, StringComparison.Ordinal);
         Assert.Contains("test", machine.State, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheHelloOffersEyeAndShowSixteenCapsInItsBytes()
+    {
+        var settings = NodeSettings.CreateDefault("FOH-A") with { NodeId = "0badc0de", Token = "" };
+        var hello = HelloService.PlayMapHello(settings, 1760101234567, "sha256:" + new string('a', 64), "RACK-1");
+        Assert.Contains("eye", hello.Caps);
+        Assert.Contains("show", hello.Caps);
+        Assert.Equal(16, hello.Caps.Count);
+        Assert.Equal(16, hello.Caps.Distinct(StringComparer.Ordinal).Count());
+        var bytes = hello.ToJson();
+        Assert.InRange(bytes.Length, 1, ShowBusConstants.HelloMaxBytes);
+        var back = ShowBusHello.Parse(bytes)!;
+        Assert.True(back.Caps.Contains("eye", StringComparer.Ordinal) && back.Caps.Contains("show", StringComparer.Ordinal), string.Join(",", back.Caps));
     }
 }
