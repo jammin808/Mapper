@@ -20,8 +20,9 @@ namespace PlayMap.Engine.Tests.Host;
 /// <summary>A node whose host has begun to stop takes no more lines, from any source. In the window where a line source outlives the
 /// part its line would start — align's runner already gone, control's OSC socket and bindings still live — a /playmap line over OSC,
 /// a bound OSC button and a line handed to the engine are each refused with the stopping words, journalled, and start no ALIGN RUN;
-/// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A refusal keeps every
-/// secret the node holds out of the journal; the node's own lines (a panic's shutters and effects) still run.</summary>
+/// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A line already waiting for
+/// the lane when the stop begins is refused the same way; a refusal keeps every secret the node holds out of the journal; the node's
+/// own lines (a panic's shutters and effects) still run.</summary>
 public sealed class HostStopTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";
@@ -168,6 +169,36 @@ public sealed class HostStopTests
         Assert.Equal(path, record.ProjectPath);
         Assert.Contains(group, record.UnsavedProjectJson, StringComparison.Ordinal);
         Assert.Contains(binding, record.UnsavedProjectJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALineWaitingForTheLaneWhenTheStopBeginsIsRefusedWithTheWordsAndChangesNothing()
+    {
+        await using var rig = new ShowRig();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // The lane is busy with work taken before the stop; a line that passed the door waits behind it.
+        var busy = rig.Engine.Lane.RunAsync(() =>
+        {
+            entered.SetResult();
+            release.Wait();
+        });
+        await entered.Task;
+        var waiting = rig.Run("BLACKOUT ON");
+        Assert.False(waiting.IsCompleted);
+
+        rig.Engine.BeginStop();
+        release.Set();
+        await busy;
+        var reply = await waiting;
+
+        // The line is refused with the words when its turn comes, journalled as its verb's refusal, and the air is as it was.
+        Assert.False(reply.Ok);
+        Assert.Equal(EngineCore.StoppingWords, reply.Payload);
+        Assert.False(rig.Engine.Air.Blackout);
+        Assert.False(rig.State().GetProperty("air").GetProperty("blackout").GetBoolean());
+        Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Who, r.Line) == ("refused", EngineCore.StoppingWords, ShowRig.Desk.ClientName, "BLACKOUT ON"));
     }
 
     [Fact]
