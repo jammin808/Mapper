@@ -1,1 +1,84 @@
-{}
+{
+  "align": {
+    "run": {
+      "id": "ar_fixture1",
+      "group": "al_fixture1",
+      "state": "staged",
+      "light": "amber",
+      "step": "stage",
+      "progress": 1,
+      "etaS": 0,
+      "words": "staged A 100: flat: the outputs fit one plane to 0.05 px (95 % within 0.06 px); the camera\u0027s lens k1 0.037, k2 -0.000; the canvas is the screen\u0027s corners as clicked; the outputs cover 99.8 % of it; blended in light; white p5/p95 0.99 after uniformity 0.6; black lifted to the overlaps\u0027 floor over 89 % of the canvas; seams agree to 0.15 px (95 %) \u2014 ALIGN ACCEPT ar_fixture1 applies it",
+      "outputs": [
+        {
+          "id": "op1",
+          "name": "P1",
+          "step": "staged",
+          "progress": 1,
+          "light": "green",
+          "words": "\u03B3 2.20, 100 % decoded, warp 0.07 px"
+        },
+        {
+          "id": "op2",
+          "name": "P2",
+          "step": "staged",
+          "progress": 1,
+          "light": "green",
+          "words": "\u03B3 2.20, 100 % decoded, warp 0.06 px"
+        }
+      ],
+      "score": {
+        "value": 100,
+        "unit": "points",
+        "grade": "A"
+      }
+    },
+    "groups": [
+      {
+        "id": "al_fixture1",
+        "name": "Wall",
+        "shape": "auto",
+        "camera": "cm_sim",
+        "outputs": [
+          "op1",
+          "op2"
+        ],
+        "canvas": "cv_wall",
+        "fit": "corners",
+        "corners": true,
+        "lastRun": "ar_fixture2",
+        "staged": "ar_fixture1",
+        "score": 100,
+        "grade": "A",
+        "light": "amber",
+        "words": "a run waits: ALIGN ACCEPT ar_fixture1 (A 100)"
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "id": "op1",
+      "measured": {
+        "run": "ar_fixture2",
+        "residualPx": 0.07,
+        "gamma": 2.2,
+        "colour": false,
+        "blend": "replace",
+        "files": "ok",
+        "light": "green"
+      }
+    },
+    {
+      "id": "op2",
+      "measured": {
+        "run": "ar_fixture2",
+        "residualPx": 0.067,
+        "gamma": 2.2,
+        "colour": false,
+        "blend": "replace",
+        "files": "ok",
+        "light": "green"
+      }
+    }
+  ]
+}
