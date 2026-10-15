@@ -40,6 +40,27 @@ public sealed class NodeSettingsTests
         }
     }
 
+    /// <summary>The node replaces its settings whole while something reads them (the desk reading the token, a poll): a reader
+    /// opened the way the node reads never refuses the replace, and the next read sees what was saved.</summary>
+    [Fact]
+    public void ASaveLandsWhileTheSettingsAreBeingRead()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-settings-");
+        try
+        {
+            var home = new NodeHome(dir.FullName);
+            var first = home.LoadSettings("Reader");
+            using (new FileStream(home.SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                home.SaveSettings(first with { PatternsHost = "10.0.0.5:9900" });
+            Assert.Equal("10.0.0.5:9900", home.LoadSettings("unused").PatternsHost);
+            Assert.Equal(first.NodeId, home.LoadSettings("unused").NodeId);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void APackageKeyWrittenAsNullReadsItsDefaults()
     {

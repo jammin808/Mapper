@@ -48,7 +48,7 @@ public sealed class NodeHome
             SaveSettings(first);
             return first;
         }
-        var text = File.ReadAllText(SettingsPath);
+        var text = ReadShared(SettingsPath);
         try
         {
             // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
@@ -146,6 +146,15 @@ public sealed class NodeHome
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, Json));
         File.Move(temp, SettingsPath, overwrite: true);
     }
+
+    /// <summary>Reads a file the node replaces whole (written aside, then moved over it). The read shares delete, so on Windows a
+    /// reader — this node, the desk reading the token, a poll — never refuses the replace that lands while it reads.</summary>
+    internal static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 }
 
 /// <summary>What a restart puts back: the project (its path, or its whole JSON when unsaved), the air, and each
@@ -198,7 +207,7 @@ public sealed record RecoveryRecord(
             return null;
         try
         {
-            return JsonSerializer.Deserialize<RecoveryRecord>(File.ReadAllText(path), Json);
+            return JsonSerializer.Deserialize<RecoveryRecord>(NodeHome.ReadShared(path), Json);
         }
         catch (JsonException)
         {
