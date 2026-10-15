@@ -15,9 +15,9 @@ namespace PlayMap.Render.Effects;
 /// A chain whose owner the frame did not draw says why in its slots. An output's says so when the frame ends; a layer's, a
 /// surface's and an item's once the frame is wholly drawn (when the next begins, so a picture a later pass taps in its FrameEnd
 /// counts). While the air keeps a chain off it — an output that would show its owner is black, held, covered by a test pattern
-/// or safe look, or shows a scan frame (for an item, one it was on until the air took it) — the chain keeps its programs and
-/// buffers, says the air's reason and draws on the first frame back; a chain whose owner is out of the picture (a layer or
-/// surface that is not visible, a canvas nothing shows, an item its playlist is not showing) lets them go once unused for
+/// or safe look, or shows a scan frame (for an item, the one its playlist showed when the air took it) — the chain keeps its
+/// programs and buffers, says the air's reason and draws on the first frame back; a chain whose owner is out of the picture (a
+/// layer or surface that is not visible, a canvas nothing shows, an item its playlist is not showing) lets them go once unused for
 /// <see cref="FxChainRunner.IdleFrames"/> frames. Which outputs would show an owner is read from the show: an output's canvas,
 /// source or projector's surfaces, through canvases' layers and every item of a playlist. The pass owns the compile lane and the
 /// chain runner; it is made, drawn and disposed on the render thread.</summary>
