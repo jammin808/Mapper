@@ -44,6 +44,7 @@ public sealed partial class EngineCore
             FactsChanged();
         TickPanic(leaderNs);
         TickBlind(leaderNs);
+        TickSound(leaderNs);
     }
 
     partial void StateShow(Utf8JsonWriter w)

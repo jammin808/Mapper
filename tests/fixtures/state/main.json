@@ -255,6 +255,7 @@
       "last": ""
     },
     "preflight": null,
+    "sound": null,
     "minGoMs": 0
   },
   "decode": {

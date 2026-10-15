@@ -372,6 +372,8 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteEndObject();
         w.WritePropertyName("preflight");
         WritePreflightSummary(w);
+        w.WritePropertyName("sound");
+        WriteSound(w);
         w.WriteNumber("minGoMs", mode.Armed ? rules.MinGoMsArmed : rules.MinGoMsRehearsal);
         w.WriteEndObject();
     }

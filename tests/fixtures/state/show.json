@@ -110,6 +110,13 @@
       "firstOpen": "outputs: Output 1 \u2014 this machine has no display for it",
       "running": false
     },
+    "sound": {
+      "output": "null",
+      "status": "the fixture\u0027s silent output",
+      "item": null,
+      "gain": 0.4,
+      "problem": ""
+    },
     "minGoMs": 300
   }
 }

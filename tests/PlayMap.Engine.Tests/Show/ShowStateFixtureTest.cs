@@ -6,10 +6,10 @@ using PlayMap.Engine.Tests.Spine;
 namespace PlayMap.Engine.Tests.Show;
 
 /// <summary>tests/fixtures/state/show.json is the show's STATE keys from a real scenario — armed with a reason, an area locked,
-/// a SAFE plan, a refusal, a blind draft waiting for the next GO, the master at 80, a panic half way through its fade, a preflight
-/// done — and show.cards.json the cards the desk draws from them. This test writes both (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what
-/// the engine writes now, with the clock's numbers fixed; every card's path resolves in the fixture and every action line is a
-/// line of the catalogue.</summary>
+/// a SAFE plan, a refusal, a blind draft waiting for the next GO, the air's sound on a silent output, the master at 80, a panic half
+/// way through its fade, a preflight done — and show.cards.json the cards the desk draws from them. This test writes both
+/// (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what the engine writes now, with the clock's numbers
+/// fixed; every card's path resolves in the fixture and every action line is a line of the catalogue.</summary>
 public sealed class ShowStateFixtureTest
 {
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
@@ -79,6 +79,16 @@ public sealed class ShowStateFixtureTest
                 Field("Commit", "commit.boundary"), Field("On playlist", "commit.playlist")),
             ["actions"] = new JsonArray("BLIND DIFF", "BLIND COMMIT NEXT", "BLIND COMMIT ON GO", "BLIND DISCARD"),
         },
+        new JsonObject
+        {
+            ["title"] = "Sound",
+            ["path"] = "show.sound",
+            ["light"] = new JsonArray(Rule("if", "problem", "amber"), Rule("if", "item", "green"), new JsonObject { ["light"] = "grey" }),
+            ["words"] = "{output}: {item} at {gain}",
+            ["fields"] = new JsonArray(Field("Output", "output"), Field("Status", "status"), Field("Playing", "item"), Field("Gain", "gain"),
+                Field("Problem", "problem")),
+            ["actions"] = new JsonArray("MASTER 100", "PANIC CLEAR"),
+        },
     ];
 
     private static JsonObject Rule(string kind, string path, string light) => new() { [kind] = path, ["light"] = light };
@@ -125,6 +135,7 @@ public sealed class ShowStateFixtureTest
     public async Task TheShowsStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
         await using var rig = new ShowRig();
+        await using var sound = rig.Engine.StartAirAudio(PlayMap.Media.Audio.AudioOut.OpenNull("the fixture's silent output"));
         await rig.Ok("SHOW SET EXPECT-ARMED ON");
         await rig.Ok("PANIC SET op_1 SAFE FADE 2000 SAFE color:#000000");
         await rig.Ok("LOCK AREA content show night");

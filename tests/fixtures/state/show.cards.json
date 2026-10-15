@@ -252,5 +252,49 @@
       "BLIND COMMIT ON GO",
       "BLIND DISCARD"
     ]
+  },
+  {
+    "title": "Sound",
+    "path": "show.sound",
+    "light": [
+      {
+        "if": "problem",
+        "light": "amber"
+      },
+      {
+        "if": "item",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{output}: {item} at {gain}",
+    "fields": [
+      {
+        "label": "Output",
+        "path": "output"
+      },
+      {
+        "label": "Status",
+        "path": "status"
+      },
+      {
+        "label": "Playing",
+        "path": "item"
+      },
+      {
+        "label": "Gain",
+        "path": "gain"
+      },
+      {
+        "label": "Problem",
+        "path": "problem"
+      }
+    ],
+    "actions": [
+      "MASTER 100",
+      "PANIC CLEAR"
+    ]
   }
 ]
