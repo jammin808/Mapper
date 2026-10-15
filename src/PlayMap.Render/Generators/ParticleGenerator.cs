@@ -10,7 +10,7 @@ namespace PlayMap.Render.Generators;
 /// glows. A sting's shake moves the field and its flash goes through the guard.</summary>
 internal sealed class ParticleGenerator : GeneratorRenderer
 {
-    private const int Sprite = 128;
+    internal const int Sprite = 128;
     private static readonly VertexAttribute[] Layout =
     [
         new(0, 4, ParticleSim.InstanceFloats * 4, 0, Buffer: 1, Divisor: 1),
@@ -34,7 +34,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
         Device.SetBufferData<float>(_instances, new float[ParticleSim.InstanceFloats]);
         _vao = Device.CreateVertexArray(Layout, null, null, _instances);
         _atlas = Device.CreateTexture(Sprite * 5, Sprite, TextureFormat.Rgba8);
-        DrawAtlas();
+        DrawAtlas(Device, _atlas);
     }
 
     public override GpuTexture Output => _target.Color;
@@ -79,7 +79,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
         Services.DrawFlash(_target, flash);
     }
 
-    private static int ShapeIndex(ParticleShape shape) => shape switch
+    internal static int ShapeIndex(ParticleShape shape) => shape switch
     {
         ParticleShape.Square => 1,
         ParticleShape.Star => 2,
@@ -89,7 +89,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     };
 
     /// <summary>The five white sprites side by side, premultiplied: circle, square, star, streak, bokeh.</summary>
-    private void DrawAtlas()
+    internal static void DrawAtlas(GlDevice device, GpuTexture atlas)
     {
         using var bitmap = new SKBitmap(new SKImageInfo(Sprite * 5, Sprite, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var c = new SKCanvas(bitmap))
@@ -130,7 +130,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
             }
             c.Flush();
         }
-        Device.UploadPointer(_atlas, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        device.UploadPointer(atlas, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
     }
 
     protected override void Dispose(bool disposing)

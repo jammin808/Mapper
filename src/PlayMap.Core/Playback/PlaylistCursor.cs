@@ -42,6 +42,15 @@ public sealed record PlaylistCursor(string PlaylistId, int Index, string? ItemId
         return i;
     }
 
+    /// <summary>A routed generator's own time at a leader instant: the item's clip position past its in point (held while cued or
+    /// paused, wrapped by a loop, moved by a seek) — the same on every node, so a generator in a playlist is a pure function of its
+    /// item's time as a clip is.</summary>
+    public static long ItemTimeNs(ClipTransport clip, long leaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return clip.State == TransportState.Empty ? 0 : clip.PositionAt(leaderNs) - clip.InNs;
+    }
+
     /// <summary>Cues an item: loaded, held at its in point. The clip's length comes from the item's out
     /// point, its duration (stills, pages, generators) or the media's probe.</summary>
     public PlaylistCursor CueItem(Playlist list, int index, long mediaDurationNs)

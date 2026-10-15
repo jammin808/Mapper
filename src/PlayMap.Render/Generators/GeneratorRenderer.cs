@@ -1,15 +1,21 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
+using PlayMap.Core.Modulation;
 using PlayMap.Render.Generators.Skia;
 using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Generators;
 
-/// <summary>What one frame of a generator is for: the leader time in seconds, the show's frame index at it
-/// (leader time × the show's rate, floored — the same on every node), the show's rate, the sting firing,
-/// and whether the photosensitivity guard is on.</summary>
+/// <summary>What one frame of a generator is for: the time in seconds, the show's frame index at it (leader time × the show's
+/// rate, floored — the same on every node), the show's rate, the sting firing, and whether the photosensitivity guard is on. The
+/// renderer builds it on the leader clock; the generator host hands each generator its own time (seconds since its origin, or its
+/// item's clip time when a playlist routes it), with the sting moved onto that clock, so a renderer animates on
+/// <see cref="Seconds"/> alone.</summary>
 public readonly record struct GeneratorFrame(double Seconds, long ShowFrame, double FrameRate, EffectImpulse Impulse, bool FlashGuard)
 {
+    /// <summary>The leader ns the generator's time counts from (its origin, or its item's start); 0 on the leader clock.</summary>
+    public long OriginNs { get; init; }
+
     /// <summary>The frame's leader instant in nanoseconds (the same instant as <see cref="Seconds"/>, unrounded).</summary>
     public long LeaderNs { get; init; }
 
@@ -20,7 +26,19 @@ public readonly record struct GeneratorFrame(double Seconds, long ShowFrame, dou
     public PlayMap.Core.Modulation.IAudioFrames? Audio { get; init; }
 
     public static GeneratorFrame At(double seconds, double frameRate = 60, bool flashGuard = true) =>
-        new(seconds, (long)Math.Floor(Math.Max(0, seconds) * frameRate + 1e-6), frameRate, EffectImpulse.None, flashGuard);
+        new(seconds, (long)Math.Floor(Math.Max(0, seconds) * frameRate + 1e-6), frameRate, EffectImpulse.None, flashGuard)
+        {
+            LeaderNs = (long)Math.Round(seconds * 1e9),
+        };
+
+    /// <summary>The frame on a generator's own clock: <paramref name="seconds"/> of its time, the sting moved onto that clock (it
+    /// surges at the same leader instant), the origin named.</summary>
+    public GeneratorFrame OnOwnClock(double seconds, long originNs)
+    {
+        var shift = Seconds - seconds;
+        var impulse = Impulse.IsNone ? Impulse : Impulse with { StartSeconds = Impulse.StartSeconds - shift };
+        return this with { Seconds = seconds, Impulse = impulse, OriginNs = originNs };
+    }
 }
 
 /// <summary>Who a generator draws for: the output's (or canvas's) name, its number in the show (1-based; 0
@@ -116,6 +134,142 @@ internal abstract class GeneratorRenderer : IDisposable
     /// <summary>The parameters the renderer draws with now.</summary>
     public ParamSet Params { get; private set; } = ParamSet.Empty;
 
+    /// <summary>The pictures the generator reads ("source": what a particle field emits from).</summary>
+    public System.Collections.Immutable.ImmutableSortedDictionary<string, SourceRef> Inputs { get; set; } =
+        System.Collections.Immutable.ImmutableSortedDictionary.Create<string, SourceRef>(StringComparer.Ordinal);
+
+    /// <summary>How far a generator that settles has come, 0–1 (1: it draws its picture).</summary>
+    public virtual double Progress => 1;
+
+    /// <summary>What it draws a count of (particles), 0 when it has none.</summary>
+    public virtual int Count => 0;
+
+    /// <summary>What it says about itself ("" when nothing): a count lowered for this GPU, a source it cannot read.</summary>
+    public virtual string Words => "";
+
+    /// <summary>True when the kind evaluates its bindings live on the render thread (its numbers are read every frame).</summary>
+    public bool DrawsBindings => GeneratorTraits.Of(Kind.Id).DrawsBindings;
+
+    private Binding[] _bindings = [];
+    private string[] _boundNames = [];
+    private System.Collections.Immutable.ImmutableArray<PlayMap.Core.Model.ParamBinding> _bound = [];
+    private IModulationBus? _slotsFor;
+
+    /// <summary>One binding the renderer evaluates: the parameter's schema, the source key it reads (with its smoothing), the bus slot
+    /// resolved for it, and the value it drew last.</summary>
+    private sealed class Binding(PlayMap.Core.Model.ParamBinding binding, ParamSpec spec, string sourceKey)
+    {
+        public PlayMap.Core.Model.ParamBinding Source { get; } = binding;
+        public ParamSpec Spec { get; } = spec;
+        public string Key { get; } = sourceKey;
+        public int Slot = -1;
+        public double Value;
+        public bool Applied;
+    }
+
+    /// <summary>The names of the numbers its bindings move (the order <see cref="LiveValues"/> fills).</summary>
+    public IReadOnlyList<string> BoundNames => _boundNames;
+
+    /// <summary>Takes a generator's bindings: each one on a number of this kind, enabled and not RATE, is evaluated every frame; the
+    /// rest hold the base value. Allocates when the bindings change, never per frame.</summary>
+    public void Bind(System.Collections.Immutable.ImmutableArray<PlayMap.Core.Model.ParamBinding> bindings)
+    {
+        if (bindings == _bound)
+            return;
+        _bound = bindings;
+        var list = new List<Binding>();
+        if (DrawsBindings && !bindings.IsDefaultOrEmpty)
+            foreach (var b in bindings)
+                if (b.Enabled && b.Mode != BindingMode.Rate && ParamValues.Spec(Kind, b.Param) is { Type: ParamType.Number } spec)
+                    list.Add(new Binding(b, spec, ModTargets.SourceKey(b)));
+        _bindings = [.. list];
+        _boundNames = [.. list.Select(x => x.Spec.Name)];
+        _slotsFor = null;
+    }
+
+    /// <summary>Evaluates the bindings at the frame's leader instant through the frame's bus (a missing source holds the base) and
+    /// writes the values drawn into <paramref name="live"/> (one per bound name).</summary>
+    public void Modulate(IModulationBus? bus, long leaderNs, double[]? live)
+    {
+        if (_bindings.Length == 0)
+            return;
+        if (!ReferenceEquals(bus, _slotsFor))
+        {
+            _slotsFor = bus;
+            foreach (var b in _bindings)
+                b.Slot = bus?.Resolve(b.Key) ?? -1;
+        }
+        for (var i = 0; i < _bindings.Length; i++)
+        {
+            var b = _bindings[i];
+            var baseValue = BaseNumber(b.Spec.Name);
+            var s = 0.5;
+            var read = bus is not null && (b.Slot >= 0 ? bus.TryRead(b.Slot, leaderNs, out s) : bus.TryRead(b.Key, leaderNs, out s));
+            b.Applied = read;
+            b.Value = read ? BindingEval.Apply(b.Source, s, baseValue, b.Spec.Min, b.Spec.Max) : baseValue;
+            if (live is not null && i < live.Length)
+                live[i] = b.Value;
+        }
+    }
+
+    /// <summary>A number's value for this frame: its binding's when one moves it, else <see cref="BaseNumber"/>.</summary>
+    protected double Num(string name) => Bound(name, out var v) ? v : BaseNumber(name);
+
+    /// <summary>A number's value with no binding: the parameter set's, else the default (a kind whose looks come from a preset
+    /// answers the preset's value).</summary>
+    protected virtual double BaseNumber(string name) => ParamValues.Number(Params, Kind, name);
+
+    /// <summary>The value a binding moves a number to this frame, when one does.</summary>
+    protected bool Bound(string name, out double value)
+    {
+        foreach (var b in _bindings)
+            if (b.Applied && b.Spec.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = b.Value;
+                return true;
+            }
+        value = 0;
+        return false;
+    }
+
+    /// <summary>A number from a resolved setting, unless a binding moves it this frame.</summary>
+    protected double Num(string name, double resolved) => Bound(name, out var v) ? v : resolved;
+
+    private IModulationBus? _earsFor;
+    private int _levelSlot = -1;
+    private int _bassSlot = -1;
+
+    /// <summary>True when the last <see cref="Hear"/> asked for sound and the node's bus had none (the scene drew neutral).</summary>
+    protected bool HeardNothing { get; private set; }
+
+    /// <summary>What a scene hears this frame: the bus's level and bass at the frame's instant, moving it by <paramref name="amount"/>
+    /// (0: nothing is read and nothing moves). A node with no sound reads neutral (0.5) and says so.</summary>
+    protected ReactiveSound Hear(in GeneratorFrame frame, double amount)
+    {
+        HeardNothing = false;
+        if (amount <= 0)
+            return ReactiveSound.None;
+        var bus = frame.Modulation;
+        if (bus is null)
+        {
+            HeardNothing = true;
+            return new ReactiveSound(0.5f, 0.5f, (float)Math.Clamp(amount, 0, 1));
+        }
+        if (!ReferenceEquals(bus, _earsFor))
+        {
+            _earsFor = bus;
+            _levelSlot = bus.Resolve(ReactiveSound.LevelSource);
+            _bassSlot = bus.Resolve(ReactiveSound.BassSource);
+        }
+        var heardLevel = _levelSlot >= 0 ? bus.TryRead(_levelSlot, frame.LeaderNs, out var level) : bus.TryRead(ReactiveSound.LevelSource, frame.LeaderNs, out level);
+        var heardBass = _bassSlot >= 0 ? bus.TryRead(_bassSlot, frame.LeaderNs, out var bass) : bus.TryRead(ReactiveSound.BassSource, frame.LeaderNs, out bass);
+        HeardNothing = !heardLevel && !heardBass;
+        return new ReactiveSound(heardLevel ? (float)level : 0.5f, heardBass ? (float)bass : 0.5f, (float)Math.Clamp(amount, 0, 1));
+    }
+
+    /// <summary>The words a listening scene says when the node has no sound.</summary>
+    public const string NoSoundWords = "audio: none on this node (it draws neutral)";
+
     /// <summary>The picture (top row first).</summary>
     public abstract GpuTexture Output { get; }
 
@@ -150,7 +304,6 @@ internal abstract class GeneratorRenderer : IDisposable
 
     protected abstract void Draw(in GeneratorFrame frame);
 
-    protected double Num(string name) => ParamValues.Number(Params, Kind, name);
     protected int Int(string name) => ParamValues.Integer(Params, Kind, name);
     protected bool Flag(string name) => ParamValues.Flag(Params, Kind, name);
     protected string Choice(string name) => ParamValues.Choice(Params, Kind, name);
