@@ -1,1 +1,36 @@
-{}
+{
+  "media": {
+    "optimise": {
+      "mode": "auto",
+      "governor": "run",
+      "words": "",
+      "running": 0,
+      "queued": 0,
+      "failed": 0,
+      "worker": {
+        "pid": null,
+        "gl": "4.5 (Core Profile) Mesa \u00B7 llvmpipe",
+        "encoder": "gl-frag/1 \u00B7 llvmpipe",
+        "restarts": 0
+      },
+      "jobs": [
+        {
+          "id": "oj_fixture",
+          "media": "md_fixture",
+          "name": "Clip",
+          "to": "hap-q",
+          "state": "done",
+          "framesDone": 50,
+          "frames": 50,
+          "fps": 0,
+          "etaS": 0,
+          "attempts": 0,
+          "paused": false,
+          "version": "mv_fixture",
+          "psnrAvg": 44.1,
+          "words": "aac copied; 44.1 dB average, 43.9 dB lowest"
+        }
+      ]
+    }
+  }
+}

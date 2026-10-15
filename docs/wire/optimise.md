@@ -1,25 +1,63 @@
 # wp2-optimise on the wire
 
-*Generated from the catalogue by `tools/gen_stubs.py`; the package owns this file and keeps it to what it ships. A row is
-answered "not available on this node yet" until the package routes it, and `VERBS` marks it `"available"` once it is.*
+Optimise on import (`docs/OPTIMISE.md`). A `<media>` is a library item's id or name; a `<job>` is an `oj…` id (node-local, never in
+the project); a `<version>` is an `mv…` id (in the project, on its item).
 
 ## Verbs
 
-| Verb | Syntax | Words | Risk | Changes the show |
+| Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
-| `MEDIA OPTIMISE` | `MEDIA OPTIMISE <media>…\|ALL\|SUGGESTED [TO hap\|hap-alpha\|hap-q\|hap-q-alpha\|rechunk] [QUALITY FAST\|SHOW] \| MEDIA OPTIMISE CANCEL\|PAUSE\|RESUME [<job>\|ALL]` | Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs | review | yes |
-| `MEDIA JOBS` | `MEDIA JOBS` | Every optimise job and the governor's state | low | no |
-| `MEDIA ESTIMATE` | `MEDIA ESTIMATE <media>…\|ALL\|SUGGESTED [TO <target>] [QUALITY FAST\|SHOW]` | What optimising would do, how long and how much disk, before any work | low | no |
-| `MEDIA VERSIONS` | `MEDIA VERSIONS <media>` | A clip's versions, which plays on this node and why | low | no |
-| `MEDIA USE` | `MEDIA USE <media> AUTO\|SOURCE\|<version>` | Which file a clip plays (from its next open, never mid-air) | review | yes |
-| `MEDIA VERSION` | `MEDIA VERSION REMOVE <version> [FILES]` | Forgets a version (FILES also deletes this node's derived file when nothing else names it) | review | yes |
-| `MEDIA RULES` | `MEDIA RULES` | The optimise mode, this show's rules, then the built-in table | low | no |
-| `MEDIA RULE` | `MEDIA RULE MODE AUTO\|ASK\|NEVER \| MEDIA RULE ADD <json> [AT <n>] \| MEDIA RULE REMOVE <n>\|<name>` | Changes the optimise mode or this show's rules | review | yes |
+| `MEDIA OPTIMISE` | `MEDIA OPTIMISE <media>…\|ALL [TO hap\|hap-alpha\|hap-q\|hap-q-alpha] [QUALITY FAST\|SHOW] \| MEDIA OPTIMISE CANCEL\|PAUSE\|RESUME [<job>\|ALL]` | `{"stage":"accepted","jobs":[…],"skipped":[…]}`, off the control lane; CANCEL/PAUSE/RESUME `{"cancelled"\|"paused"\|"resumed":[…]}` | review (CANCEL, PAUSE, RESUME low) | yes (jobs; the version when one is made) |
+| `MEDIA JOBS` | `MEDIA JOBS` | the STATE shape below with every job | low | no |
+| `MEDIA VERSIONS` | `MEDIA VERSIONS <media>` | `{"media","use","playsHere","why","versions":[…]}` | low | no |
+| `MEDIA USE` | `MEDIA USE <media> AUTO\|SOURCE\|<version>` | `{"stage":"applied","media","use","effect"}` | review | yes (project) |
+| `MEDIA RULES` | `MEDIA RULES` | `{"mode","quality","rules":[…],"builtIn":[…]}` | low | no |
+| `MEDIA RULE` | `MEDIA RULE MODE AUTO\|NEVER` | `{"mode","effect"}` | review | yes (project) |
+
+**MEDIA OPTIMISE.** Without `TO` each item is planned by the rules as though the mode were auto (a person asked); with `TO` the named
+target is made. The reply is an attempt, not a fact: `"stage":"accepted"`, one row per job queued
+(`{"id":"oj…","media":"md…","to":"hap-q","key":"ok:…"}`) and one per item skipped (`{"media":"md…","why":"…"}` — "already has HAP Q
+(mv…)", "already queued (oj…)", "every target node decodes it on the GPU", "only video clips are optimised this round", "not on this
+node", the HDR words). The version is the fact: it lands on the item (`MEDIA VERSIONS`) as one edit when the job is done.
+
+**Refusals**, with words: the node is armed ("optimise runs in rehearsal, not on an armed node — disarm first"; the show's gate
+refuses it first as a Heavy line); no such media; `TO rechunk|strip|snappy|hap-r|hap-hdr|hap-alpha-only` ("… arrives next round");
+`QUALITY ARCHIVE`; nothing to do (every item's reason, joined); no service on the node. CANCEL, PAUSE and RESUME without a job mean
+ALL and refuse when nothing changes ("no job is queued or running", "no job is paused").
+
+**MEDIA USE** refuses an unchanged use ("Clip already uses source") and a word that is none of AUTO, SOURCE or a version of the item.
+Its `effect` says it takes effect at the item's next open, and how many open decoders keep playing what they opened. The generic
+`SET md… use "…"` is checked the same way (auto, source or one of its versions).
+
+**MEDIA RULE MODE** refuses ASK ("ASK, with its suggestions, arrives next round") and an unchanged mode.
 
 ## STATE
 
-`media.optimise`.
+At the end of `media`, `null` on a node without the optimise part:
+
+```json
+"media":{ …, "optimise":{"mode":"auto","governor":"run|trickle|paused|waiting","words":"a show plays: one stream, GPU ≤ 15 %",
+  "running":1,"queued":0,"failed":0,
+  "worker":{"pid":4242,"gl":"4.5 (Core Profile) Mesa … · llvmpipe …","encoder":"gl-frag/1 · llvmpipe …","restarts":0},
+  "jobs":[{"id":"oj…","media":"md…","name":"Clip","to":"hap-q","state":"queued|encoding|verifying|done|failed|cancelled",
+           "framesDone":1200,"frames":1800,"fps":31.5,"etaS":19.0,"attempts":0,"paused":false,"version":"","psnrAvg":0,"words":""}]}}
+```
+
+`jobs` holds at most 16 rows: the running ones, the queue in order, then the latest finished. `MEDIA JOBS` has them all. A done
+job's `version` is its `mv…` and its `words` say the audio's fate and the quality ("aac copied; 44.1 dB average, 43.9 dB lowest").
+
+## Context
+
+The item `optimise`: red when a job of an item the show plays failed (its words); green while jobs run or wait ("optimising 2 clips —
+a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
+
+## Preflight
+
+Section `optimise`: amber for each video the show plays at 4K or larger that this node decodes on the CPU (what plays here is not a
+HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
 
 ## Papers note
 
-(What shipped, for the integration docs pass.)
+For the integration docs pass: WIRE.md gains the six rows above (MEDIA ESTIMATE and MEDIA VERSION are trimmed: next round);
+ARCHITECTURE.md §1 gains the third process role, `PlayMap optimise-worker`; PLAYBACK.md's media chapter gains versions and `use`;
+ROADMAP.md R2.4 moves to "built" for the must above the cut line, with the next-round list of `docs/OPTIMISE.md`.

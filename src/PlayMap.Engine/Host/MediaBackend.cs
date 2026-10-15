@@ -143,6 +143,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             SayFfmpeg(words);
             return null;
         }
+        // wp2-optimise: the file this node plays — the version VersionChoice picks (use: auto), the one named, or the source. Taken at
+        // each open, so a change reaches the air at the item's next open and never under a decoder already open.
+        item = Core.Media.Optimise.VersionChoice.Played(item, Formats, h => Lookup(h) is not null);
         var path = Resolve(item);
         if (path is null)
             return null;

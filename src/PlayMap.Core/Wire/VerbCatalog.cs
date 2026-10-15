@@ -339,14 +339,12 @@ public static class VerbCatalog
         V2("DECODE PROBE", "DECODE PROBE [<media>|ALL] [DIRECT]", "Decodes clips by every path and compares the pictures; DIRECT writes the direct-sampling proof for this driver", VerbCategory.Media, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
 
         // Optimise on import (wp2-optimise).
-        V2("MEDIA OPTIMISE", "MEDIA OPTIMISE <media>…|ALL|SUGGESTED [TO hap|hap-alpha|hap-q|hap-q-alpha|rechunk] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]", "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs", VerbCategory.Media, VerbRisk.Review, true, "MEDIA OPTIMIZE") with { Show = ShowClass.Heavy, RiskWhen = [new(0, "CANCEL", VerbRisk.Low), new(0, "PAUSE", VerbRisk.Low), new(0, "RESUME", VerbRisk.Low)] },
+        V2("MEDIA OPTIMISE", "MEDIA OPTIMISE <media>…|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]", "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs", VerbCategory.Media, VerbRisk.Review, true, "MEDIA OPTIMIZE") with { Show = ShowClass.Heavy, RiskWhen = [new(0, "CANCEL", VerbRisk.Low), new(0, "PAUSE", VerbRisk.Low), new(0, "RESUME", VerbRisk.Low)] },
         V2("MEDIA JOBS", "MEDIA JOBS", "Every optimise job and the governor's state", VerbCategory.Media, VerbRisk.Low, false),
-        V2("MEDIA ESTIMATE", "MEDIA ESTIMATE <media>…|ALL|SUGGESTED [TO <target>] [QUALITY FAST|SHOW]", "What optimising would do, how long and how much disk, before any work", VerbCategory.Media, VerbRisk.Low, false),
         V2("MEDIA VERSIONS", "MEDIA VERSIONS <media>", "A clip's versions, which plays on this node and why", VerbCategory.Media, VerbRisk.Low, false),
         V2("MEDIA USE", "MEDIA USE <media> AUTO|SOURCE|<version>", "Which file a clip plays (from its next open, never mid-air)", VerbCategory.Media, VerbRisk.Review, true),
-        V2("MEDIA VERSION", "MEDIA VERSION REMOVE <version> [FILES]", "Forgets a version (FILES also deletes this node's derived file when nothing else names it)", VerbCategory.Media, VerbRisk.Review, true),
-        V2("MEDIA RULES", "MEDIA RULES", "The optimise mode, this show's rules, then the built-in table", VerbCategory.Media, VerbRisk.Low, false),
-        V2("MEDIA RULE", "MEDIA RULE MODE AUTO|ASK|NEVER | MEDIA RULE ADD <json> [AT <n>] | MEDIA RULE REMOVE <n>|<name>", "Changes the optimise mode or this show's rules", VerbCategory.Media, VerbRisk.Review, true),
+        V2("MEDIA RULES", "MEDIA RULES", "The optimise mode and quality, this show's rules, then the built-in table's rule names", VerbCategory.Media, VerbRisk.Low, false),
+        V2("MEDIA RULE", "MEDIA RULE MODE AUTO|NEVER", "Changes the optimise mode: AUTO optimises clips imported from now on as the rules say, NEVER optimises nothing unless a person asks", VerbCategory.Media, VerbRisk.Review, true),
 
         // Network video and texture sharing: NDI, OMT, Spout (wp2-videoio).
         V2("INPUT LIST", "INPUT LIST", "Every live input with its health, its users and whether it is on air", VerbCategory.Video, VerbRisk.Low, false),

@@ -140,7 +140,8 @@
     "items": 0,
     "missing": 0,
     "ready": true,
-    "transfers": []
+    "transfers": [],
+    "optimise": null
   },
   "stage": {
     "surfaces": 0,
