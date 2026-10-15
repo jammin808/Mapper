@@ -170,7 +170,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "46677bba312163ea"
+    "index": "661ecef23b9121e5"
   },
   "faults": [],
   "ai": {
@@ -273,6 +273,47 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "control": {
+    "enabled": true,
+    "axisHz": 100,
+    "osc": {
+      "port": 9943,
+      "open": false,
+      "words": "no control service on this node"
+    },
+    "midi": {
+      "backend": "none",
+      "open": false,
+      "words": "no control service on this node",
+      "inputs": [],
+      "outputs": []
+    },
+    "dmx": {
+      "artnet": {
+        "enabled": false,
+        "open": false
+      },
+      "sacn": {
+        "enabled": false,
+        "open": false
+      }
+    },
+    "surfaces": [],
+    "bindings": {
+      "count": 0,
+      "enabled": 0,
+      "live": 0,
+      "waiting": 0,
+      "unplugged": 0
+    },
+    "learning": null,
+    "learnt": null,
+    "last": null
+  },
+  "timecode": {
+    "sources": [],
+    "chases": []
   },
   "clients": [],
   "events": {
