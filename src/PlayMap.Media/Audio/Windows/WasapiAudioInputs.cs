@@ -85,10 +85,19 @@ public sealed class WasapiAudioInputs : IAudioInputs, IAudioInputsWords
                 throw new AudioUnavailableException($"'{key}' is not a WASAPI key (wasapi:in:<id>, wasapi:loop:<id>, {ExcludeSelf})");
             using var enumerator = new MMDeviceEnumerator();
             var device = enumerator.GetDevice(id);
-            var builder = new WasapiRecorderBuilder().WithDevice(device).WithSharedMode().WithEventSync().WithBufferLength(BufferMs);
-            if (loop)
-                builder = builder.WithLoopbackCapture();
-            return new WasapiRecorderCapture(builder.Build(), device, sink);
+            try
+            {
+                var builder = new WasapiRecorderBuilder().WithDevice(device).WithSharedMode().WithEventSync().WithBufferLength(BufferMs);
+                if (loop)
+                    builder = builder.WithLoopbackCapture();
+                return new WasapiRecorderCapture(builder.Build(), device, sink);
+            }
+            catch
+            {
+                // The capture owns the device once made; until then this open does.
+                device.Dispose();
+                throw;
+            }
         }
         catch (Exception e) when (e is COMException or InvalidOperationException or ArgumentException)
         {
@@ -147,7 +156,17 @@ internal sealed class WasapiRecorderCapture : IAudioCapture
         Channels = recorder.WaveFormat.Channels;
         recorder.DataAvailable += (buffer, _, _, _) => OnData(buffer);
         recorder.RecordingStopped += OnStopped;
-        recorder.StartRecording();
+        try
+        {
+            recorder.StartRecording();
+        }
+        catch
+        {
+            // A recorder that never started is this constructor's to let go (the device stays the caller's).
+            recorder.RecordingStopped -= OnStopped;
+            recorder.Dispose();
+            throw;
+        }
     }
 
     public int SampleRate { get; }
