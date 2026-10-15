@@ -36,7 +36,13 @@ public sealed partial class EngineCore
         // A run's progress and a finished read of the measured files are facts: STATE's revision moves with each.
         AlignBackend.Progressed += _ => FactsChanged();
         _measured.Published += FactsChanged;
-        Store.Changed += _ => _measured.Refresh(Store.Project, ProjectFolderForFiles);
+        Store.Changed += _ =>
+        {
+            _measured.Refresh(Store.Project, ProjectFolderForFiles);
+            // A project opened or recovered replaces the store before its path is set: its files are looked for again, beside it,
+            // once the lane's work in hand is done.
+            Lane.Post(() => _measured.Refresh(Store.Project, ProjectFolderForFiles));
+        };
         _measured.Refresh(Store.Project, ProjectFolderForFiles);
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));

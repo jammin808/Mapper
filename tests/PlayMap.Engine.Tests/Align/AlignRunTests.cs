@@ -168,6 +168,28 @@ public sealed class AlignRunTests
     }
 
     [Fact]
+    public async Task AProjectOpenedFromItsFileReadsItsMeasuredFilesBesideIt()
+    {
+        await using var saved = new AlignRig(AlignRig.Project(2, Layout));
+        var group = await saved.NewGroup();
+        await saved.RunToEnd(group);
+        await saved.Ok($"ALIGN ACCEPT {group}");
+        var path = Path.Combine(saved.Folder.FullName, "show.playmap");
+        await saved.Ok($"PROJECT SAVE {WireGrammar.Quote(path)}");
+
+        // A node whose own folder holds no align files opens the show from its file, as a node does when it starts.
+        await using var node = new AlignRig(AlignRig.Project(2, Layout));
+        await node.Ok($"PROJECT OPEN {WireGrammar.Quote(path)}");
+        await node.Engine.Lane.RunAsync(() => { });
+        await node.Engine.AlignFiles.Settled;
+        Assert.Empty(node.Engine.AlignMeasured.Faults);
+        Assert.True(node.Engine.AlignMeasured.Loads.ContainsKey("op1") && node.Engine.AlignMeasured.Loads.ContainsKey("op2"));
+        var m = node.State().GetProperty("outputs")[0].GetProperty("measured");
+        Assert.Equal((saved.Current.FindOutput("op1")!.Measured!.RunId, "ok", "green"),
+            (m.GetProperty("run").GetString(), m.GetProperty("files").GetString(), m.GetProperty("light").GetString()));
+    }
+
+    [Fact]
     public async Task MissingFilesAreSaidInStateTheContextAndPreflight()
     {
         Project accepted;
