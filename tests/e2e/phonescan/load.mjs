@@ -11,6 +11,8 @@ export async function load(name) {
   } catch {
     const root = execSync('npm root -g', { encoding: 'utf8' }).trim();
     const require = createRequire(join(root, 'noop.js'));
-    return await import(pathToFileURL(require.resolve(name)).href);
+    const mod = await import(pathToFileURL(require.resolve(name)).href);
+    // A CommonJS package imported by its file path offers its exports only as the default.
+    return Object.keys(mod).length === 1 && mod.default ? mod.default : mod;
   }
 }
