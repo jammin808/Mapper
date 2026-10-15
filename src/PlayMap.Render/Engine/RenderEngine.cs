@@ -252,9 +252,17 @@ public sealed class RenderEngine : IDisposable
             Audio = inputs.Audio,
         };
         OrderPasses(inputs.Passes);
-        var passFrame = new PassFrame(Frame, inputs.LeaderNs, inputs.Project, _generatorFrame, Device, inputs.Blackout, inputs.Freeze);
+        var passFrame = new PassFrame(Frame, inputs.LeaderNs, inputs.Project, _generatorFrame, Device, inputs.Blackout, inputs.Freeze)
+        {
+            PatternOverride = inputs.PatternOverride,
+            PatternOutputs = inputs.PatternOutputs,
+            Levels = inputs.Levels,
+        };
         _caches.BeginFrame(Frame);
         _sources.BeginFrame(inputs.Project, inputs.Sources ?? NoSources.Instance, inputs.LeaderNs, Frame, in _generatorFrame);
+        _sources.SetPasses(_passes, in passFrame);
+        var (chainWidth, chainHeight) = SurfaceChainSize(inputs.Project);
+        _stage.BeginFrame(chainWidth, chainHeight);
         CollectPreviews();
 
         var outputs = inputs.Project.Outputs;
@@ -332,6 +340,18 @@ public sealed class RenderEngine : IDisposable
         _caches.EndFrame();
         _services.Pool.Trim();
         EvictOutputs(outputs);
+    }
+
+    /// <summary>The size a chained surface's content is made at: the largest raster (by pixels, the first in output order on a tie)
+    /// of the enabled projector outputs, so every projector samples one picture at the best resolution any of them needs; 0 × 0
+    /// with no projector output.</summary>
+    private static (int Width, int Height) SurfaceChainSize(Project project)
+    {
+        var (w, h) = (0, 0);
+        foreach (var o in project.Outputs)
+            if (o.Enabled && o.Mode == OutputMode.Projector && o.ProjectorId is not null && (long)o.Width * o.Height > (long)w * h)
+                (w, h) = (o.Width, o.Height);
+        return (w, h);
     }
 
     /// <summary>The frame's passes in their order, sorted again only when a different set is handed in (no allocation per frame).</summary>

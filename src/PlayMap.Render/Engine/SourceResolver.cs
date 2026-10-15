@@ -14,7 +14,12 @@ namespace PlayMap.Render.Engine;
 /// its last picture. Canvases are composited once a frame, layers bottom to top, nested canvases included
 /// (a canvas that contains itself draws black there). A playlist in a transition is mixed once a frame from
 /// the two sides its provider names, in linear light (<see cref="SourceMix"/>); a playlist may play another, and one
-/// that comes back to itself draws black there.</summary>
+/// that comes back to itself draws black there.
+///
+/// The frame's passes (<see cref="SetPasses"/>) see a layer's picture before its canvas is drawn into, an item's picture
+/// (each side of a transition on its own) before it is shown or mixed, and — through <see cref="SurfacePicture"/> — a stage
+/// surface's; each at most once a frame. Once the frame ends the passes are let go, so what is resolved after it (a preview)
+/// shows what the frame made, or the picture without its passes.</summary>
 internal sealed class SourceResolver : IDisposable
 {
     public const int IdleFrames = 120;
@@ -33,6 +38,14 @@ internal sealed class SourceResolver : IDisposable
         {
             Set.Dispose();
         }
+    }
+
+    /// <summary>A playlist's item picture through the frame's passes, kept for the frame's later consumers.</summary>
+    private sealed class ItemEntry
+    {
+        public GpuTexture? Picture;
+        public long Frame = -1;
+        public long LastUsed;
     }
 
     private sealed class CanvasEntry : IDisposable
@@ -59,6 +72,10 @@ internal sealed class SourceResolver : IDisposable
     private readonly HashSet<string> _playlists = new(StringComparer.Ordinal);
     private readonly List<SourceRef> _staleVideos = [];
     private readonly List<string> _staleCanvases = [];
+    private readonly Dictionary<SourceRef, ItemEntry> _items = [];
+    private readonly List<SourceRef> _staleItems = [];
+    private IFramePass[] _passes = [];
+    private PassFrame _passFrame;
     private Project? _project;
     private ISourceProvider _provider = NoSources.Instance;
     private long _leaderNs;
@@ -83,6 +100,28 @@ internal sealed class SourceResolver : IDisposable
         _frame = frame;
         _generatorFrame = generatorFrame;
         _generators.BeginFrame(frame);
+    }
+
+    /// <summary>The frame's passes in their order and what they are told about the frame: set once a frame, after
+    /// <see cref="BeginFrame"/> and before anything is resolved; <see cref="EndFrame"/> lets them go.</summary>
+    public void SetPasses(IFramePass[] passes, in PassFrame frame)
+    {
+        _passes = passes;
+        _passFrame = frame;
+    }
+
+    /// <summary>True while the frame's passes run (between <see cref="SetPasses"/> and <see cref="EndFrame"/>).</summary>
+    public bool RunsPasses => _passes.Length > 0;
+
+    /// <summary>The frame being drawn.</summary>
+    public long FrameNumber => _frame;
+
+    /// <summary>A stage surface's content through the frame's passes, in order; the caller keeps what comes back for the frame.</summary>
+    public GpuTexture SurfacePicture(Surface surface, GpuTexture picture)
+    {
+        foreach (var pass in _passes)
+            picture = pass.Surface(in _passFrame, surface, picture);
+        return picture;
     }
 
     /// <summary>The picture of a source for a consumer of the given size (generators draw at it; videos and
@@ -110,7 +149,9 @@ internal sealed class SourceResolver : IDisposable
 
     /// <summary>A playlist's picture: its mix while it is between two items, the picture its item routes to (one
     /// the renderer draws, or another playlist's), else its frames. A playlist already being drawn further out — a
-    /// loop of playlists playing each other — or one nested deeper than <see cref="MaxPlaylistDepth"/> is black there.</summary>
+    /// loop of playlists playing each other — or one nested deeper than <see cref="MaxPlaylistDepth"/> is black there.
+    /// An item whose effect chain draws passes through the frame's passes once a frame, at the size its first consumer asks
+    /// for; the frame's later consumers share that picture.</summary>
     private GpuTexture Playlist(SourceRef source, int width, int height, GeneratorContext context)
     {
         if (_playlists.Count >= MaxPlaylistDepth || !_playlists.Add(source.Id))
@@ -119,14 +160,41 @@ internal sealed class SourceResolver : IDisposable
         {
             if (_provider.Mix(source, _leaderNs) is { } mix)
                 return Mixed(source, mix, width, height, context);
+            if (_items.TryGetValue(source, out var shown) && shown.Frame == _frame)
+            {
+                shown.LastUsed = _frame;
+                return shown.Picture!;
+            }
+            var item = _passes.Length > 0 ? _provider.Item(source, _leaderNs) : null;
+            GpuTexture picture;
             if (_provider.Route(source, _leaderNs) is { } routed)
-                return Resolve(routed, width, height, context);
-            return Video(source) ?? _services.Black;
+                picture = Resolve(routed, width, height, context);
+            else if (Video(source) is { } frames)
+                picture = frames;
+            else
+                return _services.Black;
+            if (item is not { } on || !FxChains.Draws(on.Item.Fx))
+                return picture;
+            picture = ItemPicture(on, picture);
+            if (!_items.TryGetValue(source, out var entry))
+                _items[source] = entry = new ItemEntry();
+            entry.Picture = picture;
+            entry.Frame = _frame;
+            entry.LastUsed = _frame;
+            return picture;
         }
         finally
         {
             _playlists.Remove(source.Id);
         }
+    }
+
+    /// <summary>An item's picture through the frame's passes, in order.</summary>
+    private GpuTexture ItemPicture(in ItemOnAir item, GpuTexture picture)
+    {
+        foreach (var pass in _passes)
+            picture = pass.Item(in _passFrame, item.Item, item.StartNs, picture);
+        return picture;
     }
 
     /// <summary>A playlist between two pictures: both sides resolved first (a side may draw), then mixed into
@@ -138,8 +206,8 @@ internal sealed class SourceResolver : IDisposable
             entry.LastUsed = _frame;
             return entry.Target.Color;
         }
-        var from = Side(mix.From, width, height, context);
-        var to = Side(mix.To, width, height, context);
+        var from = Side(mix.From, mix.FromItem, width, height, context);
+        var to = Side(mix.To, mix.ToItem, width, height, context);
         var w = Math.Max(1, Math.Max(from.Width, to.Width));
         var h = Math.Max(1, Math.Max(from.Height, to.Height));
         if (entry is null || entry.Target.Width != w || entry.Target.Height != h)
@@ -165,8 +233,13 @@ internal sealed class SourceResolver : IDisposable
     }
 
     /// <summary>One side of a mix: a picture the renderer draws, another playlist's, or the frames of a ref the
-    /// provider made for one item (which it never mixes or routes again).</summary>
-    private GpuTexture Side(SourceRef side, int width, int height, GeneratorContext context) => Resolve(side, width, height, context);
+    /// provider made for one item (which it never mixes or routes again) — through the frame's passes when its item has a
+    /// chain, before the two are mixed.</summary>
+    private GpuTexture Side(SourceRef side, ItemOnAir? item, int width, int height, GeneratorContext context)
+    {
+        var picture = Resolve(side, width, height, context);
+        return _passes.Length > 0 && item is { } on && FxChains.Draws(on.Item.Fx) ? ItemPicture(on, picture) : picture;
+    }
 
     /// <summary>The generator a source names when it is a surface-aware effect (drawn by the stage shader
     /// with the surface's own geometry), else null.</summary>
@@ -206,7 +279,7 @@ internal sealed class SourceResolver : IDisposable
     }
 
     /// <summary>The layers of a canvas into its target: the background, then each visible layer's source
-    /// at its rectangle with its opacity and blend.</summary>
+    /// at its rectangle with its opacity and blend, as the frame's passes hand it back.</summary>
     private void Compose(Canvas canvas, RenderTarget target)
     {
         var context = new GeneratorContext(canvas.Name, 0, "#3EC1F3", true);
@@ -219,6 +292,7 @@ internal sealed class SourceResolver : IDisposable
         if (textures is null || textures.Length < canvas.Layers.Length)
             textures = _layerTextures[depth] = new GpuTexture[Math.Max(16, canvas.Layers.Length)];
         var count = 0;
+        var firstPassed = false;
         for (var i = 0; i < canvas.Layers.Length; i++)
         {
             var layer = canvas.Layers[i];
@@ -226,15 +300,22 @@ internal sealed class SourceResolver : IDisposable
                 continue;
             var w = Math.Max(1, (int)Math.Round(layer.Rect.W));
             var h = Math.Max(1, (int)Math.Round(layer.Rect.H));
-            textures[count] = Resolve(layer.Source, w, h, context);
+            var picture = Resolve(layer.Source, w, h, context);
+            var drawn = picture;
+            foreach (var pass in _passes)
+                drawn = pass.Layer(in _passFrame, layer, drawn);
+            if (count == 0)
+                firstPassed = !ReferenceEquals(drawn, picture);
+            textures[count] = drawn;
             order[count++] = i;
         }
         var d = _services.Device;
         d.BindTarget(target);
         // A first layer that covers the whole canvas, opaque, at full opacity, replaces the background: it is
-        // drawn without blending and the clear is skipped (the common one-layer canvas costs one pass).
+        // drawn without blending and the clear is skipped (the common one-layer canvas costs one pass). A layer a pass
+        // handed another picture is not known opaque (an effect may write alpha), so the background goes under it.
         var first = 0;
-        if (count > 0 && CoversOpaquely(canvas, canvas.Layers[order[0]]))
+        if (count > 0 && !firstPassed && CoversOpaquely(canvas, canvas.Layers[order[0]]))
         {
             d.SetBlend(BlendMode.Opaque);
             var r0 = canvas.Layers[order[0]].Rect;
@@ -307,9 +388,11 @@ internal sealed class SourceResolver : IDisposable
         return tex;
     }
 
-    /// <summary>Lets go of sources no frame has used for a while.</summary>
+    /// <summary>Lets go of the frame's passes, and of sources no frame has used for a while.</summary>
     public void EndFrame()
     {
+        _passes = [];
+        _passFrame = default;
         _generators.EndFrame();
         foreach (var (key, e) in _videos)
             if (_frame - e.LastUsed > IdleFrames)
@@ -338,6 +421,12 @@ internal sealed class SourceResolver : IDisposable
             _mixes.Remove(key);
         }
         _staleMixes.Clear();
+        foreach (var (key, e) in _items)
+            if (_frame - e.LastUsed > IdleFrames)
+                _staleItems.Add(key);
+        foreach (var key in _staleItems)
+            _items.Remove(key);
+        _staleItems.Clear();
     }
 
     public void Dispose()
@@ -354,5 +443,6 @@ internal sealed class SourceResolver : IDisposable
         _canvases.Clear();
         _mixes.Clear();
         _colors.Clear();
+        _items.Clear();
     }
 }
