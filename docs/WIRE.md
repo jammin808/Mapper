@@ -41,7 +41,8 @@ The router journals who did what and the transports fence by it. The transport i
 1. On connect: if the node has a pairing token and the peer is neither loopback (when trusted) nor in the
    trusted-address list, the first line is `NONCE <32 hex>`.
 2. `HELLO <name>` → `OK`; the session becomes a **state listener**: `STATE {json}` at once, then on every change
-   (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays.
+   (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays or
+   anything else STATE shows moves on its own (a rolling timecode with nothing playing).
    `SUBSCRIBE STATE|CONTEXT|PROJECT|OFF` adds or stops pushes (`CONTEXT {json}`, and
    `PROJECT {"revision":N,"project":{…}}` — the revision rides beside the document, which does not carry it; a
    reader compares revisions, never contents). Each subscription answers `OK subscribed …` and pushes at once.
