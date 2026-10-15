@@ -132,6 +132,9 @@ public sealed record SimLayout
     /// <summary>The camera sets its own exposure per picture.</summary>
     public bool AutoExposure { get; init; }
 
+    /// <summary>Projectors knocked after they were set up: by index (0-based), how many of its pixels its picture moves across.</summary>
+    public IReadOnlyDictionary<int, double> Shifts { get; init; } = new Dictionary<int, double>();
+
     internal (int Width, int Height) RasterOf(int j) =>
         Rasters.Count == 0 ? (ProjectorWidth, ProjectorHeight) : Rasters[Math.Min(j, Rasters.Count - 1)];
 
@@ -275,7 +278,8 @@ public sealed class MultiProjectorSim
 
     /// <summary>A layout named the way a simulated camera's source names it: "[flat-screen|bulged-screen|curved-screen]:tile&lt;c&gt;x&lt;r&gt;[:o&lt;pct&gt;]"
     /// or "…:stack&lt;n&gt;", with ":k&lt;kelvin&gt;,…" (each projector's colour temperature), ":lvl&lt;level&gt;,…" (its light, 0–1) and
-    /// ":autoexposure" (a camera that sets its own exposure); anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
+    /// ":autoexposure" (a camera that sets its own exposure) and ":shift&lt;n&gt;=&lt;px&gt;" (projector n, from 1, knocked so its picture moves
+    /// that many of its pixels across); anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
     /// projectors' own, in order; the camera's raster is given.</summary>
     public static MultiProjectorSim FromSource(string source, IReadOnlyList<(int Width, int Height)> rasters, int cameraWidth, int cameraHeight)
     {
@@ -311,6 +315,10 @@ public sealed class MultiProjectorSim
                 layout = layout with { Levels = levels };
             else if (p == "autoexposure")
                 layout = layout with { AutoExposure = true };
+            else if (p.StartsWith("shift", StringComparison.Ordinal) && p[5..].Split('=') is [var who, var px]
+                && int.TryParse(who, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n1) && n1 >= 1
+                && double.TryParse(px, NumberStyles.Float, CultureInfo.InvariantCulture, out var by) && Math.Abs(by) <= 200)
+                layout = layout with { Shifts = new Dictionary<int, double>(layout.Shifts) { [n1 - 1] = by } };
         }
         return stack > 0 ? Stack(stack, layout) : Tiles(columns, rows, layout);
     }
@@ -336,7 +344,8 @@ public sealed class MultiProjectorSim
         var jitter = o.JitterDegrees * Math.PI / 180;
         var eye = centre + new Vec3d(rng.Range(-0.05, 0.05), rng.Range(-0.05, 0.05), distance);
         var look = Pose.LookAt(eye, centre, Vec3d.UnitY);
-        var turn = new Vec3d(rng.Range(-jitter, jitter), rng.Range(-jitter, jitter), rng.Range(-jitter, jitter)) + extraTurn;
+        var turn = new Vec3d(rng.Range(-jitter, jitter), rng.Range(-jitter, jitter), rng.Range(-jitter, jitter)) + extraTurn
+            + new Vec3d(0, o.Shifts.GetValueOrDefault(j) / k.Fx, 0);
         var r = look.CameraToWorld * Mat3d.FromRotationVector(turn);
         return new SimProjector(k, new Pose(eye, r.NearestRotation().ToRotationVector()))
         {

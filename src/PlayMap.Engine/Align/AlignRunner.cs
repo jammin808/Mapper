@@ -36,6 +36,12 @@ public sealed record AlignRunSetup(string RunId, AlignGroup Group, IReadOnlyList
 {
     /// <summary>The colour step: WHITE matches every output's white and level (diagonal gains in linear light).</summary>
     public bool Colour { get; init; }
+
+    /// <summary>ONLY: the outputs (indices into <see cref="Outputs"/>) scanned again; empty scans every output.</summary>
+    public ImmutableArray<int> Only { get; init; } = [];
+
+    /// <summary>ONLY: the run whose captures the other outputs keep (the run their measured corrections came from).</summary>
+    public string ReferenceRunId { get; init; } = "";
 }
 
 /// <summary>The alignment runner as the engine's verbs see it: one run at a time, off the control lane.</summary>
@@ -159,6 +165,12 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
     /// <summary>What <see cref="Start"/> says once the runner has begun to stop.</summary>
     public const string StoppingWords = "the node is stopping — no alignment run starts";
 
+    private volatile IReadOnlyList<int>? _lastShown;
+
+    /// <summary>How many frames each output was shown by the last simulated run (black counts for none; tests count what reached each
+    /// output).</summary>
+    public IReadOnlyList<int>? LastShown => _lastShown;
+
     /// <summary>The run's task (tests wait on it; null before the first).</summary>
     public Task? Running => _task;
 
@@ -250,12 +262,35 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 shooter = new DisplayShooter(_display!, camera, outputs, _options);
             }
             var specs = outputs.Select((o, j) => new AlignOutputSpec(o.Id, o.Name, o.Width, o.Height, PriorFor(o, setup.Projectors[j]))).ToList();
-            var total = AlignSequence.Shots(specs);
-            var (black, captures) = await AlignSequence.CaptureAsync(shooter, specs, p =>
+            IReadOnlyList<AlignCapture>? reference = null;
+            ImmutableArray<int>? only = setup.Only.IsDefaultOrEmpty ? null : setup.Only;
+            if (only is not null)
+            {
+                var kept = new AlignCapture[outputs.Count];
+                for (var j = 0; j < outputs.Count; j++)
+                    kept[j] = AlignArchive.LoadCapture(setup.ProjectFolder, setup.ReferenceRunId, outputs[j].Id, specs[j].Prior)
+                        ?? throw new InvalidOperationException($"{outputs[j].Name}'s capture is not beside {setup.ReferenceRunId} — ALIGN RUN {setup.Group.Id} without ONLY scans every output again");
+                reference = kept;
+            }
+            List<AlignOutputSpec> scanned = only is null ? specs : [.. only.Value.Select(j => specs[j])];
+            var total = AlignSequence.Shots(scanned);
+            void Progress(AlignStepProgress p)
             {
                 var eta = p.Progress > 0.02 ? stepEta() * (1 - p.Progress) / p.Progress : -1;
-                Step(setup, p.Step, p.Output, 0.9 * p.Progress, eta, p.Words, total);
-            }, ct).ConfigureAwait(false);
+                Step(setup, p.Step, p.Output < 0 || only is not { } o ? p.Output : o[p.Output], 0.9 * p.Progress, eta, p.Words, total);
+            }
+            var (black, fresh) = only is null
+                ? await AlignSequence.CaptureAsync(shooter, specs, Progress, ct).ConfigureAwait(false)
+                : await AlignSequence.CaptureAsync(shooter, scanned, Progress, ct, only.Value,
+                    [.. reference!.Where((_, j) => !only.Value.Contains(j)).Select(c => c.Footprint)]).ConfigureAwait(false);
+            IReadOnlyList<AlignCapture> captures = fresh;
+            if (only is not null)
+            {
+                var all = reference!.ToArray();
+                for (var k = 0; k < only.Value.Length; k++)
+                    all[only.Value[k]] = fresh[k];
+                captures = all;
+            }
             AlignColour? colour = null;
             if (setup.Colour)
             {
@@ -263,13 +298,19 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 colour = await AlignSequence.ColourAsync(shooter, specs, captures, p => Step(setup, p.Step, p.Output, 0.9, -1, p.Words, colourShots), ct)
                     .ConfigureAwait(false);
             }
+            if (shooter is SimShooter simShooter)
+                _lastShown = simShooter.Shown;
             Step(setup, "solve", -1, 0.9, -1, "fitting the screen, the canvas, each output's warp and blend", total);
             var group = setup.Group;
             var corners = group.Target.CameraCorners.IsDefaultOrEmpty ? [] : group.Target.CameraCorners.ToList();
-            var input = new AlignSolveInput(black.Width, black.Height, black.Gray, captures, setup.Fit, setup.Aspect, corners, group.Target.MarginPct, group.Options);
+            var input = new AlignSolveInput(black.Width, black.Height, black.Gray, captures, setup.Fit, setup.Aspect, corners, group.Target.MarginPct, group.Options)
+            {
+                Reference = reference,
+                Rescanned = only?.ToHashSet(),
+            };
             var result = await Task.Run(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
-            Finish(setup, started, result, captures, colour);
+            Finish(setup, started, result, captures, colour, black);
         }
         catch (OperationCanceledException)
         {
@@ -342,7 +383,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             [.. outputs.Select(o => o with { Light = state == "failed" ? "red" : "grey" })], null));
     }
 
-    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour)
+    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour, CameraShot black)
     {
         if (!result.Ok)
         {
@@ -365,16 +406,21 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             var blendBytes = Pfm.Write(o.Blend.ToMap());
             files.Add((warpName, warpBytes));
             files.Add((blendName, blendBytes));
+            files.Add(($"capture-{o.OutputId}.bin", AlignCaptureFile.Write(captures[j])));
+            // ONLY keeps the warp an output not scanned again had, file and all; its blend is made again with its neighbours'.
+            var keep = !setup.Only.IsDefaultOrEmpty && !setup.Only.Contains(j) ? setup.Outputs[j].Measured : null;
             var measured = new MeasuredCorrection(
-                new MeasuredWarp(o.Warp.Grid.Columns, o.Warp.Grid.Rows, dataPath + "/" + warpName, Pfm.Hash(warpBytes), Math.Round(o.Warp.HeldOutRmsPx, 3)),
+                keep?.Warp ?? new MeasuredWarp(o.Warp.Grid.Columns, o.Warp.Grid.Rows, dataPath + "/" + warpName, Pfm.Hash(warpBytes), Math.Round(o.Warp.HeldOutRmsPx, 3)),
                 null,
                 new MeasuredBlend(o.Blend.Width, o.Blend.Height, dataPath + "/" + blendName, Pfm.Hash(blendBytes)),
-                colour?.Match is { } match && j < match.Gains.Count
+                keep?.Color is { } kept ? kept
+                : colour?.Match is { } match && j < match.Gains.Count
                     ? new MeasuredColor(Math.Round(match.Gains[j].R, 4), Math.Round(match.Gains[j].G, 4), Math.Round(match.Gains[j].B, 4), Math.Round(o.Gamma, 3), 1)
                     : new MeasuredColor(1, 1, 1, Math.Round(o.Gamma, 3), 1),
                 Math.Round(o.Warp.HeldOutRmsPx, 3), "", "", setup.RunId, finished);
             outs.Add(new AlignRunOutput(o.OutputId, setup.Outputs[j].Name, measured, o.Gamma, o.DecodedShare, o.Warp.HeldOutRmsPx, o.FitRmsPx));
         }
+        files.Add(("black.bin", AlignCaptureFile.WriteBlack(black)));
         var words = string.Create(CultureInfo.InvariantCulture, $"staged {score.Grade} {score.Value:0}: ") + result.Words
             + (colour is null ? "" : "; colour: " + colour.Words)
             + string.Create(CultureInfo.InvariantCulture, $" — ALIGN ACCEPT {setup.RunId} applies it");

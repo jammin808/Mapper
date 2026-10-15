@@ -47,11 +47,16 @@ public static class AlignSequence
         return 1 + outputs.Sum(o => 1 + Photometry.RampLevels.Count + PlanFor(o.Width, o.Height, 2.2).Count);
     }
 
+    /// <summary>The sequence over some of a group's outputs (ONLY): <paramref name="shooterIndex"/> names each spec's output as the
+    /// shooter counts them (null: in order), and <paramref name="kept"/> are the footprints of the outputs not scanned again, so each
+    /// scanned output's photometry still leaves their light out.</summary>
     public static async Task<(CameraShot Black, IReadOnlyList<AlignCapture> Captures)> CaptureAsync(IAlignShooter shooter,
-        IReadOnlyList<AlignOutputSpec> outputs, Action<AlignStepProgress>? progress, CancellationToken ct)
+        IReadOnlyList<AlignOutputSpec> outputs, Action<AlignStepProgress>? progress, CancellationToken ct, IReadOnlyList<int>? shooterIndex = null,
+        IReadOnlyList<Footprint>? kept = null)
     {
         ArgumentNullException.ThrowIfNull(shooter);
         ArgumentNullException.ThrowIfNull(outputs);
+        int At(int j) => shooterIndex is null ? j : shooterIndex[j];
         var total = Shots(outputs);
         var done = 0;
         void Step(string step, int output, string words) => progress?.Invoke(new AlignStepProgress(step, output, (double)++done / total, words));
@@ -66,12 +71,12 @@ public static class AlignSequence
         for (var j = 0; j < outputs.Count; j++)
         {
             var o = outputs[j];
-            whites[j] = Same(await shooter.ShootAsync(j, Solid(o.Width, o.Height, 255), ct).ConfigureAwait(false), cw, ch);
+            whites[j] = Same(await shooter.ShootAsync(At(j), Solid(o.Width, o.Height, 255), ct).ConfigureAwait(false), cw, ch);
             Step("identify", j, $"{o.Name} white");
             ramps[j] = [];
             foreach (var level in Photometry.RampLevels)
             {
-                ramps[j].Add((level, Same(await shooter.ShootAsync(j, Solid(o.Width, o.Height, level), ct).ConfigureAwait(false), cw, ch)));
+                ramps[j].Add((level, Same(await shooter.ShootAsync(At(j), Solid(o.Width, o.Height, level), ct).ConfigureAwait(false), cw, ch)));
                 Step("identify", j, $"{o.Name} grey {level}");
             }
             footprints[j] = Footprints.Find(black.Gray, whites[j], cw, ch);
@@ -82,14 +87,14 @@ public static class AlignSequence
             var o = outputs[j];
             if (footprints[j].Area < 64)
                 throw new InvalidOperationException($"{o.Name} lit nothing the camera saw — is it on, its shutter open, and in the camera's view?");
-            var photometry = Photometry.Measure(Photometry.Core(footprints[j], footprints), black.Gray, whites[j], ramps[j]);
+            var photometry = Photometry.Measure(Photometry.Core(footprints[j], kept is null ? footprints : [.. footprints, .. kept]), black.Gray, whites[j], ramps[j]);
             var plan = PlanFor(o.Width, o.Height, photometry.Measured ? photometry.Gamma : 2.2);
             var frames = new byte[plan.Count][];
             var pattern = new byte[o.Width * o.Height];
             for (var i = 0; i < plan.Count; i++)
             {
                 plan.Render(i, pattern);
-                frames[i] = Same(await shooter.ShootAsync(j, (byte[])pattern.Clone(), ct).ConfigureAwait(false), cw, ch);
+                frames[i] = Same(await shooter.ShootAsync(At(j), (byte[])pattern.Clone(), ct).ConfigureAwait(false), cw, ch);
                 Step("scan", j, $"{o.Name}: pattern {i + 1} of {plan.Count}");
             }
             ct.ThrowIfCancellationRequested();

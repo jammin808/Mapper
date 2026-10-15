@@ -204,11 +204,20 @@ public sealed partial class EngineCore
 
     private CommandReply AlignRun(VerbCall c)
     {
-        const string syntax = "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]";
+        const string syntax = "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]";
         var args = c.Args.ToList();
         var steps = TakeOption(args, "STEPS");
         var fitWord = TakeOption(args, "FIT");
         var colourWord = TakeOption(args, "COLOR");
+        var onlyAt = args.FindIndex(a => a.Equals("ONLY", StringComparison.OrdinalIgnoreCase));
+        List<string>? onlyWords = null;
+        if (onlyAt >= 0)
+        {
+            onlyWords = args.Skip(onlyAt + 1).ToList();
+            args.RemoveRange(onlyAt, args.Count - onlyAt);
+            if (onlyWords.Count == 0)
+                return CommandReply.Fail("ONLY takes the outputs to scan again — " + syntax);
+        }
         if (args.Count != 1 || steps == "" || fitWord == "" || colourWord == "")
             return CommandReply.Fail(syntax);
         var colour = false;
@@ -268,6 +277,29 @@ public sealed partial class EngineCore
         }
         if (outputs.Count == 0)
             return CommandReply.Fail($"{group.Name} has no output");
+        var only = ImmutableArray<int>.Empty;
+        var reference = "";
+        if (onlyWords is not null)
+        {
+            if (colour)
+                return CommandReply.Fail("colour matches the whole group — ALIGN RUN " + group.Id + " COLOR WHITE without ONLY");
+            var picked = new List<int>();
+            foreach (var word in onlyWords)
+            {
+                var j = outputs.FindIndex(o => o.Id.Equals(word, StringComparison.OrdinalIgnoreCase) || o.Name.Equals(word, StringComparison.OrdinalIgnoreCase));
+                if (j < 0)
+                    return CommandReply.Fail($"{word} is not one of {group.Name}'s outputs");
+                if (!picked.Contains(j))
+                    picked.Add(j);
+            }
+            var runs = outputs.Select(o => o.Measured?.RunId ?? "").Distinct(StringComparer.Ordinal).ToList();
+            if (runs.Count != 1 || runs[0].Length == 0)
+                return CommandReply.Fail($"ONLY keeps the others' measurements from the run they came from — {group.Name}'s outputs do not all stand on one accepted run (ALIGN RUN {group.Id} first)");
+            if (picked.Count == outputs.Count)
+                return CommandReply.Fail($"ONLY names every output of {group.Name} — ALIGN RUN {group.Id} scans them all");
+            only = [.. picked.Order()];
+            reference = runs[0];
+        }
         var aspect = group.Target.Aspect > 0 ? group.Target.Aspect
             : p.FindCanvas(group.CanvasId) is { Width: > 0, Height: > 0 } cv ? (double)cv.Width / cv.Height
             : 16.0 / 9;
@@ -278,14 +310,14 @@ public sealed partial class EngineCore
         var projectors = outputs.Select(o => o.ProjectorId is { } pid ? p.FindProjector(pid) : null).ToList();
         try
         {
-            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder) { Colour = colour });
+            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder) { Colour = colour, Only = only, ReferenceRunId = reference });
         }
         catch (InvalidOperationException ex)
         {
             return CommandReply.Fail(ex.Message);
         }
-        var shots = Core.Align.AlignSequence.Shots([.. outputs.Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name, o.Width, o.Height,
-            Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0);
+        var shots = Core.Align.AlignSequence.Shots([.. outputs.Where((_, j) => only.IsEmpty || only.Contains(j)).Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name,
+            o.Width, o.Height, Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0);
         var words = string.Create(CultureInfo.InvariantCulture,
             $"{runId} measures {group.Name} through {group.CameraId} ({shots} pictures, FIT {fit.ToString().ToUpperInvariant()}); nothing changes on the air until ALIGN ACCEPT {runId}");
         return new CommandReply(true, JsonOut(w =>

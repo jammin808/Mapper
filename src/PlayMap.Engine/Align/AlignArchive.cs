@@ -63,6 +63,22 @@ public static partial class AlignArchive
         }
     }
 
+    /// <summary>A run's capture of one output and its black picture, read back from its folder (null when missing or unreadable).</summary>
+    public static Core.Align.AlignCapture? LoadCapture(string? projectFolder, string runId, string outputId, Core.Align.ProjectorPrior prior)
+    {
+        if (string.IsNullOrEmpty(projectFolder) || !IsRunId(runId) || outputId.IndexOfAny(['/', '\\', '.']) >= 0)
+            return null;
+        var path = Path.Combine(projectFolder, Folder, runId, $"capture-{outputId}.bin");
+        try
+        {
+            return File.Exists(path) ? Core.Align.AlignCaptureFile.Read(File.ReadAllBytes(path), prior) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The full path of a file a project names (relative to its folder), or null when the name leaves the folder.</summary>
     public static string? Resolve(string? projectFolder, string relative)
     {
