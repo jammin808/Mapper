@@ -144,11 +144,12 @@ public sealed class NodeHome
     {
         var temp = SettingsPath + ".saving";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, Json));
-        File.Move(temp, SettingsPath, overwrite: true);
+        FileReplace.Over(temp, SettingsPath);
     }
 
-    /// <summary>Reads a file the node replaces whole (written aside, then moved over it). The read shares delete, so on Windows a
-    /// reader — this node, the desk reading the token, a poll — never refuses the replace that lands while it reads.</summary>
+    /// <summary>Reads a file the node replaces whole (written aside, then moved over it by <see cref="FileReplace"/>). The read
+    /// shares delete, so on Windows a reader — this node, the desk reading the token, a poll — never refuses the replace that
+    /// lands while it reads.</summary>
     internal static string ReadShared(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -198,7 +199,7 @@ public sealed record RecoveryRecord(
     {
         var temp = path + ".saving";
         File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
-        File.Move(temp, path, overwrite: true);
+        FileReplace.Over(temp, path);
     }
 
     public static RecoveryRecord? Load(string path)
