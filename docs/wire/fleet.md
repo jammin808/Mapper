@@ -1,8 +1,8 @@
 # wp2-fleet on the wire
 
 What machine health, the fleet board and the context's order for Patterns' Eye add to the wire. Every row below is routed (VERBS
-marks it `"available"`). The hot-backup rows after them in the catalogue (`FLEET BACKUP`, `FAILOVER`, `MIRROR` …) are wp2-backup's,
-this package's continuation, and answer "… is not available on this node yet" until it routes them.
+marks it `"available"`). The hot-backup rows after them in the catalogue (`FLEET BACKUP`, `FAILOVER`, `MIRROR` …) are not built:
+they answer "… is not available on this node yet".
 
 ## Verbs
 
@@ -54,9 +54,8 @@ web modules admitted before the token gate, on purpose: they are open reads like
 secret, a token or a file's content — and they change nothing (anything but GET or HEAD is refused 403 "the fleet's pages are
 read-only …"). The `/health` WebSocket feeds at most 64 sockets at once; one more is answered 503 with words (a GET still reads
 the record). A WebSocket whose Origin names another site is refused 403 (a fleet monitor sends no Origin; a browser always does), so
-a stranger's page cannot hold the feeds. The plan named them `/api/health` and `/api/fleet`; the web port keeps `/api/…` for its own routes behind the gate
-(no module may serve under it), so they live at `/health` and `/fleet` until the web port's owner opens an `/api/<word>` door to
-modules.
+a stranger's page cannot hold the feeds. They sit outside `/api/…`, which the web port keeps for its own routes behind the gate
+(no module serves under it).
 
 ## STATE
 
@@ -72,9 +71,9 @@ Top level, after `show`: `fleet` then `eye`.
 ```
 
 `nodes` are the other machines this node hears (this node is STATE itself); `light` and `headline` are the whole fleet's, this node
-included. `role`, `epoch`, `state` and `of` are read from the node's fleet settings; `backups`, `mirror`, `alarm` and `last` are
-wp2-backup's and read empty here. The fixture is `tests/fixtures/state/fleet.json`, its cards `fleet.cards.json`. STATE.peers and
-the context's peers carry each PlayMap peer's own light and headline from its HEALTH.
+included. `role`, `epoch`, `state` and `of` are read from the node's fleet settings; `backups`, `mirror`, `alarm` and `last` belong
+to hot backup, which is not built, and read empty. The fixture is `tests/fixtures/state/fleet.json`, its cards
+`fleet.cards.json`. STATE.peers and the context's peers carry each PlayMap peer's own light and headline from its HEALTH.
 
 ## The context (Show Bus §6) for Patterns' Eye
 
@@ -87,7 +86,7 @@ folded in), the playlists that play (two or more idle ones as one `playlists` it
 
 ## Hello
 
-The caps gain `eye` and `show` (16 in all).
+The caps include `eye` and `show` (16 in all).
 
 ## INDEX
 
@@ -101,18 +100,9 @@ Section `fleet`: a row per expected machine (known before a restart, in the show
 is live, amber quiet, red gone or never heard, fix `NODES`; a row per peer's certificate — green pinned, amber not pinned yet, red
 refused (changed, or not the hello's) with the pin file to edit; one grey row when the monitor is off.
 
-## Papers note
+## Next
 
-For the integration docs pass (WIRE.md, SHOWBUS-NODE.md, ARCHITECTURE.md, ROADMAP.md):
-
-- `HEALTH` exists (one record per machine, eleven categories, unknown −1 and grey, the light table above), with `SUBSCRIBE HEALTH`
-  and `/health`; `FLEET`/`EYE` answer the board of every PlayMap machine this node hears in Patterns' `EyeJson` shape, with lenses,
-  focus and the problems queue; STATE gains `fleet` and `eye`; INDEX gains `eye`; preflight gains `fleet`.
-- Every node watches its peers' health over `/health` (WebSocket, TLS pinned by the hello's fingerprint, pins in
-  `keys/fleet-pins.json`), at most 32, stale at 3 s and gone at 6 s; a gone machine stays on the board, red.
-- The context is ordered for Patterns' Eye with `show` and `machine` first; the hello offers `eye` and `show`.
-- Patterns' side (P1 "PlayMap" kind words, P2 reading every peer's context with the `context` cap, P3 picture things on the Video
-  band) is prepared as a patch with tests, not applied (SHOWBUS-NODE.md should record it); a PlayMap peer's context is read over its
-  line wire (`CONTEXT`, open) since `/api/context` is behind the token.
-- Not yet: the metrics ring and `FLEET AT` replay, the `/fleet` page, webhooks and syslog, GPU temperatures through NVML, the hello's
-  `role`/`epoch` fields, hot backup and failover (wp2-backup).
+The metrics ring and `FLEET AT` replay, the `/fleet` page, webhooks and syslog, GPU temperatures through NVML, the hello's
+`role`/`epoch` fields, and hot backup and failover (the `FLEET BACKUP` … rows). Patterns' side (P1 the "PlayMap" kind's words,
+P2 reading every peer's context with the `context` cap, P3 picture things on the Video band) is a patch with tests, not applied
+(docs/FLEET.md).

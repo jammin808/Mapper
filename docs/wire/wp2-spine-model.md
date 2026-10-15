@@ -1,13 +1,15 @@
 # Round 2 spine: the model and the wire's table
 
-What the first half of the round-2 spine adds to the project file, to Core's shared types and to the verb table. Nothing here
-changes what a node does on the air: every round-2 verb answers "… is not available on this node yet" until the package that
-owns it routes it, and no STATE key is written.
+What the round-2 spine adds to the project file, to Core's shared types and to the verb table. The spine itself changes nothing
+on the air: a round-2 row answers "… is not available on this node yet" until the package that owns it routes it, and each
+package writes its own STATE keys. Most rows are routed: show, output, decode, optimise, control and timecode, companion,
+effects, audio, content, LED, the wall, align and fleet answer the rows they build (docs/WIRE.md lists the pages; `VERBS` marks
+each row available or not).
 
 ## The project file
 
-- Round-2 fields are new keys on today's objects, all with defaults, plus new top-level lists and records (`show`, `fleet`,
-  `control`, `timecode`, `sends`, `fxAssets`, `generatorPresets`, `audio`, `tempo`, `leds`, `optimise`; `stage.site`,
+- Round-2 fields are new keys on the first round's objects, all with defaults, plus new top-level lists and records (`show`,
+  `fleet`, `control`, `timecode`, `sends`, `fxAssets`, `generatorPresets`, `audio`, `tempo`, `leds`, `optimise`; `stage.site`,
   `stage.controls`, `stage.surveys`, `stage.stacks`, `stage.aligns`, `stage.calibrations`; `fx` chains on items, layers,
   canvases, surfaces and outputs; the calibration ledger's `calibrationId`, `fallbackId` and `stagedId` on projectors and
   outputs). `schema` stays 1.
@@ -51,9 +53,7 @@ tap, a generator's input, a live input's fallback, a panic plan's safe look, a c
 - The context's commands put panic, air, transport and Show Mode verbs first (the Eye keeps 64). Its links use only the Eye's
   eleven verbs (`feeds`, `shows`, `drives`, `carries`, `controls`, `mirrors`, `follows`, `hears`, `routes`, `serves`, `sends`).
 
-## Papers note
+## Forms
 
-For the integration docs pass: `WIRE.md` gains the `VERBS` fields above and the risk rule; `ARCHITECTURE.md` the file rule for
-`null`; the round-2 rows whose sub-forms were joined by a bare `|` are written as separate forms (`TIMECODE SET`, `TIMECODE
-SOURCE`, `TIMECODE INTERNAL`, `AUDIO LISTEN`, `PROJECTOR PRIOR … AT`, `SUBSCRIBE THUMBS`), and a quad corner reads as
-`TL|TR|BR|BL|0|1|2|3`.
+A row with sub-forms writes each as a separate form after a top-level ` | ` (`TIMECODE SET`, `TIMECODE SOURCE`, `TIMECODE
+INTERNAL`, `AUDIO LISTEN`, `PROJECTOR PRIOR … AT`, `SUBSCRIBE THUMBS`), and a quad corner reads as `TL|TR|BR|BL|0|1|2|3`.

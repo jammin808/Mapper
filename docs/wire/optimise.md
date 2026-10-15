@@ -56,8 +56,7 @@ a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
 Section `optimise`: amber for each video the show plays at 4K or larger that this node decodes on the CPU (what plays here is not a
 HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
 
-## Papers note
+## Not in the catalogue
 
-For the integration docs pass: WIRE.md gains the six rows above (MEDIA ESTIMATE and MEDIA VERSION are trimmed: next round);
-ARCHITECTURE.md §1 gains the third process role, `PlayMap optimise-worker`; PLAYBACK.md's media chapter gains versions and `use`;
-ROADMAP.md R2.4 moves to "built" for the must above the cut line, with the next-round list of `docs/OPTIMISE.md`.
+`MEDIA ESTIMATE` (estimates and the rate table) and `MEDIA VERSION` (removing a version, with the lossless rewriter) have
+no row: they are next (`docs/OPTIMISE.md`). The worker is the same exe's third role, `PlayMap optimise-worker` (docs/ARCHITECTURE.md §1).
