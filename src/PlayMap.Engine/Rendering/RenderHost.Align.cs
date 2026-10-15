@@ -29,27 +29,32 @@ public sealed partial class RenderHost
             return;
         var set = engine.AlignMeasured;
         if (!ReferenceEquals(set, _alignSet))
-        {
-            _alignSet = set;
-            foreach (var id in _alignStages.Keys.Where(id => !set.Loads.TryGetValue(id, out var l) || l.Key != _alignStages[id].Key).ToList())
-            {
-                _alignStages[id].Stage.Dispose();
-                _alignStages.Remove(id);
-            }
-            foreach (var (id, load) in set.Loads)
-            {
-                if (_alignStages.ContainsKey(id))
-                    continue;
-                var stage = MeasuredStage.Upload(device,
-                    load.Grid is { } g ? (g.Width, g.Height, g.Values) : null,
-                    load.Blend is { } b ? (b.Width, b.Height, b.Values) : null,
-                    load.Gains, load.Gamma, 1f);
-                _alignStages[id] = (load.Key, stage);
-            }
-            _alignInputs = _alignStages.Count == 0 ? null : new MeasuredStages(_alignStages.ToDictionary(kv => kv.Key, kv => kv.Value.Stage, StringComparer.Ordinal));
-        }
+            UploadAlign(device, set);
         if (_alignInputs is { } stages)
             inputs = inputs with { Measured = stages };
+    }
+
+    /// <summary>The stages made to match a new set: what changed uploaded, what went let go. Its own method, so the closures it makes
+    /// are made only when the set changes and never on a frame where it is the same.</summary>
+    private void UploadAlign(GlDevice device, MeasuredSet set)
+    {
+        _alignSet = set;
+        foreach (var id in _alignStages.Keys.Where(id => !set.Loads.TryGetValue(id, out var l) || l.Key != _alignStages[id].Key).ToList())
+        {
+            _alignStages[id].Stage.Dispose();
+            _alignStages.Remove(id);
+        }
+        foreach (var (id, load) in set.Loads)
+        {
+            if (_alignStages.ContainsKey(id))
+                continue;
+            var stage = MeasuredStage.Upload(device,
+                load.Grid is { } g ? (g.Width, g.Height, g.Values) : null,
+                load.Blend is { } b ? (b.Width, b.Height, b.Values) : null,
+                load.Gains, load.Gamma, 1f);
+            _alignStages[id] = (load.Key, stage);
+        }
+        _alignInputs = _alignStages.Count == 0 ? null : new MeasuredStages(_alignStages.ToDictionary(kv => kv.Key, kv => kv.Value.Stage, StringComparer.Ordinal));
     }
 
     partial void OnContextAlign(RenderEngine renderer)

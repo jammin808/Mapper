@@ -9,8 +9,8 @@ namespace PlayMap.Engine.Tests.Align;
 
 /// <summary>The measured correction through the render host (headless, Mesa): an output whose project names a measured warp (the
 /// picture squeezed into the middle half) and a measured blend (half the white, in light) shows exactly that, read back from the
-/// air; the same project on a node whose folder lacks the files shows the output without its correction, and STATE says which
-/// file.</summary>
+/// air, and warm frames with it up allocate nothing on the frame path; the same project on a node whose folder lacks the files shows
+/// the output without its correction, and STATE says which file.</summary>
 [Collection("render host")]
 public sealed class AlignHostTests(ITestOutputHelper log)
 {
@@ -101,6 +101,11 @@ public sealed class AlignHostTests(ITestOutputHelper log)
                 Assert.Equal((0, 0, 0), HostRig.At(px, W, W - 3, H - 3));
                 Assert.True(Math.Abs(centre.R - half) <= 1 && Math.Abs(centre.G - half) <= 1, $"centre {centre}, want {half} ± 1");
                 Assert.Equal("ok", JsonOf(engine).GetProperty("outputs")[0].GetProperty("measured").GetProperty("files").GetString());
+
+                // Warm frames with the correction up allocate nothing on the frame path.
+                var before = host.Stats;
+                await host.FramesAsync(60).WaitAsync(HostRig.Patience);
+                Assert.Equal(before.FramePathAllocatedBytes, host.Stats.FramePathAllocatedBytes);
             }
 
             // The same project on a node whose folder lacks the files: the output without its correction, and STATE says which file.
