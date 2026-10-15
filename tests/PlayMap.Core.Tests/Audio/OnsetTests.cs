@@ -108,6 +108,28 @@ public sealed class OnsetTests
             Assert.True(found[i] - found[i - 1] >= OnsetDetector.MinGapHops * AudioAnalyser.Hop, $"onsets {i - 1} and {i} are {(found[i] - found[i - 1]) * 1000.0 / Rate:0.#} ms apart");
     }
 
+    /// <summary>The 30 ms rule itself: of two equal bursts 20 ms apart only the first is an onset; 30 ms apart both are (the strength
+    /// clears its adaptive threshold either way, so only the gap decides).</summary>
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(6, true)]
+    public void ASecondBurstWithinThirtyMillisecondsIsNotAnOnset(int hopsApart, bool second)
+    {
+        const int bins = AudioAnalyser.Window / 2 + 1;
+        var detector = new OnsetDetector(bins, AudioAnalyser.Hop / (double)Rate);
+        var loud = Enumerable.Repeat(1.0, bins).ToArray();
+        var quiet = new double[bins];
+        int[] bursts = [10, 10 + hopsApart, 60];
+        var onsets = new List<int>();
+        for (var hop = 0; hop < 70; hop++)
+        {
+            if (detector.Hop(bursts.Contains(hop) ? loud : quiet))
+                onsets.Add(hop - 1);
+        }
+        Assert.Equal(second ? bursts : [10, 60], onsets);
+        Assert.Equal(6, OnsetDetector.MinGapHops);
+    }
+
     [Fact]
     public void SilenceAndASteadyToneHaveNoOnsets()
     {
