@@ -82,9 +82,20 @@ public static class MultiViewCalibration
         if (previous is null)
             CarryOntoStage(start, input, projectors);
 
-        // Entities in input order, only those the start placed.
-        var viewList = input.Views.Where(v => start.Views.ContainsKey(v.Id)).ToList();
-        var projList = input.Projectors.Where(p => start.Projectors.ContainsKey(p.Id)).ToList();
+        // Entities in input order, only those the start placed and that still see each other: a view must observe a
+        // placed projector's track, and a projector must have a track such a view observed (after a drop, either can
+        // be left with nothing, and a parameter nothing observes cannot be solved).
+        var seenPairs = input.Tracks.Tracks.Where(t => start.Projectors.ContainsKey(t.ProjectorId))
+            .SelectMany(t => t.Seen.Where(s => start.Views.ContainsKey(s.ViewId)).Select(s => (View: s.ViewId, Projector: t.ProjectorId)))
+            .ToHashSet();
+        var viewList = input.Views.Where(v => start.Views.ContainsKey(v.Id) && seenPairs.Any(x => x.View == v.Id)).ToList();
+        var projList = input.Projectors.Where(p => start.Projectors.ContainsKey(p.Id) && seenPairs.Any(x => x.Projector == p.Id)).ToList();
+        foreach (var v in input.Views.Where(v => start.Views.ContainsKey(v.Id) && !viewList.Contains(v)))
+            start.LeftOut.Add(new LeftOutView(v.Id, $"view {v.Id} sees none of the solved projectors' tracks"));
+        foreach (var p in input.Projectors.Where(p => start.Projectors.ContainsKey(p.Id) && !projList.Contains(p)))
+            start.Words.Add($"projector {p.Id} is seen by no view left in the scan");
+        if (viewList.Count == 0 || projList.Count == 0)
+            return new MultiViewResult([], [], [], [], double.NaN, false, [.. start.LeftOut], 0, "not solved: no view sees a solved projector");
         var rigList = input.Rigs.Where(r => viewList.Any(v => v.RigId == r.Id)).ToList();
         var viewIndex = viewList.Select((v, i) => (v.Id, i)).ToDictionary(x => x.Id, x => x.i, StringComparer.Ordinal);
         var projIndex = projList.Select((p, i) => (p.Id, i)).ToDictionary(x => x.Id, x => x.i, StringComparer.Ordinal);
@@ -269,6 +280,21 @@ public static class MultiViewCalibration
         var root = order.OrderByDescending(v => solves[v].Linked.Count).ThenByDescending(v => points[v].Count).First();
 
         // Prim's maximum spanning tree over shared track points; each link a similarity w → v.
+        // The shared points of every pair of views, found once: (point in v's frame, point in w's frame).
+        var sharedBy = new Dictionary<(string V, string W), List<(Vec3d A, Vec3d B)>>();
+        foreach (var v in order)
+        {
+            foreach (var w in order)
+            {
+                if (v == w)
+                    continue;
+                var shared = new List<(Vec3d, Vec3d)>();
+                foreach (var (key, b) in points[w])
+                    if (points[v].TryGetValue(key, out var a))
+                        shared.Add((a, b));
+                sharedBy[(v, w)] = shared;
+            }
+        }
         var placed = new Dictionary<string, Similarity3>(StringComparer.Ordinal) { [root] = Similarity3.Identity };
         var tree = new List<string> { root };
         while (true)
@@ -280,10 +306,7 @@ public static class MultiViewCalibration
                 {
                     if (placed.ContainsKey(w))
                         continue;
-                    var shared = new List<(Vec3d, Vec3d)>();
-                    foreach (var (key, b) in points[w])
-                        if (points[v].TryGetValue(key, out var a))
-                            shared.Add((a, b));
+                    var shared = sharedBy[(v, w)];
                     if (shared.Count >= Math.Max(3, o.MinSharedTracks) && (best is null || shared.Count > best.Value.Shared.Count))
                         best = (v, w, shared);
                 }
@@ -426,10 +449,21 @@ public static class MultiViewCalibration
             return list.Count > 0 ? Math.Sqrt(list.Sum(x => x * x) / list.Count) : double.NaN;
         }
 
+        // Observations indexed once by view, projector and track.
+        var byView = Enumerable.Range(0, viewList.Count).Select(_ => new List<int>()).ToArray();
+        var byProjectorId = projList.ToDictionary(p => p.Id, _ => new List<int>(), StringComparer.Ordinal);
+        var byTrack = Enumerable.Range(0, trackSource.Count).Select(_ => new List<int>()).ToArray();
+        for (var k = 0; k < obs.Count; k++)
+        {
+            byView[obs[k].View].Add(k);
+            byProjectorId[trackSource[obs[k].Track].ProjectorId].Add(k);
+            byTrack[obs[k].Track].Add(k);
+        }
+
         var cov = bundle.Covariance();
         var views = viewList.Select((v, i) =>
         {
-            var mine = Enumerable.Range(0, obs.Count).Where(k => obs[k].View == i).ToList();
+            var mine = byView[i];
             var byProjector = mine.Where(k => ok[k]).GroupBy(k => trackSource[obs[k].Track].ProjectorId, StringComparer.Ordinal)
                 .ToImmutableDictionary(g => g.Key, g => Rms(g.Select(k => res[k])), StringComparer.Ordinal);
             return new SolvedView(v.Id, v.RigId, PoseOf(s.VR[i], s.VC[i]), Rms(mine.Where(k => ok[k]).Select(k => res[k])), mine.Count, mine.Count(k => ok[k]))
@@ -440,7 +474,7 @@ public static class MultiViewCalibration
 
         var projectors = projList.Select((p, j) =>
         {
-            var mine = Enumerable.Range(0, obs.Count).Where(k => trackSource[obs[k].Track].ProjectorId == p.Id).ToList();
+            var mine = byProjectorId[p.Id];
             var trackCount = trackSource.Count(t => t.ProjectorId == p.Id);
             var inlierTracks = mine.Where(k => ok[k]).Select(k => obs[k].Track).Distinct().Count();
             var rms = Rms(mine.Where(k => ok[k]).Select(k => res[k]));
@@ -474,7 +508,7 @@ public static class MultiViewCalibration
 
         var tracks = trackSource.Select((t, i) =>
         {
-            var mine = Enumerable.Range(0, obs.Count).Where(k => obs[k].Track == i && ok[k]).ToList();
+            var mine = byTrack[i].Where(k => ok[k]).ToList();
             return new SolvedTrack(t.ProjectorId, t.Projector, bundle.Point(s, i, s.D[i]), Rms(mine.Select(k => res[k])), mine.Count);
         }).ToImmutableArray();
 

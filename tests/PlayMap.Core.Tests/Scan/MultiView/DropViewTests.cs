@@ -67,6 +67,24 @@ public sealed class DropViewTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DroppingTheOnlyViewOfAProjectorLeavesThatProjectorOutAndSolvesTheRest()
+    {
+        // Only v1 decoded pj2; v2 and v3 saw pj1 alone.
+        var decodes = new[] { MultiViewKit.Decode("v1", "pj1"), MultiViewKit.Decode("v1", "pj2"), MultiViewKit.Decode("v2", "pj1"), MultiViewKit.Decode("v3", "pj1") };
+        var input = MultiViewKit.MakeInput(TrackSet.Build(decodes));
+        input = input with { Views = [.. input.Views.Select(v => v.Id == "v1" ? v : v with { Pairs = v.Pairs.Remove("pj2") })] };
+        var all = MultiViewCalibration.Solve(input);
+        Assert.Equal(["pj1", "pj2"], all.Projectors.Select(p => p.Id));
+        var dropped = MultiViewCalibration.DropView(input, all, "v1");
+        output.WriteLine(dropped.Words);
+        Assert.Equal(["v2", "v3"], dropped.Views.Select(v => v.Id));
+        Assert.Equal(["pj1"], dropped.Projectors.Select(p => p.Id));
+        Assert.Contains("projector pj2 is seen by no view left in the scan", dropped.Words, StringComparison.Ordinal);
+        Assert.True(dropped.RmsPx < 0.5, $"{dropped.RmsPx:0.000} px");
+        Assert.All(dropped.Tracks, t => Assert.Equal("pj1", t.ProjectorId));
+    }
+
+    [Fact]
     public void DroppingAViewTheScanDoesNotHaveIsRefused()
     {
         var e = Assert.Throws<ArgumentException>(() => MultiViewCalibration.DropView(MultiViewKit.Input, MultiViewKit.Solved, "v9"));
