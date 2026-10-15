@@ -174,9 +174,9 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     public async Task AWorkerKilledMidJobIsRestartedAndTheJobRunsAgainToItsVersion()
     {
         await using var rig = OptimiseRig.Start();
-        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10);
+        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10);
         var id = await rig.ImportAsync(clip, "Clip");
-        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         Assert.Equal("accepted", reply.RootElement.GetProperty("stage").GetString());
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
@@ -203,8 +203,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     {
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
             options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
-        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
-        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10), "Clip");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
         await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
@@ -241,8 +241,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
         string jobId;
         var first = OptimiseRig.Start(dir: dir);
-        var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 640, 360, 10), "Clip");
-        using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap")))
+        var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 320, 180, 10), "Clip");
+        using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST")))
             jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await first.Until(() => first.Job(jobId).FramesDone >= 1, "the first frames");
         await first.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
@@ -279,7 +279,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     {
         // An LED-only rig: no output window, no playlist — the LED sender is the air.
         var led = new FakeLed();
-        await using var rig = OptimiseRig.Start(led: led);
+        // The node's own pause window: this test is about the pause.
+        await using var rig = OptimiseRig.Start(led: led, settings: s => s with { PauseAfterDropS = 60 });
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
