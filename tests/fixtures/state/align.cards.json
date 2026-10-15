@@ -1,1 +1,132 @@
-[]
+[
+  {
+    "title": "Alignment run",
+    "path": "align.run",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{state} \u00B7 {step} \u00B7 {words}",
+    "fields": [
+      {
+        "label": "Run",
+        "path": "id"
+      },
+      {
+        "label": "Group",
+        "path": "group"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Step",
+        "path": "step"
+      },
+      {
+        "label": "Progress",
+        "path": "progress"
+      },
+      {
+        "label": "Time left (s)",
+        "path": "etaS"
+      },
+      {
+        "label": "Score",
+        "path": "score"
+      }
+    ],
+    "actions": [
+      "ALIGN ACCEPT $(id)",
+      "ALIGN CANCEL",
+      "ALIGN STATUS"
+    ]
+  },
+  {
+    "title": "Alignment",
+    "path": "align.groups.0",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{name}: {words}",
+    "fields": [
+      {
+        "label": "Grade",
+        "path": "grade"
+      },
+      {
+        "label": "Score",
+        "path": "score"
+      },
+      {
+        "label": "Outputs",
+        "path": "outputs"
+      },
+      {
+        "label": "Camera",
+        "path": "camera"
+      },
+      {
+        "label": "Canvas",
+        "path": "canvas"
+      },
+      {
+        "label": "Fit",
+        "path": "fit"
+      },
+      {
+        "label": "Last run",
+        "path": "lastRun"
+      },
+      {
+        "label": "Staged",
+        "path": "staged"
+      }
+    ],
+    "actions": [
+      "ALIGN RUN $(id)",
+      "ALIGN ACCEPT $(id)",
+      "ALIGN REVERT $(id)",
+      "ALIGN CLEAR $(id)"
+    ]
+  },
+  {
+    "title": "Measured correction",
+    "path": "outputs.0.measured",
+    "light": [
+      {
+        "from": "light"
+      }
+    ],
+    "words": "{run} \u00B7 warp {residualPx} px \u00B7 \u03B3 {gamma} \u00B7 files {files}",
+    "fields": [
+      {
+        "label": "Run",
+        "path": "run"
+      },
+      {
+        "label": "Warp residual (px)",
+        "path": "residualPx"
+      },
+      {
+        "label": "\u03B3",
+        "path": "gamma"
+      },
+      {
+        "label": "Blend",
+        "path": "blend"
+      },
+      {
+        "label": "Files",
+        "path": "files"
+      }
+    ],
+    "actions": [
+      "ALIGN STATUS"
+    ]
+  }
+]
