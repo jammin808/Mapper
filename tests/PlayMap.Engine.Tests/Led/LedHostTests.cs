@@ -116,7 +116,9 @@ public sealed class LedHostTests
                 LedColor.Neutral, true, false, false, "#FF8800", []);
         return p with
         {
-            Canvases = [new Canvas("cv00000001", "Wall", 64, 32, "#C08040", [])],
+            // The top half red over a #C08040 background: a strip at y = 4 must read red, one at y = 20 the background.
+            Canvases = [new Canvas("cv00000001", "Wall", 64, 32, "#C08040",
+                [new Layer("ly00000001", "Top", SourceRef.Solid("#FF0000"), new RectD(0, 0, 64, 16), 1, LayerBlend.Normal, true)])],
             Leds = new LedRig
             {
                 Nodes =
@@ -141,9 +143,8 @@ public sealed class LedHostTests
         await LedVerbTests.Ok(rig.Engine, "LED OUTPUT ON");
         await rig.Step();
         var (show, _) = await rig.Monitor(Ddp, 0);
-        // The canvas is #C08040 everywhere: every pixel of the first strip says so after its mode channel.
-        Assert.Equal([42, 0xC0, 0x80, 0x40, 0xC0, 0x80, 0x40], show[..7]);
-        // GRB from byte 50.
+        // The first strip (y = 4) reads the red top half after its mode channel; the second (y = 20, GRB from byte 50) the background.
+        Assert.Equal([42, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00], show[..7]);
         Assert.Equal([0x80, 0xC0, 0x40], show[49..52]);
         await LedVerbTests.Ok(rig.Engine, "BLACKOUT ON");
         await rig.Step();

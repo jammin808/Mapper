@@ -104,12 +104,19 @@ public sealed class LedSenderTests
         sender.SetMaster(true, false);
         var leader0 = 1_760_000_000_000_000_000L;
         var sends = 0;
+        var expected = new List<long>();
+        var lastStep = long.MinValue;
         for (var k = 0; k < 60; k++)
         {
             // Frame k is drawn at mono k/60 s for light 10 ms later.
             var leader = leader0 + k * 1_000_000_000L / 60;
             clock.NowNs = 1_000_000_000 + k * 1_000_000_000L / 60;
             Submit(sender, plan, leader, clock.NowNs + 10_000_000, (byte)k);
+            if (LedPrograms.StepOf(leader, 44_000) != lastStep)
+            {
+                lastStep = LedPrograms.StepOf(leader, 44_000);
+                expected.Add(k);
+            }
             sender.Pump(clock.NowNs);
             clock.NowNs += 10_000_000;
             sender.Pump(clock.NowNs);
@@ -130,8 +137,10 @@ public sealed class LedSenderTests
             Assert.Equal((5, 6), (a.PortAddress, b.PortAddress));
             Assert.Equal((510, 90), (a.Length, b.Length));
             Assert.Equal((byte)(i + 1), a.Sequence);
-            Assert.Equal(da[0], da[509]);
+            // The frame sent is the one whose leader step moved (its fill is its frame number).
+            Assert.Equal((byte)expected[i], da[0]);
         }
+        Assert.Equal(expected.Count, sends);
         Assert.Equal("sending", sender.View().Nodes[0].State);
         Assert.Equal(0, sender.View().Nodes[0].LateMs);
         Assert.Equal(1, node.Polls);
@@ -295,5 +304,113 @@ public sealed class LedSenderTests
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
         Assert.Equal(2200, sender.View().Nodes[0].Frames);
         Assert.NotEmpty(node.Take());
+    }
+
+    /// <summary>An Art-Net sender and node pair on two addresses of the slot, with a program from a rig of strips.</summary>
+    private static (ManualClock Clock, ArtNetEndpoint Art, LedSender Sender) ArtNetPair(int at)
+    {
+        var clock = new ManualClock(1_000_000_000);
+        var art = new ArtNetEndpoint(Address(at));
+        var sender = new LedSender(new LedSenderOptions { ArtNet = art, Bind = IPAddress.Parse(Address(at)), Clock = clock });
+        return (clock, art, sender);
+    }
+
+    [Fact]
+    public async Task AHeldStopIsKeptWhenTheProgramThatDropsTheNodeFollowsIt()
+    {
+        var (clock, art, sender) = ArtNetPair(52);
+        await using var artOwned = art;
+        await using var senderOwned = sender;
+        using var node = new Receiver(Address(53), ArtNet.Port);
+        var plan = Plan(Node(LedProtocol.ArtNet, Address(53)), Strip("lf00000001", "builtin:rgb", 10, new LedPatch("ln00000001", 0, 1)));
+        sender.Apply(LedPrograms.Build(plan, Guid.NewGuid(), "t"));
+        sender.SetMaster(true, false);
+        Submit(sender, plan, 1, clock.NowNs, 90);
+        sender.Pump(clock.NowNs);
+        Assert.Equal(2, node.Take(2).Count);
+        var packets = sender.View().Nodes[0].Packets;
+        // LED OUTPUT OFF <node> HOLD: the stop, then the program without the node, in one pump.
+        sender.StopNode("ln00000001", blackFirst: false);
+        sender.Apply(LedPrograms.Build(Plan(Node(LedProtocol.ArtNet, Address(53)) with { Enabled = false }), Guid.NewGuid(), "t"));
+        clock.NowNs += 5_000_000_000;
+        sender.Pump(clock.NowNs);
+        Assert.Equal(2, packets);
+        Assert.Empty(sender.View().Nodes);
+        Assert.Empty(node.Take(0));
+    }
+
+    [Fact]
+    public async Task AUniverseThePatchLeavesIsBlackedAndTheRestCarryOn()
+    {
+        var (clock, art, sender) = ArtNetPair(55);
+        await using var artOwned = art;
+        await using var senderOwned = sender;
+        using var node = new Receiver(Address(56), ArtNet.Port);
+        var n = Node(LedProtocol.ArtNet, Address(56));
+        var plan = Plan(n, Strip("lf00000001", "builtin:rgb", 10, new LedPatch(n.Id, 5, 1)), Strip("lf00000002", "builtin:rgb", 10, new LedPatch(n.Id, 6, 1)));
+        sender.Apply(LedPrograms.Build(plan, Guid.NewGuid(), "t"));
+        sender.SetMaster(true, false);
+        Submit(sender, plan, 1, clock.NowNs, 120);
+        sender.Pump(clock.NowNs);
+        Assert.Equal(3, node.Take(3).Count);
+        // The second strip moves from universe 6 to 9: universe 6 goes black (and is latched) at once.
+        var moved = Plan(n, Strip("lf00000001", "builtin:rgb", 10, new LedPatch(n.Id, 5, 1)), Strip("lf00000002", "builtin:rgb", 10, new LedPatch(n.Id, 9, 1)));
+        sender.Apply(LedPrograms.Build(moved, Guid.NewGuid(), "t"));
+        sender.Pump(clock.NowNs + 1);
+        var black = node.Take(2);
+        Assert.Equal(2, black.Count);
+        Assert.True(ArtNet.TryReadDmx(black[0].Bytes, out var h, out var data));
+        Assert.Equal(6, h.PortAddress);
+        Assert.All(data.ToArray(), b => Assert.Equal(0, b));
+        Assert.True(ArtNet.IsSync(black[1].Bytes));
+        // A node moved to another address: the old one is blacked whole.
+        var elsewhere = Plan(n with { Host = Address(57) }, Strip("lf00000001", "builtin:rgb", 10, new LedPatch(n.Id, 5, 1)));
+        sender.Apply(LedPrograms.Build(elsewhere, Guid.NewGuid(), "t"));
+        sender.Pump(clock.NowNs + 2);
+        var whole = node.Take(3);
+        Assert.Equal([5, 9], whole.Take(2).Select(p => ArtNet.TryReadDmx(p.Bytes, out var x, out _) ? x.PortAddress : -1));
+    }
+
+    [Fact]
+    public async Task TheGuardRefusingBlacksTheRigAndTurningBackOnResumes()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        using var receiver = new Receiver(Address(58), Sacn.Port);
+        await using var sender = new LedSender(new LedSenderOptions { Bind = IPAddress.Parse(Address(59)), Clock = clock });
+        var n = Node(LedProtocol.Sacn, Address(58)) with { SacnSyncUniverse = 7000 };
+        var p = Project.CreateDefault("LED") with { Canvases = [new Canvas("cv00000001", "Wall", 1024, 64, "#000000", [])] };
+        p = p with { Leds = new LedRig { Nodes = [n], Fixtures = [Strip("lf00000001", "builtin:rgb", 10, new LedPatch(n.Id, 1, 1))] } };
+        var plan = LedPlanBuilder.Build(p, 200, 1);
+        sender.Apply(LedPrograms.Build(plan, Guid.NewGuid(), "t"));
+        sender.SetMaster(true, false);
+        Submit(sender, plan, 1, clock.NowNs, 50);
+        sender.Pump(clock.NowNs);
+        var first = receiver.Take(2);
+        // The data packet names the sync universe; the sync packet follows it.
+        Assert.True(Sacn.TryReadData(first[0].Bytes, out var d, out _));
+        Assert.Equal(7000, d.SyncAddress);
+        Assert.True(Sacn.TryReadSync(first[1].Bytes, out var sync));
+        Assert.Equal(7000, sync.SyncAddress);
+        var refused = LedPlanBuilder.Build(p, 0, 2);
+        sender.Apply(LedPrograms.Build(refused, Guid.NewGuid(), "t"));
+        sender.Pump(clock.NowNs + 1);
+        var stop = receiver.Take(5);
+        Assert.Equal(5, stop.Count);
+        Assert.True(Sacn.TryReadData(stop[0].Bytes, out var b0, out var slots));
+        Assert.Equal((false, 0), (b0.Terminated, (int)slots[0]));
+        Assert.All(stop.Skip(2), x => Assert.True(Sacn.TryReadData(x.Bytes, out var t, out _) && t.Terminated));
+        Assert.Equal("refused", sender.View().Nodes[0].State);
+        // Master off and on again: frames flow from the next leader step.
+        sender.SetMaster(false, false);
+        sender.Apply(LedPrograms.Build(LedPlanBuilder.Build(p, 200, 3), Guid.NewGuid(), "t"));
+        sender.SetMaster(true, false);
+        clock.NowNs += 10_000_000;
+        sender.Pump(clock.NowNs);
+        var again = sender.Sink.Rent(1)!;
+        (again.LeaderNs, again.LightMonoNs, again.PlanSerial) = (1_000_000_000, clock.NowNs, 3);
+        sender.Sink.Submit(again);
+        sender.Pump(clock.NowNs);
+        Assert.True(Sacn.TryReadData(receiver.Take(1)[0].Bytes, out var resumed, out _));
+        Assert.False(resumed.Terminated);
     }
 }

@@ -118,6 +118,12 @@ public sealed class LedPass : IFramePass
         var plan = Volatile.Read(ref _offered);
         if (plan is null || Sink is null || (plan.Pixels == 0 && plan.Rows.IsEmpty))
             return;
+        if (!_device.HasReadBgra)
+        {
+            // Fail closed with the reason: no read-back, no LED frames.
+            Problem = "this GPU context reads back no BGRA (EXT_read_format_bgra is absent): LED output is off on this node";
+            return;
+        }
         if (!ReferenceEquals(plan, _built))
             Build(plan);
         _levels = frame.Levels;
@@ -125,15 +131,16 @@ public sealed class LedPass : IFramePass
         var d = _device;
         d.SetBlend(BlendMode.Opaque);
         d.SetDepth(false, false);
-        if (plan.Pixels > 0 && (!frame.Freeze || !_hasColors))
+        var (rigGain, rigHeld) = RigAir(frame);
+        if (plan.Pixels > 0)
         {
-            Sample(plan);
+            Sample(plan, frame.Freeze, rigHeld);
             _hasColors = true;
         }
         Frames++;
         if (plan.Rows.IsEmpty)
             return;
-        LedAir.Fill(plan, Live, frame.LeaderNs, frame.Blackout, _outputGain, RigGain(frame), _airData);
+        LedAir.Fill(plan, Live, frame.LeaderNs, frame.Blackout, _outputGain, rigGain, _airData);
         d.Upload(_air!, MemoryMarshal.AsBytes(_airData.AsSpan()), UploadFormat.Rgba32F);
         Patch(plan, frame.LeaderNs);
         Request(plan, frame);
@@ -141,31 +148,42 @@ public sealed class LedPass : IFramePass
         Collect(frame.Frame);
     }
 
-    /// <summary>The air of a fixture that follows no output: the darkest of the enabled outputs (master × panic × degrade), the
-    /// master alone when there are none.</summary>
-    private float RigGain(in PassFrame frame)
+    /// <summary>The air of fixtures that follow no output, the most restrictive of the enabled outputs': the darkest gain (master ×
+    /// panic × degrade; the master alone when there are no outputs), 0 while a panic shows any output a safe look (the LEDs have no
+    /// safe look of their own), and held while any output holds its picture. An output fixture samples its output's own final
+    /// picture, which the renderer holds or replaces itself.</summary>
+    private static (float Gain, bool Held) RigAir(in PassFrame frame)
     {
         if (frame.Levels is not { } levels)
-            return 1f;
+            return (1f, false);
         var gain = 1f;
         var any = false;
+        var held = false;
         foreach (var o in frame.Project.Outputs)
         {
             if (!o.Enabled)
                 continue;
             any = true;
             gain = MathF.Min(gain, levels.Gain(o.Id, frame.LeaderNs));
+            if (levels.Override(o.Id, frame.LeaderNs) is { IsNone: false })
+                gain = 0f;
+            held |= levels.Hold(o.Id, frame.LeaderNs);
         }
-        return any ? gain : levels.Gain("", frame.LeaderNs);
+        return (any ? gain : levels.Gain("", frame.LeaderNs), held);
     }
 
-    private void Sample(LedPlan plan)
+    /// <summary>Why the pass sends nothing on this node (null when it can).</summary>
+    public string? Problem { get; private set; }
+
+    /// <summary>Pass 1. A frozen frame keeps every pixel's colour; a held air keeps the colours of every group but an output's
+    /// (whose final picture the renderer holds).</summary>
+    private void Sample(LedPlan plan, bool freeze, bool rigHeld)
     {
         var d = _device;
         var p = d.Program("led_sample");
         foreach (var g in plan.Groups)
         {
-            if (g.Count == 0)
+            if (g.Count == 0 || (_hasColors && (freeze || (rigHeld && g.Binding != LedBinding.Output))))
                 continue;
             // The picture first: making it (a canvas composed on demand) binds targets and textures of its own.
             // A group with no picture this frame samples one black texel: its pixels are black.
@@ -279,13 +297,14 @@ public sealed class LedPass : IFramePass
             d.Upload(_black, [0, 0, 0, 255], UploadFormat.Rgba8);
         }
         var colorRows = plan.ColorRows;
+        // A new plan places pixels anew: colours held from the old one would land on the wrong pixels.
+        _hasColors = false;
         if (_colors is null || _colors.Height != colorRows)
         {
             _colors?.Dispose();
             _attr?.Dispose();
             _colors = d.CreateRenderTarget(LedPlan.ColorsWidth, colorRows, TextureFormat.Rgba32F, filter: TextureFilter.Nearest);
             _attr = d.CreateTexture(LedPlan.ColorsWidth, colorRows, TextureFormat.Rgba32F, TextureFilter.Nearest);
-            _hasColors = false;
         }
         d.Upload(_attr!, MemoryMarshal.AsBytes(plan.Attributes.AsSpan(0, LedPlan.ColorsWidth * colorRows * 4)), UploadFormat.Rgba32F);
         var fixtures = Math.Max(1, plan.Fixtures.Length);

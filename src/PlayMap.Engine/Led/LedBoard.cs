@@ -14,7 +14,7 @@ internal sealed class LedBoard
     private readonly Lock _gate = new();
     private readonly EngineServices _services;
     private LedPlan _plan = LedPlan.Empty;
-    private (LedRig Rig, object Canvases, object Outputs, object Surfaces, int MaxMbps) _key;
+    private (LedRig? Rig, object? Canvases, object? Outputs, object? Surfaces, int MaxMbps) _key;
     private long _serial;
     private volatile LedLive _live = LedLive.Initial;
     private volatile LedPass? _pass;
@@ -49,17 +49,17 @@ internal sealed class LedBoard
     /// <summary>The plan last built (the render thread reads it every frame).</summary>
     public LedPlan Current => _plan;
 
-    /// <summary>The plan of a project: the one built if its rig, canvases, outputs and surfaces are the same instances, else a new
-    /// one (built here, handed to the sender).</summary>
-    public LedPlan PlanFor(Project project)
+    /// <summary>Builds and publishes the plan of the project the store just published (the store's change handler on the lane and
+    /// the engine's constructor only: one writer of the plan and of the sender's program). The same rig, canvases, outputs and
+    /// surfaces (as instances) keep the plan already published.</summary>
+    public LedPlan Publish(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var maxMbps = _services.Settings.Led.MaxMbps;
         lock (_gate)
         {
-            if (ReferenceEquals(_key.Rig, project.Leds) && ReferenceEquals(_key.Canvases, Box(project.Canvases)) && ReferenceEquals(_key.Outputs, Box(project.Outputs))
-                && ReferenceEquals(_key.Surfaces, Box(project.Stage.Surfaces)) && _key.MaxMbps == maxMbps && _serial > 0)
+            if (Matches(project))
                 return _plan;
+            var maxMbps = _services.Settings.Led.MaxMbps;
             var plan = LedPlanBuilder.Build(project, maxMbps, ++_serial);
             _plan = plan;
             _key = (project.Leds, Box(project.Canvases), Box(project.Outputs), Box(project.Stage.Surfaces), maxMbps);
@@ -68,12 +68,30 @@ internal sealed class LedBoard
         }
     }
 
+    /// <summary>The plan of a project as a reader sees it: the published one when the project is the one it was built from, else
+    /// a plan of that project built for the reader alone (never published, never sent).</summary>
+    public LedPlan PlanFor(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        lock (_gate)
+        {
+            if (Matches(project))
+                return _plan;
+        }
+        return Trial(project);
+    }
+
+    private bool Matches(Project project) =>
+        _serial > 0 && ReferenceEquals(_key.Rig, project.Leds) && ReferenceEquals(_key.Canvases, Box(project.Canvases))
+        && ReferenceEquals(_key.Outputs, Box(project.Outputs)) && ReferenceEquals(_key.Surfaces, Box(project.Stage.Surfaces))
+        && _key.MaxMbps == _services.Settings.Led.MaxMbps;
+
     /// <summary>An immutable array's backing array (its identity says whether the list changed).</summary>
     private static object Box<T>(System.Collections.Immutable.ImmutableArray<T> a) =>
         System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsArray(a) ?? (object)Array.Empty<T>();
 
     /// <summary>A plan of a project the store has not published (to check an edit before it is made); the published plan stays.</summary>
-    public LedPlan Trial(Project project) => LedPlanBuilder.Build(project, _services.Settings.Led.MaxMbps, 0);
+    public LedPlan Trial(Project project) => LedPlanBuilder.Build(project, _services.Settings.Led.MaxMbps, -1);
 
     public void SetLive(Func<LedLive, LedLive> edit)
     {

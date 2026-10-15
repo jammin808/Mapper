@@ -37,8 +37,8 @@ public sealed partial class EngineCore
         routes.Index(new LedIndex(this));
         // The plan follows the published project: rebuilt on the lane when the rig or what it samples changed, so the render
         // thread and the sender have it before the next frame.
-        Store.Changed += snap => Led.PlanFor(snap.Project);
-        Led.PlanFor(Store.Project);
+        Store.Changed += snap => Led.Publish(snap.Project);
+        Led.Publish(Store.Project);
     }
 
     // ---- lookups ----
@@ -101,7 +101,7 @@ public sealed partial class EngineCore
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
-            w.WriteBoolean("output", Led.Master && Led.Output is not null);
+            w.WriteBoolean("output", view?.Output == true);
             w.WriteStartArray("nodes");
             foreach (var n in LedNodeRows(p, plan, view))
             {
@@ -549,6 +549,8 @@ public sealed partial class EngineCore
             Led.SetMaster(on, hold);
             FactsChanged();
             var saved = Led.SettingsProblem.Length > 0 ? $" (not saved: {Led.SettingsProblem})" : "";
+            if (on && Led.Current.Refused.Length > 0)
+                saved += " — but nothing is sent: " + Led.Current.Refused;
             return CommandReply.Success(on ? "on" : "off",
                 on ? "this machine sends LED data" + saved : (hold ? "LED output off, held" : "LED output off — one black frame sent") + saved);
         }
@@ -745,7 +747,7 @@ public sealed partial class EngineCore
             var universes = np?.Rows ?? 0;
             var (state, why) = !n.Enabled ? ("disabled", "this node is off in the show — LED OUTPUT ON " + n.Id)
                 : Led.Output is null ? ("off", Led.HasRenderer ? "this node has no LED output" : "no renderer on this node — LED output needs the GPU")
-                : !Led.Master ? ("off", "this machine does not send LED data — LED OUTPUT ON")
+                : view?.Output != true ? ("off", "this machine does not send LED data — LED OUTPUT ON")
                 : plan.Refused.Length > 0 ? ("refused", plan.Refused)
                 : universes == 0 ? ("idle", np?.Why is { Length: > 0 } w ? w : "nothing is patched to it")
                 : sent is not null ? (sent.State, sent.Why)
@@ -790,7 +792,7 @@ public sealed partial class EngineCore
         var now = LeaderNowNs;
         var rows = LedNodeRows(p, plan, view);
         w.WriteStartObject("led");
-        w.WriteBoolean("output", Led.Master && Led.Output is not null);
+        w.WriteBoolean("output", view?.Output == true);
         w.WriteNumber("level", Math.Round(live.LevelAt(now), 4));
         w.WriteNumber("fixtures", plan.Fixtures.Length);
         w.WriteNumber("pixels", plan.Pixels);
@@ -852,6 +854,8 @@ public sealed partial class EngineCore
         w.WriteStartArray("warnings");
         foreach (var x in plan.Warnings)
             w.WriteStringValue(x);
+        if (Led.Pass?.Problem is { } problem)
+            w.WriteStringValue(problem);
         if (plan.Refused.Length > 0)
             w.WriteStringValue(plan.Refused);
         w.WriteEndArray();

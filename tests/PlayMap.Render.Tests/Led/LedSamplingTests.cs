@@ -308,4 +308,95 @@ public sealed class LedSamplingTests(GlFixture gl)
         }
         Assert.Empty(plan.Warnings);
     });
+
+    /// <summary>Air levels for a test: a gain, a held output and a safe look per output.</summary>
+    private sealed class Air : IAirLevels
+    {
+        public float GainAll = 1f;
+        public string? HeldOutput;
+        public string? SafeOutput;
+
+        public float Gain(string outputId, long leaderNs) => GainAll;
+
+        public SourceRef? Override(string outputId, long leaderNs) => outputId == SafeOutput ? SourceRef.Solid("#00FF00") : null;
+
+        public bool Hold(string outputId, long leaderNs) => outputId == HeldOutput;
+    }
+
+    private static byte[] RunAir(RenderContext ctx, LedPass pass, LedFramePool pool, Project p, long leaderNs, IAirLevels air)
+    {
+        var d = ctx.Device;
+        pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, false, false) { Levels = air });
+        d.Finish();
+        pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, false, false) { Levels = air });
+        var first = pool.Take()!;
+        var bytes = first.Slots[..(first.Rows * LedPlan.SlotsPerRow)];
+        pool.Return(first);
+        while (pool.Take() is { } more)
+            pool.Return(more);
+        return bytes;
+    }
+
+    [Fact]
+    public void AnOutputHeldOrShowingASafeLookHoldsOrDarkensTheRigAsItsOutputsAre() => gl.Run(ctx =>
+    {
+        var d = ctx.Device;
+        using var pics = new Pictures();
+        Fill(d, pics, 21);
+        var show = Rig(LedSampling.Point);
+        var plan = LedPlanBuilder.Build(show, 200, 1);
+        var pool = new LedFramePool();
+        using var pass = new LedPass(d, pics) { Sink = pool };
+        pass.Offer(plan);
+        var air = new Air();
+        var live = RunAir(ctx, pass, pool, show, 1_000_000_000, air);
+        // An output holds its picture (a FREEZE outcome): the rig's canvas and source fixtures hold too.
+        // (The renderer holds the output's own picture; here only the canvas and the media move.)
+        air.HeldOutput = Output;
+        pics.Float(d, Canvas, 64, 32, (x, y) => (y / 31f, x / 63f, 0.5f));
+        pics.Bytes(d, "media:" + Media, 64, 16, (x, y) => (x * 4, 255 - y * 16, 77));
+        Assert.Equal(live, RunAir(ctx, pass, pool, show, 1_100_000_000, air));
+        air.HeldOutput = null;
+        var moved = RunAir(ctx, pass, pool, show, 1_200_000_000, air);
+        Assert.NotEqual(live, moved);
+        // A panic shows an output its safe look: the rig's fixtures go dark (no safe look of their own), constants kept; the output
+        // fixture samples its output's final picture, which the renderer replaces itself.
+        air.SafeOutput = Output;
+        var safe = RunAir(ctx, pass, pool, show, 1_300_000_000, air);
+        var lf3 = plan.Fixture("lf00000003")!;
+        var rows = new float[plan.Fixtures.Length * 4];
+        LedAir.Fill(plan, LedLive.Initial, 1_300_000_000, false, _ => 1f, 0f, rows);
+        var colors = LedReference.Sample(plan, pics.Reference);
+        Assert.Equal(LedReference.Patch(plan, colors, rows, 1, LedTestKind.None, 0), safe);
+        Assert.Contains((byte)42, safe);
+        Assert.Equal(Output, lf3.AirOutput);
+    });
+
+    [Fact]
+    public void AWarmFrameAllocatesNothing() => gl.Run(ctx =>
+    {
+        var d = ctx.Device;
+        using var pics = new Pictures();
+        Fill(d, pics, 8);
+        var show = Rig(LedSampling.Area);
+        var plan = LedPlanBuilder.Build(show, 200, 1);
+        var pool = new LedFramePool();
+        var live = LedLive.Initial with { Test = LedTestKind.Chase, TestScope = ["lf00000002"], Locate = "lf00000001", LocateUntilNs = long.MaxValue };
+        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
+        pass.Offer(plan);
+        var air = new Air { GainAll = 0.8f };
+        void Frame(long k)
+        {
+            pass.FrameEnd(new PassFrame(k, k * 16_666_667L, show, GeneratorFrame.At(k / 60.0), d, k % 7 == 0, k % 11 == 0) { Levels = air });
+            while (pool.Take() is { } f)
+                pool.Return(f);
+        }
+        for (var k = 1; k <= 30; k++)
+            Frame(k);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var k = 31; k <= 330; k++)
+            Frame(k);
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.True(pass.Frames >= 330);
+    });
 }

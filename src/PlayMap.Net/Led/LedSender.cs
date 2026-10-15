@@ -46,6 +46,9 @@ public sealed class LedSender : ILedOutput
         public required LedNodeProgram Program;
         public byte[] Pending = [];
         public byte[] DdpScratch = [];
+        /// <summary>A copy of what was last sent, for LED MONITOR (read and written under the sender's gate).</summary>
+        public byte[] Shown = [];
+        public long ShownLeader;
         public byte[] Last = [];
         public bool HasPending;
         public long Due;
@@ -263,11 +266,12 @@ public sealed class LedSender : ILedOutput
             stops = _stops.Count == 0 ? [] : [.. _stops];
             _stops.Clear();
         }
-        if (incoming is not null)
-            Swap(incoming, now);
+        // Stops first: a node stopped and then dropped by the program that follows (LED OUTPUT OFF <node>) keeps its HOLD.
         foreach (var (node, black) in stops)
             if (_nodes.TryGetValue(node, out var run) && !run.Stopped)
                 Stop(run, black, now);
+        if (incoming is not null)
+            Swap(incoming, now);
         if (master is { } m && m != _master)
         {
             if (!m)
@@ -298,6 +302,7 @@ public sealed class LedSender : ILedOutput
                 RowSent = new long[rows],
                 RowSeq = new byte[rows],
                 RowAddress = new SocketAddress?[rows],
+                Shown = new byte[rows * LedPlan.SlotsPerRow],
                 Stopped = !_master || (old?.Stopped == true && SameNode(old.Program, p)),
                 Seen = old?.Seen,
                 NextPoll = now,
@@ -310,7 +315,11 @@ public sealed class LedSender : ILedOutput
                 {
                     var o = old.Program.Universes.IndexOf(p.Universes[r]);
                     if (o < 0)
+                    {
+                        // A universe new to the node waits for its first frame, not for a keep-alive of nothing.
+                        run.RowSent[r] = now;
                         continue;
+                    }
                     old.Last.AsSpan(o * LedPlan.SlotsPerRow, LedPlan.SlotsPerRow).CopyTo(run.Last.AsSpan(r * LedPlan.SlotsPerRow));
                     run.RowSeq[r] = old.RowSeq[o];
                     run.RowSent[r] = old.RowSent[o];
@@ -328,9 +337,22 @@ public sealed class LedSender : ILedOutput
             Address(run);
             next[p.Id] = run;
         }
+        // What leaves the air is blacked, never left holding its last look: a node dropped or moved to another target, a node
+        // whose universes the new program no longer has, every node when the bandwidth guard starts refusing.
+        var refusing = program.Refused.Length > 0 && _program.Refused.Length == 0;
         foreach (var (id, old) in _nodes)
-            if (!next.ContainsKey(id) && !old.Stopped && old.EverSent && _master)
+        {
+            if (old.Stopped || !old.EverSent || !_master || _program.Refused.Length > 0)
+                continue;
+            if (!next.TryGetValue(id, out var kept) || !SameNode(old.Program, kept.Program))
                 Stop(old, true, now);
+            else if (refusing || old.Program.Protocol == LedProtocol.Ddp && !old.Program.Universes.SequenceEqual(kept.Program.Universes))
+                Blank(old, now);
+            else
+                for (var r = 0; r < old.Program.Universes.Length; r++)
+                    if (!kept.Program.Universes.Contains(old.Program.Universes[r]))
+                        BlankRow(old, r);
+        }
         _nodes = next;
         _program = program;
     }
@@ -381,19 +403,40 @@ public sealed class LedSender : ILedOutput
 
     private void Stop(NodeRun run, bool black, long now)
     {
-        if (run.EverSent && black)
-        {
-            _program.Black.AsSpan(run.Program.FirstRow * LedPlan.SlotsPerRow, run.Program.Universes.Length * LedPlan.SlotsPerRow).CopyTo(run.Last);
-            SendAll(run, now, run.Last);
-        }
-        if (run.EverSent && black && run.Program.Protocol == LedProtocol.Sacn)
-        {
+        if (black)
+            Blank(run, now);
+        run.Stopped = true;
+        run.HasPending = false;
+    }
+
+    /// <summary>The node's black frame (the current program's: colour and dimmer slots 0, constants kept), latched; sACN then
+    /// terminates each universe three times.</summary>
+    private void Blank(NodeRun run, long now)
+    {
+        if (!run.EverSent)
+            return;
+        _program.Black.AsSpan(run.Program.FirstRow * LedPlan.SlotsPerRow, run.Program.Universes.Length * LedPlan.SlotsPerRow).CopyTo(run.Last);
+        SendAll(run, now, run.Last);
+        if (run.Program.Protocol == LedProtocol.Sacn)
             for (var k = 0; k < 3; k++)
                 for (var r = 0; r < run.Program.Universes.Length; r++)
                     SendSacn(run, r, run.Last, terminated: true);
+    }
+
+    /// <summary>One universe a node leaves: its black row, latched (sACN: terminated three times).</summary>
+    private void BlankRow(NodeRun run, int r)
+    {
+        _program.Black.AsSpan((run.Program.FirstRow + r) * LedPlan.SlotsPerRow, LedPlan.SlotsPerRow).CopyTo(run.Last.AsSpan(r * LedPlan.SlotsPerRow));
+        if (run.Program.Protocol == LedProtocol.ArtNet)
+        {
+            SendArtDmx(run, r, run.Last);
+            if (run.Program.Latch)
+                SendArtSync(run);
+            return;
         }
-        run.Stopped = true;
-        run.HasPending = false;
+        SendSacn(run, r, run.Last, terminated: false);
+        for (var k = 0; k < 3; k++)
+            SendSacn(run, r, run.Last, terminated: true);
     }
 
     /// <summary>Every universe of the node back to back, then the latch.</summary>
@@ -421,6 +464,11 @@ public sealed class LedSender : ILedOutput
         for (var r = 0; r < p.Universes.Length; r++)
             run.RowSent[r] = now;
         run.EverSent = true;
+        lock (_gate)
+        {
+            payload.AsSpan(0, Math.Min(payload.Length, run.Shown.Length)).CopyTo(run.Shown);
+            run.ShownLeader = run.LastLeader;
+        }
     }
 
     private void KeepAlive(NodeRun run, long now)
@@ -556,10 +604,15 @@ public sealed class LedSender : ILedOutput
     {
         if (ArtNet.OpOf(packet) != ArtOp.PollReply || !LedArtNet.TryReadReply(packet, out var reply, out _))
             return;
-        var seen = new LedNodeSeen("artnet", reply.Address, reply.ShortName, reply.LongName, reply.Universes, reply.RefreshHz, reply.Mac,
+        // Keyed by where the reply came from (what the node is patched at), and by the address it reports for itself.
+        var source = ((IPEndPoint)new IPEndPoint(IPAddress.Any, 0).Create(from)).Address.ToString();
+        var seen = new LedNodeSeen("artnet", source, reply.ShortName, reply.LongName, reply.Universes, reply.RefreshHz, reply.Mac,
             _options.Clock.NowNs);
         lock (_gate)
+        {
+            _seen[source] = seen;
             _seen[reply.Address] = seen;
+        }
     }
 
     public LedOutputView View()
@@ -628,8 +681,11 @@ public sealed class LedSender : ILedOutput
         var r = run.Program.Universes.IndexOf(universe);
         if (r < 0)
             return false;
-        run.Last.AsSpan(r * LedPlan.SlotsPerRow, LedPlan.SlotsPerRow).CopyTo(slots);
-        leaderNs = run.LastLeader;
+        lock (_gate)
+        {
+            run.Shown.AsSpan(r * LedPlan.SlotsPerRow, LedPlan.SlotsPerRow).CopyTo(slots);
+            leaderNs = run.ShownLeader;
+        }
         return true;
     }
 
