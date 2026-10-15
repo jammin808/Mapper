@@ -385,7 +385,7 @@ public static class VerbCatalog
         // Timecode chase (wp2-control). "TC" reads as "TIMECODE".
         V2("TIMECODE STATUS", "TIMECODE STATUS [<source>|<playlist>]", "Timecode sources (rolling, format, speed, errors) and every playlist that chases one", VerbCategory.Timecode, VerbRisk.Low, false),
         V2("TIMECODE DEVICES", "TIMECODE DEVICES", "The audio inputs, MIDI ports and Art-Net interfaces timecode can arrive on", VerbCategory.Timecode, VerbRisk.Low, false),
-        V2("TIMECODE SOURCE", "TIMECODE SOURCE ADD <name> LTC [<device>[:<channel>]] | TIMECODE SOURCE ADD <name> MTC <port> | TIMECODE SOURCE ADD <name> ARTNET [STREAM <n>] | TIMECODE SOURCE ADD <name> INTERNAL [FORMAT <fmt>] | TIMECODE SOURCE REMOVE <source> | TIMECODE SOURCE RESET <source>", "Adds, removes or resets a timecode input; answers its id", VerbCategory.Timecode, VerbRisk.Review, true) with { RiskWhen = [new(0, "RESET", VerbRisk.Low)] },
+        V2("TIMECODE SOURCE", "TIMECODE SOURCE ADD <name> LTC [<device>[:<channel>]] [FORMAT <fmt>] | TIMECODE SOURCE ADD <name> MTC <port> [FORMAT <fmt>] | TIMECODE SOURCE ADD <name> ARTNET [STREAM <n>] [FORMAT <fmt>] | TIMECODE SOURCE ADD <name> INTERNAL [FORMAT <fmt>] | TIMECODE SOURCE REMOVE <source> | TIMECODE SOURCE RESET <source>", "Adds, removes or resets a timecode input; answers its id", VerbCategory.Timecode, VerbRisk.Review, true) with { RiskWhen = [new(0, "RESET", VerbRisk.Low)] },
         V2("TIMECODE CHASE", "TIMECODE CHASE <playlist> <source>[,<backup>…]|OFF", "A playlist follows timecode: each item at its TC in, locked to the code's fitted line, freewheeling through dropouts", VerbCategory.Timecode, VerbRisk.High, true) with { Show = ShowClass.Transport },
         V2("TIMECODE ENGAGE", "TIMECODE ENGAGE <playlist>|ALL ON|OFF|TOGGLE", "Engages or disengages a chase (disengaged, the playlist plays by hand from where it is)", VerbCategory.Timecode, VerbRisk.High, true) with { Show = ShowClass.Transport },
         V2("TIMECODE SET", "TIMECODE SET <playlist> DELAY <±ms> | TIMECODE SET <playlist> FREEWHEEL <ms> | TIMECODE SET <playlist> ONLOSS HOLD|STOP|CONTINUE | TIMECODE SET <playlist> JUMP <ms>|AUTO | TIMECODE SET <playlist> GAP BLACK|HOLD", "Tunes a chase", VerbCategory.Timecode, VerbRisk.Review, true) with { Show = ShowClass.Playlists },
@@ -474,18 +474,15 @@ public static class VerbCatalog
         V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
-        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
-        V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT|CYLINDER]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
-        V2("ALIGN PLAN", "ALIGN PLAN <group>", "A dry run: camera, outputs, devices and their own processing, steps and time; nothing reaches the wall or a projector", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN RUN", "ALIGN RUN <group> [ONLY <output>…] [STEPS NEUTRAL,SCAN,SOLVE,COLOR,VERIFY|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]", "Measures the outputs through the camera and stages a correction (warp, blend, colour) with its score; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN PLAN, SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
+        V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
+        V2("ALIGN RUN", "ALIGN RUN <group> [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ) with its score; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("ALIGN STATUS", "ALIGN STATUS", "The running or last run", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run and restores what it changed on the projectors", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
-        V2("ALIGN SCORE", "ALIGN SCORE <run>|<group>", "A run's score and every term with its words and fix", VerbCategory.Align, VerbRisk.Low, false),
-        V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>", "Applies a staged run to its outputs as one edit; the previous corrections become the fallbacks", VerbCategory.Align, VerbRisk.Review, true),
+        V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run; the outputs are the show's again", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+        V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>|<group>", "Applies a staged run to its outputs as one edit; the corrections they had become their fallbacks", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN REVERT", "ALIGN REVERT <group>", "Back to each output's fallback correction", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CORNERS", "ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> | ALIGN CORNERS <group> CLEAR", "The screen's corners in the camera picture (0–1), for an exact canvas", VerbCategory.Align, VerbRisk.Review, true),
-        V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs", VerbCategory.Align, VerbRisk.Review, true),
-        V2("DEVICE NATIVE", "DEVICE NATIVE <device>", "A projector's own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard", VerbCategory.Device, VerbRisk.Low, false),
+        V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
 
         // The phone as a scan camera, fully local; many views into one scan (wp2-phonescan; SCAN SOLVE/VIEWS/DROP by wp2-multiscan).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },
