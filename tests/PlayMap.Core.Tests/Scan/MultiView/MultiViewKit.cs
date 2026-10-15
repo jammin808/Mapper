@@ -30,6 +30,11 @@ internal static class MultiViewKit
     private static readonly Lazy<Similarity3> ToWorldLazy = new(() => Registration(Solved));
     private static readonly Lazy<IReadOnlyList<ProjectorDepthMap>> DenseLazy = new(() =>
         [.. Solved.Projectors.Select(p => ProjectorDepth.Build(p, DepthViews(Solved, p.Id)))]);
+    private static readonly Lazy<IReadOnlyList<ProjectorDepthMap>> WorldDenseLazy = new(() =>
+    {
+        var world = Solved.Transformed(ToWorld, metric: true);
+        return [.. world.Projectors.Select(p => ProjectorDepth.Build(p, DepthViews(world, p.Id)))];
+    });
 
     public static MultiViewSim Sim => SimLazy.Value;
 
@@ -50,6 +55,9 @@ internal static class MultiViewKit
 
     /// <summary>Dense depth of every projector of the shared solve, from all three views.</summary>
     public static IReadOnlyList<ProjectorDepthMap> Dense => DenseLazy.Value;
+
+    /// <summary>Dense depth of every projector from the shared solve carried onto the world (metres).</summary>
+    public static IReadOnlyList<ProjectorDepthMap> WorldDense => WorldDenseLazy.Value;
 
     /// <summary>The views of one projector as dense depth takes them from a solve.</summary>
     public static List<DepthView> DepthViews(MultiViewResult result, string projectorId) =>

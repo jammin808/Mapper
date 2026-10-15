@@ -119,7 +119,20 @@ Per projector, on cells of 4 × 4 projector pixels: how many views decoded each 
 shares of the lit raster seen at least once (`Seen`) and twice (`Twice`). The lit raster is the scanned region by default, or
 a mask the caller knows better. "Aim at the red" is the lit cells still at 0.
 
-### 9. The simulator (`MultiViewSim`)
+### 9. Regions per projector (`ProjectorRegions`)
+
+Each projector's depth-map cloud is split into regions on its own raster (region growing, flattest seeds first; a region
+carries on only where the surface varies less than 0.01, so a column of 25 cm radius sampled every centimetre grows whole while
+a wall-to-floor crease stops it), so click-to-surface works on that projector's own smart scan. Regions of different projectors
+that lie on one surface are then joined: half of the smaller region's 1 cm voxels must have a voxel of the larger at or next to
+them. The joined region lists every projector that lights it, with one part per projector (its cells on that projector's
+depth grid), its centroid, its best plane and whether it is planar (RMS within 5 mm). Ids `rg1`, `rg2`, … go largest first.
+
+The join measures the overlap of the **smaller** region, not the union's: a wall lit by two projectors from two sides is lit on
+different but overlapping stretches, and their intersection over union can fall under a half while it is plainly one wall.
+Comparing a voxel with its neighbours too makes two samplings of one surface (each projector's own grid) agree.
+
+### 10. The simulator (`MultiViewSim`)
 
 Multi-view scans with no hardware, over the existing `ScanSimulator`: each view of each projector is its own
 single-projector scene (`MultiViewScene.For`), traced, rendered frame by frame (noise seeded per capture with `Pcg32`) and
@@ -144,12 +157,14 @@ registered to the world on its track points (as registering a scan to a surveyed
 | coverage of the lit raster | ≥ 95 % with 3 views; ≤ 80 % for one | 99.9 %; one view alone 70.8–72.0 % (at most 78 % of either projector) |
 | a view shifted 2 px | raises RMS; dropping it < 0.5 px | 0.009 → 0.29 px; without it 0.009 px (without either good view 0.10 and 0.24 px) |
 | HOLD | bit-identical | every held field bit for bit; with both held, every view within 0.06 mm and 0.001° |
+| regions | each surface once, every projector that lights it | the wall one region [pj1, pj2] (0.1 mm RMS, planar); the cylinder's side one curved region [pj1, pj2] holding all 5 317 and 4 065 of the two projectors' side cells; the floor two pieces (the cylinder's shadow cuts the lit strip), each [pj1, pj2] |
 
 ## Wire
 
 None: this is Core. wp2-multiscan routes `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` through `MultiViewCalibration.Solve`,
-`Influence` and `DropView`, keeps the tracks and depth maps under the scan's folder, and fills the scan's score terms
-(`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`.
+`Influence` and `DropView`, keeps the tracks and depth maps under the scan's folder, fills the scan's score terms
+(`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`, and gives `SCAN SURFACE … ON
+<projector>` and STATE's regions (with `projectors`) from `ProjectorRegions`.
 
 ## Next
 

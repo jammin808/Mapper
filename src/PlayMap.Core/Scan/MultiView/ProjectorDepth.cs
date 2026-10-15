@@ -26,6 +26,12 @@ public sealed record DepthOptions
 public sealed record ProjectorDepthMap(string ProjectorId, int Width, int Height, int Stride, float[] Depth, float[] Sigma, byte[] Views,
     PointCloud Cloud)
 {
+    /// <summary>The projector's centre in the solve's frame (the cloud's normals face it).</summary>
+    public Vec3d Origin { get; init; }
+
+    /// <summary>Each cell's surface variation from normal estimation (0 flat, larger at creases; NaN where invalid).</summary>
+    public float[] Curvature { get; init; } = [];
+
     /// <summary>The cells with a depth.</summary>
     public int Valid => Depth.Count(float.IsFinite);
 
@@ -133,8 +139,8 @@ public static class ProjectorDepth
                 points[cell] = p;
             }
         });
-        var cloud = PointCloudOps.EstimateNormals(new PointCloud(points, gridWidth: w, gridHeight: h), pose.Position);
-        return new ProjectorDepthMap(projector.Id, w, h, s, depth, sigma, views, cloud);
+        var cloud = PointCloudOps.EstimateNormals(new PointCloud(points, gridWidth: w, gridHeight: h), pose.Position, out var curvature);
+        return new ProjectorDepthMap(projector.Id, w, h, s, depth, sigma, views, cloud) { Origin = pose.Position, Curvature = curvature };
     }
 
     private static (double Value, double Variance, int Count) Combine(ReadOnlySpan<double> d, ReadOnlySpan<double> vr, ReadOnlySpan<bool> use)
