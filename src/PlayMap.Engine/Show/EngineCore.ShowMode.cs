@@ -71,12 +71,36 @@ public sealed partial class EngineCore : IShowDecisions
         _operators = [.. Services.Settings.Show.Operators];
         // A blind commit landing is the sanctioned way past the armed show's implicit locks; the show's own locks still hold on it.
         Store.Guard = (before, after) => _promoting ? LockGuard.Check(before, after, armed: false)
-            : LockGuard.Check(before, after, _showMode.Armed) ?? PendingGuard(before, after);
+            : LockGuard.Check(before, after, _showMode.Armed && !_mirroring) ?? PendingGuard(before, after);
         _showGate = new EngineShowGate(this);
         if (Services.ShowGate is LateShowGate late)
             _ = late.Bind(_showGate);
         // A degrade gain (IOutputGains) is part of the air from the start, before any master or panic moves it.
         RebuildLevels();
+    }
+
+    /// <summary>True on the lane while a fleet mirror's edit is applied (<see cref="MirrorEditAsync"/>).</summary>
+    private bool _mirroring;
+
+    /// <summary>An edit a fleet mirror applies to keep this node's document identical to the machine it mirrors (a hot backup
+    /// copying its primary's mapping, wp2-backup): on the lane, one undo step, past the implicit mapping and layout locks an armed
+    /// show adds — the primary's own gate already decided the edit — while the show's explicit locks and a waiting blind commit
+    /// still hold it. Never for a line from a client: the caller is the fleet part, after its own proof of the peer.</summary>
+    public Task<EditResult> MirrorEditAsync(string label, Func<Project, Project> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return _lane.RunAsync(() =>
+        {
+            _mirroring = true;
+            try
+            {
+                return Store.Apply(label, edit);
+            }
+            finally
+            {
+                _mirroring = false;
+            }
+        });
     }
 
     /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line

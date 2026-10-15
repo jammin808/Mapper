@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Assistant;
@@ -345,9 +346,20 @@ internal sealed class AssistantToolbox
                 outcomes.Add(new LineOutcome(c.Line, spec.Name, c.Risk, LineStatus.NotRun, cancelled ? "not run: the request was cancelled" : "not run: an earlier line did not succeed"));
                 continue;
             }
+            // Show Mode is asked first, as MCP asks it: a line it refuses is neither run nor queued and stops the lines after it;
+            // a line it holds for a person waits on the list (never run on the model's word); a line into the assistant's own
+            // blind draft runs (it stays off the air).
+            var show = _endpoint is IShowDecisions decisions ? decisions.Decide(spec, c.Parsed!, _session) : new ShowDecision(ShowVerdict.Allow, null);
+            if (show.Verdict == ShowVerdict.Refuse)
+            {
+                outcomes.Add(new LineOutcome(c.Line, spec.Name, c.Risk, LineStatus.Refused, show.Words ?? $"{spec.Name} is refused by Show Mode now"));
+                stopped = true;
+                continue;
+            }
             // A query changes nothing, so it runs wherever it stands; a change runs on the model's word only
             // while no earlier line of the call has had to wait for a person, and never when it carries a secret.
-            if (!spec.Mutates || (!gated && !c.HoldsSecret && _settings.RunsWithoutAsking(c.Risk)))
+            if ((show.Verdict == ShowVerdict.BlindOnly && !c.HoldsSecret)
+                || (show.Verdict == ShowVerdict.Allow && (!spec.Mutates || (!gated && !c.HoldsSecret && _settings.RunsWithoutAsking(c.Risk)))))
             {
                 var outcome = await RunLineAsync(c, ct);
                 outcomes.Add(outcome);
@@ -359,7 +371,8 @@ internal sealed class AssistantToolbox
                 continue;
             }
             gated = true;
-            var proposal = await _queue.EnqueueAsync(new ProposalDraft(c.Line, spec, reason, _from, _session.SessionId, batch, i), ct);
+            var because = show.Verdict == ShowVerdict.Propose && show.Words is { Length: > 0 } held ? $"{reason} ({held})" : reason;
+            var proposal = await _queue.EnqueueAsync(new ProposalDraft(c.Line, spec, because, _from, _session.SessionId, batch, i), ct);
             outcomes.Add(new LineOutcome(c.Line, spec.Name, c.Risk, LineStatus.Queued, proposal.Summary, proposal.Id));
         }
         return new ToolOutcome(Describe(outcomes), false, false, outcomes, cancelled);
