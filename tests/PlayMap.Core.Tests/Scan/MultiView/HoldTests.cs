@@ -28,6 +28,22 @@ public sealed class HoldTests(ITestOutputHelper output)
         Assert.Equal(0, solved.AxialSigma);
     }
 
+    /// <summary>The adjustment itself kept the held projector where the result says: every solved point of its tracks
+    /// lies on its stage ray (a track's point is placed along its projector's ray as the adjustment had that projector),
+    /// so it projects back through the held pose and optics onto its own projector pixel.</summary>
+    private static void OnHeldRays(MultiViewResult r, string projectorId)
+    {
+        var view = r.Projector(projectorId).View;
+        var tracks = r.Tracks.Where(t => t.ProjectorId == projectorId && t.Views > 0).ToList();
+        Assert.NotEmpty(tracks);
+        Assert.All(tracks, t =>
+        {
+            var back = view.Project(t.Point);
+            Assert.NotNull(back);
+            Assert.True((back.Value - t.Projector).Length < 1e-6, string.Create(Inv, $"{projectorId} {t.Projector}: back at {back.Value}"));
+        });
+    }
+
     [Fact]
     public void AHeldProjectorIsBitIdenticalAndTheOtherIsSolvedInTheStageFrame()
     {
@@ -44,6 +60,7 @@ public sealed class HoldTests(ITestOutputHelper output)
         var r = MultiViewCalibration.Solve(input);
         output.WriteLine(r.Words);
         BitIdentical(input.Projectors[0], r.Projector("pj1"));
+        OnHeldRays(r, "pj1");
         Assert.False(r.Metric);
         Assert.Contains("one projector held: the scale comes from the stage's distances to the others", r.Words, StringComparison.Ordinal);
 
@@ -75,7 +92,10 @@ public sealed class HoldTests(ITestOutputHelper output)
         output.WriteLine(r.Words);
         Assert.True(r.Metric);
         foreach (var p in input.Projectors)
+        {
             BitIdentical(p, r.Projector(p.Id));
+            OnHeldRays(r, p.Id);
+        }
         foreach (var v in r.Views)
         {
             var truth = MultiViewKit.Scene.View(v.Id).Pose;
@@ -87,6 +107,29 @@ public sealed class HoldTests(ITestOutputHelper output)
         }
         var focal = Math.Abs(r.Rig(MultiViewKit.Rig).Intrinsics.Fx / MultiViewKit.Scene.Phone.Fx - 1);
         Assert.True(focal < 0.005, $"{focal:P3}");
+    }
+
+    [Fact]
+    public void DroppingAViewWithAProjectorNowHeldSolvesInTheStageFrame()
+    {
+        // The scan was solved with nothing held (its frame is the first view's camera); pj1 is held for the drop. The
+        // earlier frame is not the stage's, so the drop must not start from it.
+        var input = MultiViewKit.Input with
+        {
+            Projectors = [.. MultiViewKit.Input.Projectors.Select(p => p.Id == "pj1"
+                ? p with { Held = true, Prior = MultiViewKit.Scene.Projector("pj1").Device.Intrinsics }
+                : p)],
+        };
+        var r = MultiViewCalibration.DropView(input, MultiViewKit.Solved, "v3");
+        output.WriteLine(r.Words);
+        Assert.Equal(["v1", "v2"], r.Views.Select(v => v.Id));
+        BitIdentical(input.Projectors[0], r.Projector("pj1"));
+        OnHeldRays(r, "pj1");
+        var truth = MultiViewKit.Scene.Projector("pj2").Device;
+        var angle = MultiViewKit.AngleDeg(r.Projector("pj2").Pose, truth.Pose);
+        output.WriteLine(string.Create(Inv, $"pj2: {angle:0.0000}°, RMS {r.RmsPx:0.000} px"));
+        Assert.True(angle < 0.05, $"{angle:0.0000}°");
+        Assert.True(r.RmsPx < 0.5, $"{r.RmsPx:0.000} px");
     }
 
     [Fact]

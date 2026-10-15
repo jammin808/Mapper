@@ -27,7 +27,9 @@ public static class MultiViewCalibration
     }
 
     /// <summary>Drops a view and solves again from <paramref name="previous"/> (its frame kept where the gauge allows):
-    /// the result is the solve of <c>input.WithoutView(viewId)</c>. Throws when the scan has no such view.</summary>
+    /// the result is the solve of <c>input.WithoutView(viewId)</c>. A projector the input holds that
+    /// <paramref name="previous"/> did not hold at the same stage pose and optics starts the solve afresh, since the
+    /// previous frame is not the stage's. Throws when the scan has no such view.</summary>
     public static MultiViewResult DropView(MultiViewInput input, MultiViewResult previous, string viewId, MultiViewOptions? options = null,
         CancellationToken ct = default)
     {
@@ -72,14 +74,16 @@ public static class MultiViewCalibration
         var projectors = input.Projectors.ToDictionary(p => p.Id, StringComparer.Ordinal);
         if (input.Projectors.FirstOrDefault(p => p.Held && p.Stage is null) is { } unplaced)
             throw new ArgumentException($"Projector {unplaced.Id} is held but has no stage pose.", nameof(input));
-        var start = previous is null ? Initialise(input, rigs, projectors, o, ct) : WarmStart(input, previous);
+        // A held projector sits at its stage pose; a warm start is only in that frame when the previous solve held it there.
+        var from = previous is not null && HeldAsBefore(input, previous) ? previous : null;
+        var start = from is null ? Initialise(input, rigs, projectors, o, ct) : WarmStart(input, from);
         if (start.Views.Count == 0 || start.Projectors.Count == 0)
         {
             var why = start.Words.Count > 0 ? string.Join("; ", start.Words) : "no view solved";
             return new MultiViewResult([], [], [], [], double.NaN, false, [.. start.LeftOut], 0, "not solved: " + why);
         }
         ct.ThrowIfCancellationRequested();
-        if (previous is null)
+        if (from is null)
             CarryOntoStage(start, input, projectors);
 
         // Entities in input order, only those the start placed and that still see each other: a view must observe a
@@ -186,7 +190,7 @@ public static class MultiViewCalibration
         bundle.Adjust(ct);
         if (bundle.Trim())
             bundle.Adjust(ct);
-        return Result(bundle, viewList, projList, rigList, trackSource, held.Count, start, previous);
+        return Result(bundle, viewList, projList, rigList, trackSource, held.Count, start, from);
     }
 
     // ---- the start ----
@@ -236,7 +240,8 @@ public static class MultiViewCalibration
                 left.Add(new LeftOutView(view.Id, $"view {view.Id} saw no projector well enough to use: aim the camera at the light"));
                 continue;
             }
-            var lockFocal = ids.All(id => (projectors[id].Locks & SolveLocks.Focal) != 0);
+            // A held projector's optics are its prior, as a focal lock's are.
+            var lockFocal = ids.All(id => projectors[id].Held || (projectors[id].Locks & SolveLocks.Focal) != 0);
             var result = SelfCalibration.Solve(rig.Prior, rig.Lens, obs, new SelfCalibrationOptions
             {
                 LockCameraFocal = rig.Calibrated,
@@ -415,6 +420,12 @@ public static class MultiViewCalibration
             start.Projectors[p] = spec.Held ? (spec.Stage!, spec.Prior) : (s.Apply(start.Projectors[p].Pose), start.Projectors[p].Intrinsics);
         }
     }
+
+    /// <summary>True when <paramref name="previous"/> held every projector the input holds, at the same stage pose and
+    /// optics.</summary>
+    private static bool HeldAsBefore(MultiViewInput input, MultiViewResult previous) =>
+        input.Projectors.Where(p => p.Held).All(p => previous.Projectors.FirstOrDefault(q => q.Id == p.Id) is { Held: true } q
+            && q.Pose == p.Stage && q.Intrinsics == p.Prior && q.Lens == p.Lens);
 
     /// <summary>The start from an earlier result of the same scan: every view, projector and rig it placed.</summary>
     private static Start WarmStart(MultiViewInput input, MultiViewResult previous)
