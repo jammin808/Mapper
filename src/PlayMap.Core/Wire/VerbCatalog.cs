@@ -431,14 +431,10 @@ public static class VerbCatalog
         V2("MOD BYPASS", "MOD BYPASS ON|OFF|TOGGLE [<entity>|ALL]", "Holds every modulated number at its base value", VerbCategory.Modulation, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("MOD PEEK", "MOD PEEK <entity>", "The live value of each modulated number of an entity", VerbCategory.Modulation, VerbRisk.Low, false),
 
-        // Particles, fractals, reactive: looks, morphs, stings (wp2-content).
+        // Particles, fractals, reactive: time, inputs, stings (wp2-content).
         V2("GENERATOR GET", "GENERATOR GET <generator>", "A generator with its effective values, bindings, inputs, morph, cost and state", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RESET", "GENERATOR RESET <generator> [<param>|ALL]", "Parameters back to their defaults", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source|flow|matte <source>|NONE", "A picture a generator reads (particles emit from it)", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR PRESETS", "GENERATOR PRESETS [<kind>|<family>]", "Curated and saved looks", VerbCategory.Content, VerbRisk.Low, false),
-        V2("GENERATOR RECALL", "GENERATOR RECALL <generator> <preset>", "Applies a look (one undo step)", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR SAVE", "GENERATOR SAVE <generator> <name>", "Saves the generator's look in the show; answers its id", VerbCategory.Content, VerbRisk.Low, true),
-        V2("GENERATOR MORPH", "GENERATOR MORPH <generator> <preset> [OVER <0.1-600 s>] [AT +<ms>|<unix ms>] [CURVE LINEAR|EASE]", "Crossfades a generator to a look on the show clock", VerbCategory.Content, VerbRisk.Review, true),
+        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source <source>|NONE", "A picture a generator reads (a particle flow emits where it is bright)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR RETIME", "GENERATOR RETIME <generator>|ALL [AT +<ms>|<unix ms>]", "Restarts a generator's own time (particles re-seed from that instant)", VerbCategory.Content, VerbRisk.Review, true),
         V2("STING", "STING <preset> [<100-5000 ms>] [AT +<ms>|<unix ms>]", "Fires a sting every generator answers, on the show clock", VerbCategory.Content, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("STING CLEAR", "STING CLEAR", "Stops the sting", VerbCategory.Content, VerbRisk.Low, true) with { Show = ShowClass.Perform },

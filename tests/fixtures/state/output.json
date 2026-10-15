@@ -200,7 +200,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "c0957f79b3149545"
+    "index": "aa508ac89d38e7ad"
   },
   "faults": [],
   "ai": {
@@ -402,6 +402,36 @@
     "unbound": [],
     "held": [],
     "flashLimited": -1
+  },
+  "content": {
+    "budgetMs": 6,
+    "governor": "advise",
+    "light": "grey",
+    "costMs": 0,
+    "renderer": "drawing",
+    "sting": null,
+    "generators": [
+      {
+        "id": "gn_testcard",
+        "kind": "pattern.testcard",
+        "name": "Test card",
+        "state": "idle",
+        "progress": 0,
+        "time": "pure",
+        "originNs": 0,
+        "timeS": 0,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "grey",
+        "words": "not drawn: nothing shows it",
+        "warnings": []
+      }
+    ]
   },
   "calibration": {
     "moved": [],
