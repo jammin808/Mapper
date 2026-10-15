@@ -42,24 +42,26 @@ wp2-zerocopy's decode-path ladder), so long-GOP at 1080p and larger becomes HAP 
 ## Jobs
 
 `NodeHome/optimise/jobs.json` holds the queue, written whole through a temporary file and a rename on every state change. A job is
-`queued → encoding → verifying → done | failed | cancelled`; PAUSE holds a queued job back and a running one between frames. One job
+`queued → encoding → verifying → done | failed | cancelled` (planning happens when the job is asked for, before it is queued); PAUSE holds a queued job back and a running one between frames. One job
 runs at a time, oldest first, through the worker:
 
 - **The worker** is the same exe in a third role, `PlayMap optimise-worker` (the node host's `PlayMap.Node optimise-worker` in
   tests). It lowers its own CPU priority, makes its GL context through the platform seam (hidden, or EGL surfaceless on Linux with no
   display), and speaks one JSON object a line on its standard input and output (run, knobs, cancel, stop; hello, progress, done,
   failed). It ends when its input closes, and after `IdleExitS` (120 s) with nothing to do.
-- **A worker that stops** (a crash, a kill) is started again after a backoff (1 s, doubling, at most 30 s); its job starts again from
+- **A worker that stops** (a crash, a kill) is started again after a backoff (1 s, doubling with each crash in a row, at most 30 s; a version made resets it); its job starts again from
   its first frame. A clip that stops the worker `MaxAttempts` (3) times fails with "the worker stopped (exit code …) 3 times on
   this clip — it is not optimised". A node that restarts mid-job queues the job again with its words.
 - **Verify.** After the trailer the worker reads its file back: every packet must parse as a HAP frame of the codec, and the first,
-  middle and last frames, decoded by FFmpeg's own HAP decoder, are compared with the source's in PSNR over RGB. The engine then
+  middle and last frames, decoded by FFmpeg's own HAP decoder, are compared with the source's in PSNR over RGB (and over alpha, for HAP Alpha and HAP Q Alpha: the lower counts). A read error is an error, never the end of
+  the file, and a version shorter than the container's own frame count fails. The engine then
   refuses a version whose lowest PSNR is below `MinPsnr` (30 dB) with "lowest 28.4 dB at 1.2 s is below this node's floor of 30
   dB — the version is not kept", hashes the file, probes it, moves it into the node's media store by its hash and records the
   `MediaVersion` on its item as one edit ("optimised Clip → hap-q").
 - **Audio** is stream-copied into the `.mov` with its own timestamps when the muxer takes the codec (AAC, PCM, ALAC among them);
   otherwise the version is silent and its words say so (decoding to PCM is next round).
-- **Cancel** kills a running job's worker and deletes its partial file; a cancelled or failed job leaves no file.
+- **Cancel** kills a running job's worker and deletes its partial file; a cancelled or failed job leaves no file, and the work
+  folder is swept of every partial whose job is not running. A clean stop of the node leaves a running job queued for its next start.
 - **The import hook.** When an import's probe lands (an item gains its content hash), the item is planned under the project's mode.
 
 ## The governor
@@ -70,8 +72,11 @@ Stepped once a second from what the engine already publishes; its thresholds are
 |---|---|---|---|
 | waiting | the show is armed | holds between frames; nothing starts | optimise waits: the show is armed |
 | paused | an output dropped or a source was late while a job ran, for `PauseAfterDropS` (60 s) after the last | holds | paused for 60 s: 1 frame dropped while it ran |
-| trickle | something plays, and until 10 s after it stopped | one decoder thread, software decode, a rest after each frame so its work is `TrickleGpuDuty` (15 %) of the time | a show plays: one stream, GPU ≤ 15 % |
-| run | idle | every core but one, hardware decode allowed | |
+| trickle | something plays, and until 10 s after it stopped | a rest after each frame so the frame's whole cost (demux, decode, encode, mux) is `TrickleGpuDuty` (15 %) of the time; a job started at trickle also decodes in software on one thread | a show plays: one stream, GPU ≤ 15 % |
+| run | idle | no rest; a job started at run decodes on every core but one, hardware decode allowed | |
+
+A job's decoder threads and hardware decode are fixed when it starts; the rest, the hold and the pause apply to a running job from
+its next frame. The read-back after the trailer decodes only the three sampled frames.
 
 `Role: never` in the node's settings makes a node that never encodes.
 

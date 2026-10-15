@@ -126,7 +126,7 @@ public static class OptimiseWorker
             {
                 var surfaceless = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
                     && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
-                platform = GpuPlatforms.Create(new PlatformRequest(Surfaceless: surfaceless), new GlDeviceOptions(false, false));
+                platform = GpuPlatforms.Create(new PlatformRequest(Surfaceless: surfaceless), new GlDeviceOptions(CheckErrors: true, DebugOutput: false));
                 encoder = new GlHapEncoder(platform.Context);
                 var d = platform.Context.Device;
                 Say(WorkerProtocol.Hello(Environment.ProcessId, $"{d.Version} · {d.Renderer}", encoder.Id));

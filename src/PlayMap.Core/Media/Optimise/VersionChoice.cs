@@ -22,7 +22,7 @@ public static class VersionChoice
             var named = item.Versions.FirstOrDefault(v => string.Equals(v.Id, item.Use, StringComparison.Ordinal));
             if (named is null)
                 return (null, $"use names {item.Use}, which is not a version of {item.Name}: the source plays");
-            var why = Unplayable(named, formats, present);
+            var why = Stale(item, named) ?? Unplayable(named, formats, present);
             return why is null ? (named, $"use names {named.Id}") : (null, why + ": the source plays");
         }
         MediaVersion? best = null;
@@ -34,7 +34,7 @@ public static class VersionChoice
                 reasons.Add($"{v.Id} waits for a person (below the quality floor)");
                 continue;
             }
-            if (Unplayable(v, formats, present) is { } why)
+            if ((Stale(item, v) ?? Unplayable(v, formats, present)) is { } why)
             {
                 reasons.Add(why);
                 continue;
@@ -69,6 +69,15 @@ public static class VersionChoice
         if (!present(v.ContentHash))
             return $"{v.Id}'s file is not on this node";
         return null;
+    }
+
+    /// <summary>Why a version no longer shows its item's source (it was made from other bytes), or null.</summary>
+    public static string? Stale(MediaItem item, MediaVersion v)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(v);
+        var recipe = Recipe.Parse(v.Recipe);
+        return recipe is null || recipe.Key(item.ContentHash) != v.Key ? $"{v.Id} was made from an earlier source of {item.Name}" : null;
     }
 
     public static string Words(MediaVersion v) => OptimiseTargets.TryCodec(v.To, out var c) ? HapCodecs.Words(c) : v.To;

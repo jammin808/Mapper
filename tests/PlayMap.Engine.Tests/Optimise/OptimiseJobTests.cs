@@ -174,12 +174,14 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     public async Task AWorkerKilledMidJobIsRestartedAndTheJobRunsAgainToItsVersion()
     {
         await using var rig = OptimiseRig.Start();
-        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 4);
+        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10);
         var id = await rig.ImportAsync(clip, "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
         Assert.Equal("accepted", reply.RootElement.GetProperty("stage").GetString());
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
+        // Held between frames, so the kill lands mid-job however fast the encoder runs.
+        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
         var pid = rig.Service.View.Pid!.Value;
         using (var worker = Process.GetProcessById(pid))
             worker.Kill();
@@ -187,7 +189,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.StartsWith("the worker stopped (exit code ", rig.Job(jobId).Words, StringComparison.Ordinal);
         Assert.Equal(1, rig.Service.View.Restarts);
         Assert.False(File.Exists(Path.Combine(rig.Home.Folder, "optimise", "work", jobId + ".mov.part")));
-        // The restart waits out its backoff on the node's clock.
+        // The restart waits out its backoff on the node's clock, and the job its release.
+        await rig.Ok($"MEDIA OPTIMISE RESUME {jobId}");
         rig.Clock.Advance(2_000_000_000);
         await rig.Until(() => JobStates.IsOver(rig.Job(jobId).State), "the job's end");
         Assert.Equal(JobStates.Done, rig.Job(jobId).State);
@@ -200,10 +203,11 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     {
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
             options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
-        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 4), "Clip");
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
+        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
         using (var worker = Process.GetProcessById(rig.Service.View.Pid!.Value))
             worker.Kill();
         await rig.Until(() => rig.Job(jobId).State == JobStates.Failed, "the job's failure");
@@ -229,6 +233,45 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.DoesNotContain(rig.Service.Jobs, j => j.Media == never);
         await rig.Until(() => rig.Service.Jobs.All(j => JobStates.IsOver(j.State)), "the job's end");
         Assert.Contains("queued", string.Join(" | ", rig.Engine.Journal.Recent(50).Select(r => r.Text)), StringComparison.Ordinal);
+    }
+
+    [FfmpegFact]
+    public async Task ANodeStoppedMidJobQueuesTheJobAgainWhenItStarts()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        string jobId;
+        var first = OptimiseRig.Start(dir: dir);
+        var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 640, 360, 10), "Clip");
+        using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap")))
+            jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
+        await first.Until(() => first.Job(jobId).FramesDone >= 1, "the first frames");
+        await first.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        var project = first.Engine.Store.Project;
+        await first.StopAsync();
+        // A clean stop is not the job's end: on disk it is still running, and the next start queues it again.
+        await using var second = OptimiseRig.Start(project, dir: dir);
+        var again = second.Job(jobId);
+        Assert.Equal((JobStates.Queued, 0, true), (again.State, again.Attempts, again.Paused));
+        Assert.Equal("the node stopped while it ran: it starts again from its first frame", again.Words);
+        Assert.False(File.Exists(Path.Combine(second.Home.Folder, "optimise", "work", jobId + ".mov.part")));
+        await second.Ok($"MEDIA OPTIMISE RESUME {jobId}");
+        await second.Until(() => JobStates.IsOver(second.Job(jobId).State), "the job's end");
+        Assert.Equal(JobStates.Done, second.Job(jobId).State);
+    }
+
+    [FfmpegFact]
+    public async Task AVersionBelowTheNodesFloorIsNotKept()
+    {
+        await using var rig = OptimiseRig.Start(settings: s => s with { MinPsnr = 99 });
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 1), "Clip");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
+        await rig.Until(() => JobStates.IsOver(rig.Job(jobId).State), "the job's end");
+        Assert.Equal(JobStates.Failed, rig.Job(jobId).State);
+        Assert.Matches("^lowest \\d+\\.\\d dB at \\d+\\.\\d s is below this node's floor of 99 dB — the version is not kept$", rig.Job(jobId).Words);
+        Assert.Empty(rig.Engine.Store.Project.FindMedia(id)!.Versions);
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(rig.Home.Folder, "optimise", "work")));
+        Assert.Empty(Directory.EnumerateFiles(rig.Home.MediaStore, "*.mov"));
     }
 
     [FfmpegFact]
@@ -260,18 +303,23 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     public async Task CancelStopsTheRunningJobAndLeavesNoPartialFile()
     {
         await using var rig = OptimiseRig.Start();
-        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 6), "Clip");
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap-q"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         var partial = Path.Combine(rig.Home.Folder, "optimise", "work", jobId + ".mov.part");
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1 && File.Exists(partial), "the partial file");
+        // A second job waits behind it: the cancel must not hand it to the worker being killed.
+        var second = Assert.Single(rig.Service.Request([rig.Engine.Store.Project.FindMedia(id)!], "hap", EncodeQuality.Fast)).Job!.Id;
         using (var cancelled = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE CANCEL {jobId}")))
             Assert.Equal(jobId, cancelled.RootElement.GetProperty("cancelled")[0].GetString());
         Assert.Equal(JobStates.Cancelled, rig.Job(jobId).State);
-        await rig.Until(() => !File.Exists(partial) && rig.Service.View.Pid is null, "the worker's stop");
-        Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(partial)!));
-        Assert.Empty(rig.Engine.Store.Project.FindMedia(id)!.Versions);
+        await rig.Until(() => !File.Exists(partial), "the partial file's removal");
         Assert.False((await rig.Run($"MEDIA OPTIMISE CANCEL {jobId}")).Ok);
+        await rig.Until(() => JobStates.IsOver(rig.Job(second).State), "the second job's end");
+        Assert.Equal(JobStates.Done, rig.Job(second).State);
+        Assert.False(File.Exists(partial));
+        Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(partial)!));
+        Assert.Equal("hap", Assert.Single(rig.Engine.Store.Project.FindMedia(id)!.Versions).To);
         // The queue on disk says the same.
         Assert.Contains("\"state\": \"cancelled\"", await File.ReadAllTextAsync(Path.Combine(rig.Home.Folder, "optimise", "jobs.json")), StringComparison.Ordinal);
     }

@@ -57,6 +57,9 @@ public sealed class OptimiseService : IAsyncDisposable
     private long _restartAtNs = long.MinValue;
     private long _idleSinceNs = long.MinValue;
     private int _restarts;
+    private int _crashStreak;
+    private bool _disposed;
+    private readonly HashSet<string> _recording = new(StringComparer.Ordinal);
     private string _gl = "";
     private string _encoder = "";
     private WorkerKnobs? _sent;
@@ -75,8 +78,7 @@ public sealed class OptimiseService : IAsyncDisposable
         _worker.Event += OnEvent;
         _worker.Exited += OnExited;
         _governor = new Governor(new GovernorSettings(_settings.TrickleGpuDuty, _settings.TrickleDiskMbps, _settings.PauseAfterDropS, Environment.ProcessorCount));
-        foreach (var j in _jobs.Where(j => j.State == JobStates.Queued))
-            DeletePartial(j.Id);
+        SweepWork();
     }
 
     /// <summary>Moves whenever the view STATE shows may have changed.</summary>
@@ -164,9 +166,10 @@ public sealed class OptimiseService : IAsyncDisposable
             }
             if (cancelled.Count > 0)
                 _store.Save(_jobs);
+            // Under the lock: no step can hand the next job to the worker being killed.
+            if (killRunning)
+                _worker.Kill();
         }
-        if (killRunning)
-            _worker.Kill();
         foreach (var id in cancelled)
             DeletePartial(id);
         if (cancelled.Count > 0)
@@ -256,6 +259,8 @@ public sealed class OptimiseService : IAsyncDisposable
         var job = new OptimiseJob(id, item.Id, item.Name, item.ContentHash, recipe.Key(item.ContentHash), recipe.Canonical(), recipe.To, JobStates.Queued, Now());
         lock (_gate)
         {
+            if (_jobs.FirstOrDefault(j => j.Key == job.Key && !JobStates.IsOver(j.State)) is { } queued)
+                return new OptimiseOutcome(item.Id, null, $"already queued ({queued.Id})");
             _jobs.Add(job);
             _store.Save(_jobs);
         }
@@ -359,7 +364,7 @@ public sealed class OptimiseService : IAsyncDisposable
         var wire = new WorkerKnobs(held ? "paused" : knobs.State.ToString().ToLowerInvariant(), knobs.GpuDuty, knobs.CpuThreads, knobs.HwDecode);
         if (_worker.Running && _sent != wire)
         {
-            _worker.Send(WorkerProtocol.Knobs(wire));
+            _ = _worker.Send(WorkerProtocol.Knobs(wire));
             _sent = wire;
         }
         OptimiseJob? next = null;
@@ -371,7 +376,12 @@ public sealed class OptimiseService : IAsyncDisposable
             else if (_idleSinceNs == long.MinValue)
                 _idleSinceNs = now;
             if (_running is null && knobs.MayWork && now >= _restartAtNs && _settings.Role != "never")
+            {
                 next = _jobs.Where(j => j.State == JobStates.Queued && !j.Paused).OrderBy(j => j.CreatedUnixMs).FirstOrDefault();
+                // Reserved under the lock: a cancel from here on sees the job as running and stops its worker.
+                if (next is not null)
+                    _running = next.Id;
+            }
         }
         if (next is not null)
         {
@@ -391,6 +401,11 @@ public sealed class OptimiseService : IAsyncDisposable
         var item = engine.Store.Project.FindMedia(job.Media);
         var recipe = Recipe.Parse(job.Recipe);
         var source = item is null ? null : SourcePath(engine, item);
+        if (item?.Versions.FirstOrDefault(v => v.Key == job.Key) is { } have)
+        {
+            Finish(job.Id, JobStates.Done, $"already has {VersionChoice.Words(have)} ({have.Id})");
+            return;
+        }
         string? refuse = item is null ? "the item was removed from the project"
             : recipe is null ? "the job's recipe is not one this node reads"
             : source is null ? $"{item.Name} is not on this node"
@@ -409,17 +424,31 @@ public sealed class OptimiseService : IAsyncDisposable
             Finish(job.Id, JobStates.Failed, "the optimise worker did not start: " + ex.Message);
             return;
         }
+        DeletePartial(job.Id);
         lock (_gate)
         {
-            _running = job.Id;
+            if (_running != job.Id)
+                return;   // cancelled between the step and here
             Replace(job.Id, j => j with { State = JobStates.Encoding, FramesDone = 0, Fps = 0, Words = j.Attempts > 0 ? j.Words : "" });
             _store.Save(_jobs);
         }
-        DeletePartial(job.Id);
-        _worker.Send(WorkerProtocol.Knobs(knobs));
+        var sent = _worker.Send(WorkerProtocol.Knobs(knobs));
         _sent = knobs;
-        _worker.Send(WorkerProtocol.Run(new WorkerJob(job.Id, source!, _store.PartialFor(job.Id), recipe!.To, Recipe.QualityWord(recipe.Quality),
+        sent = sent && _worker.Send(WorkerProtocol.Run(new WorkerJob(job.Id, source!, _store.PartialFor(job.Id), recipe!.To, Recipe.QualityWord(recipe.Quality),
             recipe.Chunks, recipe.SecondStage.ToString().ToLowerInvariant(), recipe.RawBelowGain, recipe.Audio == "copy")));
+        if (!sent)
+        {
+            // The worker went as it was handed the job: the job waits for the next step and a fresh worker.
+            lock (_gate)
+            {
+                if (_running == job.Id)
+                {
+                    _running = null;
+                    Replace(job.Id, j => j.State == JobStates.Encoding ? j with { State = JobStates.Queued } : j);
+                    _store.Save(_jobs);
+                }
+            }
+        }
         Changed();
     }
 
@@ -470,7 +499,13 @@ public sealed class OptimiseService : IAsyncDisposable
                 {
                     mine = _running == e.Job;
                     if (mine)
+                    {
+                        // The worker is free once it says done; the recording is the engine's and runs beside the next job.
                         Replace(e.Job, j => j with { State = JobStates.Verifying, FramesDone = e.Frames, Frames = e.Frames });
+                        _running = null;
+                        _recording.Add(e.Job);
+                        _store.Save(_jobs);
+                    }
                 }
                 if (mine)
                     _ = Task.Run(() => RecordAsync(e), CancellationToken.None);
@@ -494,35 +529,41 @@ public sealed class OptimiseService : IAsyncDisposable
         {
             job = _running;
             _sent = null;
-            if (expected || job is null)
-            {
-                Changed();
-                return;
-            }
             _running = null;
-            _restarts++;
-            var backoff = Math.Min(30_000_000_000L, _options.FirstBackoff.Ticks * 100 * (1L << Math.Min(10, _restarts - 1)));
-            _restartAtNs = (_engine?.Services.Mono.NowNs ?? 0) + backoff;
-            var attempts = (_jobs.FirstOrDefault(j => j.Id == job)?.Attempts ?? 0) + 1;
-            var words = string.Create(CultureInfo.InvariantCulture, $"the worker stopped (exit code {code})");
-            if (attempts >= _options.MaxAttempts)
+            if (job is not null && expected)
             {
-                Replace(job, j => j with
+                // Stopped by the engine (idle exit, shutdown) while it held a job: the job waits for the next worker, no attempt spent.
+                Replace(job, j => j.State == JobStates.Encoding ? j with { State = JobStates.Queued, FramesDone = 0, Fps = 0 } : j);
+                _store.Save(_jobs);
+            }
+            else if (job is not null)
+            {
+                _restarts++;
+                _crashStreak++;
+                var backoff = Math.Min(30_000_000_000L, _options.FirstBackoff.Ticks * 100 * (1L << Math.Min(10, _crashStreak - 1)));
+                _restartAtNs = (_engine?.Services.Mono.NowNs ?? 0) + backoff;
+                var attempts = (_jobs.FirstOrDefault(j => j.Id == job)?.Attempts ?? 0) + 1;
+                var words = string.Create(CultureInfo.InvariantCulture, $"the worker stopped (exit code {code})");
+                if (attempts >= _options.MaxAttempts)
                 {
-                    Attempts = attempts,
-                    State = JobStates.Failed,
-                    Words = string.Create(CultureInfo.InvariantCulture, $"{words} {(attempts == 1 ? "once" : $"{attempts} times")} on this clip — it is not optimised"),
-                    FinishedUnixMs = Now(),
-                });
+                    Replace(job, j => j with
+                    {
+                        Attempts = attempts,
+                        State = JobStates.Failed,
+                        Words = string.Create(CultureInfo.InvariantCulture, $"{words} {(attempts == 1 ? "once" : $"{attempts} times")} on this clip — it is not optimised"),
+                        FinishedUnixMs = Now(),
+                    });
+                }
+                else
+                {
+                    Replace(job, j => j with { Attempts = attempts, State = JobStates.Queued, FramesDone = 0, Fps = 0, Words = words + "; restarted, the job starts again from its first frame" });
+                }
+                _store.Save(_jobs);
             }
-            else
-            {
-                Replace(job, j => j with { Attempts = attempts, State = JobStates.Queued, FramesDone = 0, Fps = 0, Words = words + "; restarted, the job starts again from its first frame" });
-            }
-            _store.Save(_jobs);
         }
-        DeletePartial(job);
-        Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture, $"the optimise worker stopped (exit code {code}) during {job}"), false);
+        SweepWork();
+        if (job is not null && !expected)
+            Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture, $"the optimise worker stopped (exit code {code}) during {job}"), false);
         Changed();
         Kick();
     }
@@ -540,7 +581,12 @@ public sealed class OptimiseService : IAsyncDisposable
         try
         {
             var q = e.Quality;
-            if (q.Sampled == 0 || q.PsnrMin < _settings.MinPsnr)
+            if (q.Sampled == 0)
+            {
+                Finish(job.Id, JobStates.Failed, "no frame of the version was compared with its source — the version is not kept");
+                return;
+            }
+            if (q.PsnrMin < _settings.MinPsnr)
             {
                 Finish(job.Id, JobStates.Failed, string.Create(CultureInfo.InvariantCulture,
                     $"lowest {q.PsnrMin:0.0} dB at {q.WorstAtMs / 1000.0:0.0} s is below this node's floor of {_settings.MinPsnr:0} dB — the version is not kept"));
@@ -559,19 +605,23 @@ public sealed class OptimiseService : IAsyncDisposable
             Directory.CreateDirectory(_home.MediaStore);
             var media = engine.Services.Media as MediaBackend;
             var dest = media?.StorePath(hash, ".mov") ?? Path.Combine(_home.MediaStore, hash["sha256:".Length..] + ".mov");
+            if (!Verifying(job.Id))
+                return;   // cancelled while it was hashed: nothing is recorded
             File.Move(partial, dest, overwrite: true);
             media?.AddVerified(hash, dest, job.Name + " (" + job.To + ").mov");
             var encoder = _encoder;
             var versionId = "";
             var r = await engine.EditAsync(EngineCore.SystemSession, $"optimised {job.Name} → {job.To}", p =>
             {
-                if (p.FindMedia(job.Media) is not { } item || item.Versions.Any(v => v.Key == job.Key))
+                if (p.FindMedia(job.Media) is not { } item || item.Versions.Any(v => v.Key == job.Key) || !Verifying(job.Id))
                     return p;
                 versionId = p.NewId(Ids.MediaVersion);
                 var v = new MediaVersion(versionId, job.To, job.Recipe, job.Key, hash, size, probe.Info, q, Recipe.EncoderVersion + " · " + encoder,
                     engine.Services.Settings.NodeId, engine.Services.Wall.UnixMs);
                 return p with { Media = p.Media.Update(job.Media, m => m with { Versions = m.Versions.Add(v) }) };
             });
+            if (!r.Changed && !Verifying(job.Id))
+                return;
             if (!r.Changed)
             {
                 Finish(job.Id, JobStates.Failed, "the version was not recorded: " + (r.Effect.Length > 0 ? r.Effect : "the item is gone or has it already"));
@@ -580,18 +630,51 @@ public sealed class OptimiseService : IAsyncDisposable
             lock (_gate)
             {
                 Replace(job.Id, j => JobStates.IsOver(j.State) ? j : j with { State = JobStates.Done, Version = versionId, PsnrAvg = q.PsnrAvg, Words = string.Create(CultureInfo.InvariantCulture, $"{e.Audio}; {q.PsnrAvg:0.0} dB average, {q.PsnrMin:0.0} dB lowest"), FinishedUnixMs = Now() });
-                if (_running == job.Id)
-                    _running = null;
+                _recording.Remove(job.Id);
+                _crashStreak = 0;
                 _store.Save(_jobs);
             }
             Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture, $"{job.Name}: version {versionId} ({job.To}) made, {q.PsnrAvg:0.0} dB"), true);
             Changed();
             Kick();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException
-                                       or PlayMap.Media.Ffmpeg.FfmpegUnavailableException or InvalidOperationException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // Whatever stopped the recording (a disk, a probe, the node going) fails the job with its words, never leaves it verifying.
             Finish(job.Id, JobStates.Failed, "the version could not be recorded: " + ex.Message);
+        }
+    }
+
+    private bool Verifying(string jobId)
+    {
+        lock (_gate)
+            return _jobs.Any(j => j.Id == jobId && j.State == JobStates.Verifying);
+    }
+
+    /// <summary>Deletes the partial files of jobs that are not running or being recorded (a kill's leftover, an old run's).</summary>
+    private void SweepWork()
+    {
+        HashSet<string> keep;
+        lock (_gate)
+        {
+            keep = [.. _recording];
+            if (_running is { } r)
+                keep.Add(r);
+        }
+        try
+        {
+            if (!Directory.Exists(_store.Work))
+                return;
+            foreach (var file in Directory.EnumerateFiles(_store.Work, "*.mov.part"))
+            {
+                var id = Path.GetFileName(file)[..^".mov.part".Length];
+                if (!keep.Contains(id))
+                    DeletePartial(id);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.LogWarning(ex, "The optimise work folder could not be swept.");
         }
     }
 
@@ -603,6 +686,7 @@ public sealed class OptimiseService : IAsyncDisposable
             Replace(jobId, j => JobStates.IsOver(j.State) ? j : j with { State = state, Words = words, FinishedUnixMs = Now() });
             if (_running == jobId)
                 _running = null;
+            _recording.Remove(jobId);
             _store.Save(_jobs);
         }
         DeletePartial(jobId);
@@ -643,8 +727,15 @@ public sealed class OptimiseService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         if (_engine is { } engine)
             engine.Store.Changed -= OnProjectChanged;
+        // The node is going: its worker's last words (a job it was told to stop) are not the job's end. A running job stays
+        // "encoding" on disk and is queued again when the node next starts.
+        _worker.Event -= OnEvent;
+        _worker.Exited -= OnExited;
         await _stop.CancelAsync();
         try
         {

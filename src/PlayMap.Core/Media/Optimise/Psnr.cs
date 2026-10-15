@@ -1,6 +1,6 @@
 namespace PlayMap.Core.Media.Optimise;
 
-/// <summary>Peak signal-to-noise ratio of two 8-bit pictures over their RGB channels (alpha is not counted): 10·log10(255² / MSE).
+/// <summary>Peak signal-to-noise ratio of two 8-bit pictures over their RGB channels (alpha apart, <see cref="Alpha"/>): 10·log10(255² / MSE).
 /// Identical pictures read <see cref="Identical"/>.</summary>
 public static class Psnr
 {
@@ -21,6 +21,20 @@ public static class Psnr
             sum += d0 * d0 + d1 * d1 + d2 * d2;
         }
         return a.Length == 0 ? 0 : sum / (a.Length / 4 * 3.0);
+    }
+
+    /// <summary>PSNR of the alpha channel alone (the fourth byte of each pixel).</summary>
+    public static double Alpha(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
+    {
+        if (a.Length != b.Length || a.Length % 4 != 0)
+            throw new ArgumentException("Two pictures of the same size, four bytes a pixel.", nameof(b));
+        long sum = 0;
+        for (var i = 3; i < a.Length; i += 4)
+        {
+            var d = a[i] - b[i];
+            sum += d * d;
+        }
+        return a.Length == 0 ? Identical : FromMse(sum / (a.Length / 4.0));
     }
 
     public static double Rgb(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => FromMse(MeanSquaredError(a, b));

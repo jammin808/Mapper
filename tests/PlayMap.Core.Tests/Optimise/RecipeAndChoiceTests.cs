@@ -39,15 +39,17 @@ public class RecipeAndChoiceTests
     public void TheChunkCountFollowsTheWidth(int width, int chunks) => Assert.Equal(chunks, Recipe.For("hap", EncodeQuality.Fast).ChunksFor(width));
 
     private static MediaVersion Version(string id, string to, double psnr, long at, bool review = false) =>
-        new(id, to, Recipe.For(to, EncodeQuality.Show).Canonical(), "ok:x", "sha256:" + new string(id[^1], 64), 1000, MediaInfo.Unknown,
+        new(id, to, Recipe.For(to, EncodeQuality.Show).Canonical(), Recipe.For(to, EncodeQuality.Show).Key(ItemHash), "sha256:" + new string(id[^1], 64), 1000, MediaInfo.Unknown,
             new VersionQuality(psnr, psnr - 3, 3, 0), "hapenc/1", "a1b2c3d4", at) { Review = review };
 
     private static MediaItem Item(string use, params MediaVersion[] versions) =>
-        new MediaItem("md1", "Clip", MediaKind.Video, "clip.mp4", "sha256:" + new string('0', 64), 10, MediaInfo.Unknown, []) with
+        new MediaItem("md1", "Clip", MediaKind.Video, "clip.mp4", ItemHash, 10, MediaInfo.Unknown, []) with
         {
             Versions = [.. versions],
             Use = use,
         };
+
+    private static readonly string ItemHash = "sha256:" + new string('0', 64);
 
     private const BlockFormats Desktop = BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4;
 
@@ -74,6 +76,15 @@ public class RecipeAndChoiceTests
         var (v, why) = VersionChoice.Pick(named, BlockFormats.Bc1, _ => true);
         Assert.Null(v);
         Assert.Equal("mv3 is HAP Q; this GPU's GL has no S3TC: the source plays", why);
+    }
+
+    [Fact]
+    public void AVersionMadeFromAnEarlierSourceIsNotPlayed()
+    {
+        var item = Item("auto", Version("mv2", "hap-q", 44, 2)) with { ContentHash = "sha256:" + new string('9', 64) };
+        var (v, why) = VersionChoice.Pick(item, Desktop, _ => true);
+        Assert.Null(v);
+        Assert.Equal("mv2 was made from an earlier source of Clip: the source plays", why);
     }
 
     [Fact]

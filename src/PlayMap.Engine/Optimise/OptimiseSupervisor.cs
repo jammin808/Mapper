@@ -50,13 +50,26 @@ internal sealed class OptimiseSupervisor(WorkerLaunch launch, ILogger log) : IAs
 
     public bool Running => Pid is not null;
 
-    /// <summary>Starts the worker unless it runs.</summary>
+    /// <summary>Starts the worker unless one runs that was not asked to end; a worker being stopped or killed is waited for (a
+    /// moment, then killed) and a fresh one started, so a job is never handed to a worker on its way out.</summary>
     public void EnsureStarted()
     {
         lock (_gate)
         {
-            if (_process is { HasExited: false })
-                return;
+            if (_process is { HasExited: false } live)
+            {
+                if (!_expected)
+                    return;
+                try
+                {
+                    live.Kill(entireProcessTree: true);
+                    live.WaitForExit(5000);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    log.LogDebug(ex, "The optimise worker had ended already.");
+                }
+            }
             _process?.Dispose();
             var info = new ProcessStartInfo(launch.FileName)
             {
@@ -82,20 +95,23 @@ internal sealed class OptimiseSupervisor(WorkerLaunch launch, ILogger log) : IAs
         }
     }
 
-    public void Send(string line)
+    /// <summary>Writes a line to the worker; false when there is no worker to take it (gone, or on its way out).</summary>
+    public bool Send(string line)
     {
         lock (_gate)
         {
-            if (_process is not { HasExited: false } p)
-                return;
+            if (_process is not { HasExited: false } p || _expected)
+                return false;
             try
             {
                 p.StandardInput.WriteLine(line);
                 p.StandardInput.Flush();
+                return true;
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
             {
                 log.LogDebug(ex, "The optimise worker's input is closed.");
+                return false;
             }
         }
     }

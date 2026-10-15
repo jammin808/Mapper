@@ -78,7 +78,11 @@ internal sealed class JobStore(string folder, ILogger log)
         {
             Directory.CreateDirectory(Folder);
             var temp = Path + ".new";
-            File.WriteAllText(temp, JsonSerializer.Serialize(jobs, Json));
+            using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(file, jobs, Json);
+                file.Flush(flushToDisk: true);
+            }
             File.Move(temp, Path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

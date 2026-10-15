@@ -85,6 +85,9 @@ public static class OptimisePlanner
             return new PlanResult(Decision.Never, null, "mode", "the project's optimise mode is never");
         foreach (var rule in settings.Rules)
         {
+            // No rule makes an SDR codec of an HDR source: its range would be clipped on the air.
+            if (Matches(rule.When, probe, tags, targets) && probe.Hdr && OptimiseTargets.TryCodec(rule.To, out _))
+                return Keep(rule.Name, $"HDR source ({HdrWords(probe)}): the show's rule {rule.Name} would clip its range — kept as it is; a HAP HDR encoder arrives next round");
             if (Matches(rule.When, probe, tags, targets))
                 return FromRule(rule.Name, rule.To, rule.Mode, rule.Quality ?? settings.Quality, settings, ShowRuleWords(rule));
         }

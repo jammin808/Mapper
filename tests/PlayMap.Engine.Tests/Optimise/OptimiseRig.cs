@@ -42,15 +42,16 @@ internal sealed class OptimiseRig : IAsyncDisposable
     public RenderHost? Host { get; }
     public NodeHome Home => new(Path.Combine(Dir.FullName, "node"));
 
-    public static OptimiseRig Start(Project? project = null, bool render = false, OptimiseOptions? options = null)
+    public static OptimiseRig Start(Project? project = null, bool render = false, OptimiseOptions? options = null,
+        Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null)
     {
         FfmpegFactAttribute.UseDefaultLibraries();
-        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        dir ??= Directory.CreateTempSubdirectory("playmap-optimise-");
         var home = new NodeHome(Path.Combine(dir.FullName, "node"));
         var media = new MediaBackend(home, NullLogger.Instance);
         // The margin a show node keeps is 10 GB; a test box's disk is not the point here.
-        var settings = OptimiseNodeSettings.Default with { MinFreeGb = 0 };
-        var service = new OptimiseService(home, settings, NullLogger.Instance,
+        var node = OptimiseNodeSettings.Default with { MinFreeGb = 0 };
+        var service = new OptimiseService(home, settings?.Invoke(node) ?? node, NullLogger.Instance,
             options ?? new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100) });
         RenderHost? host = null;
         if (render)
@@ -117,6 +118,16 @@ internal sealed class OptimiseRig : IAsyncDisposable
         Engine.FactsChanged();
         using var doc = JsonDocument.Parse(Engine.State().Json);
         return doc.RootElement.Clone();
+    }
+
+    /// <summary>Stops the node as a clean shutdown does, keeping its folder (a second rig starts on it).</summary>
+    public async ValueTask StopAsync()
+    {
+        if (Host is not null)
+            await Host.DisposeAsync();
+        await Service.DisposeAsync();
+        await Engine.DisposeAsync();
+        await Media.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()

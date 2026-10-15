@@ -53,6 +53,8 @@ public static unsafe class HapTranscode
         input.KeepOnly(video, audio);
         var vin = input.Stream(video);
         var expected = ExpectedFrames(input, video);
+        // The container's own count, when it keeps one: the frames the version must hold.
+        var counted = vin->nb_frames > 0 ? vin->nb_frames : 0;
         using var decoder = StreamDecoder.Open(vin, new DecoderOptions { AllowHardware = request.AllowHardware, Threads = request.Threads });
         using var mux = new Muxer(request.Output, request.Codec, vin, input.FrameRate(video), audio >= 0 ? input.Stream(audio) : null);
         var samples = new Samples(expected);
@@ -67,6 +69,7 @@ public static unsafe class HapTranscode
         var second = 0L;
         var secondFrames = 0L;
         var fps = 0.0;
+        var paced = 0.0;
         try
         {
             var ended = false;
@@ -74,6 +77,8 @@ public static unsafe class HapTranscode
             {
                 ct.ThrowIfCancellationRequested();
                 var r = ffmpeg.av_read_frame(input.Format, packet);
+                if (r < 0 && r != ffmpeg.AVERROR_EOF)
+                    throw new FfmpegException($"reading {Path.GetFileName(request.Source)} after frame {frames}", r);
                 if (r < 0)
                 {
                     ended = true;
@@ -103,7 +108,6 @@ public static unsafe class HapTranscode
                         break;
                     FfmpegUtil.Check(got, $"{decoder.Name} frame {frames + 1}");
                     ct.ThrowIfCancellationRequested();
-                    var started = clock.Elapsed.TotalMilliseconds;
                     var picture = decoder.TransferIfHardware(frame);
                     var rgba = scaler.Convert(picture);
                     width = picture->width;
@@ -123,7 +127,9 @@ public static unsafe class HapTranscode
                         secondFrames = 0;
                     }
                     progress?.Invoke(new HapTranscodeProgress(frames, Math.Max(expected, frames), fps));
-                    afterFrame?.Invoke(clock.Elapsed.TotalMilliseconds - started);
+                    // The frame's whole cost since the last rest — demux, decode, convert, encode, mux — is what the pace rests against.
+                    afterFrame?.Invoke(clock.Elapsed.TotalMilliseconds - paced);
+                    paced = clock.Elapsed.TotalMilliseconds;
                 }
             }
             mux.Finish();
@@ -135,6 +141,8 @@ public static unsafe class HapTranscode
         }
         if (frames == 0)
             throw new MediaOpenException(MediaProblem.DecodeFailed, $"{decoder.Name} gave no picture");
+        if (counted > 0 && frames < counted - 1)
+            throw new InvalidDataException($"{Path.GetFileName(request.Source)} holds {counted} frames; {frames} decoded — the version would be short");
         var (quality, parsed) = Verify(request, frames, width, height, samples, ct);
         return new HapTranscodeResult(frames, width, height, mux.AudioWords, quality, parsed);
     }
@@ -158,13 +166,13 @@ public static unsafe class HapTranscode
         if (video < 0)
             throw new InvalidDataException("the written file has no video stream");
         input.KeepOnly(video);
-        using var decoder = StreamDecoder.Open(input.Stream(video), new DecoderOptions { AllowHardware = false });
+        // One thread: a frame-threaded decoder holds a picture back, and each sampled packet is decoded on its own.
+        using var decoder = StreamDecoder.Open(input.Stream(video), new DecoderOptions { AllowHardware = false, Threads = 1 });
         using var scaler = new RgbaScaler();
         var parser = new HapFrame();
         var packet = ffmpeg.av_packet_alloc();
         var frame = ffmpeg.av_frame_alloc();
         long parsed = 0;
-        long decoded = 0;
         var results = new List<(double Psnr, long AtMs)>();
         try
         {
@@ -172,7 +180,10 @@ public static unsafe class HapTranscode
             while (!ended)
             {
                 ct.ThrowIfCancellationRequested();
-                if (ffmpeg.av_read_frame(input.Format, packet) < 0)
+                var read = ffmpeg.av_read_frame(input.Format, packet);
+                if (read < 0 && read != ffmpeg.AVERROR_EOF)
+                    throw new FfmpegException("reading the written file back", read);
+                if (read < 0)
                 {
                     ended = true;
                     ffmpeg.avcodec_send_packet(decoder.Context, null);
@@ -187,15 +198,24 @@ public static unsafe class HapTranscode
                 {
                     if (!parser.TryParse(new ReadOnlySpan<byte>(packet->data, packet->size), width, height, request.Codec, out _))
                         throw new InvalidDataException("the written file does not read back: " + parser.Words(parsed));
-                    parsed++;
-                    ffmpeg.avcodec_send_packet(decoder.Context, packet);
+                    var index = parsed++;
+                    // HAP is intra-only: only the sampled frames are decoded, so the check costs three decodes, not the clip's.
+                    if (!samples.TryGet(index, out var source, out var atMs))
+                    {
+                        ffmpeg.av_packet_unref(packet);
+                        continue;
+                    }
+                    var sent = ffmpeg.avcodec_send_packet(decoder.Context, packet);
                     ffmpeg.av_packet_unref(packet);
-                }
-                while (ffmpeg.avcodec_receive_frame(decoder.Context, frame) == 0)
-                {
-                    if (samples.TryGet(decoded, out var source, out var atMs))
-                        results.Add((Psnr.Rgb(scaler.Convert(frame), source), atMs));
-                    decoded++;
+                    if (sent < 0)
+                        throw new FfmpegException($"FFmpeg's HAP decoder refused frame {index} of the written file", sent);
+                    if (ffmpeg.avcodec_receive_frame(decoder.Context, frame) != 0)
+                        throw new InvalidDataException($"FFmpeg's HAP decoder gave no picture for frame {index} of the written file");
+                    var back = scaler.Convert(frame);
+                    var psnr = Psnr.Rgb(back, source);
+                    if (request.Codec is HapCodec.HapAlpha or HapCodec.HapQAlpha)
+                        psnr = Math.Min(psnr, Psnr.Alpha(back, source));
+                    results.Add((psnr, atMs));
                     ffmpeg.av_frame_unref(frame);
                 }
             }

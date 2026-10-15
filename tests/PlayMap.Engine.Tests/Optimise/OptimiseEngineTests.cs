@@ -136,7 +136,8 @@ public sealed class OptimiseEngineTests : IAsyncDisposable
     {
         var item = new MediaItem("md_v", "Clip", MediaKind.Video, "/nowhere/clip.mp4", "sha256:" + new string('1', 64), 10,
             MediaInfo.Unknown with { VideoCodec = "h264", Width = 1920, Height = 1080 }, []);
-        var version = new MediaVersion("mv_1", "hap-q", Core.Media.Optimise.Recipe.For("hap-q", EncodeQuality.Show).Canonical(), "ok:x",
+        var version = new MediaVersion("mv_1", "hap-q", Core.Media.Optimise.Recipe.For("hap-q", EncodeQuality.Show).Canonical(),
+            Core.Media.Optimise.Recipe.For("hap-q", EncodeQuality.Show).Key(item.ContentHash),
             "sha256:" + new string('2', 64), 20, item.Info with { VideoCodec = "hap_q" }, new VersionQuality(44, 43, 3, 0), "hapenc/1", "0badc0de", 1);
         await using var engine = new EngineCore(EngineServices.ForTests(), Project.CreateDefault("Use") with { Media = [item with { Versions = [version] }] });
         Assert.True(WireGrammar.TryParse("MEDIA USE md_v mv_1", out var use, out _));

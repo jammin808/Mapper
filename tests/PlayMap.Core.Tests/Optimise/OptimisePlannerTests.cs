@@ -93,6 +93,15 @@ public class OptimisePlannerTests
     }
 
     [Fact]
+    public void NoShowRuleMakesAnSdrCodecOfAnHdrSource()
+    {
+        var all = new OptimiseRule("everything", new OptimiseMatch(), "hap-q", RuleMode.Auto);
+        var r = OptimisePlanner.Decide(Probe("hevc", 3840, 2160, bits: 10, transfer: "pq", wide: true), [], Auto with { Rules = [all] }, [Cpu]);
+        Assert.Equal((Decision.Keep, "everything", (Recipe?)null), (r.Decision, r.Rule, r.Recipe));
+        Assert.StartsWith("HDR source (PQ): the show's rule everything would clip its range", r.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ANamedTargetEncodesUnlessTheItemIsNotVideoIsThatCodecOrIsHdr()
     {
         Assert.Equal((Decision.Encode, "hap"), OptimisePlanner.Forced(Probe("h264", 640, 360), "hap", EncodeQuality.Fast) is var a ? (a.Decision, a.Recipe!.To) : default);
