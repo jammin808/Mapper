@@ -172,8 +172,10 @@ internal sealed class OscFeedback
         }
         foreach (var (to, messages) in outgoing)
             Send(messages, to, send);
-        // Slots of clients that are gone are forgotten (a client that comes back is sent everything again).
-        foreach (var k in _slots.Keys.Where(k => !clients.Contains(k.To) && !statics.Contains(k.To)).ToList())
+        // Slots of clients that are gone are forgotten (a client that comes back is sent everything again); a destination a binding's
+        // own words or its surface's feedbackTo names stays while a route sends there, so it too hears only what changed.
+        var routed = desired.Keys.Select(k => k.To).ToHashSet();
+        foreach (var k in _slots.Keys.Where(k => !clients.Contains(k.To) && !statics.Contains(k.To) && !routed.Contains(k.To)).ToList())
             _slots.Remove(k);
     }
 

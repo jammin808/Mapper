@@ -240,6 +240,16 @@ public sealed class OscFeedbackTests
         Assert.Equal("/stage", NextWith(display, "/stage", 0.4).Address);
         var list = JsonDocument.Parse((await rig.Ok("BIND LIST")).Payload!).RootElement;
         Assert.Equal($"value → OSC {at} /stage", list[0].GetProperty("feedback").GetString());
+        // Dedupe holds at a binding's own destination too: the next pass sends what changed there, never /stage again.
+        await rig.Ok("""BIND ADD {"input":"MIDI CC 1 8","target":"SET sf_lobby opacity *","feedback":{"to":"OSC """ + at + """ /lobby2"}}""");
+        await rig.Ok("SET sf_lobby opacity 0.7");
+        clock.AdvanceMs(25);
+        var heard = new List<OscMessage>();
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!heard.Any(m => m.Address == "/lobby2") && DateTime.UtcNow < until)
+            heard.AddRange(Drain(display, 50));
+        Assert.Equal(0.7, heard.Last(m => m.Address == "/lobby2").Args[0].Float, 6);
+        Assert.DoesNotContain(heard, m => m.Address == "/stage");
 
         var refused = await rig.Refused("""BIND ADD {"input":"OSC /x","target":"SET sf_stage opacity *","feedback":{"to":"OSC nowhere"}}""");
         Assert.Contains("the binding's feedback: 'nowhere' is no host:port (an IP address and a port 1–65535)", refused, StringComparison.Ordinal);
