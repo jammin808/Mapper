@@ -1,0 +1,16 @@
+// A test package from this folder's node_modules (npm ci), or else from the machine's global packages.
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+/** @param {string} name */
+export async function load(name) {
+  try {
+    return await import(name);
+  } catch {
+    const root = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    const require = createRequire(join(root, 'noop.js'));
+    return await import(pathToFileURL(require.resolve(name)).href);
+  }
+}

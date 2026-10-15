@@ -1,1 +1,79 @@
-{}
+{
+  "phones": [
+    {
+      "id": "ph_fixture1",
+      "name": "Pixel 8",
+      "rig": "cm_fixture1",
+      "platform": "android-chrome",
+      "model": "Pixel 8",
+      "connected": true,
+      "address": "127.0.0.1",
+      "transport": "ws",
+      "link": {
+        "rttMs": 0,
+        "offsetMs": 0,
+        "uncertaintyMs": 0,
+        "uploadMBps": 0
+      },
+      "camera": {
+        "label": "camera2 0, facing back",
+        "width": 320,
+        "height": 240,
+        "fps": 30,
+        "exposure": "locked",
+        "exposureMs": 16.7,
+        "iso": 200,
+        "focus": "locked",
+        "whiteBalance": "not offered by this camera"
+      },
+      "motion": "still",
+      "visible": true,
+      "lastSeenUnixMs": 1760000000000,
+      "words": "Ready: exposure locked, focus locked"
+    },
+    {
+      "id": "ph_fixture2",
+      "name": "iPhone",
+      "rig": "cm_fixture2",
+      "platform": "ios-safari",
+      "model": "iPhone",
+      "connected": false,
+      "address": "",
+      "transport": "",
+      "link": {
+        "rttMs": 0,
+        "offsetMs": 0,
+        "uncertaintyMs": 0,
+        "uploadMBps": 0
+      },
+      "camera": {
+        "label": "camera2 0, facing back",
+        "width": 320,
+        "height": 240,
+        "fps": 30,
+        "exposure": "auto",
+        "exposureMs": 0,
+        "iso": 0,
+        "focus": "auto",
+        "whiteBalance": "auto"
+      },
+      "motion": "",
+      "visible": false,
+      "lastSeenUnixMs": 1760000000000,
+      "words": "iPhone said goodbye (its page closed)"
+    }
+  ],
+  "scan": {
+    "pairing": {
+      "mode": "tag",
+      "sites": 3,
+      "rollingRejects": 1,
+      "retakes": 1,
+      "caught": 1,
+      "timingDisagrees": 0,
+      "aeDriftPct": 0,
+      "exposure": "locked",
+      "words": "paired by tag at 3 places"
+    }
+  }
+}

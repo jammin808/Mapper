@@ -1,1 +1,159 @@
-[]
+[
+  {
+    "title": "Phone",
+    "path": "phones.0",
+    "light": [
+      {
+        "if": "connected",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{words}",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Camera",
+        "path": "rig"
+      },
+      {
+        "label": "Platform",
+        "path": "platform"
+      },
+      {
+        "label": "Model",
+        "path": "model"
+      },
+      {
+        "label": "Connected",
+        "path": "connected"
+      },
+      {
+        "label": "Address",
+        "path": "address"
+      },
+      {
+        "label": "Motion",
+        "path": "motion"
+      },
+      {
+        "label": "Last seen",
+        "path": "lastSeenUnixMs"
+      }
+    ],
+    "actions": [
+      "PHONE INVITE",
+      "PHONE LIST",
+      "PHONE FORGET $(id)"
+    ]
+  },
+  {
+    "title": "Phone camera",
+    "path": "phones.0.camera",
+    "light": [
+      {
+        "if": "exposure",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{label} \u00B7 exposure {exposure} \u00B7 focus {focus}",
+    "fields": [
+      {
+        "label": "Lens",
+        "path": "label"
+      },
+      {
+        "label": "Width",
+        "path": "width"
+      },
+      {
+        "label": "Height",
+        "path": "height"
+      },
+      {
+        "label": "Exposure",
+        "path": "exposure"
+      },
+      {
+        "label": "Exposure ms",
+        "path": "exposureMs"
+      },
+      {
+        "label": "ISO",
+        "path": "iso"
+      },
+      {
+        "label": "Focus",
+        "path": "focus"
+      },
+      {
+        "label": "White balance",
+        "path": "whiteBalance"
+      }
+    ],
+    "actions": [
+      "PHONE LIST"
+    ]
+  },
+  {
+    "title": "Scan pairing",
+    "path": "scan.pairing",
+    "light": [
+      {
+        "if": "timingDisagrees",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{words} \u00B7 {retakes} shown again \u00B7 {caught} caught",
+    "fields": [
+      {
+        "label": "Paired by",
+        "path": "mode"
+      },
+      {
+        "label": "Tag places",
+        "path": "sites"
+      },
+      {
+        "label": "Rolling-shutter mixes",
+        "path": "rollingRejects"
+      },
+      {
+        "label": "Shown again",
+        "path": "retakes"
+      },
+      {
+        "label": "Caught",
+        "path": "caught"
+      },
+      {
+        "label": "Timing disagrees",
+        "path": "timingDisagrees"
+      },
+      {
+        "label": "Drift %",
+        "path": "aeDriftPct"
+      },
+      {
+        "label": "Exposure",
+        "path": "exposure"
+      }
+    ],
+    "actions": [
+      "SCAN NEXT",
+      "SCAN CANCEL",
+      "SCAN STATUS"
+    ]
+  }
+]

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>PlayMap camera</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main>
+    <h1 id="title">PlayMap camera</h1>
+    <section id="insecure" hidden>
+      <p>PlayMap's camera page needs the node's https address.</p>
+      <p><a id="https-link" href="#">Open the secure address</a></p>
+      <p class="small">A phone gives a web page its camera only over a secure connection. Accept the node's certificate when the
+        phone asks, after comparing its fingerprint with the one on the desk.</p>
+    </section>
+    <section id="join" hidden>
+      <p id="join-words">This phone can be the node's scan camera.</p>
+      <button id="allow" type="button">Allow camera</button>
+      <p class="small">The camera runs only while this page is open, and no picture leaves the building. This phone keeps a key
+        for this node in its browser until the desk forgets the phone, or you do here.</p>
+      <button id="forget" type="button" class="quiet" hidden>Forget this node</button>
+    </section>
+    <section id="ready" hidden>
+      <ul id="chips"></ul>
+      <p id="status">Connecting…</p>
+      <p class="small">Prop the phone or use a stand. Keep it still for about ten seconds per projector.</p>
+    </section>
+    <p id="say" class="say" hidden></p>
+    <video id="video" playsinline muted hidden></video>
+  </main>
+</body>
+</html>
