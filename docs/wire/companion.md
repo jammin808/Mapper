@@ -95,3 +95,24 @@ foreign `Origin`, and its close codes), the desk-identity rule, the three new SU
 VERBS' `params`/`formParams`/`press`, `GET /api/thumb`, and STATE's `clients`, `events`, `project.index`; ARCHITECTURE.md names
 `LineSessions` (one per door) and the mDNS responder in `PlayMap.Net/Discovery`; the trimmed rows (`RECORD`, `SELECT`,
 `COMPANION PRESS|VAR|BRIGHTNESS`) are next round.
+
+## wp2-companion-module: what the module says and reads
+
+The Companion module (`integrations/companion-module-playmap`, `docs/COMPANION.md` "The module") is a client of the lines above and
+adds nothing to the node's wire.
+
+- **Says**, every line with `@c<n>`: `HELLO Companion:<label> module=<version>`, `AUTH-PROOF <hex>` after a `NONCE`, `PING <t1>` every
+  2 s, `PRESENCE {"kind":"companion","module","live","page","thumbs"}`, `WHOAMI` (again when STATE's `show.armed` or `clients` move),
+  `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop, `SUBSCRIBE THUMBS <ref>…` (the refs its keys show,
+  at most 128), `THUMB <ref> <n>x<n> [IF <etag>]`, `INDEX` (when `project.index` moved and no push came within 500 ms), and the lines its
+  actions write. Every line it can send is in `test/lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to
+  its row; no line it sends exceeds 64 KiB.
+- **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
+  and `THUMBS`; the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the engine wrote. Unknown pushes are ignored.
+- **The web port's rules hold**: it sends no `Origin`; a refused upgrade's JSON `error` is shown as the node wrote it; a node that asks for
+  a token is paired by proof, so the Host rule for tokenless admission does not apply to it.
+
+**Papers note** (for the integration docs pass): WIRE.md's controllers section names the module as the line channel's client and its
+`@c<n>` ids; ROADMAP marks R3.4 (the Companion module) built; README lists `integrations/companion-module-playmap` with `npm test`;
+SHOWBUS-NODE.md's Companion row points at the module. CI wants a job for the module's `npm ci && npm test` (Node 22) after the solution
+builds, since `e2e-engine.test.ts` runs `tools/PlayMap.Node`.

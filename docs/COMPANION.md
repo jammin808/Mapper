@@ -109,10 +109,77 @@ pairing token in Companion's PlayMap connection — nothing on the node pairs it
 MCP's `run_command` asks the node's Show Mode before it runs or queues a line: what Show Mode refuses is answered with its words and
 neither runs nor waits for a person; what it holds for a person goes to the node, whose gate keeps it on the node's own list.
 
+## The module
+
+`integrations/companion-module-playmap` is the Companion 5.1 connection (`jammin808-playmap`, TypeScript on `@companion-module/base`
+2.2.1, Node 22). It is the one part of this repository with a licence of its own, the owner's decision for it alone: its source is MIT
+(Bitfocus requires that of a module's source) and its packaged form GPL-3.0-only, the most restrictive Companion's tools accept.
+`companion/HELP.md` is the operator's page; this is how it works.
+
+**The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
+link and refusing another), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
+is a Companion secret and never rides a line. A node whose web port has no line channel (an upgrade answered 400 or 404) is reached on
+the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
+required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
+2 s is the watchdog and the clock (the round trip with the least delay of the last eight gives the node's offset). No line for 4 s is
+**stale**: the status says so and every key dims with a ⚠. 10 s drops the link: what the node said is emptied, every feedback is checked
+again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token or a locked-out
+address halts the link until the config changes, so a deck never spends the address's wrong tokens. Lines the module sends are held to the
+node's 64 KiB; what the node sends is not (VERBS and INDEX are long).
+
+**Once paired** it says `PRESENCE` (its version, its Live source and page, how many pictures it holds), asks `WHOAMI` (again when Show
+Mode or the controllers move) and `VERBS`, subscribes to `INDEX` and `EVENTS`, asks `EVENTS SINCE <seq>` for what a drop missed, and
+watches the pictures its keys show with `SUBSCRIBE THUMBS`.
+
+**STATE and INDEX.** STATE is read through one table of paths (`src/state/paths.ts`); the node's contract test finds every one of them in
+a STATE the engine wrote. Variables are computed from it as a pure function of STATE, the module's own facts and the node's clock, diffed,
+and sent at most 25 times a second; feedback types are checked only when a slice of STATE they read moved. Playing clocks run between
+pushes at 10 Hz from `positionMs`, `rate` and STATE's `at`, in whole seconds and progress steps of 0.005. A new INDEX `sig` rebuilds the
+variable definitions, the actions' and feedbacks' dropdowns and the preset structure at once; a rename (`labels` only) re-sends the
+structure after 3 s, while keys relabel at once through value feedbacks; a `project.index` that moved with no INDEX push following asks
+`INDEX`.
+
+**Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself or that carries no secret), with typed
+options from `params` — entity dropdowns from INDEX, literal choices, keyword parameters, a form chooser for a row with several — and the
+line written by the node's grammar. Every press returns its receipt as the action's result (`ok`, `stage`, `effect`, `error`) on the node's
+first reply, and lights a corner dot on its key: amber while sent or accepted, cleared when STATE moves past it, red for 2 s on `ERR` with
+the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
+blackout and freeze toggles; a section key; the Live page; `raw` (any line but the session's and the secret ones) and `ask_node` (a
+question, its answer as the result). Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
+value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY` and `DEVICE LENS … BY` (relative); turns
+within 30 ms are one line.
+
+**Press shapes** come from each row's `press`: Panic, Air and Transport rows fire on the down, never held; a high-risk row is held 0.8 s;
+a projector's power is two presses within 3 s (the module keeps the first — a preset cannot reset a button's step). The double-GO guard
+holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
+
+**Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default) and typed values a layered key binds through
+`$(this:value)` style overrides: label, light, state word, progress, time left, picture, score, any STATE path, a Live slot, a section
+key's value, the focused playlist. `event_pulse` is true for `hold_ms` after an `EVENT` of its kind, on the node's clock. `verb_locked`
+reads WHOAMI's `may`.
+
+**Presets** are fixed for a config and never change with the show; only the structure does. Template groups are keyed by entity id
+(`pl.<id>` lists a playlist's items), so a linked key follows its item through renames and reorders. Every preset is an `alternatives`
+pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. A package's INDEX
+section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says. The **Live page** is
+one template group of 32 slots whose source is the page variable `pm_live`; the module lays the slots out from INDEX and STATE and, while
+the show is armed, keeps each slot on its entity (lights and labels still move; a gone one reads REMOVED) until RE-LAY or disarming.
+
+**Pictures** are asked with `THUMB <ref> <size>x<size>` only for keys that show them, kept by ref and size (256 at most), and asked again
+with `IF <etag>` when a `THUMBS` push says one moved.
+
+**Tests.** `npm test` (Node 22) type-checks, lints and runs the module through `@companion-module/host`'s `InstanceWrapper` — Companion's own
+host layer — against a fake node in Node, and against `tools/PlayMap.Node engine --headless` itself (`e2e-engine.test.ts`). The node holds
+its side in `CompanionContractTests`: `verbs.json` is VERBS, every line in `test/lines.txt` parses and fits its row, every path in
+`test/state-paths.txt` is in a STATE the engine wrote, one version, one line protocol, Patterns' palette byte for byte.
+`CompanionModuleFixtureTests` writes the module's STATE and INDEX fixtures from the engine (`PLAYMAP_WRITE_FIXTURES=1`), as the verbs
+test writes `verbs.json`.
+
 ## Next round
 
 Key pages authored on the desk (`KEYS …`) and `COMPANION PAGE`/`COMPANION ADD` (REST provisioning); the node → Companion link
 (`COMPANION PRESS`, `COMPANION VAR`, `COMPANION BRIGHTNESS`, the REST key in the credential store); `RECORD` (the operator's lines as
-`ACTION` pushes) and `SELECT`; live output and projector thumbnails from preview views with leases; streamed `ASK` replies; Show Bus
-hello discovery in the module; the desk's Decks drawer; browsing (OSCQuery, WLED) on the same responder; the TLS fingerprint in the
-TXT record.
+`ACTION` pushes) and with it the module's typed recorder (a port of `VerbCatalog.Match` turning `ACTION <line>` into typed actions) and
+`SELECT` for learn; live output and projector thumbnails from preview views with leases; streamed `ASK` replies; Show Bus hello discovery
+in the module; the desk's Decks drawer; browsing (OSCQuery, WLED) on the same responder; the TLS fingerprint in the TXT record; the
+back-port of id-keyed template groups, value feedbacks and the secret token to Patterns' module.

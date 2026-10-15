@@ -53,7 +53,7 @@ public sealed partial class CompanionModuleFixtureTests
     }
 
     /// <summary>The document with every show id renamed in order of first appearance (shared across the two files) and the
-    /// signatures fixed, indented.</summary>
+    /// signatures and the process's memory figures fixed, indented.</summary>
     private static string Stable(string json, Dictionary<string, string> ids)
     {
         var text = ShowId().Replace(json, m =>
@@ -73,6 +73,12 @@ public sealed partial class CompanionModuleFixtureTests
         }
         if (root["project"] is JsonObject project && project["index"] is not null)
             project["index"] = "9f1c2ab07d3e4410";
+        if (root["machine"] is JsonObject machine)
+        {
+            // The test process's own memory and GC pauses: true of this run only.
+            machine["memMb"] = 0;
+            machine["gcPauseMsTotal"] = 0;
+        }
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
     }
 

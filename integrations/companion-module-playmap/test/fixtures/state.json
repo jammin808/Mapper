@@ -195,7 +195,7 @@
   ],
   "machine": {
     "renderer": "none",
-    "memMb": 147,
+    "memMb": 0,
     "gcPauseMsTotal": 0,
     "present": null
   },
