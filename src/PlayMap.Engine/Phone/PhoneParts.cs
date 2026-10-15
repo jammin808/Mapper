@@ -89,9 +89,12 @@ internal sealed class PhonePreflight : IPreflightCheck
             var invite = string.Create(CultureInfo.InvariantCulture, $"PHONE INVITE {Quote(rig.Name)}");
             rows.Add(facts is { Connected: true }
                 ? new PreflightRow("phone:" + rig.Id, node, Section, rig.Name, Light.Green, "connected", facts.Words, null)
+                // A phone the node refused says what to do in its own words (the show's lock); an invite would be refused the same way.
+                : facts is { Refused: true }
+                    ? new PreflightRow("phone:" + rig.Id, node, Section, rig.Name, Light.Amber, "refused", $"{facts.Words}: a scan through it would fail", null)
                 : new PreflightRow("phone:" + rig.Id, node, Section, rig.Name, Light.Amber, "not connected",
                     hub is null ? "this node has no phone hub, so a scan through this phone cannot run"
-                    : facts is null ? $"{rig.Name} is not paired with this node (its phone was forgotten, or never finished joining): a scan through it would fail"
+                    : facts is null ? $"{rig.Name} is not paired with this node (its phone was forgotten, or never finished joining): an invite under its name pairs this rig again"
                     : $"{facts.Words}: a scan through it would fail", hub is null ? null : invite));
         }
         if (rows.Count == 0)

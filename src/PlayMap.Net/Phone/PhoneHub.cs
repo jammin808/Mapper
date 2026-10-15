@@ -62,10 +62,13 @@ public sealed record PhoneInvite(string Url, string Ticket, DateTimeOffset Expir
 /// <summary>A phone that joined (first time: no rig yet) with what it said of itself; the node answers the camera rig it is.</summary>
 public sealed record PhoneJoined(string PhoneId, string Name, PhoneProfile Profile, string Rig, bool First);
 
-/// <summary>A phone as STATE shows it.</summary>
+/// <summary>A phone as STATE shows it; <see cref="Refused"/> when the node refused its last join (its words say why).</summary>
 public sealed record PhoneFacts(string Id, string Name, string Rig, string Platform, string Model, bool Connected, string Address, string Transport,
     double RttMs, double OffsetMs, double UncertaintyMs, double UploadMBps, PhoneCameraFacts? Camera, string Motion, bool Visible,
-    long LastSeenUnixMs, string Words);
+    long LastSeenUnixMs, string Words)
+{
+    public bool Refused { get; init; }
+}
 
 /// <summary>
 /// The phones of a node: invites, keys, sessions. An invite mints a ticket — 20 random bytes, 32 base32 letters — good once,
@@ -85,6 +88,7 @@ public sealed class PhoneHub : IAsyncDisposable
     private readonly Dictionary<string, Ticket> _tickets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Queue<long>> _wrong = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PhoneSession> _sessions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _refused = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _stop = new();
     private int _disposed;
 
@@ -112,8 +116,9 @@ public sealed class PhoneHub : IAsyncDisposable
 
     public int Connected => _sessions.Count(s => s.Value.Connected);
 
-    /// <summary>Mints a one-time invite whose link is under <paramref name="baseUri"/> (the node's https address).</summary>
-    public PhoneInvite Invite(string name, TimeSpan life, string invitedBy, Uri baseUri)
+    /// <summary>Mints a one-time invite whose link is under <paramref name="baseUri"/> (the node's https address); with
+    /// <paramref name="phoneId"/> the phone joining with it takes that id (and so the camera rig already made for it).</summary>
+    public PhoneInvite Invite(string name, TimeSpan life, string invitedBy, Uri baseUri, string phoneId = "", string rig = "")
     {
         ArgumentNullException.ThrowIfNull(baseUri);
         if (life <= TimeSpan.Zero || life > TimeSpan.FromHours(1))
@@ -125,7 +130,7 @@ public sealed class PhoneHub : IAsyncDisposable
         {
             foreach (var stale in _tickets.Where(t => t.Value.Expires < now - TimeSpan.FromHours(1)).Select(t => t.Key).ToList())
                 _tickets.Remove(stale);
-            _tickets[Digest(ticket)] = new Ticket(name.Trim(), expires, invitedBy);
+            _tickets[Digest(ticket)] = new Ticket(name.Trim(), expires, invitedBy, phoneId, rig);
         }
         var url = new UriBuilder(baseUri) { Path = "/scan/", Query = "", Fragment = "t=" + ticket }.Uri.AbsoluteUri;
         return new PhoneInvite(url, ticket, expires, name.Trim(), QrMatrix.Encode(url));
@@ -146,6 +151,7 @@ public sealed class PhoneHub : IAsyncDisposable
             foreach (var id in ids)
             {
                 _keys.Remove(id);
+                _refused.TryRemove(id, out _);
                 if (_sessions.TryRemove(id, out var s))
                     gone.Add(s);
             }
@@ -179,9 +185,12 @@ public sealed class PhoneHub : IAsyncDisposable
             }
             else
             {
-                var why = _sessions.TryGetValue(p.Id, out var gone) ? gone.Gone : "is not connected — open the invite on the phone";
+                // The node's refusal of its last join is newer than any goodbye: it says what to do.
+                var refused = _refused.TryGetValue(p.Id, out var refusal);
+                var why = refused ? refusal! : _sessions.TryGetValue(p.Id, out var ended) ? ended.Gone : "is not connected — open the invite on the phone";
+                _sessions.TryGetValue(p.Id, out var gone);
                 list.Add(new PhoneFacts(p.Id, p.Name, p.Rig, gone?.Profile.Platform ?? "", gone?.Profile.Model ?? "", false, "", "", 0, 0, 0, 0,
-                    gone is null ? null : gone.Facts().Camera, "", false, p.LastSeenUnixMs, $"{p.Name} {why}"));
+                    gone is null ? null : gone.Facts().Camera, "", false, p.LastSeenUnixMs, $"{p.Name} {why}") { Refused = refused });
             }
         }
         return list;
@@ -427,8 +436,13 @@ public sealed class PhoneHub : IAsyncDisposable
             }
             catch (InvalidOperationException ex)
             {
-                // A first join keeps its ticket for another try within its life; a phone with a key keeps it.
+                // A first join keeps its ticket for another try within its life; a phone with a key keeps it, and STATE says why it is out.
                 GiveBack(ticketDigest, ticket, phone);
+                if (key is null)
+                {
+                    _refused[phone.Id] = PhoneSession.Clip("was refused: " + ex.Message);
+                    Changed?.Invoke();
+                }
                 _log.LogWarning(ex, "Phone {Phone} could not join: its camera could not be added.", phone.Id);
                 await RefuseAsync(socket, WebSocketCloseStatus.InternalServerError, "the node could not add this phone's camera: " + ex.Message, ct);
                 return null;
@@ -455,6 +469,7 @@ public sealed class PhoneHub : IAsyncDisposable
                     _keys.Put(phone);
                 _sessions.TryGetValue(phone.Id, out older);
                 _sessions[phone.Id] = session;
+                _refused.TryRemove(phone.Id, out _);
             }
         }
         if (refusal is not null)

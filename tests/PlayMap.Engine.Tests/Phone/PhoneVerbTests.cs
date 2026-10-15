@@ -145,12 +145,43 @@ public sealed class PhoneVerbTests
         Assert.Contains("the node could not add this phone's camera", words, StringComparison.Ordinal);
         Assert.Contains("armed", words, StringComparison.Ordinal);
         Assert.Equal(320, rig.Engine.Store.Project.Stage.Cameras.Find(rigId)!.Phone!.Width);
+        // STATE, the context and preflight say why it is out, in the lock's words; preflight offers no invite (it would be refused too).
+        var phone = Assert.Single(rig.State().GetProperty("phones").EnumerateArray());
+        Assert.Contains("was refused", phone.GetProperty("words").GetString()!, StringComparison.Ordinal);
+        Assert.Contains("armed", phone.GetProperty("words").GetString()!, StringComparison.Ordinal);
+        var row = Assert.Single(await new PhonePreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None));
+        Assert.Equal(("refused", Light.Amber), (row.Value, row.Light));
+        Assert.Null(row.Fix);
+        // The same camera coming back while armed (only what it can do changed) is admitted: its optics still hold.
+        var (same, _) = await HelloAsync(rig, new { key }, 320, 240);
+        Assert.NotNull(same);
         await rig.Ok("SHOW DISARM");
         var (again, _) = await HelloAsync(rig, new { key }, 240, 320);
         Assert.NotNull(again);
         var updated = rig.Engine.Store.Project.Stage.Cameras.Find(rigId)!;
         Assert.Equal((240, 320), (updated.Phone!.Width, updated.Phone.Height));
         Assert.Equal((240, 320), (updated.Intrinsics.Width, updated.Intrinsics.Height));
+    }
+
+    [Fact]
+    public async Task AnInviteUnderARigsNamePairsThatRigAgainOnceItsPhoneWasForgotten()
+    {
+        await using var rig = await PhoneScanRig.StartAsync();
+        string rigId;
+        await using (var phone = await rig.JoinAsync())
+        {
+            rigId = phone.Rig;
+            await rig.Ok($"PHONE FORGET {phone.Id}");
+        }
+        var row = Assert.Single(await new PhonePreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None));
+        Assert.Equal("PHONE INVITE \"Pixel 8\"", row.Fix);
+        var ticket = TicketOf(await rig.Ok("PHONE INVITE Pixel 8"));
+        await using var again = new FakePhone(rig.Display, rig.Camera, locks: true);
+        await again.JoinAsync(rig.Host.Port, ticket);
+        // The same rig, not a second one; its preflight row green again.
+        Assert.Equal(rigId, again.Rig);
+        Assert.Single(rig.Engine.Store.Project.Stage.Cameras);
+        Assert.Equal("connected", Assert.Single(await new PhonePreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None)).Value);
     }
 
     [Fact]

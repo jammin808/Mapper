@@ -204,6 +204,20 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task AMovementBetweenTwoProjectorsRunsFailsTheScan()
+    {
+        await using var rig = await PhoneScanRig.StartAsync(projectors: 2);
+        await using var phone = await rig.JoinAsync();
+        // The first projector's view ends whole; the phone is bumped while the second projector's probe is up.
+        phone.BumpAtPrepare = 2;
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 pj00000002 MODE FAST")).Ok);
+        var view = await rig.EndedAsync();
+        Assert.Equal("failed", view.State);
+        Assert.Contains("Pixel 8 moved during the view (its motion sensor said so)", view.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Engine.Store.Project.Stage.Scans);
+    }
+
+    [Fact]
     public async Task ALostLocateOrClosingPictureIsTakenAgainAsARetakeWithoutAStall()
     {
         await using var rig = await PhoneScanRig.StartAsync();

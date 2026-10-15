@@ -177,6 +177,11 @@ internal sealed class FakePhone : IAsyncDisposable
     /// <summary>When this many cues have come, the phone's motion sensor says it moved.</summary>
     public int MovedAtCue { get; set; } = int.MaxValue;
 
+    /// <summary>At this prepare (1: the first projector's), the phone's motion sensor starts a movement before it answers.</summary>
+    public int BumpAtPrepare { get; set; } = int.MaxValue;
+
+    private int _prepares;
+
     /// <summary>After this many cues the camera sees everything shifted right by <see cref="ShiftPx"/> pixels (it was nudged).</summary>
     public int ShiftAfter { get; set; } = int.MaxValue;
 
@@ -307,6 +312,8 @@ internal sealed class FakePhone : IAsyncDisposable
                         Volatile.Write(ref _prev, Exact(m));
                         break;
                     case "prepare":
+                        if (Interlocked.Increment(ref _prepares) == BumpAtPrepare)
+                            await SendAsync(new { t = "state", motion = "moving" });
                         // A new projector's run: its sites are not known yet, and the probe on the glass is what its first frame must
                         // change from.
                         _sites = [];
@@ -572,8 +579,10 @@ internal sealed class PhoneScanRig : IAsyncDisposable
     /// <summary>What the phone's camera sees: the scene lit by any projector picture.</summary>
     public ScanSimulator Camera { get; }
 
+    /// <summary>The rig; with <paramref name="projectors"/> 2 a second projector and output stand where the first do (the phone sees
+    /// either's picture the same way), for a scan of two projectors through one phone.</summary>
     public static async Task<PhoneScanRig> StartAsync(ScanRunnerOptions? scan = null, Func<SessionInfo, CancellationToken, Task<PhoneDoor>>? door = null,
-        double cameraNoise = 1)
+        double cameraNoise = 1, int projectors = 1)
     {
         var folder = Directory.CreateTempSubdirectory("playmap-phonescan-").FullName;
         var display = new GlassDisplay();
@@ -583,13 +592,15 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         var truth = new SimulatedRig(SimulatedRig.DefaultScene, 320, 240, [prior]);
         var t = truth.Projector(0);
         var aim = t.Pose.Position + t.Pose.Forward * 2.5 + new Vec3d(0.3, -0.2, 0.1);
+        var ids = Enumerable.Range(1, projectors).Select(n => (Output: $"op0000000{n}", Projector: $"pj0000000{n}")).ToList();
         var project = Project.CreateDefault("Phone scan") with
         {
-            Outputs = [Rendering.HostRig.Screen("op00000001", SourceRef.None, 256, 160) with { ProjectorId = "pj00000001" }],
+            Outputs = [.. ids.Select(i => Rendering.HostRig.Screen(i.Output, SourceRef.None, 256, 160) with { ProjectorId = i.Projector })],
         };
         project = project.WithStage(s => s with
         {
-            Projectors = [new Projector("pj00000001", "Left", prior, LensDistortion.None, Pose.LookAt(t.Pose.Position, aim, Vec3d.UnitY), 0, "#FF8800", false, [], SolveLocks.None, 0)],
+            Projectors = [.. ids.Select((i, n) => new Projector(i.Projector, n == 0 ? "Left" : "Right", prior, LensDistortion.None,
+                Pose.LookAt(t.Pose.Position, aim, Vec3d.UnitY), 0, "#FF8800", false, [], SolveLocks.None, 0))],
         });
         var services = EngineServices.ForTests(MonoClock.Instance);
         services = services with

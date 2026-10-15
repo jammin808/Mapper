@@ -167,9 +167,9 @@ async function allow(motion) {
       raster(video.videoWidth, video.videoHeight);
       chips();
       say('The phone turned: it joins again with its new picture size. Keep it still in one place for the scan.', 'warn');
-      // A first join still waiting for its key joins again once it has it; a phone with its key joins again now.
-      if (s.key) closeSelf('the phone turned: joining again with its new picture size');
-      else s.rejoin = true;
+      // A join made with an invite (its ticket kept until the welcome) joins again once it has its key; one made with the key now.
+      if (s.ticket) s.rejoin = true;
+      else closeSelf('the phone turned: joining again with its new picture size');
     }
   });
   await motionAndWake(motion);
@@ -352,7 +352,7 @@ function connect() {
       window.setTimeout(connect, next.delayMs);
     } else {
       s.stopped = true;
-      status(s.key ? 'Not connected' : 'Not connected: scan a new invite to join again');
+      status(s.key && !/^ERR /.test(e.reason) ? 'Not connected' : 'Not connected: scan a new invite to join again');
     }
   });
 }
@@ -498,10 +498,12 @@ async function profile(m) {
       let level = litTop(gray);
       // A phone's video is gamma-encoded; the first correction tells the curve this camera really has.
       let gamma = 2.2;
+      /** @type {number | undefined} */
+      let below;
       let landed = 'the camera did not take manual exposure';
       // One measurement, one exposure; measured again, and corrected once more if it did not land.
       for (let round = 0; round < 2; round++) {
-        const plan = planExposure({ t0: t, s0: iso, level, gamma, displayHz: m.displayHz, timeRange: c.exposureTime, isoRange: c.iso });
+        const plan = planExposure({ t0: t, s0: iso, level, gamma, below, hasIso: !!c.iso, displayHz: m.displayHz, timeRange: c.exposureTime, isoRange: c.iso });
         /** @type {Record<string, any>} */
         const want = { exposureMode: 'manual', exposureTime: plan.t1 };
         if (c.iso) want.iso = plan.s1;
@@ -530,6 +532,7 @@ async function profile(m) {
         landed = `its level landed at ${next.level}, outside ${LOCK_LOW}–${LOCK_HIGH}`;
         const miss = afterMiss({ t, s: iso, level }, next, gamma);
         gamma = miss.gamma;
+        below = miss.below;
         ({ t, s: iso, level } = miss.base);
       }
       await applyDropping(track, { exposureMode: 'continuous' });

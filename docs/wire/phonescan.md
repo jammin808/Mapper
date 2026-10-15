@@ -7,7 +7,7 @@ The phone as a local scan camera (`docs/PHONESCAN.md`). A phone joins through an
 
 | Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
-| `PHONE INVITE` | `PHONE INVITE [<name>] [FOR <minutes 1-60>]` | To the asking session only: JSON `{name, url, qr:{size, modules}, fingerprint, expiresUnixMs}`. `url` is `https://<address>:<port>/scan/#t=<ticket>` — the ticket (20 random bytes, 32 base32 letters) rides only in the fragment, which a browser never sends; `qr.modules` is the URL as a QR code (byte mode, level M, versions 1–10), row-major, most significant bit first, base64; `fingerprint` is the short fingerprint of the certificate the web port really serves (read by a TLS handshake to the port), for the person to compare with the phone's warning. The address is this machine's on the asking session's subnet, else its first private address. Default life `NodeSettings.Phone.InviteMinutes` (10). Refused for the `assistant`, `mcp` and `approval` transports, from another machine on any transport but the web port's (`http`, `ws`: the line wire is not encrypted), when phones are off (`phone.enabled`), when the web port serves no https ("turn on encrypted connections first"), for `FOR` outside 1–60 and for a name over 40 characters. The journal keeps `PHONE INVITE "<name>" → invite issued, expires HH:mm UTC`, never the link | high | yes |
+| `PHONE INVITE` | `PHONE INVITE [<name>] [FOR <minutes 1-60>]` | To the asking session only: JSON `{name, url, qr:{size, modules}, fingerprint, expiresUnixMs}`. `url` is `https://<address>:<port>/scan/#t=<ticket>` — the ticket (20 random bytes, 32 base32 letters) rides only in the fragment, which a browser never sends; `qr.modules` is the URL as a QR code (byte mode, level M, versions 1–10), row-major, most significant bit first, base64; `fingerprint` is the short fingerprint of the certificate the web port really serves (read by a TLS handshake to the port), for the person to compare with the phone's warning. The address is this machine's on the asking session's subnet, else its first private address. Default life `NodeSettings.Phone.InviteMinutes` (10). Refused for the `assistant`, `mcp` and `approval` transports, from another machine on any transport but the web port's (`http`, `ws`: the line wire is not encrypted), when phones are off (`phone.enabled`), when the web port serves no https ("turn on encrypted connections first"), for `FOR` outside 1–60 and for a name over 40 characters. Under the name of a Phone rig whose phone this node no longer knows (forgotten, or its first join never finished), the invite pairs that rig again: the phone takes its phone id. The journal keeps `PHONE INVITE "<name>" → invite issued, expires HH:mm UTC`, never the link | high | yes |
 | `PHONE LIST` | `PHONE LIST` | JSON `{phones:[…]}`, each as STATE | low | no |
 | `PHONE FORGET` | `PHONE FORGET <phone>\|ALL` | JSON `{forgotten:[ids]}`: the key no longer opens anything and the phone's socket closes ("was forgotten"); its camera rig stays in the project. Refused "no such phone <id>" / "no phone is paired with this node" | review | yes |
 | `SCAN NEXT` | `SCAN NEXT` | The wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. The journal keeps `asked: the waited pattern goes up again for the camera`; refused "no scan is waiting for a picture" | review | yes |
@@ -70,16 +70,18 @@ a welcome that never goes leaves no session.
 ```
 
 `phones` lists every phone this node knows, connected or not (not connected: `connected:false`, empty address and transport, the
-words say why — "said goodbye (its page closed)", "said goodbye: <the page's own words>", "was forgotten …", "stopped sending: …"). It carries no ticket and no key. The
+words say why — "said goodbye (its page closed)", "said goodbye: <the page's own words>", "was refused: <the node's words>" (its
+last join, refused: the show armed, a lock), "was forgotten …", "stopped sending: …"). It carries no ticket and no key. The
 fixture is `tests/fixtures/state/phonescan.json`, its cards `phonescan.cards.json`.
 
 ## Context, preflight, INDEX
 
 - Context: `phone:<id>` (kind `phone`) for each connected phone and each phone with a rig in the project: green "ready" (with
   "brightness kept steady" on the steady profile), amber "moved during the last view", grey "not connected — PHONE INVITE makes a
-  new link".
+  new link", amber with the node's words when its last join was refused.
 - Preflight section `scan`: each Phone camera rig — green when its phone is connected, amber when not ("a scan through it would
-  fail", fix `PHONE INVITE "<name>"`); green "no phone is a camera of this project" otherwise.
+  fail", fix `PHONE INVITE "<name>"`), amber "refused" with the node's words and no fix when its last join was refused; green "no
+  phone is a camera of this project" otherwise.
 - INDEX section `scan`: a row per Phone camera rig (light green ready, amber scanning, grey not connected); keys Next picture
   (`SCAN NEXT`), Cancel scan (`SCAN CANCEL`, hold), Phones (`PHONE LIST`).
 

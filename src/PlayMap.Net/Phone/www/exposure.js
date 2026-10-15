@@ -48,27 +48,40 @@ export const CAP = 10000 / 30;
 
 /**
  * The exposure for the lock profile from the settled one. A phone's picture is gamma-encoded (a level is light to the power 1/γ),
- * so the light needed is (215/L)^γ times what gave level L: t₁ = t₀·(215/L)^γ (0.6·t₀ when clipped). Above 8 ms it is a whole number
- * of the display's frames, so every picture holds the same light from a projector that flickers frame by frame: rounded up, or,
- * where that passes the 30 fps cap, down to the most whole frames under it (one frame at least). ISO makes up the rest within the
- * camera's range. Times in the track's units (100 µs).
- * @param {{t0: number, s0: number, level: number, displayHz: number, gamma?: number, timeRange?: {min: number, max: number, step?: number}, isoRange?: {min: number, max: number}}} p
+ * so the light wanted is (215/L)^γ times what gave level L (0.6 of it when clipped: the level is unknown). The candidates are any time
+ * up to 8 ms, and above that whole numbers of the display's frames — so every picture holds the same light from a projector that
+ * flickers frame by frame — up to the 30 fps cap (one frame at least); each with the ISO the camera can really take (none, or within
+ * its range) for the rest. The one whose light comes nearest the light wanted is planned — never one at or above `below`, the light
+ * of an exposure that clipped; among near ties, the time nearest the one wanted. Times in the track's units (100 µs).
+ * @param {{t0: number, s0: number, level: number, displayHz: number, gamma?: number, hasIso?: boolean, below?: number,
+ *   timeRange?: {min: number, max: number, step?: number}, isoRange?: {min: number, max: number}}} p
  */
 export function planExposure(p) {
   const clipped = p.level >= 250;
-  const want = clipped ? 0.6 * p.t0 : p.t0 * Math.pow(TARGET / Math.max(1, p.level), p.gamma ?? 2.2);
-  let t1 = want;
+  const light = clipped ? 0.6 * p.t0 * p.s0 : p.t0 * p.s0 * Math.pow(TARGET / Math.max(1, p.level), p.gamma ?? 2.2);
+  const want = light / p.s0;
   const frame = p.displayHz > 0 ? 10000 / p.displayHz : 0; // one display frame in 100 µs units
-  if (frame > 0 && t1 > 80) {
-    t1 = Math.ceil(t1 / frame - 1e-9) * frame;
-    if (t1 > CAP + 1e-9) t1 = Math.max(1, Math.floor(CAP / frame + 1e-9)) * frame;
-  } else {
-    t1 = Math.min(t1, CAP);
+  const range = (/** @type {number} */ t) => (p.timeRange ? Math.min(p.timeRange.max, Math.max(p.timeRange.min, t)) : t);
+  const iso = (/** @type {number} */ t) => {
+    if (p.hasIso === false) return p.s0;
+    const s = light / Math.max(1e-6, t);
+    return p.isoRange ? Math.min(p.isoRange.max, Math.max(p.isoRange.min, s)) : s;
+  };
+  /** @type {number[]} */
+  const candidates = [range(Math.min(want, frame > 0 ? 80 : CAP))];
+  for (let k = 1; frame > 0 && (k === 1 || k * frame <= CAP + 1e-9); k++) candidates.push(range(k * frame));
+  const miss = (/** @type {number} */ t) => {
+    const l = t * iso(t);
+    return p.below !== undefined && l >= p.below * 0.999 ? Infinity : Math.abs(Math.log(l / light));
+  };
+  let t1 = candidates.reduce((a, b) => (miss(b) < miss(a) ? b : a));
+  if (!Number.isFinite(miss(t1))) t1 = candidates.reduce((a, b) => (b * iso(b) < a * iso(a) ? b : a));
+  else {
+    const best = miss(t1);
+    const near = candidates.filter((t) => miss(t) <= best + 0.01);
+    t1 = near.reduce((a, b) => (Math.abs(Math.log(b / want)) < Math.abs(Math.log(a / want)) ? b : a));
   }
-  if (p.timeRange) t1 = Math.min(p.timeRange.max, Math.max(p.timeRange.min, t1));
-  let s1 = (p.s0 * want) / Math.max(1e-6, t1);
-  if (p.isoRange) s1 = Math.min(p.isoRange.max, Math.max(p.isoRange.min, s1));
-  return { t1, s1, clipped };
+  return { t1, s1: iso(t1), clipped };
 }
 
 /**
@@ -85,13 +98,14 @@ export function fitGamma(a, b, prior) {
 }
 
 /**
- * What a correction that missed leaves for the next: the exposure to correct from and the curve to plan with. One that clipped (its
- * level unknown above 250) after an unclipped one overshot: the next plans again from the unclipped one, on a gentler curve (×0.75);
- * otherwise from the correction itself, on the curve the two measurements show.
+ * What a correction that missed leaves for the next: the exposure to correct from, the curve to plan with, and a light to stay under.
+ * One that clipped (its level unknown above 250) after an unclipped one overshot: the next plans again from the unclipped one, on a
+ * gentler curve (×0.75), below the light that clipped; otherwise from the correction itself, on the curve the two measurements show.
  * @param {{t: number, s: number, level: number}} before @param {{t: number, s: number, level: number}} after @param {number} gamma
+ * @returns {{base: {t: number, s: number, level: number}, gamma: number, below?: number}}
  */
 export function afterMiss(before, after, gamma) {
-  if (after.level >= 250 && before.level < 250) return { base: before, gamma: Math.max(1, gamma * 0.75) };
+  if (after.level >= 250 && before.level < 250) return { base: before, gamma: Math.max(1, gamma * 0.75), below: after.t * after.s };
   return { base: after, gamma: fitGamma(before, after, gamma) };
 }
 

@@ -707,7 +707,7 @@ internal sealed class PhoneSession : IPhoneSession, IDisposable
         m.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? Clip(v.GetString() ?? fallback) : fallback;
 
     /// <summary>A phone's own words are kept short: they reach STATE.</summary>
-    private static string Clip(string s) => s.Length <= 120 ? s : s[..120];
+    internal static string Clip(string s) => s.Length <= 120 ? s : s[..120];
 
     private static double Num(JsonElement m, string name, double fallback) =>
         m.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && double.IsFinite(v.GetDouble()) ? v.GetDouble() : fallback;

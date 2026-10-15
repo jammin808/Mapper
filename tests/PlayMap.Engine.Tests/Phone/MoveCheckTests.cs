@@ -14,15 +14,18 @@ public sealed class MoveCheckTests
 
     /// <summary>A site's square of <paramref name="size"/> px at (<paramref name="x0"/> + <paramref name="dx"/>, <paramref name="y0"/>),
     /// each pixel the share of it the square covers, between the background and the lit level.</summary>
-    private static byte[] Picture(double x0, double y0, double size, double background, double lit, double dx = 0, double dy = 0)
+    private static byte[] Picture(double x0, double y0, double size, double background, double lit, double dx = 0, double dy = 0) =>
+        Picture(x0, y0, size, size, background, lit, dx, dy);
+
+    private static byte[] Picture(double x0, double y0, double sizeX, double sizeY, double background, double lit, double dx, double dy)
     {
         var g = new byte[W * H];
         for (var y = 0; y < H; y++)
         {
             for (var x = 0; x < W; x++)
             {
-                var cx = Math.Max(0, Math.Min(x + 1, x0 + dx + size) - Math.Max(x, x0 + dx));
-                var cy = Math.Max(0, Math.Min(y + 1, y0 + dy + size) - Math.Max(y, y0 + dy));
+                var cx = Math.Max(0, Math.Min(x + 1, x0 + dx + sizeX) - Math.Max(x, x0 + dx));
+                var cy = Math.Max(0, Math.Min(y + 1, y0 + dy + sizeY) - Math.Max(y, y0 + dy));
                 g[y * W + x] = (byte)Math.Round(background + (lit - background) * cx * cy);
             }
         }
@@ -30,9 +33,23 @@ public sealed class MoveCheckTests
     }
 
     /// <summary>A site of 4 × 4 cells of <paramref name="cell"/> px whose square starts at (x0, y0).</summary>
-    private static TagSitePlacement Site(double x0, double y0, double cell) =>
-        new(0, [.. Enumerable.Range(0, 16).Select(c => new Vec2d(x0 + (c % 4 + 0.5) * cell, y0 + (c / 4 + 0.5) * cell))],
-            (int)y0, (int)(y0 + 4 * cell));
+    private static TagSitePlacement Site(double x0, double y0, double cell) => Site(x0, y0, cell, cell);
+
+    /// <summary>A site whose cells are <paramref name="cellX"/> × <paramref name="cellY"/> px in the picture (a surface seen aslant).</summary>
+    private static TagSitePlacement Site(double x0, double y0, double cellX, double cellY) =>
+        new(0, [.. Enumerable.Range(0, 16).Select(c => new Vec2d(x0 + (c % 4 + 0.5) * cellX, y0 + (c / 4 + 0.5) * cellY))],
+            (int)y0, (int)(y0 + 4 * cellY));
+
+    [Fact]
+    public void ASiteSeenAslantIsMeasuredWithEachAxisItsOwnStep()
+    {
+        // Cells three times as tall as wide: a window sized by the width alone would sit inside the lit quad and read noise.
+        var site = Site(80, 20, 6, 18);
+        var before = Picture(80, 20, 24, 72, 10, 230, 0, 0);
+        Assert.True(ScanRunner.MovedPx(before, Picture(80, 20, 24, 72, 12, 236, 0, 0), [site], W, H) < 0.2);
+        var moved = ScanRunner.MovedPx(before, Picture(80, 20, 24, 72, 10, 230, 0, 1.5), [site], W, H);
+        Assert.True(moved is { } v && Math.Abs(v - 1.5) < 0.2, $"read {moved}");
+    }
 
     [Theory]
     [InlineData(10, 230)] // lock: a dark background

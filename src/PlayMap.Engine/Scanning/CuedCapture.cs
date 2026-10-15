@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Numerics;
 using PlayMap.Core.Phone;
 using PlayMap.Core.Scan;
 
@@ -99,6 +100,13 @@ public sealed partial class ScanRunner
         }
     }
 
+    /// <summary>A scan through a cued camera, across its projectors: the camera's motion reports when its first view began (a movement
+    /// any time after that — within a view or between two — fails the scan: one scan is one camera place).</summary>
+    private sealed class CuedScan
+    {
+        public int? Moves;
+    }
+
     private sealed class Pairing
     {
         public int Rolling;
@@ -113,7 +121,8 @@ public sealed partial class ScanRunner
     /// <summary>One projector through a cued camera: its frames (plan order, the camera's raster), the tag shadow to leave out of the
     /// decode and the pairing facts.</summary>
     private async Task<(byte[][] Frames, int Width, int Height, CellLocateResult Located, ScanPairing Pairing)> CaptureCuedAsync(IScanDisplay display,
-        ICuedScanCamera camera, string cameraId, (int Width, int Height) rigRaster, int j, Part part, Track track, List<string> notes, CancellationToken ct)
+        ICuedScanCamera camera, string cameraId, (int Width, int Height) rigRaster, CuedScan scan, int j, Part part, Track track, List<string> notes,
+        CancellationToken ct)
     {
         var views = ViewsOf();
         var plan = part.Plan;
@@ -141,7 +150,7 @@ public sealed partial class ScanRunner
                 throw new InvalidOperationException($"{camera.Name} did not answer while setting its exposure");
             }
             notes.Add($"{pj.Name}: {camera.Name} — {prepared.Words}.");
-            return await CaptureCuedViewAsync(camera, cameraId, rigRaster, j, part, track, notes, prepared, Show, framePeriodNs, views, ct).ConfigureAwait(false);
+            return await CaptureCuedViewAsync(camera, cameraId, rigRaster, scan, j, part, track, notes, prepared, Show, framePeriodNs, views, ct).ConfigureAwait(false);
         }
     }
 
@@ -156,14 +165,15 @@ public sealed partial class ScanRunner
     }
 
     private async Task<(byte[][] Frames, int Width, int Height, CellLocateResult Located, ScanPairing Pairing)> CaptureCuedViewAsync(ICuedScanCamera camera,
-        string cameraId, (int Width, int Height) rigRaster, int j, Part part, Track track, List<string> notes, CuedPrepared prepared,
+        string cameraId, (int Width, int Height) rigRaster, CuedScan scan, int j, Part part, Track track, List<string> notes, CuedPrepared prepared,
         Func<byte[], CancellationToken, Task<long>> show, long framePeriodNs, ScanViews? views, CancellationToken ct)
     {
         var plan = part.Plan;
         var pj = part.Projector;
         var (pw, ph) = (plan.ProjectorWidth, plan.ProjectorHeight);
         var steady = prepared.SteadyPlan;
-        var facts = new Pairing { Moves = camera.Moves };
+        scan.Moves ??= camera.Moves;
+        var facts = new Pairing { Moves = scan.Moves.Value };
 
         // Locate.
         var candidates = CellLocate.Candidates(pw, ph);
@@ -371,7 +381,7 @@ public sealed partial class ScanRunner
 
     /// <summary>
     /// How far (camera pixels) the chosen sites moved between two all-cells-lit pictures: per site, the shift that best lays the later
-    /// picture of the site (a window half a cell wider than it) on the earlier — the highest zero-mean normalised correlation over
+    /// picture of the site (a window half a cell beyond its quad, each of its axes with its own step) on the earlier — the highest zero-mean normalised correlation over
     /// whole-pixel shifts up to <see cref="MoveSearchPx"/>, refined to a fraction of a pixel by a parabola through its neighbours; the
     /// largest shift. Both pictures move with the camera as a whole, and a brightness change scales and offsets a window without moving
     /// its peak. A site found at the edge of the search, or no longer lit there, has moved further (infinite). A site too near the
@@ -383,15 +393,26 @@ public sealed partial class ScanRunner
         double? worst = null;
         foreach (var site in sites)
         {
+            // The site's quad: its corner cells pushed out half a cell along each of its own axes (the projector's x and y as the camera
+            // sees them, each with its own step), and the window half a cell beyond its extent, kept where the search stays inside.
             var cells = site.Cells;
-            var pitch = (cells[1] - cells[0]).Length;
-            // The site's square, and the window half a cell beyond it, kept where the search stays inside the picture.
-            double sx0 = cells.Min(c => c.X) - pitch / 2, sx1 = cells.Max(c => c.X) + pitch / 2;
-            double sy0 = cells.Min(c => c.Y) - pitch / 2, sy1 = cells.Max(c => c.Y) + pitch / 2;
-            var x0 = Math.Max(R, (int)Math.Floor(sx0 - pitch / 2));
-            var x1 = Math.Min(width - 1 - R, (int)Math.Ceiling(sx1 + pitch / 2));
-            var y0 = Math.Max(R, (int)Math.Floor(sy0 - pitch / 2));
-            var y1 = Math.Min(height - 1 - R, (int)Math.Ceiling(sy1 + pitch / 2));
+            var across = (cells[3] - cells[0]) * (1 / 3.0);
+            var down = (cells[12] - cells[0]) * (1 / 3.0);
+            Span<Vec2d> corners =
+            [
+                cells[0] - (across + down) * 0.5, cells[3] + (across - down) * 0.5, cells[12] + (down - across) * 0.5, cells[15] + (across + down) * 0.5,
+            ];
+            double sx0 = double.MaxValue, sx1 = double.MinValue, sy0 = double.MaxValue, sy1 = double.MinValue;
+            foreach (var c in corners)
+            {
+                (sx0, sx1, sy0, sy1) = (Math.Min(sx0, c.X), Math.Max(sx1, c.X), Math.Min(sy0, c.Y), Math.Max(sy1, c.Y));
+            }
+            var growX = (Math.Abs(across.X) + Math.Abs(down.X)) / 2;
+            var growY = (Math.Abs(across.Y) + Math.Abs(down.Y)) / 2;
+            var x0 = Math.Max(R, (int)Math.Floor(sx0 - growX));
+            var x1 = Math.Min(width - 1 - R, (int)Math.Ceiling(sx1 + growX));
+            var y0 = Math.Max(R, (int)Math.Floor(sy0 - growY));
+            var y1 = Math.Min(height - 1 - R, (int)Math.Ceiling(sy1 + growY));
             if (x0 > sx0 || x1 < sx1 || y0 > sy0 || y1 < sy1)
                 continue;
             var ncc = new double[2 * R + 1, 2 * R + 1];

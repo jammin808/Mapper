@@ -63,18 +63,20 @@ public sealed partial class EngineCore
             if (existing.Phone == joined.Profile)
                 return p;
             // Another camera or raster: intrinsics solved for the old one no longer hold.
-            var sameCamera = existing.Phone is { } old && old.CameraLabel == joined.Profile.CameraLabel
-                && old.Width == joined.Profile.Width && old.Height == joined.Profile.Height;
-            var updated = sameCamera ? existing with { Phone = joined.Profile }
+            var updated = SameOptics(existing.Phone, joined.Profile) ? existing with { Phone = joined.Profile }
                 : existing with { Phone = joined.Profile, Intrinsics = prior, Lens = LensDistortion.None, Calibrated = false };
             return p.WithStage(s => s with { Cameras = s.Cameras.Update(existing.Id, _ => updated) });
         }).ConfigureAwait(false);
         // Decided by the project after the edit, never by the attempt: a refused edit (the show armed, mapping locked) made no rig,
-        // or left one describing another camera than the phone now has.
-        if (rigId.Length == 0 || Store.Project.Stage.Cameras.Find(rigId) is not { } stored || stored.Phone != joined.Profile)
+        // or left one whose optics are for another camera or raster than the phone now has.
+        if (rigId.Length == 0 || Store.Project.Stage.Cameras.Find(rigId) is not { } stored || !SameOptics(stored.Phone, joined.Profile))
             throw new InvalidOperationException(r.Effect.Length > 0 ? r.Effect : "the project took no camera for it");
         return rigId;
     }
+
+    /// <summary>Whether a rig's phone profile is for the same camera and raster (its solved optics hold).</summary>
+    private static bool SameOptics(PhoneProfile? a, PhoneProfile b) =>
+        a is { } x && x.CameraLabel == b.CameraLabel && x.Width == b.Width && x.Height == b.Height;
 
     private async Task<CommandReply> PhoneInviteAsync(VerbCall call)
     {
@@ -104,7 +106,11 @@ public sealed partial class EngineCore
         var where = await door(call.Session, call.Ct).ConfigureAwait(false);
         if (where.Base is null)
             return CommandReply.Fail(where.Why);
-        var invite = hub.Invite(name, TimeSpan.FromMinutes(minutes), call.Session.ClientName, where.Base);
+        // A camera rig of this name whose phone the hub no longer knows (forgotten, or its first join never finished) is paired again:
+        // the phone takes that rig's phone id, so no second rig is made.
+        var orphan = Store.Project.Stage.Cameras.FirstOrDefault(c => c.SourceKind == CameraSourceKind.Phone
+            && string.Equals(c.Name, name, StringComparison.Ordinal) && hub.Find(c.Source) is null);
+        var invite = hub.Invite(name, TimeSpan.FromMinutes(minutes), call.Session.ClientName, where.Base, orphan?.Source ?? "", orphan?.Id ?? "");
         var json = JsonOut(w =>
         {
             w.WriteStartObject();
@@ -211,8 +217,9 @@ public sealed partial class EngineCore
             var rig = p.Stage.Cameras.Find(f.Rig);
             if (!f.Connected && rig is null)
                 continue;
-            var light = !f.Connected ? Light.Grey : f.Motion == "moved" ? Light.Amber : Light.Green;
-            var state = !f.Connected ? $"{f.Name}: not connected — PHONE INVITE makes a new link"
+            var light = f.Refused ? Light.Amber : !f.Connected ? Light.Grey : f.Motion == "moved" ? Light.Amber : Light.Green;
+            var state = f.Refused ? f.Words
+                : !f.Connected ? $"{f.Name}: not connected — PHONE INVITE makes a new link"
                 : f.Motion == "moved" ? $"{f.Name}: moved during the last view"
                 : f.Camera?.Exposure == "steady" ? $"{f.Name}: ready, brightness kept steady (no exposure lock from a web page)"
                 : $"{f.Name}: ready";

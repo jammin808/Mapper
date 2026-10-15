@@ -69,3 +69,48 @@ test('the curve is read from what a correction did, and kept where it says nothi
   assert.equal(fitGamma({ t: 100, s: 100, level: 50 }, { t: 400, s: 100, level: 255 }, 2.2), 2.2, 'clipped');
   assert.equal(fitGamma({ t: 100, s: 100, level: 100 }, { t: 101, s: 100, level: 101 }, 2.2), 2.2, 'hardly moved');
 });
+
+test('a camera whose ISO is fixed or at its floor lands wherever a flicker-safe exposure can land it', () => {
+  const modes = { free: { hasIso: true }, floor: { hasIso: true, isoRange: { min: 50, max: 800 } }, none: { hasIso: false } };
+  let checked = 0;
+  for (const hz of [50, 60]) {
+    for (const curve of [1.8, 2.2, 2.6]) {
+      for (const [mode, opt] of Object.entries(modes)) {
+        for (const t0 of [20, 50, 100, 150, 200, 330]) {
+          for (let start = 60; start <= 248; start += 8) {
+            const s0 = mode === 'floor' ? 50 : 100;
+            const k = Math.pow(start / 255, curve) / (t0 * s0);
+            const level = (/** @type {number} */ t, /** @type {number} */ s) => Math.min(255, Math.round(255 * Math.pow(t * s * k, 1 / curve)));
+            const isoFor = (/** @type {number} */ t, /** @type {number} */ light) =>
+              mode === 'none' ? s0 : mode === 'floor' ? Math.min(800, Math.max(50, light / t)) : light / t;
+            // Could any exposure the rule allows (any time to 8 ms, whole frames to the cap) with the ISO the camera takes land it?
+            const frame = 10000 / hz;
+            const times = [...Array.from({ length: 80 }, (_, i) => i + 1), ...Array.from({ length: Math.max(1, Math.floor(CAP / frame + 1e-9)) }, (_, i) => (i + 1) * frame)];
+            const light215 = Math.pow(TARGET / 255, curve) / k;
+            if (!times.some((t) => { const l = level(t, isoFor(t, light215)); return l >= 190 && l <= 240; })) continue;
+            let base = { t: t0, s: s0, level: start };
+            let gamma = 2.2;
+            /** @type {number | undefined} */
+            let below;
+            const seen = [];
+            for (let round = 0; round < 2; round++) {
+              const p = planExposure({ t0: base.t, s0: base.s, level: base.level, gamma, below, displayHz: hz, ...opt });
+              const s1 = mode === 'none' ? s0 : p.s1;
+              const next = { t: p.t1, s: s1, level: level(p.t1, s1) };
+              seen.push(next.level);
+              if (next.level >= 190 && next.level <= 240) break;
+              ({ base, gamma, below } = afterMiss(base, next, gamma));
+            }
+            const last = seen[seen.length - 1];
+            assert.ok(last >= 190 && last <= 240, `${hz} Hz, curve ${curve}, ISO ${mode}, t0 ${t0}, settled ${start}: ${seen.join(' → ')}`);
+            checked++;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(checked > 1500, `${checked} settings checked`);
+  // The review's cases: no ISO, 15 ms settled at 200 (60 Hz); ISO at its floor, 12 ms settled at 170.
+  assert.equal(planExposure({ t0: 150, s0: 100, level: 200, displayHz: 60, hasIso: false }).t1, 10000 / 60);
+  assert.equal(planExposure({ t0: 120, s0: 50, level: 170, displayHz: 60, isoRange: { min: 50, max: 800 } }).t1, 10000 / 60);
+});
