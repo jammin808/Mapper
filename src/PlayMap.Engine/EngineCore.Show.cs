@@ -26,6 +26,12 @@ public sealed partial class EngineCore
         routes.Lane("LOCK", Lock);
         routes.Lane("UNLOCK", Unlock);
         routes.Lane("LOCKS", c => c.Args.Count == 0 ? CommandReply.Success(JsonOut(WriteLocks)) : CommandReply.Fail("LOCKS takes no words"));
+        routes.Lane("BLIND", Blind);
+        routes.Lane("BLIND ON", BlindOn);
+        routes.Lane("BLIND OFF", BlindOff);
+        routes.Lane("BLIND DIFF", BlindDiff);
+        routes.Lane("BLIND COMMIT", BlindCommitVerb);
+        routes.Lane("BLIND DISCARD", BlindDiscard);
         routes.OffLane("PREFLIGHT", PreflightAsync);
         routes.OffLane("PREFLIGHT REPORT", PreflightReportAsync);
         routes.Index(new ShowIndex(this));
@@ -37,6 +43,7 @@ public sealed partial class EngineCore
         if (_refusals.Expire(Services.Wall.UnixMs))
             FactsChanged();
         TickPanic(leaderNs);
+        TickBlind(leaderNs);
     }
 
     partial void StateShow(Utf8JsonWriter w)
@@ -65,14 +72,10 @@ public sealed partial class EngineCore
     }
 
     partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore) =>
-        refused = ShowGateLine(spec, line, session);
+        refused = ShowGateLine(spec, line, session, out lineStore);
 
-    partial void SnapshotShow(ref EngineSnapshot snapshot)
-    {
-        // The blind draft and a commit waiting for its boundary are wp2-blind's (show's continuation); without them the
-        // snapshot is the air's alone.
-    }
+    partial void SnapshotShow(ref EngineSnapshot snapshot) => SnapshotBlind(ref snapshot);
 
-    private partial ProjectStore? BlindStoreFor(SessionInfo session) =>
-        null; // wp2-blind (show's continuation): the session's draft.
+    /// <summary>Off the lane, every document edit of the draft's owner goes to its draft (its gate already took the line).</summary>
+    private partial ProjectStore? BlindStoreFor(SessionInfo session) => DraftStoreFor(session);
 }

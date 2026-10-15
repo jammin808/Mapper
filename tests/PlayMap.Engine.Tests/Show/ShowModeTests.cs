@@ -99,7 +99,9 @@ public sealed class ShowModeTests
         Assert.Equal(500, rig.Show().GetProperty("rules").GetProperty("minGoMs").GetInt32());
         Assert.Equal(500, rig.Show().GetProperty("minGoMs").GetInt32());
         Assert.Equal("already so: double-GO protection 500 ms armed", await rig.Refused("SHOW SET MINGO 500"));
-        Assert.Equal("COMMIT-LEAD times blind commits, and this node has no blind editing yet", await rig.Refused("SHOW SET COMMIT-LEAD 40"));
+        await rig.Ok("SHOW SET COMMIT-LEAD 40");
+        Assert.Equal(40, rig.Show().GetProperty("rules").GetProperty("commitLeadMs").GetInt32());
+        await rig.Ok("UNDO");
 
         var off = JsonDocument.Parse(await rig.Ok("SHOW DISARM")).RootElement;
         Assert.False(off.GetProperty("armed").GetBoolean());

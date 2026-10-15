@@ -34,9 +34,24 @@
       "expectArmed": true,
       "defaultOutcome": "black",
       "defaultFadeMs": 1000,
-      "panicLeadMs": 0
+      "panicLeadMs": 0,
+      "commitLeadMs": 34
     },
-    "blind": null,
+    "blind": {
+      "on": true,
+      "owner": "Desk",
+      "since": 1760000000000,
+      "base": 4,
+      "changes": 1,
+      "commit": {
+        "boundary": "on go",
+        "playlist": "pl_show",
+        "effectiveLeaderNs": null,
+        "changes": 1,
+        "by": "Desk",
+        "forced": false
+      }
+    },
     "panic": {
       "outcome": "black",
       "hard": false,

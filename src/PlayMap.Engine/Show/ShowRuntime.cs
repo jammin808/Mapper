@@ -135,7 +135,7 @@ public sealed class EngineShowGate(EngineCore engine) : IShowGate
 
     public string ArmedBy => engine.ShowNow.By;
 
-    public string? BlindOwner => null;
+    public string? BlindOwner => engine.BlindOwnerName;
 
     public int MinGoMs => engine.MinGoMsNow;
 

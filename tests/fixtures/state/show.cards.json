@@ -202,5 +202,55 @@
       "PREFLIGHT",
       "PREFLIGHT REPORT"
     ]
+  },
+  {
+    "title": "Blind",
+    "path": "show.blind",
+    "light": [
+      {
+        "if": "commit",
+        "light": "amber"
+      },
+      {
+        "if": "on",
+        "light": "amber"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "blind editing by {owner}: {changes} staged",
+    "fields": [
+      {
+        "label": "Owner",
+        "path": "owner"
+      },
+      {
+        "label": "Changes",
+        "path": "changes"
+      },
+      {
+        "label": "Since",
+        "path": "since"
+      },
+      {
+        "label": "Base revision",
+        "path": "base"
+      },
+      {
+        "label": "Commit",
+        "path": "commit.boundary"
+      },
+      {
+        "label": "On playlist",
+        "path": "commit.playlist"
+      }
+    ],
+    "actions": [
+      "BLIND DIFF",
+      "BLIND COMMIT NEXT",
+      "BLIND COMMIT ON GO",
+      "BLIND DISCARD"
+    ]
   }
 ]

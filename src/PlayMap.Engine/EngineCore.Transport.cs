@@ -48,7 +48,7 @@ public sealed partial class EngineCore
             });
         var (ok, words) = Playback.Transport(list, op, now);
         if (ok && isGo)
-            NoteGo(list);
+            NoteGo(list, now);
         return ok ? CommandReply.Success(effect: $"{list.Name}: {words}") : CommandReply.Fail(words);
     }
 
@@ -206,7 +206,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(fenced);
         var (ok, words) = Playback.Go(list, index, at!.Value);
         if (ok)
-            NoteGo(list);
+            NoteGo(list, at.Value);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -239,7 +239,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(fenced);
         var (ok, words) = Playback.Step(list, step, at!.Value);
         if (ok)
-            NoteGo(list);
+            NoteGo(list, at.Value);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -282,8 +282,13 @@ public sealed partial class EngineCore
         return null;
     }
 
-    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here).</summary>
-    private void NoteGo(Playlist list) => _lastGo[list.Id] = LeaderNowNs;
+    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here); a blind commit
+    /// waiting for a GO there lands at the GO's own start instant.</summary>
+    private void NoteGo(Playlist list, long startNs)
+    {
+        _lastGo[list.Id] = LeaderNowNs;
+        BlindOnGo(list.Id, startNs);
+    }
 
     private CommandReply PlaylistLoop(List<string> args)
     {

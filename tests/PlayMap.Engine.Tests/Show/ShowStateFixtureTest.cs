@@ -6,8 +6,8 @@ using PlayMap.Engine.Tests.Spine;
 namespace PlayMap.Engine.Tests.Show;
 
 /// <summary>tests/fixtures/state/show.json is the show's STATE keys from a real scenario — armed with a reason, an area locked,
-/// a SAFE plan, a refusal, the master at 80, a panic half way through its fade, a preflight done — and show.cards.json the cards
-/// the desk draws from them. This test writes both (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what
+/// a SAFE plan, a refusal, a blind draft waiting for the next GO, the master at 80, a panic half way through its fade, a preflight
+/// done — and show.cards.json the cards the desk draws from them. This test writes both (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what
 /// the engine writes now, with the clock's numbers fixed; every card's path resolves in the fixture and every action line is a
 /// line of the catalogue.</summary>
 public sealed class ShowStateFixtureTest
@@ -69,6 +69,16 @@ public sealed class ShowStateFixtureTest
                 Field("Amber", "amber"), Field("Red", "red"), Field("Running", "running")),
             ["actions"] = new JsonArray("PREFLIGHT", "PREFLIGHT REPORT"),
         },
+        new JsonObject
+        {
+            ["title"] = "Blind",
+            ["path"] = "show.blind",
+            ["light"] = new JsonArray(Rule("if", "commit", "amber"), Rule("if", "on", "amber"), new JsonObject { ["light"] = "grey" }),
+            ["words"] = "blind editing by {owner}: {changes} staged",
+            ["fields"] = new JsonArray(Field("Owner", "owner"), Field("Changes", "changes"), Field("Since", "since"), Field("Base revision", "base"),
+                Field("Commit", "commit.boundary"), Field("On playlist", "commit.playlist")),
+            ["actions"] = new JsonArray("BLIND DIFF", "BLIND COMMIT NEXT", "BLIND COMMIT ON GO", "BLIND DISCARD"),
+        },
     ];
 
     private static JsonObject Rule(string kind, string path, string light) => new() { [kind] = path, ["light"] = light };
@@ -84,6 +94,7 @@ public sealed class ShowStateFixtureTest
         show["panic"]!["since"] = 1_760_000_000_000;
         foreach (var l in show["locks"]!.AsArray())
             l!["at"] = 1_760_000_000_000;
+        show["blind"]!["since"] = 1_760_000_000_000;
         var preflight = show["preflight"]!.AsObject();
         preflight["id"] = "pf_fixture";
         preflight["at"] = 1_760_000_000_000;
@@ -118,6 +129,9 @@ public sealed class ShowStateFixtureTest
         await rig.Ok("PANIC SET op_1 SAFE FADE 2000 SAFE color:#000000");
         await rig.Ok("LOCK AREA content show night");
         await rig.Ok("SHOW ARM doors at eight");
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET op_1 rotation 90");
+        await rig.Ok("BLIND COMMIT ON GO pl_show");
         await rig.Refused("SET op_1 width 1280", ShowRig.Companion);
         await rig.Ok("MASTER 80");
         await rig.Ok("PANIC BLACK FADE 1000");

@@ -37,7 +37,20 @@ public sealed partial class EngineCore : IShowDecisions
         }
     }
 
-    public ShowRole ShowRoleOf(SessionInfo session) => ShowPolicy.RoleOf(session, _operators);
+    public ShowRole ShowRoleOf(SessionInfo session) => ShowPolicy.RoleOf(session, _operators, ProvedOnConnection(session));
+
+    /// <summary>Whether a session proved the node's token on its own connection: on a node that asks one, a session paired from an
+    /// address the node does not trust paired by proof (trust is not proof); a node that asks none has no secret to prove, so only
+    /// this machine counts — the rule the desk's own role follows.</summary>
+    private bool ProvedOnConnection(SessionInfo session)
+    {
+        var settings = Services.Settings;
+        if (!session.Paired)
+            return false;
+        if (!PlayMap.Net.NetAddress.TokenNeeded(settings))
+            return session.IsLoopback;
+        return !System.Net.IPAddress.TryParse(session.RemoteAddress, out var remote) || !PlayMap.Net.NetAddress.IsTrusted(remote, settings);
+    }
 
     /// <summary>What the show's table says about a line from a session now, from published state only (any thread).</summary>
     public ShowDecision DecideShow(VerbSpec spec, WireLine line, SessionInfo session)
@@ -47,7 +60,7 @@ public sealed partial class EngineCore : IShowDecisions
         ArgumentNullException.ThrowIfNull(session);
         var rules = Store.Project.Show.Rules;
         var air = _snapshot.Air;
-        var facts = new ShowFacts(_showMode.Armed, false, air.EffectiveBlackout, rules.RemoteViewOnlyWhenArmed, rules.DisarmFrom);
+        var facts = new ShowFacts(_showMode.Armed, OwnsDraft(session), air.EffectiveBlackout, rules.RemoteViewOnlyWhenArmed, rules.DisarmFrom);
         return ShowPolicy.Decide(spec, line, ShowRoleOf(session), in facts);
     }
 
@@ -56,7 +69,9 @@ public sealed partial class EngineCore : IShowDecisions
     private void StartShow()
     {
         _operators = [.. Services.Settings.Show.Operators];
-        Store.Guard = (before, after) => LockGuard.Check(before, after, _showMode.Armed);
+        // A blind commit landing is the sanctioned way past the armed show's implicit locks; the show's own locks still hold on it.
+        Store.Guard = (before, after) => _promoting ? LockGuard.Check(before, after, armed: false)
+            : LockGuard.Check(before, after, _showMode.Armed) ?? PendingGuard(before, after);
         _showGate = new EngineShowGate(this);
         if (Services.ShowGate is LateShowGate late)
             _ = late.Bind(_showGate);
@@ -65,9 +80,11 @@ public sealed partial class EngineCore : IShowDecisions
     }
 
     /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line
-    /// an assistant may only propose waits on this node's list for a person.</summary>
-    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session)
+    /// an assistant may only propose waits on this node's list for a person; a draftable line from the blind draft's owner runs
+    /// into its draft (<paramref name="draft"/>), refused while that draft is landing.</summary>
+    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
     {
+        draft = null;
         // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
         if (!IsAvailable(spec))
             return null;
@@ -78,6 +95,11 @@ public sealed partial class EngineCore : IShowDecisions
                 if (ShowPolicy.ClassOf(spec, line) == ShowClass.Network && Store.Project.Show.Locks.FirstOrDefault(l => l.Kind == LockKind.Area && l.Target == LockAreas.Network) is { } held)
                     return RefuseAtGate(spec, line, session, $"network is locked by {held.By} ({LockGuard.Clock(held.AtUnixMs)}) — UNLOCK AREA network first");
                 return null;
+            case ShowVerdict.BlindOnly:
+                if (_blind is { Commit: { } landing })
+                    return RefuseAtGate(spec, line, session, $"the blind draft lands {When(landing)} — no more edits to it; BLIND DISCARD cancels the commit");
+                draft = DraftStoreFor(session);
+                return draft is null ? RefuseAtGate(spec, line, session, "this session holds no blind draft — BLIND ON first") : null;
             case ShowVerdict.Propose:
                 return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person");
             default:
@@ -206,8 +228,12 @@ public sealed partial class EngineCore : IShowDecisions
                 next = rules with { PanicLeadMs = lead };
                 said = $"a panic lands {lead} ms ahead on the show clock";
                 break;
-            case "COMMIT-LEAD":
-                return CommandReply.Fail("COMMIT-LEAD times blind commits, and this node has no blind editing yet");
+            case "COMMIT-LEAD" when a.Count == 2:
+                if (!int.TryParse(a[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var commitLead) || commitLead is < 0 or > 2_000)
+                    return CommandReply.Fail("COMMIT-LEAD takes 0 to 2000 ms");
+                next = rules with { CommitLeadMs = commitLead };
+                said = $"a blind commit lands at least {commitLead} ms ahead on the show clock";
+                break;
             default:
                 return CommandReply.Fail(Syntax);
         }
@@ -275,8 +301,10 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteString("defaultOutcome", PanicMath.Json(rules.DefaultOutcome));
         w.WriteNumber("defaultFadeMs", rules.DefaultFadeMs);
         w.WriteNumber("panicLeadMs", rules.PanicLeadMs);
+        w.WriteNumber("commitLeadMs", rules.CommitLeadMs);
         w.WriteEndObject();
-        w.WriteNull("blind");
+        w.WritePropertyName("blind");
+        WriteBlind(w);
         w.WritePropertyName("panic");
         WritePanic(w, air.Panic);
         w.WritePropertyName("locks");
@@ -304,6 +332,12 @@ public sealed partial class EngineCore : IShowDecisions
         {
             show = new ContextItem("show", "show", "Show", Light.Red,
                 $"PANIC {PanicMath.Json(panic.Outcome)}{(panic.Hard ? " (hard)" : "")} since {Seconds(panic.SinceUnixMs)} — PANIC CLEAR");
+        }
+        else if (_blind is { } blind)
+        {
+            var landing = blind.Commit is { } commit ? $", landing {When(commit)}" : " — BLIND COMMIT or BLIND DISCARD";
+            show = new ContextItem("show", "show", "Show", Light.Amber,
+                $"{(mode.Armed ? "ARMED · " : "")}blind editing by {blind.OwnerName}: {Changes(blind)} staged{landing}");
         }
         else if (mode.Armed)
         {

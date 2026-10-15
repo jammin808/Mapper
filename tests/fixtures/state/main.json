@@ -170,7 +170,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "46677bba312163ea"
+    "index": "407f47c8df0ab864"
   },
   "faults": [],
   "ai": {
@@ -244,7 +244,8 @@
       "expectArmed": false,
       "defaultOutcome": "black",
       "defaultFadeMs": 1000,
-      "panicLeadMs": 0
+      "panicLeadMs": 0,
+      "commitLeadMs": 34
     },
     "blind": null,
     "panic": null,
