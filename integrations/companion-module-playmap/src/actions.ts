@@ -18,9 +18,6 @@ import { P, at, num } from './state/paths.ts'
 import { MODULE_VERSION } from './version.ts'
 import { parseNode } from './json.ts'
 
-/** The verbs whose EXPECT names the item they would play next (VIDEO's name the item on the air). */
-const NEXT_EXPECT = new Set(['PLAYLIST GO', 'PLAYLIST NEXT'])
-
 /** The verbs whose press is a GO of a playlist (the double-GO guard applies). */
 const GO_VERBS = new Set(['PLAYLIST GO', 'PLAYLIST NEXT', 'PLAYLIST PREV'])
 
@@ -155,20 +152,33 @@ function generatedAction(ctx: Ctx, row: VerbRow): CompanionActionDefinition {
 		},
 		...(learnable.length > 0
 			? {
-					learn: (): CompanionOptionValues | undefined => {
+					learn: (action): CompanionOptionValues | undefined => {
 						const focused = ctx.model.focused(ctx.nodeNow())
 						if (!focused) return undefined
+						// Only what is learned is returned, so an option the operator set (or an expression) is kept — unless the playlist
+						// moved, when an item or EXPECT not learned is cleared ('' leaves it out) rather than kept from another playlist.
+						const moved = learnable.some(
+							(p) => p.prefix === 'pl' && text(action.options[optionIdOf(p, 0)]) !== focused.id,
+						)
+						const item = focused.itemId
+						// EXPECT names the item this line plays, as the node picks it: a GO naming its item needs none, a GO without one
+						// plays what a GO plays; NEXT and PREV their step; a VIDEO verb the item on the air.
+						const expect =
+							row.name === 'PLAYLIST GO'
+								? item !== null
+									? ''
+									: focused.nextId
+								: row.name === 'PLAYLIST NEXT'
+									? focused.stepId
+									: row.name === 'PLAYLIST PREV'
+										? focused.prevId
+										: item
 						const out: CompanionOptionValues = {}
-						// Every learnable option is given a value ('' leaves an item out), so none keeps another playlist's. EXPECT names the
-						// item a GO or NEXT plays next, or the item a VIDEO verb finds on the air; PREV's is not known here.
-						const expect = NEXT_EXPECT.has(row.name)
-							? focused.nextId
-							: row.name === 'PLAYLIST PREV'
-								? null
-								: focused.itemId
-						for (const p of learnable)
-							out[optionIdOf(p, 0)] =
-								p.prefix === 'pl' ? focused.id : p.keyword === 'EXPECT' ? (expect ?? '') : (focused.itemId ?? '')
+						for (const p of learnable) {
+							const value = p.prefix === 'pl' ? focused.id : p.keyword === 'EXPECT' ? expect : item
+							if (value !== null) out[optionIdOf(p, 0)] = value
+							else if (moved) out[optionIdOf(p, 0)] = ''
+						}
 						return out
 					},
 				}
@@ -280,7 +290,9 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 		callback: async (action) => {
 			const p = focusedOr(action.options)
 			if (!p) return ctx.receipts.notSent(action.controlId, name, 'no playlist to send it to')
-			const expect = action.options.expect !== false ? p.nextId : null
+			// EXPECT names the item this very press plays, as the node picks it; a press that would play none sends none.
+			const target = verb === 'go' ? p.nextId : verb === 'next' ? p.stepId : null
+			const expect = action.options.expect !== false ? target : null
 			const line =
 				verb === 'go' ? Lines.go(p.id, expect) : verb === 'next' ? Lines.next(p.id, expect) : Lines.prev(p.id)
 			return ctx.send(line, action.controlId, { goPlaylist: p.id })
@@ -318,19 +330,43 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 	}
 	defs.slot_press = {
 		name: 'Live: press a slot',
-		description: 'Sends the slot’s line; a slot that needs a hold says HOLD on a short press',
-		options: [...liveSlotOptions(), { type: 'checkbox', id: 'held', label: 'Held past 800 ms', default: false }],
+		description:
+			'Sends the slot’s line as its press says: an instant one at once, a held one only held, one pressed twice on the second held press within 3 s; a short press of a held slot says HOLD',
+		options: [
+			...liveSlotOptions(),
+			{ type: 'checkbox', id: 'held', label: 'Held past 800 ms', default: false },
+			{
+				type: 'dropdown',
+				id: 'phase',
+				label: 'Part of the press (the Live slot preset sets it)',
+				default: 'press',
+				choices: [
+					{ id: 'press', label: 'The press (one action on a plain key)' },
+					{ id: 'down', label: 'Down: an instant slot sends' },
+					{ id: 'up', label: 'Up: a held slot says HOLD' },
+					{ id: 'hold800', label: 'Held 800 ms: a held slot sends' },
+				],
+			},
+		],
 		hasResult: true,
 		callback: async (action) => {
 			const slot = slotOf(ctx, action.options)
+			const phase = text(action.options.phase) || 'press'
+			const instant = slot?.press === 'instant'
+			// Each part of the preset's press does one thing, so an instant slot is sent once, on the down.
+			if (phase === 'down' && !instant) return notSentResult('a held slot is sent when held')
+			if ((phase === 'up' || phase === 'hold800') && instant)
+				return notSentResult('an instant slot is sent on the down')
 			if (!slot?.line) return notSentResult('this slot sends nothing')
-			if (slot.needsHold && action.options.held !== true) {
+			const held = phase === 'hold800' || (phase === 'press' && action.options.held === true)
+			if (!instant && !held) {
 				const rule = ctx.live.source(action.options.rule)
 				const n = num(Number(action.options.n), 0)
 				ctx.live.hint(rule, n, () => ctx.checkFeedbacks('slot_hint'))
 				ctx.checkFeedbacks('slot_hint')
 				return notSentResult('hold this key to send it')
 			}
+			if (slot.press === 'double' && !ctx.confirms.press(action.controlId)) return ARMED
 			const go = slot.line.startsWith('PLAYLIST GO ') ? (slot.line.split(' ')[2] ?? '') : ''
 			return ctx.send(slot.line, action.controlId, go ? { goPlaylist: go } : {})
 		},

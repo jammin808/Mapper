@@ -390,7 +390,8 @@ void test('while the show is armed every slot holds its entity: a reorder moves 
 		node.pushState(armed)
 		await values(m, { armed: true }, 'armed')
 
-		// Intro leaves the show and the rest swap: the slots stay on their entities.
+		// Intro leaves the show and the rest swap: the slots stay on their entities. Red, on the air, is now the last item, so a GO
+		// plays nothing and Blue is no longer next (its light follows; its place does not).
 		const doc = indexDoc()
 		const show = doc.playlists.find((p) => p.id === SHOW.playlist)
 		assert.ok(show)
@@ -402,13 +403,13 @@ void test('while the show is armed every slot holds its entity: a reorder moves 
 		node.pushIndex(doc)
 		await values(
 			m,
-			{ s1: 'REMOVED', s2: 'Red', s3: 'Blue', l1: 'grey', l2: 'green', l3: 'amber' },
+			{ s1: 'REMOVED', s2: 'Red', s3: 'Blue', l1: 'grey', l2: 'green', l3: 'grey' },
 			'frozen while armed; the gone one REMOVED in grey',
 		)
 
 		// RE-LAY lays the page out from the show as it is now, still armed.
 		await m.press('live_refresh', {})
-		await values(m, { s1: 'Blue', s2: 'Red', s3: '', l1: 'amber', l2: 'green', l3: 'grey' }, 'laid out again')
+		await values(m, { s1: 'Blue', s2: 'Red', s3: '', l1: 'grey', l2: 'green', l3: 'grey' }, 'laid out again')
 
 		// Held again: a reorder (and a rename, which a held slot still shows) leaves every slot where it is.
 		red.label = 'Crimson'

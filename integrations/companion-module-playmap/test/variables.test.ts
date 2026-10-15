@@ -787,7 +787,13 @@ void test('between pushes the clocks run at 10 Hz from positionMs, rate, at and 
 			if (headline) s.headline = headline
 			const [show, loops] = s.playlists
 			assert.ok(show && loops)
-			Object.assign(show, { state: 'playing', positionMs: 1000 + elapsed, lengthMs: 10000, rate: 1 })
+			Object.assign(show, {
+				state: 'playing',
+				positionMs: 1000 + elapsed,
+				lengthMs: 10000,
+				remainingMs: 9000 - elapsed,
+				rate: 1,
+			})
 			Object.assign(loops, {
 				state: 'playing',
 				index: 0,
@@ -795,6 +801,7 @@ void test('between pushes the clocks run at 10 Hz from positionMs, rate, at and 
 				next: null,
 				positionMs: 2 * elapsed,
 				lengthMs: 60000,
+				remainingMs: 60000 - 2 * elapsed,
 				rate: 2,
 			})
 			return s

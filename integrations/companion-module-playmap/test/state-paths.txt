@@ -57,6 +57,7 @@ playlists.[].item.id
 playlists.[].item.label
 playlists.[].item.source
 playlists.[].lengthMs
+playlists.[].loop
 playlists.[].name
 playlists.[].next.id
 playlists.[].next.label

@@ -23,8 +23,12 @@ export interface PlaylistNow {
 	readonly itemId: string | null
 	readonly itemLabel: string
 	readonly itemSource: string | null
+	/** The item a GO plays now (as the node picks it, below); STATE's own `next` when INDEX does not list the playlist. */
 	readonly nextId: string | null
 	readonly nextLabel: string
+	/** The item a NEXT plays now, and a PREV (null when it would play none). */
+	readonly stepId: string | null
+	readonly prevId: string | null
 	readonly positionMs: number | null
 	readonly lengthMs: number | null
 	readonly remainingMs: number | null
@@ -94,12 +98,41 @@ export class NodeModel {
 
 	playlists(nodeNow: number): PlaylistNow[] {
 		const stateAt = num(at(this.state, P.at), nodeNow)
-		return list(this.state, P.playlists).map((p) => playlistNow(p, stateAt, nodeNow))
+		return list(this.state, P.playlists).map((p) => this.#keyed(p, playlistNow(p, stateAt, nodeNow)))
 	}
 
 	playlist(id: string, nodeNow: number): PlaylistNow | undefined {
 		const p = list(this.state, P.playlists).find((e) => field(e, P.plId) === id)
-		return p ? playlistNow(p, num(at(this.state, P.at), nodeNow), nodeNow) : undefined
+		return p ? this.#keyed(p, playlistNow(p, num(at(this.state, P.at), nodeNow), nodeNow)) : undefined
+	}
+
+	/** The items a key's GO, NEXT and PREV play now, as the node picks them (EngineCore.Transport): GO the first item when idle, the
+	 * cued one when cued, else the one after the current in list order (wrapping when the list loops); NEXT the one after (the first
+	 * when idle); PREV the one before (none when idle). Read in INDEX's order — STATE's `next` follows the current item's end action
+	 * (a Hold or Loop item's next is itself), which is what plays by itself, not what a key plays. */
+	#keyed(p: unknown, now: PlaylistNow): PlaylistNow {
+		const items = this.index?.playlists.find((e) => e.id === now.id)?.items
+		if (!items || items.length === 0) return now
+		const n = items.length
+		const loop = bool(field(p, P.plLoop))
+		const idle = now.state === 'idle' || now.itemId === null
+		const index = idle ? -1 : items.findIndex((i) => i.id === now.itemId)
+		const step = (by: number): number => {
+			const i = index + by
+			if (i >= n) return loop ? i % n : -1
+			if (i < 0) return loop ? ((i % n) + n) % n : 0
+			return i
+		}
+		const go = idle ? 0 : index < 0 ? -1 : now.state === 'cued' ? index : step(1)
+		const next = idle ? 0 : index < 0 ? -1 : step(1)
+		const prev = idle || index < 0 ? -1 : step(-1)
+		return {
+			...now,
+			nextId: items[go]?.id ?? null,
+			nextLabel: items[go]?.label ?? '',
+			stepId: items[next]?.id ?? null,
+			prevId: items[prev]?.id ?? null,
+		}
 	}
 
 	focused(nodeNow: number): PlaylistNow | undefined {
@@ -128,10 +161,20 @@ export function playlistNow(p: unknown, stateAt: number, nodeNow: number): Playl
 	const lengthRaw = field(p, P.plLengthMs)
 	const lengthMs = typeof lengthRaw === 'number' ? lengthRaw : null
 	const posRaw = field(p, P.plPositionMs)
-	let positionMs: number | null = typeof posRaw === 'number' ? posRaw : null
-	if (positionMs !== null && state === 'playing') positionMs += Math.max(0, nodeNow - stateAt) * rate
-	if (positionMs !== null) positionMs = Math.max(0, lengthMs !== null ? Math.min(lengthMs, positionMs) : positionMs)
-	const remainingMs = positionMs !== null && lengthMs !== null ? Math.max(0, lengthMs - positionMs) : null
+	const remRaw = field(p, P.plRemainingMs)
+	const elapsed = state === 'playing' ? Math.max(0, nodeNow - stateAt) * rate : 0
+	// The node's remainingMs is null for an item with no end (a Loop item, a live source): no countdown runs, and a looping item's
+	// position wraps at its length instead of stopping there.
+	const endless = typeof remRaw !== 'number'
+	let positionMs: number | null = typeof posRaw === 'number' ? posRaw + elapsed : null
+	if (positionMs !== null)
+		positionMs =
+			lengthMs !== null && lengthMs > 0
+				? endless
+					? Math.max(0, positionMs) % lengthMs
+					: Math.max(0, Math.min(lengthMs, positionMs))
+				: Math.max(0, positionMs)
+	const remainingMs = endless ? null : Math.max(0, remRaw - elapsed)
 	const itemId = field(p, P.plItemId)
 	const nextId = field(p, P.plNextId)
 	const source = field(p, P.plItemSource)
@@ -145,6 +188,8 @@ export function playlistNow(p: unknown, stateAt: number, nodeNow: number): Playl
 		itemSource: typeof source === 'string' ? source : null,
 		nextId: typeof nextId === 'string' ? nextId : null,
 		nextLabel: str(field(p, P.plNextLabel)),
+		stepId: typeof nextId === 'string' ? nextId : null,
+		prevId: null,
 		positionMs,
 		lengthMs,
 		remainingMs,

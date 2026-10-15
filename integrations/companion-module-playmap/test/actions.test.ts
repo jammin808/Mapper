@@ -608,10 +608,21 @@ void test('learn fills the playlist from the focused one and the item from its c
 		assert.equal(m.host.actions.get('v_playlist_loop')?.hasLearn, true)
 		assert.equal(m.host.actions.get('v_blackout')?.hasLearn, false, 'nothing to learn without a playlist or an item')
 
-		const go = await learn(m, 'v_playlist_go', { playlist: '', item: '', at: '', expect: '' })
+		// What is learned is what the node would take: a GO naming its item needs no EXPECT (with one, it must be that item).
+		const go = await learn(m, 'v_playlist_go', { playlist: '', item: '', at: '', expect: SHOW.blue })
 		assert.equal(go.playlist, SHOW.playlist, 'the focused playlist')
 		assert.equal(go.item, SHOW.red, 'its item on the air')
-		assert.equal(go.expect, SHOW.blue, 'a GO expects the item it plays next')
+		assert.equal(go.expect, '', 'no EXPECT that would contradict the item named')
+		// NEXT and PREV expect their step in INDEX's order (Intro, Red, Blue): what the node would play for them.
+		await m.host.until(() => m.instance.model.index !== null, 'INDEX heard')
+		assert.deepEqual(await learn(m, 'v_playlist_next', { playlist: '', expect: '' }), {
+			playlist: SHOW.playlist,
+			expect: SHOW.blue,
+		})
+		assert.deepEqual(await learn(m, 'v_playlist_prev', { playlist: '', expect: '' }), {
+			playlist: SHOW.playlist,
+			expect: SHOW.intro,
+		})
 		assert.deepEqual(await learn(m, 'v_playlist_loop', { playlist: '', state: 'ON' }), { playlist: SHOW.playlist })
 		const play = await learn(m, 'v_video_play', { on: '', at: '', expect: '' })
 		assert.equal(play.on, SHOW.playlist)
@@ -731,5 +742,31 @@ void test('every press answers ok, stage, effect and error: applied, accepted, r
 		assert.ok(typeof r.error === 'string' && r.error.length > 0)
 	} finally {
 		await alone.stop()
+	}
+})
+
+void test('a field shown by an expression reads only fields that are never expressions (base 2.2)', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const m = await boot(configOf(node), SECRETS)
+	try {
+		await ready(m)
+		let checked = 0
+		const definitions = [...m.host.actions.values(), ...m.host.feedbacks.values()] as unknown as {
+			id: string
+			options: { id: string; isVisibleExpression?: string; disableAutoExpression?: boolean }[]
+		}[]
+		for (const def of definitions)
+			for (const o of def.options) {
+				if (!o.isVisibleExpression) continue
+				for (const [, ref] of o.isVisibleExpression.matchAll(/\$\(options:([a-zA-Z0-9_]+)\)/gu)) {
+					const field = def.options.find((x) => x.id === ref)
+					assert.equal(field?.disableAutoExpression, true, `${def.id}.${o.id} reads ${ref}`)
+					checked++
+				}
+			}
+		assert.ok(checked > 100, `${checked} references checked`)
+	} finally {
+		await m.stop()
+		await node.stop()
 	}
 })

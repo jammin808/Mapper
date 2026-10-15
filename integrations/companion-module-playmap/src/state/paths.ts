@@ -35,6 +35,7 @@ export const P = {
 	plFocused: 'playlists.[].focused',
 	plState: 'playlists.[].state',
 	plIndex: 'playlists.[].index',
+	plLoop: 'playlists.[].loop',
 	plItemId: 'playlists.[].item.id',
 	plItemLabel: 'playlists.[].item.label',
 	plItemSource: 'playlists.[].item.source',

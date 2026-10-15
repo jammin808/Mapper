@@ -79,8 +79,13 @@ public sealed class VerbParamTests
             if (VerbCatalog.Find(name) is { } spec && spec.Name == name)
                 Assert.Equal(PressShapes.Instant, VerbParams.Press(spec));
         // Anything else that is high risk is held to confirm; low risk fires at once.
-        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.High && !air.Contains(v) && v.Show != ShowClass.DevicePower),
+        string[] twice = ["PROJECT OPEN", "PROJECT NEW", "SCAN START", "APPROVE"];
+        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.High && !air.Contains(v) && v.Show != ShowClass.DevicePower && !twice.Contains(v.Name)),
             v => Assert.Equal(PressShapes.Hold, VerbParams.Press(v)));
+        // What replaces the show or cannot be taken back is pressed twice, as a projector's power is.
+        foreach (var name in twice)
+            Assert.Equal(PressShapes.Double, VerbParams.Press(VerbCatalog.Find(name)!));
+        Assert.All(VerbCatalog.All.Where(v => v.Show == ShowClass.DevicePower), v => Assert.Equal(PressShapes.Double, VerbParams.Press(v)));
         Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.Low && !air.Contains(v)), v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
     }
 

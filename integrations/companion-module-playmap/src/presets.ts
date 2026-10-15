@@ -17,7 +17,7 @@ import {
 import { PANIC_OUTCOMES } from './actions.ts'
 import { actionIdOf } from './catalog/verbs.ts'
 import { groupOn, type PlayMapConfig } from './config.ts'
-import { RULES, SLOTS, fillHint } from './live.ts'
+import { RULES, SLOTS, fillHint, stronger } from './live.ts'
 import { colourOf, css, inkOn, lightExpression, rgbOf } from './palette/playmap.ts'
 import type { IndexDoc } from './state/index-doc.ts'
 
@@ -307,6 +307,12 @@ function layered(spec: KeySpec): CompanionLayeredButtonPresetDefinition {
 	if (spec.slot) {
 		feedbacks.push({ feedbackId: 'slot_empty', options: spec.slot, styleOverrides: [override(ROOT, 'opacity', 25)] })
 		feedbacks.push({ feedbackId: 'slot_hint', options: spec.slot, styleOverrides: [override('hint', 'enabled', true)] })
+		// A slot pressed twice says SURE? after its first held press, until the second or 3 s.
+		feedbacks.push({
+			feedbackId: 'confirm_pending',
+			options: {},
+			styleOverrides: [override('hint', 'enabled', true), override('hint', 'text', 'SURE?')],
+		})
 	}
 	for (const b of spec.breathe ?? [])
 		if (b.when)
@@ -740,13 +746,15 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		thumb: { feedbackId: 'slot', options: { ...slot, field: 'thumb' } },
 		light: { feedbackId: 'slot', options: { ...slot, field: 'light' } },
 		press: 'instant',
+		// An instant slot sends on the down (PANIC and GO are never held); a held one at 800 ms (twice for a double); a short press of
+		// a held one says HOLD on the release.
 		steps: [
 			{
-				down: [],
-				up: [{ actionId: 'slot_press', options: { ...slot, held: false } }],
+				down: [{ actionId: 'slot_press', options: { ...slot, held: false, phase: 'down' } }],
+				up: [{ actionId: 'slot_press', options: { ...slot, held: false, phase: 'up' } }],
 				800: {
 					options: { runWhileHeld: true },
-					actions: [{ actionId: 'slot_press', options: { ...slot, held: true } }],
+					actions: [{ actionId: 'slot_press', options: { ...slot, held: true, phase: 'hold800' } }],
 				},
 			},
 		],
@@ -861,9 +869,11 @@ function encoderSteps(actionId: string, options: CompanionOptionValues): Compani
 	]
 }
 
-/** The facts the structure is built from beyond INDEX: the machines this node hears (by id, with their names). */
+/** The facts the structure is built from beyond INDEX: the machines this node hears (by id, with their names), and the press the
+ * catalogue gives a line (a section key is pressed as the stronger of its hint's and its lines'). */
 export interface StructureExtras {
 	readonly peers: readonly { readonly id: string; readonly name: string }[]
+	readonly pressOf?: (line: string) => 'instant' | 'hold' | 'double'
 }
 
 /** The preset structure: sections of groups, every template group keyed by the entity it lists (`pl.<id>` for a playlist's items),
@@ -1081,7 +1091,10 @@ export function presetStructure(
 					template(
 						`sec.${s.section}.${i}`,
 						fillHint(k.label, { id: '', label: k.label, light: '' }).replace('$(label)', '') || s.title,
-						`section_key_${k.press === 'hold' || k.press === 'double' ? k.press : 'instant'}`,
+						`section_key_${s.rows.reduce<'instant' | 'hold' | 'double'>(
+							(press, r) => stronger(press, extras.pressOf?.(fillHint(k.line, r)) ?? 'instant'),
+							k.press === 'hold' || k.press === 'double' ? k.press : 'instant',
+						)}`,
 						'row',
 						s.rows.map((r) => ({
 							name: fillHint(k.label, r) === r.label ? r.label : `${fillHint(k.label, r)} ${r.label}`,

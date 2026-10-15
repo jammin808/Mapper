@@ -2628,7 +2628,7 @@
         }
       ]
     ],
-    "press": "hold"
+    "press": "double"
   },
   {
     "name": "SCAN STATUS",
@@ -3254,7 +3254,7 @@
         }
       ]
     ],
-    "press": "hold"
+    "press": "double"
   },
   {
     "name": "PROJECT NEW",
@@ -3289,7 +3289,7 @@
         }
       ]
     ],
-    "press": "hold"
+    "press": "double"
   },
   {
     "name": "NODES",
@@ -4424,7 +4424,7 @@
         }
       ]
     ],
-    "press": "hold"
+    "press": "double"
   },
   {
     "name": "REJECT",

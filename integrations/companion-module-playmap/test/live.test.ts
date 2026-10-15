@@ -463,7 +463,8 @@ void test('while armed every slot holds its entity: one that leaves reads REMOVE
 		node.pushState(armed)
 		await values(m, { armed: true }, 'armed')
 
-		// Red leaves, Intro is renamed, the rest swap and Encore arrives; Stage left leaves the fleet and Blue goes on the air.
+		// Red leaves, Intro is renamed, the rest swap and Encore arrives; Stage left leaves the fleet and Blue goes on the air — so a
+		// GO plays the item after Blue in the new order, Opening, which is lit next where it stands.
 		const encore: ItemJson = {
 			id: 'it00000099',
 			label: 'Encore',
@@ -491,7 +492,7 @@ void test('while armed every slot holds its entity: one that leaves reads REMOVE
 				s2: 'REMOVED',
 				s3: 'Blue',
 				s4: '',
-				l1: 'grey',
+				l1: 'amber',
 				l2: 'grey',
 				l3: 'green',
 				e4: true,
@@ -526,7 +527,7 @@ void test('while armed every slot holds its entity: one that leaves reads REMOVE
 				s3: 'Encore',
 				s4: '',
 				l1: 'green',
-				l2: 'grey',
+				l2: 'amber',
 				l3: 'grey',
 				p1: 'Stage right',
 				p2: '',
@@ -649,6 +650,96 @@ void test("a short press sends the slot's line when its verb is instant, an outp
 		assert.deepEqual(written, sent, 'only the instant slots’ lines and the held output’s, once each, in order')
 		assert.ok(!node.sent().includes(`PLAYLIST GO ${show.id} ${red.id}`))
 		await values(m, { hint: false }, 'an instant slot never says HOLD')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a deck that links to an armed show, or relinks to one, lays its slots out; focus moving while armed moves none', async () => {
+	const armedState = stateDoc()
+	armedState.show.armed = true
+	const { node, m } = await linked({ state: armedState, config: { min_go_ms: 0 } })
+	try {
+		for (let n = 1; n <= 3; n++) await m.place(`s${n}`, 'slot', { rule: '', n, field: 'label' })
+		await values(
+			m,
+			{ s1: 'Intro', s2: 'Red', s3: 'Blue' },
+			'linked to an armed show: the show’s items, not an empty page',
+		)
+
+		// The link drops and comes back, the show still armed: the same slots.
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.instance.link() !== 'live', 'the link down')
+		await m.host.until(() => m.instance.link() === 'live', 'linked again')
+		await values(m, { s1: 'Intro', s2: 'Red', s3: 'Blue' }, 'relinked while armed: held as before the drop')
+
+		// The desk focuses Loops while armed: the slots keep Show's items, and a press sends Show's GO of the item shown.
+		const moved = copy(armedState)
+		for (const p of moved.playlists) p.focused = p.id === SHOW.loops
+		node.pushState(moved)
+		await m.host.until(() => m.host.variables.get('focused') === SHOW.loops, 'Loops focused')
+		await values(m, { s1: 'Intro', s2: 'Red', s3: 'Blue' }, 'focus moved while armed: no slot moves or reads REMOVED')
+		const r = (await m.press('slot_press', { rule: '', n: 3, held: false }, 'key-slot')) as { ok: boolean }
+		assert.equal(r.ok, true)
+		await node.heard(new RegExp(`^@c\\d+ PLAYLIST GO ${SHOW.playlist} ${SHOW.blue}$`, 'u'))
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a slot is pressed as its line says: instant on the down, held at 800 ms, twice held within 3 s; a section key alike', async () => {
+	const doc = indexDoc()
+	const align = doc.sections.find((s) => s.section === 'align')
+	const calibration = doc.sections.find((s) => s.section === 'calibration')
+	assert.ok(align && calibration)
+	align.rows = [{ id: 'al00000001', kind: 'align', label: 'Wall', parent: null, light: 'grey', state: 'idle' }]
+	calibration.rows = [
+		{ id: 'pj00000001', kind: 'projector', label: 'Left', parent: null, light: 'green', state: 'A 96.0' },
+	]
+	const { node, m } = await linked({ index: doc, config: { min_go_ms: 0 } })
+	try {
+		const press = async (rule: string, phase: string, key = `key-${rule}`): Promise<{ ok: boolean; stage: string }> =>
+			(await m.press('slot_press', { rule, n: 1, held: phase === 'hold800', phase }, key)) as {
+				ok: boolean
+				stage: string
+			}
+		const sent = (): string[] => node.sent().filter((l) => /^(PLAYLIST GO|OUTPUT IDENTIFY|ALIGN RUN)/u.test(l))
+
+		// An instant slot (a GO): sent on the down, once; its release and its 800 ms do nothing.
+		assert.equal((await press('', 'down')).stage, 'applied')
+		assert.equal((await press('', 'up')).stage, 'not-sent')
+		assert.equal((await press('', 'hold800')).stage, 'not-sent')
+		assert.deepEqual(sent(), [`PLAYLIST GO ${SHOW.playlist} ${SHOW.intro}`])
+
+		// A held slot (an output's identify): nothing on the down, HOLD on a short press's release, sent at 800 ms.
+		assert.equal((await press('outputs', 'down')).stage, 'not-sent')
+		assert.equal((await press('outputs', 'up')).stage, 'not-sent')
+		await m.place('hint', 'slot_hint', { rule: 'outputs', n: 1 })
+		await values(m, { hint: true }, 'HOLD on a short press')
+		assert.equal((await press('outputs', 'hold800')).stage, 'applied')
+
+		// A slot pressed twice (the hint says so for ALIGN RUN): the first held press arms it (SURE?), the second sends.
+		await m.place('sure', 'confirm_pending', {}, 'key-section:align')
+		const first = await press('section:align', 'hold800')
+		assert.equal(first.stage, 'not-sent')
+		await values(m, { sure: true }, 'SURE? after the first held press')
+		assert.equal((await press('section:align', 'hold800')).stage, 'applied')
+		assert.deepEqual(sent(), [
+			`PLAYLIST GO ${SHOW.playlist} ${SHOW.intro}`,
+			'OUTPUT IDENTIFY op_1',
+			'ALIGN RUN al00000001',
+		])
+
+		// A section key is pressed as the stronger of its hint's press and its line's: CALIBRATION RESOLVE is held by the catalogue
+		// though its hint says instant.
+		const structure = m.host.structure as { id: string; definitions: { id: string; presetId?: string }[] }[]
+		const calibrationKeys = structure.find((s) => s.id === 'sec.calibration')?.definitions ?? []
+		assert.equal(calibrationKeys.find((d) => d.id === 'sec.calibration.0')?.presetId, 'section_key_hold')
+		assert.equal(calibrationKeys.find((d) => d.id === 'sec.calibration.2')?.presetId, 'section_key_instant')
+		const alignKeys = structure.find((s) => s.id === 'sec.align')?.definitions ?? []
+		assert.equal(alignKeys.find((d) => d.id === 'sec.align.0')?.presetId, 'section_key_double')
 	} finally {
 		await m.stop()
 		await node.stop()

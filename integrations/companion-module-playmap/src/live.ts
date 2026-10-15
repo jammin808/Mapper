@@ -14,7 +14,16 @@ export interface Slot {
 	readonly thumbRef: string | null
 	/** The line its press sends, or null for a slot that only shows. */
 	readonly line: string | null
+	/** How its key sends the line: the stronger of the catalogue's press for the line and a section key's own. */
+	readonly press: 'instant' | 'hold' | 'double'
 	readonly needsHold: boolean
+}
+
+const STRENGTH = { instant: 0, hold: 1, double: 2 } as const
+
+/** The stronger of two press shapes (instant < hold < double). */
+export function stronger(a: Slot['press'], b: Slot['press']): Slot['press'] {
+	return STRENGTH[a] >= STRENGTH[b] ? a : b
 }
 
 export const SLOTS = 32
@@ -31,6 +40,7 @@ export const REMOVED: Slot = {
 	light: 'grey',
 	thumbRef: null,
 	line: null,
+	press: 'instant',
 	needsHold: false,
 }
 
@@ -39,8 +49,10 @@ export type PressOf = (line: string) => 'instant' | 'hold' | 'double'
 
 /** Every slot a rule lays out, in order (before paging), from INDEX and STATE. */
 export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf: PressOf): Slot[] {
-	const hold = (line: string): boolean => pressOf(line) !== 'instant'
-	const slot = (s: Omit<Slot, 'needsHold'>): Slot => ({ ...s, needsHold: s.line !== null && hold(s.line) })
+	const slot = (s: Omit<Slot, 'needsHold' | 'press'>, own: Slot['press'] = 'instant'): Slot => {
+		const press = s.line === null ? 'instant' : stronger(pressOf(s.line), own)
+		return { ...s, press, needsHold: press !== 'instant' }
+	}
 	const index = model.index
 	if (rule === 'focused' || rule.startsWith('playlist:')) {
 		const playlists = model.playlists(nodeNow)
@@ -124,15 +136,19 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 	if (rule.startsWith('section:')) {
 		const section = index?.sections.find((s) => s.section === rule.slice('section:'.length))
 		const key = section?.keys[0]
+		const own: Slot['press'] = key?.press === 'hold' || key?.press === 'double' ? key.press : 'instant'
 		return (section?.rows ?? []).map((r) =>
-			slot({
-				key: r.id,
-				label: key ? fillHint(key.label, r) : r.label,
-				sub: r.state,
-				light: r.light || 'grey',
-				thumbRef: null,
-				line: key ? fillHint(key.line, r) : null,
-			}),
+			slot(
+				{
+					key: r.id,
+					label: key ? fillHint(key.label, r) : r.label,
+					sub: r.state,
+					light: r.light || 'grey',
+					thumbRef: null,
+					line: key ? fillHint(key.line, r) : null,
+				},
+				own,
+			),
 		)
 	}
 	return []
@@ -150,12 +166,25 @@ export function fillHint(template: string, row: { id: string; label: string; lig
  * INDEX and STATE. While the show is armed the slot → entity map of each source is frozen as it stood, so a key never moves under a
  * finger: labels, lights and pictures still update, and a slot whose entity is gone shows REMOVED in grey. `refresh` (or disarming)
  * lays it out again. */
+/** A source's slot → entity map: the entities' keys, laid out from `via` (the source, a focused one resolved to its playlist). */
+interface Arrangement {
+	readonly via: string
+	readonly keys: readonly string[]
+}
+
+/** The source a rule lays out from now: 'focused' (or '') is the playlist focused now; every other rule is itself. */
+function resolved(rule: string, model: NodeModel, nodeNow: number): string {
+	if (rule !== 'focused') return rule
+	const focused = model.focused(nodeNow)
+	return focused ? `playlist:${focused.id}` : rule
+}
+
 export class LivePage {
 	rule: string
 	readonly #page = new Map<string, number>()
-	readonly #frozen = new Map<string, string[]>()
+	readonly #frozen = new Map<string, Arrangement>()
 	/** Each source's slot → entity map as the keys last showed it unarmed: what an arm freezes, whatever moved since. */
-	readonly #shown = new Map<string, string[]>()
+	readonly #shown = new Map<string, Arrangement>()
 	readonly #hints = new Map<string, ReturnType<typeof setTimeout>>()
 
 	constructor(rule: string) {
@@ -217,29 +246,31 @@ export class LivePage {
 		this.#shown.clear()
 	}
 
+	/** The link dropped: hints end; the frozen and shown layouts are kept, so a relink while armed lays out nothing new. */
 	clear(): void {
 		for (const t of this.#hints.values()) clearTimeout(t)
 		this.#hints.clear()
-		this.#frozen.clear()
-		this.#shown.clear()
 	}
 
 	#arranged(rule: string, model: NodeModel, nodeNow: number, pressOf: PressOf): Slot[] {
-		const fresh = layout(rule, model, nodeNow, pressOf)
+		// Before both STATE and INDEX are heard (the link down, or not yet greeted) neither whether the show is armed nor what a source
+		// lists is known: nothing is frozen or let go, and what was frozen before a drop holds through the relink.
+		if (model.state === null || model.index === null) return layout(rule, model, nodeNow, pressOf)
 		if (!model.armed) {
 			this.#frozen.delete(rule)
-			this.#shown.set(
-				rule,
-				fresh.map((s) => s.key),
-			)
+			const via = resolved(rule, model, nodeNow)
+			const fresh = layout(via, model, nodeNow, pressOf)
+			this.#shown.set(rule, { via, keys: fresh.map((s) => s.key) })
 			return fresh
 		}
-		let keys = this.#frozen.get(rule)
-		if (!keys) {
-			keys = this.#shown.get(rule) ?? fresh.map((s) => s.key)
-			this.#frozen.set(rule, keys)
+		let frozen = this.#frozen.get(rule)
+		if (!frozen) {
+			const via = resolved(rule, model, nodeNow)
+			frozen = this.#shown.get(rule) ?? { via, keys: layout(via, model, nodeNow, pressOf).map((s) => s.key) }
+			this.#frozen.set(rule, frozen)
 		}
-		const byKey = new Map(fresh.map((s) => [s.key, s]))
-		return keys.map((k) => byKey.get(k) ?? { ...REMOVED, key: k })
+		// Resolved against the source as it was frozen (the playlist then focused, not the one focused now).
+		const byKey = new Map(layout(frozen.via, model, nodeNow, pressOf).map((s) => [s.key, s]))
+		return frozen.keys.map((k) => byKey.get(k) ?? { ...REMOVED, key: k })
 	}
 }

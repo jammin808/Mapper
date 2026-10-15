@@ -161,8 +161,11 @@ opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press
 for an *if* block on the key.
 
 **Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
-are held 0.8 s;
-a projector's power is two presses within 3 s (the module keeps the first — a preset cannot reset a button's step). The double-GO guard
+are held 0.8 s; a projector's power, a project opened or made, a scan started and a proposal approved are two held presses within 3 s
+(the module keeps the first — a preset cannot reset a button's step). A section key and a Live slot are pressed as the stronger of
+their hint's press and their line's; a Live slot sends an instant line on the down, a held one at 800 ms, and says HOLD (or SURE?)
+otherwise. GO, NEXT and PREV expect the item the node will play for them — the cued one, the one after the current in list order,
+the first when idle — not STATE's `next`, which follows the item's end action; `next` says the same item. The double-GO guard
 holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
 
 **Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default) and typed values a layered key binds through

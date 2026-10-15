@@ -44,6 +44,8 @@ export function optionsOf(row: VerbRow, choices: EntityChoices): SomeCompanionAc
 			id: 'form',
 			label: 'Form',
 			default: 0,
+			// The fields of each form are shown by an expression on this chooser, which may only read a field that is never one.
+			disableAutoExpression: true,
 			choices: row.forms.map((f, i) => ({ id: i, label: f })),
 		})
 	row.formParams.forEach((params, k) => {

@@ -627,7 +627,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			id: str(field(p, P.peerId)),
 			name: str(field(p, P.peerName)),
 		}))
-		const structure = presetStructure(this.model.index, this.config, { peers })
+		const structure = presetStructure(this.model.index, this.config, { peers, pressOf: (l) => this.pressOf(l) })
 		const presets = referencedPresets(presetDefinitions(this.config), structure)
 		const presetsKey = JSON.stringify(presets)
 		const structureKey = JSON.stringify(structure)
