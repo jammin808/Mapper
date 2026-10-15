@@ -85,6 +85,23 @@ public sealed class VerbParamTests
     }
 
     [Fact]
+    public void AnIdentifyThatPutsAPictureOverTheAirIsHeld()
+    {
+        foreach (var name in new[] { "OUTPUT IDENTIFY", "DEVICE IDENTIFY" })
+        {
+            var spec = VerbCatalog.Find(name);
+            Assert.NotNull(spec);
+            Assert.Equal(name, spec.Name);
+            Assert.Equal(VerbRisk.Review, spec.Risk);
+            Assert.Equal(PressShapes.Hold, VerbParams.Press(spec));
+        }
+        // Every other review row fires at once.
+        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.Review && v.Name is not ("OUTPUT IDENTIFY" or "DEVICE IDENTIFY")
+                && v.Show is not ShowClass.DevicePower),
+            v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
+    }
+
+    [Fact]
     public void AControllersFormsReadAsTheyShould()
     {
         var go = VerbParams.For("PLAYLIST GO");

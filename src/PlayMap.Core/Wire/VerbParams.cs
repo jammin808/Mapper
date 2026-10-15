@@ -57,8 +57,8 @@ public static class PressShapes
 
 /// <summary>Typed parameters for every row of the catalogue and every alternative of its syntax, read through <see cref="VerbSyntax"/>
 /// (the one reader of a row's syntax) with overrides by row name where the syntax's words alone say too little; and each row's press
-/// shape: Panic, Air and Transport rows fire at once (a show's emergency and its GO are never held), otherwise a high-risk row is held
-/// to confirm and a projector's power is pressed twice. VERBS and /api/verbs carry both, so a controller builds its actions from
+/// shape: Panic, Air and Transport rows fire at once (a show's emergency and its GO are never held), otherwise a high-risk row, and a
+/// review row that puts a picture over the air, is held to confirm and a projector's power is pressed twice. VERBS and /api/verbs carry both, so a controller builds its actions from
 /// data.</summary>
 public static class VerbParams
 {
@@ -71,6 +71,9 @@ public static class VerbParams
         ["scan"] = "sc", ["mask"] = "mk", ["viewpoint"] = "vp", ["pin"] = "pn", ["send"] = "sd", ["fixture"] = "lf", ["stack"] = "sk",
         ["survey"] = "sv", ["binding"] = "bd", ["slot"] = "fx", ["asset"] = "fa", ["snapshot"] = "cs", ["control"] = "ct",
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>Review rows that put a picture over the air (an output's or a projector's identify): held like a high-risk row.</summary>
+    private static readonly FrozenSet<string> HeldReview = new[] { "OUTPUT IDENTIFY", "DEVICE IDENTIFY" }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> AnyEntity = new[] { "id", "entity", "owner", "target" }.ToFrozenSet(StringComparer.Ordinal);
 
@@ -134,7 +137,7 @@ public static class VerbParams
             return PressShapes.Instant;
         if (spec.Show == ShowClass.DevicePower)
             return PressShapes.Double;
-        return spec.Risk == VerbRisk.High ? PressShapes.Hold : PressShapes.Instant;
+        return spec.Risk == VerbRisk.High || HeldReview.Contains(spec.Name) ? PressShapes.Hold : PressShapes.Instant;
     }
 
     /// <summary>A form's parameters: its tokens after the verb, an optional group's as optional.</summary>

@@ -2137,7 +2137,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "BLACKOUT",
@@ -4210,7 +4210,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "CREDENTIAL SET",

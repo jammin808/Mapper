@@ -588,7 +588,7 @@ void test('the slots hold as the keys showed them when armed, even when INDEX mo
 	}
 })
 
-void test("a short press sends the slot's line when its verb is instant; a slot that only shows, or is past the end, sends nothing", async () => {
+void test("a short press sends the slot's line when its verb is instant, an output's only held; a slot that only shows, or is past the end, sends nothing", async () => {
 	// A long double-GO guard: a playlist's second GO in this test is held, whichever slot sends it.
 	const { node, m } = await linked({ config: { min_go_ms: 60_000 } })
 	try {
@@ -629,6 +629,15 @@ void test("a short press sends the slot's line when its verb is instant; a slot 
 			sent.push(line)
 		}
 
+		// An output identifies only when held: it puts a picture over the air.
+		const short = await press({ rule: 'outputs', n: 1, held: false }, 'key-output')
+		assert.equal(short.ok, false)
+		assert.equal(short.stage, 'not-sent')
+		const held = await press({ rule: 'outputs', n: 1, held: true }, 'key-output')
+		assert.equal(held.stage, 'applied')
+		await node.heard(/^@c\d+ OUTPUT IDENTIFY op_1$/u)
+		sent.push('OUTPUT IDENTIFY op_1')
+
 		// The double-GO guard holds a second GO of the show's playlist from another slot.
 		const again = await press({ rule: '', n: 2, held: true }, 'key-again')
 		assert.equal(again.ok, false)
@@ -637,7 +646,7 @@ void test("a short press sends the slot's line when its verb is instant; a slot 
 		await node.heard(/^@c\d+ PLAYLIST LIST$/u)
 
 		const written = node.sent().filter((l) => /^(PLAYLIST GO|OUTPUT IDENTIFY|SHOW |PANIC)/u.test(l))
-		assert.deepEqual(written, sent, 'only the instant slots’ lines, once each, in order')
+		assert.deepEqual(written, sent, 'only the instant slots’ lines and the held output’s, once each, in order')
 		assert.ok(!node.sent().includes(`PLAYLIST GO ${show.id} ${red.id}`))
 		await values(m, { hint: false }, 'an instant slot never says HOLD')
 	} finally {

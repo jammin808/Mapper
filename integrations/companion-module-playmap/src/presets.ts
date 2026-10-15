@@ -649,13 +649,14 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 	})
 	presets.output_key = key({
 		name: 'Output',
-		notes: 'OUTPUT IDENTIFY — its name over its picture. Frame: the output’s light.',
+		notes:
+			'OUTPUT IDENTIFY — its name over its picture, held 0.8 s (it puts a picture over the air). Frame: the output’s light.',
 		keywords: ['output', 'identify'],
 		locals: [{ name: 'output', startup: '' }],
 		label: { feedbackId: 'label', options: { ref: local('output') } },
 		sub: { feedbackId: 'state_word', options: { ref: local('output') } },
 		light: { feedbackId: 'light', options: { ref: local('output') } },
-		press: 'instant',
+		press: 'hold',
 		action: { actionId: actionIdOf('OUTPUT IDENTIFY'), options: { output: local('output') } },
 		receipt: true,
 	})

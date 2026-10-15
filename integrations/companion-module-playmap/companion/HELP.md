@@ -54,7 +54,7 @@ Install it once: drag the **Live slots** template group onto a page. Set the pag
 | `focused` (empty)                           | the focused playlist's items — press to GO        |
 | `playlist:<id>`                             | that playlist's items                             |
 | `playlists`                                 | the playlists — press to GO                       |
-| `outputs`                                   | the outputs — press to identify                   |
+| `outputs`                                   | the outputs — hold to identify                    |
 | `projectors`, `surfaces`, `peers`, `faults` | their lights and words                            |
 | `section:<name>`                            | a package's rows (`section:fx`, `section:show` …) |
 

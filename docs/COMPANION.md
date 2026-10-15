@@ -88,8 +88,8 @@ with `ETag` and 304.
 `VerbParams` reads every catalogue row's forms through `VerbSyntax` into typed parameters — an entity with its id prefix, a literal
 choice, a number with its range, a time, a source, a line, JSON, a keyword and its value, another form it accepts (`#<n>` for an item
 by position), whether it repeats — with overrides by row name where the syntax says too little. A row's press shape comes from its
-show class first: Panic, Air and Transport rows fire at once, always; otherwise a high-risk row is held to confirm and a projector's
-power is pressed twice. `VERBS` and `/api/verbs` carry `params`, `formParams` and `press`, so the module generates its actions.
+show class first: Panic, Air and Transport rows fire at once, always; otherwise a high-risk row, and an identify that puts a picture
+over the air (`OUTPUT IDENTIFY`, `DEVICE IDENTIFY`), is held to confirm and a projector's power is pressed twice. `VERBS` and `/api/verbs` carry `params`, `formParams` and `press`, so the module generates its actions.
 
 ## Announcement
 
@@ -150,7 +150,8 @@ value plus the steps sent and not yet confirmed, clamped to the range) or `GENER
 opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local variable `result`,
 for an *if* block on the key.
 
-**Press shapes** come from each row's `press`: Panic, Air and Transport rows fire on the down, never held; a high-risk row is held 0.8 s;
+**Press shapes** come from each row's `press`: Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
+are held 0.8 s;
 a projector's power is two presses within 3 s (the module keeps the first — a preset cannot reset a button's step). The double-GO guard
 holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
 

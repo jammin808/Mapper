@@ -150,9 +150,11 @@ void test('the layered item, output and Live slot keys bind text, picture, gauge
 				assert.deepEqual(overrideOf(layered, elementId, property), override, what)
 				assert.equal(m.host.feedbacks.get(feedbackId)?.type, 'value', `${what}: ${feedbackId} is a value feedback`)
 			}
-			// The simple fallback shows the same label feedback's value through a feedback-based local variable.
+			// The simple fallback shows the same label feedback's value through a feedback-based local variable, saying "(hold)" on a
+			// key that is held (the layered one draws its HOLD… element).
 			const [, , labelFeedback, labelOptions] = binds[0] ?? []
-			assert.equal(simple.style?.text, '$(local:label)', presetId)
+			const held = element(layered.elements ?? [], 'hold') !== undefined
+			assert.equal(simple.style?.text, held ? '$(local:label) (hold)' : '$(local:label)', presetId)
 			assert.ok(
 				(simple.localVariables ?? []).some(
 					(l) =>
