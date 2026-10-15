@@ -662,7 +662,7 @@ public int CompanionTcpPort { get; init; } = 16759;
 ```json
 { "type":"connection","id":"jammin808-playmap","name":"jammin808-playmap","shortname":"playmap",
   "description":"PlayMap media server and projection mapping: playlists, surfaces, projectors, calibration, fleet health and AI proposals as live keys with thumbnails; finds the node by itself; safe in Show Mode",
-  "version":"1.0.0","repository":"https://github.com/jammin808/Mapper",
+  "version":"1.0.0","license":"GPL-3.0-only","repository":"https://github.com/jammin808/Mapper",
   "bugs":"https://github.com/jammin808/Mapper/issues","maintainers":[{"name":"jammin808"}],"legacyIds":[],
   "runtime":{"type":"node22","api":"nodejs-ipc","apiVersion":"2.2.1","entrypoint":"../dist/main.js"},
   "manufacturer":"jammin808","products":["PlayMap"],
@@ -670,8 +670,14 @@ public int CompanionTcpPort { get; init; } = 16759;
   "bonjourQueries":{"node":{"type":"playmap","protocol":"tcp"}} }
 ```
 
-The manifest also requires `license` (an SPDX id). It is added when the owner names the module's licence, before this
-package is built.
+**Licence (the owner's decision: the most restrictive Companion allows).** Bitfocus' module policy (current since
+31 Aug 2026, enforced by `@companion-module/tools` ≥ 2.8.0/3.1.0 in the Developer Portal build) requires the module's source
+licence, `package.json` `license`, to be exactly `MIT`, and accepts only `MIT`, `GPL-2.0-only` or `GPL-3.0-only` for the
+packaged module's licence, the manifest's `license`. The module therefore carries `"license": "MIT"` in `package.json` and
+`"license": "GPL-3.0-only"` in `companion/manifest.json`. Costs of GPL-3.0-only over MIT: the module is left out of the
+offline module bundle (Companion ≥ 5.0.5 skips copyleft modules) and out of the Bitfocus Buttons listing; Bitfocus frames GPL
+as for bundling a GPL library, so its review may ask why. This applies to the Companion module only; PlayMap names no licence.
+Sources: `research/companion-licence.md`.
 
 **Config:**
 
@@ -866,8 +872,9 @@ The module lives in `integrations/companion-module-playmap/`:
     `@types/ws`, `@types/node ^22`;
   - `package-lock.json`.
 - Config files: `tsconfig.json` (`erasableSyntaxOnly: true`, so tests run under Node's type stripping),
-  `tsconfig.build.json`, `companion/manifest.json`, `companion/HELP.md`. The module's licence (a `LICENSE` file and
-  the manifest's required SPDX `license`) is the owner's decision, taken before this package is built.
+  `tsconfig.build.json`, `companion/manifest.json`, `companion/HELP.md`, `LICENSE` (the MIT text for the module's source,
+  "Copyright (c) 2026 jammin808", as Bitfocus requires) and `COPYING` (the GPL-3.0 text, the packaged module's licence named
+  in the manifest; check what `companion-module-build`'s legal artefacts already carry and add only what they do not).
 - `src/**` as in §3.3; `tools/gen-verbs.ts`.
 - `test/harness.ts`: the module run through `InstanceWrapper` from `@companion-module/host` with a recording
   `ModuleHostContext`. It records:

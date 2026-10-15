@@ -59,8 +59,9 @@ Round 2 W1 notes:
   `dotnet-dump analyze <dmp> -c "clrstack -all"` and delete the dump at once.
 - PlayMap's own code names no licence (the owner deleted LICENSE and asked that MIT be named nowhere for PlayMap). Never
   write MIT or any licence for PlayMap's own code, built-in content or modules; never add a LICENSE file or licence metadata
-  for it. The Companion module's licence (its `LICENSE` and the manifest's required SPDX `license`) is an open owner
-  decision, to be asked before wp2-companion-module is built. Third-party notices stay.
+  for it. Third-party notices stay. The one exception is the Companion module (decided by the owner): its source
+  `package.json` "MIT" (Bitfocus requires it), its manifest "GPL-3.0-only", LICENSE with the MIT text ("Copyright (c) 2026
+  jammin808") and the GPL-3.0 text for the packaged module (design/companion.md, research/companion-licence.md).
 - wp2-companion (merged d3f8e9c): spine amendments wanted — SessionInfo.Channel (worked around via the client table),
   JournalRow.Transport/Session (RECORD next round), ExtensionSetup carrying the TLS identity (mDNS TXT tls/fp), a dispose hook
   for engine modules. Open for others: AssistantTools does not ask IShowDecisions (McpTools does) → assistant owner;
