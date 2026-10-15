@@ -32,6 +32,16 @@ public sealed class TimecodeBoard
         }
     }
 
+    /// <summary>True while the board has this source as given (its kind, device and channel): an input made for a source that has
+    /// since gone or moved to another device or channel feeds it nothing.</summary>
+    public bool Holds(TimecodeSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        lock (_gate)
+            return _entries.TryGetValue(source.Id, out var e) && e.Source.Kind == source.Kind && e.Source.Device == source.Device
+                && e.Source.Channel == source.Channel;
+    }
+
     public IReadOnlyList<string> Ids
     {
         get

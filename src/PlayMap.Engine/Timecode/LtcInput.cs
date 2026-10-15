@@ -11,8 +11,9 @@ namespace PlayMap.Engine.Tc;
 /// the lower envelope of (read instant − block end ÷ rate) over the last 10 s: scheduling only ever delays a read, so the earliest
 /// is the truest. The input is opened as "&lt;device&gt;@&lt;channel&gt;" (the audio hub resolves the show's name for the device and
 /// hands this reader its one channel, sharing the device with every other listener); <see cref="Open"/> waits on the device, so
-/// its owner calls it, and <see cref="Dispose"/>, off its own loop. An input that cannot open, or a node without audio inputs, says
-/// so as the source's state.</summary>
+/// its owner calls it, and <see cref="Dispose"/>, off its own loop. <see cref="Close"/> stops it hearing at once, on that loop: a
+/// closed reader hands the board nothing more, whenever its device is given back; nor does a reader whose source the board now has
+/// on another device or channel. An input that cannot open, or a node without audio inputs, says so as the source's state.</summary>
 public sealed class LtcInput : IAudioCaptureSink, IDisposable
 {
     private const long WindowNs = 10_000_000_000;
@@ -52,7 +53,8 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     {
         if (_audio is null)
         {
-            _board.Fault(Source.Id, "no audio inputs on this node (the audio hub is not running) — LTC cannot arrive here", _mono.NowNs);
+            if (Heard)
+                _board.Fault(Source.Id, "no audio inputs on this node (the audio hub is not running) — LTC cannot arrive here", _mono.NowNs);
             return;
         }
         lock (_gate)
@@ -67,25 +69,23 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
         }
         catch (AudioUnavailableException ex)
         {
-            _board.Fault(Source.Id, ex.Message, _mono.NowNs);
-            return;
-        }
-        IAudioCapture? late = null;
-        lock (_gate)
-        {
-            if (_closed)
-                late = capture;
-            else
-                _capture = capture;
-        }
-        if (late is not null)
-        {
-            // Closed while the device opened: the open is given back at once.
-            late.Dispose();
+            if (Heard)
+                _board.Fault(Source.Id, ex.Message, _mono.NowNs);
             return;
         }
         var device = Source.Device.Length == 0 ? "the default input" : Source.Device;
-        _board.Input(Source.Id, true, -120, string.Create(CultureInfo.InvariantCulture, $"listening on {device} channel {Source.Channel}"));
+        lock (_gate)
+        {
+            if (!_closed)
+            {
+                _capture = capture;
+                if (_board.Holds(Source))
+                    _board.Input(Source.Id, true, -120, string.Create(CultureInfo.InvariantCulture, $"listening on {device} channel {Source.Channel}"));
+                return;
+            }
+        }
+        // Closed while the device opened: the open is given back at once.
+        capture.Dispose();
     }
 
     public TimecodeSource Source { get; }
@@ -96,6 +96,8 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
             return;
         lock (_gate)
         {
+            if (_closed || !_board.Holds(Source))
+                return;
             if (_decoder is null || _decoder.SampleRate != sampleRate)
                 _decoder = new LtcDecoder(sampleRate, Source.FloorDbfs);
             var count = interleaved.Length / channels;
@@ -150,18 +152,41 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
         return label;
     }
 
-    public void Faulted(string words) => _board.Fault(Source.Id, words, _mono.NowNs);
+    public void Faulted(string words)
+    {
+        if (Heard)
+            _board.Fault(Source.Id, words, _mono.NowNs);
+    }
 
     /// <summary>The control loop's tick: an open input without signal for half a second is silent.</summary>
     public void Tick(long nowNs)
     {
         lock (_gate)
         {
-            if (_capture is null || _silent || nowNs - _signalAt < SilentAfterNs)
+            if (_closed || _capture is null || _silent || nowNs - _signalAt < SilentAfterNs || !_board.Holds(Source))
                 return;
             _silent = true;
         }
         _board.Silent(Source.Id, nowNs);
+    }
+
+    /// <summary>Stops hearing at once (cheap: its owner's loop calls it when the source goes or moves, before the close that waits
+    /// off it): later blocks, a device fault and a late open's words never reach the board.</summary>
+    public void Close()
+    {
+        lock (_gate)
+            _closed = true;
+    }
+
+    /// <summary>Whether what this reader hears is still its source's: not closed, and the board's source still on this reader's
+    /// device and channel (a source moved elsewhere starts afresh on the board at once, before its owner retires this reader).</summary>
+    private bool Heard
+    {
+        get
+        {
+            lock (_gate)
+                return !_closed && _board.Holds(Source);
+        }
     }
 
     /// <summary>Closes the input (waits while the hub lets the device go when this was its last listener).</summary>

@@ -106,6 +106,32 @@ public sealed class LtcThroughCaptureHubTests
         }
     }
 
+    /// <summary>A device whose open waits until the test lets it (a sound server slow to open it): while it waits, the hub is held.</summary>
+    private sealed class SlowDevice : IAudioInputs, IDisposable
+    {
+        private readonly ManualResetEventSlim _release = new(false);
+
+        public SemaphoreSlim Waiting { get; } = new(0);
+
+        public IReadOnlyList<AudioInputInfo> Inputs() => [new AudioInputInfo("slow:device", "Slow device", 2, [48000], "slow")];
+
+        public IAudioCapture Open(string key, int preferredRate, IAudioCaptureSink sink)
+        {
+            Waiting.Release();
+            Assert.True(_release.Wait(TimeSpan.FromSeconds(30)), "the test never released the device");
+            throw new AudioUnavailableException("the slow device gave up");
+        }
+
+        public void Release() => _release.Set();
+
+        public void Dispose()
+        {
+            _release.Set();
+            _release.Dispose();
+            Waiting.Dispose();
+        }
+    }
+
     /// <summary>The node's audio inputs as the packages see them (EngineServices.AudioInputs): the hub, with each key opened through
     /// it and the channels the open hands back recorded.</summary>
     private sealed class Seen(AudioInputHub hub) : IAudioInputs
@@ -253,6 +279,63 @@ public sealed class LtcThroughCaptureHubTests
         mixer.Release();
         await ControlRig.Until(() => rig.State().GetProperty("timecode").GetProperty("sources")[0].GetProperty("open").GetBoolean(), "the reader open");
         Assert.Equal(1, runtime.Hub.OpenDevices()[Mixer.Key]);
+    }
+
+    /// <summary>A source moved to another channel hears nothing more of the old one, even while another device's open holds the hub
+    /// (the old reader's close, off the control loop, waits behind that open); once the hub is free the old reader is given back and
+    /// the new one listens.</summary>
+    [Fact]
+    public async Task ASourceMovedToAnotherChannelHearsNothingOfTheOldOneWhileTheHubIsHeld()
+    {
+        var clock = new ManualClock(5_000_000_000);
+        using var mixer = new Mixer();
+        using var slow = new SlowDevice();
+        AudioRuntime? audio = null;
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), service: true, clock: clock,
+            with: WithAudio((r, _) => audio = r, false, ("desk:", mixer), ("slow:", slow)));
+        using var runtime = audio!;
+        try
+        {
+            var id = JsonDocument.Parse((await rig.Ok("TIMECODE SOURCE ADD FOH LTC desk:mixer:7")).Payload!).RootElement.GetProperty("id").GetString()!;
+            await ControlRig.Until(() => runtime.Hub.OpenDevices().GetValueOrDefault(Mixer.Key) == 1, "FOH's reader open");
+            Assert.True(TcFormat.Fps25.TryParseLabel("01:00:03:00", out var from));
+            var (ltc, _) = new LtcEncoder(TcFormat.Fps25, 48000).Render(from, 25 * 10);
+            var at = 0;
+            async Task Push(int channel, int blocks)
+            {
+                for (var i = 0; i < blocks; i++, at += 480)
+                {
+                    clock.NowNs += 10_000_000;
+                    mixer.Push(ltc.AsSpan(at, 480), channel, at, clock.NowNs);
+                }
+                await rig.Engine.StepChasesAsync();
+            }
+            JsonElement Foh() => rig.State().GetProperty("timecode").GetProperty("sources").EnumerateArray().First(s => s.GetProperty("id").GetString() == id);
+            await Push(7, 100);
+            Assert.Equal(("rolling", true), (Foh().GetProperty("state").GetString(), Foh().GetProperty("open").GetBoolean()));
+
+            // Another source's device takes its time to open: the hub is held, and every open or close behind it waits.
+            await rig.Ok("TIMECODE SOURCE ADD Spare LTC slow:device:1");
+            Assert.True(await slow.Waiting.WaitAsync(TimeSpan.FromSeconds(10)), "the spare's reader asked for its device");
+            // FOH moves to channel 8 (it starts afresh at once) while the code stays on 7: two seconds of it reach FOH not at all.
+            await rig.Ok($"SET {id} channel 8");
+            await rig.Engine.StepChasesAsync();
+            await Push(7, 200);
+            var moved = Foh();
+            Assert.Equal(("desk:mixer:8", false), (moved.GetProperty("device").GetString(), moved.GetProperty("open").GetBoolean()));
+            Assert.NotEqual("rolling", moved.GetProperty("state").GetString());
+
+            // The hub free again, the old reader is given back and FOH listens on channel 8.
+            slow.Release();
+            await ControlRig.Until(() => Foh().GetProperty("open").GetBoolean(), "FOH's reader on channel 8 open");
+            Assert.Equal(1, runtime.Hub.OpenDevices()[Mixer.Key]);
+            await Push(8, 100);
+            Assert.Equal(("rolling", true), (Foh().GetProperty("state").GetString(), Foh().GetProperty("open").GetBoolean()));
+        }
+        finally
+        {
+            slow.Release();
+        }
     }
 
     /// <summary>TIMECODE DEVICES lists the hub's inputs, which waits on the backends: the lane answers other lines meanwhile.</summary>

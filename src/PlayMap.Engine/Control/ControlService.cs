@@ -147,7 +147,10 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             p.Input.Dispose();
         _midiInputs.Clear();
         foreach (var l in _ltc.Values)
+        {
+            l.Close();
             OffLoop(l.Dispose);
+        }
         _ltc.Clear();
         Task ltcWork;
         lock (_ltcGate)
@@ -795,6 +798,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             if (s is not null && s.Device == input.Source.Device && s.Channel == input.Source.Channel && s.FloorDbfs == input.Source.FloorDbfs)
                 continue;
             _ltc.TryRemove(id, out _);
+            // Deaf at once; its device is given back off the loop, perhaps behind another device's open.
+            input.Close();
             OffLoop(input.Dispose);
         }
         foreach (var s in ltc.Where(s => !_ltc.ContainsKey(s.Id)))

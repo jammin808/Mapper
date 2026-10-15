@@ -16,7 +16,7 @@ TIMECODE ENGAGE Main OFF        (the operator takes the playlist by hand)
 
 | Kind | Arrives on | Read by |
 |---|---|---|
-| LTC | an audio input and a channel, opened through the audio hub as `<device or name>@<channel>` (one open shared with the analyser), off the control loop | `LtcDecoder`, on the capture thread |
+| LTC | an audio input and a channel, opened through the audio hub as `<device or name>@<channel>` (one open shared with the analyser), off the control loop; a source moved to another device or channel starts afresh at once, and its old reader feeds it nothing while its close waits | `LtcDecoder`, on the capture thread |
 | MTC | a MIDI port (glob) | the port's parser and `MtcParser` |
 | Art-Net | the node's Art-Net socket, a stream id 0–255 | ArtTimeCode |
 | Internal | the node itself | `TIMECODE INTERNAL <source> PLAY\|STOP\|LOCATE\|RATE` |
