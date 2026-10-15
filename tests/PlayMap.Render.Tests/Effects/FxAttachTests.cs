@@ -12,10 +12,10 @@ namespace PlayMap.Render.Tests.Effects;
 /// <summary>Chains where the pictures are made: a layer's chain draws at its rectangle and nothing else of the canvas moves; a
 /// chained layer that covers the canvas is drawn over the background, not instead of it; a surface's history effect steps once a
 /// frame however many projectors draw it, and every projector shows the same picture; bypass and mix 0 leave layers and surfaces
-/// bit for bit as they were; what the air shows instead of the show leaves layer and surface chains idle with the reason, and
-/// a chain out of the picture says why; a safe look is drawn through no chain, even of a canvas or playlist the show shows with
-/// its chains; a playlist item's chain counts its time from the item's start, each side of a transition from its own; and once
-/// warm a frame with every kind of chain allocates nothing.</summary>
+/// bit for bit as they were; what the air shows instead of the show leaves layer and surface chains idle with the reason on the
+/// outputs it covers (a hold keeps their state), and a chain out of the picture says why; a safe look is drawn through no chain,
+/// even of a canvas or playlist the show shows with its chains; a playlist item's chain counts its time from the item's start,
+/// each side of a transition from its own; and once warm a frame with every kind of chain allocates nothing.</summary>
 [Collection("gl")]
 public sealed class FxAttachTests(GlFixture gl)
 {
@@ -248,8 +248,11 @@ public sealed class FxAttachTests(GlFixture gl)
         {
             var fxLayer = chains ? FxRig.Chain(FxRig.Slot("fx.invert")) : FxChain.Empty;
             var fxSurface = chains ? FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000002")) : FxChain.Empty;
+            // A canvas no output shows, with a chained layer: out of the picture whatever the air does.
+            var fxAside = chains ? FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000003")) : FxChain.Empty;
             return Scene.Project([Scene.Gen("pattern.grid", id: "gn_pattern")], [CanvasOutput("op1", "cv1"), ProjectorOutput("op2", "pj1", PW, PH)],
-                [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_fx", "#284664", new RectD(0, 0, W, H), fxLayer, visible)])],
+                [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_fx", "#284664", new RectD(0, 0, W, H), fxLayer, visible)]),
+                 new Canvas("cv2", "Aside", W, H, "#000000", [L("ly_aside", "#284664", new RectD(0, 0, W, H), fxAside)])],
                 Stage.Empty with { Surfaces = [Surf(SourceRef.Solid("#284664"), fxSurface, visible)], Projectors = [Lamp("pj1")] });
         }
         gl.Run(c =>
@@ -267,6 +270,16 @@ public sealed class FxAttachTests(GlFixture gl)
             var drawn = Frame(In(Show(true)));
             Pixels.Near((215, 185, 155), Pixels.At(drawn.Canvas, W, 10, 10), 1, "the layer's chain");
             Pixels.Near((215, 185, 155), Pixels.At(drawn.Stage, PW, PW / 2, PH / 2), 1, "the surface's chain");
+            Frame(In(Show(true)));
+            Assert.Equal((FxSlotState.Idle, FxPass.LayerUnshownWords), Said(fx, "fx00000003"));
+
+            // A hold on the canvas's output keeps the picture the chain made: the layer's chain keeps its state (it is not out of
+            // the picture), while the projector draws on.
+            Frame(In(Show(true)) with { Levels = new AirOn(held: "op1") });
+            var holding = Frame(In(Show(true)) with { Levels = new AirOn(held: "op1") });
+            Pixels.Near((215, 185, 155), Pixels.At(holding.Canvas, W, 10, 10), 1, "the held picture");
+            Assert.Equal((FxSlotState.Ok, ""), Said(fx, "fx00000001"));
+            Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000002").State);
 
             // A test pattern over every output shows its own codes, and the chains say why they are not drawing (once the frame
             // is wholly drawn, so after the next one begins).
@@ -274,6 +287,8 @@ public sealed class FxAttachTests(GlFixture gl)
             var covered = Frame(In(Show(true)) with { PatternOverride = pattern });
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000001"));
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000002"));
+            // A chain no covered output would show is out of the picture, not covered.
+            Assert.Equal((FxSlotState.Idle, FxPass.LayerUnshownWords), Said(fx, "fx00000003"));
             var expected = Frame(In(Show(false)) with { PatternOverride = pattern });
             Assert.Equal(expected.Canvas, covered.Canvas);
             Assert.Equal(expected.Stage, covered.Stage);
@@ -287,12 +302,12 @@ public sealed class FxAttachTests(GlFixture gl)
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000001"));
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000002"));
 
-            // The pattern over the canvas's output only: the projector still draws the surface's chain, and the layer's says that
-            // no output shows its canvas.
+            // The pattern over the canvas's output only: the projector still draws the surface's chain, and the layer's says the
+            // pattern covers the output that would show it.
             Frame(In(Show(true)) with { PatternOverride = pattern, PatternOutputs = ["op1"] });
             var half = Frame(In(Show(true)) with { PatternOverride = pattern, PatternOutputs = ["op1"] });
             Pixels.Near((215, 185, 155), Pixels.At(half.Stage, PW, PW / 2, PH / 2), 1, "the surface's chain beside a covered output");
-            Assert.Equal((FxSlotState.Idle, FxPass.LayerUnshownWords), Said(fx, "fx00000001"));
+            Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000001"));
             Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000002").State);
 
             // Out of the picture: a layer and a surface that are not visible.
@@ -315,13 +330,14 @@ public sealed class FxAttachTests(GlFixture gl)
     {
         var white = SourceRef.Solid("#FFFFFF");
         var item = PlaylistItem.For("it_fx", white, "Fx") with { Fx = FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000002")) };
+        var waiting = PlaylistItem.For("it_next", white, "Next") with { Fx = FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000003")) };
         var black = SourceRef.Solid("#000000");
         // The safe looks come first and last in output order: a show picture made before or after them keeps its chains.
-        var project = Scene.Project([],
+        var project = Scene.Project([Scene.Gen("pattern.grid", id: "gn_pattern")],
             [Scene.SourceOutput("op1", black, W, H), CanvasOutput("op2", "cv1"), Scene.SourceOutput("op3", SourceRef.Playlist("pl_1"), W, H),
              Scene.SourceOutput("op4", black, W, H)],
             [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_fx", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.invert")))])])
-            with { Playlists = [new Playlist("pl_1", "List", [item], false, null)] };
+            with { Playlists = [new Playlist("pl_1", "List", [item, waiting], false, null)] };
         var air = new AirOn(new Dictionary<string, SourceRef> { ["op1"] = SourceRef.Canvas("cv1"), ["op4"] = SourceRef.Playlist("pl_1") });
         var sources = new OneItem(new ItemOnAir(item, 0), white);
         gl.Run(c =>
@@ -337,6 +353,16 @@ public sealed class FxAttachTests(GlFixture gl)
             Assert.Equal((255, 255, 255), Pixels.At(Read(engine, "op4", W, H), W, 10, 10));
             Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000001").State);
             Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000002").State);
+            Assert.Equal((FxSlotState.Idle, FxPass.ItemUnshownWords), Said(fx, "fx00000003"));
+
+            // A pattern over the playlist's output: the item it was showing keeps its chain with the pattern's words; the item
+            // waiting its turn is still not shown.
+            var covered = inputs with { PatternOverride = SourceRef.Generator("gn_pattern"), PatternOutputs = ["op3"] };
+            engine.Render(covered);
+            engine.Render(covered);
+            Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000002"));
+            Assert.Equal((FxSlotState.Idle, FxPass.ItemUnshownWords), Said(fx, "fx00000003"));
+            Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000001").State);
             Assert.Empty(c.Device.TakeErrors());
         });
     }

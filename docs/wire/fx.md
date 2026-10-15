@@ -63,8 +63,9 @@ off", "not drawn: the layer is not visible", "not drawn: no output shows its can
 "not drawn: no projector shows it", "not drawn: the quad has no source and shows its test card", "not drawn: its content is a
 surface-aware effect the stage draws itself", "not drawn: its playlist is not showing it"; and "not drawn: this build draws a
 canvas's layers' chains, not the canvas's own", "no renderer on this node". A held picture (freeze) keeps the slot's last state.
-A slot the air keeps off keeps its program and buffers, so it draws on the first frame back (`docs/EFFECTS.md`, *Where a chain
-runs*). A history effect is `"deterministic": false` with the words "integrates frame to frame: not frame-exact across nodes".
+A layer's, surface's or item's chain takes the air's words when an output that would show it is off the show (an item: the one
+its playlist was showing when the air took it), else it is out of the picture. A slot the air keeps off keeps its program and
+buffers, so it draws on the first frame back (`docs/EFFECTS.md`, *Where a chain runs*). A history effect is `"deterministic": false` with the words "integrates frame to frame: not frame-exact across nodes".
 The fixture is `tests/fixtures/state/fx.json`; the desk's cards are `fx.cards.json`.
 
 ## Context

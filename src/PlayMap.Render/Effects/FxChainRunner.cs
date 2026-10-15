@@ -206,6 +206,10 @@ public sealed class FxChainRunner : IDisposable
     /// <summary>True when the owner's chain was applied or skipped this frame. Render thread.</summary>
     public bool Met(string ownerId) => _owners.TryGetValue(ownerId, out var owner) && owner.LastUsed == _frame;
 
+    /// <summary>True when the owner's chain was applied or skipped the frame before this one (it was on the air, or kept while the
+    /// air kept it off). Render thread.</summary>
+    public bool MetLast(string ownerId) => _owners.TryGetValue(ownerId, out var owner) && owner.LastUsed == _frame - 1;
+
     /// <summary>A chain the frame did not run because its owner showed something else (blackout, a test pattern, a safe look, a
     /// scan frame): each slot that is not bypassed says why in <paramref name="words"/> (it is idle, not drawing), or, with null
     /// words (a held picture, which still shows what the chain made), keeps its last state. Either way its renderer, buffers

@@ -14,11 +14,13 @@ namespace PlayMap.Render.Effects;
 ///
 /// A chain whose owner the frame did not draw says why in its slots. An output's says so when the frame ends; a layer's, a
 /// surface's and an item's once the frame is wholly drawn (when the next begins, so a picture a later pass taps in its FrameEnd
-/// counts). While the air keeps a chain off it (black, a hold, a test pattern or safe look over every output that would show the
-/// show) the chain keeps its programs and buffers and draws on the first frame back; a chain whose owner is out of the picture (a
-/// layer or surface that is not visible, a canvas nothing shows, an item its playlist is not showing) lets them go once unused
-/// for <see cref="FxChainRunner.IdleFrames"/> frames. The pass owns the compile lane and the chain runner; it is made, drawn and
-/// disposed on the render thread.</summary>
+/// counts). While the air keeps a chain off it — an output that would show its owner is black, held, covered by a test pattern
+/// or safe look, or shows a scan frame (for an item, one it was on until the air took it) — the chain keeps its programs and
+/// buffers, says the air's reason and draws on the first frame back; a chain whose owner is out of the picture (a layer or
+/// surface that is not visible, a canvas nothing shows, an item its playlist is not showing) lets them go once unused for
+/// <see cref="FxChainRunner.IdleFrames"/> frames. Which outputs would show an owner is read from the show: an output's canvas,
+/// source or projector's surfaces, through canvases' layers and every item of a playlist. The pass owns the compile lane and the
+/// chain runner; it is made, drawn and disposed on the render thread.</summary>
 public sealed class FxPass : IFramePass
 {
     internal const string CoveredWords = "not drawn: a test pattern or safe look covers its output";
@@ -32,11 +34,25 @@ public sealed class FxPass : IFramePass
     internal const string QuadCardWords = "not drawn: the quad has no source and shows its test card";
     internal const string ItemUnshownWords = "not drawn: its playlist is not showing it";
 
+    /// <summary>Why the air kept an output off the show this frame, weakest first (a stronger reason wins where outputs meet).</summary>
+    private enum OffAir
+    {
+        Held,
+        Other,
+        Covered,
+        Black,
+    }
+
+    /// <summary>How deep the walk from an output follows canvases and playlists into each other (a loop stops at its first turn).</summary>
+    private const int MaxReach = 8;
+
     private readonly FxChainRunner _runner;
+    private readonly HashSet<string> _drawn = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OffAir> _offCanvases = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OffAir> _offPlaylists = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OffAir> _offSurfaces = new(StringComparer.Ordinal);
     private PassFrame _drawing;
     private long _frame = -1;
-    private int _shown;
-    private int _covered;
     private bool _disposed;
 
     /// <param name="context">The render context, current on the calling thread.</param>
@@ -89,13 +105,12 @@ public sealed class FxPass : IFramePass
     {
         ArgumentNullException.ThrowIfNull(output);
         Begin(in frame);
+        _drawn.Add(output.Id);
         if (frame.Covered(output.Id))
         {
-            _covered++;
             _runner.Skip(output.Fx, output.Id, CoveredWords);
             return picture;
         }
-        _shown++;
         return output.Fx.IsEmpty ? picture : _runner.Apply(output.Fx, output.Id, picture, Frame(in frame, 0));
     }
 
@@ -126,20 +141,17 @@ public sealed class FxPass : IFramePass
             ReportUnmet(in _drawing);
         _frame = frame.Frame;
         _drawing = frame;
-        _shown = 0;
-        _covered = 0;
+        _drawn.Clear();
         Lane.Collect(frame.Frame);
         _runner.BeginFrame(frame.Frame, frame.Project);
     }
 
-    /// <summary>The layer, surface and item chains a wholly drawn frame did not reach, each with why: out of the picture (said and
-    /// let go), or kept off the air by the air itself (said and kept). Allocates nothing once the slots are known.</summary>
+    /// <summary>The layer, surface and item chains a wholly drawn frame did not reach, each with why: kept off the air by the air
+    /// (said and kept), or out of the picture (said and let go). Allocates nothing once the slots and the walk's tables are known.</summary>
     private void ReportUnmet(in PassFrame frame)
     {
         var project = frame.Project;
-        // The air kept the show off every output: black, frozen, or covered (or held) wherever it would have shown.
-        var byAir = frame.Blackout || frame.Freeze || (_shown == 0 && (_covered > 0 || AnyHeld(in frame)));
-        var airWords = frame.Blackout ? BlackWords : frame.Freeze || _covered == 0 ? null : CoveredWords;
+        MarkOffAir(in frame);
         foreach (var canvas in project.Canvases)
         {
             foreach (var layer in canvas.Layers)
@@ -148,8 +160,8 @@ public sealed class FxPass : IFramePass
                     continue;
                 if (!layer.Visible || layer.Opacity <= 0 || layer.Rect.IsEmpty)
                     _runner.Report(layer.Fx, LayerHiddenWords);
-                else if (byAir)
-                    _runner.Skip(layer.Fx, layer.Id, airWords);
+                else if (_offCanvases.TryGetValue(canvas.Id, out var why))
+                    _runner.Skip(layer.Fx, layer.Id, Words(why));
                 else
                     _runner.Report(layer.Fx, LayerUnshownWords);
             }
@@ -162,34 +174,119 @@ public sealed class FxPass : IFramePass
                 _runner.Report(surface.Fx, SurfaceHiddenWords);
             else if (surface.Pixel is not null && surface.Content.Source.IsNone)
                 _runner.Report(surface.Fx, QuadCardWords);
-            else if (surface.Content.Source.Kind == SourceKind.Generator && project.FindGenerator(surface.Content.Source.Id) is { } g
-                     && EffectUniforms.IsEffect(g.Kind))
+            else if (IsSurfaceEffect(project, surface.Content.Source))
                 _runner.Report(surface.Fx, SurfaceEffectWords);
-            else if (byAir)
-                _runner.Skip(surface.Fx, surface.Id, airWords);
+            else if (_offSurfaces.TryGetValue(surface.Id, out var why))
+                _runner.Skip(surface.Fx, surface.Id, Words(why));
             else
                 _runner.Report(surface.Fx, SurfaceUnshownWords);
         }
         foreach (var playlist in project.Playlists)
         {
+            var off = _offPlaylists.TryGetValue(playlist.Id, out var why);
             foreach (var item in playlist.Items)
             {
                 if (item.Fx.IsEmpty || _runner.Met(item.Id))
                     continue;
-                if (byAir)
-                    _runner.Skip(item.Fx, item.Id, airWords);
+                // Of a playlist the air keeps off, only the item it was showing when the air took it is kept.
+                if (off && _runner.MetLast(item.Id))
+                    _runner.Skip(item.Fx, item.Id, Words(why));
                 else
                     _runner.Report(item.Fx, ItemUnshownWords);
             }
         }
     }
 
-    private static bool AnyHeld(in PassFrame frame)
+    private static string? Words(OffAir why) => why switch
     {
-        foreach (var o in frame.Project.Outputs)
-            if (o.Enabled && frame.Held(o.Id))
-                return true;
-        return false;
+        OffAir.Black => BlackWords,
+        OffAir.Covered => CoveredWords,
+        OffAir.Other => OtherWords,
+        _ => null,
+    };
+
+    private static bool IsSurfaceEffect(Project project, SourceRef source) =>
+        source.Kind == SourceKind.Generator && project.FindGenerator(source.Id) is { } g && EffectUniforms.IsEffect(g.Kind);
+
+    /// <summary>The canvases, playlists and surfaces an output the air kept off the show this frame would have shown (and, for a
+    /// covered output, what covers it), each with the strongest reason among those outputs.</summary>
+    private void MarkOffAir(in PassFrame frame)
+    {
+        _offCanvases.Clear();
+        _offPlaylists.Clear();
+        _offSurfaces.Clear();
+        var project = frame.Project;
+        foreach (var o in project.Outputs)
+        {
+            if (!o.Enabled || o.Width < 1 || o.Height < 1)
+                continue;
+            OffAir why;
+            if (frame.Blackout)
+                why = OffAir.Black;
+            else if (!_drawn.Contains(o.Id))
+                why = frame.Held(o.Id) ? OffAir.Held : OffAir.Other;
+            else if (frame.Covered(o.Id))
+                why = OffAir.Covered;
+            else
+                continue;
+            switch (o.Mode)
+            {
+                case OutputMode.Projector when o.ProjectorId is { } pid && project.FindProjector(pid) is not null:
+                    foreach (var s in project.Stage.Surfaces)
+                    {
+                        if (!s.Visible || s.Opacity <= 0 || (s.Pixel is not null && !string.Equals(s.Pixel.ProjectorId, pid, StringComparison.Ordinal)))
+                            continue;
+                        Mark(_offSurfaces, s.Id, why);
+                        MarkSource(project, s.Content.Source, why, 0);
+                    }
+                    break;
+                case OutputMode.Canvas:
+                    MarkSource(project, SourceKind.Canvas, o.Source.Id, why, 0);
+                    break;
+                case OutputMode.Source:
+                    MarkSource(project, o.Source, why, 0);
+                    break;
+            }
+            if (why == OffAir.Covered)
+            {
+                if (frame.Levels?.Override(o.Id, frame.LeaderNs) is { IsNone: false } safe)
+                    MarkSource(project, safe, why, 0);
+                else if (frame.PatternOverride is { IsNone: false } pattern)
+                    MarkSource(project, pattern, why, 0);
+            }
+        }
+    }
+
+    private void MarkSource(Project project, SourceRef source, OffAir why, int depth) => MarkSource(project, source.Kind, source.Id, why, depth);
+
+    private void MarkSource(Project project, SourceKind kind, string id, OffAir why, int depth)
+    {
+        if (depth > MaxReach)
+            return;
+        if (kind == SourceKind.Canvas)
+        {
+            if (!Mark(_offCanvases, id, why) || project.FindCanvas(id) is not { } canvas)
+                return;
+            foreach (var layer in canvas.Layers)
+                if (layer.Visible && layer.Opacity > 0)
+                    MarkSource(project, layer.Source, why, depth + 1);
+        }
+        else if (kind == SourceKind.Playlist)
+        {
+            if (!Mark(_offPlaylists, id, why) || project.FindPlaylist(id) is not { } list)
+                return;
+            foreach (var item in list.Items)
+                MarkSource(project, item.Source, why, depth + 1);
+        }
+    }
+
+    /// <summary>Marks an id with a reason unless a reason as strong is there; true when it was marked (its walk goes on).</summary>
+    private static bool Mark(Dictionary<string, OffAir> marks, string id, OffAir why)
+    {
+        if (marks.TryGetValue(id, out var had) && had >= why)
+            return false;
+        marks[id] = why;
+        return true;
     }
 
     /// <summary>Stops the lane and deletes every target and program; render thread.</summary>

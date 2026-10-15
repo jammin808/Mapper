@@ -38,14 +38,20 @@ playlist with them. A chain the frame did not reach is `idle` in STATE with the 
 | Words | Kept |
 |---|---|
 | "not drawn: the air is black" | yes |
-| "not drawn: a test pattern or safe look covers its output" (a layer's, surface's or item's: every output that would show the show) | yes |
+| "not drawn: a test pattern or safe look covers its output" | yes |
 | "not drawn: its output shows a scan frame or has no size" | yes |
-| a held picture (freeze) keeps the slot's last state | yes |
+| a held picture (freeze, or a FREEZE outcome on its output) keeps the slot's last state | yes |
 | "not drawn: its output is off" | no |
 | "not drawn: the layer is not visible", "not drawn: no output shows its canvas" | no |
 | "not drawn: the surface is not visible", "not drawn: no projector shows it" | no |
 | "not drawn: the quad has no source and shows its test card", "not drawn: its content is a surface-aware effect the stage draws itself" | no |
 | "not drawn: its playlist is not showing it" | no |
+
+For a layer, a surface or an item, "its output" is any output that would show it: the output's canvas or source, or its
+projector's surfaces, followed through canvases' layers and playlists' items (where several such outputs are off the show, the
+words are the first of black, covered, scan frame, held). Of a playlist the air keeps off, only the item it was showing when the
+air took it is kept; the others say "not drawn: its playlist is not showing it". A chain no output would show is out of the
+picture, whatever the air does.
 
 A chain the air keeps off it keeps its programs and buffers, so it draws on the first frame back. A chain whose owner is out of
 the picture lets its buffers and renderers go once unused for 120 frames (its programs stay on the lane a while longer), so a
