@@ -15,7 +15,8 @@ namespace PlayMap.Render.Tests.Effects;
 /// bit for bit as they were; what the air shows instead of the show leaves layer and surface chains idle with the reason on the
 /// outputs it covers (a hold keeps their state), and a chain out of the picture says why; a safe look is drawn through no chain,
 /// even of a canvas or playlist the show shows with its chains; a playlist item's chain counts its time from the item's start,
-/// each side of a transition from its own; and once warm a frame with every kind of chain allocates nothing.</summary>
+/// each side of a transition from its own; and once warm a frame with every kind of chain, and a test pattern over one output,
+/// allocates nothing.</summary>
 [Collection("gl")]
 public sealed class FxAttachTests(GlFixture gl)
 {
@@ -406,11 +407,14 @@ public sealed class FxAttachTests(GlFixture gl)
         var white = SourceRef.Solid("#FFFFFF");
         var item = PlaylistItem.For("it_on", white, "On") with { Fx = FxRig.Chain(FxRig.Slot("fx.vignette", id: "fx00000004")) };
         var waiting = PlaylistItem.For("it_off", white, "Off") with { Fx = FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000005")) };
+        // A fourth output shows another canvas under a test pattern: its layer's chain is kept off the air, said so every frame.
         var project = Scene.Project([Scene.Gen("pattern.testcard")],
-            [CanvasOutput("op1", "cv1"), ProjectorOutput("op2", "pj1", PW, PH), Scene.SourceOutput("op3", SourceRef.Playlist("pl_1"), W, H)],
+            [CanvasOutput("op1", "cv1"), ProjectorOutput("op2", "pj1", PW, PH), Scene.SourceOutput("op3", SourceRef.Playlist("pl_1"), W, H),
+             CanvasOutput("op4", "cv2")],
             [new Canvas("cv1", "Canvas", W, H, "#000000",
                 [L("ly_fx", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.blur"))),
-                 L("ly_off", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000006")), visible: false)])],
+                 L("ly_off", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000006")), visible: false)]),
+             new Canvas("cv2", "Covered", W, H, "#000000", [L("ly_covered", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000007")))])],
             Stage.Empty with { Surfaces = [Surf(SourceRef.Generator("gn_test"), FxRig.Chain(FxRig.Slot("fx.feedback", id: "fx00000002"), FxRig.Slot("fx.vignette", id: "fx00000003", scale: 0.5)))], Projectors = [Lamp("pj1")] })
             with { Playlists = [new Playlist("pl_1", "List", [item, waiting], false, null)] };
         var sources = new OneItem(new ItemOnAir(item, 1_000_000_000), white);
@@ -418,7 +422,12 @@ public sealed class FxAttachTests(GlFixture gl)
         {
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
             using var fx = new FxPass(c);
-            var inputs = Scene.Inputs(project, 1, sources, stage) with { Passes = [fx] };
+            var inputs = Scene.Inputs(project, 1, sources, stage) with
+            {
+                Passes = [fx],
+                PatternOverride = SourceRef.Generator("gn_test"),
+                PatternOutputs = ["op4"],
+            };
             DrawCompiled(engine, fx, inputs, ["fx00000001", "fx00000002", "fx00000003", "fx00000004"]);
             for (var i = 0; i < 30; i++)
             {
@@ -427,6 +436,7 @@ public sealed class FxAttachTests(GlFixture gl)
             }
             Assert.Equal((FxSlotState.Idle, FxPass.ItemUnshownWords), Said(fx, "fx00000005"));
             Assert.Equal((FxSlotState.Idle, FxPass.LayerHiddenWords), Said(fx, "fx00000006"));
+            Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000007"));
             var before = GC.GetAllocatedBytesForCurrentThread();
             for (var i = 0; i < 60; i++)
             {
