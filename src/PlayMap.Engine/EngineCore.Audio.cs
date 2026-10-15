@@ -114,7 +114,15 @@ public sealed partial class EngineCore
     private async Task ListenNowAsync(ListenSpec spec)
     {
         var before = AudioRt.State;
-        var after = await AudioRt.ListenAsync(spec, CancellationToken.None).ConfigureAwait(false);
+        ListenState after;
+        try
+        {
+            after = await AudioRt.ListenAsync(spec, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return; // The node is closing: nothing to listen to.
+        }
         if (after != before)
         {
             Journal.Add("audio", after.State == "listening" ? $"listening to {after.Name}" : $"audio input {after.State}: {after.Words}",
@@ -310,6 +318,11 @@ public sealed partial class EngineCore
             if (BindingParamProblem(entity, b.Param) is { } problem)
             {
                 why = $"binding {b.Param}: {problem}";
+                return;
+            }
+            if (b.Mode == BindingMode.Rate)
+            {
+                why = $"binding {b.Param}: RATE is not evaluated on this node (ADD, SCALE or REPLACE)";
                 return;
             }
         }
