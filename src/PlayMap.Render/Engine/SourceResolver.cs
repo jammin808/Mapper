@@ -275,6 +275,10 @@ internal sealed class SourceResolver : IDisposable
         return EffectUniforms.IsEffect(g.Kind) ? g : null;
     }
 
+    /// <summary>The frame a surface-aware effect the stage draws is drawn at: on its own clock, as it draws anywhere else, with the
+    /// draw reported to the frame's stats (<see cref="GeneratorHost.OnStage"/>).</summary>
+    public GeneratorFrame EffectFrame(Generator effect, in GeneratorFrame frame) => _generators.OnStage(effect, in frame);
+
     /// <summary>A canvas composed for this frame (its own size), or null when the project has none by that id.</summary>
     public GpuTexture? Canvas(string id)
     {

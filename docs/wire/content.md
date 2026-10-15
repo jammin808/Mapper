@@ -64,6 +64,10 @@ bounded kind's longest life: two nodes, or one after a seek, draw the same field
 at twice the budget (p95), amber over the budget or settling, grey idle. `sting` is null once the sting is over; its progress
 reaches STATE in tenths; `drawn` is true once the renderer drew a generator with it in the last 30 frames (observed).
 
+A surface-aware effect a projector pass draws on a stage surface is drawn there: `ok` and on the air, `timeS` its own time (a
+`RETIME` moves it on the surface as anywhere else). Its light is part of the projector pass, so its `gpuMs` is 0 unless it is
+also drawn flat.
+
 ## Context
 
 Item `content` (kind `content`) while a generator is on the air, faulted or settling, or a sting surges: its light is the STATE

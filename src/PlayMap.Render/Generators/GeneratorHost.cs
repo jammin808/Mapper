@@ -20,7 +20,8 @@ public sealed record GeneratorFault(string GeneratorId, string Kind, string Mess
 /// <para>Each generator draws on its own clock: seconds since its origin (<see cref="Generator.OriginNs"/>), or — when a playlist
 /// routes it now — its item's clip time (<see cref="ContentFrame"/>, the frame's modulation); the sync marks alone keep the leader's
 /// grid. Its bindings are evaluated through the frame's bus before it draws (kinds that read their numbers every frame), its draw
-/// is timed on the GPU, and what it did is reported to the frame's <see cref="ContentStats"/>.</para></summary>
+/// is timed on the GPU, and what it did is reported to the frame's <see cref="ContentStats"/>. A surface-aware effect the stage shader
+/// draws with a surface's own geometry (<see cref="OnStage"/>) reads the same own time and is reported the same way.</para></summary>
 internal sealed class GeneratorHost : IDisposable
 {
     public const int IdleFrames = 120;
@@ -53,6 +54,8 @@ internal sealed class GeneratorHost : IDisposable
     private readonly Dictionary<Key, Instance> _instances = [];
     private readonly List<Key> _stale = [];
     private readonly HashSet<string> _alive = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _staged = new(StringComparer.Ordinal);
+    private readonly List<string> _staleStaged = [];
     private ContentStats? _stats;
     private long _frame;
 
@@ -159,6 +162,36 @@ internal sealed class GeneratorHost : IDisposable
         return inst.Renderer.Output;
     }
 
+    /// <summary>A surface-aware effect the stage shader draws this frame with a surface's own geometry: the frame on its own clock
+    /// (<see cref="OwnNs"/>, as a renderer is handed it), its draw reported to the frame's stats once a frame as a renderer's is, and
+    /// the generator kept among those shown until <see cref="IdleFrames"/> frames pass without a draw. Allocates nothing once the
+    /// generator has been met.</summary>
+    public GeneratorFrame OnStage(Generator generator, in GeneratorFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(generator);
+        var content = frame.Modulation as ContentFrame;
+        _stats = content?.Stats ?? _stats;
+        var ownNs = OwnNs(generator, in frame, content, out var origin);
+        if (!_staged.TryGetValue(generator.Id, out var last) || last != _frame)
+        {
+            _staged[generator.Id] = _frame;
+            if (content is not null)
+            {
+                if (!frame.Impulse.IsNone)
+                    content.Stats.ImpulseDrawn(frame.Impulse, _frame);
+                // A renderer of the same generator that reported this frame stands (its fault, its GPU time): the stage adds the draw
+                // only where none did.
+                var live = content.Stats.For(generator.Id);
+                if (live.LastFrame != _frame)
+                {
+                    live.Drawn(1, 0, ownNs);
+                    live.Set(GeneratorState.Ok, "", _frame);
+                }
+            }
+        }
+        return frame.OnOwnClock(ownNs, origin);
+    }
+
     private readonly Dictionary<Instance, IReadOnlyList<string>> _lastNames = [];
 
     /// <summary>Tells the generator's live entry the names its bound values are for (when its bindings change).</summary>
@@ -189,15 +222,18 @@ internal sealed class GeneratorHost : IDisposable
         return leaderNs - generator.OriginNs;
     }
 
-    /// <summary>Drops the renderers no frame has used for a while (a generator none of whose renderers is left is forgotten by the
-    /// frame's stats).</summary>
+    /// <summary>Drops the renderers and the stage's effects no frame has used for a while (a generator with neither a renderer left
+    /// nor a stage draw lately is forgotten by the frame's stats).</summary>
     public void EndFrame()
     {
         _stats?.SetFrame(_frame);
         foreach (var (key, inst) in _instances)
             if (_frame - inst.LastUsed > IdleFrames)
                 _stale.Add(key);
-        if (_stale.Count == 0)
+        foreach (var (id, last) in _staged)
+            if (_frame - last > IdleFrames)
+                _staleStaged.Add(id);
+        if (_stale.Count == 0 && _staleStaged.Count == 0)
             return;
         foreach (var key in _stale)
         {
@@ -207,9 +243,14 @@ internal sealed class GeneratorHost : IDisposable
             _instances.Remove(key);
         }
         _stale.Clear();
+        foreach (var id in _staleStaged)
+            _staged.Remove(id);
+        _staleStaged.Clear();
         _alive.Clear();
         foreach (var key in _instances.Keys)
             _alive.Add(key.GeneratorId);
+        foreach (var id in _staged.Keys)
+            _alive.Add(id);
         if (_stats is not null)
             foreach (var id in _stats.Ids())
                 if (!_alive.Contains(id))
