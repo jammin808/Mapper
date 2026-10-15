@@ -15,7 +15,7 @@ public static class StateFixtures
 
     private static readonly HashSet<string> FakeOwned = new(StringComparer.Ordinal)
     {
-        "video", "playlists", "outputs", "media", "stage", "scan", "sync", "links", "peers", "project", "machine",
+        "video", "playlists", "outputs", "media", "stage", "scan", "sync", "links", "peers", "project", "machine", "ai",
     };
 
     public static string Folder

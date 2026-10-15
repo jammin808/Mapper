@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:cards="using:PlayMap.App.ViewModels.Cards"
+             x:Class="PlayMap.App.Views.Cards.CardsPanel"
+             x:DataType="cards:CardsPanelViewModel">
+  <!-- A drawer tab of generic cards (each card's view comes from the module view registry). -->
+  <ScrollViewer Padding="12,6,12,12">
+    <StackPanel>
+      <TextBlock Classes="faint" Text="{Binding EmptyWords}" IsVisible="{Binding IsEmpty}" TextWrapping="Wrap" />
+      <ItemsControl x:Name="CardList" ItemsSource="{Binding Cards}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
