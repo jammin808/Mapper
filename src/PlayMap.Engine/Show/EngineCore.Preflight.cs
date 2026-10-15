@@ -100,7 +100,14 @@ public sealed partial class EngineCore
             {
                 if (r.Stage == "applied" && PreflightReports.Read(r.Words) is { } theirs)
                 {
-                    merged.AddRange(theirs.Rows);
+                    // A member's rows are its own section, named by the receipt; a fix line runs on the node it was written for,
+                    // so it moves into the note ("on FOH-B: …") and no row of this report fixes a member from here.
+                    merged.AddRange(theirs.Rows.Select(row => row with
+                    {
+                        Node = r.Name,
+                        Note = row.Fix is { } fix ? $"{row.Note} — on {r.Name}: {fix}" : row.Note,
+                        Fix = null,
+                    }));
                     merged.Add(new PreflightRow("fleet:" + r.Node, r.Name, "fleet", r.Name, theirs.Complete ? Light.Green : Light.Grey, "answered",
                         theirs.Complete ? $"{r.Name} checked itself" : $"{r.Name} answered, but not every check finished", null));
                     complete &= theirs.Complete;

@@ -234,7 +234,15 @@ public sealed class ShowPolicyTests
         // Armed, an assistant may open and read a draft; landing it waits for a person.
         Assert.Equal(ShowVerdict.Allow, Decide("BLIND ON", ShowRole.Assistant, true).Verdict);
         Assert.Equal(ShowVerdict.Allow, Decide("BLIND DIFF", ShowRole.Assistant, true).Verdict);
-        Assert.Equal(ShowVerdict.Propose, Decide("BLIND COMMIT", ShowRole.Assistant, true).Verdict);
+        // Landing a draft is a person's, armed or not: refused (never queued for an approval that could not land it).
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLIND COMMIT", ShowRole.Assistant, true).Verdict);
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLIND COMMIT NEXT", ShowRole.Assistant, false).Verdict);
+        // A peer runs the group's DISARM unless this show keeps it to its own desk.
+        Assert.Equal(ShowVerdict.Allow, Decide("SHOW DISARM", ShowRole.Peer, true).Verdict);
+        var desk = Decide("SHOW DISARM", ShowRole.Peer, true, disarmFrom: "desk");
+        Assert.Equal(ShowVerdict.Refuse, desk.Verdict);
+        Assert.Contains("DISARM-FROM DESK", desk.Words, StringComparison.Ordinal);
+        Assert.Equal(ShowVerdict.Refuse, Decide("UNLOCK ALL", ShowRole.Peer, true, disarmFrom: "desk").Verdict);
         Assert.Equal(ShowVerdict.Refuse, Decide("BLIND ON", ShowRole.Remote, true).Verdict);
     }
 

@@ -77,10 +77,30 @@ public sealed class FanoutTests
         Assert.Equal("already", again[0].GetProperty("stage").GetString());
         Assert.True(b.Engine.ShowNow.Armed);
 
+        // The group's DISARM is an operator's: a remote client of the leader may not send it, armed or not.
+        Assert.Equal("SHOW DISARM ALL disarms every node of the group: the desk's (an operator's) only", await lead.Refused("SHOW DISARM ALL", ShowRig.Remote));
+        Assert.True(b.Engine.ShowNow.Armed);
         var off = JsonDocument.Parse(await lead.Ok("SHOW DISARM ALL")).RootElement;
         Assert.False(off.GetProperty("armed").GetBoolean());
         Assert.All(off.GetProperty("nodes").EnumerateArray(), n => Assert.Equal("applied", n.GetProperty("stage").GetString()));
         Assert.False(b.Engine.ShowNow.Armed || c.Engine.ShowNow.Armed || lead.Engine.ShowNow.Armed);
+    }
+
+    [Fact]
+    public async Task AMemberThatKeepsDisarmToItsOwnDeskRefusesTheGroupsDisarm()
+    {
+        await using var b = Member("FOH-B");
+        var group = new Group(("nb", "FOH-B", b.Engine));
+        await using var lead = new ShowRig(services: s => s with { Settings = s.Settings with { Name = "FOH-A" }, Fanout = group });
+        await b.Ok("SHOW SET DISARM-FROM DESK");
+        await lead.Ok("SHOW ARM ALL");
+        Assert.True(b.Engine.ShowNow.Armed);
+
+        var off = JsonDocument.Parse(await lead.Ok("SHOW DISARM ALL")).RootElement.GetProperty("nodes");
+        Assert.Equal(("applied", "refused"), (off[0].GetProperty("stage").GetString(), off[1].GetProperty("stage").GetString()));
+        Assert.Contains("DISARM-FROM DESK", off[1].GetProperty("words").GetString(), StringComparison.Ordinal);
+        Assert.True(b.Engine.ShowNow.Armed);
+        Assert.False(lead.Engine.ShowNow.Armed);
     }
 
     [Fact]
@@ -104,7 +124,11 @@ public sealed class FanoutTests
 
         // Every row names its node: the leader's own, the member's own rows from its report, and the silent member's red row.
         Assert.Equal(["FOH-A", "FOH-B", "FOH-C"], report.Rows.Select(r => r.Node).Distinct());
-        Assert.Contains(report.Rows, r => r.Node == "FOH-B" && r.Id == "safety:mingo" && r.Light == Core.Bus.Light.Amber);
+        var mingo = report.Rows.Single(r => r.Node == "FOH-B" && r.Id == "safety:mingo");
+        Assert.Equal(Core.Bus.Light.Amber, mingo.Light);
+        // A member's fix runs on the member: it is in the note, never a line this node's report would run here.
+        Assert.Null(mingo.Fix);
+        Assert.EndsWith("— on FOH-B: SHOW SET MINGO 300", mingo.Note, StringComparison.Ordinal);
         Assert.Contains(report.Rows, r => r.Node == "FOH-B" && r.Id == "fleet:nb" && r.Light == Core.Bus.Light.Green);
         var silent = report.Rows.Single(r => r.Id == "fleet:nc");
         Assert.Equal((Core.Bus.Light.Red, "timeout", "FOH-C did not answer in 2 s"), (silent.Light, silent.Value, silent.Note));

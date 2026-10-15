@@ -39,17 +39,21 @@ public sealed partial class EngineCore : IShowDecisions
 
     public ShowRole ShowRoleOf(SessionInfo session) => ShowPolicy.RoleOf(session, _operators, ProvedOnConnection(session));
 
-    /// <summary>Whether a session proved the node's token on its own connection: on a node that asks one, a session paired from an
-    /// address the node does not trust paired by proof (trust is not proof); a node that asks none has no secret to prove, so only
-    /// this machine counts — the rule the desk's own role follows.</summary>
+    /// <summary>Whether a session proved the node's token on its own connection, as far as the session says: on a node that asks
+    /// one, a session paired from an address the node does not trust paired by proof (trust is not proof); a node that asks none has
+    /// no secret to prove, so only this machine counts — the rule the desk's own role follows. The session carries no proof bit of
+    /// its own, so a session from a trusted address (this machine, when loopback is trusted) never counts.</summary>
     private bool ProvedOnConnection(SessionInfo session)
     {
         var settings = Services.Settings;
-        if (!session.Paired)
+        // Only the doors a client dials in through can carry a proof; a link this node opened (Patterns, Stagewatch) proved nothing.
+        if (!session.Paired || session.Transport is not ("wire" or "ws" or "http" or "companion"))
             return false;
         if (!PlayMap.Net.NetAddress.TokenNeeded(settings))
             return session.IsLoopback;
-        return !System.Net.IPAddress.TryParse(session.RemoteAddress, out var remote) || !PlayMap.Net.NetAddress.IsTrusted(remote, settings);
+        // Paired from an address the node does not trust means paired by the token; an address it trusts (this machine with
+        // loopback trusted, the trusted list) may have paired without one, so it never counts as proof — fail closed.
+        return System.Net.IPAddress.TryParse(session.RemoteAddress, out var remote) && !PlayMap.Net.NetAddress.IsTrusted(remote, settings);
     }
 
     /// <summary>What the show's table says about a line from a session now, from published state only (any thread).</summary>
@@ -183,6 +187,9 @@ public sealed partial class EngineCore : IShowDecisions
             return Task.FromResult(CommandReply.Fail("SHOW DISARM [ALL]"));
         if (all && FanoutMembers() == 0)
             return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW DISARM disarms this node only"));
+        // The group's members run the line as a peer of this node, past their own remote rules: only an operator here may send it.
+        if (all && ShowRoleOf(c.Session) is not (ShowRole.Operator or ShowRole.System))
+            return Task.FromResult(RefuseAtGate(c.Spec, c.Line, c.Session, "SHOW DISARM ALL disarms every node of the group: the desk's (an operator's) only"));
         return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed");
     }
 

@@ -47,6 +47,28 @@ public sealed class OperatorRoleTests
     }
 
     [Fact]
+    public async Task ASessionFromATrustedAddressOrALinkThisNodeOpenedProvedNothing()
+    {
+        // The default node: a token, and this machine trusted. A same-machine client paired by trust cannot be told from one that
+        // proved the token, so a bare name never makes it an operator (the desk's own HELLO does).
+        await using var rig = new ShowRig(services: s => s with
+        {
+            Settings = s.Settings with
+            {
+                Token = "K7QM-3XWD-P9RA",
+                TrustLoopback = true,
+                Show = new ShowSafetySettings { Operators = ["Companion: FOH deck", "10.0.0.5"] },
+            },
+        });
+        var local = new SessionInfo("l", "companion", "127.0.0.1", true, "Companion: FOH deck", true);
+        Assert.Equal(ShowRole.Remote, rig.Engine.ShowRoleOf(local));
+        // A Patterns link this node opened to a listed machine is not a client that proved anything.
+        Assert.Equal(ShowRole.Remote, rig.Engine.ShowRoleOf(new SessionInfo("p", "patterns", "10.0.0.5", false, "Patterns", true)));
+        Assert.Equal(ShowRole.Operator, rig.Engine.ShowRoleOf(new SessionInfo("w", "wire", "10.0.0.5", false, "Any", true)));
+        Assert.Equal(ShowRole.Remote, rig.Engine.ShowRoleOf(new SessionInfo("x", "wire", "not-an-address", false, "Any", true)));
+    }
+
+    [Fact]
     public async Task ANodeThatAsksNoTokenListsOnlyThisMachine()
     {
         await using var rig = Rig("");

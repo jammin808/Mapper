@@ -151,6 +151,10 @@ public static class ShowPolicy
         // The session that holds the blind draft edits the draft, armed or not: its document edits never reach the air.
         if (facts.BlindOwner && role is not (ShowRole.Peer or ShowRole.System) && Draftable(spec, cls))
             return Draft;
+        // Landing a draft is a person's at the desk: an assistant's BLIND COMMIT is refused rather than queued, because the approval
+        // would run under a session that neither holds the draft nor may land one while armed.
+        if (role == ShowRole.Assistant && Is(spec, "BLIND COMMIT"))
+            return Refuse("an assistant's blind draft is landed by a person: BLIND DIFF shows it, BLIND COMMIT on the desk lands it");
         if (!facts.Armed)
             return Allowed;
         // An approved assistant's line gets what a remote client gets and never more, so a read-only remote reads only for it too.
@@ -160,7 +164,7 @@ public static class ShowPolicy
         return role switch
         {
             ShowRole.System => Allowed,
-            ShowRole.Peer => Peer(spec, cls),
+            ShowRole.Peer => Peer(spec, cls, in facts),
             ShowRole.Assistant => Assistant(spec, cls),
             ShowRole.Operator => Operator(spec, line, cls),
             ShowRole.Approved => Approved(spec, line, cls, facts),
@@ -182,10 +186,14 @@ public static class ShowPolicy
     /// <summary>True for PANIC itself: the stop, never refused for a person.</summary>
     private static bool IsStop(VerbSpec spec) => string.Equals(spec.Name, "PANIC", StringComparison.Ordinal);
 
-    private static ShowDecision Peer(VerbSpec spec, ShowClass cls) => cls switch
+    /// <summary>A fleet peer runs the group's air and the show's group lines, never heavy or set-up work; a show whose DISARM-FROM is
+    /// the desk keeps DISARM and UNLOCK to its own desk, whichever node's line asks.</summary>
+    private static ShowDecision Peer(VerbSpec spec, ShowClass cls, in ShowFacts facts) => cls switch
     {
         ShowClass.Heavy or ShowClass.Setup or ShowClass.DevicePower or ShowClass.Project or ShowClass.Admin =>
             Refuse(Armed(spec, What(cls), "SHOW DISARM on this node first")),
+        ShowClass.Show when (Is(spec, "SHOW DISARM") || Is(spec, "UNLOCK")) && string.Equals(facts.DisarmFrom, "desk", StringComparison.OrdinalIgnoreCase) =>
+            Refuse(Armed(spec, "is this node's own desk's on this show (DISARM-FROM DESK)", "Its desk can do it")),
         _ => Allowed,
     };
 
@@ -193,8 +201,8 @@ public static class ShowPolicy
     {
         ShowClass.Admin => Refuse(string.Concat(spec.Name, " touches this machine's secrets: an assistant never runs it")),
         ShowClass.Heavy or ShowClass.Setup => Refuse(Armed(spec, What(cls), "SHOW DISARM first; then propose it")),
-        // An assistant drafts blind while armed (its edits stay off the air); landing the draft is a person's.
-        ShowClass.Show when spec.Name.StartsWith("BLIND", StringComparison.Ordinal) && !Is(spec, "BLIND COMMIT") => Allowed,
+        // An assistant drafts blind while armed (its edits stay off the air); landing the draft is a person's (refused above).
+        ShowClass.Show when spec.Name.StartsWith("BLIND", StringComparison.Ordinal) => Allowed,
         _ => new ShowDecision(ShowVerdict.Propose, string.Concat(spec.Name,
             " waits for a person while the show is armed: an assistant proposes, a person approves or runs it")),
     };
