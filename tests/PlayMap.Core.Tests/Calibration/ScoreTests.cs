@@ -73,6 +73,32 @@ public class ScoreTests
     }
 
     [Fact]
+    public void PinsDraggedALittleOffRaiseTheP95TermWithTheWorstPin()
+    {
+        // Within the solver's 6 px outlier threshold: they stay in the fit and push its tail out.
+        var (pj, solution) = Solve(fault: (i, pin) => i switch
+        {
+            3 => pin with { Pixel = pin.Pixel + new Vec2d(4.5, 0) },
+            9 => pin with { Pixel = pin.Pixel + new Vec2d(0, -3.5) },
+            _ => pin,
+        });
+        Assert.All(solution.Inliers, Assert.True);
+        var (clean, cleanSolution) = Solve();
+        var (good, _) = CalibrationScoring.ForPins(clean, cleanSolution);
+        var (score, _) = CalibrationScoring.ForPins(pj, solution);
+        var t = TermOf(score, ScoreTermCodes.P95);
+        Assert.Equal(0, TermOf(good, ScoreTermCodes.P95).Penalty);
+        Assert.True(t.Penalty > 0, $"p95 {t.Penalty}");
+        Assert.True(t.Value > 1.5, $"p95 {t.Value}");
+        Assert.StartsWith("95 % of its pins within", t.Words, StringComparison.Ordinal);
+        Assert.Contains("pin 4 is off by", t.Words, StringComparison.Ordinal);
+        Assert.Equal("pins:pn_0003", t.Where);
+        Assert.Equal("SET pn_0003 enabled false", t.Fix);
+        Assert.Equal("or drag pin 4 onto its feature", t.Hint);
+        Assert.True(score.Value > good.Value, $"{score.Words} vs {good.Words}");
+    }
+
+    [Fact]
     public void PinsBunchedInACornerRaiseSpreadCoverageAndConditioning()
     {
         var (clean, cleanSolution) = Solve();

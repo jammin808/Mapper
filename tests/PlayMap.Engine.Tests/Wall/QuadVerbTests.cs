@@ -171,6 +171,9 @@ public sealed class QuadVerbTests
         await rig.Ok($"SURFACE NODE {id} 1 1 TO 0.52 0.47");
         var shape = PixelQuadShape.Of(rig.Project.FindSurface(id)!.Pixel!)!;
         Assert.Equal(0, (PixelQuadMath.Node(shape, 1, 1) - new Vec2d(0.52, 0.47)).Length, 12);
+        // A generic SET is held to the same shape: a lattice side beyond 2–65 is refused with the reason.
+        Assert.Contains("each side 2–65", await rig.Refused($"SET {id} pixel.lattice.columns 70"), StringComparison.Ordinal);
+        Assert.Equal(3, rig.Project.FindSurface(id)!.Pixel!.Lattice!.Columns);
         await rig.Ok($"SURFACE LATTICE {id} OFF");
         Assert.Null(rig.Project.FindSurface(id)!.Pixel!.Lattice);
     }

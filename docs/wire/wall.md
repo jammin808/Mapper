@@ -28,7 +28,7 @@ picture), so a quad stays on its feature when the output's warp or raster change
 | `CALIBRATION FALLBACK` | `CALIBRATION FALLBACK <projector>\|<output>\|ALL` | as `RECALL` of the fallback (ALL: `{recorded, words}`) | review | yes |
 | `CALIBRATION FORGET` | `CALIBRATION FORGET <snapshot>` | JSON `{removed, words}`; the current, fallback or staged result refused | review | yes |
 | `CALIBRATION RESOLVE` | `CALIBRATION RESOLVE <projector>… [STAGE]` | JSON `{task, projectors:[{id, snapshot, applied, staged, why, score:{value, grade, rmsPx, words}, delta:{mm, deg, wallPx}}], words}`; answered off the lane; each named projector re-solved from its pins as they stand; applied when its score is within `max(calibrationGate, 1.25 × the fallback's)` and not F, otherwise staged (also with `STAGE`, and always for an assistant over MCP); `CAMERA` refused with words (next round) | high | yes |
-| `CALIBRATION CANCEL` | `CALIBRATION CANCEL` | stops a running re-solve before it applies anything | low | yes |
+| `CALIBRATION CANCEL` | `CALIBRATION CANCEL` | stops a running re-solve before it applies anything (its task `cancelled`, the re-solve answers "cancelled — nothing was applied"); once its result is being applied, refused with the way back (`CALIBRATION FALLBACK`) | low | yes |
 
 Changed rows: `PROJECTOR SOLVE` and `SCAN APPLY` record a scored result in the same edit; their replies gain `snapshot` and
 `score {value, grade, words}` (`SCAN APPLY`: per projector).
@@ -74,7 +74,8 @@ For the integration docs pass:
   surfaces with homogeneous coordinates; the UV checker until a source is given); the edit overlay drawn after the output stage
   through the output's warp; the explainable score and the ledger (`docs/CALIBRATION.md`).
 - `ARCHITECTURE.md`: `OverlayPass` (an `IFramePass` at order 10 000, `Final` only), the cursor board (lane-written, render-read),
-  `ICalibrationLedger` bound through `EngineServices.Ledger` (a late ledger the first engine binds).
+  `ICalibrationLedger` bound through `EngineServices.Ledger` (a late ledger the first engine binds; a second engine built from the
+  same services makes it refuse every call with words, since a caller cannot tell the two apart).
 - `ROADMAP.md`: the quad on the wall, the score vocabulary, the ledger and re-solve from pins done; next round: the camera re-solve
   ladder (LENS, CODED, DENSE), the dot check, the drift monitor, re-seating quads after a re-solve, `OVERLAY GRID`, overlay names
   and pins, `HIGHLIGHT`, `PICK PIXEL`, snapping, quads on the 3D view, warp handles on the wall.

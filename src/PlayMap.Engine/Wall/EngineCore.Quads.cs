@@ -717,7 +717,7 @@ public sealed partial class EngineCore
     /// node's OverlayLeaseMs); the overlay is never drawn while the show is armed, and an armed show turns it off.</summary>
     private CommandReply Overlay(VerbCall c)
     {
-        const string Syntax = "OVERLAY ON|OFF|TOGGLE|KEEP [ON <output>|ALL] [LAYERS <cursor,outlines,names,handles,lattice,pins>|EDIT|ALL]";
+        const string Syntax = "OVERLAY ON|OFF|TOGGLE|KEEP [ON <output>|ALL] [LAYERS <cursor,outlines,handles,lattice>|EDIT|ALL]";
         if (c.Args.Count == 0)
             return CommandReply.Fail(Syntax);
         var mode = c.Args[0].ToUpperInvariant();
@@ -956,8 +956,10 @@ public sealed partial class EngineCore
             return $"{s.Name}'s pixel quad names no projector of this project ({q.ProjectorId})";
         if (PixelQuadShape.Of(q) is null || !QuadHomography.IsConvex(q.TopLeft, q.TopRight, q.BottomRight, q.BottomLeft))
             return $"{s.Name}'s corners cross or fold — a quad on {pj.Name} must be convex";
-        if (q.Lattice is { } l && (l.Offsets.Length != l.Columns * l.Rows || l.Columns < WarpLattice.MinSize || l.Rows < WarpLattice.MinSize))
-            return $"{s.Name}'s lattice has {l.Offsets.Length} offsets for {l.Columns}x{l.Rows} nodes";
+        if (q.Lattice is { } l && (l.Columns is < WarpLattice.MinSize or > WarpLattice.MaxSize || l.Rows is < WarpLattice.MinSize or > WarpLattice.MaxSize))
+            return $"{s.Name}'s lattice is {l.Columns}x{l.Rows} — each side {WarpLattice.MinSize}–{WarpLattice.MaxSize}";
+        if (q.Lattice is { } m && m.Offsets.Length != m.Columns * m.Rows)
+            return $"{s.Name}'s lattice has {m.Offsets.Length} offsets for {m.Columns}x{m.Rows} nodes";
         return null;
     }
 }
