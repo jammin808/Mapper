@@ -253,6 +253,10 @@ public sealed class PreviewViews : IDisposable
     private readonly Dictionary<string, FeedView> _fed = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ViewRequest> _shown = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _renewed = new(StringComparer.Ordinal);
+
+    /// <summary>View ids the render host has drawn into: their rings stay mapped a while after they are hidden, so a draft view never
+    /// takes one of these ids (its ring would be a second writer on the same file).</summary>
+    private readonly HashSet<string> _renderedIds = new(StringComparer.Ordinal);
     private readonly IMonoClock _clock;
     private IViewRenderer? _renderer;
 
@@ -321,12 +325,17 @@ public sealed class PreviewViews : IDisposable
                     StopFeed(request.ViewId);
                     if (_renderer.Show(request) is { } refused)
                         return refused;
+                    _renderedIds.Add(request.ViewId);
                     break;
                 }
                 default:
                 {
                     var kind = request.Kind switch { ViewKind.Camera => "camera", ViewKind.Editor => "draft", _ => "scan" };
-                    if (!_feeds.TryGetValue(kind, out var feed))
+                    if (kind == "draft" && _renderedIds.Contains(request.ViewId))
+                        return $"{request.ViewId} has drawn the air — a draft view takes a view id of its own (VIEW {request.ViewId}-draft SHOW editor DRAFT)";
+                    // The render host draws the draft views itself (wp2-blind): attached, it is the draft feed.
+                    var feed = _feeds.GetValueOrDefault(kind) ?? (kind == "draft" ? _renderer as IPreviewFeed : null);
+                    if (feed is null)
                         return kind == "draft" ? "this node draws no draft view (no OpenGL here)" : $"no {kind} pictures on this node yet";
                     if (had is not null && had.Rendered)
                         _renderer?.Hide(request.ViewId);

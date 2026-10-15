@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Engine.Rendering;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Rendering;
@@ -73,6 +74,14 @@ public sealed class BlindRenderTests(ITestOutputHelper log)
 
     private static bool Red((int R, int G, int B) p) => p.R > 150 && p.G < 60;
 
+    /// <summary>The newest picture's sequence in a view's ring (−1 before the first).</summary>
+    private static long Sequence(HostRig rig, string view)
+    {
+        using var reader = new PreviewRingReader(rig.Engine.Previews.RingPath(view));
+        var buffer = new byte[reader.MaxWidth * reader.MaxHeight * 4];
+        return reader.TryRead(buffer, -1, out var info) ? info.Sequence : -1;
+    }
+
     private static bool Green((int R, int G, int B) p) => p.G > 150 && p.R < 60;
 
     [Fact]
@@ -93,8 +102,22 @@ public sealed class BlindRenderTests(ITestOutputHelper log)
         Assert.Equal((0, 255, 0), air);
         Assert.True(Red(draft) && Green(live));
 
-        // Hidden, the draft view lets its renderer go; with the draft discarded a draft view shows the air.
+        // A second draft view; hiding one while the other draws never faults the other (its ring outlives the reads in flight).
+        await rig.Ok("VIEW draft2 CAMERA " + Eye());
+        await rig.Ok("VIEW draft2 SHOW editor DRAFT");
+        await ViewCentre(rig, "draft2", Red);
         Assert.True((await rig.Run("VIEW draft HIDE")).Ok);
+        var before = Sequence(rig, "draft2");
+        await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
+        Assert.True(Sequence(rig, "draft2") > before, "the remaining draft view stopped drawing");
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Kind == "fault");
+
+        // A view id that has drawn the air never becomes a draft view (its ring is still mapped); another id does.
+        Assert.Equal("live has drawn the air — a draft view takes a view id of its own (VIEW live-draft SHOW editor DRAFT)",
+            (await rig.Run("VIEW live SHOW editor DRAFT")).Payload);
+
+        // With the draft discarded a draft view shows the air.
+        Assert.True((await rig.Run("VIEW draft2 HIDE")).Ok);
         await rig.Ok("BLIND DISCARD");
         await rig.Ok("VIEW again CAMERA " + Eye());
         await rig.Ok("VIEW again SHOW editor DRAFT");
@@ -104,7 +127,9 @@ public sealed class BlindRenderTests(ITestOutputHelper log)
     [Fact]
     public async Task ACommitAtTheNextSwitchChangesTheOutputOnTheSwitchFrame()
     {
-        await using var rig = HostRig.Start(Scene());
+        // The frame's instant runs a frame ahead of the lane's (a display latency): the frame that reaches the boundary draws the
+        // commit while the lane, a frame behind, has not made it the document — only the per-frame choice can turn it red.
+        await using var rig = HostRig.Start(Scene(), options: RenderHostOptions.Default with { Windows = false, DisplayLatencyNs = Frame });
         var t = rig.Engine.LeaderNowNs;
         await rig.Ok("PLAYLIST GO pl_show");
         await rig.Ok("BLIND ON");
@@ -113,10 +138,13 @@ public sealed class BlindRenderTests(ITestOutputHelper log)
         var at = rig.Engine.Snapshot.Pending!.EffectiveLeaderNs;
         Assert.Equal(t + 10_000_000_000, at);
 
-        rig.Clock.NowNs = at - Frame;
+        // The frame one frame before the boundary keeps the air; the frame at it draws the draft.
+        rig.Clock.NowNs = at - Frame - Frame / 2;
         Assert.Equal((0, 255, 0), HostRig.At(await rig.Read("op_1"), 64, 32, 24));
-        rig.Clock.NowNs = at;
+        rig.Clock.NowNs = at - Frame / 2;
         Assert.Equal((255, 0, 0), HostRig.At(await rig.Read("op_1"), 64, 32, 24));
+        Assert.Equal("#00FF00", rig.Engine.Store.Project.Canvases[0].Background);
+        rig.Clock.NowNs = at;
         Assert.True(await Show.ShowRig.Eventually(() => rig.Engine.Store.Project.Canvases[0].Background == "#FF0000"));
     }
 }

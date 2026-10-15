@@ -1,55 +1,52 @@
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
+using PlayMap.Render.Gpu;
 using PlayMap.Render.Projection;
 
 namespace PlayMap.Engine.Rendering;
 
 /// <summary>wp2-show's hooks into the render host: each frame takes the air's levels the lane built last (the master, a panic,
-/// a return from one); null leaves every output at full. wp2-blind (its continuation) adds two things. A blind commit waiting for
-/// its boundary is drawn from that frame on. And the editor's draft view (<c>VIEW &lt;v&gt; SHOW editor DRAFT</c>) is drawn by a
-/// second renderer on this thread's context that never has an output: each frame it is handed the draft with no outputs, so its
-/// canvases and generators are the draft's while the air's renderer never sees the draft at all; its editor picture lands in a
-/// ring of its own and is copied into the view's ring. The second renderer exists only while a draft view is shown.</summary>
-public sealed partial class RenderHost
+/// a return from one); null leaves every output at full. wp2-blind (its continuation) adds two things.
+///
+/// <para><b>A waiting blind commit</b> is drawn from its boundary's frame on: the frame's project is the commit's root once the
+/// frame's leader instant reaches the commit's, so the switch is exact to the frame for the project's own fields (content,
+/// generators, canvases, outputs) on every node holding the commit. The stage's tables (meshes, warps, masks, blends, lenses) are
+/// built for the live root and follow when the lane makes the commit the document, a few ticks later.</para>
+///
+/// <para><b>The editor's draft view</b> (<c>VIEW &lt;v&gt; SHOW editor DRAFT</c>): the render host is the draft feed itself, so a
+/// view is accepted as soon as the host runs. A second renderer on this thread's context, which never has an output, is handed the
+/// draft with no outputs each time a draft view is drawn: its canvases and generators are the draft's, and the air's renderer never
+/// sees the draft. It draws after the air's frame (between frames, with the host's other work), so a draft view never moves the
+/// air's present. Its pictures land in a ring of the view's own (made when the view is shown, on the caller's thread) and are copied
+/// into the view's ring; a stopped view's ring is kept until the draft renderer can no longer deliver a read into it. The second
+/// renderer exists only while a draft view is shown.</para></summary>
+public sealed partial class RenderHost : IPreviewFeed
 {
-    /// <summary>A shown draft view: its request, the view's ring (the desk reads it), and on the render thread the second
-    /// renderer's own ring for it with a reader.</summary>
-    private sealed class DraftView(ViewRequest request, PreviewSink sink) : IDisposable
+    /// <summary>Draft renderer frames a stopped view's ring outlives its last request (the renderer drops an idle preview after 120).</summary>
+    private const int DraftRetireFrames = 150;
+
+    /// <summary>A shown draft view: its request, the view's ring (the desk reads it), the draft renderer's own ring for it and a
+    /// reader of that ring.</summary>
+    private sealed class DraftView(ViewRequest request, PreviewSink sink, PreviewRingWriter ring, PreviewRingReader reader) : IDisposable
     {
         public ViewRequest Request { get; } = request;
         public PreviewSink Sink { get; } = sink;
+        public PreviewRingWriter Ring { get; } = ring;
+        public PreviewRingReader Reader { get; } = reader;
+        public byte[] Buffer { get; } = new byte[sink.MaxWidth * sink.MaxHeight * 4];
         public volatile bool Stopped;
-        public PreviewRingWriter? Ring;
-        public PreviewRingReader? Reader;
-        public byte[] Buffer = [];
         public long Have = -1;
         public long LastNs = long.MinValue / 2;
+        public long StoppedAtFrame = -1;
 
         public void Dispose() => Stopped = true;
 
-        /// <summary>Render thread: lets go of the private ring.</summary>
+        /// <summary>Render thread, once the draft renderer can no longer write into it: lets go of the private ring.</summary>
         public void Release()
         {
-            Reader?.Dispose();
-            Reader = null;
-            Ring?.Dispose();
-            Ring = null;
-        }
-    }
-
-    private sealed class DraftFeed(RenderHost host) : IPreviewFeed
-    {
-        public IDisposable? Start(ViewRequest request, PreviewSink sink, out string why)
-        {
-            why = "";
-            var view = new DraftView(request, sink);
-            lock (host._draftGate)
-            {
-                host._draftViews.Add(view);
-                host._draftVersion++;
-            }
-            return view;
+            Reader.Dispose();
+            Ring.Dispose();
         }
     }
 
@@ -58,27 +55,64 @@ public sealed partial class RenderHost
     private int _draftVersion;
     // Render thread.
     private readonly List<DraftView> _draftList = [];
+    private readonly List<DraftView> _draftRetiring = [];
     private int _draftListVersion = -1;
     private RenderEngine? _draftRenderer;
-    private bool _draftFeedRegistered;
+    private long _draftFrames;
     private Project? _draftFrom;
     private Project? _draftBare;
+    private EngineSnapshot? _draftSnap;
+    private long _draftLeaderNs;
+    private Action? _drawDrafts;
+    private bool _draftQueued;
+
+    /// <summary>The draft feed (PreviewViews asks the attached render host for "draft" views): makes the view's private ring here,
+    /// on the caller's thread, and answers why not when it cannot.</summary>
+    IDisposable? IPreviewFeed.Start(ViewRequest request, PreviewSink sink, out string why)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(sink);
+        why = "";
+        if (_stopping || Volatile.Read(ref _engine) is not { } engine)
+        {
+            why = "the render host is not running";
+            return null;
+        }
+        PreviewRingWriter? ring = null;
+        try
+        {
+            // A path no view id can spell ('~' is not a view id's character): the draft renderer's own ring for this view.
+            var path = engine.Previews.RingPath(request.ViewId + "~draft");
+            ring = new PreviewRingWriter(path, sink.MaxWidth, sink.MaxHeight);
+            var view = new DraftView(request, sink, ring, new PreviewRingReader(path));
+            lock (_draftGate)
+            {
+                _draftViews.Add(view);
+                _draftVersion++;
+            }
+            return view;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            ring?.Dispose();
+            why = $"{request.ViewId}'s draft ring could not be made: {ex.Message}";
+            return null;
+        }
+    }
 
     partial void ComposeShow(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
         if (engine.AirLevelsNow is { } levels)
             inputs = inputs with { Levels = levels };
-        // A blind commit is drawn from its boundary's frame on: the root is picked by the frame's leader instant, so the switch is
-        // exact to the frame and the same on every node that holds the commit, before the lane makes it the document. A test
-        // pattern on the air stays over it.
         if (snap.Pending is { } pending && inputs.LeaderNs >= pending.EffectiveLeaderNs && ReferenceEquals(inputs.Project, snap.Project.Project))
             inputs = inputs with { Project = pending.Root };
-        if (!_draftFeedRegistered)
-        {
-            engine.Previews.Register("draft", new DraftFeed(this));
-            _draftFeedRegistered = true;
-        }
-        DrawDraftViews(engine, snap, inputs.LeaderNs);
+        // The draft views are drawn after this frame, between frames; only what to draw is noted here.
+        if (_draftQueued || (Volatile.Read(ref _draftVersion) == _draftListVersion && _draftList.Count == 0 && _draftRetiring.Count == 0 && _draftRenderer is null))
+            return;
+        _draftSnap = snap;
+        _draftLeaderNs = inputs.LeaderNs;
+        _draftQueued = true;
+        _work.Enqueue(_drawDrafts ??= DrawDraftViewsBetweenFrames);
     }
 
     partial void OnContextShow(RenderEngine renderer)
@@ -88,18 +122,39 @@ public sealed partial class RenderHost
 
     partial void OnContextLostShow()
     {
-        if (_draftFeedRegistered)
-            Volatile.Read(ref _engine)?.Previews.Register("draft", null);
-        _draftFeedRegistered = false;
-        foreach (var view in _draftList)
-            view.Release();
-        _draftList.Clear();
+        // The renderer goes first: until it is gone it may deliver a read into a view's ring.
         _draftRenderer?.Dispose();
         _draftRenderer = null;
+        foreach (var view in _draftList.Concat(_draftRetiring))
+            view.Release();
+        _draftList.Clear();
+        _draftRetiring.Clear();
+        lock (_draftGate)
+            _draftViews.Clear();
+        _draftSnap = null;
     }
 
-    /// <summary>Render thread: the draft views that are due, drawn by the draft's renderer from the draft (or the air's project when
-    /// no draft is open), and every finished picture copied to its view's ring. Nothing runs while no draft view is shown.</summary>
+    /// <summary>Render thread, between frames: a fault here is the draft view's, never the air's — it is journalled once and the
+    /// draft views stop.</summary>
+    private void DrawDraftViewsBetweenFrames()
+    {
+        _draftQueued = false;
+        if (_stopping || _context is null || _draftSnap is not { } snap || Volatile.Read(ref _engine) is not { } engine)
+            return;
+        _draftSnap = null;
+        try
+        {
+            DrawDraftViews(engine, snap, _draftLeaderNs);
+        }
+        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException
+            or UnauthorizedAccessException)
+        {
+            engine.Journal.Add("fault", $"draft view: {ex.GetType().Name}: {ex.Message} — the draft views stop", ok: false);
+            _context.Device.InvalidateState();
+            OnContextLostShow();
+        }
+    }
+
     private void DrawDraftViews(EngineCore engine, EngineSnapshot snap, long leaderNs)
     {
         var version = Volatile.Read(ref _draftVersion);
@@ -109,35 +164,34 @@ public sealed partial class RenderHost
             {
                 _draftViews.RemoveAll(v => v.Stopped);
                 foreach (var gone in _draftList.Where(v => !_draftViews.Contains(v)))
-                    gone.Release();
+                {
+                    gone.StoppedAtFrame = _draftFrames;
+                    _draftRetiring.Add(gone);
+                }
                 _draftList.Clear();
                 _draftList.AddRange(_draftViews);
-                _draftListVersion = _draftVersion;
+                _draftListVersion = version;
             }
         }
         if (_draftList.Count == 0)
         {
-            if (_draftRenderer is not null)
-            {
-                _draftRenderer.Dispose();
-                _draftRenderer = null;
-                _draftFrom = _draftBare = null;
-            }
+            // No view left: the renderer goes, and with it every read it could still deliver; then the rings.
+            _draftRenderer?.Dispose();
+            _draftRenderer = null;
+            _draftFrom = _draftBare = null;
+            foreach (var view in _draftRetiring)
+                view.Release();
+            _draftRetiring.Clear();
             return;
         }
-        var any = false;
         foreach (var view in _draftList)
         {
             if (view.Stopped)
             {
                 lock (_draftGate)
                     _draftVersion++;
-                continue;
             }
-            any = true;
         }
-        if (!any)
-            return;
         var draft = snap.Draft?.Project ?? snap.Project.Project;
         if (!ReferenceEquals(draft, _draftFrom))
         {
@@ -146,18 +200,20 @@ public sealed partial class RenderHost
         }
         var renderer = _draftRenderer ??= new RenderEngine(_context!, _options.Engine with { GpuTiming = false });
         renderer.Render(new FrameInputs { Project = _draftBare!, LeaderNs = leaderNs, Sources = _sources!, Stage = _stage! });
+        _draftFrames++;
+        for (var i = _draftRetiring.Count - 1; i >= 0; i--)
+        {
+            if (_draftFrames - _draftRetiring[i].StoppedAtFrame > DraftRetireFrames)
+            {
+                _draftRetiring[i].Release();
+                _draftRetiring.RemoveAt(i);
+            }
+        }
         var monoNow = Core.Time.MonoClock.Instance.NowNs;
         foreach (var view in _draftList)
         {
             if (view.Stopped)
                 continue;
-            if (view.Ring is null)
-            {
-                var path = engine.Previews.RingPath(view.Request.ViewId + "~draft");
-                view.Ring = new PreviewRingWriter(path, view.Sink.MaxWidth, view.Sink.MaxHeight);
-                view.Reader = new PreviewRingReader(path);
-                view.Buffer = new byte[view.Sink.MaxWidth * view.Sink.MaxHeight * 4];
-            }
             if (monoNow - view.LastNs >= (long)_options.StagePreviewInterval.TotalNanoseconds)
             {
                 view.LastNs = monoNow;
@@ -169,7 +225,7 @@ public sealed partial class RenderHost
                 var (w, h) = ViewRequest.Fit(Math.Min(view.Request.Width, view.Sink.MaxWidth), Math.Min(view.Request.Height, view.Sink.MaxHeight), aspect);
                 renderer.Preview(new PreviewRequest(view.Request.ViewId, view.Ring, w, h, Editor: camera));
             }
-            if (view.Reader!.TryRead(view.Buffer, view.Have, out var info))
+            if (view.Reader.TryRead(view.Buffer, view.Have, out var info))
             {
                 view.Have = info.Sequence;
                 view.Sink.WriteBgra(view.Buffer, info.Width, info.Height, info.Stride, info.StampNs);
