@@ -318,8 +318,8 @@ public sealed partial class EngineCore
 
     /// <summary>A member takes its leader's lock record: the counter anchor always (so its counts map to the same show time), and the
     /// leader's wish — joining when the leader applied the lock, leaving when it released it — unless this node's frame lock is off,
-    /// or (to join) the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY would. On the
-    /// lane.</summary>
+    /// or the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY and SYNC LEAVE would.
+    /// On the lane.</summary>
     internal (bool Taken, string Words) AdoptLeaderLock(Sync.LockRecord record)
     {
         if (LockBackend is not { } backend)
@@ -340,6 +340,9 @@ public sealed partial class EngineCore
         }
         if (!record.Apply && backend.Intent.Apply)
         {
+            // Leaving changes how every output presents: as a join, it waits for a boundary on an armed show.
+            if (Services.ShowGate.Armed && !Air.EffectiveBlackout)
+                return (false, "the leader's frame lock is released; this node is armed, so it leaves at the next blackout or once disarmed");
             backend.LeaveAll();
             Journal.Add("sync", "the group's leader released the frame lock: this node's outputs present free");
             FactsChanged();
@@ -526,12 +529,21 @@ public sealed partial class EngineCore
         return (reply, ran);
     }
 
-    /// <summary>A leader's anchor taken through this node's own PLAYLIST ANCHOR, for the playlist of that id in the group, or else
-    /// every playlist of the group here; answers the playlists now at the leader's anchor.</summary>
-    internal async Task<IReadOnlyList<string>> AdoptLeaderAnchorAsync(string group, string playlistId, string json, SessionInfo session)
+    /// <summary>A leader's anchor taken through this node's own PLAYLIST ANCHOR, for the playlist of that id in the group, or else —
+    /// when <paramref name="oneOnLeader"/> (the leader has shown one playlist for the group) and the group has one playlist here — that
+    /// one; answers the playlists now at the leader's anchor, and the words when it had none to take it.</summary>
+    internal async Task<(IReadOnlyList<string> Adopted, string Unmatched)> AdoptLeaderAnchorAsync(string group, string playlistId, string json,
+        bool oneOnLeader, SessionInfo session)
     {
         var lists = Store.Project.Playlists.Where(l => string.Equals(l.SyncGroup, group, StringComparison.Ordinal)).ToList();
-        var targets = lists.Where(l => l.Id == playlistId).ToList() is { Count: > 0 } same ? same : lists;
+        var same = lists.Where(l => l.Id == playlistId).ToList();
+        var targets = same.Count > 0 ? same : oneOnLeader && lists.Count == 1 ? lists : [];
+        if (targets.Count == 0)
+        {
+            return ([], lists.Count == 0
+                ? $"no playlist here is in the group {group}"
+                : $"no playlist here has the leader's id {playlistId}, and {(lists.Count > 1 ? $"{lists.Count} playlists here" : "the leader's several playlists")} could take it — give the group's playlists the same ids on every node");
+        }
         var adopted = new List<string>();
         foreach (var list in targets)
         {
@@ -541,6 +553,6 @@ public sealed partial class EngineCore
             if (reply.Ok || reply.Payload == "already at that anchor")
                 adopted.Add(list.Id);
         }
-        return adopted;
+        return (adopted, "");
     }
 }

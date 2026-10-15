@@ -55,6 +55,13 @@ public sealed class LockFeedTests
         Assert.True(rig.Engine.AdoptLeaderLock(new LockRecord(true, 1, 1, Counter)).Taken);
         Assert.Equal(2, outputs.Calls.Count);   // already joined: nothing asked twice
 
+        // The leader releases while this armed node is on air: leaving waits for the next blackout too.
+        Assert.True((await rig.Run("BLACKOUT OFF")).Ok);
+        (taken, words) = rig.Engine.AdoptLeaderLock(new LockRecord(false, 1, 1, Counter));
+        Assert.False(taken);
+        Assert.Contains("leaves at the next blackout or once disarmed", words, StringComparison.Ordinal);
+        Assert.Equal("apply 1 1", outputs.Calls[^1]);
+        Assert.True((await rig.Run("BLACKOUT ON")).Ok);
         (taken, words) = rig.Engine.AdoptLeaderLock(new LockRecord(false, 1, 1, Counter));
         Assert.True(taken);
         Assert.Equal("left the frame lock with the leader", words);

@@ -46,10 +46,12 @@ line on the same connection:
 @s7 SYNC RECEIPT 3 APPLIED 1007300000000 PANIC as planned on 1 output by FOH (sync leader)
 ```
 
-`ACCEPTED` first when the line's instant is still to come (or when the line only started, as PREFLIGHT does); `APPLIED` with
+`ACCEPTED` first when the line's instant is still to come or a line before it still waits (or when the line only started, as
+PREFLIGHT does); `APPLIED` with
 the leader instant the line took effect there — the leader's instant, or the member's own now when the line reached it later (a
 fade still runs as if from the leader's instant; a switch such as BLACKOUT lands when it runs); `REFUSED` with the member's words
-when its gate or the line refuses. A member's answer for a line due after the leader stopped waiting reaches the leader as a
+when its gate or the line refuses — a `PANIC` from no later than the panic it is in is "already in this panic since …" (the same
+press handed again). A member's answer for a line due after the leader stopped waiting reaches the leader as a
 late receipt (journalled "BLACKOUT ON on Stage: applied at its instant").
 
 ## IFleetFanout (for wp2-blind and wp2-backup)
@@ -57,15 +59,16 @@ late receipt (journalled "BLACKOUT ON on Stage: applied at its instant").
 `EngineServices.Fanout` (the sync part) — `Members`: the node ids subscribed as members while this node leads (empty otherwise);
 `SendAsync(line, atLeaderNs, ct)`: pushes `ANCHOR <group> @air {…}` to every subscriber and answers one `FanoutReceipt(Node,
 Name, Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `accepted` (its instant is still to come) or
-`silent` (no answer within 2 s). The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
-sync part when they run (from the journal's verb rows, `HERE` excepted): a package must not send them through `SendAsync` again.
+`silent` (no answer within 2 s: one deadline for every member of the send). The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
+sync part when they run (from the journal's verb rows; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes
+as `AT +<ms>`): a package must not send them through `SendAsync` again.
 
 ## PMVB (member → leader, UDP, the clock-sync port)
 
 64 bytes, little-endian: `"PMVB"`, version 1, lock state (0–7, `LockState`), flags (settled, board…), path (0 offscreen, 1 gl,
 2 dxgi-flip), node id (u32, its eight hex), output id hash (FNV-1a 32 of the UTF-8 id), sequence, board count (24 bits), period
-(ps, 1 000 000 000 … 50 000 000 000), last vblank (leader ns, ≥ 0), refresh index, missed in 60 s (≤ 60 000), house sync
-(milli-Hz), air latency (µs, 0 … 500 000), the sender's clock uncertainty (µs, ≤ 1 000 000). Any other length, magic, version or
+(ps on the leader's time base, 1 000 000 000 … 50 000 000 000), last vblank (leader ns, ≥ 0), refresh index, missed in 60 s (≤ 60 000), house sync
+(milli-Hz), air latency (µs, 0 … 500 000), the sender's clock uncertainty (µs, ≤ 1 000 000: half its best round trip plus any correction still being slewed). Any other length, magic, version or
 an out-of-range field is dropped and counted (`Refused` on the responder).
 
 ## STATE
@@ -97,3 +100,17 @@ For the integration docs pass (`WIRE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `UX.m
 - ROADMAP.md: carry-overs closed — anchors carried to followers and the role kept (AnchorFeedTests), following never makes a
   playlist jump (ClockSlewTests). Next: SYNC LATENCY, succession, the frame code and certificate.
 - UX.md: the desk's Sync tab reads `sync` (cards in `sync.cards.json`); its follow/lead buttons send `SYNC LEAD|FOLLOW`.
+- The catalogue gate (`tests/PlayMap.Assistant.Tests/CatalogueTests.cs`) gained `AddedRows` beside `TrimmedRows` to admit
+  `SYNC RECEIPT`, the protocol row item 4's receipts need.
+
+Seams outside this package that would close what SYNC.md lists as not yet (spine amendments):
+
+- `NetworkHost.PersistAsync(Func<NodeSettings, NodeSettings>)`, the one writer of the node's settings file: the sync part writes
+  `NodeSettings.Sync` read-fresh under its own lock today, so a later `NetworkHost.Persist` (LINK PATTERNS, a new token) writes its
+  start-time copy of `sync` back over it.
+- The verb row journalled inside the lane action (or a lane-side "line ran" hook), so the fan-out numbers air lines in lane order
+  and reads the lane's instant.
+- A step epoch (or the clock mapping) in the published snapshot, so a frame never pairs a stepped clock with an unrebased snapshot;
+  the frame-lock counter's anchor moved by a step.
+- A group lead for switches (`BLACKOUT`): the leader takes it at now + lead and sends that instant, so members land on its frame.
+- `PREFLIGHT ALL` sending through show's `FanOut` as `SHOW ARM ALL` does.

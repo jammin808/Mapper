@@ -86,4 +86,22 @@ public sealed class SyncPreflightTests
         await leader.OkAsync(row.GetProperty("fix").GetString()!);
         Assert.Equal(60, leader.Engine.Store.Project.FindOutput("op_2")!.RefreshHz);
     }
+
+    [Fact]
+    public async Task AMembersOddRateIsFixedOnTheMemberWhenItsOutputHasTheLeadersId()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs))));
+        await using var member = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, SyncRig.Fast(new FakeVblanks(FakeVblanks.At("op_1", 59.94, clock.NowNs))));
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(member);
+        await SyncRig.GroupAsync(leader, member);
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("verdict").GetString() == "mixed rate"), leader.Journal());
+
+        // Both nodes call their output op_1: the odd one is the member's, so the line is for the member, not this node.
+        var row = Row(await PreflightAsync(leader), "sync:rates");
+        Assert.Equal("red", row.GetProperty("light").GetString());
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("fix").ValueKind);
+        Assert.EndsWith("on 9f8e7d6c: SET op_1 refreshHz 60", row.GetProperty("note").GetString(), StringComparison.Ordinal);
+    }
 }

@@ -54,8 +54,10 @@ public sealed class SyncPreflight(SyncNode sync) : IPreflightCheck
                 {
                     // The odd output is set to the reference's rate where it is; one on another node is fixed there.
                     var reference = picture.Outputs.FirstOrDefault(o => o.Heard);
-                    var odd = picture.Pairs.First(p => p.MixedRate).B;
-                    var row = picture.Outputs.FirstOrDefault(o => o.Output == odd && o.Heard);
+                    var pair = picture.Pairs.First(p => p.MixedRate);
+                    var odd = pair.B;
+                    // Output ids repeat across nodes: the odd one is the pair's, on the pair's node.
+                    var row = picture.Outputs.FirstOrDefault(o => o.Output == odd && o.Node == pair.BNode && o.Heard);
                     var rate = SyncBoard.Nominal(reference?.RefreshHz ?? 60).ToString("0.###", CultureInfo.InvariantCulture);
                     var fix = $"SET {odd} refreshHz {rate}";
                     rows.Add(row is { Local: true }

@@ -58,6 +58,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly ConcurrentDictionary<string, uint> _seq = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (Core.Sync.LockState State, long AtWatch)> _lastSent = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _adopted = new(StringComparer.Ordinal);
+    private readonly HashSet<(string Group, string Playlist)> _leaderLists = [];
+    private readonly ConcurrentDictionary<(string Group, string Playlist), byte> _unmatched = new();
     private readonly Lock _airGate = new();
     private readonly HashSet<(string Feed, long Seq)> _airDone = [];
     private readonly Queue<(string Feed, long Seq)> _airOrder = new();
@@ -456,8 +458,18 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     {
         if (_engine is not { } engine)
             return;
-        foreach (var id in await engine.AdoptLeaderAnchorAsync(group, playlistId, json, LeaderSession).ConfigureAwait(false))
+        bool oneOnLeader;
+        lock (_leaderLists)
+        {
+            _leaderLists.Add((group, playlistId));
+            oneOnLeader = _leaderLists.Count(k => string.Equals(k.Group, group, StringComparison.Ordinal)) == 1;
+        }
+        var (adopted, unmatched) = await engine.AdoptLeaderAnchorAsync(group, playlistId, json, oneOnLeader, LeaderSession).ConfigureAwait(false);
+        foreach (var id in adopted)
             _adopted.TryAdd(id, 0);
+        // Said once per playlist of the leader's: its anchors keep coming.
+        if (unmatched.Length > 0 && _unmatched.TryAdd((group, playlistId), 0))
+            engine.Journal.Add("sync", $"{LeaderLabel}'s {playlistId} for {group} is not taken here: {unmatched}", ok: false);
     }
 
     /// <summary>One air line: refused with words unless a member runs it from its leader; run now, pinned to the leader's instant,
@@ -718,6 +730,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         // The network host has just moved the exchange to this leader: its lines wait for an estimate heard from here on.
         Interlocked.Exchange(ref _estimatesBefore, Clock.Estimates);
         _adopted.Clear();
+        _unmatched.Clear();
+        lock (_leaderLists)
+            _leaderLists.Clear();
         _leaderName = peer.Name;
         _leaderAddress = peer.Address;
         var said = "";

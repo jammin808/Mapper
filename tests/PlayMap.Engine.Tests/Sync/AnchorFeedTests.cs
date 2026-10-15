@@ -7,7 +7,8 @@ namespace PlayMap.Engine.Tests.Sync;
 
 /// <summary>Anchors and the group's air reach the followers (the carry-over), on two real nodes in one process on one manual clock,
 /// the leader's 7.3 s ahead: a leader's GO puts the follower on the same item and anchor; the leader's PANIC FADE 1000 lands on
-/// both at the same instant (0.5 at +500 ms on each); its BLACKOUT blacks both at one leader instant; a dead leader leaves the
+/// both at the same instant (0.5 at +500 ms on each); its BLACKOUT is stamped on both with one leader instant (on this standing clock
+/// it also lands at once; on a network a switch lands when the line runs there); a dead leader leaves the
 /// follower free-wheeling and switching its next item at the anchored instant; a restarted follower follows again, its
 /// follow-blackout switch kept; HERE keeps a line on the leader.</summary>
 public sealed class AnchorFeedTests(ITestOutputHelper output)
@@ -158,6 +159,42 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
             Assert.Equal("it_b", again.Engine.Playback.Lane("pl_show")!.ItemId);
             Assert.True(await Eventually.TrueAsync(() => again.State().GetProperty("air").GetProperty("blackout").GetBoolean()), again.Journal());
         }
+    }
+
+    [Fact]
+    public async Task APlaylistOfAnotherIdTakesTheLeadersAnchorOnlyWhileEachSideHasOneForTheGroup()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead));
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        var show = SyncRig.Show();
+        // The leader's project has two playlists in the group; the follower's, made apart, has one, under its own id.
+        await SyncRig.OpenShowAsync(leader, show with { Playlists = [show.Playlists[0], show.Playlists[0] with { Id = "pl_side", Name = "Side" }, show.Playlists[1]] });
+        await SyncRig.OpenShowAsync(follower, show with
+        {
+            Playlists = [show.Playlists[0] with { Id = "pl_mine" }, show.Playlists[1]],
+            Outputs = [show.Outputs[0] with { Source = PlayMap.Core.Model.SourceRef.Playlist("pl_mine") }],
+        });
+        await SyncRig.GroupAsync(leader, follower);
+
+        // One of the leader's playlists has moved so far: the follower's only group playlist takes its anchor.
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        var switchAt = leader.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs;
+        Assert.True(await Eventually.TrueAsync(() => follower.Engine.Snapshot.Playback.Playlists["pl_mine"].SwitchAtLeaderNs == switchAt), follower.Journal());
+
+        // A second one moves: which of the follower's playlists would take it is not clear, so none does, and the journal says so once.
+        clock.AdvanceMs(500);
+        await leader.OkAsync("PLAYLIST GO pl_side");
+        await leader.OkAsync("PLAYLIST NEXT pl_side");
+        Assert.True(await Eventually.TrueAsync(() => follower.Journal().Contains("FOH (0badc0de)'s pl_side for show is not taken here", StringComparison.Ordinal)),
+            follower.Journal());
+        await leader.OkAsync("PLAYLIST NEXT pl_show");
+        var next = leader.Engine.AnchorJson("pl_show");
+        Assert.True(await Eventually.TrueAsync(() => follower.Journal().Contains("FOH (0badc0de)'s pl_show for show is not taken here", StringComparison.Ordinal)),
+            follower.Journal());
+        Assert.Equal(switchAt, follower.Engine.Snapshot.Playback.Playlists["pl_mine"].SwitchAtLeaderNs);
+        Assert.NotEqual(next, follower.Engine.AnchorJson("pl_mine"));
+        Assert.Single(follower.Journal().Split('\n'), l => l.Contains("pl_side for show is not taken here", StringComparison.Ordinal));
     }
 
     private static async Task Ticked(HostRig rig)
