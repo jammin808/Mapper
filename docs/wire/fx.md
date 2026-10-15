@@ -98,4 +98,5 @@ For the integration docs pass:
   canvas's own chain, FFGL, bindings, geometry-aware effects and the rest of the library are next round.
 - Spine amendment landed: `IFramePass.Item`/`Layer`/`Surface` (default: the picture handed back), called by `SourceResolver` and
   `StageRenderer` with the frame's ordered passes and `PassFrame`, which the engine sets once a frame; `PassFrame.Covered`/`Held`
-  per output; `ISourceProvider.Item` and `SourceMix.FromItem`/`ToItem` name the item on the air and its start.
+  per output; `ISourceProvider.Item` and `SourceMix.FromItem`/`ToItem` name the item on the air and its start; a test pattern, a
+  safe look and a raw frame are resolved with no pass (`SourceResolver.ResolvePlain`, canvases and mixes apart from the show's).
