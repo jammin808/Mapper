@@ -130,8 +130,10 @@ public sealed class NetworkClockTests
         local.AdvanceMs(10_000);
         var read = clock.NowNs;
 
-        clock.Hold();
+        Assert.False(clock.Hold(clock.HeardLocalNs - 1));   // judged on an older estimate than the latest: not held
+        Assert.True(clock.Hold(clock.HeardLocalNs));
         Assert.True(clock.IsHolding);
+        Assert.False(clock.Hold(clock.HeardLocalNs));        // held already
         local.AdvanceMs(2_500);
         Assert.Equal(2_500 * Ms, clock.HoldingNs);
         Assert.Equal(read + 2_500 * Ms + 50_000, clock.NowNs);   // the drift still applies while free-wheeling
@@ -144,6 +146,65 @@ public sealed class NetworkClockTests
         local.AdvanceMs(1_000);
         Assert.Equal(before + 1_000 * Ms, clock.NowNs);
         Assert.Equal(0, clock.Steps - 1);
+
+        // Leading after the promotion keeps the promoted line: no step back to the local clock.
+        var promoted = clock.NowNs;
+        clock.Lead();
+        Assert.Equal(promoted, clock.NowNs);
+        Assert.Equal(0, clock.Steps - 1);
+        Assert.False(clock.StepPending);
+    }
+
+    [Fact]
+    public void AStepStillWaitingIsReplacedByALaterCorrectionAndNeverTakenStale()
+    {
+        var local = new ManualClock(1_000 * Ms);
+        var clock = new NetworkClock(local);
+        var taken = new List<Action>();
+        var deltas = new List<long>();
+        clock.StepOn = taken.Add;
+        clock.Stepped += deltas.Add;
+
+        // A leader 10 s ahead is heard, then this node leads again before the first step is taken: only the last step acts.
+        clock.Follow(Estimate(10_000 * Ms, local.NowNs));
+        Assert.True(clock.StepPending);
+        clock.Lead();   // the clock still reads its own line: nothing to step, and the waiting step is void
+        Assert.Single(taken);
+        Assert.False(clock.StepPending);
+        taken[0]();
+        Assert.Empty(deltas);
+        Assert.Equal(local.NowNs, clock.NowNs);
+        Assert.Equal(0, clock.Steps);
+
+        // A step waiting while a newer estimate lands within a millisecond of what the clock reads is replaced by that slew.
+        clock.Follow(Estimate(20_000 * Ms, local.NowNs));
+        Assert.Equal(2, taken.Count);
+        taken[1]();
+        Assert.Equal([20_000 * Ms], deltas);
+        var estimates = clock.Estimates;
+        clock.Follow(Estimate(30_000 * Ms, local.NowNs));
+        Assert.True(clock.StepPending);
+        clock.Follow(Estimate(20_000 * Ms + 0.3 * Ms, local.NowNs));
+        Assert.False(clock.StepPending);
+        Assert.Equal(estimates + 1, clock.Estimates);
+        taken[2]();
+        Assert.Single(deltas);
+        Assert.Equal(local.NowNs + 20_000 * Ms, clock.NowNs);
+    }
+
+    [Fact]
+    public void AReaderOfAnOlderLineNeverHoldsANewerLineAbove()
+    {
+        // A step back: the new line's first reading is the old line's minus Δ, never the old line's floor.
+        var local = new ManualClock(1_000 * Ms);
+        var clock = new NetworkClock(local);
+        clock.Follow(Estimate(5_000 * Ms, local.NowNs));
+        clock.Follow(Estimate(5_000.5 * Ms, local.NowNs));   // slewed: the floor is in use on this line
+        local.AdvanceMs(1);
+        var onOld = clock.NowNs;
+        clock.Lead();
+        Assert.Equal(local.NowNs, clock.NowNs);
+        Assert.True(onOld > clock.NowNs);
     }
 
     [Fact]

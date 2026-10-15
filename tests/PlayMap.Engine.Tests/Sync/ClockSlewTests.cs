@@ -90,4 +90,27 @@ public sealed class ClockSlewTests
         Assert.Equal(local, Position(node, "pl_local"));                                         // moved with the step
         Assert.Equal(master, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-6);         // the master's fade too
     }
+
+    [Fact]
+    public async Task AFollowerThatLeadsAgainStepsBackAndItsSettledPanicStaysDark()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new MovableClock(clock, 7 * Second));
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await SyncRig.GroupAsync(leader, node);
+        await node.OkAsync("PANIC FADE 1000");
+        clock.AdvanceMs(3_000);
+        Assert.Equal(0.0, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-9);
+
+        // Leading its own group again, the node goes back to its own clock, 7 s behind the leader's line: the panic's instants move
+        // with the step, so the air stays dark (read on the old instants, its fade would not have begun yet).
+        await node.OkAsync("SYNC LEAD stage");
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(node).GetProperty("steps").GetInt64() == 2), node.Journal());
+        Assert.InRange(node.Engine.Services.Clock.LastStepNs, -7 * Second - 1_000_000, -7 * Second + 1_000_000);
+        Assert.Contains("show clock stepped −7 s", node.Journal(), StringComparison.Ordinal);
+        foreach (var later in new[] { 0L, 1, 5, 10 })
+            Assert.Equal(0.0, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs + later * Second), 1e-9);
+    }
 }

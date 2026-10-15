@@ -25,8 +25,11 @@ With the sync part, the round-one rows `SYNC LEAD`, `SYNC FOLLOW` and `LINK PATT
   anything else: "no air line 7 waits for a receipt from this session". Ephemeral (not journalled).
 - **`SUBSCRIBE ANCHORS`** is open like every subscription (anchors are transport facts already in STATE; no secret rides the
   feed). Its words are this subscriber's node id and output ids (letters, digits, `-`, `_`; up to 64 outputs): a subscriber
-  that names a node is a **member** (waited for, heard on the board); one that names none only reads. Anything else is refused
-  with the syntax. A member sends `SUBSCRIBE ANCHORS 9f8e7d6c op_1 op_2`.
+  that names a node is a **member** (waited for, heard on the board); one that names none only reads. A node is named only by
+  itself: the session is paired, or the show network hears that PlayMap node saying hello from the session's address (else
+  "SUBSCRIBE ANCHORS 9f8e7d6c: no PlayMap node 9f8e7d6c is heard from 10.0.0.66 — …"). A member that comes back from its own
+  address replaces its old subscription. Anything else is refused with the syntax. A member sends
+  `SUBSCRIBE ANCHORS 9f8e7d6c op_1 op_2`.
 
 ## The feed's lines (leader → member, in order)
 
@@ -43,7 +46,11 @@ line on the same connection:
 @s7 SYNC RECEIPT 3 APPLIED 1007300000000 PANIC as planned on 1 output by FOH (sync leader)
 ```
 
-`ACCEPTED` first when the line's instant is still to come; `REFUSED` with the member's words when its gate or the line refuses.
+`ACCEPTED` first when the line's instant is still to come (or when the line only started, as PREFLIGHT does); `APPLIED` with
+the leader instant the line took effect there — the leader's instant, or the member's own now when the line reached it later (a
+fade still runs as if from the leader's instant; a switch such as BLACKOUT lands when it runs); `REFUSED` with the member's words
+when its gate or the line refuses. A member's answer for a line due after the leader stopped waiting reaches the leader as a
+late receipt (journalled "BLACKOUT ON on Stage: applied at its instant").
 
 ## IFleetFanout (for wp2-blind and wp2-backup)
 
@@ -65,11 +72,11 @@ an out-of-range field is dropped and counted (`Refused` on the responder).
 
 ```jsonc
 "sync": {"role":"leader","leader":"0badc0de","offsetMs":0,"rttMs":0,"driftPpm":0,"groups":["show"],
-  "group":"show","feed":"live|connecting|lost|off","members":["9f8e7d6c"],"slewing":false,"steps":0,"freewheelS":0,
+  "group":"show","feed":"live|connecting|lost|off","slewing":false,"steps":0,"freewheelS":0,
   "outputs":[{"node":"9f8e7d6c","output":"op_1","state":"free-measured","path":"gl","refreshHz":59.999,"ppm":-16.67,
               "phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"missed60s":0,"frameCount":0,"heard":true}],
   "pairs":[{"a":"op_1","aNode":"0badc0de","b":"op_1","bNode":"9f8e7d6c","phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"mixedRate":false}],
-  "verdict":"same vblank|free-running|mixed rate|unknown","mixedRate":false,"light":"green","words":"leading show with 1 member; …",
+  "verdict":"same vblank|free-running|mixed rate|unknown","words":"leading show with 1 member; …",
   …wp2-output's "latencyMs" and "lock"}
 ```
 

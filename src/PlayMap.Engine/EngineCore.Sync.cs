@@ -312,7 +312,9 @@ public sealed partial class EngineCore
         LockBackend is { } backend ? new Sync.LockRecord(backend.Intent.Apply, backend.Intent.SwapGroup, backend.Intent.Barrier, backend.LocalAnchor()) : null;
 
     /// <summary><see cref="AdoptLeaderLock"/> as one action on the lane (the armed and blackout facts it reads cannot move under it).</summary>
-    internal Task<(bool Taken, string Words)> AdoptLeaderLockAsync(Sync.LockRecord record) => _lane.RunAsync(() => AdoptLeaderLock(record));
+    /// <paramref name="current"/> is asked on the lane: a record a newer one replaced meanwhile is not taken.
+    internal Task<(bool Taken, string Words)> AdoptLeaderLockAsync(Sync.LockRecord record, Func<bool> current) =>
+        _lane.RunAsync(() => current() ? AdoptLeaderLock(record) : (false, "a newer record of the leader's lock came meanwhile"));
 
     /// <summary>A member takes its leader's lock record: the counter anchor always (so its counts map to the same show time), and the
     /// leader's wish — joining when the leader applied the lock, leaving when it released it — unless this node's frame lock is off,
@@ -355,6 +357,8 @@ public sealed partial class EngineCore
         {
             if (t.Exception?.InnerException is ObjectDisposedException)
                 step();
+            else
+                Journal.Add("fault", "the show clock's step: " + Journal.Describe(t.Exception!.InnerException ?? t.Exception), ok: false);
         }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     /// <summary>The leader clock stepped by Δ (on the lane): every playing or cued playlist's anchor moves by +Δ, so its media
@@ -379,8 +383,16 @@ public sealed partial class EngineCore
             if (a.LeaderNs is long.MinValue or long.MaxValue)
                 continue;
             var clip = lane.Clip with { Anchor = a with { LeaderNs = a.LeaderNs + delta } };
-            if (Playback.Adopt(list, lane.Index, clip, now).Ok)
-                kept++;
+            try
+            {
+                if (Playback.Adopt(list, lane.Index, clip, now).Ok)
+                    kept++;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // One playlist that cannot take its moved anchor is that playlist's; the others and the air still move.
+                Journal.Add("fault", $"{id} could not keep its place across the clock's step: {Journal.Describe(ex)}", ok: false);
+            }
         }
         RebaseAir(delta);
         var who = Services.Clock.IsFollowing && Services.GroupSync is { Joining.Length: > 0 } s ? $"followed {s.Joining}: " : "";

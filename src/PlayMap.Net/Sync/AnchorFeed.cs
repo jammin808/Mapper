@@ -146,18 +146,21 @@ public sealed class AnchorFeed
             MembersChanged?.Invoke();
         try
         {
+            // One deadline for the whole group: every member has the same span to answer, however many there are.
+            try
+            {
+                await Task.WhenAll(waits.Select(w => w.Final.Task)).WaitAsync(wait, ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Those that did not answer finally read as accepted or silent below.
+            }
             var receipts = new List<AirReceipt>(waits.Count);
             foreach (var w in waits)
             {
-                try
-                {
-                    receipts.Add(await w.Final.Task.WaitAsync(wait, ct).ConfigureAwait(false));
-                }
-                catch (TimeoutException)
-                {
-                    receipts.Add(w.Accepted ?? new AirReceipt(w.Member.Node, w.Member.Name, "silent", 0,
+                receipts.Add(w.Final.Task.IsCompletedSuccessfully ? await w.Final.Task.ConfigureAwait(false)
+                    : w.Accepted ?? new AirReceipt(w.Member.Node, w.Member.Name, "silent", 0,
                         string.Create(CultureInfo.InvariantCulture, $"no answer within {wait.TotalSeconds:0.#} s")));
-                }
             }
             return receipts;
         }

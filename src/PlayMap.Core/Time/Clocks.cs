@@ -94,14 +94,23 @@ public sealed class NetworkClock
     public const double DefaultSlewPpm = 200;
 
     /// <summary>The mapping: offset(t) = (the estimator's offset at t, or <paramref name="BaseOffsetNs"/> with none) plus the
-    /// residual, which decays linearly from <paramref name="ResidualNs"/> at <paramref name="ResidualAtLocalNs"/> to zero.</summary>
+    /// residual, which decays linearly from <paramref name="ResidualNs"/> at <paramref name="ResidualAtLocalNs"/> to zero.
+    /// <paramref name="Floor"/> is the latest reading of now through this time line: a slew carries it on, a step starts a new one, so a
+    /// reader that loaded an older mapping can never raise the floor of a newer line.</summary>
     private sealed record Mapping(ClockOffsetEstimator? Estimator, long BaseOffsetNs, double ResidualNs, long ResidualAtLocalNs,
-        long HeardLocalNs, long HoldSinceLocalNs)
+        long HeardLocalNs, long HoldSinceLocalNs, Floor Floor)
     {
-        public static readonly Mapping Own = new(null, 0, 0, 0, long.MinValue, long.MinValue);
-
         public bool Exact => Estimator is null && ResidualNs == 0;
     }
+
+    /// <summary>The latest reading of now on one time line (a reference shared by the slewed mappings of that line).</summary>
+    private sealed class Floor
+    {
+        public long Ns = long.MinValue;
+    }
+
+    /// <summary>A step waiting for its owner to take it; a later correction (or Lead, Promote, a slew) replaces it.</summary>
+    private sealed record PendingStep(ClockOffsetEstimator? Estimator, long BaseOffsetNs);
 
     [ThreadStatic]
     private static NetworkClock? t_pinned;
@@ -110,15 +119,18 @@ public sealed class NetworkClock
     private static long t_pinnedNs;
 
     private readonly Lock _write = new();
-    private volatile Mapping _map = Mapping.Own;
+    private volatile Mapping _map;
+    private PendingStep? _pending;
+    private long _ownBaseNs;
     private double _slewPerNs = DefaultSlewPpm * 1e-6;
-    private long _watermark = long.MinValue;
     private long _steps;
     private long _lastStepNs;
+    private long _estimates;
 
     public NetworkClock(IMonoClock local)
     {
         Local = local ?? throw new ArgumentNullException(nameof(local));
+        _map = new Mapping(null, 0, 0, 0, long.MinValue, long.MinValue, new Floor());
     }
 
     public IMonoClock Local { get; }
@@ -149,6 +161,13 @@ public sealed class NetworkClock
     /// <summary>The last step's Δ, ns (0 before any).</summary>
     public long LastStepNs => Interlocked.Read(ref _lastStepNs);
 
+    /// <summary>Estimates of a leader's clock taken into the mapping (slewed or stepped) since this clock was made: a reader that needs
+    /// a mapping newer than some moment waits for this to move past what it read then.</summary>
+    public long Estimates => Interlocked.Read(ref _estimates);
+
+    /// <summary>True while a step waits for its owner to take it.</summary>
+    public bool StepPending => Volatile.Read(ref _pending) is not null;
+
     /// <summary>The local instant the last estimate arrived (long.MinValue: never, or not following).</summary>
     public long HeardLocalNs => _map.HeardLocalNs;
 
@@ -170,12 +189,13 @@ public sealed class NetworkClock
             if (map.Exact)
                 return local + map.BaseOffsetNs;
             // A slewed mapping is continuous to well under a nanosecond; rounding at a swap could still show one nanosecond back
-            // to a reader in a tight loop, so readers of now never see less than the most recent reading.
+            // to a reader in a tight loop, so readers of now never see less than the latest reading on the same time line.
             var v = local + (long)Math.Round(Offset(map, local));
-            var last = Interlocked.Read(ref _watermark);
+            var floor = map.Floor;
+            var last = Interlocked.Read(ref floor.Ns);
             while (v > last)
             {
-                var seen = Interlocked.CompareExchange(ref _watermark, v, last);
+                var seen = Interlocked.CompareExchange(ref floor.Ns, v, last);
                 if (seen == last)
                     return v;
                 last = seen;
@@ -216,11 +236,13 @@ public sealed class NetworkClock
         Adopt(estimator, 0);
     }
 
-    /// <summary>Back to this node's own clock (it leads, or is solo): slewed or stepped as <see cref="Follow"/>.</summary>
-    public void Lead() => Adopt(null, 0);
+    /// <summary>Back to this node's own time line (it leads, or is solo): its monotonic clock, or the line it continued since it was
+    /// promoted; slewed or stepped as <see cref="Follow"/>.</summary>
+    public void Lead() => Adopt(null, Interlocked.Read(ref _ownBaseNs));
 
-    /// <summary>This node continues the time line it reads now as its own (a backup taking over from its leader): the mapping
-    /// at now is frozen into a fixed offset, so leader time neither jumps nor slews.</summary>
+    /// <summary>This node continues the time line it reads now as its own (a backup taking over from its leader): the mapping at now
+    /// is frozen into a fixed offset — leader time neither jumps nor slews — and stays its own line from then on (a later
+    /// <see cref="Lead"/> keeps it).</summary>
     public void Promote()
     {
         lock (_write)
@@ -228,18 +250,24 @@ public sealed class NetworkClock
             var now = Local.NowNs;
             var map = _map;
             var offset = map.Exact ? map.BaseOffsetNs : (long)Math.Round(Offset(map, now));
-            _map = Mapping.Own with { BaseOffsetNs = offset };
+            Interlocked.Exchange(ref _ownBaseNs, offset);
+            Volatile.Write(ref _pending, null);
+            _map = new Mapping(null, offset, 0, now, long.MinValue, long.MinValue, map.Floor);
         }
     }
 
-    /// <summary>The leader is silent: the clock free-wheels on its last estimate (it already does; this marks since when, for
-    /// STATE and the context). The next estimate ends it.</summary>
-    public void Hold()
+    /// <summary>The leader is silent: the clock free-wheels on its last estimate (it already does; this marks since when, for STATE
+    /// and the context). Only when the estimate heard at <paramref name="heardLocalNs"/> (what the caller judged silent) is still the
+    /// latest: an answer that came meanwhile wins. True when it marked the hold now.</summary>
+    public bool Hold(long heardLocalNs)
     {
         lock (_write)
         {
-            if (_map.HoldSinceLocalNs == long.MinValue)
-                _map = _map with { HoldSinceLocalNs = Local.NowNs };
+            var map = _map;
+            if (map.HoldSinceLocalNs != long.MinValue || map.HeardLocalNs != heardLocalNs || map.Estimator is null)
+                return false;
+            _map = map with { HoldSinceLocalNs = Local.NowNs };
+            return true;
         }
     }
 
@@ -266,50 +294,55 @@ public sealed class NetworkClock
 
     private void Adopt(ClockOffsetEstimator? estimator, long baseOffsetNs)
     {
-        if (TrySlew(estimator, baseOffsetNs))
-            return;
-        if (StepOn is { } on)
-            on(() => StepTo(estimator, baseOffsetNs));
-        else
-            StepTo(estimator, baseOffsetNs);
-    }
-
-    /// <summary>Swaps in the new mapping with the residual that keeps leader time continuous at now; false when the jump is too
-    /// large to slew.</summary>
-    private bool TrySlew(ClockOffsetEstimator? estimator, long baseOffsetNs)
-    {
+        PendingStep step;
         lock (_write)
         {
-            var now = Local.NowNs;
-            var old = _map;
-            var fresh = Target(estimator, baseOffsetNs, now);
-            var current = Offset(old, now);
-            var jump = fresh - current;
-            if (Math.Abs(jump) > SlewLimitNs)
-                return false;
-            var heard = estimator is null ? long.MinValue : now;
-            _map = new Mapping(estimator is { HasEstimate: true } ? estimator : null, baseOffsetNs, -jump, now, heard, long.MinValue);
-            return true;
+            if (TrySlewLocked(estimator, baseOffsetNs))
+                return;
+            step = new PendingStep(estimator, baseOffsetNs);
+            Volatile.Write(ref _pending, step);
         }
+        if (StepOn is { } on)
+            on(() => StepTo(step));
+        else
+            StepTo(step);
     }
 
-    private void StepTo(ClockOffsetEstimator? estimator, long baseOffsetNs)
+    /// <summary>Swaps in the new mapping with the residual that keeps leader time continuous at now; false when the jump is too large
+    /// to slew. A slew replaces any step still waiting (the clock already reads close to the newer estimate). Under the write lock.</summary>
+    private bool TrySlewLocked(ClockOffsetEstimator? estimator, long baseOffsetNs)
+    {
+        var now = Local.NowNs;
+        var old = _map;
+        var jump = Target(estimator, baseOffsetNs, now) - Offset(old, now);
+        if (Math.Abs(jump) > SlewLimitNs)
+            return false;
+        Volatile.Write(ref _pending, null);
+        var follows = estimator is { HasEstimate: true };
+        _map = new Mapping(follows ? estimator : null, baseOffsetNs, -jump, now, follows ? now : long.MinValue, long.MinValue, old.Floor);
+        if (follows)
+            Interlocked.Increment(ref _estimates);
+        return true;
+    }
+
+    /// <summary>Takes a step where its owner runs it; a step replaced meanwhile (by a newer one, a slew, Lead or Promote) does nothing,
+    /// and one whose jump has meanwhile come under the slew limit is slewed.</summary>
+    private void StepTo(PendingStep step)
     {
         long delta;
         lock (_write)
         {
-            var now = Local.NowNs;
-            var fresh = Target(estimator, baseOffsetNs, now);
-            var jump = fresh - Offset(_map, now);
-            var heard = estimator is null ? long.MinValue : now;
-            if (Math.Abs(jump) <= SlewLimitNs)
-            {
-                // Judged again where the step was taken: an estimate that came in meanwhile left nothing to step.
-                _map = new Mapping(estimator is { HasEstimate: true } ? estimator : null, baseOffsetNs, -jump, now, heard, long.MinValue);
+            if (!ReferenceEquals(Volatile.Read(ref _pending), step))
                 return;
-            }
-            _map = new Mapping(estimator is { HasEstimate: true } ? estimator : null, baseOffsetNs, 0, now, heard, long.MinValue);
-            Interlocked.Exchange(ref _watermark, long.MinValue);
+            Volatile.Write(ref _pending, null);
+            if (TrySlewLocked(step.Estimator, step.BaseOffsetNs))
+                return;
+            var now = Local.NowNs;
+            var jump = Target(step.Estimator, step.BaseOffsetNs, now) - Offset(_map, now);
+            var follows = step.Estimator is { HasEstimate: true };
+            _map = new Mapping(follows ? step.Estimator : null, step.BaseOffsetNs, 0, now, follows ? now : long.MinValue, long.MinValue, new Floor());
+            if (follows)
+                Interlocked.Increment(ref _estimates);
             delta = (long)Math.Round(jump);
             Interlocked.Increment(ref _steps);
             Interlocked.Exchange(ref _lastStepNs, delta);

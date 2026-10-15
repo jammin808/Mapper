@@ -30,6 +30,7 @@ public sealed class AnchorFollower : IAsyncDisposable
             IdPrefix = "s",
             OnConnected = async ct =>
             {
+                Subscribing?.Invoke();
                 var reply = await _link!.SendAsync(("SUBSCRIBE ANCHORS " + subscribe).TrimEnd(), ct).ConfigureAwait(false);
                 if (!reply.Ok)
                     _log.LogWarning("The leader at {Address} refused the anchor feed: {Why}", Address, reply.Text);
@@ -44,6 +45,10 @@ public sealed class AnchorFollower : IAsyncDisposable
     public event Action<string, string, string>? Anchor;
 
     public event Action<LinkStatus>? StatusChanged;
+
+    /// <summary>Raised on each connection just before it subscribes: the lines that follow were sent to this connection (a leader that
+    /// came back may read another time line until its clock is heard again).</summary>
+    public event Action? Subscribing;
 
     public LinkStatus Status => _link.Status;
 

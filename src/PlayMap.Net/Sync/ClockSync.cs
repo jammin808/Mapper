@@ -445,6 +445,13 @@ public sealed class ClockSyncClient : IAsyncDisposable
             var sample = new ClockSample(reply.T1, reply.T2, reply.T3, t4);
             if (sample.RoundTrip < 0)
                 return false;
+            if (Moved(sample))
+            {
+                // The leader's time line moved (it restarted, or now continues another line): the samples of the old line are dropped,
+                // or their shorter round trips would keep the clock on it until they aged out.
+                _log.LogInformation("The leader's clock moved by more than its round trips allow: the estimate starts over.");
+                _samples.Clear();
+            }
             _samples.Enqueue(sample);
             while (_samples.Count > Kept)
                 _samples.Dequeue();
@@ -459,6 +466,17 @@ public sealed class ClockSyncClient : IAsyncDisposable
             _snapshot = new SyncSnapshot(_leader.ToString(), estimator.Offset, rtt, published.Drift * 1e6, estimator.Samples, quality);
             return true;
         }
+    }
+
+    /// <summary>True when <paramref name="sample"/>'s offset is further from the kept samples' best than both round trips' halves
+    /// and a millisecond allow: the same leader time line cannot read so. Under the gate.</summary>
+    private bool Moved(ClockSample sample)
+    {
+        if (_samples.Count == 0)
+            return false;
+        var best = _samples.MinBy(s => s.RoundTrip);
+        var allowed = (best.RoundTrip + sample.RoundTrip) / 2.0 + Durations.NsPerMs + Math.Abs(sample.T1 - best.T1) * MaxDrift;
+        return Math.Abs(sample.Offset - best.Offset) > allowed;
     }
 
     /// <summary>A fresh estimator from the recent samples, never written after it is published. Drift is applied

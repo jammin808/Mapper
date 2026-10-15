@@ -61,7 +61,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly ConcurrentDictionary<(string Feed, long Seq), byte> _airDone = new();
     private readonly Lock _dueGate = new();
     private readonly Lock _persistGate = new();
-    private readonly List<DueAir> _due = [];
+    private readonly Queue<DueAir> _due = new();
     private readonly List<Task> _work = [];
     private volatile EngineCore? _engine;
     private volatile SyncSettings _settings;
@@ -82,9 +82,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private (string Verdict, Light Light, int Heard, bool Mixed) _lastPicture = ("", Light.Grey, -1, false);
     private (bool Slewing, bool Holding, long HoldingS) _lastClock;
     private string _lastLock = "";
-    private volatile LockWish? _lockWish;
+    private LockWish? _lockWish;
     private long _refused;
     private long _watches;
+    private long _estimatesBefore;
     private int _disposed;
 
     /// <summary>The air lines whose sequence a follower remembers (so a line handed again is not run twice).</summary>
@@ -390,13 +391,15 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         await foreach (var (group, key, json) in lines.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             // A follow that ended (or moved to another leader) takes nothing more of its old feed.
-            if (!ReferenceEquals(_lines, lines))
-                return;
-            while (!Clock.IsFollowing)
+            // Taken only once the clock reads this follow's leader: an estimate heard since the follow (or the feed's connection) began,
+            // and no step still waiting to be taken.
+            while (!Clock.IsFollowing || Clock.Estimates <= Interlocked.Read(ref _estimatesBefore) || Clock.StepPending)
             {
-                if (!await Waits.DelayAsync(_o.WatchEvery, ct).ConfigureAwait(false))
+                if (!ReferenceEquals(_lines, lines) || !await Waits.DelayAsync(_o.WatchEvery, ct).ConfigureAwait(false))
                     return;
             }
+            if (!ReferenceEquals(_lines, lines))
+                return;
             // The air and the lock are the followed group's; any other '@' key is a line this node does not know.
             if (key.StartsWith('@') && (!string.Equals(group, _settings.Group, StringComparison.Ordinal) || key is not (AnchorFeed.Air or LockRecord.Key)))
             {
@@ -421,12 +424,20 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     }
 
     /// <summary>The leader's frame lock, taken here (on the lane); a join the armed show holds back is asked again on each watch.</summary>
-    private async Task TakeLockAsync(string json)
+    private Task TakeLockAsync(string json) =>
+        LockRecord.TryParse(json, out var record) ? TakeLockAsync(new LockWish(record), fresh: true) : Task.CompletedTask;
+
+    /// <summary>Takes the leader's lock record on the lane while it is still the newest wish: a retry queued before a newer record never
+    /// acts after it. A join the armed show holds back stays the wish.</summary>
+    private async Task TakeLockAsync(LockWish wish, bool fresh)
     {
-        if (_engine is not { } engine || !LockRecord.TryParse(json, out var record))
+        if (_engine is not { } engine)
             return;
-        var (taken, _) = await engine.AdoptLeaderLockAsync(record).ConfigureAwait(false);
-        _lockWish = taken ? null : new LockWish(record);
+        if (fresh)
+            Volatile.Write(ref _lockWish, wish);
+        var (taken, _) = await engine.AdoptLeaderLockAsync(wish.Record, () => ReferenceEquals(Volatile.Read(ref _lockWish), wish)).ConfigureAwait(false);
+        if (taken)
+            Interlocked.CompareExchange(ref _lockWish, null, wish);
     }
 
     private async Task AdoptAsync(string group, string playlistId, string json)
@@ -458,12 +469,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         {
             reply = CommandReply.Fail($"'{text}' is not an air line a member runs from its leader{(error is not null ? " (" + error.Reason + ")" : "")}");
         }
-        else if (at > Clock.NowNs && engine.IsLaneVerb(m.Spec))
+        else if (engine.IsLaneVerb(m.Spec) && Queued(at, line) is { } due)
         {
             await link.ReceiptAsync(seq, "accepted", at, "", _stop.Token).ConfigureAwait(false);
-            var due = new DueAir(at, line, new TaskCompletionSource<(CommandReply, long)>(TaskCreationOptions.RunContinuationsAsynchronously));
-            lock (_dueGate)
-                _due.Add(due);
             Background(ReceiptWhenRunAsync(due, seq, link));
             return;
         }
@@ -474,6 +482,20 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             return;
         }
         await Receipt(link, seq, at, reply).ConfigureAwait(false);
+    }
+
+    /// <summary>A lane line whose instant is still to come, or that arrives behind lines still waiting, joins the queue the lane's tick
+    /// runs in arrival order (so a line never runs before one the leader ran first); null when it may run now.</summary>
+    private DueAir? Queued(long at, WireLine line)
+    {
+        lock (_dueGate)
+        {
+            if (_due.Count == 0 && at <= Clock.NowNs)
+                return null;
+            var due = new DueAir(at, line, new TaskCompletionSource<(CommandReply, long)>(TaskCreationOptions.RunContinuationsAsynchronously));
+            _due.Enqueue(due);
+            return due;
+        }
     }
 
     private async Task ReceiptWhenRunAsync(DueAir due, long seq, AnchorFollower link)
@@ -487,25 +509,20 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private Task<bool> Receipt(AnchorFollower link, long seq, long ran, CommandReply reply) =>
         link.ReceiptAsync(seq, !reply.Ok ? "refused" : reply.Applied ? "applied" : "accepted", ran, reply.Ok ? reply.Effect : reply.Payload ?? "refused", _stop.Token);
 
-    /// <summary>On the lane, each tick: air lines whose instant came run, pinned to it, in the order of their instants; a silent leader
-    /// is free-wheeled on.</summary>
+    /// <summary>On the lane, each tick: queued air lines run from the head while their instant has come, each pinned to it, in the
+    /// order they arrived; a silent leader is free-wheeled on.</summary>
     internal void Tick(EngineCore engine, long leaderNs)
     {
-        List<DueAir>? due = null;
-        lock (_dueGate)
+        while (true)
         {
-            for (var i = _due.Count - 1; i >= 0; i--)
+            DueAir d;
+            lock (_dueGate)
             {
-                if (_due[i].AtLeaderNs > leaderNs)
-                    continue;
-                (due ??= []).Add(_due[i]);
-                _due.RemoveAt(i);
+                if (!_due.TryPeek(out var head) || head.AtLeaderNs > leaderNs)
+                    break;
+                d = _due.Dequeue();
             }
-        }
-        if (due is not null)
-        {
-            foreach (var d in due.OrderBy(d => d.AtLeaderNs))
-                d.Done.TrySetResult(engine.RunAirLineOnLane(d.Line, d.AtLeaderNs, LeaderSession));
+            d.Done.TrySetResult(engine.RunAirLineOnLane(d.Line, d.AtLeaderNs, LeaderSession));
         }
         WatchLeader(engine);
     }
@@ -516,10 +533,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     {
         if (_follower is null || !Clock.IsFollowing || Role != "follower")
             return;
-        var silent = Clock.Local.NowNs - Clock.HeardLocalNs > _settings.LeaderTimeoutMs * Durations.NsPerMs;
-        if (silent && !Clock.IsHolding)
+        var heard = Clock.HeardLocalNs;
+        var silent = Clock.Local.NowNs - heard > _settings.LeaderTimeoutMs * Durations.NsPerMs;
+        if (silent && Clock.Hold(heard))
         {
-            Clock.Hold();
             _holdNoted = true;
             var who = LeaderLabel;
             engine.Journal.Add("sync", $"{who} went quiet: free-wheeling on the last estimate; playlists keep their anchored switches", ok: false);
@@ -586,8 +603,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                     _lastClock = clockShape;
                     _engine?.FactsChanged();
                 }
-                if (_lockWish is { } wish && Role == "follower")
-                    await TakeLockAsync(wish.Record.ToJson()).ConfigureAwait(false);
+                if (Volatile.Read(ref _lockWish) is { } wish && Role == "follower")
+                    await TakeLockAsync(wish, fresh: false).ConfigureAwait(false);
                 if (_engine is { } engine && Leads)
                 {
                     // The group's frame lock to the members, whenever it changes (and to each member that joins, as the latest).
@@ -659,6 +676,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private async Task<string> StartFollowingAsync(string group, ShowBusPeer peer)
     {
         await StopFollowingAsync().ConfigureAwait(false);
+        if (Volatile.Read(ref _disposed) != 0)
+            return "; this node is closing";
+        // The network host has just moved the exchange to this leader: its lines wait for an estimate heard from here on.
+        Interlocked.Exchange(ref _estimatesBefore, Clock.Estimates);
         _adopted.Clear();
         _airDone.Clear();
         _leaderName = peer.Name;
@@ -677,6 +698,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             });
             _lines = lines;
             Background(TakeLinesAsync(lines, link, _stop.Token));
+            link.Subscribing += () => Interlocked.Exchange(ref _estimatesBefore, Clock.Estimates);
             link.Anchor += OnAnchor;
             link.StatusChanged += _ => _engine?.FactsChanged();
             _follower = link;
@@ -713,6 +735,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 d.Done.TrySetResult((CommandReply.Fail("this node stopped following before the line's instant"), d.AtLeaderNs));
             _due.Clear();
         }
+        Volatile.Write(ref _lockWish, null);
         _holdNoted = false;
     }
 
@@ -726,6 +749,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             await _changes.WaitAsync(ct).ConfigureAwait(false);
             try
             {
+                if (_settings.Role != "lead" || !string.Equals(_settings.Group, s.Group, StringComparison.Ordinal) || Leads)
+                    return;   // a verb that held the changes chose otherwise
                 var words = await _network.LeadAsync(s.Group, ct).ConfigureAwait(false);
                 _words = $"leading {s.Group}";
                 _engine?.Journal.Add("sync", words + " (kept from before the restart)");
@@ -755,6 +780,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 await _changes.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    if (_settings.Role != "follow" || _settings.Leader != s.Leader || Role == "follower")
+                        return;   // a verb that held the changes chose otherwise
                     _joining = peer.Id;
                     var words = await _network.FollowAsync(s.Group, peer.Id, ct).ConfigureAwait(false);
                     var said = await StartFollowingAsync(s.Group, peer).ConfigureAwait(false);
@@ -838,7 +865,18 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             return;
         await _stop.CancelAsync().ConfigureAwait(false);
         VblankSinks.Detach(Clock, this);
-        await StopFollowingAsync().ConfigureAwait(false);
+        // A role change in flight finishes first (it may be opening a link this close must then close); bounded, so a stuck one
+        // never holds the engine's stop.
+        var held = await _changes.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await StopFollowingAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (held)
+                _changes.Release();
+        }
         Task[] work;
         lock (_work)
             work = [.. _work.Select(t => t.ContinueWith(static _ => { }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default))];

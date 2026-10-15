@@ -29,8 +29,12 @@ read lock-free by the lane and the render thread.
   pitch change.
 - **Step.** A larger jump (following a leader for the first time, a leader that restarted, going back to this node's own clock)
   steps. The step is taken **on the engine's control lane** and announces Δ = new − old leader time; in the same lane action the
-  engine moves every playlist's anchor (and so every scheduled `AT` start) and the identify deadline by +Δ, so media positions
-  are continuous. A group playlist that already took its leader's anchor is on the leader's time line and stays. The journal says
+  engine moves every playlist's anchor (and so every scheduled `AT` start), the identify deadline, the master's and the panic's
+  fades and safe looks, the fades back from a panic and the panic's steps and lines still due, by +Δ: media positions and levels
+  are continuous. A group playlist that already took its leader's anchor is on the leader's time line and stays (when the step
+  brings the clock onto that line). The render thread reads the snapshot and the clock separately, so a frame drawn in the
+  microseconds between the clock's swap and the rebased snapshot can show one step; a step happens when a node starts following
+  or its leader's clock jumps, not in a running show (an epoch in the snapshot would close it: a spine amendment). The journal says
   "followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place"; the event `sync.stepped` carries Δ.
 - **Hold.** A leader silent for `leaderTimeoutMs` (3 s): the follower free-wheels on its last estimate (drift applied). Its
   playlists keep switching their own items at the anchored instants. STATE `sync.freewheelS`, the journal ("FOH (0badc0de)
@@ -66,7 +70,7 @@ in order:
 - **`ANCHOR <group> @lock {"apply","swapGroup","barrier","counter":{…}|null}`**: the group's frame lock. A member offers the
   leader's counter anchor to its outputs (`IFrameLockBackend.OfferAnchor`, so counts map to the same show time), joins when the
   leader applied the lock and leaves when it released it — never with its own frame lock off, and not while it is armed and on
-  air (it joins at the next blackout or once disarmed, as `SYNC APPLY` would).
+  air (it joins at the next blackout or once disarmed, as `SYNC APPLY` would). The record is taken on the member's lane.
 
 A member takes the feed's lines one at a time, in the order they came (a leader numbers and pushes each air line under one lock,
 in the order its lines ran), and none before its clock reads the leader's time line; a feed that comes faster than it takes it is
@@ -93,14 +97,14 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 - the **next slip** at (P/2 − φ)/δ for a slower output, (φ + P/2)/|δ| for a faster one (δ the relative rate); none under
   0.01 ppm or for a locked pair. 50 ppm at 60 Hz slips every 5 min 33 s; 59.94 against 60 every 16.65 s;
 - **mixed rate** past 500 ppm (59.94 against 60 is 1001), amber;
-- the **verdict**: `same vblank` (every heard output locked), `free-running` (amber while the show plays and a slip is under
-  10 min), `mixed rate`, `unknown` (nothing heard).
+- the **verdict**: `same vblank` (every heard output locked), `free-running` (red when an output fell out of the lock, amber
+  after 5 s of joining, or while the show plays and a slip is under 10 min), `mixed rate` (amber), `unknown` (nothing heard).
 
 ## STATE, context, preflight, INDEX
 
-- **STATE `sync`** gains `group`, `feed` (live|connecting|lost|off), `members`, `slewing`, `steps`, `freewheelS`, `outputs[]`
-  (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`), `verdict`, `mixedRate`, `light`, `words`
-  (`SYNC STATUS` answers the same object). `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
+- **STATE `sync`** gains SPINE §9's keys: `group`, `feed` (live|connecting|lost|off), `slewing`, `steps`, `freewheelS`,
+  `outputs[]` (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`; `mixedRate` per pair),
+  `verdict`, `words` (`SYNC STATUS` answers the same object). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
   not the clocks' raw difference.
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running

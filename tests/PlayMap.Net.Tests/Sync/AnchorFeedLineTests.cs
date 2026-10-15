@@ -101,6 +101,31 @@ public sealed class AnchorFeedLineTests
     }
 
     [Fact]
+    public async Task EveryMemberHasTheSameOneDeadlineHoweverManyThereAre()
+    {
+        var feed = new AnchorFeed();
+        var subs = Enumerable.Range(0, 20).Select(i => feed.Subscribe(
+            Member("s" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), (0x10000000 + i).ToString("x8", System.Globalization.CultureInfo.InvariantCulture)), new Sink())).ToList();
+        try
+        {
+            var took = System.Diagnostics.Stopwatch.StartNew();
+            var sent = feed.SendAirAsync("show", null, "BLACKOUT ON", 5, TimeSpan.FromMilliseconds(100), CancellationToken.None);
+            Assert.True(feed.Receipt("s7", 1, "applied", 5, ""));
+            var receipts = await sent;
+            // Twenty silent members waited for one after another would take two seconds; together they take the one deadline.
+            Assert.True(took.ElapsedMilliseconds < 1_500, $"{took.ElapsedMilliseconds} ms");
+            Assert.Equal(20, receipts.Count);
+            Assert.Equal(19, receipts.Count(r => r.Stage == "silent"));
+            Assert.Equal("applied", receipts[7].Stage);
+        }
+        finally
+        {
+            foreach (var s in subs)
+                s.Dispose();
+        }
+    }
+
+    [Fact]
     public void AMemberThatComesBackReplacesItselfOnlyFromItsOwnAddressAndAnOverflowedOneLeaves()
     {
         var feed = new AnchorFeed();
