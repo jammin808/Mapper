@@ -9,7 +9,7 @@ playlist item (id or name). A `<slot>` is an effect's id (`fx…`) or `<target>#
 |---|---|---|---|---|
 | `FX KINDS` | `FX KINDS [<family>\|<search>]` | JSON: each kind's `id`, `format`, `name`, `family`, `categories`, `role`, `words`, `params` (as `GENERATOR KINDS`), `images`, `traits` `{history, audio, geometry, native, mayFlash}` | low | no |
 | `FX LIST` | `FX LIST <target>\|ALL` | JSON: `[{owner, ownerKind, name, slots:[…as STATE…]}]` | low | no |
-| `FX ADD` | `FX ADD <target> <kind> [AT <position>] [<name>]` | the slot id; the effect words say "compiling" (an output's chain) or that the chain is kept, not drawn | review | yes |
+| `FX ADD` | `FX ADD <target> <kind> [AT <position>] [<name>]` | the slot id; the effect words say "compiling" (an output's chain), "compiling when its layer\|surface\|item is on the air", or, on a canvas, that its chain is kept, not drawn; an item's slot counts its time from the item's start (origin 0), any other's from the instant it was added | review | yes |
 | `FX REMOVE` | `FX REMOVE <slot>` | effect words | review | yes |
 | `FX MOVE` | `FX MOVE <slot> <position>` | effect words; the same position is refused | review | yes |
 | `FX SET` | `FX SET <slot> <param>\|mix\|blend\|scale\|name <value>`, `FX SET <slot> <param>\|mix\|scale BY <delta>` | effect words; edits coalesce per slot and field; a number `BY` moves by that fraction of its range, a choice by that many steps | review | yes |
@@ -56,13 +56,16 @@ renderer, "no GL context on this node". The compile waits at most 10 s for the l
 ```
 
 A slot's `state` is what the renderer observed: `compiling` from `FX ADD` until the renderer draws it, then `ok`, or `faulted`
-with the compiler's words at the file's line ("line 3: `nowhere' undeclared"). `idle` names why it is not drawn ("not drawn: its
-output is off", "not drawn: the air is black", "not drawn: a test pattern or safe look covers its output", "not drawn: its output
-shows a scan frame or has no size", "not drawn: this build draws effects on outputs only, not on a layer", "no renderer on this
-node"); a held picture (freeze) keeps the slot's last state. A slot that is not drawn keeps its program, so it draws on the first
-frame back. A history
-effect is `"deterministic": false` with the words "integrates frame to frame: not frame-exact across nodes". The fixture is
-`tests/fixtures/state/fx.json`; the desk's cards are `fx.cards.json`.
+with the compiler's words at the file's line ("line 3: `nowhere' undeclared"). `idle` names why it is not drawn — kept whole while
+the air keeps it off: "not drawn: the air is black", "not drawn: a test pattern or safe look covers its output", "not drawn: its
+output shows a scan frame or has no size"; let go once unused while its owner is out of the picture: "not drawn: its output is
+off", "not drawn: the layer is not visible", "not drawn: no output shows its canvas", "not drawn: the surface is not visible",
+"not drawn: no projector shows it", "not drawn: the quad has no source and shows its test card", "not drawn: its content is a
+surface-aware effect the stage draws itself", "not drawn: its playlist is not showing it"; and "not drawn: this build draws a
+canvas's layers' chains, not the canvas's own", "no renderer on this node". A held picture (freeze) keeps the slot's last state.
+A slot the air keeps off keeps its program and buffers, so it draws on the first frame back (`docs/EFFECTS.md`, *Where a chain
+runs*). A history effect is `"deterministic": false` with the words "integrates frame to frame: not frame-exact across nodes".
+The fixture is `tests/fixtures/state/fx.json`; the desk's cards are `fx.cards.json`.
 
 ## Context
 
@@ -77,8 +80,9 @@ TOGGLE`, instant) and **Mix ±** (`FX SET $(id) mix BY ±0.05`, hold) for an enc
 
 ## Preflight
 
-Section `effects`: a row per slot on an enabled output's chain — green drawing, amber still compiling, red faulted or missing
-with the fix `FX BYPASS <slot> ON` — or one green row when no effect runs on an output.
+Section `effects`: a row per slot on an enabled output's chain, and per slot on a layer's, surface's or item's chain that is on the
+air now or of a kind this node does not have — green drawing, amber still compiling, red faulted or missing with the fix
+`FX BYPASS <slot> ON` — or one green row when no effect runs on the air.
 
 ## Papers note
 
@@ -86,10 +90,11 @@ For the integration docs pass:
 
 - `WIRE.md`: the ten FX rows above and STATE `fx` / `outputs[].fx`; `FX PLUGINS` and `FX TRUST` left the catalogue (FFGL is next
   round). `FX BIND`/`FX UNBIND` remain aliases of audio's `MOD BIND`/`MOD UNBIND`.
-- `ARCHITECTURE.md`: the effects pass (an `IFramePass` at order 100: output chains before the output stage), the compile lane on
-  a shared context, the ISF translator in Core (`Core/Effects`), the built-in library embedded in Render (`Render/Effects/Library`).
-- `ROADMAP.md`: ISF effects on output chains done (324/327 of the public ISF files at GLSL 3.30); layer, surface and item chains
-  wait for the renderer's call points; FFGL, bindings, geometry-aware effects and the rest of the library are next round.
-- Spine amendment asked for: `IFramePass` (or `SourceResolver`/`StageRenderer`) call points for a layer's and a surface's picture,
-  and the playlist item's start for item chains; `PassFrame` carrying the frame's pattern/safe-look override per output (the pass
-  reads it today from `FxPass.Prepare(in FrameInputs)`, called by the render host's compose hook).
+- `ARCHITECTURE.md`: the effects pass (an `IFramePass` at order 100: item, layer and surface chains where those pictures are made,
+  output chains before the output stage), the compile lane on a shared context, the ISF translator in Core (`Core/Effects`), the
+  built-in library embedded in Render (`Render/Effects/Library`).
+- `ROADMAP.md`: ISF effects on output, layer, surface and item chains done (324/327 of the public ISF files at GLSL 3.30); a
+  canvas's own chain, FFGL, bindings, geometry-aware effects and the rest of the library are next round.
+- Spine amendment landed: `IFramePass.Item`/`Layer`/`Surface` (default: the picture handed back), called by `SourceResolver` and
+  `StageRenderer` with the frame's ordered passes and `PassFrame`, which the engine sets once a frame; `PassFrame.Covered`/`Held`
+  per output; `ISourceProvider.Item` and `SourceMix.FromItem`/`ToItem` name the item on the air and its start.

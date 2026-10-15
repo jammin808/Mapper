@@ -14,8 +14,9 @@ namespace PlayMap.Engine.Tests.Fx;
 
 /// <summary>Effects on a running render host: a slot STATE first shows compiling becomes ok once the renderer draws it and the
 /// output shows the effect; a file that does not compile is faulted in STATE at its line and the output shows its input; the
-/// preflight check reds it with the line that takes it off the air; a warm frame with a chain allocates nothing on the frame
-/// path; and STATE.fx from a real scenario is the committed fixture, with the card descriptor that reads it.</summary>
+/// preflight check reds it with the line that takes it off the air; a warm frame with an output chain, or with layer and surface
+/// chains seen by two projectors, allocates nothing on the frame path; and STATE.fx from a real scenario is the committed fixture,
+/// with the card descriptor that reads it.</summary>
 [Collection("render host")]
 public sealed class FxHostTests
 {
@@ -215,7 +216,7 @@ public sealed class FxHostTests
     private static FxSlot Slot(string id, string kind) => new(id, kind, "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0);
 
     /// <summary>The fixture's show: an output chain with an effect drawing, one bypassed, a history effect and a file that does not
-    /// compile; a layer chain this build keeps but does not draw.</summary>
+    /// compile; a layer chain on a canvas no output shows, which says so.</summary>
     private static Project FixtureShow()
     {
         var asset = new FxAsset("fa00000001", "Broken", FxFormat.Isf, "", FxCatalog.ContentHash(Broken, null)) { Source = Broken };
