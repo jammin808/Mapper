@@ -513,7 +513,7 @@ public static class VerbCatalog
         V2("CALIBRATION ACCEPT", "CALIBRATION ACCEPT <projector>|<output>|ALL|<snapshot>", "Accepts the current (or a staged) result: it becomes the fallback", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FALLBACK", "CALIBRATION FALLBACK <projector>|<output>|ALL", "Back to the fallback result, exactly", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FORGET", "CALIBRATION FORGET <snapshot>", "Forgets a kept result (never the current, fallback or staged one)", VerbCategory.Calibration, VerbRisk.Review, true),
-        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>… [STAGE]", "Re-solves only the projectors named from their pins as they stand (dragged onto the wall's features), scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>…|ALL [CAMERA <camera>] [STAGE]", "Re-solves only the projectors named — from their pins as they stand, or with CAMERA from a fresh look at their dots (only the ones found moved) — scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("CALIBRATION CANCEL", "CALIBRATION CANCEL", "Stops a calibration task and gives the outputs back", VerbCategory.Calibration, VerbRisk.Low, true) with { Show = ShowClass.Perform },
     ];
 

@@ -177,7 +177,7 @@ public sealed class ResolveTests(ITestOutputHelper output)
         Assert.Equal("STAGE asked for it", reply.GetProperty("projectors")[0].GetProperty("why").GetString());
         Assert.NotNull(rig.Project.FindProjector("pj_test1")!.StagedId);
         Assert.Contains("no projector", await rig.Refused("CALIBRATION RESOLVE pj_nobody"), StringComparison.Ordinal);
-        Assert.Contains("not on this node yet", await rig.Refused("CALIBRATION RESOLVE pj_test1 CAMERA cm_x"), StringComparison.Ordinal);
+        Assert.Contains("no camera cm_x", await rig.Refused("CALIBRATION RESOLVE pj_test1 CAMERA cm_x"), StringComparison.Ordinal);
         Assert.Contains("no calibration task", await rig.Refused("CALIBRATION CANCEL"), StringComparison.Ordinal);
         // An assistant's re-solve always waits for a person.
         var assistant = WallRig.Desk with { SessionId = "a1", Transport = "mcp", ClientName = "Assistant" };
