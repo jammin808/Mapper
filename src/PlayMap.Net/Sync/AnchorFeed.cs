@@ -15,7 +15,7 @@ public sealed record AirReceipt(string Node, string Name, string Stage, long App
 
 /// <summary>The leader's side of the group feed (<c>SUBSCRIBE ANCHORS</c>): every subscriber gets, in order, an
 /// <c>ANCHOR &lt;group&gt; &lt;playlist&gt; &lt;json&gt;</c> line on each transport change of a synced playlist, and the group's air lines
-/// <c>ANCHOR &lt;group&gt; @air {"seq","line","leaderNs"}</c>, which each member runs at that leader instant through its own gate and
+/// <c>ANCHOR &lt;group&gt; @air {"feed","seq","line","leaderNs"}</c>, which each member runs at that leader instant through its own gate and
 /// answers with <c>SYNC RECEIPT</c>. A new subscriber first gets the latest anchor of every playlist and the latest air line of
 /// each kind (blackout, master, panic), so a member that comes back rejoins the show where it is. The feed moves lines; what they
 /// mean is the engine's. Any thread.</summary>
@@ -33,6 +33,10 @@ public sealed class AnchorFeed
     private readonly Dictionary<(long Seq, string Session), Waiting> _waiting = [];
     private long _airSeq;
 
+    /// <summary>Eight hex, new per feed: an air line's sequence is counted per feed, so a member tells a leader that restarted
+    /// (counting from one again) from one that hands a line again.</summary>
+    public string Instance { get; } = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(4));
+
     private sealed record Subscriber(AnchorMember Member, IPushSink Sink);
 
     private sealed class Waiting(AnchorMember member)
@@ -47,18 +51,29 @@ public sealed class AnchorFeed
     /// <summary>Raised (outside the feed's lock) when a member joins or leaves.</summary>
     public event Action? MembersChanged;
 
-    /// <summary>The subscribers now, in the order they joined.</summary>
+    /// <summary>The group's members now, in the order they joined: the subscribers that named their node (a subscriber that names
+    /// none only reads the lines — a desk watching the group — and is never waited for).</summary>
     public IReadOnlyList<AnchorMember> Members
     {
         get
         {
             lock (_gate)
-                return [.. _subs.Select(s => s.Member)];
+                return [.. _subs.Where(s => s.Member.Node.Length > 0).Select(s => s.Member)];
         }
     }
 
-    /// <summary>Adds a subscriber (a second subscription of the same session replaces the first) and hands it every latest line.
-    /// Disposing the answer ends it.</summary>
+    /// <summary>Every subscriber now, members and readers.</summary>
+    public int Subscribers
+    {
+        get
+        {
+            lock (_gate)
+                return _subs.Count;
+        }
+    }
+
+    /// <summary>Adds a subscriber (a second subscription of the same session, or a member that came back on a new connection,
+    /// replaces the first) and hands it every latest line. Disposing the answer ends it.</summary>
     public IDisposable Subscribe(AnchorMember member, IPushSink sink)
     {
         ArgumentNullException.ThrowIfNull(member);
@@ -66,7 +81,7 @@ public sealed class AnchorFeed
         var sub = new Subscriber(member, sink);
         lock (_gate)
         {
-            _subs.RemoveAll(s => s.Member.SessionId == member.SessionId);
+            _subs.RemoveAll(s => s.Member.SessionId == member.SessionId || (member.Node.Length > 0 && s.Member.Node == member.Node));
             _subs.Add(sub);
             foreach (var (_, line) in _latest)
                 sink.InOrder(line);
@@ -95,6 +110,7 @@ public sealed class AnchorFeed
         var json = JsonText.Write(w =>
         {
             w.WriteStartObject();
+            w.WriteString("feed", Instance);
             w.WriteNumber("seq", seq);
             w.WriteString("line", line);
             w.WriteNumber("leaderNs", leaderNs);
@@ -104,7 +120,7 @@ public sealed class AnchorFeed
         List<Waiting> waits;
         lock (_gate)
         {
-            waits = [.. _subs.Select(s => new Waiting(s.Member))];
+            waits = [.. _subs.Where(s => s.Member.Node.Length > 0).Select(s => new Waiting(s.Member))];
             foreach (var w in waits)
                 _waiting[(seq, w.Member.SessionId)] = w;
         }
@@ -225,9 +241,10 @@ public sealed class AnchorFeed
         return true;
     }
 
-    /// <summary>Reads an air line's JSON: its sequence, the line and the leader instant; false when any is missing.</summary>
-    public static bool TryReadAir(string json, out long seq, out string line, out long leaderNs)
+    /// <summary>Reads an air line's JSON: its feed and sequence, the line and the leader instant; false when any is missing.</summary>
+    public static bool TryReadAir(string json, out string feed, out long seq, out string line, out long leaderNs)
     {
+        feed = "";
         seq = 0;
         line = "";
         leaderNs = 0;
@@ -237,8 +254,10 @@ public sealed class AnchorFeed
             var r = doc.RootElement;
             if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("seq", out var s) || !s.TryGetInt64(out seq)
                 || !r.TryGetProperty("leaderNs", out var l) || !l.TryGetInt64(out leaderNs)
-                || !r.TryGetProperty("line", out var t) || t.ValueKind != JsonValueKind.String)
+                || !r.TryGetProperty("line", out var t) || t.ValueKind != JsonValueKind.String
+                || !r.TryGetProperty("feed", out var f) || f.ValueKind != JsonValueKind.String)
                 return false;
+            feed = f.GetString() ?? "";
             line = t.GetString() ?? "";
             return line.Length > 0 && !line.Contains('\n', StringComparison.Ordinal);
         }

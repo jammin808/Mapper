@@ -19,6 +19,7 @@ public sealed class CatalogueTests
         "FX PLUGINS", "FX TRUST", // wp2-fx: FFGL is next round
         "RECORD", "SELECT", "COMPANION PRESS", "COMPANION VAR", "COMPANION BRIGHTNESS", // wp2-companion: the action feed, selection and the node → Companion link are next round
         "OVERLAY GRID", // wp2-wall: the alignment grid is next round
+        "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
     ];
 
     /// <summary>Rows a package added inside its own block for what it ships (PLAN §2.2), beyond SPINE §4.3's.</summary>

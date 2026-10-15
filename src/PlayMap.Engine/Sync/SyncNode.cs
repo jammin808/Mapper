@@ -57,8 +57,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly ConcurrentDictionary<string, uint> _seq = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (Core.Sync.LockState State, long AtWatch)> _lastSent = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _adopted = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<long, byte> _airDone = new();
+    private readonly ConcurrentDictionary<(string Feed, long Seq), byte> _airDone = new();
     private readonly Lock _pendingGate = new();
+    private readonly Lock _persistGate = new();
     private readonly List<(string Group, string Key, string Json)> _pending = [];
     private readonly List<DueAir> _due = [];
     private readonly List<Task> _work = [];
@@ -71,13 +72,19 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private volatile string _words = "";
     private volatile string _leaderName = "";
     private volatile string _leaderAddress = "";
+    private volatile string _joining = "";
     private IVblankSource? _source;
     private bool _holdNoted;
     private (string Verdict, Light Light, int Heard, bool Mixed) _lastPicture = ("", Light.Grey, -1, false);
     private (bool Slewing, bool Holding, long HoldingS) _lastClock;
+    private string _lastLock = "";
+    private LockRecord? _lockWish;
     private long _refused;
     private long _watches;
     private int _disposed;
+
+    /// <summary>The air lines whose sequence a follower remembers (so a line handed again is not run twice).</summary>
+    private const int AirRemembered = 1024;
 
     /// <summary>An air line waiting for its instant on this node's show clock.</summary>
     private sealed record DueAir(long AtLeaderNs, WireLine Line, TaskCompletionSource<CommandReply> Done);
@@ -111,6 +118,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
 
     /// <summary>What the node says about its place in the group now.</summary>
     public string Words => _words;
+
+    /// <summary>The leader this node is following or about to follow (its node id; "" when it follows none): set before the clock's
+    /// first answer from it, so the step that answer brings is said as following it.</summary>
+    public string Joining => _joining;
 
     /// <summary>Reports refused from a sender that is not a member of this node's group.</summary>
     public long RefusedReports => Interlocked.Read(ref _refused);
@@ -178,6 +189,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 }
             }
             await StopFollowingAsync().ConfigureAwait(false);
+            _joining = "";
             Board.Clear();
             Feed.Forget();
             var kept = Persist(s => s with { Role = "lead", Group = group, Leader = "" });
@@ -209,12 +221,15 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 && !Clock.IsHolding && FeedWord == "live")
                 return CommandReply.Fail($"already following {peer.Name} ({peer.Id}) for {group}");
             string words;
+            var was = _joining;
+            _joining = peer?.Id ?? args[1];
             try
             {
                 words = await _network.FollowAsync(group, args[1], ct).ConfigureAwait(false);
             }
             catch (InvalidOperationException ex)
             {
+                _joining = was;
                 return CommandReply.Fail(ex.Message);
             }
             peer = FindPeer(args[1]);
@@ -269,7 +284,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
 
     // ---- The fan-out ------------------------------------------------------------------------------------------------------
 
-    public IReadOnlyList<string> Members => Leads ? [.. Feed.Members.Select(m => m.Node.Length > 0 ? m.Node : m.Name)] : [];
+    public IReadOnlyList<string> Members => Leads ? [.. Feed.Members.Select(m => m.Node)] : [];
 
     public async Task<IReadOnlyList<FanoutReceipt>> SendAsync(string line, long atLeaderNs, CancellationToken ct)
     {
@@ -332,8 +347,19 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     {
         if (key == AnchorFeed.Air)
             Background(RunAirAsync(json));
+        else if (key == LockRecord.Key)
+            TakeLock(json);
         else
             Background(AdoptAsync(group, key, json));
+    }
+
+    /// <summary>The leader's frame lock, taken here; a join the armed show holds back is asked again on each watch.</summary>
+    private void TakeLock(string json)
+    {
+        if (_engine is not { } engine || !LockRecord.TryParse(json, out var record))
+            return;
+        var (taken, _) = engine.AdoptLeaderLock(record);
+        _lockWish = taken ? null : record;
     }
 
     private async Task AdoptAsync(string group, string playlistId, string json)
@@ -348,10 +374,15 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     {
         if (_engine is not { } engine || _follower is not { } link)
             return;
-        if (!AnchorFeed.TryReadAir(json, out var seq, out var text, out var at))
+        if (!AnchorFeed.TryReadAir(json, out var feed, out var seq, out var text, out var at))
             return;
-        if (!_airDone.TryAdd(seq, 0))
+        if (!_airDone.TryAdd((feed, seq), 0))
             return;   // the latest of its kind, handed again on a new subscription: it ran here already
+        if (_airDone.Count > AirRemembered)
+        {
+            foreach (var old in _airDone.Keys.OrderBy(k => k.Seq).Take(_airDone.Count - AirRemembered / 2))
+                _airDone.TryRemove(old, out _);
+        }
         CommandReply reply;
         if (!WireGrammar.TryParse(text, out var line, out var error) || VerbCatalog.Match(line) is not { } m || !MemberVerbs.Contains(m.Spec.Name))
         {
@@ -445,11 +476,12 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
 
     public void Offer(in VblankReport report, IPAddress from)
     {
-        // Only the group's members are heard: the report's node must be a subscriber of this node's feed, from that address.
+        // Only the group's members are heard: the report's node must be a member of this node's feed, subscribed from that address,
+        // and a PlayMap node the show network hears saying hello from it.
         var node = report.NodeId;
         var address = NetAddress.Normal(from).ToString();
-        var member = Leads && Feed.Members.Any(m => m.Node.Length > 0 && VblankReport.NodeNumber(m.Node) == node
-            && string.Equals(NetAddress.Normal(IPAddress.TryParse(m.Address, out var a) ? a : IPAddress.None).ToString(), address, StringComparison.Ordinal));
+        var member = Leads && Feed.Members.Any(m => VblankReport.NodeNumber(m.Node) == node && SameAddress(m.Address, address)
+            && FindPeer(m.Node) is { } peer && peer.Id == m.Node && SameAddress(peer.Address, address));
         if (!member || !Board.Offer(report, Clock.Local.NowNs))
             Interlocked.Increment(ref _refused);
     }
@@ -485,8 +517,16 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                     _lastClock = clockShape;
                     _engine?.FactsChanged();
                 }
+                if (_lockWish is { } wish && Role == "follower")
+                    TakeLock(wish.ToJson());
                 if (_engine is { } engine && Leads)
                 {
+                    // The group's frame lock to the members, whenever it changes (and to each member that joins, as the latest).
+                    if (engine.LockRecordNow() is { } record && record.ToJson() is var lockJson && lockJson != _lastLock && _settings.Group.Length > 0)
+                    {
+                        _lastLock = lockJson;
+                        Feed.Publish(_settings.Group, LockRecord.Key, lockJson);
+                    }
                     var p = Picture(engine.IsAnimating);
                     var shape = (p.Verdict, p.Light, p.Outputs.Count(o => o.Heard), p.MixedRate);
                     if (shape != _lastPicture)
@@ -514,7 +554,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         if (_source is not { } source)
             return;
         var leads = Leads;
-        var reporter = Role == "follower" ? _reporter : null;
+        // A follower's reports are on its leader's time line: none until its clock reads it.
+        var reporter = Role == "follower" && Clock.IsFollowing ? _reporter : null;
         if (!leads && reporter is null)
             return;
         var mono = Clock.Local.NowNs;
@@ -638,6 +679,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 await _changes.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    _joining = peer.Id;
                     var words = await _network.FollowAsync(s.Group, peer.Id, ct).ConfigureAwait(false);
                     var said = await StartFollowingAsync(s.Group, peer).ConfigureAwait(false);
                     _engine?.Journal.Add("sync", words + said + " (kept from before the restart)");
@@ -659,17 +701,21 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// <summary>Writes the sync settings into the node's file (kept for the next start); answers "" or the words of a failure.</summary>
     private string Persist(Func<SyncSettings, SyncSettings> edit)
     {
-        var next = edit(_settings);
-        _settings = next;
-        try
+        lock (_persistGate)
         {
-            var stored = _home.LoadSettings(_network.Settings.Name);
-            _home.SaveSettings(stored with { Sync = next });
-            return "";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return " — not kept for the next start (the node's settings could not be written: " + ex.Message + ")";
+            var next = edit(_settings);
+            _settings = next;
+            try
+            {
+                // Read fresh, so nothing else the file holds is lost.
+                var stored = _home.LoadSettings(_network.Settings.Name);
+                _home.SaveSettings(stored with { Sync = next });
+                return "";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return " — not kept for the next start (the node's settings could not be written: " + ex.Message + ")";
+            }
         }
     }
 
@@ -682,6 +728,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         return peers.FirstOrDefault(p => p.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase))
             ?? peers.FirstOrDefault(p => p.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool SameAddress(string text, string normal) =>
+        IPAddress.TryParse(text, out var a) && string.Equals(NetAddress.Normal(a).ToString(), normal, StringComparison.Ordinal);
 
     private static bool IsGroupWord(string s) => s.Length is > 0 and <= 32 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 

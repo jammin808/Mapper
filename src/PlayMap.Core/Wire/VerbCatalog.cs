@@ -328,7 +328,6 @@ public static class VerbCatalog
         V2("PRESENT PATH", "PRESENT PATH AUTO|DXGI|GL", "Where outputs present from the render host's next start: AUTO is OpenGL this round; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Setup },
 
         // The group's clock, anchors and vblank verdict (wp2-sync). SUBSCRIBE ANCHORS is a topic; SYNC STATUS (today's row) gains the verdict.
-        V2("SYNC LATENCY", "SYNC LATENCY AUTO|<ms 0-500>", "The group's air latency (AUTO: the largest output latency any member reports)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Layout },
         V2("SYNC RECEIPT", "SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]", "A group member's answer to an air line its leader fanned out (member to leader, on the member's anchor feed)", VerbCategory.Network, VerbRisk.Low, false) with { Ephemeral = true },
 
         // HAP on the GPU (wp2-decode).

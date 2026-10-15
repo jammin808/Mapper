@@ -142,6 +142,7 @@ public sealed partial class EngineCore
 public sealed partial class EngineCore
 {
     private long _syncSteps;
+    private long _lockOffered = long.MinValue;
 
     partial void RouteSync(VerbRoutes routes)
     {
@@ -240,6 +241,9 @@ public sealed partial class EngineCore
         var (_, light, words) = SyncVerdict(sync, picture);
         items.Add(new ContextItem(id, "sync", "Sync " + group, light, words));
         var p = Store.Project;
+        // The machine follows the group's clock on a follower; on the leader the group follows the machine.
+        if (items.Exists(i => i.Id == "machine"))
+            links.Add(sync.Role == "follower" ? new ContextLink("machine", id, ContextLinkKinds.Follows, light) : new ContextLink(id, "machine", ContextLinkKinds.Follows, light));
         if (sync.Role == "follower")
         {
             foreach (var list in p.Playlists.Where(l => string.Equals(l.SyncGroup, group, StringComparison.Ordinal)))
@@ -295,6 +299,43 @@ public sealed partial class EngineCore
             SetAir(a => a with { FollowPatternsBlackout = on });
     });
 
+    // ---- The group's frame lock ----------------------------------------------------------------------------------------------
+
+    /// <summary>The frame lock as this node's outputs hold it (a leader's record for its members), or null with no render host.</summary>
+    internal Sync.LockRecord? LockRecordNow() =>
+        LockBackend is { } backend ? new Sync.LockRecord(backend.Intent.Apply, backend.Intent.SwapGroup, backend.Intent.Barrier, backend.LocalAnchor()) : null;
+
+    /// <summary>A member takes its leader's lock record: the counter anchor always (so its counts map to the same show time), and the
+    /// leader's wish — joining when the leader applied the lock, leaving when it released it — unless this node's frame lock is off,
+    /// or (to join) the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY would.</summary>
+    internal (bool Taken, string Words) AdoptLeaderLock(Sync.LockRecord record)
+    {
+        if (LockBackend is not { } backend)
+            return (true, "no render host: the leader's frame lock is not taken here");
+        // Each of the leader's anchors once (the counter takes it at its own count, so an offered one may not be active yet).
+        if (record.Counter is { } counter && Interlocked.Exchange(ref _lockOffered, counter.Seq) != counter.Seq)
+            backend.OfferAnchor(counter);
+        if (FrameLockOff)
+            return (true, FrameLockOffWords);
+        if (record.Apply && !backend.Intent.Apply)
+        {
+            if (Services.ShowGate.Armed && !Air.EffectiveBlackout)
+                return (false, "the leader applied the frame lock; this node is armed, so it joins at the next blackout or once disarmed");
+            backend.Apply(Math.Max(1, record.SwapGroup), record.Barrier);
+            Journal.Add("sync", "the group's leader applied the frame lock: this node's outputs join it");
+            FactsChanged();
+            return (true, "joining the leader's frame lock");
+        }
+        if (!record.Apply && backend.Intent.Apply)
+        {
+            backend.LeaveAll();
+            Journal.Add("sync", "the group's leader released the frame lock: this node's outputs present free");
+            FactsChanged();
+            return (true, "left the frame lock with the leader");
+        }
+        return (true, "");
+    }
+
     // ---- The clock's steps ------------------------------------------------------------------------------------------------
 
     /// <summary>Where the clock takes a step: this lane, so the step and the rebase are one action here. A lane that has stopped
@@ -330,7 +371,7 @@ public sealed partial class EngineCore
         }
         if (_air.IdentifyUntilLeaderNs != 0)
             SetAir(a => a with { IdentifyUntilLeaderNs = a.IdentifyUntilLeaderNs + delta });
-        var who = Services.GroupSync is { Role: "follower" } s ? $"followed {s.Settings.Leader}: " : "";
+        var who = Services.Clock.IsFollowing && Services.GroupSync is { Joining.Length: > 0 } s ? $"followed {s.Joining}: " : "";
         Journal.Add("sync", $"{who}show clock stepped {StepWords(delta)}; {kept} playlist{(kept == 1 ? "" : "s")} kept {(kept == 1 ? "its" : "their")} place");
         RaiseEvent("sync.stepped", now, w => w.WriteNumber("deltaNs", delta));
         FactsChanged();
