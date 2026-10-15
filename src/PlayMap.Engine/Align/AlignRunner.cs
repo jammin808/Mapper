@@ -57,6 +57,40 @@ public interface IAlignBackend
     event Action<AlignRunView>? Progressed;
 }
 
+/// <summary>The backend of a node composed without the align part: no run, and ALIGN RUN refused with the words why.</summary>
+internal sealed class NoAlignBackend : IAlignBackend
+{
+    public static readonly NoAlignBackend Instance = new();
+
+    public AlignRunView? View => null;
+
+    public bool IsRunning => false;
+
+    public void Start(AlignRunSetup setup) =>
+        throw new InvalidOperationException("this node runs without the align part — its composition has no alignment runner");
+
+    public bool Cancel() => false;
+
+    public AlignRunRecord? Finished(string runId) => null;
+
+    public void MarkAccepted(string runId)
+    {
+        // No run of this backend can be staged, so none is ever accepted.
+    }
+
+    public event Action<AlignRunView>? Progressed
+    {
+        add
+        {
+            // Nothing runs here, so nothing ever progresses: a handler is not kept.
+        }
+        remove
+        {
+            // No handler was kept.
+        }
+    }
+}
+
 /// <summary>How a real capture is paced and its camera opened (tests hand in their own camera and short holds).</summary>
 public sealed record AlignRunnerOptions
 {

@@ -29,7 +29,7 @@ public static class CanvasTarget
         return target with
         {
             CoverageShare = share,
-            Words = string.Create(CultureInfo.InvariantCulture, $"the canvas is the screen's corners; the outputs cover {share * 100:0.#} % of it"),
+            Words = string.Create(CultureInfo.InvariantCulture, $"the outputs cover {share * 100:0.#} % of it"),
         };
     }
 

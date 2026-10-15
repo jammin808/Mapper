@@ -33,6 +33,9 @@ public sealed class MeasuredLibrary
 
     public MeasuredSet Current => _set;
 
+    /// <summary>Raised on the reading task after a new set is published.</summary>
+    public event Action? Published;
+
     /// <summary>The latest load (tests wait on it).</summary>
     public Task Settled
     {
@@ -116,6 +119,7 @@ public sealed class MeasuredLibrary
             foreach (var key in _files.Keys.Where(k => !used.Contains(k)).ToList())
                 _files.Remove(key);
         }
+        Published?.Invoke();
     }
 
     /// <summary>A named file's map: read once per content (by hash), refused when missing, outside the folder or changed.</summary>

@@ -21,11 +21,10 @@ namespace PlayMap.Engine;
 public sealed partial class EngineCore
 {
     private readonly MeasuredLibrary _measured = new();
-    private AlignRunner? _ownAlignRunner;
 
-    /// <summary>The runner ALIGN RUN starts: the services' (the host's, with the render host as its display), else one of the engine's
-    /// own that only a simulated camera can run.</summary>
-    internal IAlignBackend AlignBackend => Services.Align ?? (_ownAlignRunner ??= new AlignRunner(null, new AlignRunnerOptions { UnixMs = () => Services.Wall.UnixMs }));
+    /// <summary>The runner ALIGN RUN starts: the services' (the host's, with the render host as its display); a node composed without
+    /// the align part refuses a run with words.</summary>
+    internal IAlignBackend AlignBackend => Services.Align ?? NoAlignBackend.Instance;
 
     /// <summary>The outputs' measured corrections as their files read (the render host uploads them on its thread).</summary>
     public MeasuredSet AlignMeasured => _measured.Current;
@@ -34,6 +33,9 @@ public sealed partial class EngineCore
 
     private void RouteAlignVerbs(VerbRoutes routes)
     {
+        // A run's progress and a finished read of the measured files are facts: STATE's revision moves with each.
+        AlignBackend.Progressed += _ => FactsChanged();
+        _measured.Published += FactsChanged;
         Store.Changed += _ => _measured.Refresh(Store.Project, ProjectFolderForFiles);
         _measured.Refresh(Store.Project, ProjectFolderForFiles);
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
@@ -599,6 +601,13 @@ public sealed partial class EngineCore
         w.WriteString("id", v.Id);
         w.WriteString("group", v.GroupId);
         w.WriteString("state", v.State);
+        w.WriteString("light", v.State switch
+        {
+            "accepted" => "green",
+            "running" or "staged" => "amber",
+            "failed" => "red",
+            _ => "grey",
+        });
         w.WriteString("step", v.Step);
         w.WriteNumber("progress", Math.Round(v.Progress, 3));
         w.WriteNumber("etaS", Math.Round(v.EtaS, 1));
@@ -731,7 +740,10 @@ public sealed partial class EngineCore
             w.WriteNull("blend");
         else
             w.WriteString("blend", "replace");
-        w.WriteString("files", set.Faults.TryGetValue(o.Id, out var fault) ? fault : set.Loads.ContainsKey(o.Id) ? "ok" : "loading");
+        var faulted = set.Faults.TryGetValue(o.Id, out var fault);
+        var loaded = set.Loads.ContainsKey(o.Id);
+        w.WriteString("files", faulted ? fault : loaded ? "ok" : "loading");
+        w.WriteString("light", faulted ? "red" : loaded ? "green" : "grey");
         w.WriteEndObject();
     }
 

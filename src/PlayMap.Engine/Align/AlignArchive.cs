@@ -40,7 +40,7 @@ public static partial class AlignArchive
         Directory.CreateDirectory(temp);
         foreach (var (name, bytes) in files)
             File.WriteAllBytes(Path.Combine(temp, Path.GetFileName(name)), bytes);
-        File.WriteAllText(Path.Combine(temp, "run.json"), Json(record), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(temp, "run.json"), Json(record), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         Directory.Move(temp, final);
     }
 
@@ -54,7 +54,7 @@ public static partial class AlignArchive
             return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
             return Read(doc.RootElement);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException or IOException)
