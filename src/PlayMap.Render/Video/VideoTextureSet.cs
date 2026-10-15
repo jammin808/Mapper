@@ -142,7 +142,8 @@ public sealed class VideoTextureSet : IDisposable
         _width = lease.Width;
         _height = lease.Height;
         Picture = _packed.Picture;
-        HasAlpha = lease.HasAlpha;
+        // UYVA and PA16 carry an alpha plane whatever the lease says.
+        HasAlpha = lease.HasAlpha || LivePlanes.HasAlpha(lease.Layout);
         Generation = lease.Generation;
         Uploads++;
         return true;
