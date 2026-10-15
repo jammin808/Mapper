@@ -60,6 +60,9 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private readonly ConcurrentDictionary<string, MtcParser> _mtc = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _oscSenders = new(StringComparer.Ordinal);
     private readonly byte[] _pollReply = new byte[ArtNet.PollReplyLength];
+    private readonly OscFeedback _feedback = new();
+    private readonly Func<IPEndPoint, string> _surfaceOfSender;
+    private readonly Action<byte[], IPEndPoint> _sendFeedback;
     private EngineCore? _engine;
     private Task? _loop;
     private Task? _ticker;
@@ -67,7 +70,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private string? _oscProblem;
     private string _midiWords = "";
     private long _lastRescanNs;
-    private (long, long, long, long, long, long, int) _counts;
+    private (long, long, long, long, long, long, int, long, long, int) _counts;
     private long _countsAtNs = long.MinValue;
     private Project? _seen;
     private long _oscRefused;
@@ -81,6 +84,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         _ownsMidi = _options.Midi is null;
         _midi = _options.Midi ?? new MidiBackends.NoMidi("not started");
         _artIn = new ArtNetDmxInput(_options.Seed);
+        _surfaceOfSender = SurfaceOfSender;
+        _sendFeedback = (bytes, to) => _osc.Send(bytes, to);
     }
 
     private IMidiBackend Midi => _midi;
@@ -232,8 +237,11 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             ReplyToPoll(due.To);
         foreach (var l in _ltc.Values)
             l.Tick(now);
+        if (_osc.IsOpen)
+            _feedback.Pass(engine, engine.ControlInput.Settings, _surfaces, _surfaceOfSender, _sendFeedback, now);
         // Counters move STATE at most four times a second.
-        var counts = (_artIn.Frames, _artIn.Dropped, _artIn.Polls, _artIn.Malformed, Interlocked.Read(ref _oscRefused), Interlocked.Read(ref _oscMalformed), _oscSenders.Count);
+        var counts = (_artIn.Frames, _artIn.Dropped, _artIn.Polls, _artIn.Malformed, Interlocked.Read(ref _oscRefused), Interlocked.Read(ref _oscMalformed), _oscSenders.Count,
+            _feedback.Sent, _feedback.Echoes, _feedback.ClientCount);
         if (counts != _counts && (_countsAtNs == long.MinValue || now - _countsAtNs >= 250_000_000))
         {
             _counts = counts;
@@ -262,6 +270,9 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     // ---- OSC ----
 
     public bool OscOpen => _osc.IsOpen;
+
+    /// <summary>Feedback messages sent, echoes dropped, and the clients fed because they were heard.</summary>
+    public (long Sent, long Echoes, int Clients) Feedback => (_feedback.Sent, _feedback.Echoes, _feedback.ClientCount);
 
     public string? OscProblem => _oscProblem;
 
@@ -376,13 +387,26 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         }
     }
 
-    /// <summary>A message to an address a binding uses: each argument (0-based) an axis value (T/F a press/release; no argument a trigger).</summary>
+    /// <summary>The OSC surface a sender is: the first enabled one whose match is empty, its address or its address:port ("" = none).</summary>
+    private string SurfaceOfSender(IPEndPoint from) =>
+        _surfaces.FirstOrDefault(s => s.Kind == "osc" && s.Enabled && (s.Match.Length == 0 || s.Match == from.Address.ToString() || s.Match == from.ToString()))?.Name ?? "";
+
+    /// <summary>A message to an address a binding uses: each argument (0-based) an axis value (T/F a press/release; no argument a trigger).
+    /// Only a paired sender moves bindings (the OSC gate, as for /playmap lines); it becomes a feedback client, and a message that
+    /// echoes what it was just sent is dropped.</summary>
     private async Task OscBoundAsync(OscMessage m, IPEndPoint from, CancellationToken ct)
     {
         var engine = _engine!;
         var now = engine.Services.Mono.NowNs;
-        var surface = _surfaces.FirstOrDefault(s => s.Kind == "osc" && s.Enabled && (s.Match.Length == 0 || s.Match == from.Address.ToString()
-            || s.Match == from.ToString()))?.Name ?? "";
+        if (!Paired(from))
+        {
+            Interlocked.Increment(ref _oscRefused);
+            Send(OscMessage.Of("/playmap/error", OscArg.S($"not paired — OSC from {from.Address} moves no binding until this node trusts the address (TrustedAddresses or OscAllow)")), from);
+            return;
+        }
+        if (!_feedback.Heard(from, m, now))
+            return;
+        var surface = SurfaceOfSender(from);
         if (m.Args.Length == 0)
         {
             await engine.ControlInput.ProcessAsync(new InputEvent(InputAddress.Osc(m.Address, 0, surface), InputKind.Trigger, 1, 1, 0, now) { Origin = from.ToString() }, ct)
@@ -758,6 +782,13 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         w.WriteNumber("senders", _oscSenders.Count);
         w.WriteNumber("refused", Interlocked.Read(ref _oscRefused));
         w.WriteNumber("malformed", Interlocked.Read(ref _oscMalformed));
+        w.WriteStartArray("feedback");
+        foreach (var f in _engine?.ControlInput.Settings.OscFeedback ?? [])
+            w.WriteStringValue(f);
+        w.WriteEndArray();
+        w.WriteNumber("clients", _feedback.ClientCount);
+        w.WriteNumber("feedbackSent", _feedback.Sent);
+        w.WriteNumber("echoes", _feedback.Echoes);
         w.WriteString("words", _oscProblem ?? (_osc.IsOpen ? "" : "OSC input is off"));
         w.WriteEndObject();
     }

@@ -8,6 +8,10 @@
       "senders": 0,
       "refused": 0,
       "malformed": 0,
+      "feedback": [],
+      "clients": 0,
+      "feedbackSent": 0,
+      "echoes": 0,
       "words": ""
     },
     "midi": {

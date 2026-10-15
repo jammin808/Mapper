@@ -61,9 +61,23 @@ coalesce). `CONTROL ENABLE OFF` pauses every binding (kept on the node); `BIND E
 UDP 9943 (`ControlSettings.OscPort`), bound to the node's address or `OscBind`. OSC 1.0: every type tag (`i f s b h t d S c r m T F
 N I` and arrays), bundles nested to 8, address patterns. The node's address space (`/playmap/line`, `/playmap/<verb words>`,
 `/playmap/set/<id>/<path>`, `/playmap/surfaces|outputs|generators|playlists/<name>/…`, `/playmap/ping`) and its replies are in the
-wire notes. Interop is tested both ways against Node's `osc` package (`tests/interop/osc/`). A sender's changes count as paired
-when the node has no token, a trusted loopback, a trusted address or an OSC-allowed one; reads are open. A malformed datagram is
+wire notes. Interop is tested both ways against Node's `osc` package (`tests/interop/osc/`). A sender's changes — its lines and
+its bound messages alike — count as paired when the node has no token, a trusted loopback, a trusted address or an OSC-allowed one;
+reads are open. A malformed datagram is
 answered and counted; one datagram never closes the port.
+
+### Feedback
+
+A control shows what it drives. Every binding sends back, over OSC, its target's **value** (a fader, a knob or an encoder on a
+field: the binding's shaping run backwards — out-range, curve, invert, in-range — so a TouchOSC fader follows the desk) or a
+**lamp** (a button on a switch target — `BLACKOUT`, `FREEZE`, `SURFACE SHOW`, `OUTPUT ENABLE` — lit from the node's own fact).
+`feedback.mode` forces value, lamp or off; `feedback.on`/`off` replace the lamp's 1 and 0. It goes to every client that has sent the
+node a bound message in the last 10 minutes (its reply address), or only to the surface's `feedbackTo`, or to the binding's own
+`feedback.to` words (`OSC 10.0.0.9:9000 /led/1`, so a MIDI pad can light an OSC lamp) — and to the node's feedback clients
+(`CONTROL FEEDBACK ADD 10.0.0.9:9000`, kept on the node, for a display that never speaks first). Each client and address is sent only
+what differs from what it shows, at most 50 times a second (`FeedbackHz`); a value is not sent to a control within 300 ms of input
+from it (the hand on the fader is not fought, then the control is set right); a client that echoes what it was sent within 50 ms is
+dropped. `BIND LIST` says each binding's route or why it has none.
 
 ## MIDI
 
@@ -94,7 +108,7 @@ speed channels, unbound, so the sheet never shifts.
 
 ## STATE, context, preflight, INDEX
 
-`STATE.control` holds the OSC socket, the MIDI backend and its ports, the Art-Net socket and its counts, each surface with its
+`STATE.control` holds the OSC socket (with its feedback clients and counts), the MIDI backend and its ports, the Art-Net socket and its counts, each surface with its
 port and light, the bindings' counts (live, waiting, unplugged), learn and the last input (moving STATE at most five times a
 second; `CONTROL MONITOR` shows the last 64 inputs). The context has an item per surface linked `controls` to what its bindings
 act on, and items while learning or with input off. Preflight's `control` section checks every bound source can be heard, with
@@ -102,5 +116,6 @@ the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards `cont
 
 ## Not in this build
 
-OSC feedback to clients and controller profiles (lamps, motor faders), OSCQuery (9944), timetagged bundles run at their instant,
-sACN, MIDI out, CoreMIDI, Windows MIDI Services, input forwarding, MIDI clock — `docs/ROADMAP.md` lists them for the next round.
+Controller profiles and MIDI feedback (lamps, motor faders, receipts that flash while accepted), feedback from a STATE predicate
+(`feedback.when`), the `/playmap/state` mirror and `/playmap/subscribe`, OSCQuery (9944), timetagged bundles run at their instant,
+sACN, MIDI out, CoreMIDI, Windows MIDI Services, input forwarding, MIDI clock — the next round.

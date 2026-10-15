@@ -18,13 +18,14 @@ refused as targets.
 | `CONTROL STATUS` | `CONTROL STATUS` | JSON: STATE's `control` object | low | no |
 | `CONTROL PORTS` | `CONTROL PORTS` | JSON `{backend, open, words, inputs:[{name, surface, open}], outputs:[], osc:{…}, artnet:{…}}` (off the lane) | low | no |
 | `CONTROL MONITOR` | `CONTROL MONITOR [<n 1-64>]` | JSON `[{at, input, raw, value, binding\|null, source}]`, newest first (off the lane) | low | no |
-| `CONTROL PROFILES` | `CONTROL PROFILES` | JSON `[{id:"generic", name, verified:true, words}]` (controller profiles are next round) | low | no |
+| `CONTROL PROFILES` | `CONTROL PROFILES` | JSON `[{id:"generic", name, verified:true, words}]` (generic: values in, OSC values and lamps back; controller profiles are next round) | low | no |
 | `CONTROL ENABLE` | `CONTROL ENABLE ON\|OFF\|TOGGLE` | effect "control input off — 24 bindings paused"; the same state is refused; kept in the node's settings | review | yes |
 | `CONTROL SURFACE` | `CONTROL SURFACE ADD <name> MIDI\|OSC\|ARTNET [<match>] [PROFILE <id>] \| CONTROL SURFACE REMOVE <surface>` | `{"id":"ct…"}`; REMOVE is refused while bindings name the surface | review | yes |
 | `CONTROL ALIAS` | `CONTROL ALIAS <surface> <port glob>\|OFF` | effect "APC40 is 'USB MIDI 2' on this machine" (node settings; off the lane) | review | yes |
+| `CONTROL FEEDBACK` | `CONTROL FEEDBACK ADD\|REMOVE <host:port>` | effect "10.0.0.9:9000 hears the bindings' feedback"; refused: not an IP address and port, already there / not there, the node's own OSC port, more than 16 (node settings; off the lane) | review | yes |
 | `CONTROL DMX` | `CONTROL DMX ARTNET ON\|OFF [<interface address>]` | effect, with the socket's problem when it has one (node settings; off the lane) | review | yes |
 | `CONTROL INJECT` | `CONTROL INJECT <input words> <value>` | `{"fired":[{binding, line, ok, reply}]}`; refused from an assistant, MCP or approval session, and when nothing is bound (off the lane) | review | yes |
-| `BIND LIST` | `BIND LIST [<surface>\|<entity id>]` | JSON `[{id, input, target, words, enabled, state:"live\|waiting\|unplugged\|off", behaviour, takeover:"up\|down"\|null, value\|null, why?}]` | low | no |
+| `BIND LIST` | `BIND LIST [<surface>\|<entity id>]` | JSON `[{id, input, target, words, enabled, state:"live\|waiting\|unplugged\|off", behaviour, takeover:"up\|down"\|null, value\|null, feedback:"value → OSC /fader/1"\|"<why none>"\|null, why?}]` | low | no |
 | `BIND ADD` | `BIND ADD <input words> TO <target line> \| BIND ADD <json>` | `{"id", "bindings":[…], "words":"MIDI APC40 CC 1 48 → Lobby opacity", "alsoBound":[…], "sheet"?}` | review (max with the target's) | yes |
 | `BIND LEARN` | `BIND LEARN [FROM <surface>\|MIDI\|OSC\|ARTNET] <target line> \| BIND LEARN OFF` | accepted `{"stage":"accepted","effect":"waiting for a control for Lobby opacity (30 s)","until":<unix ms>}`; the outcome is observed in STATE (`control.learning` → null, `control.learnt`) and the journal (off the lane) | review (OFF low) | yes |
 | `BIND FORGET` | `BIND FORGET <target line>\|<input words>` | effect "2 bindings forgotten"; none is refused | review | yes |
@@ -41,7 +42,9 @@ refused as targets.
 
 `BIND ADD <json>` takes a binding (`{"input","target","shape"?,"feedback"?,"enabled"?}`), a set (`{"bindings":[…]}`, one undo
 step), or the built-in DMX personality (`{"personality":"playmap","universe":<0-32767>,"address":<1-512>,"surface"?}`), which
-answers the channel sheet too. `CONTROL FEEDBACK` is not in this build (OSC feedback is next round). Manual transport on an
+answers the channel sheet too. A binding's `feedback` is `{"mode":"auto|off|value|lamp","to":"OSC [<host:port>] [<address>]",
+"on","off"}` (`to` "" = the binding's own address; a `to` that does not read is refused; `when` predicates and MIDI words are kept
+but send nothing in this build). An OSC surface's `feedbackTo` (`SET ct… feedbackTo 10.0.0.9:9000`) is a host:port. Manual transport on an
 engaged chase — `PLAYLIST GO/CUE/NEXT/PREV` and the `VIDEO` clip verbs — is refused with "Main chases FOH LTC (locked) —
 TIMECODE ENGAGE Main OFF to drive it by hand".
 
@@ -59,8 +62,17 @@ TIMECODE ENGAGE Main OFF to drive it by hand".
   also `/playmap/error ,s "<words>"`; a malformed datagram is answered `/playmap/error ,s "malformed: …"` and counted.
 - Any other address fires the bindings on it: each argument (from 0) an axis value; `T`/`F` press and release; no argument a
   trigger. A bundle's messages run in order (its timetag is read; scheduling at the instant is next round).
-- A sender's changes count as paired when the node has no token, the sender is loopback and the node trusts loopback, or its
-  address is in `NodeSettings.TrustedAddresses` or `ControlSettings.OscAllow`; reads are open.
+- A sender's changes — its lines and its messages to bound addresses alike — count as paired when the node has no token, the
+  sender is loopback and the node trusts loopback, or its address is in `NodeSettings.TrustedAddresses` or
+  `ControlSettings.OscAllow`; reads are open. An unpaired sender's bound message moves nothing and is answered `/playmap/error ,s
+  "not paired — OSC from <address> moves no binding until this node trusts the address (TrustedAddresses or OscAllow)"`.
+- **Feedback.** A client that sends to a bound address (anything outside `/playmap`) is fed for 10 minutes after it last spoke:
+  each binding with a route sends `<its address> ,f <value>` (the target's value in the control's own range: the binding's shaping
+  run backwards) or a lamp (`,f 1`/`,f 0`, or the binding's `on`/`off` words) to the client's own port — or only to its surface's
+  `feedbackTo`, or to its `to` endpoint — and to every `CONTROL FEEDBACK` client. At most `FeedbackHz` (50) a second per control,
+  only what differs from what the client shows, no value to a control within 300 ms of input from it (a lamp answers at once);
+  several messages ride in bundles of at most 1400 bytes; a client that sends back what it was sent within 50 ms is an echo,
+  dropped and counted. A binding on an address pattern, or a MIDI or DMX input without OSC `to` words, sends nothing.
 
 ## STATE
 
@@ -68,7 +80,8 @@ Top level `control` and `timecode` (after `videoio`), and `playlists[].chase` (`
 
 ```jsonc
 "control": {"enabled":true,"axisHz":100,
-  "osc":{"port":9943,"open":true,"senders":1,"refused":0,"malformed":0,"words":""},
+  "osc":{"port":9943,"open":true,"senders":1,"refused":0,"malformed":0,"feedback":["10.0.0.9:9000"],"clients":1,"feedbackSent":12,
+    "echoes":0,"words":""},
   "midi":{"backend":"alsa-seq","open":false,"words":"no ALSA sequencer: /dev/snd/seq is missing …","inputs":[{"name","surface":"ct…"|null,"open"}],"outputs":[]},
   "dmx":{"artnet":{"enabled":false,"open":false,"interface":"all","words"?,"frames":0,"dropped":0,"polls":0}},
   "surfaces":[{"id","name","kind","enabled","connected","port"|null,"profile","bindings","light":"green|amber|red|grey"}],
@@ -112,7 +125,9 @@ For the integration docs pass (WIRE.md, ARCHITECTURE.md, ROADMAP.md, UX.md):
 
 - Control input: OSC on UDP 9943 (the `/playmap` address space above), MIDI (ALSA sequencer on Linux, WinMM on Windows, the fake
   backend in tests; CoreMIDI next round), Art-Net 4 input on the node's one Art-Net socket (`EngineServices.ArtNet`, shared with
-  LED output); sACN, OSC feedback, OSCQuery and timetag scheduling are next round.
+  LED output); OSC value and lamp feedback to the clients that drive the bindings and to `CONTROL FEEDBACK` clients; sACN, MIDI
+  feedback and controller profiles, the `/playmap/state` mirror and `/playmap/subscribe`, OSCQuery and timetag scheduling are next
+  round.
 - Bindings (`bd…`) and surfaces (`ct…`) live in the show (`Project.Control`); which port a surface is on is the node's
   (`ControlSettings.SurfacePorts`). A binding's line goes through the router and the show's gate as session `binding`, with the
   authority of the person who made it; a fader's sweep is one journal row and one undo step.

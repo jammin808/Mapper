@@ -49,11 +49,13 @@ internal sealed class ControlRig : IAsyncDisposable
     }
 
     public static async Task<ControlRig> StartAsync(Project? project = null, bool service = false, IMidiBackend? midi = null, IAudioInputs? audio = null,
-        string? artNetAddress = null, ManualClock? clock = null, Func<ControlSettings, ControlSettings>? settings = null)
+        string? artNetAddress = null, ManualClock? clock = null, Func<ControlSettings, ControlSettings>? settings = null, Func<NodeSettings, NodeSettings>? node = null)
     {
         var services = EngineServices.ForTests(clock ?? (IMonoClock)MonoClock.Instance);
         var control = settings?.Invoke(ControlSettings.Default) ?? ControlSettings.Default;
         services = services with { Settings = services.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8], Control = control } };
+        if (node is not null)
+            services = services with { Settings = node(services.Settings) };
         ArtNetEndpoint? art = artNetAddress is null ? null : new ArtNetEndpoint(artNetAddress);
         ControlService? svc = null;
         if (service)

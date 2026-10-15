@@ -26,10 +26,11 @@ public sealed partial class EngineCore
         routes.Lane("CONTROL STATUS", _ => CommandReply.Success(JsonOut(WriteControlState)));
         routes.OffLane("CONTROL PORTS", c => Task.FromResult(ControlPorts()));
         routes.OffLane("CONTROL MONITOR", c => Task.FromResult(ControlMonitor(c.Args)));
-        routes.Lane("CONTROL PROFILES", _ => CommandReply.Success("""[{"id":"generic","name":"Generic","verified":true,"words":"any controller: values in, no feedback"}]"""));
+        routes.Lane("CONTROL PROFILES", _ => CommandReply.Success("""[{"id":"generic","name":"Generic","verified":true,"words":"any controller: values in; over OSC, values and lamps back"}]"""));
         routes.Lane("CONTROL ENABLE", c => ControlEnable(c.Args));
         routes.Lane("CONTROL SURFACE", c => ControlSurface(c.Args));
         routes.OffLane("CONTROL ALIAS", c => Task.FromResult(ControlAlias(c.Args)));
+        routes.OffLane("CONTROL FEEDBACK", c => Task.FromResult(ControlFeedbackClients(c.Args)));
         routes.OffLane("CONTROL DMX", c => Task.FromResult(ControlDmx(c.Args)));
         routes.OffLane("CONTROL INJECT", ControlInjectAsync);
         routes.Lane("BIND LIST", c => BindList(c.Args));
@@ -97,6 +98,8 @@ public sealed partial class EngineCore
                 else if (b.Input.Length > 0 && InputAddress.Parse(b.Input, out _) is { Surface.Length: > 0 } named
                     && !p.Control.Surfaces.Any(s => s.Name.Equals(named.Surface, StringComparison.OrdinalIgnoreCase)))
                     why = $"no control surface {named.Surface} — CONTROL SURFACE ADD {named.Surface} {SourceWord(named.Source)} names it";
+                else if (b.Feedback is { To.Length: > 0 } fb && FeedbackMath.ParseTo(fb.To, out _, out _, out var fbWhy) == false)
+                    why = "the binding's feedback: " + fbWhy;
                 break;
             case ControlSurface s:
                 if (!InputAddress.IsSurfaceName(s.Name))
@@ -105,6 +108,8 @@ public sealed partial class EngineCore
                     why = "a surface is midi, osc, artnet or sacn";
                 else if (p.Control.Surfaces.Any(x => x.Id != s.Id && x.Name.Equals(s.Name, StringComparison.OrdinalIgnoreCase)))
                     why = $"there is already a surface called {s.Name}";
+                else if (s.Kind == "osc" && s.FeedbackTo.Length > 0 && !FeedbackMath.TryEndpoint(s.FeedbackTo, out _))
+                    why = $"an OSC surface's feedbackTo is a host:port (an IP address and a port 1–65535), not '{s.FeedbackTo}'";
                 break;
             case TimecodeSource t:
                 why = TimecodeSourceProblem(p, t);
@@ -168,11 +173,15 @@ public sealed partial class EngineCore
     private static bool IsOpsVerb(VerbSpec spec) => OpsVerbs.Contains(spec.Name);
 
     /// <summary>A number of an entity by its field path (takeover, encoders and NUDGE read it), or null.</summary>
-    internal double? ReadNumber(string id, string path)
+    internal double? ReadNumber(string id, string path) => EntityOf(id) is { } entity ? NumberAt(entity, path) : null;
+
+    /// <summary>The entity an id names in the current show, or null.</summary>
+    internal object? EntityOf(string id) => Locate(Store.Project, id)?.Entity;
+
+    /// <summary>The number at a field path of an entity (case-insensitive names), or null.</summary>
+    internal static double? NumberAt(object entity, string path)
     {
-        if (Locate(Store.Project, id) is not { } located)
-            return null;
-        var node = JsonSerializer.SerializeToNode(located.Entity, located.Type, ProjectFile.Compact);
+        var node = JsonSerializer.SerializeToNode(entity, entity.GetType(), ProjectFile.Compact);
         foreach (var part in path.Split('.'))
         {
             if (node is not JsonObject obj)
@@ -332,6 +341,35 @@ public sealed partial class EngineCore
         return CommandReply.Success(effect: off ? $"{s.Name} finds its port by its own match again" : $"{s.Name} is '{args[1]}' on this machine");
     }
 
+    /// <summary>CONTROL FEEDBACK ADD|REMOVE &lt;host:port&gt;: an OSC client that hears every binding's feedback without having spoken
+    /// first (kept on the node).</summary>
+    private CommandReply ControlFeedbackClients(List<string> args)
+    {
+        if (args.Count != 2 || !(args[0].Equals("ADD", StringComparison.OrdinalIgnoreCase) || args[0].Equals("REMOVE", StringComparison.OrdinalIgnoreCase)))
+            return CommandReply.Fail("CONTROL FEEDBACK ADD|REMOVE <host:port>");
+        if (!FeedbackMath.TryEndpoint(args[1], out var endpoint))
+            return CommandReply.Fail($"'{args[1]}' is no host:port (an IP address and a port 1–65535)");
+        var to = endpoint!.ToString();
+        var add = args[0].Equals("ADD", StringComparison.OrdinalIgnoreCase);
+        var list = ControlInput.Settings.OscFeedback;
+        var has = list.Contains(to, StringComparer.Ordinal);
+        if (add && has)
+            return CommandReply.Fail($"{to} already hears the node's feedback");
+        if (!add && !has)
+            return CommandReply.Fail($"{to} is not a feedback client — CONTROL STATUS lists them (control.osc.feedback)");
+        if (add && list.Length >= 16)
+            return CommandReply.Fail("16 feedback clients is the most a node keeps — CONTROL FEEDBACK REMOVE one first");
+        if (add && Services.Control?.OscLocal is { } local && local.Port == endpoint.Port
+            && (local.Address.Equals(endpoint.Address) || System.Net.IPAddress.IsLoopback(endpoint.Address)))
+            return CommandReply.Fail($"{to} is this node's own OSC port — its feedback would come straight back");
+        if (ControlInput.ChangeSettings(c => c with { OscFeedback = add ? c.OscFeedback.Add(to) : c.OscFeedback.Remove(to) }) is { } why)
+            return CommandReply.Fail("the setting could not be kept: " + why);
+        var open = Services.Control?.OscOpen == true;
+        return CommandReply.Success(effect: add
+            ? $"{to} hears the bindings' feedback{(open ? "" : " once the OSC socket is open (" + (Services.Control?.OscProblem ?? "OSC input is off") + ")")}"
+            : $"{to} no longer hears the node's feedback");
+    }
+
     private CommandReply ControlDmx(List<string> args)
     {
         if (args.Count is < 2 or > 3 || !args[0].Equals("ARTNET", StringComparison.OrdinalIgnoreCase) || !TryOnOff(args[1], out var on))
@@ -428,6 +466,10 @@ public sealed partial class EngineCore
             w.WriteNumber("value", Math.Round(r.LastValue, 6));
         else
             w.WriteNull("value");
+        if (r is not null)
+            w.WriteString("feedback", FeedbackMath.RouteOf(b, r.Input, r.Target, r.Behaviour).Words);
+        else
+            w.WriteNull("feedback");
         if (table.Problems.TryGetValue(b.Id, out var why))
             w.WriteString("why", why);
         w.WriteEndObject();

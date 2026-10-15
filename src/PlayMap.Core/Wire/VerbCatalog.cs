@@ -372,6 +372,7 @@ public static class VerbCatalog
         V2("CONTROL ENABLE", "CONTROL ENABLE ON|OFF|TOGGLE", "Every control input on or off (bindings pause; kept on the node)", VerbCategory.Control, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("CONTROL SURFACE", "CONTROL SURFACE ADD <name> MIDI|OSC|ARTNET [<match>] [PROFILE <id>] | CONTROL SURFACE REMOVE <surface>", "Names a controller the show's bindings use; answers its id", VerbCategory.Control, VerbRisk.Review, true),
         V2("CONTROL ALIAS", "CONTROL ALIAS <surface> <port glob>|OFF", "Which port a surface is on this machine (kept on the node)", VerbCategory.Control, VerbRisk.Review, true),
+        V2("CONTROL FEEDBACK", "CONTROL FEEDBACK ADD|REMOVE <host:port>", "An OSC client that hears the node's state", VerbCategory.Control, VerbRisk.Review, true),
         V2("CONTROL DMX", "CONTROL DMX ARTNET ON|OFF [<interface address>]", "Listens for Art-Net control input (off until turned on; kept on the node)", VerbCategory.Control, VerbRisk.Review, true),
         V2("CONTROL INJECT", "CONTROL INJECT <input words> <value>", "Fires the bindings of an input as if it moved (never from an assistant)", VerbCategory.Control, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("BIND LIST", "BIND LIST [<surface>|<entity id>]", "The show's control bindings with their words, state and takeover", VerbCategory.Control, VerbRisk.Low, false),

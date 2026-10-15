@@ -13,12 +13,6 @@ public sealed class CatalogueTests
     /// <summary>The rows SPINE §4.3 adds.</summary>
     private const int RoundTwoRows = 209;
 
-    /// <summary>Rows a package removed from its own block because it does not ship them this round (PLAN §2.2).</summary>
-    private static readonly string[] TrimmedRows =
-    [
-        "CONTROL FEEDBACK", // wp2-control: OSC feedback is next round
-    ];
-
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>
     private static readonly HashSet<string> ConnectionVerbs = new(StringComparer.Ordinal) { "HELLO", "NONCE", "AUTH", "AUTH-PROOF", "SUBSCRIBE" };
 
@@ -86,8 +80,7 @@ public sealed class CatalogueTests
         var second = VerbCatalog.All.Skip(first.Count).ToList();
 
         Assert.Equal(FirstRoundRows, first.Count);
-        Assert.Equal(RoundTwoRows - TrimmedRows.Length, second.Count);
-        Assert.All(TrimmedRows, name => Assert.Null(VerbCatalog.Find(name)));
+        Assert.Equal(RoundTwoRows, second.Count);
         Assert.All(second, v => Assert.Equal(2, v.Round));
         Assert.All(second, v => Assert.Null(v.SecretFrom));
         Assert.All(second, v => Assert.Empty(v.HighFor));
