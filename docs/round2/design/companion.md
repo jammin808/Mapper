@@ -694,7 +694,7 @@ package is built.
 | No target | `BadConfig` | "Pick the PlayMap node on the network, or type its address" |
 | `NONCE` and no token | `BadConfig` | "This node asks for its pairing token — the Network drawer on the PlayMap desk" |
 | `ERR wrong token` | `AuthenticationFailure` | "The pairing token is not this node's — …" |
-| 403 at upgrade | `BadConfig` | "This node requires TLS — choose wss" |
+| 403 at upgrade | `BadConfig` | The node's own words from the response's `error` (TLS required, a refused `Origin`, or a host name it does not answer to), never a guess |
 | Pin mismatch | `AuthenticationFailure` | "The node's certificate is not the pinned one — check the fingerprint in its Network drawer, then clear the pin" |
 | `proto` > known | `UnknownWarning` | "Node speaks line protocol N, this module knows 1 — update the module" |
 | Stale | `UnknownWarning` | "No answer from the node for 4 s — keys dimmed" |

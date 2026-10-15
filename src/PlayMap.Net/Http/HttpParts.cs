@@ -73,7 +73,16 @@ public sealed class TokenGate(int wrongPerMinute = 5)
             return GateVerdict.NeedsHttps;
         if (!NetAddress.TokenNeeded(settings) || NetAddress.IsTrusted(remote, settings))
             return GateVerdict.Open;
-        var address = NetAddress.Text(remote);
+        return CheckToken(context, settings);
+    }
+
+    /// <summary>The token alone, whatever the address: the address's lockout, then the header's token compared in fixed time, a
+    /// wrong one counted. A request its address would let in, but that names a host which is not the node's, is let in by this.</summary>
+    public GateVerdict CheckToken(HttpContext context, NodeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(settings);
+        var address = NetAddress.Text(context.Connection.RemoteIpAddress);
         if (Locked(address))
             return GateVerdict.Locked;
         var presented = Presented(context.Request);

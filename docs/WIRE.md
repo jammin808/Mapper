@@ -211,10 +211,12 @@ between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"s
 A page in a browser never drives the node from another site. A request whose `Origin` is not the node's own (another site,
 or `null`) is refused with 403 on every node route (`/api`, `/ws`, `/mcp`) before it runs; controllers, scripts and other
 nodes send no `Origin`, and the node's own pages keep theirs. A request let in **without** the token (a trusted address, this
-machine by default, or a node that asks none) must also name the node by an address, `localhost`, this machine's name (bare
-or in `.local`), or a name listed in the node's settings under `web.hosts` (a venue DNS name); any other host is refused
-with 403 and the words name the host and the fix. That closes a page pointing its own name at this machine (DNS
-rebinding). A request carrying the token may name any host.
+machine by default, or a node that asks none) must also name the node by an address, exactly `localhost`, one of this
+machine's own names (its OS name and its DNS host name, bare, with its domain, as its mDNS label or in `.local`), or a name
+listed in the node's settings under `web.hosts` (a venue DNS name); otherwise, where the node asks a token, it is let in
+only by the token (a wrong one is counted toward the address's lockout), and else refused with 403 whose words name the host
+and the fix. That closes a page pointing its own name at this machine (DNS rebinding). The line channel reads no header
+token at its upgrade, so there a host that is not the node's is refused.
 
 ## Previews (VIEW)
 

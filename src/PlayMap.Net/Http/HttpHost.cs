@@ -313,25 +313,36 @@ public sealed class HttpHost : IAsyncDisposable
             }
             if ((!NetAddress.TokenNeeded(_settings) || NetAddress.IsTrusted(from, _settings)) && !IsOwnHost(context.Request, _settings))
             {
-                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request));
+                // No header token is read at the upgrade, so sending one is no way in here.
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request, offerToken: false));
                 return;
             }
             await next(context);
             return;
         }
         var verdict = _gate.Check(context, _settings);
+        // Let in by its address alone: only by a name this machine answers to, never by one a page pointed at it (DNS rebinding).
+        // Naming another host it must carry the token, which the address's lockout and the wrong-token count still guard.
+        if (verdict == GateVerdict.Open && !IsOwnHost(context.Request, _settings))
+        {
+            if (!NetAddress.TokenNeeded(_settings))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request, offerToken: false));
+                return;
+            }
+            verdict = _gate.CheckToken(context, _settings);
+            if (verdict == GateVerdict.NeedsToken)
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request, offerToken: true));
+                return;
+            }
+        }
         if (verdict is not (GateVerdict.Open or GateVerdict.Token))
         {
             var (status, words) = GateWords.Of(verdict);
             if (verdict == GateVerdict.WrongToken)
                 _log.LogWarning("A wrong token from {Address} on the web port.", NetAddress.Text(context.Connection.RemoteIpAddress));
             await WriteErrorAsync(context, status, words);
-            return;
-        }
-        // Let in without the token: only by a name this machine answers to, never by one a page pointed at it (DNS rebinding).
-        if (verdict == GateVerdict.Open && !IsOwnHost(context.Request, _settings))
-        {
-            await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ForeignHost(context.Request));
             return;
         }
         var remote = context.Connection.RemoteIpAddress;
@@ -350,17 +361,19 @@ public sealed class HttpHost : IAsyncDisposable
         "a page from another site may not drive this node — its routes answer its own pages and controllers that send no Origin";
 
     /// <summary>Why a request let in without the token is refused when it names a host this machine does not answer to.</summary>
-    internal static string ForeignHost(HttpRequest request)
+    internal static string ForeignHost(HttpRequest request, bool offerToken)
     {
         var host = request.Host.Host;
         if (host.Length > 64)
             host = host[..64];
-        return $"this node answers by its addresses and its own names, not '{host}' — use its address, list the name in the node's web.hosts setting, or send the token";
+        return offerToken
+            ? $"this node answers by its addresses and its own names, not '{host}' — use its address, list the name in the node's web.hosts setting, or send the token"
+            : $"this node answers by its addresses and its own names, not '{host}' — use its address or list the name in the node's web.hosts setting";
     }
 
-    /// <summary>The names this machine answers to without the token: an address, <c>localhost</c>, this machine's name (bare, in
-    /// <c>.local</c>, or its mDNS label), or one the operator listed (<see cref="WebSettings.Hosts"/>). A page from another site
-    /// that points its own name at this machine names none of them. A request with no Host (no browser sends one) passes.</summary>
+    /// <summary>The names this machine answers to without the token: an address, <c>localhost</c> exactly, this machine's own names
+    /// (<see cref="MachineNames"/>), or one the operator listed (<see cref="WebSettings.Hosts"/>). A page from another site that
+    /// points its own name at this machine names none of them. A request with no Host (no browser sends one) passes.</summary>
     internal static bool IsOwnHost(HttpRequest request, NodeSettings settings)
     {
         if (!request.Host.HasValue)
@@ -368,18 +381,65 @@ public sealed class HttpHost : IAsyncDisposable
         var host = request.Host.Host.Trim('[', ']').TrimEnd('.');
         if ((host.Contains('.', StringComparison.Ordinal) || host.Contains(':', StringComparison.Ordinal)) && IPAddress.TryParse(host, out _))
             return true;
-        if (Same(host, "localhost") || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+        // Exactly localhost: a subdomain of it may be sent to the network's resolver by some browsers, and answered there.
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || MachineNames.Value.Contains(host))
             return true;
-        var machine = Environment.MachineName;
-        var label = MdnsResponder.HostLabel(machine);
-        if (Same(host, machine) || Same(host, machine + ".local") || Same(host, label) || Same(host, label + ".local"))
-            return true;
-        foreach (var listed in settings.Web.Hosts)
-            if (Same(host, listed.Trim().TrimEnd('.')))
-                return true;
+        if (!settings.Web.Hosts.IsDefault)
+            foreach (var listed in settings.Web.Hosts)
+                if (listed is { Length: > 0 } && string.Equals(host, listed.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+                    return true;
         return false;
+    }
 
-        static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    /// <summary>This machine's own names, read once: its OS name and its DNS host name (bare, its first label, and with the
+    /// machine's domain), each also as its mDNS label and in <c>.local</c>. The venue's resolver answers for these, not a page.</summary>
+    internal static readonly Lazy<HashSet<string>> MachineNames = new(() =>
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Add(Environment.MachineName);
+        if (HostNameOrNull() is { } dns)
+        {
+            Add(dns);
+            Add(dns.Split('.')[0]);
+            if (DomainOrNull() is { Length: > 0 } domain && !dns.Contains('.', StringComparison.Ordinal))
+                Add(dns + "." + domain.TrimStart('.'));
+        }
+        return names;
+
+        void Add(string? name)
+        {
+            if (name?.Trim().TrimEnd('.') is not { Length: > 0 } n)
+                return;
+            names.Add(n);
+            names.Add(n + ".local");
+            var label = MdnsResponder.HostLabel(n);
+            names.Add(label);
+            names.Add(label + ".local");
+        }
+    });
+
+    private static string? HostNameOrNull()
+    {
+        try
+        {
+            return Dns.GetHostName();
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
+    }
+
+    private static string? DomainOrNull()
+    {
+        try
+        {
+            return System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().DomainName;
+        }
+        catch (System.Net.NetworkInformation.NetworkInformationException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Why a web page from another site is refused the line channel.</summary>

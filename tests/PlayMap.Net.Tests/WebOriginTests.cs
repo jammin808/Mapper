@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Bus;
+using PlayMap.Net.Commands;
 using PlayMap.Net.Http;
 using PlayMap.Net.Wire;
 
@@ -113,8 +114,10 @@ public sealed class WebOriginTests
         await using (var host = await HttpHostTests.StartAsync(endpoint, settings))
         {
             using var c = Client(host);
-            foreach (var name in new[] { "localhost", "show.localhost", Environment.MachineName, Environment.MachineName + ".local", "stage-left.venue.lan", "[::1]" })
+            foreach (var name in new[] { "localhost", Environment.MachineName, Environment.MachineName + ".local", Dns.GetHostName(), "stage-left.venue.lan", "[::1]" })
                 Assert.Equal(HttpStatusCode.OK, (await SendAsync(c, HttpMethod.Get, "/api/state", host: name + ":" + host.Port)).Status);
+            // Only localhost itself: a subdomain of it may be resolved by the network's resolver, so a page could hold it.
+            Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(c, HttpMethod.Get, "/api/state", host: "show.localhost:" + host.Port)).Status);
         }
 
         // Asked for the token (this machine not trusted), a request that carries it may name any host: the token is what lets it in.
@@ -127,12 +130,75 @@ public sealed class WebOriginTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(without, HttpMethod.Get, "/api/state", host: "rebind.evil.example:" + tokenHost.Port)).Status);
     }
 
-    /// <summary>A WebSocket upgrade for the line channel written by hand (a browser's Host and Origin), answering the status line.</summary>
+    [Fact]
+    public async Task OnATrustedAddressTheTokenStillLetsInARequestThatNamesAnotherHost()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var host = await HttpHostTests.StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        var proxied = "playmap.venue.example:" + host.Port;
+
+        // A proxy on this machine that keeps the Host, or a client with the token using a DNS name: the token is what lets it in.
+        using var withToken = Client(host, TestSettings.Token);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(withToken, HttpMethod.Post, "/api/cmd", "BLACKOUT ON", host: proxied)).Status);
+        Assert.True(endpoint.Blackout);
+        // A wrong one is refused and counted like any wrong token.
+        using var wrong = Client(host, "wrong-token-0000");
+        Assert.Equal((HttpStatusCode.Unauthorized, WireWords.WrongToken),
+            await SendAsync(wrong, HttpMethod.Post, "/api/cmd", "BLACKOUT OFF", host: proxied));
+        Assert.True(endpoint.Blackout);
+        Assert.Single(endpoint.Lines);
+
+        // The refusals offer the token only where sending it works: not on the line channel, nor on a node that asks none.
+        using var anyone = Client(host);
+        Assert.Equal((HttpStatusCode.Forbidden, "this node answers by its addresses and its own names, not 'playmap.venue.example' — use its address or list the name in the node's web.hosts setting"),
+            await UpgradeAsync(anyone, proxied));
+        await using var open = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: false, token: ""));
+        using var c = Client(open);
+        Assert.Equal((HttpStatusCode.Forbidden, "this node answers by its addresses and its own names, not 'playmap.venue.example' — use its address or list the name in the node's web.hosts setting"),
+            await SendAsync(c, HttpMethod.Get, "/api/state", host: "playmap.venue.example:" + open.Port));
+    }
+
+    /// <summary>A WebSocket upgrade for the line channel written by hand, answering the status line.</summary>
     private static async Task<string> RawUpgradeStatusAsync(int port, string hostHeader, string? origin)
     {
-        using var tcp = new TcpClient();
-        await tcp.ConnectAsync(IPAddress.Loopback, port);
-        await using var stream = tcp.GetStream();
+        using var tcp = await SendUpgradeAsync(port, hostHeader, origin);
+        using var reader = new StreamReader(tcp.GetStream(), Encoding.ASCII);
+        return await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)) ?? "";
+    }
+
+    /// <summary>A line-channel upgrade sent through HttpClient (a refusal is an ordinary answer with words), naming a host.</summary>
+    private static async Task<(HttpStatusCode Status, string? Error)> UpgradeAsync(HttpClient c, string host)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/ws");
+        request.Headers.Host = host;
+        request.Headers.Connection.Add("Upgrade");
+        request.Headers.Upgrade.Add(new System.Net.Http.Headers.ProductHeaderValue("websocket"));
+        request.Headers.Add("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==");
+        request.Headers.Add("Sec-WebSocket-Version", "13");
+        request.Headers.Add("Sec-WebSocket-Protocol", WebSocketLineChannel.SubProtocol);
+        using var response = await c.SendAsync(request);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return (response.StatusCode, doc.RootElement.GetProperty("error").GetString());
+    }
+
+    private static async Task<TcpClient> SendUpgradeAsync(int port, string hostHeader, string? origin)
+    {
+        var tcp = new TcpClient();
+        try
+        {
+            await tcp.ConnectAsync(IPAddress.Loopback, port);
+            await tcp.GetStream().WriteAsync(Encoding.ASCII.GetBytes(UpgradeRequest(hostHeader, origin)));
+            return tcp;
+        }
+        catch
+        {
+            tcp.Dispose();
+            throw;
+        }
+    }
+
+    private static string UpgradeRequest(string hostHeader, string? origin)
+    {
         var request = new StringBuilder()
             .Append("GET /ws HTTP/1.1\r\n")
             .Append("Host: ").Append(hostHeader).Append("\r\n")
@@ -142,8 +208,6 @@ public sealed class WebOriginTests
         if (origin is not null)
             request.Append("Origin: ").Append(origin).Append("\r\n");
         request.Append("\r\n");
-        await stream.WriteAsync(Encoding.ASCII.GetBytes(request.ToString()));
-        using var reader = new StreamReader(stream, Encoding.ASCII);
-        return await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)) ?? "";
+        return request.ToString();
     }
 }
