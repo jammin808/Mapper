@@ -27,11 +27,36 @@ public sealed class ArtNetInTests
         var n = ArtNet.WriteDmx(packet, 1, 0, new byte[512]);
         for (var i = 0; i < 200; i++)
             endpoint.Send(packet.AsSpan(0, n), to);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10_000; i++)
-            endpoint.Send(packet.AsSpan(0, n), to);
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.Equal(0, allocated);
+        // What allocated, if anything did: the bytes of each thousand sends, the sends refused, and an exception on this thread.
+        var perThousand = new long[10];
+        var refused = 0;
+        Exception? thrown = null;
+        var thread = Environment.CurrentManagedThreadId;
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> seen = (_, e) =>
+        {
+            if (Environment.CurrentManagedThreadId == thread)
+                thrown ??= e.Exception;
+        };
+        AppDomain.CurrentDomain.FirstChanceException += seen;
+        try
+        {
+            for (var k = 0; k < perThousand.Length; k++)
+            {
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                for (var i = 0; i < 1000; i++)
+                {
+                    if (!endpoint.Send(packet.AsSpan(0, n), to))
+                        refused++;
+                }
+                perThousand[k] = GC.GetAllocatedBytesForCurrentThread() - before;
+            }
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= seen;
+        }
+        Assert.True(perThousand.All(b => b == 0), $"bytes per thousand sends: {string.Join(' ', perThousand)}; {refused} refused; "
+            + (thrown is null ? "nothing thrown on this thread" : $"{thrown.GetType().Name}: {thrown.Message}"));
         Assert.True(endpoint.IsOpen);
         Assert.Null(endpoint.Problem);
         Assert.True(endpoint.Sent >= 10_000);
