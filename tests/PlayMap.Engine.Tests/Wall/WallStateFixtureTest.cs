@@ -47,7 +47,7 @@ public sealed partial class WallStateFixtureTest
             ["light"] = new JsonArray(Rule("if", "on", "amber"), new JsonObject { ["light"] = "grey" }),
             ["words"] = "{on?overlay on:overlay off} · {cursors} cursors",
             ["fields"] = new JsonArray(Field("On", "on"), Field("Outputs", "outputs"), Field("Layers", "layers"), Field("Handle", "handle"),
-                Field("Cursors", "cursors"), Field("Armed", "armed")),
+                Field("Cursors", "cursors"), Field("Cursor p95 (ms)", "cursorP95Ms"), Field("Armed", "armed")),
             ["actions"] = new JsonArray("OVERLAY ON", "OVERLAY OFF", "OVERLAY KEEP", "HANDLE NEXT", "HANDLE PREV"),
         },
         new JsonObject

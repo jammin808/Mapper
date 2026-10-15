@@ -33,6 +33,7 @@
       "handle": null,
       "grid": false,
       "cursors": 0,
+      "cursorP95Ms": -1,
       "armed": false
     }
   },

@@ -116,6 +116,10 @@
         "path": "cursors"
       },
       {
+        "label": "Cursor p95 (ms)",
+        "path": "cursorP95Ms"
+      },
+      {
         "label": "Armed",
         "path": "armed"
       }
