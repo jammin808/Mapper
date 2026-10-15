@@ -94,12 +94,14 @@ public static class ProjectorDepth
             Span<double> d = stackalloc double[seenBy.Count];
             Span<double> vr = stackalloc double[seenBy.Count];
             Span<bool> use = stackalloc bool[seenBy.Count];
+            Span<Vec2d> seenAt = stackalloc Vec2d[seenBy.Count];
             for (var i = 0; i < w; i++)
             {
                 var u = new Vec2d(Math.Min((i + 0.5) * s, k.Width - 0.5), Math.Min((j + 0.5) * s, k.Height - 0.5));
-                var ray = r * CameraModel.PixelRayCamera(u, k, projector.Lens);
+                var local = CameraModel.PixelRayCamera(u, k, projector.Lens);
+                var ray = r * local;
                 // Along the axis: a unit ray's point at distance t has axial depth t·ray_z(camera frame).
-                var axial = CameraModel.PixelRayCamera(u, k, projector.Lens).Z;
+                var axial = local.Z;
                 var n = 0;
                 for (var v = 0; v < seenBy.Count; v++)
                 {
@@ -108,6 +110,7 @@ public static class ProjectorDepth
                         continue;
                     var px = Math.Max(options.CameraSigmaPx, sample.FitResidualPx) / Math.Sqrt(Math.Max(sample.Confidence, 0.1f));
                     d[v] = t;
+                    seenAt[v] = sample.Camera;
                     var sd = px / Math.Max(rate, 1e-12);
                     vr[v] = sd * sd;
                     use[v] = true;
@@ -123,8 +126,7 @@ public static class ProjectorDepth
                 {
                     if (!use[v])
                         continue;
-                    if (!seenBy[v].Inverse.TryAt(u, out var sample) || seenBy[v].Camera.Project(p) is not { } seen
-                        || (seen - sample.Camera).Length > options.MaxViewPx)
+                    if (seenBy[v].Camera.Project(p) is not { } seen || (seen - seenAt[v]).Length > options.MaxViewPx)
                     {
                         use[v] = false;
                         dropped = true;
