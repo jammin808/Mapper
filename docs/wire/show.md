@@ -35,7 +35,8 @@ second GO on the same playlist inside the window — "double GO protection: 0.20
 - `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}`; refused "not armed — the show is in rehearsal".
 - `PANIC` — `{"outcome":"black","hard":false,"since":…,"outputs":[{"id","outcome","fadeMs","until"}],"devices":[{"id","stage"}],
   "released":[{"playlist","done","atLeaderNs","words"}],"notes"?}` (`released`: each chased playlist whose chase the panic's step
-  disengages — `done:true` when it already has, `false` while the step waits for its fade's end; its words are in `notes` too); the
+  disengages — `done:true` when it already has, `false` while the step waits for its fade's end; its words are in `notes` too; a
+  step the playlist refuses is journalled `ok:false` and, when it ran inside this PANIC, its words are in `notes`); the
   second press inside a fade answers `"outcome":"hard","hard":true`; a press after every fade has settled is refused
   "already in panic since HH:mm:ss (black) — PANIC CLEAR brings the air back".
 - `PANIC CLEAR` — `{"cleared":["op_1"],"fadeMs":1000,"inPanic":false}`; refused "not in panic — the air is the show's".

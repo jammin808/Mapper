@@ -91,8 +91,10 @@ public sealed partial class EngineCore
             : current with { Outputs = current.Outputs.AddRange(entries), Seq = ++_panicSeq };
         _returns = [.. _returns.Where(r => !entries.Any(e => e.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
-        var released = Releases(p, entries, SchedulePanicSteps(p, entries, now));
+        var refused = new List<string>();
+        var released = Releases(p, entries, SchedulePanicSteps(p, entries, now, refused));
         notes.AddRange(released.Select(ReleaseNote));
+        notes.AddRange(refused);
         RunPanicLines(p, entries, clear: false, start);
         RebuildLevels();
         RaiseEvent("panic", start, w =>
@@ -143,8 +145,9 @@ public sealed partial class EngineCore
         _panicLinesDue.Clear();
         _returns = [.. _returns.Where(r => !outputs.Any(o => o.OutputId == r.OutputId))];
         SetAir(a => a with { Panic = panic });
-        var released = Releases(Store.Project, outputs, SchedulePanicSteps(Store.Project, outputs, now));
-        var notes = released.Select(ReleaseNote).ToList();
+        var refused = new List<string>();
+        var released = Releases(Store.Project, outputs, SchedulePanicSteps(Store.Project, outputs, now, refused));
+        var notes = released.Select(ReleaseNote).Concat(refused).ToList();
         RebuildLevels();
         RaiseEvent("panic", now, w =>
         {
@@ -379,8 +382,9 @@ public sealed partial class EngineCore
     }
 
     /// <summary>Each playlist an output shows waits for the most conservative transport outcome among the outputs showing it, at
-    /// the latest of their fades' ends; HARD pauses now. Answers what let go of a playlist for the steps that ran now.</summary>
-    private List<PanicRelease> SchedulePanicSteps(Project p, IEnumerable<OutputPanicAir> entries, long now)
+    /// the latest of their fades' ends; HARD pauses now. Answers what let go of a playlist for the steps that ran now, and adds the
+    /// words of any of them refused to <paramref name="refused"/>.</summary>
+    private List<PanicRelease> SchedulePanicSteps(Project p, IEnumerable<OutputPanicAir> entries, long now, List<string> refused)
     {
         foreach (var e in entries)
         {
@@ -401,7 +405,7 @@ public sealed partial class EngineCore
             }
         }
         var released = new List<PanicRelease>();
-        RunDueSteps(now, released);
+        RunDueSteps(now, released, refused);
         return released;
     }
 
@@ -431,7 +435,7 @@ public sealed partial class EngineCore
         _panicSteps.RemoveAll(s => !shown.Contains(s.PlaylistId));
     }
 
-    private void RunDueSteps(long now, List<PanicRelease>? released)
+    private void RunDueSteps(long now, List<PanicRelease>? released, List<string>? refused)
     {
         for (var i = 0; i < _panicSteps.Count;)
         {
@@ -442,15 +446,17 @@ public sealed partial class EngineCore
                 continue;
             }
             _panicSteps.RemoveAt(i);
-            if (RunStep(s) is { } r)
+            if (RunStep(s, refused) is { } r)
                 released?.Add(r);
         }
     }
 
     /// <summary>A transport outcome at its instant on the show clock: whatever else drives the playlist (a timecode chase) lets go
     /// first, so the outcome holds; then BLACK and HARD pause, REWIND cues the item that was on at its in-point, NEXT cues the next
-    /// item. A playlist with nothing loaded is left as it is. Answers what let go, if anything did.</summary>
-    private PanicRelease? RunStep(PanicStep s)
+    /// item. A playlist with nothing loaded is left as it is. A step the playlist refuses is never dropped: it is journalled with the
+    /// refusal's words, which are added to <paramref name="refused"/> (the PANIC's own words, for a step that runs inside it). Answers
+    /// what let go, if anything did.</summary>
+    private PanicRelease? RunStep(PanicStep s, List<string>? refused)
     {
         var list = Store.Project.FindPlaylist(s.PlaylistId);
         if (list is null)
@@ -473,7 +479,15 @@ public sealed partial class EngineCore
             _ => (false, ""),
         };
         if (done.Ok)
+        {
             Journal.Add("panic", $"panic {PanicMath.Json(s.Outcome)}: {done.Words}");
+        }
+        else if (done.Words.Length > 0)
+        {
+            var why = $"{list.Name} refused the panic's {PanicMath.Word(s.Outcome)}: {done.Words}";
+            Journal.Add("panic", $"panic {PanicMath.Json(s.Outcome)}: {why}", ok: false);
+            refused?.Add(why);
+        }
         return released;
     }
 
@@ -598,7 +612,7 @@ public sealed partial class EngineCore
     private void TickPanic(long now)
     {
         if (_panicSteps.Count > 0)
-            RunDueSteps(now, null);
+            RunDueSteps(now, null, null);
         for (var i = 0; i < _panicLinesDue.Count;)
         {
             var due = _panicLinesDue[i];

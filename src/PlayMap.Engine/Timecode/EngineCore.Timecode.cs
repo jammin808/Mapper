@@ -193,10 +193,17 @@ public sealed partial class EngineCore
     /// OFF does: the guard lifted, the lane playing on by hand from where it is), so the panic's outcome holds; STATE shows it
     /// disengaged by the panic until TIMECODE ENGAGE puts it back (PANIC CLEAR does not). Between two items the lane holds nothing but
     /// the chase's own switch to the next one at its code: letting go there leaves nothing loaded, so that item does not start under
-    /// the panic. A chase already disengaged, or a playlist that chases nothing, is left alone.</summary>
+    /// the panic. A chase already disengaged is left alone. A chase turned off (by its verb, an edit or an undo) that this lane has not
+    /// ticked over yet still guards the playlist: it lets go the same way, with nothing to say, since nothing chases the playlist.</summary>
     partial void ReleaseForPanic(Playlist list, PanicOutcome outcome, long atLeaderNs, bool commit, ref string? words)
     {
-        if (list.Chase is not { } chase || (_chases.TryGetValue(list.Id, out var run) && !run.Engaged))
+        if (list.Chase is not { } chase)
+        {
+            if (commit && _chases.Remove(list.Id))
+                LetGoForPanic(list, atLeaderNs);
+            return;
+        }
+        if (_chases.TryGetValue(list.Id, out var run) && !run.Engaged)
             return;
         var by = "PANIC " + PanicMath.Word(outcome);
         var active = run?.Active is { Length: > 0 } a ? a : chase.Sources.FirstOrDefault() ?? "";
@@ -208,11 +215,18 @@ public sealed partial class EngineCore
         run.Engaged = false;
         run.Memory = ChaseMemory.Start;
         run.DisengagedBy = by;
+        LetGoForPanic(list, atLeaderNs);
+        _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? ""));
+        PublishTimecodeFacts(Store.Project, Services.Mono.NowNs);
+    }
+
+    /// <summary>The chase's guard lifted for a panic step; a lane between two items (nothing current, only the chase's switch to the
+    /// next one standing) is left with nothing loaded.</summary>
+    private void LetGoForPanic(Playlist list, long atLeaderNs)
+    {
         if (Playback.Lane(list.Id) is { IsIdle: false, ItemId: null })
             Playback.ChaseGap(list, -1, ClipTransport.Empty, long.MaxValue);
         Playback.Guard(list, null, atLeaderNs);
-        _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? ""));
-        PublishTimecodeFacts(Store.Project, Services.Mono.NowNs);
     }
 
     private (TcFormat Format, ImmutableArray<TcRegion> Regions, string Problem) RegionsOf(Playlist list, TcFormat format, ChaseRun run)

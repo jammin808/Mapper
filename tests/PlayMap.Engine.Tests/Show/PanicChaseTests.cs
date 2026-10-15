@@ -157,6 +157,33 @@ public sealed class PanicChaseTests
         await Advance(rig, 2000);
         Assert.Equal(expected, Published(rig));
         Assert.False(Chase(rig).GetProperty("engaged").GetBoolean());
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Kind == "panic" && !r.Ok);
+    }
+
+    /// <summary>A chase turned off on the line just before a HARD panic, with no tick of the lane between them, still guards the
+    /// playlist: the panic lifts that guard, so the pause holds (nothing chases the playlist any more, so nothing is released).</summary>
+    [Fact]
+    public async Task AChaseTurnedOffJustBeforeAPanicDoesNotRefuseItsPause()
+    {
+        await using var rig = await Chased();
+        await Advance(rig, 2000);
+        // Both lines queue behind a held lane, in order, so they run one after the other.
+        using var hold = new ManualResetEventSlim();
+        var held = rig.Engine.Lane.RunAsync(() => hold.Wait(TimeSpan.FromSeconds(10)));
+        var off = rig.Run("TIMECODE CHASE Show OFF");
+        var panic = rig.Run("PANIC HARD");
+        hold.Set();
+        Assert.True(await held);
+        Assert.True((await off).Ok);
+        var reply = await panic;
+        Assert.True(reply.Ok, reply.Payload);
+        Assert.Empty(JsonDocument.Parse(reply.Payload!).RootElement.GetProperty("released").EnumerateArray());
+        Assert.Equal(("it_a", "paused", 3000L), Published(rig));
+        await Advance(rig, 1000);
+        Assert.Equal(("it_a", "paused", 3000L), Published(rig));
+        Assert.Empty(rig.State().GetProperty("timecode").GetProperty("chases").EnumerateArray());
+        Assert.Contains(rig.Engine.Journal.Recent(50), r => r.Kind == "panic" && r.Text.StartsWith("panic hard: paused at ", StringComparison.Ordinal));
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Kind == "panic" && !r.Ok);
     }
 
     /// <summary>Between two items (GAP BLACK) the lane holds only the chase's switch to the next item at its code: the panic's

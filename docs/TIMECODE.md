@@ -70,8 +70,8 @@ at most four times a second; a region change takes effect at once. While a chase
 Which chases are disengaged is kept for recovery. A `PANIC` whose outcome moves transport (BLACK, HARD, REWIND, NEXT) disengages a
 chased playlist's chase at its step's instant, so the panic holds whatever the code does; the chase's words say "disengaged by PANIC
 BLACK — TIMECODE ENGAGE Main ON to follow the code again", and `PANIC CLEAR` leaves it so. Caught between two items (`GAP BLACK`),
-the playlist is left with nothing loaded, so the next item does not start under the panic when its code comes. RUN, FREEZE and
-SAFE leave the chase engaged.
+the playlist is left with nothing loaded, so the next item does not start under the panic when its code comes. A chase turned off
+just before the panic, whose guard the lane has not yet lifted, lets go the same way. RUN, FREEZE and SAFE leave the chase engaged.
 
 ## STATE, context, preflight, INDEX
 

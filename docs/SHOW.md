@@ -103,7 +103,9 @@ where the panic put it. It is journalled (`panic black: Show stops chasing FOH: 
 while it waits for the fade's end), and `STATE.timecode` shows the chase `disengaged by PANIC BLACK — TIMECODE ENGAGE Show ON to
 follow the code again`. `PANIC CLEAR` brings the air back, not the chase; `TIMECODE ENGAGE … ON` does. RUN, FREEZE, SAFE, SHUTTER and
 FX-OFF leave transports — and chases — alone. The panic asks through one hook (`ReleaseForPanic`, declared beside the panic and
-answered by the timecode package), so anything else that comes to drive a playlist answers there too.
+answered by the timecode package), so anything else that comes to drive a playlist answers there too. A step the playlist still
+refuses is never dropped: it is journalled with the refusal's words (`ok:false`), and named in the PANIC's words when the step runs
+inside it (HARD, the second press).
 `PANIC <outcome>` overrides every plan; `ON <output>…` names outputs; `FADE <ms>` sets the fade; `AT +<ms>|<unix ms>` lands the
 panic at an instant on the show clock (its transport outcome at that fade's end, its shutter and effects lines sent when the
 instant comes); `SHOW SET PANIC-LEAD <ms>` lands every panic that far ahead so a group fades on the same frames.
