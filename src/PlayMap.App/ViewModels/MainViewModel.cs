@@ -664,12 +664,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     /// <summary>The transport's position column and the VT chip (dropped first as the bar narrows).</summary>
     public bool ShowPositionColumn => _barWidth >= 1280;
 
-    /// <summary>Drawer pills show their words where the bar has room for them: from 1280 px while the bar takes two rows;
-    /// on a bar wide enough for one row (1880 px) they are icons, so the whole bar fits on that row.</summary>
-    public bool ShowPillWords => _barWidth is >= 1280 and < OneRowBar;
-
-    /// <summary>The bar width from which everything fits on one row (the drawer pills as icons).</summary>
-    public const double OneRowBar = 1880;
+    /// <summary>Drawer pills show their words (they become icons below 1280 px).</summary>
+    public bool ShowPillWords => _barWidth >= 1280;
 
     /// <summary>Simple|Pro sits in the bar (it moves into the project menu below 1200 px).</summary>
     public bool ShowProToggle => _barWidth >= 1200;

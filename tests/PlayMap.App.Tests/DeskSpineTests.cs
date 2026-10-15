@@ -236,8 +236,9 @@ public class DeskSpineTests(ITestOutputHelper output)
             Assert.True(child.Bounds.Width + child.Margin.Left + child.Margin.Right + 0.5 >= child.DesiredSize.Width || child.Name == "MasterTransport",
                 $"{child.Name} was squeezed to {child.Bounds.Width:0} of {child.DesiredSize.Width:0} px");
         }
-        if (width >= 1920)
-            Assert.False(bar.IsTwoRow);
+        // One row only when everything fits on it; the panel wraps otherwise.
+        if (!bar.IsTwoRow)
+            Assert.True(bar.Children.Where(c => c.IsVisible).Sum(c => c.DesiredSize.Width) <= right);
         // The show cluster never shrinks, and it is all on screen.
         var cluster = MainWindowTests.Find<StackPanel>(window, "ShowCluster");
         Assert.True(cluster.Bounds.Width + 0.5 >= cluster.DesiredSize.Width);
