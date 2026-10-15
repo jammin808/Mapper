@@ -23,7 +23,8 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 - **Plays.** FFmpeg with hardware decode; all seven HAP codecs block-compressed on the GPU, HAP R and HAP HDR included;
   Patterns' test patterns, 2D and raymarched 3D fractals, a GPU particle field of up to 1 M particles, sound-reactive
   scenes, stings and thirty curated looks. Every generator counts its own time on the show clock, so a late joiner, a backup
-  or a chase draws the same picture.
+  or a chase draws the same picture. A clip that decodes on the CPU can be optimised in the background into a HAP or HAP Q
+  version by PlayMap's own GPU encoder in a worker process, verified against the source and played from the item's next open.
 - **Shapes.** Ordered chains of ISF effects on outputs, layers, surfaces and playlist items, a show's own ISF files beside the
   ten built in. A number on a layer, a surface, an effect or a generator can move with the sound, the beat clock or an LFO.
 - **Maps.** `LIGHT WALL` and a pixel quad from four clicks on the wall, with the edit overlay drawn through the output's warp;
@@ -51,7 +52,7 @@ Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' 
 context report it; the multi-view solve is Core's alone so far.
 
 **In progress:** blind edit and sound on the air; the sync group's leader clock and measured sync; the phone as a scan
-camera; video in and out over OMT and NDI; optimise to HAP on import; the Companion module; and the desk's controls for
+camera; video in and out over OMT and NDI; the Companion module; and the desk's controls for
 show safety, locks, effects and the rest, which today run over the wire.
 
 ## What it is made of
@@ -89,6 +90,7 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/SHOW.md` — Show Mode, locks, panic, the master, the GO fence and preflight
 - `docs/OUTPUT.md` — presenting, vblank truth and the frame lock
 - `docs/DECODE.md` — the HAP family on the GPU
+- `docs/OPTIMISE.md` — optimise on import: the rules, the GPU HAP encoder, the worker and versions
 - `docs/CONTROL.md` — OSC, MIDI, Art-Net and sACN input, and bindings
 - `docs/TIMECODE.md` — timecode chase
 - `docs/COMPANION.md` — the node's side of Companion and other controllers
