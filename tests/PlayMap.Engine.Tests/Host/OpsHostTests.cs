@@ -98,6 +98,8 @@ public sealed class OpsHostTests
                 }
                 return node.State().GetProperty("scan").GetProperty("state").GetString() is "done" or "failed";
             }, 120_000), "the scan never ended");
+            // Renewed as the scan ends too, so the apply below runs well inside the lease before the view is read.
+            Answer(await wire.AskAsync("@k VIEW cam KEEP"), "k");
             var scan = node.State().GetProperty("scan");
             Assert.True(scan.GetProperty("state").GetString() == "done", scan.GetProperty("message").GetString());
             Assert.Equal(scanId, scan.GetProperty("id").GetString());
