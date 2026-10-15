@@ -81,6 +81,38 @@ public sealed class ModulationTests
         Assert.Equal(0.2, peek.GetProperty("base").GetDouble());
     }
 
+    /// <summary>A generator's numbers are never rewritten in the drawn project (its renderer re-reads every number on a change: a
+    /// particle field would re-seed and a flash guard forget its last flash, every frame): its parameter set is the show's own and
+    /// its bindings stay on it for its own render path; held, they are taken off. STATE and MOD PEEK say it is drawn at its base.</summary>
+    [Fact]
+    public async Task AGeneratorKeepsItsNumbersAndItsBindingsForItsOwnRenderPath()
+    {
+        await using var rig = new AudioRig(AudioRig.Show());
+        await rig.Ok("MOD BIND gn_julia speed lfo:sine/1 AMOUNT 0.5");
+        await rig.Ok("MOD BIND ly_base opacity lfo:sine/1 AMOUNT 0.5");
+        var show = rig.Engine.Store.Project;
+        var plan = ModulationPlan.For(show);
+        for (var t = 6_000_000_000L; t < 7_000_000_000L; t += 16_666_667)
+        {
+            var drawn = rig.Engine.AudioRt.Read(bus => plan.Apply(bus, t, false));
+            var gen = drawn.FindGenerator("gn_julia")!;
+            Assert.Same(show.FindGenerator("gn_julia")!.Params, gen.Params);
+            Assert.Single(gen.Bindings);
+            // The layer beside it moves.
+            Assert.Empty(drawn.Canvases[0].Layers[0].Bindings);
+        }
+        Assert.NotEqual(rig.Engine.AudioRt.Read(bus => plan.Apply(bus, 6_000_000_000L, false)).Canvases[0].Layers[0].Opacity,
+            rig.Engine.AudioRt.Read(bus => plan.Apply(bus, 6_250_000_000L, false)).Canvases[0].Layers[0].Opacity);
+        Assert.Empty(rig.Engine.AudioRt.Read(bus => plan.Apply(bus, 6_000_000_000L, false, new HashSet<string> { "gn_julia" }))
+            .FindGenerator("gn_julia")!.Bindings);
+        Assert.Empty(rig.Engine.AudioRt.Read(bus => plan.Apply(bus, 6_000_000_000L, true)).FindGenerator("gn_julia")!.Bindings);
+
+        var unbound = rig.State().GetProperty("modulation").GetProperty("unbound").EnumerateArray().Select(u => u.GetString()).ToList();
+        Assert.Contains($"Fractal speed: {EngineCore.GeneratorDrawsBase}", unbound);
+        var peek = AudioRig.Json(await rig.Ok("MOD PEEK gn_julia")).GetProperty("bindings")[0];
+        Assert.Equal(EngineCore.GeneratorDrawsBase, peek.GetProperty("words").GetString());
+    }
+
     [Fact]
     public async Task BypassHoldsTheBaseAndAMissingSourceHoldsItToo()
     {

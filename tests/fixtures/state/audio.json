@@ -53,7 +53,9 @@
     "live": 1,
     "shared": 0,
     "pure": 2,
-    "unbound": [],
+    "unbound": [
+      "Fractal speed: drawn at its base: a generator reads its bindings on its own render path, and the generators on this node do not yet"
+    ],
     "held": [
       "gn_julia"
     ],

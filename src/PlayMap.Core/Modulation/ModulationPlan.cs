@@ -236,9 +236,11 @@ public static class ModTargets
 public sealed record PlanItem(ModEntity Entity, ParamBinding Binding, string Param, ParamRange Range, string SourceKey, ModSource? Source, string Problem);
 
 /// <summary>Every binding of one project, resolved once per project (ranges, bases, sources) and evaluated per frame: the project
-/// handed to the renderer has each bound number at its modulated value and the bindings taken off (nothing downstream modulates
-/// them again). The project itself is never written: the store keeps the base values, and the revision does not move. A project
-/// without bindings is handed on as it is; bypassed, the plan hands on the base values (one copy per project, kept).</summary>
+/// handed to the renderer has each bound number of a layer, a surface or an effect slot at its modulated value and those bindings
+/// taken off (nothing downstream modulates them again); a generator keeps its numbers and its bindings for its own render path
+/// (<see cref="DrawsLive"/>). The project itself is never written: the store keeps the base values, and the revision does not
+/// move. A project without bindings is handed on as it is; bypassed, the plan hands on the base values with every binding taken
+/// off (one copy per project, kept).</summary>
 public sealed class ModulationPlan
 {
     private readonly ImmutableArray<Group> _groups;
@@ -298,6 +300,13 @@ public sealed class ModulationPlan
         return (BindingEval.Apply(item.Binding, s, item.Range.Base, item.Range.Min, item.Range.Max), s);
     }
 
+    /// <summary>False for a generator: a generator renderer re-reads its whole parameter set whenever a number changes (a particle
+    /// field re-seeds and settles, a flash guard forgets its last flash), so a number rewritten every frame would restart it every
+    /// frame and let it flash unguarded. Its bindings stay on the generator in the drawn project, for its renderer to evaluate on
+    /// its own render path through the bus (the frame's <c>Modulation</c>); this plan evaluates them for MOD PEEK and STATE only.
+    /// Layers, surfaces and effect slots take their live numbers from the drawn project.</summary>
+    public static bool DrawsLive(ModEntityKind kind) => kind != ModEntityKind.Generator;
+
     /// <summary>The project the renderer draws at <paramref name="leaderNs"/>.</summary>
     /// <param name="bypassAll">MOD BYPASS ON: every number at its base.</param>
     /// <param name="bypassed">Entities held at their base (MOD BYPASS ON &lt;entity&gt;).</param>
@@ -331,17 +340,9 @@ public sealed class ModulationPlan
         switch (e.Kind)
         {
             case ModEntityKind.Generator:
-                return p with
-                {
-                    Generators = p.Generators.Update(e.Id, gen =>
-                    {
-                        var set = gen.Params;
-                        foreach (var i in g.Items)
-                            if (Items[i].Problem.Length == 0)
-                                set = set.With(Items[i].Param, Evaluate(i, bus, t, hold).Value);
-                        return gen with { Params = set, Bindings = [] };
-                    }),
-                };
+                // Never rewritten per frame (see DrawsLive): the bindings stay on the generator for its own render path; held, they
+                // are taken off and it draws its base.
+                return hold ? p with { Generators = p.Generators.Update(e.Id, gen => gen with { Bindings = [] }) } : p;
             case ModEntityKind.Layer:
                 return p with
                 {

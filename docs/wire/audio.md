@@ -87,10 +87,12 @@ For the integration docs pass:
   `MOD SOURCES` names its sources) and STATE `audio` / `modulation`.
 - `ARCHITECTURE.md`: the analyser and the beat clock in Core (`Core/Audio`), the bus and the binding plan in Core
   (`Core/Modulation`), the runtime and verbs in the engine (`Engine/Audio`), the capture backends in Media (`Media/Audio`, WASAPI
-  under `Media/Audio/Windows`); bound numbers reach every renderer through the project the render host's compose hook hands it.
+  under `Media/Audio/Windows`); bound numbers of layers, surfaces and effect slots reach the renderer through the project the
+  render host's compose hook hands it; a generator keeps its numbers and its bindings, for its renderer to evaluate on its own
+  render path (content), and until then is drawn at its base (named in STATE `modulation.unbound`).
 - `ROADMAP.md`: M6 "audio analysis as a modulation source" done for this node (analysis, onsets, tap, tempo detection, the beat
-  clock as anchors, bindings on generators, layers, surfaces and effect slots); shared frames, Link (Carabiner), MIDI clock,
-  analysis tracks and launch quantisation are next.
+  clock as anchors, bindings on layers, surfaces and effect slots drawn live; on generators kept and evaluated for their own
+  render path); shared frames, Link (Carabiner), MIDI clock, analysis tracks and launch quantisation are next.
 - Spine amendments asked for: a dispose hook for packages in `EngineCore.DisposeAsync` (the engine's own audio runtime is let go
   by its host's extension, or by a test); `ComposeAudio` runs after `ComposeFx`, so effects that read `FrameInputs.Modulation` in
   their compose see it from the next package on (they read the bus through `PassFrame` today — no effect reads it yet).

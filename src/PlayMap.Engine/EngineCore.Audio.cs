@@ -243,7 +243,7 @@ public sealed partial class EngineCore
         w.WriteEndObject();
     }
 
-    /// <summary>Each binding that holds its base value now, in words ("audio:bass (no audio on this node)").</summary>
+    /// <summary>Each binding that holds its base value on the air now, in words ("audio:bass (no audio on this node)").</summary>
     internal IReadOnlyList<string> Unbound(ModulationPlan plan)
     {
         var listening = AudioRt.Feed.Listening;
@@ -252,11 +252,17 @@ public sealed partial class EngineCore
         {
             if (item.Problem.Length > 0)
                 list.Add($"{item.Entity.Name} {item.Binding.Param}: {item.Problem}");
+            else if (!ModulationPlan.DrawsLive(item.Entity.Kind))
+                list.Add($"{item.Entity.Name} {item.Binding.Param}: {GeneratorDrawsBase}");
             else if (item.Source is { IsAudio: true } && !listening)
                 list.Add($"{item.Binding.Source} (no audio on this node)");
         }
         return [.. list.Distinct(StringComparer.Ordinal)];
     }
+
+    /// <summary>Why a generator's bound number is drawn at its base: its renderer evaluates its own bindings, and this node's
+    /// generator renderers do not yet.</summary>
+    internal const string GeneratorDrawsBase = "drawn at its base: a generator reads its bindings on its own render path, and the generators on this node do not yet";
 
     private static double Round(float v) => Math.Round(v, 3);
 

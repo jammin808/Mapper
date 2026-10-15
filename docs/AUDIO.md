@@ -109,8 +109,13 @@ round.
 
 A binding (`ParamBinding`) is a project edit: `MOD BIND` writes it (one per parameter, undoable), `MOD UNBIND` removes it. Each
 frame the render host's compose hook resolves the show's bindings once per project (`ModulationPlan`: ranges, bases, sources) and
-hands the renderer a project with every bound number at its live value and the bindings taken off — the store keeps the base value
-and its revision never moves for modulation. The rule:
+hands the renderer a project with every bound number of a layer, a surface or an effect slot at its live value and those bindings
+taken off — the store keeps the base value and its revision never moves for modulation. A generator is the exception: its
+renderer re-reads its whole parameter set whenever a number changes (a particle field re-seeds, a flash guard forgets its last
+flash), so its numbers are never rewritten per frame; its bindings stay on it, for its renderer to evaluate on its own render path
+through the bus the frame carries. This node's generator renderers do not read them yet, so a generator's bound numbers are drawn
+at their base (STATE `modulation.unbound` and `MOD PEEK` say so; `MOD PEEK` still gives the live value the binding makes). The
+rule:
 
 u = curve(clamp(invert(s) − Offset, 0, 1)), quantised to `STEPS` levels, then **ADD** base + Amount·u·(max − min), **SCALE**
 base·lerp(1 − |Amount|, 1, u), **REPLACE** the range's own min + u·its width (`RANGE` as fractions of the parameter's); the result
@@ -141,5 +146,6 @@ followers adopt the listener's detected anchors); analysis tracks at import (`.p
 (a detected lock keeps the count, the bar line is a resync); Ableton Link
 only through a Carabiner process the user installs (GPLv2+, never bundled); MIDI clock in; named modulators (LFO, envelope,
 steps, random); `MOD AUTO` presets; launch quantisation (`AT BEAT|BAR|PHRASE` on playlist verbs); discrete audio inputs for
-control bindings; `AUDIO CALIBRATE`; a zero-allocation overlay for generators (content's render path) in place of the per-frame
-project; RATE bindings.
+control bindings; `AUDIO CALIBRATE`; generators that evaluate their own bindings (content's render path; the plan already leaves
+them on the generator); a zero-allocation overlay in place of the per-frame project for layers, surfaces and effect slots; RATE
+bindings.
