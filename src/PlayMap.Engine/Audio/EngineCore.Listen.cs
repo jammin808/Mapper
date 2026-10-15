@@ -184,7 +184,7 @@ public sealed partial class EngineCore
                 applied += $" (this machine keeps its own input, {rt.Node.Input} — AUDIO LISTEN OFF HERE follows the show)";
         }
         var spec = ListenSpecNow();
-        var state = spec == before && rt.State.State == "listening" ? rt.State : await rt.ListenAsync(spec, c.Ct).ConfigureAwait(false);
+        var state = spec == before && rt.State.State == "listening" ? rt.State : await rt.ListenAsync(ListenSpecNow, c.Ct).ConfigureAwait(false);
         FactsChanged();
         var heard = state.State switch
         {

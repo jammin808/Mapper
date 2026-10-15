@@ -106,19 +106,20 @@ public sealed partial class EngineCore
     /// thread).</summary>
     private void KeepListening()
     {
-        var spec = ListenSpecNow();
-        if (_listening is { IsCompleted: false } || !AudioRt.Due(spec, Services.Mono.NowNs))
+        if (_listening is { IsCompleted: false } || !AudioRt.Due(ListenSpecNow(), Services.Mono.NowNs))
             return;
-        _listening = Task.Run(() => ListenNowAsync(spec), CancellationToken.None);
+        _listening = Task.Run(ListenNowAsync, CancellationToken.None);
     }
 
-    private async Task ListenNowAsync(ListenSpec spec)
+    /// <summary>The open runs on the pool after the tick that asked for it; what it applies is read when it holds the open gate
+    /// (a verb's open may have run in between), never the ask the tick saw.</summary>
+    internal async Task ListenNowAsync()
     {
         var before = AudioRt.State;
         ListenState after;
         try
         {
-            after = await AudioRt.ListenAsync(spec, CancellationToken.None).ConfigureAwait(false);
+            after = await AudioRt.ListenAsync(ListenSpecNow, CancellationToken.None).ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
