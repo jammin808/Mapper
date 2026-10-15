@@ -304,6 +304,11 @@ public sealed class ChaseTests
         var (reverse, _) = ChaseLogic.Decide(settings, regions, "reverse", null, ChaseMemory.Start, 1);
         Assert.Equal((ChaseState.Reverse, ChaseAction.Hold), (reverse.State, reverse.Action));
         Assert.Equal("timecode running backwards — holding", reverse.Words);
+        // Its code is the one running backwards, not where the last forward line would be by now.
+        var forward = new TcLine(1_000_000_000, Tc("01:00:05:10"), 1, 0, 25, 1, 1, true);
+        var back = new TcLine(2_000_000_000, Tc("01:00:05:05"), 0, 0, 1, 2, -1, false);
+        var (backwards, _) = ChaseLogic.Decide(settings, regions, "reverse", back, new ChaseMemory(ChaseState.Locked, long.MinValue, forward), 2_000_000_000);
+        Assert.Equal((ChaseState.Reverse, Tc("01:00:05:05")), (backwards.State, backwards.TcNs));
         var tracker = new TimecodeTracker(null);
         var at = Tc("01:00:05:00");
         tracker.Observe(MtcParser.FullFrame(1, 1, 0, 5, 0, 2_000_000_000)!.Value);

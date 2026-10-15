@@ -138,8 +138,10 @@ public static class ChaseLogic
                 return (plan, new ChaseMemory(ChaseState.Parked, long.MinValue, p));
             }
             case "reverse":
+                // The code is the one running backwards (its line), not where the last forward line would have it.
                 return (new ChasePlan(ChaseState.Reverse, ChaseAction.Hold, -1, 0, nowLeaderNs, 0, false, -1, long.MaxValue,
-                    memory.LastLine?.TcAt(nowLeaderNs) ?? 0, "timecode running backwards — holding"), memory with { State = ChaseState.Reverse });
+                    line?.TcAt(nowLeaderNs - settings.DelayNs) ?? memory.LastLine?.TcAt(nowLeaderNs) ?? 0, "timecode running backwards — holding"),
+                    memory with { State = ChaseState.Reverse });
             case "dropout" or "lost" or "silent" or "unavailable" when memory.LastLine is { Running: true } last:
             {
                 var since = memory.State == ChaseState.Freewheel || memory.FreewheelSinceNs != long.MinValue ? memory.FreewheelSinceNs : nowLeaderNs;

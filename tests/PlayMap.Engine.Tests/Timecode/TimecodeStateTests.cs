@@ -125,6 +125,42 @@ public sealed class TimecodeStateTests
     }
 
     [Fact]
+    public async Task StateReadsAChaseOnCodeRunningBackwardsAsTheCodeIs()
+    {
+        var clock = new ManualClock(5 * S);
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), clock: clock);
+        await rig.Ok("TIMECODE SOURCE ADD Desk ARTNET FORMAT 25");
+        await rig.Ok("TIMECODE CHASE Show Desk");
+        await Ticked(rig, clock);
+        await rig.Engine.StepChasesAsync();
+        var id = rig.Engine.Store.Project.Timecode.Sources[0].Id;
+        Assert.True(TcFormat.Fps25.TryParseLabel("03:00:00:00", out var from));
+
+        // A packet a frame from the first, running forward (+1) or backward (−1), the lane ticking every 10 ms between them.
+        async Task Roll(long first, int frames, int direction)
+        {
+            for (var i = 0; i < frames; i++)
+            {
+                rig.Engine.TimecodeSources.Observe(id, new TcObservation(clock.NowNs, first + i * direction, 0, TcFormat.Fps25, direction, TcObsKind.Packet, 0, false));
+                for (var t = 0; t < 4; t++)
+                {
+                    clock.AdvanceMs(10);
+                    await rig.Engine.StepChasesAsync();
+                }
+            }
+        }
+
+        await Roll(from, 25, 1);
+        await Roll(from + 23, 5, -1);
+        var state = rig.State();
+        var chase = state.GetProperty("timecode").GetProperty("chases")[0];
+        // The code ran back to 03:00:00:19: the chase says that code, as its source and TIMECODE STATUS do.
+        Assert.Equal(("reverse", "03:00:00:19"), (chase.GetProperty("state").GetString(), chase.GetProperty("text").GetString()));
+        Assert.Equal("03:00:00:19", SourceText(state.GetRawText()));
+        Assert.Equal("03:00:00:19", await StatusText(rig, "Show"));
+    }
+
+    [Fact]
     public async Task StateIsWrittenOncePerFrameOfRollingCodeAndNotAgainWhileItStandsStill()
     {
         var clock = new ManualClock(5 * S);
