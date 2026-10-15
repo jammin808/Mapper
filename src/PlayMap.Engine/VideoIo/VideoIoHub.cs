@@ -178,8 +178,7 @@ public sealed class VideoIoHub : IDisposable
                 _inputs[item.Id] = input;
             }
             input.AddHandle();
-            if (input.Source is null)
-                OpenInput(input);
+            OpenInput(input);
             return new LiveHandle(input, _mono, _blackout);
         }
     }
@@ -214,33 +213,83 @@ public sealed class VideoIoHub : IDisposable
         Wake();
     }
 
+    /// <summary>Opens what of the input is closed: its primary, and its backup when it names one (warm beside the primary).</summary>
     private void OpenInput(LiveInput input)
     {
-        var why = Unavailable(input.Protocol, sending: false);
-        if (why is not null || InputProvider(input.Protocol) is not { } provider)
+        var settings = input.Item.Live ?? LiveSettings.Default;
+        if (input.Primary is null)
         {
-            input.Problem = why ?? NoProvider(input.Protocol);
+            input.Primary = OpenFeed(input.Protocol, input.Address, input.ByUrl, settings, input.Id, input.Item.Name, out var problem);
+            input.Problem = problem;
+            input.OpenedNs = input.Primary is null ? long.MinValue : _mono();
+            input.Tally = "none";
+        }
+        if (input.Backup is not null || settings.Backup.Length == 0)
             return;
+        input.BackupUri = settings.Backup;
+        if (!LiveUri.TryParse(settings.Backup, out var protocol, out var address, out var byUrl) || protocol is LiveProtocol.Ffmpeg)
+        {
+            input.BackupProblem = $"the backup {settings.Backup} is no NDI, OMT or Spout source";
+            return;
+        }
+        input.Backup = OpenFeed(protocol, address, byUrl, settings with { Backup = "" }, input.Id + "/backup", input.Item.Name + "'s backup",
+            out var why);
+        input.BackupProblem = why;
+        input.BackupOpenedNs = input.Backup is null ? long.MinValue : _mono();
+    }
+
+    /// <summary>A receiver for one feed, or null with the words why.</summary>
+    private ILiveSource? OpenFeed(LiveProtocol protocol, string address, bool byUrl, LiveSettings settings, string key, string name, out string problem)
+    {
+        problem = "";
+        var why = Unavailable(protocol, sending: false);
+        if (why is not null || InputProvider(protocol) is not { } provider)
+        {
+            problem = why ?? NoProvider(protocol);
+            return null;
         }
         try
         {
-            input.Source = provider.Open(input.Address, input.ByUrl, input.Item.Live ?? LiveSettings.Default, input.Id);
-            input.Problem = "";
-            input.Tally = "none";
+            return provider.Open(address, byUrl, settings, key);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or NotSupportedException or System.Net.Sockets.SocketException)
         {
-            input.Problem = $"{input.Item.Name} would not open: {ex.Message}";
+            problem = $"{name} would not open: {ex.Message}";
+            return null;
         }
     }
 
+    /// <summary>Closes both feeds' receivers (which feed is used stays: a reconnect is not a switch).</summary>
     private static void CloseInput(LiveInput input)
     {
-        if (input.Source is { } source)
+        CloseBackup(input);
+        if (input.Primary is { } source)
         {
-            input.Source = null;
+            input.Primary = null;
+            input.OpenedNs = long.MinValue;
             source.Dispose();
         }
+    }
+
+    private static void CloseBackup(LiveInput input)
+    {
+        input.BackupProblem = "";
+        input.BackupUri = "";
+        if (input.Backup is { } backup)
+        {
+            input.Backup = null;
+            input.BackupOpenedNs = long.MinValue;
+            backup.Dispose();
+        }
+    }
+
+    /// <summary>Back to the primary with no loss held (a new location, the backup gone).</summary>
+    private static void ResetFeed(LiveInput input)
+    {
+        input.Use(backup: false);
+        input.LossRoute = null;
+        input.Loss = "";
+        input.SteadySinceNs = long.MinValue;
     }
 
     // ---- reconcile ---------------------------------------------------------------------------------------------------------
@@ -280,13 +329,24 @@ public sealed class VideoIoHub : IDisposable
                 if (reopen)
                 {
                     CloseInput(input);
+                    ResetFeed(input);
                     input.Protocol = protocol;
                     input.Address = address;
                     input.ByUrl = byUrl;
                 }
-                else if (input.Source is PlayMap.Media.Video.LiveSource source)
+                else
                 {
-                    source.Update(settings);
+                    if (!string.Equals(before.Backup, settings.Backup, StringComparison.Ordinal))
+                    {
+                        // The backup changed or went: a feed on the old one returns to the primary.
+                        CloseBackup(input);
+                        if (input.Using == "backup")
+                            ResetFeed(input);
+                    }
+                    if (input.Primary is PlayMap.Media.Video.LiveSource primary)
+                        primary.Update(settings);
+                    if (input.Backup is PlayMap.Media.Video.LiveSource backup)
+                        backup.Update(settings with { Backup = "" });
                 }
             }
             else
@@ -294,16 +354,31 @@ public sealed class VideoIoHub : IDisposable
                 input = new LiveInput(item, protocol, address, byUrl);
                 _inputs[item.Id] = input;
             }
-            if (input.Source is null && (settings.Warm || input.Handles > 0))
+            input.InProject = true;
+            if (settings.Warm || input.Handles > 0)
                 OpenInput(input);
-            else if (input.Source is not null && !settings.Warm && input.Handles <= 0)
+            else if (input.Primary is not null || input.Backup is not null)
                 CloseInput(input);
         }
-        foreach (var (id, input) in _inputs.ToList())
+        foreach (var input in _inputs.Values)
+            if (!seen.Contains(input.Id))
+                input.InProject = false;
+        SweepInputs();
+    }
+
+    /// <summary>Closes and forgets the inputs no longer in the project that no consumer holds (a camera rig's feed lives while its
+    /// consumer holds it; a removed item's goes once the renderer lets go of it).</summary>
+    private void SweepInputs()
+    {
+        List<string>? gone = null;
+        foreach (var (id, input) in _inputs)
+            if (!input.InProject && input.Handles <= 0)
+                (gone ??= []).Add(id);
+        if (gone is null)
+            return;
+        foreach (var id in gone)
         {
-            if (seen.Contains(id))
-                continue;
-            CloseInput(input);
+            CloseInput(_inputs[id]);
             _inputs.Remove(id);
         }
     }
@@ -546,10 +621,14 @@ public sealed class VideoIoHub : IDisposable
             Reconcile(project);
         var now = _mono();
         var black = _engine.Snapshot.Air.EffectiveBlackout;
+        List<LossNews>? news = null;
         lock (_gate)
         {
+            SweepInputs();
             foreach (var input in _inputs.Values)
             {
+                if (Loss(input, project, now) is { } said)
+                    (news ??= []).Add(said);
                 if (input.Source is not { } source)
                     continue;
                 var drawn = input.LastDrawnNs != long.MinValue && now - input.LastDrawnNs <= TallyWindowNs;
@@ -559,6 +638,8 @@ public sealed class VideoIoHub : IDisposable
                 input.Tally = program ? "program" : preview ? "preview" : "none";
             }
         }
+        if (news is not null)
+            Tell(news);
         if (_nextDiscoveryNs == long.MinValue || now >= _nextDiscoveryNs)
         {
             _nextDiscoveryNs = now + DiscoveryEveryNs;
@@ -567,6 +648,142 @@ public sealed class VideoIoHub : IDisposable
         var signature = Signature(project);
         if (Interlocked.Exchange(ref _signature, signature) != signature)
             _engine.FactsChanged();
+    }
+
+    // ---- the loss policy ---------------------------------------------------------------------------------------------------
+
+    /// <summary>What a tick saw happen to an input's feed, said after the hub's lock is let go.</summary>
+    private readonly record struct LossNews(string Kind, string Id, string Name, string Words, string Shows, string Fallback = "");
+
+    /// <summary>One input's loss policy at a tick. The feed in use is lost when its receiver says lost or failed, when it could not
+    /// open, or when it has given no frame <see cref="LiveSettings.LostMs"/> after it opened. On a loss the other feed takes over when
+    /// it delivers (the backup, or the primary while the backup is in use: a switch only ever leaves a lost feed, so it never flaps);
+    /// else the input holds its last picture, shows black or shows its fallback, once per loss. A held picture is left at the first
+    /// steady frame; black and a fallback after <see cref="LiveSettings.RecoverMs"/> of steady frames.</summary>
+    private LossNews? Loss(LiveInput input, Project project, long now)
+    {
+        if (input.Primary is null && input.Backup is null && input.Problem.Length == 0)
+            return null;
+        var settings = input.Item.Live ?? LiveSettings.Default;
+        var onBackup = input.Using == "backup";
+        if (!Lost(onBackup ? input.Backup : input.Primary, onBackup ? input.BackupProblem : input.Problem,
+                onBackup ? input.BackupOpenedNs : input.OpenedNs, settings, now, out var words))
+        {
+            if (input.Loss.Length == 0)
+                return null;
+            if ((onBackup ? input.Backup : input.Primary)?.Live.State is not LiveState.Ok)
+            {
+                input.SteadySinceNs = long.MinValue;
+                return null;
+            }
+            if (input.SteadySinceNs == long.MinValue)
+                input.SteadySinceNs = now;
+            var steadyNs = now - input.SteadySinceNs;
+            if (input.Loss != "hold" && steadyNs < settings.RecoverMs * 1_000_000L)
+                return null;
+            var was = input.Loss;
+            input.LossRoute = null;
+            input.Loss = "";
+            input.SteadySinceNs = long.MinValue;
+            return new LossNews("input.back", input.Id, input.Item.Name, was == "hold" ? "frames again"
+                : string.Create(CultureInfo.InvariantCulture, $"steady for {steadyNs / 1e9:0.0} s"), onBackup ? "backup" : "primary");
+        }
+        input.SteadySinceNs = long.MinValue;
+        var other = onBackup ? input.Primary : input.Backup;
+        if (other is not null && other.Live.State is LiveState.Ok)
+        {
+            input.Use(!onBackup);
+            input.LossRoute = null;
+            input.Loss = "";
+            return new LossNews("input.switched", input.Id, input.Item.Name, words, onBackup ? "primary" : "backup");
+        }
+        var route = settings.OnLoss switch
+        {
+            LiveLoss.Black => SourceRef.None,
+            LiveLoss.Fallback when SourceRef.TryParse(settings.Fallback, out var fallback) && fallback.Kind is not SourceKind.Live => fallback,
+            LiveLoss.Fallback => SourceRef.None,
+            _ => null,
+        };
+        var shows = route is null ? "hold" : route.IsNone ? "black" : "fallback";
+        if (input.Loss == shows && Equals(input.LossRoute, route))
+            return null;
+        var first = input.Loss.Length == 0;
+        input.LossRoute = route;
+        input.Loss = shows;
+        return first ? new LossNews("input.lost", input.Id, input.Item.Name, words, shows, route is { IsNone: false } ? Describe(project, route) : "") : null;
+    }
+
+    /// <summary>Whether a feed is lost, with its words.</summary>
+    private static bool Lost(ILiveSource? feed, string problem, long openedNs, LiveSettings settings, long now, out string words)
+    {
+        words = problem;
+        if (feed is null)
+            return problem.Length > 0;
+        var live = feed.Live;
+        words = live.Words;
+        if (live.State is LiveState.Lost or LiveState.Failed or LiveState.Absent)
+            return true;
+        if (live.State is not LiveState.Connecting || openedNs == long.MinValue || now - openedNs <= settings.LostMs * 1_000_000L)
+            return false;
+        words = string.Create(CultureInfo.InvariantCulture, $"no frame in the {(now - openedNs) / 1e9:0.0} s since it opened");
+        return true;
+    }
+
+    /// <summary>A fallback in words: the name of what it shows.</summary>
+    private static string Describe(Project project, SourceRef source) => source.Kind switch
+    {
+        SourceKind.Media => project.FindMedia(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Generator => project.FindGenerator(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Canvas => project.FindCanvas(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Playlist => project.FindPlaylist(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Color => "colour " + source.Id,
+        _ => source.ToString(),
+    };
+
+    /// <summary>The journal and the show events for what the tick saw (off the hub's lock).</summary>
+    private void Tell(List<LossNews> news)
+    {
+        foreach (var n in news)
+        {
+            var input = InputOf(n.Id);
+            var text = n.Kind switch
+            {
+                "input.lost" => $"{n.Name} lost ({n.Words}) — " + n.Shows switch
+                {
+                    "hold" => "holding its last picture",
+                    "black" => "showing black",
+                    _ => "showing its fallback " + n.Fallback,
+                },
+                "input.switched" => n.Shows == "backup"
+                    ? $"{n.Name} lost ({n.Words}) — showing its backup {input?.BackupUri}"
+                    : $"{n.Name}'s backup lost ({n.Words}) — showing its primary {input?.Item.Location}",
+                _ => $"{n.Name} is back ({n.Words}) — showing its {n.Shows}",
+            };
+            _engine.Journal.Add("videoio", text, ok: n.Kind == "input.back");
+            _engine.RaiseEvent(n.Kind, _engine.LeaderNowNs, w =>
+            {
+                w.WriteString("input", n.Id);
+                w.WriteString("name", n.Name);
+                w.WriteString("words", n.Words);
+                w.WriteString("shows", n.Shows);
+                if (n.Fallback.Length > 0)
+                    w.WriteString("fallback", n.Fallback);
+            });
+        }
+    }
+
+    /// <summary>INPUT SWITCH: makes consumers read the primary or the backup from their next acquire; a loss held on the feed left
+    /// is let go (the feed switched to is the person's word).</summary>
+    internal void Switch(LiveInput input, bool backup)
+    {
+        lock (_gate)
+        {
+            input.Use(backup);
+            input.LossRoute = null;
+            input.Loss = "";
+            input.SteadySinceNs = long.MinValue;
+        }
+        Wake();
     }
 
     /// <summary>A number that moves when a word STATE shows moves (states, receivers, tally, problems, discovered count) — not the
@@ -582,6 +799,8 @@ public sealed class VideoIoHub : IDisposable
                 h.Add(input.Problem);
                 h.Add(input.Tally);
                 h.Add(input.Using);
+                h.Add(input.Loss);
+                h.Add(input.BackupProblem);
                 if (input.Source is { } s)
                 {
                     var live = s.Live;

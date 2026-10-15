@@ -5,7 +5,8 @@ using PlayMap.Render.Passes;
 namespace PlayMap.Engine.VideoIo;
 
 /// <summary>INDEX section "video": one row per live input (its name as the label, its state, lit as the context lights it), and a
-/// deck's key per row to reconnect it (refused while it delivers, so a press on a healthy input does nothing but say so).</summary>
+/// deck's keys per row to reconnect it (refused while it delivers, so a press on a healthy input does nothing but say so) and to
+/// switch it to its backup or back to its primary (the feed it uses is STATE's videoio.inputs[].using).</summary>
 internal sealed class VideoIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "video";
@@ -13,6 +14,8 @@ internal sealed class VideoIndex(EngineCore engine) : IIndexContributor
     public IndexPresetHint Hint { get; } = new("Video inputs", "input",
     [
         new IndexKey("Reconnect", "INPUT RECONNECT $(id)", "videoio.inputs.state", "hold"),
+        new IndexKey("Backup", "INPUT SWITCH $(id) BACKUP", "videoio.inputs.using", "hold"),
+        new IndexKey("Primary", "INPUT SWITCH $(id) PRIMARY", "videoio.inputs.using", "hold"),
     ]);
 
     public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)

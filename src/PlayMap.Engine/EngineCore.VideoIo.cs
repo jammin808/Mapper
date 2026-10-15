@@ -44,6 +44,9 @@ public sealed partial class EngineCore
         routes.OffLane("INPUT DISCOVER", InputDiscoverAsync);
         routes.Lane("INPUT ADD", InputAdd);
         routes.OffLane("INPUT RECONNECT", InputReconnectAsync);
+        routes.Lane("INPUT FALLBACK", InputFallback);
+        routes.Lane("INPUT BACKUP", InputBackup);
+        routes.OffLane("INPUT SWITCH", InputSwitchAsync);
         routes.Lane("SEND LIST", _ => CommandReply.Success(JsonOut(w => WriteSends(w, Store.Project))));
         routes.Lane("SEND ADD", SendAdd);
         routes.Lane("SEND ENABLE", SendEnable);
@@ -208,6 +211,183 @@ public sealed partial class EngineCore
         return waiting.Count == 0
             ? CommandReply.Success(effect: $"reconnected {string.Join(", ", targets.Select(t => t.Item.Name))}: frames are arriving")
             : CommandReply.Accepted($"reconnecting {string.Join(", ", waiting)}: no frame yet — STATE says when the first lands");
+    }
+
+    /// <summary>A live input of the library by id or name (an NDI, OMT or Spout stream item), or null with the words why not.</summary>
+    private static MediaItem? LiveItem(Project project, string text, out string why)
+    {
+        why = "";
+        var item = project.FindMedia(text) ?? project.Media.FirstOrDefault(m => string.Equals(m.Name, text, StringComparison.Ordinal));
+        if (item is null)
+            why = $"no live input {text}";
+        else if (!IsLiveInput(item))
+            why = $"{item.Name} is not a live input (NDI, OMT and Spout inputs have a loss policy and a backup)";
+        return why.Length == 0 ? item : null;
+    }
+
+    /// <summary>What an input's loss policy shows, in words.</summary>
+    private static string LossWords(Project project, LiveSettings live) => live.OnLoss switch
+    {
+        LiveLoss.Black => "shows black",
+        LiveLoss.Fallback when SourceRef.TryParse(live.Fallback, out var f) => "shows " + SourceName(project, f),
+        LiveLoss.Fallback => "shows black",
+        _ => "holds its last picture",
+    };
+
+    private static string SourceName(Project project, SourceRef source) => source.Kind switch
+    {
+        SourceKind.None => "black",
+        SourceKind.Media => project.FindMedia(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Generator => project.FindGenerator(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Canvas => project.FindCanvas(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Playlist => project.FindPlaylist(source.Id)?.Name ?? source.ToString(),
+        SourceKind.Color => "colour " + source.Id,
+        _ => source.ToString(),
+    };
+
+    private CommandReply InputFallback(VerbCall call)
+    {
+        if (call.Args.Count != 2)
+            return CommandReply.Fail("INPUT FALLBACK <input> HOLD|BLACK|<source>");
+        var project = Edits.Project;
+        if (LiveItem(project, call.Args[0], out var why) is not { } item)
+            return CommandReply.Fail(why);
+        var live = item.Live ?? LiveSettings.Default;
+        var word = call.Args[1];
+        LiveSettings next;
+        if (word.Equals("HOLD", StringComparison.OrdinalIgnoreCase))
+            next = live with { OnLoss = LiveLoss.Hold, Fallback = "" };
+        else if (word.Equals("BLACK", StringComparison.OrdinalIgnoreCase))
+            next = live with { OnLoss = LiveLoss.Black, Fallback = "" };
+        else if (!SourceRef.TryParse(word, out var source) || source.IsNone)
+            return CommandReply.Fail($"INPUT FALLBACK takes HOLD, BLACK or a source (media:<id>, generator:<id>, canvas:<id>, playlist:<id>, color:#RRGGBB), not \"{word}\"");
+        else if (source.Kind is SourceKind.Live || project.FindMedia(source.Id) is { Kind: MediaKind.Stream })
+            return CommandReply.Fail($"{item.Name} cannot fall back to a live input ({source}): a fallback is a picture this node always has");
+        else if (source.Kind is not SourceKind.Color && !SourceExists(project, source))
+            return CommandReply.Fail($"no {source.Kind.ToString().ToLowerInvariant()} {source.Id} in the project");
+        else
+            next = live with { OnLoss = LiveLoss.Fallback, Fallback = source.ToString() };
+        if (next == live)
+            return CommandReply.Fail($"{item.Name} already {LossWords(project, live)} on loss");
+        var words = LossWords(project, next);
+        var r = Edits.Apply($"{item.Name} on loss {words}", pp => pp with
+        {
+            Media = pp.Media.Update(item.Id, m => m with { Live = next == LiveSettings.Default ? null : next }),
+        });
+        if (!r.Changed)
+            return FromEdit(r);
+        VideoIo.Reconcile(Store.Project);
+        return CommandReply.Success(effect: $"{item.Name} on loss: {words}");
+    }
+
+    private static bool SourceExists(Project project, SourceRef source) => source.Kind switch
+    {
+        SourceKind.Media => project.FindMedia(source.Id) is not null,
+        SourceKind.Generator => project.FindGenerator(source.Id) is not null,
+        SourceKind.Canvas => project.FindCanvas(source.Id) is not null,
+        SourceKind.Playlist => project.FindPlaylist(source.Id) is not null,
+        _ => true,
+    };
+
+    private CommandReply InputBackup(VerbCall call)
+    {
+        if (call.Args.Count < 2)
+            return CommandReply.Fail("INPUT BACKUP <input> <uri>|OFF");
+        var project = Edits.Project;
+        if (LiveItem(project, call.Args[0], out var why) is not { } item)
+            return CommandReply.Fail(why);
+        var live = item.Live ?? LiveSettings.Default;
+        var text = string.Join(' ', call.Args.Skip(1));
+        string backup;
+        if (text.Equals("OFF", StringComparison.OrdinalIgnoreCase))
+        {
+            if (live.Backup.Length == 0)
+                return CommandReply.Fail($"{item.Name} has no backup");
+            backup = "";
+        }
+        else
+        {
+            if (!LiveUri.TryParse(text, out var protocol, out var address, out _) || protocol is LiveProtocol.Ffmpeg)
+                return CommandReply.Fail($"a backup is a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name), not \"{text}\"");
+            backup = LiveUri.Format(protocol, address);
+            if (LiveUri.TryParse(item.Location, out var pp0, out var pa0, out _) && pp0 == protocol && string.Equals(pa0, address, StringComparison.OrdinalIgnoreCase))
+                return CommandReply.Fail($"{backup} is {item.Name}'s primary — a backup is another feed");
+            if (string.Equals(live.Backup, backup, StringComparison.OrdinalIgnoreCase))
+                return CommandReply.Fail($"{item.Name}'s backup is already {backup}");
+            if (VideoIo.Unavailable(protocol, sending: false) is { } unavailable)
+                return CommandReply.Fail(unavailable);
+        }
+        var next = live with { Backup = backup };
+        var onBackup = VideoIo.InputOf(item.Id)?.Using == "backup";
+        var r = Edits.Apply(backup.Length > 0 ? $"{item.Name}'s backup {backup}" : $"{item.Name} without a backup", pp => pp with
+        {
+            Media = pp.Media.Update(item.Id, m => m with { Live = next == LiveSettings.Default ? null : next }),
+        });
+        if (!r.Changed)
+            return FromEdit(r);
+        VideoIo.Reconcile(Store.Project);
+        if (backup.Length == 0)
+            return CommandReply.Success(effect: onBackup ? $"{item.Name} has no backup now — it shows its primary again" : $"{item.Name} has no backup now");
+        return CommandReply.Success(effect: onBackup
+            ? $"{item.Name}'s backup is now {backup} — it shows its primary until INPUT SWITCH {item.Id} BACKUP"
+            : $"{item.Name}'s backup is {backup}: it takes over when the primary is lost");
+    }
+
+    private async Task<CommandReply> InputSwitchAsync(VerbCall call)
+    {
+        if (call.Args.Count != 2 || call.Args[1].ToUpperInvariant() is not ("PRIMARY" or "BACKUP"))
+            return CommandReply.Fail("INPUT SWITCH <input> PRIMARY|BACKUP");
+        var project = Store.Project;
+        if (LiveItem(project, call.Args[0], out var why) is not { } item)
+            return CommandReply.Fail(why);
+        var backup = call.Args[1].Equals("BACKUP", StringComparison.OrdinalIgnoreCase);
+        var live = item.Live ?? LiveSettings.Default;
+        if (backup && live.Backup.Length == 0)
+            return CommandReply.Fail($"{item.Name} has no backup set — INPUT BACKUP {item.Id} <uri>");
+        if (VideoIo.InputOf(item.Id) is not { } input)
+            return CommandReply.Fail($"{item.Name} is not received on this node yet");
+        var feedWord = backup ? "backup" : "primary";
+        if (input.Using == feedWord)
+            return CommandReply.Fail($"{item.Name} is already on its {feedWord}");
+        var feed = backup ? input.Backup : input.Primary;
+        if (feed is null)
+        {
+            var problem = backup ? input.BackupProblem : input.Problem;
+            return CommandReply.Fail(problem.Length > 0 ? $"{item.Name}'s {feedWord} receives nothing: {problem}" : $"{item.Name}'s {feedWord} is not connected");
+        }
+        var health = feed.Live;
+        if (health.Received == 0)
+            return CommandReply.Fail($"{item.Name}'s {feedWord} has given no frame yet");
+        if (health.State is LiveState.Lost or LiveState.Failed or LiveState.Absent)
+            return CommandReply.Fail(health.State is LiveState.Lost
+                ? string.Create(CultureInfo.InvariantCulture, $"{item.Name}'s {feedWord} has given no frame for {health.AgeMs / 1000.0:0.0} s")
+                : $"{item.Name}'s {feedWord} is {LiveSourceState(health.State)}: {health.Words}");
+        var before = health.Received;
+        var startNs = Services.Mono.NowNs;
+        VideoIo.Switch(input, backup);
+        Journal.Add("videoio", $"{call.Session.ClientName} switched {item.Name} to its {feedWord} ({(backup ? live.Backup : item.Location)})", ok: true);
+        RaiseEvent("input.switched", LeaderNowNs, w =>
+        {
+            w.WriteString("input", item.Id);
+            w.WriteString("name", item.Name);
+            w.WriteString("words", "a person's word");
+            w.WriteString("shows", feedWord);
+        });
+        // Observed, not attempted: answered at the next frame from the feed switched to, or accepted with the words that none came yet.
+        var real = DateTimeOffset.UtcNow.AddSeconds(3);
+        while (feed.Live.Received <= before && DateTimeOffset.UtcNow < real && Services.Mono.NowNs - startNs < 3_000_000_000L)
+            await Task.Delay(10, call.Ct).ConfigureAwait(false);
+        var after = feed.Live;
+        if (after.Received <= before)
+            return CommandReply.Accepted($"{item.Name} shows its {feedWord} from its next frame — none came yet; STATE says when it lands");
+        var firstFrameMs = Math.Max(0, (Services.Mono.NowNs - startNs) / 1_000_000);
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("using", feedWord);
+            w.WriteNumber("firstFrameMs", firstFrameMs);
+            w.WriteEndObject();
+        }), $"{item.Name} shows its {feedWord}");
     }
 
     // ---- SEND -----------------------------------------------------------------------------------------------------------------
@@ -563,6 +743,11 @@ public sealed partial class EngineCore
             w.WriteString("tally", input.Tally);
             w.WriteBoolean("onAir", input.Tally == "program");
             w.WriteString("onLoss", settings.OnLoss.ToString().ToLowerInvariant());
+            w.WriteString("fallback", settings.Fallback);
+            w.WriteString("loss", input.Loss);
+            w.WriteString("backup", settings.Backup);
+            w.WriteString("backupState", settings.Backup.Length == 0 ? "" : input.Backup is { } b ? LiveSourceState(b.Live.State)
+                : input.BackupProblem.Length > 0 ? "failed" : "connecting");
             w.WriteString("format", live?.Format ?? "");
             w.WriteBoolean("alpha", live?.Alpha ?? false);
             w.WriteString("pacing", "latest");
@@ -760,6 +945,10 @@ public sealed partial class EngineCore
             var (state, words) = InputState(input);
             if (state is "stale" or "lost" or "failed")
                 return (Light.Amber, $"{input.Item.Name} {state} — {words}");
+            if (input.Loss is "black" or "fallback")
+                return (Light.Amber, $"{input.Item.Name} shows its {(input.Loss == "black" ? "black" : "fallback")} until its feed is steady again");
+            if (input.Using == "backup")
+                return (Light.Amber, $"{input.Item.Name} shows its backup — INPUT SWITCH {input.Id} PRIMARY returns it");
         }
         var sends = VideoIo.SendsOf(project);
         foreach (var slot in sends)
@@ -788,7 +977,7 @@ public sealed partial class EngineCore
                 why = ValidateSend(p, send);
                 break;
             case MediaItem { Kind: MediaKind.Stream } item when item.Live is { } live:
-                why = ValidateLive(item, live);
+                why = ValidateLive(p, item, live);
                 break;
         }
     }
@@ -813,7 +1002,7 @@ public sealed partial class EngineCore
         return null;
     }
 
-    private static string? ValidateLive(MediaItem item, LiveSettings live)
+    private static string? ValidateLive(Project p, MediaItem item, LiveSettings live)
     {
         if (live.LostMs is < 100 or > 60_000)
             return string.Create(CultureInfo.InvariantCulture, $"{item.Name}: live.lostMs is 100–60000, not {live.LostMs}");
@@ -823,10 +1012,18 @@ public sealed partial class EngineCore
             return string.Create(CultureInfo.InvariantCulture, $"{item.Name}: live.recoverMs is 0–600000, not {live.RecoverMs}");
         if (live.Quality is not ("default" or "low" or "medium" or "high"))
             return $"{item.Name}: live.quality is default, low, medium or high, not \"{live.Quality}\"";
-        if (live.Backup.Length > 0 && (!LiveUri.TryParse(live.Backup, out var bp, out _, out _) || bp == LiveProtocol.Ffmpeg))
-            return $"{item.Name}: live.backup is a live input (ndi:, omt:, spout:), not \"{live.Backup}\"";
-        if (live.Fallback.Length > 0 && (!SourceRef.TryParse(live.Fallback, out var fallback) || fallback.Kind is SourceKind.Live))
-            return $"{item.Name}: live.fallback is a colour, a generator, a canvas or a media item, never a live input — not \"{live.Fallback}\"";
+        if (live.Backup.Length > 0)
+        {
+            if (!LiveUri.TryParse(live.Backup, out var bp, out var ba, out _) || bp == LiveProtocol.Ffmpeg)
+                return $"{item.Name}: live.backup is a live input (ndi:, omt:, spout:), not \"{live.Backup}\"";
+            if (LiveUri.TryParse(item.Location, out var pp, out var pa, out _) && pp == bp && string.Equals(pa, ba, StringComparison.OrdinalIgnoreCase))
+                return $"{item.Name}: live.backup is its own location — a backup is another feed";
+        }
+        if (live.Fallback.Length > 0 && (!SourceRef.TryParse(live.Fallback, out var fallback) || fallback.Kind is SourceKind.Live
+                || p.FindMedia(fallback.Id) is { Kind: MediaKind.Stream } && fallback.Kind is SourceKind.Media))
+            return $"{item.Name}: live.fallback is a colour, a generator, a canvas, a playlist or a media item, never a live input — not \"{live.Fallback}\"";
+        if (live.OnLoss == LiveLoss.Fallback && live.Fallback.Length == 0)
+            return $"{item.Name}: live.onLoss fallback names its picture in live.fallback";
         return null;
     }
 }

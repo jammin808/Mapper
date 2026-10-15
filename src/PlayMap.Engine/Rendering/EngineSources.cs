@@ -130,15 +130,37 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     public SourceRef? Route(SourceRef source, long leaderNs)
     {
         ArgumentNullException.ThrowIfNull(source);
-        // An item's own frames (a side of a mix) are never routed again.
-        if (source.Kind != SourceKind.Playlist || _itemRefOwners.ContainsKey(source.Id))
+        if (source.Kind is SourceKind.Media or SourceKind.Live)
+            return LossOf(source.Id);
+        if (source.Kind != SourceKind.Playlist)
             return null;
+        // An item's own frames (a side of a mix) are never routed again, save to what its live input shows on loss.
+        if (_itemRefOwners.TryGetValue(source.Id, out var owner))
+            return _playback.Playlists.TryGetValue(owner.PlaylistId, out var mixing) && !mixing.IsIdle
+                ? string.Equals(mixing.ItemId, owner.ItemId, StringComparison.Ordinal) ? LossOf(mixing.Source)
+                : string.Equals(mixing.NextItemId, owner.ItemId, StringComparison.Ordinal) ? LossOf(mixing.NextSource) : null
+                : null;
         if (!_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle)
             return SourceRef.None;
         PrepareNext(lane, leaderNs);
         var (now, _, _) = lane.At(leaderNs);
+        if (LossOf(now) is { } loss)
+            return loss;
         // An item that plays another playlist shows that playlist's picture (the renderer refuses a loop).
         return Drawn(now) || now.Kind == SourceKind.Playlist ? now : null;
+    }
+
+    private SourceRef? LossOf(SourceRef source) => source.Kind is SourceKind.Media or SourceKind.Live ? LossOf(source.Id) : null;
+
+    /// <summary>What a live input shows instead of its feed while its loss policy holds (black or its fallback; validation keeps a
+    /// fallback off live inputs, so this never routes to another), or null. A routed input's consumer slot stays in use, so the
+    /// feed is read again the frame the policy lets go. Allocation-free.</summary>
+    private SourceRef? LossOf(string id)
+    {
+        if (!_liveSlots.TryGetValue(id, out var slot) || Volatile.Read(ref slot.Source) is not VideoIo.LiveHandle handle || handle.LossRoute is not { } route)
+            return null;
+        slot.LastUsed = _frame;
+        return route;
     }
 
     public SourceMix? Mix(SourceRef source, long leaderNs)
