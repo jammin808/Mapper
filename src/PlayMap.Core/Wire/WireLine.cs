@@ -45,8 +45,9 @@ public sealed record WireParseError(string? RequestId, string Reason);
 
 /// <summary>The line grammar Patterns' wire speaks, which PlayMap's wire speaks too: one UTF-8 line per
 /// command; an optional "@id " prefix ([A-Za-z0-9_-]{1,32}); words split on spaces with "double quotes"
-/// keeping a phrase whole (backslash escapes a quote); replies are "OK …" / "ERR …" with the id after the
-/// first word.</summary>
+/// keeping a phrase whole; replies are "OK …" / "ERR …" with the id after the first word. Inside quotes a
+/// backslash escapes only a quote or a backslash (\" and \\); any other backslash is itself, so a Windows path
+/// rides as it is typed ("C:\Shows\Shift.fs").</summary>
 public static class WireGrammar
 {
     public const int MaxLineBytes = 64 * 1024;
@@ -122,7 +123,7 @@ public static class WireGrammar
                 while (i < text.Length)
                 {
                     var c = text[i];
-                    if (c == '\\' && i + 1 < text.Length)
+                    if (c == '\\' && i + 1 < text.Length && text[i + 1] is '"' or '\\')
                     {
                         sb.Append(text[i + 1]);
                         i += 2;

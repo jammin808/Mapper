@@ -67,6 +67,27 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void AWindowsPathRidesInQuotesAsItIsTypedAndQuoteRoundTripsEveryWord()
+    {
+        // A backslash escapes only a quote or a backslash; any other is itself.
+        Assert.True(WireGrammar.TryParse(@"FX IMPORT ""C:\Users\show\My FX\Shift.fs""", out var typed, out _));
+        Assert.Equal((3, @"C:\Users\show\My FX\Shift.fs"), (typed.Count, typed.Word(2)));
+        Assert.True(WireGrammar.TryParse(@"FX IMPORT C:\Shows\Shift.fs", out var bare, out _));
+        Assert.Equal(@"C:\Shows\Shift.fs", bare.Word(2));
+        Assert.True(WireGrammar.TryParse(@"SAY ""a \"" b \\ c \n""", out var escaped, out _));
+        Assert.Equal(@"a "" b \ c \n", escaped.Word(1));
+        // A typed path that ends in a backslash escapes its closing quote: written \\ (as Quote writes it), it closes.
+        Assert.False(WireGrammar.TryParse(@"SAY ""C:\Shows\"" next", out _, out _));
+
+        foreach (var word in new[] { @"C:\Users\show\My FX\Shift.fs", @"\\stage-pc\media\clip one.mov", @"C:\Shows\", @"say \\\""hi\"" now", "plain", "" })
+        {
+            Assert.True(WireGrammar.TryParse("SAY " + WireGrammar.Quote(word) + " after", out var line, out _), word);
+            Assert.Equal((3, word, "after"), (line.Count, line.Word(1), line.Word(2)));
+            Assert.Equal("after", line.RestAfter(2));
+        }
+    }
+
+    [Fact]
     public void PatternsClipVerbsAndTheirAliasesMatch()
     {
         foreach (var text in new[] { "VIDEO PLAY", "VT PLAY", "CLIP RESUME", "video resume" })

@@ -70,7 +70,22 @@ public sealed class IsfParserTests
         Assert.True(doc.HistoryDependent);
         Assert.True(doc.ReadsAudio);
         Assert.Equal(26, doc.BodyLine);
-        Assert.StartsWith("\nvoid main()", doc.Body, StringComparison.Ordinal);
+        // The body starts at the header's line break, whichever line ends the checkout gave this file.
+        Assert.StartsWith("\nvoid main()", doc.Body.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFileWithWindowsLineEndsReadsAsTheSameDocument()
+    {
+        var lf = IsfParser.Parse(Full.ReplaceLineEndings("\n"));
+        var crlf = IsfParser.Parse(Full.ReplaceLineEndings("\r\n"));
+        Assert.True(crlf.Valid);
+        Assert.Empty(crlf.Issues);
+        Assert.Equal((lf.BodyLine, lf.Inputs.Length, lf.Passes.Length), (crlf.BodyLine, crlf.Inputs.Length, crlf.Passes.Length));
+        Assert.Equal(lf.Images.ToArray(), crlf.Images.ToArray());
+        Assert.Equal(lf.Body, crlf.Body.ReplaceLineEndings("\n"));
+        var damaged = IsfParser.Parse("\r\n\r\n/*{ \"INPUTS\": [] \r\nvoid main() {}");
+        Assert.Equal(3, Assert.Single(damaged.Issues).Line);
     }
 
     [Fact]

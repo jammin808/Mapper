@@ -190,7 +190,7 @@ public static class MultiViewCalibration
         bundle.Adjust(ct);
         if (bundle.Trim())
             bundle.Adjust(ct);
-        return Result(bundle, viewList, projList, rigList, trackSource, held.Count, start, from);
+        return Result(bundle, viewList, projList, rigList, trackSource, held.Count, held.Count == 0 ? root : -1, start, from);
     }
 
     // ---- the start ----
@@ -442,8 +442,10 @@ public static class MultiViewCalibration
 
     // ---- the result ----
 
+    /// <param name="fixedView">The view the gauge held still (−1 when projectors held the frame): it is reported at its start
+    /// pose itself, as a held projector is at its stage pose, so a warm start's frame is the one it started from to the bit.</param>
     private static MultiViewResult Result(MultiViewBundle bundle, List<MultiViewView> viewList, List<MultiViewProjector> projList,
-        List<MultiViewRig> rigList, List<Track> trackSource, int heldCount, Start start, MultiViewResult? previous)
+        List<MultiViewRig> rigList, List<Track> trackSource, int heldCount, int fixedView, Start start, MultiViewResult? previous)
     {
         var s = bundle.S;
         var obs = bundle.Observations;
@@ -477,7 +479,8 @@ public static class MultiViewCalibration
             var mine = byView[i];
             var byProjector = mine.Where(k => ok[k]).GroupBy(k => trackSource[obs[k].Track].ProjectorId, StringComparer.Ordinal)
                 .ToImmutableDictionary(g => g.Key, g => Rms(g.Select(k => res[k])), StringComparer.Ordinal);
-            return new SolvedView(v.Id, v.RigId, PoseOf(s.VR[i], s.VC[i]), Rms(mine.Where(k => ok[k]).Select(k => res[k])), mine.Count, mine.Count(k => ok[k]))
+            var pose = i == fixedView ? start.Views[v.Id] : PoseOf(s.VR[i], s.VC[i]);
+            return new SolvedView(v.Id, v.RigId, pose, Rms(mine.Where(k => ok[k]).Select(k => res[k])), mine.Count, mine.Count(k => ok[k]))
             {
                 RmsByProjector = byProjector,
             };

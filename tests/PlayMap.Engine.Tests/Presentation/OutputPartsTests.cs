@@ -195,7 +195,7 @@ public sealed class OutputFixtureTests
                 p["words"] = "60 Hz target · offscreen · 0 missed in 60 s";
             }
         }
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>The desk's cards for this package's STATE blocks: title, STATE path, light, words, up to six fields, actions as lines.</summary>
@@ -220,7 +220,7 @@ public sealed class OutputFixtureTests
                  ("Dialect", "machine.present.dialect", ""), ("Context", "machine.present.context", ""), ("Present p95", "machine.present.presentMsP95", "ms")],
                 [("Stats", "OUTPUT STATS ALL")]),
         };
-        return cards.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return cards.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     private static JsonObject Card(string title, string path, string? light, string words, (string Label, string Path, string Unit)[] fields,

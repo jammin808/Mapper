@@ -23,14 +23,16 @@ internal sealed class HostRig : IAsyncDisposable
     public const string Token = "K7QM-3XWD-P9RA";
 
     private readonly ILoggerFactory _logs;
+    private readonly NodeLogProvider _log;
     private int _stopped;
 
-    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs)
+    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs, NodeLogProvider log)
     {
         Dir = dir;
         Home = home;
         Host = host;
         _logs = logs;
+        _log = log;
     }
 
     public DirectoryInfo Dir { get; }
@@ -66,7 +68,9 @@ internal sealed class HostRig : IAsyncDisposable
             };
             home.SaveSettings(settings?.Invoke(s) ?? s);
         }
-        var logs = LoggerFactory.Create(b => b.AddProvider(NodeLogProvider.For(home)));
+        // A factory does not dispose a provider it is handed: the rig closes the node's log itself, as the engine's entry does.
+        var log = NodeLogProvider.For(home);
+        var logs = LoggerFactory.Create(b => b.AddProvider(log));
         var host = new EngineHost((options ?? Options)(dir.FullName), home, new EngineHostOptions
         {
             Parts = parts ?? EngineParts.Bare,
@@ -74,7 +78,7 @@ internal sealed class HostRig : IAsyncDisposable
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
         });
-        var rig = new HostRig(dir, home, host, logs);
+        var rig = new HostRig(dir, home, host, logs, log);
         try
         {
             await host.StartAsync();
@@ -132,13 +136,14 @@ internal sealed class HostRig : IAsyncDisposable
     /// <summary>The journal's recent rows as text, for asserting what the node said.</summary>
     public string Journal() => string.Join("\n", Engine.Journal.Recent(200).Select(r => $"{r.Kind}: {r.Text}"));
 
-    /// <summary>Stops the node but keeps its folder (a restart reads it again).</summary>
+    /// <summary>Stops the node but keeps its folder (a restart reads it again); its log is closed and can be read.</summary>
     public async ValueTask StopAsync()
     {
         if (Interlocked.Exchange(ref _stopped, 1) != 0)
             return;
         await Host.DisposeAsync();
         _logs.Dispose();
+        _log.Dispose();
     }
 
     public async ValueTask DisposeAsync()

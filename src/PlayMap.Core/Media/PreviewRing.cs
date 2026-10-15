@@ -10,13 +10,21 @@ public readonly record struct PreviewFrameInfo(int Width, int Height, int Stride
 /// map with three BGRA slots and a seqlock per slot. The
 /// writer never waits for the reader (it writes the slot after the one last published); the reader copies the
 /// newest complete slot and retries when the writer lapped it mid-copy. One writer per ring. The file lives in a
-/// folder only this user can write.</summary>
+/// folder only this user can write.
+///
+/// <para>Every handle on a ring's file shares reading, writing and deleting, so on Windows a desk can open a ring
+/// the engine holds and the engine can let go of one the desk still maps. A ring file is never cut down in place: a
+/// new writer removes the file at its path (a reader still mapping it keeps the old pages) and makes a fresh one, and
+/// a writer that lets go says so in the header, so the reader knows to look for the next ring.</para></summary>
 public static class PreviewRing
 {
     public const int Magic = 0x504D5052; // "PMPR"
     public const int Slots = 3;
     public const int HeaderBytes = 64;
     public const int SlotHeaderBytes = 64;
+
+    /// <summary>Header offset of the int that is 1 once the ring's writer has let go of it.</summary>
+    internal const int ClosedOffset = 24;
 
     /// <summary>A folder only this user can write: the session's runtime folder on Linux (memory-backed),
     /// the user's local application data elsewhere.</summary>
@@ -47,6 +55,7 @@ public sealed class PreviewRingWriter : IDisposable
     private readonly long _slotBytes;
     private int _next;
     private long _sequence;
+    private bool _disposed;
 
     public PreviewRingWriter(string path, int maxWidth, int maxHeight)
     {
@@ -57,9 +66,20 @@ public sealed class PreviewRingWriter : IDisposable
         MaxHeight = maxHeight;
         _slotBytes = PreviewRing.SlotBytes(maxWidth, maxHeight);
         var bytes = PreviewRing.FileBytes(maxWidth, maxHeight);
-        using (var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+        // An earlier ring at this path may still be mapped by a reader: cutting that file down would fail on Windows
+        // and pull pages out from under the reader on Linux, so it is removed and this ring is a new file.
+        File.Delete(path);
+        var fs = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        try
+        {
             fs.SetLength(bytes);
-        _map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, bytes, MemoryMappedFileAccess.ReadWrite);
+            _map = MemoryMappedFile.CreateFromFile(fs, null, bytes, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+        catch
+        {
+            fs.Dispose();
+            throw;
+        }
         _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
         _view.Write(4, maxWidth);
         _view.Write(8, maxHeight);
@@ -112,6 +132,11 @@ public sealed class PreviewRingWriter : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
+        _view.Write(PreviewRing.ClosedOffset, 1);
+        _view.Flush();
         _view.Dispose();
         _map.Dispose();
         try
@@ -120,11 +145,11 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch (IOException)
         {
-            // A reader still holding the map on Windows keeps the file; it is recreated on the next run.
+            // The file stays until its readers let go; the next writer at this path removes it.
         }
         catch (UnauthorizedAccessException)
         {
-            // As above: the file is reused, not leaked across runs.
+            // As above.
         }
     }
 }
@@ -138,9 +163,10 @@ public sealed class PreviewRingReader : IDisposable
 
     public PreviewRingReader(string path)
     {
-        _map = MemoryMappedFile.CreateFromFile(new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete),
-            null, 0, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
-        _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
+        // Read-only: the desk never writes the engine's ring.
+        _map = MemoryMappedFile.CreateFromFile(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete),
+            null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+        _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
         if (_view.ReadInt32(0) != PreviewRing.Magic)
         {
             _view.Dispose();
@@ -154,6 +180,10 @@ public sealed class PreviewRingReader : IDisposable
 
     public int MaxWidth { get; }
     public int MaxHeight { get; }
+
+    /// <summary>True once the ring's writer has let go (the view went, or the engine stopped): no picture will come
+    /// here again, and the next ring for the view is a new file at the same path.</summary>
+    public bool WriterGone => _view.ReadInt32(PreviewRing.ClosedOffset) != 0;
 
     /// <summary>Copies the newest complete picture into <paramref name="destination"/> (tightly packed BGRA)
     /// when it is newer than <paramref name="haveSequence"/>. False when there is nothing newer or the writer

@@ -29,6 +29,37 @@ public class PreviewRingTests
     }
 
     [Fact]
+    public void ARingMadeAgainWhileTheDeskStillMapsTheOldOneIsANewFileAndTheOldReaderIsToldItsWriterWent()
+    {
+        var path = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-test-{Guid.NewGuid():N}.preview");
+        var dest = new byte[64 * 32 * 4];
+        var first = new PreviewRingWriter(path, 64, 32);
+        using var stale = new PreviewRingReader(path);
+        using (first)
+        {
+            Assert.False(stale.WriterGone);
+            Assert.True(first.Write(new byte[16 * 8 * 4], 16, 8, 16 * 4, 1));
+        }
+        Assert.True(stale.WriterGone);
+
+        // The view comes back at another size while the desk still maps the old ring.
+        using var second = new PreviewRingWriter(path, 32, 16);
+        using var fresh = new PreviewRingReader(path);
+        Assert.False(fresh.WriterGone);
+        Assert.Equal((32, 16), (fresh.MaxWidth, fresh.MaxHeight));
+        var pic = new byte[8 * 4 * 4];
+        Array.Fill(pic, (byte)7);
+        Assert.True(second.Write(pic, 8, 4, 8 * 4, 2));
+        Assert.True(fresh.TryRead(dest, 0, out var info));
+        Assert.Equal((8, 4, 1L, 7), (info.Width, info.Height, info.Sequence, (int)dest[0]));
+
+        // The old pages are the old ring's: its last picture, never the new ring's, and still marked gone.
+        Assert.True(stale.TryRead(dest, 0, out var old));
+        Assert.Equal((16, 1L), (old.Width, old.Sequence));
+        Assert.True(stale.WriterGone);
+    }
+
+    [Fact]
     public void RepliesParseWithAndWithoutAnId()
     {
         Assert.Equal(new WireReply(true, "PONG 1 2 3"), WireReply.Parse("OK @p1 PONG 1 2 3"));

@@ -14,7 +14,7 @@ namespace PlayMap.Engine.Tests.Wall;
 /// made stable; every card's path and fields resolve in the fixture and every action is a line of the catalogue.</summary>
 public sealed partial class WallStateFixtureTest
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Indented = FixtureJson.Indented;
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 

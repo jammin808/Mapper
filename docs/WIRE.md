@@ -7,7 +7,9 @@ One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the 
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line. Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
+is JSON to the end of the line. Inside quotes a backslash escapes only a quote or a backslash (`\"`, `\\`); any other
+backslash is itself, so a Windows path rides as typed (`FX IMPORT "C:\Shows\My FX\Shift.fs"`) — a path that ends in a
+backslash, or a UNC path's leading `\\`, is written with each of those backslashes doubled. Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
 (`OK @a1 …`). A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a

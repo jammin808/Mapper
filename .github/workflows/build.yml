@@ -57,18 +57,38 @@ jobs:
         run: dotnet restore
       - name: Build
         run: dotnet build -c Release --no-restore
-      - name: Test (no GPU, no FFmpeg)
+      # PowerShell goes on past a native command's exit code, so each project's result is taken from $LASTEXITCODE and the
+      # step fails at its end naming every project that failed: one failure hides no other project's result.
+      - name: Test (no GPU, no FFmpeg; every project to its end)
         run: |
-          dotnet test tests/PlayMap.Core.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Engine.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Net.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Devices.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Assistant.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Vision.Tests -c Release --no-build
+          $failed = @()
+          foreach ($name in 'PlayMap.Core.Tests', 'PlayMap.Engine.Tests', 'PlayMap.Net.Tests', 'PlayMap.Devices.Tests', 'PlayMap.Assistant.Tests', 'PlayMap.Vision.Tests') {
+            Write-Output "::group::$name"
+            dotnet test "tests/$name" -c Release --no-build --logger "trx;LogFileName=$name.trx"
+            if ($LASTEXITCODE -ne 0) { $failed += $name }
+            Write-Output "::endgroup::"
+          }
+          if ($failed.Count -gt 0) { Write-Output "::error::failed: $($failed -join ', ')"; exit 1 }
+          exit 0
       - name: Test the Windows-only code (no GPU; WARP and the D3D11 paths)
+        if: success() || failure()
         run: |
-          dotnet test tests/PlayMap.Render.Tests -c Release --no-build --filter Category=Windows
-          dotnet test tests/PlayMap.Media.Tests -c Release --no-build --filter Category=Windows
+          $failed = @()
+          foreach ($name in 'PlayMap.Render.Tests', 'PlayMap.Media.Tests') {
+            Write-Output "::group::$name"
+            dotnet test "tests/$name" -c Release --no-build --filter Category=Windows --logger "trx;LogFileName=$name.windows.trx"
+            if ($LASTEXITCODE -ne 0) { $failed += $name }
+            Write-Output "::endgroup::"
+          }
+          if ($failed.Count -gt 0) { Write-Output "::error::failed: $($failed -join ', ')"; exit 1 }
+          exit 0
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-windows
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore
       - name: Publish the portable exe
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
       - name: Upload the exe

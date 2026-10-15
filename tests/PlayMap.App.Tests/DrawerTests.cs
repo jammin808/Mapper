@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -107,22 +108,36 @@ public class DrawerTests
     public void ThePreviewSurfaceShowsTheEnginesPictureFromItsRing()
     {
         var path = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-test{Environment.ProcessId}-view.preview");
+        var pixels = new byte[64 * 36 * 4];
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 255;
+            pixels[i + 3] = 255;
+        }
+        using var source = new RingPreviewSource(path);
         using (var writer = new PreviewRingWriter(path, 64, 36))
         {
-            var pixels = new byte[64 * 36 * 4];
-            for (var i = 0; i < pixels.Length; i += 4)
-            {
-                pixels[i] = 255;
-                pixels[i + 3] = 255;
-            }
             Assert.True(writer.Write(pixels, 64, 36, 64 * 4, 1));
-            using var source = new RingPreviewSource(path);
             var frame = source.Poll();
             Assert.NotNull(frame);
             Assert.Equal(new PixelSize(64, 36), frame.PixelSize);
             Assert.Null(source.Poll());
             Assert.True(writer.Write(pixels, 32, 18, 64 * 4, 2));
             Assert.Equal(new PixelSize(32, 18), source.Poll()!.PixelSize);
+        }
+        // The engine let go of the ring: the desk lets go too, and opens the ring the engine makes next at the path.
+        Assert.Null(source.Poll());
+        using (var again = new PreviewRingWriter(path, 48, 27))
+        {
+            Assert.True(again.Write(pixels, 48, 27, 64 * 4, 3));
+            var waited = Stopwatch.StartNew();
+            var next = source.Poll();
+            while (next is null && waited.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                Thread.Sleep(50);
+                next = source.Poll();
+            }
+            Assert.Equal(new PixelSize(48, 27), next?.PixelSize);
         }
         using var gone = new RingPreviewSource(path);
         Assert.Null(gone.Poll());

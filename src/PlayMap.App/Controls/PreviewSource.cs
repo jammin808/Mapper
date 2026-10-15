@@ -26,7 +26,8 @@ public static class PreviewFeeds
 }
 
 /// <summary>Reads one preview ring: opens it when its file appears (checked at most once a second), copies the
-/// newest complete BGRA slot into a bitmap, and lets go when the ring goes away (engine restarted).</summary>
+/// newest complete BGRA slot into a bitmap, and lets go when the ring's writer does (the view went, the engine
+/// restarted), so the next ring at the path is opened.</summary>
 public sealed class RingPreviewSource : IPreviewSource
 {
     private readonly string _path;
@@ -43,6 +44,11 @@ public sealed class RingPreviewSource : IPreviewSource
         if (_reader is null && !TryOpen())
             return null;
         var reader = _reader!;
+        if (reader.WriterGone)
+        {
+            Close();
+            return null;
+        }
         var need = reader.MaxWidth * reader.MaxHeight * 4;
         if (_buffer.Length < need)
             _buffer = new byte[need];
