@@ -164,7 +164,7 @@ public sealed class FleetGraph
                 edges.Add(new FleetEdge(machineId, id, "shows", ol));
                 col++;
             }
-            var pcol = 1;
+            var spare = col;   // a projector no output drives sits after the outputs' columns
             foreach (var p in f.Projectors)
             {
                 var id = $"projector:{m.Id}:{p.Id}";
@@ -173,11 +173,10 @@ public sealed class FleetGraph
                 var pl = live ? p.Light : Light.Grey;
                 nodes.Add(new FleetNode(id, "projector", "video", 3, p.Name.Length > 0 ? p.Name : p.Id, live ? p.Words : Say($"not heard for {m.SilentS:0} s"),
                     pl, [Say($"{m.Name}: projector {p.Id}")], m.Id));
-                var under = outputIds.TryGetValue(p.Output, out var driver) ? places[driver] : Cell(pcol, row, 0);
-                places[id] = new FleetPlace(under.X, under.Y + NodeH / 2 + 4, NodeW, NodeH / 2);
+                var above = outputIds.TryGetValue(p.Output, out var driver) ? places[driver] : Cell(spare++, row, 0);
+                places[id] = new FleetPlace(above.X, above.Y + NodeH + 8, NodeW, NodeH / 2);   // on the projectors' line, inside the row
                 if (driver is not null)
                     edges.Add(new FleetEdge(driver, id, "drives", pl));
-                pcol++;
             }
             row++;
         }
