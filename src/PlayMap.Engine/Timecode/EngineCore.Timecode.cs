@@ -190,8 +190,12 @@ public sealed partial class EngineCore
         Apply(list, regions.Regions, plan, format, settings.JumpThresholdNs(format, sigma), run, leaderNs);
         var freewheelLeft = plan.State == ChaseState.Freewheel && memory.FreewheelSinceNs != long.MinValue
             ? Math.Max(0, (chase.FreewheelNs - (leaderNs - memory.FreewheelSinceNs)) / 1_000_000) : -1;
+        // Code arriving on a fitted line that does not run (its slope outside 0.85–1.15: a varispeed, or a step this chase's threshold
+        // takes as drift that is too steep to glide) leaves the chase unlocked for the reason its reading gives; the source's own
+        // reading, judged at auto, may roll meanwhile, so the chase's words carry it.
         var words = plan.State == ChaseState.Locked
             ? $"locked to {sourceName}{(chase.DelayNs != 0 ? $", picture {Fmt(chase.DelayNs / 1e6)} ms later" : "")}"
+            : plan.State == ChaseState.Acquiring && reading.Line is { Running: false, Points: > 1 } ? reading.Words
             : regions.Problem.Length > 0 && plan.State == ChaseState.Outside ? regions.Problem : plan.Words;
         var item = plan.Region >= 0 && plan.Region < regions.Regions.Length ? regions.Regions[plan.Region].ItemId : Playback.Lane(list.Id)?.ItemId;
         return new ChaseView(list.Id, sources, run.Active, true, plan.State, line is null ? "" : format.Format(format.FrameOf(plan.TcNs)), item,
@@ -620,10 +624,11 @@ public sealed partial class EngineCore
         if (list.Chase is not { } chase)
             return CommandReply.Fail($"{list.Name} chases no timecode — TIMECODE CHASE {list.Name} <source>");
         var value = args[2];
+        // A number of ms within the range ("NaN" is none, and is refused like any other word).
         bool Ms(double lo, double hi, out long ns)
         {
             ns = 0;
-            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || ms < lo || ms > hi)
+            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || !(ms >= lo && ms <= hi))
                 return false;
             ns = (long)Math.Round(ms * 1e6);
             return true;
@@ -752,7 +757,7 @@ public sealed partial class EngineCore
                 tc = format.Ns(frame);
                 break;
             case "RATE" when args.Count == 3:
-                if (!double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || rate < 0.5 || rate > 2)
+                if (!double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || !(rate >= 0.5 && rate <= 2))
                     return CommandReply.Fail("RATE is 0.5 to 2");
                 break;
             default:
@@ -853,9 +858,10 @@ public sealed partial class EngineCore
             w.WriteNull("freewheelLeftMs");
         w.WriteString("onLoss", chase.OnLoss.ToString().ToLowerInvariant());
         w.WriteString("gap", chase.Gap.ToString().ToLowerInvariant());
-        // The jump threshold in force: what the chase's code is judged by, set or auto (max(2 frames, 5σ) of its code now).
+        // The jump threshold in force: what the chase's code is judged by, set or auto (max(2 frames, 5σ) of its code now); a
+        // threshold of 0 or less is auto, as the tracker judges it.
         w.WriteNumber("jumpMs", Math.Round((chase.JumpNs > 0 ? chase.JumpNs : v?.AutoJumpNs ?? AutoJump(chase)) / 1e6, 1));
-        w.WriteBoolean("jumpAuto", chase.JumpNs == 0);
+        w.WriteBoolean("jumpAuto", chase.JumpNs <= 0);
         if (v?.LastJump is { } jump)
             w.WriteString("lastJump", jump);
         else
@@ -938,6 +944,19 @@ public sealed partial class EngineCore
             return "an MTC source names its MIDI port";
         if (t.FitWindowMs is < 200 or > 10000)
             return "a fit window is 200 to 10000 ms";
+        return null;
+    }
+
+    /// <summary>A chase's tuning is held to the bounds TIMECODE SET keeps, however it is edited: DELAY −2000…2000 ms, FREEWHEEL
+    /// 0…10000 ms, JUMP 0 (auto) or 1…10000 ms.</summary>
+    private static string? TimecodeChaseProblem(TimecodeChase c)
+    {
+        if (c.DelayNs is < -2_000_000_000 or > 2_000_000_000)
+            return "a chase's delayNs is −2000 to 2000 ms";
+        if (c.FreewheelNs is < 0 or > 10_000_000_000)
+            return "a chase's freewheelNs is 0 to 10000 ms";
+        if (c.JumpNs != 0 && c.JumpNs is < 1_000_000 or > 10_000_000_000)
+            return "a chase's jumpNs is 0 (auto) or 1 to 10000 ms";
         return null;
     }
 

@@ -32,8 +32,8 @@ public sealed class ChaseJumpTests
             return new Desk(rig, clock, rig.Engine.Store.Project.Timecode.Sources[0].Id);
         }
 
-        /// <summary>A packet a frame, the lane ticking every 10 ms between them.</summary>
-        public async Task Roll(int frames)
+        /// <summary>A packet a frame, the lane ticking every 10 ms between them; <paramref name="each"/> looks after every frame.</summary>
+        public async Task Roll(int frames, Action? each = null)
         {
             for (var i = 0; i < frames; i++)
             {
@@ -44,6 +44,7 @@ public sealed class ChaseJumpTests
                     clock.AdvanceMs(10);
                     await rig.Engine.StepChasesAsync();
                 }
+                each?.Invoke();
             }
         }
 
@@ -144,5 +145,92 @@ public sealed class ChaseJumpTests
         Assert.Equal("Show is already so", await again.Refused("TIMECODE SET Show JUMP AUTO"));
 
         static (double, bool) Threshold(JsonElement chase) => (chase.GetProperty("jumpMs").GetDouble(), chase.GetProperty("jumpAuto").GetBoolean());
+    }
+
+    /// <summary>JUMP 500 ms: a six-frame step is drift, but steeper than the fit can glide within its slope bounds — the chase's own
+    /// line (its code judged at 500 ms) reads varispeed out of range while the source, judged at auto, rolls on the new code. The
+    /// chase says so in its words until the window holds only the new code, then it is locked on the code with no jump said.</summary>
+    [Fact]
+    public async Task AStepTooSteepForTheFitToGlideIsSaidInTheChasesWords()
+    {
+        var clock = new ManualClock(5 * S);
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), clock: clock);
+        var desk = await Desk.StartAsync(rig, clock);
+        await desk.Roll(40);
+        await rig.Ok("TIMECODE SET Show JUMP 500");
+        desk.Step(6);
+        var seen = new List<(string Chase, string Words, string Source)>();
+        await desk.Roll(50, () =>
+        {
+            var timecode = rig.State().GetProperty("timecode");
+            var chase = timecode.GetProperty("chases")[0];
+            seen.Add((chase.GetProperty("state").GetString()!, chase.GetProperty("words").GetString()!, timecode.GetProperty("sources")[0].GetProperty("state").GetString()!));
+        });
+        var unlocked = seen.Where(s => s.Chase != "locked").ToList();
+        Assert.NotEmpty(unlocked);
+        Assert.All(unlocked, s =>
+        {
+            Assert.Equal(("acquiring", "rolling"), (s.Chase, s.Source));
+            Assert.StartsWith("varispeed out of range (", s.Words, StringComparison.Ordinal);
+        });
+        Assert.Equal(("locked", "locked to Desk"), (seen[^1].Chase, seen[^1].Words));
+        Assert.InRange(desk.PictureOff(), -2_000_000, 2_000_000);
+        Assert.Null(desk.LastJump());
+    }
+
+    /// <summary>TIMECODE SET and TIMECODE INTERNAL take numbers: "NaN" is none, and is refused with the range rather than taken as 0
+    /// (JUMP AUTO, no freewheel, no delay) — or, for RATE, as a rate STATE cannot write.</summary>
+    [Fact]
+    public async Task ATimecodeSettingThatIsNotANumberIsRefused()
+    {
+        var clock = new ManualClock(5 * S);
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), clock: clock);
+        await Desk.StartAsync(rig, clock);
+        await rig.Ok("TIMECODE SET Show JUMP 150");
+        await rig.Ok("TIMECODE SET Show DELAY 40");
+        Assert.Equal("JUMP <1-10000 ms>|AUTO", await rig.Refused("TIMECODE SET Show JUMP NaN"));
+        Assert.Equal("FREEWHEEL is 0 to 10000 ms", await rig.Refused("TIMECODE SET Show FREEWHEEL NaN"));
+        Assert.Equal("DELAY is −2000 to 2000 ms", await rig.Refused("TIMECODE SET Show DELAY NaN"));
+        var chase = rig.Engine.Store.Project.FindPlaylist("pl_show")!.Chase!;
+        Assert.Equal((150_000_000L, 500_000_000L, 40_000_000L), (chase.JumpNs, chase.FreewheelNs, chase.DelayNs));
+
+        await rig.Ok("TIMECODE SOURCE ADD Rehearsal INTERNAL FORMAT 25");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal PLAY");
+        Assert.Equal("RATE is 0.5 to 2", await rig.Refused("TIMECODE INTERNAL Rehearsal RATE NaN"));
+        clock.AdvanceMs(100);
+        await rig.Engine.StepChasesAsync();
+        var rehearsal = rig.State().GetProperty("timecode").GetProperty("sources")[1];
+        Assert.Equal(("rolling", 25.0), (rehearsal.GetProperty("state").GetString(), rehearsal.GetProperty("fpsMeasured").GetDouble()));
+    }
+
+    /// <summary>A generic SET of a chase's field is held to the bounds TIMECODE SET keeps: JUMP 0 (auto) or 1–10000 ms, DELAY
+    /// −2000–2000 ms, FREEWHEEL 0–10000 ms. A project that carries a threshold of 0 or less (written by hand) is judged at auto, and
+    /// STATE says so.</summary>
+    [Fact]
+    public async Task AChasesFieldsSetGenericallyKeepTheVerbsBounds()
+    {
+        var clock = new ManualClock(5 * S);
+        await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), clock: clock);
+        await Desk.StartAsync(rig, clock);
+        Assert.Equal("a chase's jumpNs is 0 (auto) or 1 to 10000 ms", await rig.Refused("SET pl_show chase.jumpNs 1"));
+        Assert.Equal("a chase's jumpNs is 0 (auto) or 1 to 10000 ms", await rig.Refused("SET pl_show chase.jumpNs -5"));
+        Assert.Equal("a chase's jumpNs is 0 (auto) or 1 to 10000 ms", await rig.Refused("SET pl_show chase.jumpNs 10000000001"));
+        Assert.Equal("a chase's freewheelNs is 0 to 10000 ms", await rig.Refused("SET pl_show chase.freewheelNs -5"));
+        Assert.Equal("a chase's delayNs is −2000 to 2000 ms", await rig.Refused("SET pl_show chase.delayNs 2000000001"));
+        Assert.Equal(0, rig.Engine.Store.Project.FindPlaylist("pl_show")!.Chase!.JumpNs);
+        await rig.Ok("SET pl_show chase.jumpNs 150000000");
+        Assert.Equal(150_000_000, rig.Engine.Store.Project.FindPlaylist("pl_show")!.Chase!.JumpNs);
+        await rig.Ok("SET pl_show chase.jumpNs 0");
+
+        var written = TimecodeEngineTests.Show();
+        written = written with
+        {
+            Timecode = rig.Engine.Store.Project.Timecode,
+            Playlists = written.Playlists.Update("pl_show", l => l with { Chase = new TimecodeChase([rig.Engine.Store.Project.Timecode.Sources[0].Id]) { JumpNs = -5 } }),
+        };
+        await using var again = await ControlRig.StartAsync(written, clock: new ManualClock(5 * S));
+        await again.Engine.StepChasesAsync();
+        var chase = again.State().GetProperty("timecode").GetProperty("chases")[0];
+        Assert.Equal((80.0, true), (chase.GetProperty("jumpMs").GetDouble(), chase.GetProperty("jumpAuto").GetBoolean()));
     }
 }

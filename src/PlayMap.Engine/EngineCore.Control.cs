@@ -114,6 +114,9 @@ public sealed partial class EngineCore
             case TimecodeSource t:
                 why = TimecodeSourceProblem(p, t);
                 break;
+            case Playlist { Chase: { } chase } when TimecodeChaseProblem(chase) is { } cp:
+                why = cp;
+                break;
         }
     }
 

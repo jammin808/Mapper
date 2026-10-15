@@ -47,10 +47,14 @@ of range" and nothing locks). A jump — code off the line by more than the **ju
 agrees with it: the run starts afresh and its line is on the new code by the third frame. Code off the line by no more than the
 threshold is drift: the fit takes it in, gliding the line onto the new code at a raised rate (a three-frame step at JUMP 200 ms
 is ridden at up to 1.12×, reaches the code in about half a second, overshoots it by under a frame and is exact once the window
-holds only the new code; a step too large for the 0.85–1.15 slope bounds reads "varispeed out of range" until then). A lone outlier is counted invalid. The threshold is auto, max(2 frames,
-5σ), unless a chase sets its own (`TIMECODE SET <playlist> JUMP <ms>|AUTO`): each threshold a chase sets judges the source's code
+holds only the new code). A step steeper than the fit can glide within the 0.85–1.15 slope bounds (four frames or more at 25 fps)
+leaves the chase acquiring, its words "varispeed out of range (…×) — nothing locks", while the picture rides on at its last
+line's rate; once the window holds only the new code (1.5 s by default) the chase locks and the picture moves onto the code at once,
+not named a jump. A lone outlier is counted invalid. The threshold is auto, max(2 frames,
+5σ), unless a chase sets its own (`TIMECODE SET <playlist> JUMP <ms>|AUTO`; a generic `SET` of `chase.jumpNs` is held to the same
+0 or 1–10000 ms): each threshold a chase sets judges the source's code
 in a tracker of its own, fed the same code, so two chases of one source can judge it differently. The source's own reading (its
-state, counts and words in STATE) is the auto judgement.
+state, counts and words in STATE) is the auto judgement; a chase says its own judgement in its words.
 
 ## The chase
 
