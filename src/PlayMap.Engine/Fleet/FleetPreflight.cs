@@ -65,7 +65,7 @@ internal sealed class FleetPreflight(Func<string>? pinFile = null) : IPreflightC
                 "first use" => new PreflightRow("pin:" + p.Id, node, Section, p.Name + " certificate", Light.Amber, "not pinned yet",
                     "its certificate is new here and is pinned when its first record arrives", null),
                 "refused" => new PreflightRow("pin:" + p.Id, node, Section, p.Name + " certificate", Light.Red, "refused",
-                    $"{p.Words} — if {p.Name} was reinstalled, remove its line from {pinFile?.Invoke() ?? "the fleet's pin file"} and it is pinned again; otherwise find out what answers at its address",
+                    $"{p.Words} — if {p.Name} was reinstalled, remove its line from {pinFile?.Invoke() ?? "the fleet's pin file"} (read again when it changes, no restart) and it is pinned again on its next record; otherwise find out what answers at its address",
                     null),
                 _ => new PreflightRow("pin:" + p.Id, node, Section, p.Name + " certificate", Light.Grey, "no TLS", "it offers no TLS: its health is read in the clear", null),
             };

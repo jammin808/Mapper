@@ -31,10 +31,22 @@ public interface IHealthFeeds
 /// <summary>A peer's <c>/health</c> as a WebSocket: <c>wss://</c> with the certificate checked against the pin (and the hello's
 /// fingerprint) when the hello offers TLS, <c>ws://</c> when it offers none. The pin is set on the first record that is the peer's
 /// own (its node id is the hello's), as the first link that authenticated sets the node's other pins; a certificate that changed
-/// after is refused, and says so, until the operator accepts it. Pins live in their own file (fingerprints are public).</summary>
-public sealed class HealthFeedClient(PinStore pins, TimeProvider time, ILogger? log = null) : IHealthFeeds
+/// after is refused, and says so, until the operator removes the old pin from the fleet's pin file (read again on every dial).
+/// Pins live in their own file (fingerprints are public).</summary>
+public sealed class HealthFeedClient(Func<PinStore> pins, TimeProvider time, ILogger? log = null) : IHealthFeeds
 {
     private readonly ILogger _log = log ?? NullLogger.Instance;
+
+    /// <summary>Pins kept in one store for the client's life (a test, or a node with no pin file).</summary>
+    public HealthFeedClient(PinStore pins, TimeProvider time, ILogger? log = null)
+        : this(() => pins, time, log)
+    {
+    }
+
+    /// <summary>The words for a certificate refused: changed since it was pinned, or not the one the hello names.</summary>
+    public static string RefusedWords(PinVerdict verdict, string name, string presented) => verdict == PinVerdict.Changed
+        ? $"CERTIFICATE CHANGED: {name} now shows {TlsFingerprint.Short(presented)} — refused until its old pin is removed from the fleet's pin file"
+        : PinStore.Words(verdict, name, presented);
 
     /// <summary>How long a dial and its upgrade may take.</summary>
     public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(5);
@@ -50,7 +62,7 @@ public sealed class HealthFeedClient(PinStore pins, TimeProvider time, ILogger? 
         using var socket = new ClientWebSocket();
         if (dial.Tls)
         {
-            socket.Options.RemoteCertificateValidationCallback = pins.Validator(key, dial.Fingerprint, (v, p) =>
+            socket.Options.RemoteCertificateValidationCallback = pins().Validator(key, dial.Fingerprint, (v, p) =>
             {
                 verdict = v;
                 presented = p;
@@ -70,7 +82,7 @@ public sealed class HealthFeedClient(PinStore pins, TimeProvider time, ILogger? 
             if (verdict is PinVerdict.Changed or PinVerdict.Mismatch)
             {
                 onPin("refused");
-                return new FeedEnd(PinStore.Words(verdict.Value, dial.Name, presented), false, true);
+                return new FeedEnd(RefusedWords(verdict.Value, dial.Name, presented), false, true);
             }
             return new FeedEnd($"{dial.Name}'s health at {uri.Authority} did not answer: {ex.Message}", false, false);
         }
@@ -98,7 +110,7 @@ public sealed class HealthFeedClient(PinStore pins, TimeProvider time, ILogger? 
                     return new FeedEnd($"{dial.Name}'s address answers as another node ({record.Facts.Node}): not read", heard, false);
                 if (!heard && dial.Tls && verdict == PinVerdict.FirstUse && presented.Length > 0)
                 {
-                    pins.Pin(key, presented);
+                    pins().Pin(key, presented);
                     onPin("pinned");
                 }
                 heard = true;

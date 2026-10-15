@@ -59,7 +59,8 @@ own; `ws://` when it offers none. A peer appears on the board when its first rec
 last record on the monitor's clock (an injected `TimeProvider`): stale at 3 s, gone at 6 s. A gone machine stays on the board, red
 "gone quiet 12 s", until it is heard again — never removed silently. A subscription that ends is dialled again after 0.5 s, doubling
 to 8 s while nothing is heard. A changed certificate is refused and shown red with words until the operator decides (the pins are
-`keys/fleet-pins.json` beside the node's own). The monitor keeps at most 64 machines (twice its subscriptions, at least 64): when it is
+`keys/fleet-pins.json` beside the node's own): removing the machine's line pins its new certificate on its next record — the file
+is read again whenever it changes, with no restart, and a pin set afterwards never writes the removed line back. The monitor keeps at most 64 machines (twice its subscriptions, at least 64): when it is
 full, a machine it dialled and never heard (on no board) is let go to make room; a machine the board shows is never let go. The board changes (and STATE moves) only when what it shows moved — a light, a
 headline, a liveness — never for a record that says the same.
 

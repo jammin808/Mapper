@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using PlayMap.Core.Fleet;
 using PlayMap.Engine.Host;
 using PlayMap.Net.Fleet;
-using PlayMap.Net.Tls;
 
 namespace PlayMap.Engine.Fleet;
 
@@ -15,7 +14,7 @@ public sealed record FleetOptions
     public IMachineReader? Reader { get; init; }
 
     /// <summary>The transport to the peers' health; null = the WebSocket client over the fleet's own pin file.</summary>
-    public Func<PinStore, IHealthFeeds>? Feeds { get; init; }
+    public Func<FleetPinFile, IHealthFeeds>? Feeds { get; init; }
 
     /// <summary>The most <c>/health</c> sockets this node feeds at once.</summary>
     public int HealthFeeds { get; init; } = HealthWebModule.MaxFeeds;
@@ -47,12 +46,12 @@ public sealed class FleetExtension : IEngineExtension
         if (settings.Fleet.Monitor)
         {
             var log = setup.Logs.CreateLogger("PlayMap.Net.Fleet");
-            var pins = new PinStore(_pinPath, log);
+            var pins = new FleetPinFile(_pinPath, log);
             _monitor = new FleetMonitor(new FleetMonitorOptions
             {
                 SelfId = settings.NodeId,
                 Table = () => setup.Network.Hello?.Peers,
-                Feeds = _options.Feeds?.Invoke(pins) ?? new HealthFeedClient(pins, _options.Time, log),
+                Feeds = _options.Feeds?.Invoke(pins) ?? new HealthFeedClient(pins.Current, _options.Time, log),
                 Time = _options.Time,
                 Max = Math.Clamp(settings.Fleet.MonitorMax, 0, 32),
                 Log = log,
