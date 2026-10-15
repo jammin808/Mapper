@@ -208,16 +208,22 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// <summary>What every line hears once the node has begun to stop (<see cref="BeginStop"/>).</summary>
     internal const string StoppingWords = "the node is stopping — it takes no more lines";
 
-    /// <summary>True once the node has begun to stop: no line runs on it from then on.</summary>
+    /// <summary>True once the node has begun to stop: no line from outside the node runs on it from then on.</summary>
     internal bool Stopping => Volatile.Read(ref _stopping) != 0;
 
     /// <summary>The node stops taking lines. From this call on, every line that enters — through <see cref="HandleAsync"/> (the wire,
-    /// the web port, MCP, OSC, the assistant, an approval, a panic's own lines) or fired by a binding
-    /// (<see cref="RunBindingLineAsync"/>) — and every line still waiting for the lane is refused with <see cref="StoppingWords"/>.
-    /// The host calls it as it begins to stop, before it closes any door or part, so no line source it closes later (a binding, an
-    /// OSC socket, a link) can start work on a part it has closed already; its own last work (the recovery record, the journal) goes
-    /// to the lane and the journal directly, never as a line. Thread-safe; a second call changes nothing.</summary>
+    /// the web port, MCP, OSC, the assistant, an approval) or fired by a binding (<see cref="RunBindingLineAsync"/>) — and every line
+    /// still waiting for the lane is refused with <see cref="StoppingWords"/>. The host calls it as it begins to stop, before it closes
+    /// any door or part, so no line source it closes later (a binding, an OSC socket, a link) can start work on a part it has closed
+    /// already. The node's own work still runs: its own lines (<see cref="SystemSession"/>: a panic's shutters and effects, sent on
+    /// the panic's instant while the projector links are still open — a panic put back after a restart takes its shutters as
+    /// closed), and its last work (the recovery record, the journal), which goes to the lane and the journal directly, never as a
+    /// line. Thread-safe; a second call changes nothing.</summary>
     internal void BeginStop() => Interlocked.Exchange(ref _stopping, 1);
+
+    /// <summary>True when a line from this session is refused because the node has begun to stop: any line but the node's own.</summary>
+    private bool RefusedAsStopping(SessionInfo session) =>
+        Stopping && !string.Equals(session.Transport, SystemSession.Transport, StringComparison.Ordinal);
 
     /// <summary>A line that arrived once the node began to stop: refused with the words, and journalled as any refusal of its verb is
     /// (when <paramref name="journal"/>: a binding's gesture is journalled by its owner, once) — an operations line with every
@@ -245,7 +251,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         if (ct.IsCancellationRequested)
             return ValueTask.FromResult(CommandReply.Fail("cancelled"));
-        if (Stopping)
+        if (RefusedAsStopping(session))
             return ValueTask.FromResult(RefusedStopping(line, session, journal: true));
         // A shown copy (its secret words replaced by the marker) stands for a line kept elsewhere: it never runs.
         if (VerbCatalog.IsShownCopy(line))

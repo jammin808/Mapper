@@ -29,8 +29,8 @@ PlayMap.exe engine          the node: project, playback, decode, render, outputs
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
-  starts work on a part already closed; then the doors and parts close in reverse, the recovery record is written
-  and the journal flushed.
+  starts work on a part already closed; the node's own lines (a panic's shutters and effects) still run. Then the
+  doors and parts close in reverse, the recovery record is written and the journal flushed.
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
   pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees.

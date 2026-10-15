@@ -9,9 +9,11 @@ using PlayMap.Devices.Tests.Simulators;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Control;
 using PlayMap.Engine.Devices;
+using PlayMap.Engine.Fx;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Align;
 using PlayMap.Engine.Tests.Control;
+using PlayMap.Engine.Tests.Show;
 
 namespace PlayMap.Engine.Tests.Host;
 
@@ -19,7 +21,7 @@ namespace PlayMap.Engine.Tests.Host;
 /// part its line would start — align's runner already gone, control's OSC socket and bindings still live — a /playmap line over OSC,
 /// a bound OSC button and a line handed to the engine are each refused with the stopping words, journalled, and start no ALIGN RUN;
 /// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A refusal keeps every
-/// secret the node holds out of the journal.</summary>
+/// secret the node holds out of the journal; the node's own lines (a panic's shutters and effects) still run.</summary>
 public sealed class HostStopTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";
@@ -201,6 +203,49 @@ public sealed class HostStopTests
                 Assert.DoesNotContain(secret, journal, StringComparison.Ordinal);
                 Assert.DoesNotContain(secret, file, StringComparison.Ordinal);
             }
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
+    public async Task APanicsOwnLinesStillRunAsTheNodeStopsSoItsShuttersCloseAndItsEffectsGoOff()
+    {
+        await using var projector = new PjLinkSimulator();
+        var p = ShowRig.OneScreen();
+        var project = p with
+        {
+            Outputs = p.Outputs.Add(p.Outputs[0] with { Id = "op_2", Name = "Right" }),
+            Show = p.Show with
+            {
+                Panic = [new OutputPanicPlan("op_1", PanicOutcome.Shutter, 0, null), new OutputPanicPlan("op_2", PanicOutcome.FxOff, 0, null)],
+            },
+        };
+        var rig = new OpsRig(project: project);
+        try
+        {
+            var dv = await rig.Ok($"DEVICE ADD \"Left box\" pjlink 127.0.0.1:{projector.Port} OUTPUT op_1");
+            await rig.Ok($"DEVICE POWER {dv} ON");
+            await rig.Ok("FX ADD op_2 fx.invert");
+
+            // The panic lands a moment ahead on the show clock; the node begins to stop before its lines are due.
+            await rig.Ok("PANIC AT +1500");
+            rig.Engine.BeginStop();
+            Assert.Equal(EngineCore.StoppingWords, (await rig.Run("PANIC CLEAR")).Payload);
+            JsonElement Lines() => rig.State().GetProperty("air").GetProperty("panic").GetProperty("devices");
+            Assert.All(Lines().EnumerateArray(), d => Assert.Equal("scheduled", d.GetProperty("stage").GetString()));
+
+            // At its instant the panic's own lines run as the node: the projector's shutter closes (observed) and every effect is off.
+            Assert.True(await OpsRig.Eventually(() => projector.Avmt == "31"), $"AVMT {projector.Avmt}; {Lines()}");
+            Assert.True(await OpsRig.Eventually(() => Lines().EnumerateArray().Count(d => d.GetProperty("stage").GetString() is "applied" or "accepted") == 2),
+                Lines().ToString());
+            var slots = FxBoard.Owners(rig.Engine.Store.Project).SelectMany(o => o.Chain.Slots).ToList();
+            Assert.NotEmpty(slots);
+            Assert.All(slots, s => Assert.True(s.Bypass));
+            Assert.Contains(rig.Engine.Journal.Recent(50), r => r.Who == EngineCore.SystemSession.ClientName && r.Line == $"DEVICE SHUTTER {dv} CLOSE" && r.Ok);
         }
         finally
         {
