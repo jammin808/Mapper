@@ -84,6 +84,8 @@ public sealed class SendPlanEntry
     {
         SendFormat.Uyvy => LivePlanes.FrameBytes(PixelLayout.Uyvy, Width, Height),
         SendFormat.Uyva => LivePlanes.FrameBytes(PixelLayout.Uyva, Width, Height),
+        SendFormat.P216 => LivePlanes.FrameBytes(PixelLayout.P216, Width, Height),
+        SendFormat.Pa16 => LivePlanes.FrameBytes(PixelLayout.Pa16, Width, Height),
         _ => 4L * Width * Height,
     };
 

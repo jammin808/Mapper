@@ -396,7 +396,7 @@ public sealed partial class EngineCore
     {
         var args = call.Args;
         if (args.Count < 3)
-            return CommandReply.Fail("SEND ADD NDI|OMT|SPOUT <name> <tap> [<w>x<h>] [@<fps>] [UYVY|UYVA|BGRA8] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]");
+            return CommandReply.Fail("SEND ADD NDI|OMT|SPOUT <name> <tap> [<w>x<h>] [@<fps>] [UYVY|UYVA|P216|PA16|BGRA8] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]");
         SendProtocol protocol;
         if (args[0].Equals("NDI", StringComparison.OrdinalIgnoreCase))
             protocol = SendProtocol.Ndi;
@@ -429,6 +429,10 @@ public sealed partial class EngineCore
                 format = SendFormat.Uyvy;
             else if (a.Equals("UYVA", StringComparison.OrdinalIgnoreCase))
                 format = SendFormat.Uyva;
+            else if (a.Equals("P216", StringComparison.OrdinalIgnoreCase))
+                format = SendFormat.P216;
+            else if (a.Equals("PA16", StringComparison.OrdinalIgnoreCase))
+                format = SendFormat.Pa16;
             else if (a.Equals("BGRA8", StringComparison.OrdinalIgnoreCase))
                 format = SendFormat.Bgra8;
             else if (a.Equals("QUALITY", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Count
@@ -439,7 +443,7 @@ public sealed partial class EngineCore
             else if (a.Equals("ALWAYS", StringComparison.OrdinalIgnoreCase))
                 always = true;
             else
-                return CommandReply.Fail($"SEND ADD does not take '{a}' — <w>x<h>, @<fps>, UYVY, UYVA, BGRA8, QUALITY LOW|MEDIUM|HIGH or ALWAYS");
+                return CommandReply.Fail($"SEND ADD does not take '{a}' — <w>x<h>, @<fps>, UYVY, UYVA, P216, PA16, BGRA8, QUALITY LOW|MEDIUM|HIGH or ALWAYS");
         }
         var live = VideoIoHub.ProtocolOf(protocol);
         if (VideoIo.Unavailable(live, sending: true) is { } why)
@@ -994,8 +998,9 @@ public sealed partial class EngineCore
             return string.Create(CultureInfo.InvariantCulture, $"{send.Name}: the size is 0×0 (the tap's) or up to 16384×16384, not {send.Width}×{send.Height}");
         if (send.Quality is not ("default" or "low" or "medium" or "high"))
             return $"{send.Name}: quality is default, low, medium or high, not \"{send.Quality}\"";
-        if (send.Protocol is SendProtocol.Ndi or SendProtocol.Omt && send.Format is not (SendFormat.Auto or SendFormat.Uyvy or SendFormat.Uyva or SendFormat.Bgra8))
-            return $"{send.Name}: {SendShape.Word(send.Format)} sends are next round — UYVY, UYVA or BGRA8";
+        if (send.Protocol is SendProtocol.Ndi or SendProtocol.Omt
+            && send.Format is not (SendFormat.Auto or SendFormat.Uyvy or SendFormat.Uyva or SendFormat.P216 or SendFormat.Pa16 or SendFormat.Bgra8))
+            return $"{send.Name}: {SendShape.Word(send.Format)} sends are next round — UYVY, UYVA, P216, PA16 or BGRA8";
         foreach (var other in p.Sends)
             if (other.Id != send.Id && other.Protocol == send.Protocol && string.Equals(other.Name, send.Name, StringComparison.OrdinalIgnoreCase))
                 return $"{send.Name}: this node already sends a {send.Protocol.ToString().ToUpperInvariant()} picture of that name ({other.Id})";

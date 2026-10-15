@@ -186,6 +186,16 @@ public sealed class VideoIoVerbTests
         Assert.False(send.OnlyWhenWatched);
         // Always: sending though nobody watches.
         Assert.Equal("sending", rig.Send(send.Id).GetProperty("state").GetString());
+
+        // 16-bit: P216 and PA16 pair their chroma, so an odd width loses a column; PA16 carries alpha.
+        var deep = await rig.Ok("SEND ADD NDI Deep canvas:cv_main 1919x1080 @50 PA16");
+        Assert.Contains("(1919 → 1918 (PA16 needs a multiple of 2))", deep.Effect, StringComparison.Ordinal);
+        var deepSink = rig.Ndi.Sinks.Single();
+        Assert.Equal((1918, 1080, 50, 1, SendFormat.Pa16, true), (deepSink.Spec.Width, deepSink.Spec.Height, deepSink.Spec.FpsN, deepSink.Spec.FpsD,
+            deepSink.Spec.Format, deepSink.Spec.Alpha));
+        await rig.Ok("SEND ADD OMT Deep16 canvas:cv_main P216");
+        Assert.Equal(SendFormat.P216, rig.Omt.Sinks.Last().Spec.Format);
+        Assert.False(rig.Omt.Sinks.Last().Spec.Alpha);
     }
 
     [Fact]
@@ -197,7 +207,7 @@ public sealed class VideoIoVerbTests
         Assert.Equal("a tap is output:<id>, canvas:<id> or source:<ref>, not \"op_1\"", await rig.Refused("SEND ADD OMT Main op_1"));
         Assert.Contains("prewarp taps are next round", await rig.Refused("SEND ADD OMT Main prewarp:op_1"), StringComparison.Ordinal);
         Assert.Equal("SEND ADD takes NDI, OMT or SPOUT first, not 'RTMP'", await rig.Refused("SEND ADD RTMP Main output:op_1"));
-        Assert.Contains("does not take 'P216'", await rig.Refused("SEND ADD OMT Main output:op_1 P216"), StringComparison.Ordinal);
+        Assert.Contains("does not take 'RGB10A2'", await rig.Refused("SEND ADD OMT Main output:op_1 RGB10A2"), StringComparison.Ordinal);
         if (!OperatingSystem.IsWindows())
             Assert.Equal("Spout is Windows only", await rig.Refused("SEND ADD SPOUT Main output:op_1"));
         // The bandwidth guard: 88 Mb/s fits under 150; a second makes 176.
@@ -387,7 +397,7 @@ public sealed class VideoIoVerbTests
     {
         await using var rig = new VideoIoRig();
         var id = VideoIoRig.IdOf(await rig.Ok("SEND ADD OMT Main output:op_1"));
-        Assert.Contains("P216 sends are next round", await rig.Refused($"SET {id} format \"p216\""), StringComparison.Ordinal);
+        Assert.Contains("RGBA16F sends are next round", await rig.Refused($"SET {id} format \"rgba16F\""), StringComparison.Ordinal);
         Assert.Contains("1–48 printable characters", await rig.Refused($"SET {id} name \"{new string('n', 49)}\""), StringComparison.Ordinal);
         Assert.Contains("fps is 0", await rig.Refused($"SET {id} fps 500"), StringComparison.Ordinal);
         var input = VideoIoRig.IdOf(await rig.Ok("INPUT ADD \"omt:STUDIO (Cam 1)\""));

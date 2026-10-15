@@ -230,7 +230,9 @@ public sealed unsafe class SendReadbackRing : IDisposable
 
 /// <summary>The send pack pass: a picture scaled to the send's size (fit with black bars, fill cropped, or stretched) and packed by
 /// <c>video.pack</c> into an RGBA8 target whose read-back bytes are the wire frame (<see cref="SendFormat.Uyvy"/>: w/2 × h;
-/// <see cref="SendFormat.Uyva"/>: w/2 × (h + ⌈h/2⌉), the alpha plane in the rows below h; <see cref="SendFormat.Bgra8"/>: w × h).
+/// <see cref="SendFormat.Uyva"/>: w/2 × (h + ⌈h/2⌉), the alpha plane in the rows below h; <see cref="SendFormat.P216"/> and
+/// <see cref="SendFormat.Pa16"/>: w/2 × 2h and 3h, one plane row a target row, 16-bit samples as byte pairs; <see cref="SendFormat.Bgra8"/>:
+/// w × h).
 /// Each send keeps its own packed target (keyed by the caller's key), so a send that holds re-reads its last frame unchanged; the
 /// scaling targets are shared per size. Nothing is allocated per frame once warm. Render thread.</summary>
 public sealed class PackPass : IDisposable
@@ -251,6 +253,8 @@ public sealed class PackPass : IDisposable
     {
         SendFormat.Uyvy => (2 * width * height, 2 * width),
         SendFormat.Uyva => (3 * width * height, 2 * width),
+        SendFormat.P216 => (4 * width * height, 2 * width),
+        SendFormat.Pa16 => (6 * width * height, 2 * width),
         _ => (4 * width * height, 4 * width),
     };
 
@@ -272,6 +276,8 @@ public sealed class PackPass : IDisposable
     {
         SendFormat.Uyvy => (width / 2, height),
         SendFormat.Uyva => (width / 2, height + (height + 1) / 2),
+        SendFormat.P216 => (width / 2, 2 * height),
+        SendFormat.Pa16 => (width / 2, 3 * height),
         _ => (width, height),
     };
 
@@ -291,7 +297,7 @@ public sealed class PackPass : IDisposable
         var p = _device.Program("video.pack");
         _device.BindTarget(target);
         _device.SetBlend(BlendMode.Opaque);
-        p.SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, _ => 2 });
+        p.SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, SendFormat.P216 or SendFormat.Pa16 => 3, _ => 2 });
         p.SetInt("uWidth", width);
         p.SetInt("uHeight", height);
         _device.BindSampler(p, "uPicture", 0, source);

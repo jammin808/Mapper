@@ -9,9 +9,11 @@ namespace PlayMap.Render.Shaders;
 ///
 /// <para><b>video.pack</b> writes a picture (at the send's size, top row in row 0) into an RGBA8 target whose bytes, read back as RGBA,
 /// are the wire format: mode 0 UYVY (target w/2 × h; chroma co-sited with the even pixel, filtered [1,2,1]/4, clamped at both edges);
-/// mode 1 UYVA (rows below h carry the 8-bit alpha plane, four bytes a texel, two alpha rows a target row); mode 2 BGRA. Every value
-/// is rounded half up to its code before it is written, so the 8-bit target stores the code exactly — <c>PackReference.Pack</c> is
-/// its CPU twin.</para></summary>
+/// mode 1 UYVA (rows below h carry the 8-bit alpha plane, four bytes a texel, two alpha rows a target row); mode 2 BGRA; mode 3 P216
+/// and PA16 (target w/2 × 2h or 3h: rows [0, h) the Y plane, [h, 2h) the UV plane, [2h, 3h) PA16's alpha plane, each texel two
+/// 16-bit samples as little-endian byte pairs, so a 16-bit sample is exact in an 8-bit target on every context). Every value is
+/// rounded half up to its code before it is written, so the target stores the code exactly — <c>PackReference.Pack</c> is its CPU
+/// twin.</para></summary>
 public static partial class ShaderLibrary
 {
     private const string VideoUnpackFs = """
@@ -86,8 +88,31 @@ public static partial class ShaderLibrary
             return clamp(floor(c + 0.5), 0.0, 255.0) / 255.0;
         }
 
+        vec2 word(float c) {
+            float w = clamp(floor(c + 0.5), 0.0, 65535.0);
+            float hi = floor(w / 256.0);
+            return vec2(w - hi * 256.0, hi) / 255.0;
+        }
+
         void main() {
             ivec2 p = ivec2(gl_FragCoord.xy);
+            if (uMode == 3) {
+                int plane = p.y / uHeight;
+                int row = p.y - plane * uHeight;
+                int x = 2 * p.x;
+                if (plane == 0) {
+                    oColor = vec4(word(encode(at(x, row).rgb).x * 256.0), word(encode(at(x + 1, row).rgb).x * 256.0));
+                } else if (plane == 1) {
+                    vec3 e0 = encode(at(x, row).rgb);
+                    vec3 e1 = encode(at(x + 1, row).rgb);
+                    vec3 eL = encode(at(x - 1, row).rgb);
+                    vec2 c = (eL.yz + 2.0 * e0.yz + e1.yz) * 0.25 * 256.0;
+                    oColor = vec4(word(c.x), word(c.y));
+                } else {
+                    oColor = vec4(word(at(x, row).a * 65535.0), word(at(x + 1, row).a * 65535.0));
+                }
+                return;
+            }
             if (uMode == 2) {
                 vec4 c = at(p.x, p.y);
                 oColor = vec4(code(c.b * 255.0), code(c.g * 255.0), code(c.r * 255.0), code(c.a * 255.0));

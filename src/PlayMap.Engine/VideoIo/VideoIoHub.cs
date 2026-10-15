@@ -412,7 +412,7 @@ public sealed class VideoIoHub : IDisposable
             }
             slot.Fitted = fitted;
             var spec = new SendSpec(send.Id, send.Name, shape.Width, shape.Height, shape.FpsN, shape.FpsD, shape.Format,
-                send.Quality, send.Groups, "", shape.Format == SendFormat.Uyva);
+                send.Quality, send.Groups, "", shape.Format is SendFormat.Uyva or SendFormat.Pa16);
             var protocol = ProtocolOf(send.Protocol);
             if (Unavailable(protocol, sending: true) is { } why)
             {
@@ -897,15 +897,17 @@ internal sealed record SendShape(SendTapKind Kind, string Target, SourceRef? Sou
         {
             SendFormat.Auto or SendFormat.Uyvy => SendFormat.Uyvy,
             SendFormat.Uyva => SendFormat.Uyva,
+            SendFormat.P216 => SendFormat.P216,
+            SendFormat.Pa16 => SendFormat.Pa16,
             SendFormat.Bgra8 => SendFormat.Bgra8,
             _ => SendFormat.Auto,
         };
         if (format == SendFormat.Auto)
         {
-            words = $"{send.Name}: {Word(send.Format)} sends are next round on this node — UYVY, UYVA or BGRA8";
+            words = $"{send.Name}: {Word(send.Format)} sends are next round on this node — UYVY, UYVA, P216, PA16 or BGRA8";
             return null;
         }
-        var multiple = format == SendFormat.Uyva ? 4 : format == SendFormat.Uyvy ? 2 : 1;
+        var multiple = format switch { SendFormat.Uyva => 4, SendFormat.Uyvy or SendFormat.P216 or SendFormat.Pa16 => 2, _ => 1 };
         var fitted = w / multiple * multiple;
         if (fitted < multiple || h < 1)
         {

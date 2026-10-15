@@ -242,6 +242,39 @@ public sealed class PackUnpackTests(GlFixture gl)
         Assert.True(differ == 0, $"{format} {w}×{h}: {differ} bytes differ, first at {first}: {(first >= 0 ? got[first] : 0)} vs {(first >= 0 ? expected[first] : 0)}");
     }
 
+    [Theory]
+    [InlineData(SendFormat.P216, 1920, 1080)]
+    [InlineData(SendFormat.Pa16, 1920, 1080)]
+    [InlineData(SendFormat.P216, 1280, 720)]
+    [InlineData(SendFormat.Pa16, 1280, 720)]
+    public void ASixteenBitChartPacksWithinOneCodeOfTheCpuTwinAndUnpacksBack(SendFormat format, int w, int h)
+    {
+        var chart = Chart(w, h);
+        var layout = format == SendFormat.P216 ? PixelLayout.P216 : PixelLayout.Pa16;
+        var expected = PackReference.Pack(layout, chart, w, h);
+        var got = Packed(gl, chart, w, h, format);
+        Assert.Equal(LivePlanes.FrameBytes(layout, w, h), got.Length);
+        Assert.Equal(expected.Length, got.Length);
+        // Little-endian 16-bit samples: within one code of 65535 (the GPU's float order may round a half the other way).
+        var worst = 0;
+        var at = -1;
+        for (var i = 0; i < got.Length; i += 2)
+        {
+            var d = Math.Abs((got[i] | (got[i + 1] << 8)) - (expected[i] | (expected[i + 1] << 8)));
+            if (d > worst)
+                (worst, at) = (d, i);
+        }
+        Assert.True(worst <= 1, $"{format} {w}×{h}: a sample is {worst} codes off at byte {at}");
+        // What a receiver unpacks is the chart again inside each 8×8 block (its edges are where 4:2:2 chroma blends neighbours).
+        var back = PackReference.Unpack(layout, got, w, h);
+        for (var i = 0; i < back.Length; i++)
+        {
+            if ((i / 4 % w % 8) is < 2 or > 5 || (i % 4 == 3 && layout == PixelLayout.P216))
+                continue;
+            Assert.True(Math.Abs(back[i] - chart[i]) <= 0.5f / 255f, $"{format}: value {i} unpacks to {back[i]}, not {chart[i]}");
+        }
+    }
+
     [Fact]
     public void AHeldSlotStaysMappedAndUnchangedUntilReleasedAndAFullRingRefusesInsteadOfWaiting()
     {

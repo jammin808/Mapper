@@ -79,22 +79,37 @@ public sealed class OmtLoopbackTests : IDisposable
     {
         SendFormat.Uyvy => (2 * w * h, 2 * w),
         SendFormat.Uyva => (3 * w * h, 2 * w),
+        SendFormat.P216 => (4 * w * h, 2 * w),
+        SendFormat.Pa16 => (6 * w * h, 2 * w),
         _ => (4 * w * h, 4 * w),
     };
 
     private static PixelLayout LayoutOf(SendFormat format) =>
-        format switch { SendFormat.Uyvy => PixelLayout.Uyvy, SendFormat.Uyva => PixelLayout.Uyva, _ => PixelLayout.Bgra8 };
+        format switch
+        {
+            SendFormat.Uyvy => PixelLayout.Uyvy,
+            SendFormat.Uyva => PixelLayout.Uyva,
+            SendFormat.P216 => PixelLayout.P216,
+            SendFormat.Pa16 => PixelLayout.Pa16,
+            _ => PixelLayout.Bgra8,
+        };
+
+    private static bool Deep(SendFormat format) => format is SendFormat.P216 or SendFormat.Pa16;
 
     [OmtTheory]
     [InlineData(SendFormat.Uyvy)]
     [InlineData(SendFormat.Uyva)]
     [InlineData(SendFormat.Bgra8)]
+    [InlineData(SendFormat.P216)]
+    [InlineData(SendFormat.Pa16)]
     public async Task FramesSentAre1080pReceivedLockStepInOrderWithinACode(SendFormat format)
     {
         const int w = 1920, h = 1080, n = 12;
-        using var sink = (OmtSink)_omt.Create(new SendSpec("sd_t", "Loop " + format, w, h, 60, 1, format, "default", "", "", format != SendFormat.Uyvy));
+        var alpha = format is not (SendFormat.Uyvy or SendFormat.P216);
+        using var sink = (OmtSink)_omt.Create(new SendSpec("sd_t", "Loop " + format, w, h, 60, 1, format, "default", "", "", alpha));
         var url = sink.Url["omt://".Length..];
-        var settings = LiveSettings.Default with { Depth = LiveDepth.Auto };
+        // A 16-bit sender is received at 16 bits when the input asks for depth.
+        var settings = LiveSettings.Default with { Depth = Deep(format) ? LiveDepth.High : LiveDepth.Auto };
         using var source = _omt.Open(url, byUrl: true, settings, "in_t");
         await Until(() => sink.Connections > 0, "the receiver connected");
         var (bytes, stride) = Shape(format, w, h);
@@ -114,8 +129,9 @@ public sealed class OmtLoopbackTests : IDisposable
             using var lease = source.Acquire(0)!;
             Assert.Equal(w, lease.Width);
             Assert.Equal(h, lease.Height);
-            // The receiver asks for UYVY, or UYVA when the sender has alpha (a BGRA sender's alpha arrives as UYVA).
-            Assert.Equal(format == SendFormat.Uyvy ? PixelLayout.Uyvy : PixelLayout.Uyva, lease.Layout);
+            // The receiver asks for UYVY, or UYVA when the sender has alpha (a BGRA sender's alpha arrives as UYVA); P216 or PA16 when
+            // the sender is 16-bit and the input asks for depth.
+            Assert.Equal(Deep(format) ? layout : alpha ? PixelLayout.Uyva : PixelLayout.Uyvy, lease.Layout);
             // In order: the sender's stamp is the leader instant in 100 ns.
             Assert.Equal(leaderNs / 100 * 100, lease.SenderTimestampNs);
             Assert.True(lease.SenderTimestampNs > lastStamp);
@@ -128,10 +144,33 @@ public sealed class OmtLoopbackTests : IDisposable
         Assert.Equal("ok", PlayMap.Media.Video.LiveSource.StateWord(source.Live.State));
     }
 
-    /// <summary>Luma (and alpha) at the middle of every 16-pixel block within a code of what was sent.</summary>
+    /// <summary>Luma (and alpha) at the middle of every 16-pixel block within a code of what was sent (an 8-bit code: 256 of 16 bits).</summary>
     private static unsafe void CompareInteriors(SendFormat format, byte[] sent, VideoFrameLease lease, int w, int h, int k)
     {
         var planes = lease.Planes;
+        if (Deep(format))
+        {
+            var worst16 = 0;
+            for (var y = 8; y < h; y += 16)
+            {
+                for (var x = 8; x < w; x += 16)
+                {
+                    var o = y * 2 * w + 2 * x;
+                    var ySent = sent[o] | (sent[o + 1] << 8);
+                    var yGot = ((ushort*)((byte*)planes[0].Data + (long)y * planes[0].Stride))[x];
+                    worst16 = Math.Max(worst16, Math.Abs(yGot - ySent));
+                    if (format == SendFormat.Pa16)
+                    {
+                        var a = 4 * w * h + o;
+                        var aSent = sent[a] | (sent[a + 1] << 8);
+                        var aGot = ((ushort*)((byte*)planes[2].Data + (long)y * planes[2].Stride))[x];
+                        worst16 = Math.Max(worst16, Math.Abs(aGot - aSent));
+                    }
+                }
+            }
+            Assert.True(worst16 <= 256, $"{format} frame {k}: {worst16} codes of 65535");
+            return;
+        }
         var worst = 0;
         for (var y = 8; y < h; y += 16)
         {
