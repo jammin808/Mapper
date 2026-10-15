@@ -36,6 +36,12 @@ Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages 
 
 ### wp2-optimise
 
+Nothing shipped: the HAP encoder's programs, the packer and the Snappy compressor are PlayMap's own code, written from the HAP
+specification (Vidvox, https://github.com/Vidvox/hap) and Google's published Snappy format description. FFmpeg is used only through
+its shared libraries at run time (demux, decode, the mov muxer); none of its source is copied. The tests compare against FFmpeg's
+own `hap` encoder through the `ffmpeg` command-line tool and make their clips with LGPL-compatible encoders (rawvideo, mpeg4, aac);
+nothing they make is committed.
+
 ### wp2-videoio
 
 ### wp2-control

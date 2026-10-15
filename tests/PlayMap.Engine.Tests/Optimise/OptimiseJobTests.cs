@@ -198,7 +198,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     [FfmpegFact]
     public async Task AJobThatMayNotRunAgainFailsWithWordsWhenItsWorkerIsKilled()
     {
-        await using var rig = OptimiseRig.Start(options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
+        await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
+            options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 4), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
@@ -206,8 +207,28 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         using (var worker = Process.GetProcessById(rig.Service.View.Pid!.Value))
             worker.Kill();
         await rig.Until(() => rig.Job(jobId).State == JobStates.Failed, "the job's failure");
+        // A failed job of an item the show plays turns the context's optimise item red with its words.
+        await rig.Ok($"OUTPUT SOURCE op_1 media:{id}");
+        var item = ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "optimise");
+        Assert.Equal(Core.Bus.Light.Red, item.Light);
+        Assert.StartsWith("Clip: the worker stopped (exit code ", item.State, StringComparison.Ordinal);
         Assert.Matches("^the worker stopped \\(exit code -?\\d+\\) once on this clip — it is not optimised$", rig.Job(jobId).Words);
         Assert.Empty(rig.Engine.Store.Project.FindMedia(id)!.Versions);
+    }
+
+    [FfmpegFact]
+    public async Task UnderNeverAnImportQueuesNothingAndUnderAutoTheNextOneIsQueued()
+    {
+        await using var rig = OptimiseRig.Start();
+        await rig.Ok("MEDIA RULE MODE NEVER");
+        var never = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 1920, 1080, 0.2, "never.mp4"), "Never");
+        await rig.Ok("MEDIA RULE MODE AUTO");
+        var auto = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 1920, 1080, 0.2, "auto.mp4"), "Auto");
+        await rig.Until(() => rig.Service.Jobs.Any(j => j.Media == auto), "the auto import's job");
+        // The hook plans imports in the order their probes land: the first one was planned under never.
+        Assert.DoesNotContain(rig.Service.Jobs, j => j.Media == never);
+        await rig.Until(() => rig.Service.Jobs.All(j => JobStates.IsOver(j.State)), "the job's end");
+        Assert.Contains("queued", string.Join(" | ", rig.Engine.Journal.Recent(50).Select(r => r.Text)), StringComparison.Ordinal);
     }
 
     [FfmpegFact]

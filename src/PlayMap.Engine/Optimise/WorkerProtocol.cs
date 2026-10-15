@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Model;
@@ -171,7 +170,4 @@ public static class WorkerProtocol
         }
         return Encoding.UTF8.GetString(ms.ToArray());
     }
-
-    /// <summary>Seconds as the protocol and STATE write them.</summary>
-    public static string Seconds(double s) => s.ToString("0.0", CultureInfo.InvariantCulture);
 }
