@@ -197,7 +197,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail("TEMPO NUDGE <±1-200 ms>|FASTER|SLOWER|STOP");
         var clock = AudioRt.Tempo.Kept(LeaderNowNs);
         var at = LeaderNowNs + TempoTimeline.LeadNs;
-        var bpm = Store.Project.Tempo.Bpm;
+        // The tempo the clock settles on (a nudge's return, the detected tempo under DETECT), not the show's: a nudge moves the
+        // beat it is heard against.
+        var bpm = clock.Bpm;
         var word = args[0].ToUpperInvariant();
         var pending = clock.Anchors.Any(a => a.LeaderNs > LeaderNowNs && a.Source == "nudge")
             || clock.At(LeaderNowNs).Source == "nudge" && Math.Abs(clock.BpmAt(LeaderNowNs) - bpm) > 1e-9;

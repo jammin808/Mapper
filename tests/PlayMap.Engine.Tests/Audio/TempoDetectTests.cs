@@ -51,6 +51,14 @@ public sealed class TempoDetectTests
         Assert.Equal("locked", state.GetProperty("lock").GetString());
         Assert.Equal("detect", state.GetProperty("source").GetString());
 
+        // A nudge moves the beat it is heard against: the detected tempo, never the show's 120.
+        var detected = rig.Engine.AudioRt.Tempo.Bpm;
+        await rig.Ok("TEMPO NUDGE FASTER");
+        Assert.Equal(detected * 1.04, rig.Engine.AudioRt.Tempo.BpmAt(rig.Clock.NowNs + 50_000_000), 9);
+        Assert.Equal(detected, rig.Engine.AudioRt.Tempo.Bpm, 9);
+        await rig.Ok("TEMPO NUDGE STOP");
+        Assert.Equal(detected, rig.Engine.AudioRt.Tempo.BpmAt(rig.Clock.NowNs + 50_000_000), 9);
+
         // Silence holds the clock: it keeps counting at the locked tempo.
         await Play(rig, new SilenceSignal(), 3);
         Assert.Equal("holding", AudioRig.Json(await rig.Ok("TEMPO STATUS")).GetProperty("lock").GetString());
