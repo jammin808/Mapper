@@ -37,6 +37,9 @@ public class HoldButton : Button
         set => SetValue(HoldMsProperty, value);
     }
 
+    /// <summary>True while a press is held and has not yet acted.</summary>
+    public bool IsHeld => _held;
+
     /// <summary>How far the ring has closed, 0–1.</summary>
     public double Progress
     {

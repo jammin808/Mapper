@@ -230,6 +230,15 @@ public class ShowStripTests
         Assert.Empty(badge.Shown);
         Assert.Null(remove.Refusal);
 
+        // A locked playlist still plays: locks hold edits, never the transport.
+        var first = desk.Main.Play.Playlists[0];
+        await desk.Session.SendAsync("LOCK " + first.Id, Ct);
+        DeskHarness.Pump();
+        Assert.All(first.Transport.Actions.Where(a => a.Verb.Length > 0), a => Assert.Null(a.Refusal));
+        Assert.Contains(first.Actions, a => a.Refusal is { } why && why.StartsWith("Locked: " + first.Id, StringComparison.Ordinal));
+        await desk.Session.SendAsync("UNLOCK " + first.Id, Ct);
+        DeskHarness.Pump();
+
         // Every lockable kind has the entry; a mesh has none.
         foreach (var n in desk.Main.Map.Outliner.SelectMany(g => g.Nodes))
             Assert.Equal(n.Kind is "surface" or "projector" or "output", desk.Main.ExtrasFor(n).Any(a => a.Id == "show.lock"));

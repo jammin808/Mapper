@@ -187,6 +187,47 @@ public class DeskSpineTests(ITestOutputHelper output)
         Assert.Equal(["panic"], used);
     }
 
+    [AvaloniaFact]
+    public void AHoldButtonActsOnlyWhenHeldItsTimeAndADropGoesToTheHandlerOfItsFormat()
+    {
+        var runs = 0;
+        var hold = new HoldButton { HoldMs = 600, Command = new RelayCommand(() => runs++) };
+        var window = new Window { Content = hold, Width = 200, Height = 100 };
+        window.Show();
+        DeskHarness.Pump();
+        var at = hold.TranslatePoint(new Point(hold.Bounds.Width / 2, hold.Bounds.Height / 2), window)!.Value;
+        // A short press sends nothing; a press held to its time runs the command once.
+        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        Assert.False(hold.Complete(599));
+        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        Assert.False(hold.Complete(600));
+        Assert.Equal(0, runs);
+        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        DeskHarness.Pump();
+        Assert.True(hold.IsHeld);
+        Assert.True(hold.Complete(600));
+        Assert.False(hold.Complete(700));
+        Assert.Equal(1, runs);
+        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        window.Close();
+
+        var dropped = new List<(object Data, object? Target)>();
+        DeskDrop.Register(new DropHandler("playmap.test-drop", (data, target) =>
+        {
+            dropped.Add((data, target));
+            return target is not null;
+        }));
+        Assert.True(DeskDrop.Offer("playmap.test-drop", "in_arena", "sf_1"));
+        Assert.False(DeskDrop.Offer("playmap.test-drop", "in_arena", null));
+        Assert.False(DeskDrop.Offer("playmap.other", "in_arena", "sf_1"));
+        Assert.Equal([("in_arena", (object?)"sf_1"), ("in_arena", null)], dropped);
+
+        var ring = new ScoreRing { Value = 75, Maximum = 100 };
+        Assert.Equal(0.75, ring.Fraction);
+        ring.Value = 250;
+        Assert.Equal(1, ring.Fraction);
+    }
+
     [Fact]
     public void ThePreferencesPersistInDeskJson()
     {

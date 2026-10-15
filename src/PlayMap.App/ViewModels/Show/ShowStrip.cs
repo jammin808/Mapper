@@ -249,10 +249,10 @@ public sealed class ShowStripModule : DeskModule
         var decision = ShowPolicy.Decide(spec, line, ShowRole.Operator, facts);
         if (decision.Verdict == ShowVerdict.Refuse)
             return decision.Words;
-        if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK")
+        // Locks hold edits of the document only: playback, the air, panic and reading go on (LockGuard's rule).
+        if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK" || AreaOf(ShowPolicy.ClassOf(spec, line)) is not { } area)
             return null;
-        var cls = ShowPolicy.ClassOf(spec, line);
-        if (AreaOf(cls) is { } area && _show.LockOn(area) is { Kind: "area" } al)
+        if (_show.LockOn(area) is { Kind: "area" } al)
             return $"Locked: {area} is locked{(al.By.Length > 0 ? " by " + al.By : "")}{(al.Words.Length > 0 ? " ('" + al.Words + "')" : "")}. UNLOCK AREA {area} first.";
         for (var i = 1; i < line.Count; i++)
         {

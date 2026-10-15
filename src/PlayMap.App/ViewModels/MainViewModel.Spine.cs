@@ -19,6 +19,7 @@ public sealed partial class MainViewModel
         Cards = new CardsModule(Session);
         modules.Add(Cards);
         ObjectMenus = new Generated.ObjectMenusModule(Session);
+        ObjectMenus.EntriesChanged += RefreshEverything;
         modules.Add(ObjectMenus);
     }
 }

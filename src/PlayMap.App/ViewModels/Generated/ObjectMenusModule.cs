@@ -77,24 +77,34 @@ public sealed class ObjectMenusModule : DeskModule
         if (!_session.IsLive || _asked)
             return;
         _asked = true;
+        ImmutableArray<(string Id, string Name)>? kinds = null;
+        ImmutableArray<(string Source, string Words)>? sources = null;
         if (_session.Knows("FX KINDS"))
         {
-            var kinds = await _session.SendQuietAsync("FX KINDS");
-            if (kinds.Ok && TryArray(kinds.Text, out var k))
-                _fxKinds = [.. k.Where(e => e.TryGetProperty("id", out _)).Select(e => (e.GetProperty("id").GetString() ?? "", e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : ""))
+            var reply = await _session.SendQuietAsync("FX KINDS");
+            if (reply.Ok && TryArray(reply.Text, out var k))
+                kinds = [.. k.Where(e => e.TryGetProperty("id", out _)).Select(e => (e.GetProperty("id").GetString() ?? "", e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : ""))
                     .Where(x => x.Item1.Length > 0)];
         }
         if (_session.Knows("MOD SOURCES"))
         {
-            var sources = await _session.SendQuietAsync("MOD SOURCES");
-            if (sources.Ok && TryArray(sources.Text, out var s))
+            var reply = await _session.SendQuietAsync("MOD SOURCES");
+            if (reply.Ok && TryArray(reply.Text, out var s))
             {
                 var named = s.Where(e => e.TryGetProperty("source", out _)).Select(e => (e.GetProperty("source").GetString() ?? "", e.TryGetProperty("words", out var w) ? w.GetString() ?? "" : ""))
                     .Where(x => x.Item1.Length > 0 && !x.Item1.StartsWith("audio:fft", StringComparison.Ordinal) && !x.Item1.StartsWith("audio:band", StringComparison.Ordinal));
-                _sources = [.. PureSources.Concat(named).DistinctBy(x => x.Item1)];
+                sources = [.. PureSources.Concat(named).DistinctBy(x => x.Item1)];
             }
         }
-        _session.OnUi(Rebuild);
+        // The replies may land on a worker: the lists change on the UI thread only, and the window re-reads its entries.
+        _session.OnUi(() =>
+        {
+            if (kinds is { } kk)
+                _fxKinds = kk;
+            if (sources is { } ss)
+                _sources = ss;
+            Rebuild();
+        });
     }
 
     private static bool TryArray(string text, out List<JsonElement> items)
@@ -114,8 +124,15 @@ public sealed class ObjectMenusModule : DeskModule
         }
     }
 
+    /// <summary>Raised on the UI thread when the generated entries were made again (the window re-reads its toolbars).</summary>
+    public event Action? EntriesChanged;
+
     /// <summary>The lists moved: every object's entries are made again on their next ask (menus rebuild as they open).</summary>
-    private void Rebuild() => _entries.Clear();
+    private void Rebuild()
+    {
+        _entries.Clear();
+        EntriesChanged?.Invoke();
+    }
 
     public override IEnumerable<DeskAction> MenuExtras(IMenuTarget target)
     {
