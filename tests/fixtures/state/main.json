@@ -65,7 +65,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     },
     {
       "id": "op_right",
@@ -93,7 +94,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     }
   ],
   "media": {
@@ -170,7 +172,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "2a9002c031c20efd"
+    "index": "7625986f6c399b20"
   },
   "faults": [],
   "ai": {
@@ -432,5 +434,9 @@
     "quadAt": null,
     "contentAt": null,
     "seconds": -1
+  },
+  "align": {
+    "run": null,
+    "groups": []
   }
 }

@@ -82,6 +82,8 @@ public class AlignRenderTests(GlFixture gl)
         var project = Scene.Project([], [output]);
         return gl.Run(c =>
         {
+            // The context is shared: what an earlier test left in the debug log is not this render's.
+            _ = c.Device.TakeErrors();
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
             using var measured = stage(c.Device);
             var inputs = Scene.Inputs(project, 1, sources) with

@@ -14,6 +14,12 @@ public sealed record MeasuredLoad(string OutputId, string Key, FloatMap? Grid, F
 public sealed record MeasuredSet(ImmutableDictionary<string, MeasuredLoad> Loads, ImmutableDictionary<string, string> Faults)
 {
     public static readonly MeasuredSet Empty = new(ImmutableDictionary<string, MeasuredLoad>.Empty, ImmutableDictionary<string, string>.Empty);
+
+    /// <summary>True when these loads (by output and content key) and faults are this set's: publishing them would change nothing.</summary>
+    internal bool SameAs(IReadOnlyDictionary<string, MeasuredLoad> loads, IReadOnlyDictionary<string, string> faults) =>
+        loads.Count == Loads.Count && faults.Count == Faults.Count
+        && loads.All(kv => Loads.TryGetValue(kv.Key, out var mine) && string.Equals(mine.Key, kv.Value.Key, StringComparison.Ordinal))
+        && faults.All(kv => Faults.TryGetValue(kv.Key, out var mine) && string.Equals(mine, kv.Value, StringComparison.Ordinal));
 }
 
 /// <summary>
@@ -59,6 +65,12 @@ public sealed class MeasuredLibrary
                 return;
             _wanted = signature;
             var sequence = ++_sequence;
+            if (wanted.Count == 0 && _set.Loads.IsEmpty && _set.Faults.IsEmpty)
+            {
+                // Nothing named and nothing held: the set stands as it is, and a load in flight is superseded.
+                _loading = Task.CompletedTask;
+                return;
+            }
             var outputs = project.Outputs.Where(o => wanted.Any(w => w.Id == o.Id)).ToList();
             _loading = Task.Run(() => Load(sequence, outputs, folder));
         }
@@ -115,9 +127,11 @@ public sealed class MeasuredLibrary
         {
             if (sequence != _sequence)
                 return;
-            _set = new MeasuredSet(loads.ToImmutable(), faults.ToImmutable());
             foreach (var key in _files.Keys.Where(k => !used.Contains(k)).ToList())
                 _files.Remove(key);
+            if (_set.SameAs(loads, faults))
+                return;
+            _set = new MeasuredSet(loads.ToImmutable(), faults.ToImmutable());
         }
         Published?.Invoke();
     }

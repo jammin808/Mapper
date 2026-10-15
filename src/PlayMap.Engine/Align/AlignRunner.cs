@@ -324,7 +324,8 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         var files = new List<(string Name, byte[] Bytes)>();
         var outs = ImmutableArray.CreateBuilder<AlignRunOutput>(result.Outputs.Length);
         var uniformity = double.IsFinite(result.WhiteP5OverP95) ? Math.Max(0, 1 - result.WhiteP5OverP95) : -1;
-        var score = CalibrationScoring.ForAlign(new AlignScoreInputs(setup.Group.Id, result.CoverageShare, result.SeamPx, -1, uniformity, -1));
+        var score = RoutableFixes(CalibrationScoring.ForAlign(new AlignScoreInputs(setup.Group.Id, result.CoverageShare, result.SeamPx, -1, uniformity, -1)),
+            setup.Group);
         for (var j = 0; j < result.Outputs.Length; j++)
         {
             var o = result.Outputs[j];
@@ -356,6 +357,15 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             string.Create(CultureInfo.InvariantCulture, $"γ {o.Gamma:0.00}, {o.DecodedShare * 100:0} % decoded, warp {o.HeldOutRmsPx:0.00} px"))).ToImmutableArray();
         Publish(new AlignRunView(setup.RunId, setup.Group.Id, "staged", "stage", 1, 0, words, views, score));
     }
+
+    /// <summary>Every fix a run's score carries is a line this node carries out: the uniformity term's (colour steps are next round)
+    /// becomes the group's own uniformity raised to 1 for the next run, or no line when it is 1 already.</summary>
+    internal static QualityScore RoutableFixes(QualityScore score, AlignGroup group) => score with
+    {
+        Terms = [.. score.Terms.Select(t => t.Code == ScoreTermCodes.Uniformity
+            ? t with { Fix = group.Options.Uniformity < 1 ? $"SET {group.Id} options.uniformity 1" : "" }
+            : t)],
+    };
 
     private bool TryArchive(AlignRunSetup setup, AlignRunRecord record, IReadOnlyList<(string Name, byte[] Bytes)> files)
     {

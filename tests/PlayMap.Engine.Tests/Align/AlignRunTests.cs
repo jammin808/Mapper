@@ -64,6 +64,16 @@ public sealed class AlignRunTests
         Assert.Equal("accepted", state.GetProperty("align").GetProperty("run").GetProperty("state").GetString());
         Assert.True(rig.Engine.AlignMeasured.Loads.ContainsKey("op1"));
         Assert.Equal(33 * 19 * 3, rig.Engine.AlignMeasured.Loads["op1"].Grid!.Values.Length);
+
+        // Every fix the run's score carries is a line the node carries out: the uniformity term's raises the group's own.
+        var terms = rig.Runner.Finished(run)!.Score.Terms;
+        foreach (var term in terms.Where(t => t.Fix.Length > 0))
+        {
+            Assert.True(WireGrammar.TryParse(term.Fix, out var fixLine, out _), term.Fix);
+            Assert.NotNull(VerbCatalog.Match(fixLine));
+        }
+        await rig.Ok(terms.Single(t => t.Code == ScoreTermCodes.Uniformity).Fix);
+        Assert.Equal(1, rig.Current.FindAlign(group)!.Options.Uniformity);
     }
 
     [Fact]
