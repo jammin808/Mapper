@@ -36,56 +36,89 @@ public sealed partial class EngineCore
         _builtInChecks = [new OutputsCheck(), new MediaCheck(), new DevicesCheck(), new DiskCheck(), new SafetyCheck(), new MappingCheck(),
             new ClockCheck(), new LinksCheck()];
 
-    private Task<CommandReply> PreflightAsync(VerbCall c)
+    private async Task<CommandReply> PreflightAsync(VerbCall c)
     {
-        var a = c.Args;
+        const string Syntax = "PREFLIGHT [QUICK] [ALL|WAIT]";
         var all = false;
-        foreach (var word in a)
+        var wait = false;
+        foreach (var word in c.Args)
         {
             if (word.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                 all = true;
+            else if (word.Equals("WAIT", StringComparison.OrdinalIgnoreCase))
+                wait = true;
             else if (word.Equals("FULL", StringComparison.OrdinalIgnoreCase))
-                return Task.FromResult(CommandReply.Fail("FULL preflight (decoding every clip) is not on this node — PREFLIGHT QUICK reads the facts"));
+                return CommandReply.Fail("FULL preflight (decoding every clip) is not on this node — PREFLIGHT QUICK reads the facts");
             else if (!word.Equals("QUICK", StringComparison.OrdinalIgnoreCase))
-                return Task.FromResult(CommandReply.Fail("PREFLIGHT [QUICK] [ALL]"));
+                return CommandReply.Fail(Syntax);
         }
+        if (all && wait)
+            return CommandReply.Fail(Syntax + " — ALL answers at once with the id; PREFLIGHT REPORT <id> reads the group's report");
         if (all && FanoutMembers() == 0)
-            return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — PREFLIGHT checks this node only"));
+            return CommandReply.Fail("no fleet fan-out on this node — PREFLIGHT checks this node only");
         var id = Ids.New("pf");
         lock (_preflightGate)
         {
             if (_preflightRunning is { } running)
-                return Task.FromResult(CommandReply.Fail($"a preflight is running ({running}) — PREFLIGHT REPORT {running} when it ends"));
+                return CommandReply.Fail($"a preflight is running ({running}) — PREFLIGHT REPORT {running} when it ends");
             _preflightRunning = id;
         }
         FactsChanged();
-        _ = RunPreflightAsync(id, c.Session.ClientName);
+        var run = RunPreflightAsync(id, c.Session.ClientName, all);
+        if (wait)
+        {
+            // The group's leader asks each member this way: the member's receipt carries its finished report.
+            var report = await run.ConfigureAwait(false);
+            return CommandReply.Success(JsonOut(w => PreflightReports.Write(w, report)), $"preflight {id} by {c.Session.ClientName}");
+        }
         var payload = JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteString("id", id);
             w.WriteString("depth", "quick");
+            if (all)
+                w.WriteNumber("members", FanoutMembers());
             w.WriteEndObject();
         });
-        return Task.FromResult(new CommandReply(true, payload, $"preflight {id} started by {c.Session.ClientName}", Applied: false));
+        return new CommandReply(true, payload, $"preflight {id} started by {c.Session.ClientName}{(all ? " on the group" : "")}", Applied: false);
     }
 
-    private async Task RunPreflightAsync(string id, string by)
+    private async Task<PreflightReport> RunPreflightAsync(string id, string by, bool all)
     {
         var start = Services.Mono.NowNs;
+        var name = Services.Settings.Name;
         PreflightReport report;
         try
         {
+            var members = all ? FanOutAsync("PREFLIGHT QUICK WAIT", CancellationToken.None) : Task.FromResult<IReadOnlyList<FanoutReceipt>>([]);
             var context = new PreflightContext(this, PreflightDepth.Quick, _showMode.Armed);
-            var (rows, complete) = await PreflightRunner.RunAsync(PreflightChecks, context, Services.Mono, Services.Settings.Name, CancellationToken.None,
+            var (rows, complete) = await PreflightRunner.RunAsync(PreflightChecks, context, Services.Mono, name, CancellationToken.None,
                 c => CheckFinished(id, c)).ConfigureAwait(false);
-            report = new PreflightReport(id, Services.Wall.UnixMs, PreflightDepth.Quick, (Services.Mono.NowNs - start) / 1_000_000, rows,
-                PreflightReports.Ready(rows), complete);
+            // Every row of this node's checks names this node, whichever word a check used for it.
+            List<PreflightRow> merged = [.. rows.Select(r => r.Node == name ? r : r with { Node = name })];
+            foreach (var r in await members.ConfigureAwait(false))
+            {
+                if (r.Stage == "applied" && PreflightReports.Read(r.Words) is { } theirs)
+                {
+                    merged.AddRange(theirs.Rows);
+                    merged.Add(new PreflightRow("fleet:" + r.Node, r.Name, "fleet", r.Name, theirs.Complete ? Light.Green : Light.Grey, "answered",
+                        theirs.Complete ? $"{r.Name} checked itself" : $"{r.Name} answered, but not every check finished", null));
+                    complete &= theirs.Complete;
+                }
+                else
+                {
+                    merged.Add(new PreflightRow("fleet:" + r.Node, r.Name.Length > 0 ? r.Name : r.Node, "fleet", r.Name.Length > 0 ? r.Name : r.Node,
+                        Light.Red, r.Stage, r.Words.Length > 0 ? r.Words : "no report came back", null));
+                    complete = false;
+                }
+            }
+            report = new PreflightReport(id, Services.Wall.UnixMs, PreflightDepth.Quick, (Services.Mono.NowNs - start) / 1_000_000, merged,
+                PreflightReports.Ready(merged), complete);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             report = new PreflightReport(id, Services.Wall.UnixMs, PreflightDepth.Quick, (Services.Mono.NowNs - start) / 1_000_000,
-                [new PreflightRow("preflight:fault", Services.Settings.Name, "preflight", "Preflight", Light.Grey, "fault", "the preflight faulted: " + ex.Message, null)],
+                [new PreflightRow("preflight:fault", name, "preflight", "Preflight", Light.Grey, "fault", "the preflight faulted: " + ex.Message, null)],
                 new ShowReady(0, PreflightReports.Steps.Count, "the preflight faulted"), false);
         }
         lock (_preflightGate)
@@ -97,10 +130,11 @@ public sealed partial class EngineCore
             _preflightRunning = null;
         }
         KeepReport(report);
-        var (g, am, r, _) = PreflightReports.Counts(report.Rows);
+        var (g, am, red, _) = PreflightReports.Counts(report.Rows);
+        var nodes = report.Rows.Select(r => r.Node).Distinct(StringComparer.Ordinal).Count();
         Journal.Add("preflight", string.Create(CultureInfo.InvariantCulture,
-            $"preflight QUICK by {by}: {g} green, {am} amber, {r} red in {report.DurationMs / 1000.0:0.0} s · show-ready {PreflightReports.ReadyWords(report.Ready)}"),
-            by, ok: r == 0);
+            $"preflight QUICK by {by}{(nodes > 1 ? $" on {nodes} nodes" : "")}: {g} green, {am} amber, {red} red in {report.DurationMs / 1000.0:0.0} s · show-ready {PreflightReports.ReadyWords(report.Ready)}"),
+            by, ok: red == 0);
         FactsChanged();
         RaiseEvent("preflight.done", LeaderNowNs, w =>
         {
@@ -108,6 +142,7 @@ public sealed partial class EngineCore
             w.WriteString("light", ShowContext.LightWord(PreflightReports.Worst(report.Rows)));
         });
         PreflightDone?.Invoke(report);
+        return report;
     }
 
     /// <summary>A listener that faults is its own fault: the preflight and its checks go on.</summary>

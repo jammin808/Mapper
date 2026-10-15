@@ -139,54 +139,104 @@ public sealed partial class EngineCore : IShowDecisions
         return CommandReply.Fail($"{words} — queued for a person as proposal {id}");
     }
 
-    private CommandReply ShowArm(VerbCall c)
+    /// <summary>SHOW ARM [ALL] [words]: this node arms on the lane; ALL then sends the same line to every member of the group this
+    /// node leads and answers with each member's receipt (applied, refused with its words, or silent).</summary>
+    private Task<CommandReply> ShowArmAsync(VerbCall c)
     {
         var (all, rest) = TakeAll(c.Args);
         if (all && FanoutMembers() == 0)
-            return CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only");
+            return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only"));
+        var words = string.Join(' ', rest);
+        return ShowGroupAsync(c, all, () => ShowArm(c.Session, words), words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM",
+            "already armed by ");
+    }
+
+    /// <summary>SHOW DISARM [ALL], as ARM.</summary>
+    private Task<CommandReply> ShowDisarmAsync(VerbCall c)
+    {
+        var (all, rest) = TakeAll(c.Args);
+        if (rest.Count > 0)
+            return Task.FromResult(CommandReply.Fail("SHOW DISARM [ALL]"));
+        if (all && FanoutMembers() == 0)
+            return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW DISARM disarms this node only"));
+        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed");
+    }
+
+    /// <summary>This node's half on the lane, then (ALL) the group's: a node already in the asked mode still sends the line on, so
+    /// ALL brings every member to it. The reply lists this node and then each member with its receipt.</summary>
+    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords)
+    {
+        var local = await _lane.RunAsync(here).ConfigureAwait(false);
+        if (!all)
+            return local;
+        var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);
+        if (!local.Ok && !already)
+            return local;
+        var receipts = await FanOutAsync(line, c.Ct).ConfigureAwait(false);
+        var mode = _showMode;
+        var refused = receipts.Count(r => r.Stage != "applied");
+        return new CommandReply(true, JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("armed", mode.Armed);
+            w.WriteString("by", mode.By);
+            w.WriteNumber("since", mode.SinceUnixMs);
+            w.WriteNumber("members", receipts.Count);
+            w.WriteStartArray("nodes");
+            WriteReceipt(w, new FanoutReceipt(Services.Settings.NodeId, Services.Settings.Name, already ? "already" : "applied", LeaderNowNs,
+                already ? local.Payload ?? "" : local.Effect));
+            foreach (var r in receipts)
+                WriteReceipt(w, r);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }), $"{line} on this node and {receipts.Count} member{(receipts.Count == 1 ? "" : "s")}{(refused > 0 ? $" ({refused} did not apply it)" : "")}");
+    }
+
+    private static void WriteReceipt(Utf8JsonWriter w, FanoutReceipt r)
+    {
+        w.WriteStartObject();
+        w.WriteString("node", r.Node);
+        w.WriteString("name", r.Name);
+        w.WriteString("stage", r.Stage);
+        if (r.Stage == "applied")
+            w.WriteNumber("appliedLeaderNs", r.AppliedLeaderNs);
+        w.WriteString("words", r.Words);
+        w.WriteEndObject();
+    }
+
+    private CommandReply ShowArm(SessionInfo session, string words)
+    {
         var mode = _showMode;
         if (mode.Armed)
             return CommandReply.Fail($"already armed by {mode.By} since {LockGuard.Clock(mode.SinceUnixMs)}");
-        var words = string.Join(' ', rest);
-        _showMode = new ShowMode(true, c.Session.ClientName, Services.Wall.UnixMs, words);
+        _showMode = new ShowMode(true, session.ClientName, Services.Wall.UnixMs, words);
         TouchShow();
-        RaiseEvent("show.armed", LeaderNowNs, w => w.WriteString("by", c.Session.ClientName));
-        var members = all ? FanOut(words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM") : 0;
+        RaiseEvent("show.armed", LeaderNowNs, w => w.WriteString("by", session.ClientName));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteBoolean("armed", true);
-            w.WriteString("by", c.Session.ClientName);
+            w.WriteString("by", session.ClientName);
             w.WriteNumber("since", _showMode.SinceUnixMs);
-            if (all)
-                w.WriteNumber("members", members);
             w.WriteEndObject();
-        }), $"armed by {c.Session.ClientName}{(words.Length > 0 ? " — " + words : "")}");
+        }), $"armed by {session.ClientName}{(words.Length > 0 ? " — " + words : "")}");
     }
 
-    private CommandReply ShowDisarm(VerbCall c)
+    private CommandReply ShowDisarm(SessionInfo session)
     {
-        var (all, rest) = TakeAll(c.Args);
-        if (rest.Count > 0)
-            return CommandReply.Fail("SHOW DISARM [ALL]");
-        if (all && FanoutMembers() == 0)
-            return CommandReply.Fail("no fleet fan-out on this node — SHOW DISARM disarms this node only");
         if (!_showMode.Armed)
             return CommandReply.Fail("not armed — the show is in rehearsal");
         _showMode = ShowMode.Rehearsal;
         TouchShow();
-        RaiseEvent("show.disarmed", LeaderNowNs, w => w.WriteString("by", c.Session.ClientName));
-        var members = all ? FanOut("SHOW DISARM") : 0;
+        RaiseEvent("show.disarmed", LeaderNowNs, w => w.WriteString("by", session.ClientName));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteBoolean("armed", false);
             w.WriteNumber("landed", 0);
             w.WriteNumber("setAside", 0);
-            if (all)
-                w.WriteNumber("members", members);
             w.WriteEndObject();
-        }), $"disarmed by {c.Session.ClientName}");
+        }), $"disarmed by {session.ClientName}");
     }
 
     private CommandReply ShowSet(VerbCall c)
@@ -248,27 +298,33 @@ public sealed partial class EngineCore : IShowDecisions
 
     private int FanoutMembers() => Services.Fanout?.Members.Count ?? 0;
 
-    /// <summary>Sends an air line to the group this node leads; each member's receipt is journalled when it comes. Answers how many
-    /// members it went to.</summary>
-    private int FanOut(string text)
+    /// <summary>Sends a line to the group this node leads at the leader's now and waits for every member's receipt (the fan-out
+    /// times silent members out with words); each is journalled. A fan-out that faults is one receipt saying so.</summary>
+    private async Task<IReadOnlyList<FanoutReceipt>> FanOutAsync(string text, CancellationToken ct)
     {
         if (Services.Fanout is not { } fanout)
-            return 0;
-        var members = fanout.Members.Count;
-        var at = LeaderNowNs;
-        _ = Task.Run(async () =>
+            return [];
+        IReadOnlyList<FanoutReceipt> receipts;
+        try
         {
-            try
-            {
-                foreach (var r in await fanout.SendAsync(text, at, CancellationToken.None).ConfigureAwait(false))
-                    Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage != "refused");
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
-            }
-        }, CancellationToken.None);
-        return members;
+            receipts = await fanout.SendAsync(text, LeaderNowNs, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
+            return [new FanoutReceipt("", "the group", "fault", 0, Journal.Describe(ex))];
+        }
+        foreach (var r in receipts)
+            Journal.Add(r.Stage == "applied" ? "fleet" : "refused", $"{FirstLine(text)} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + FirstLine(r.Words) : "")}", ok: r.Stage == "applied");
+        return receipts;
+    }
+
+    /// <summary>The first line of words (a member's report rides in its receipt; the journal keeps one line of it).</summary>
+    private static string FirstLine(string words)
+    {
+        var cut = words.IndexOfAny(['\n', '\r']);
+        var line = cut < 0 ? words : words[..cut];
+        return line.Length <= 160 ? line : string.Concat(line.AsSpan(0, 157), "…");
     }
 
     private static string Quote(string words) => "\"" + words.Replace("\"", "'", StringComparison.Ordinal) + "\"";

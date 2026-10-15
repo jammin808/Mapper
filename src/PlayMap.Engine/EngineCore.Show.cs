@@ -16,8 +16,8 @@ public sealed partial class EngineCore
         StartPreflight();
         routes.Lane("SHOW", c => c.Args.Count == 0 || (c.Args.Count == 1 && c.Args[0].Equals("STATUS", StringComparison.OrdinalIgnoreCase))
             ? CommandReply.Success(JsonOut(WriteShow)) : CommandReply.Fail("SHOW [STATUS]"));
-        routes.Lane("SHOW ARM", ShowArm);
-        routes.Lane("SHOW DISARM", ShowDisarm);
+        routes.OffLane("SHOW ARM", ShowArmAsync);
+        routes.OffLane("SHOW DISARM", ShowDisarmAsync);
         routes.Lane("SHOW SET", ShowSet);
         routes.Lane("PANIC", Panic);
         routes.Lane("PANIC CLEAR", PanicClear);
