@@ -40,6 +40,14 @@ Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages 
 
 ### wp2-control
 
+Nothing shipped: OSC, MIDI, Art-Net, LTC and MTC are PlayMap's own code, written from the published specifications.
+
+- Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.
+- The ALSA sequencer library (`libasound.so.2`, LGPL-2.1-or-later) is loaded at run time from the user's Linux system and linked
+  dynamically; it is never shipped. WinMM (`winmm.dll`) is the system's own.
+- Test only (never in the exe): the `osc` package for Node 2.4.5 (osc.js, dual MIT / GPL-2.0, used under MIT; © Colin Clark)
+  writes and reads the OSC interop fixtures under `tests/interop/osc/` — https://github.com/colinbdclark/osc.js.
+
 ### wp2-companion
 
 ### wp2-companion-module

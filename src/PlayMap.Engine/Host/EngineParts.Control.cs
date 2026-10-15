@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddControlParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-control fills this.
+        extensions.Add(setup => new Control.ControlExtension(setup));
     }
 }
