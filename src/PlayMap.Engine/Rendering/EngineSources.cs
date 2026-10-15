@@ -149,7 +149,35 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             return null;
         PrepareNext(lane, leaderNs);
         return new SourceMix(SideOf(lane.PlaylistId, lane.ItemId, lane.Source), SideOf(lane.PlaylistId, lane.NextItemId, lane.NextSource),
-            mix.Kind, mix.Progress);
+            mix.Kind, mix.Progress)
+        {
+            FromItem = OnAir(lane.PlaylistId, lane.ItemId, lane.Clip, leaderNs),
+            ToItem = OnAir(lane.PlaylistId, lane.NextItemId, lane.NextClip, leaderNs),
+        };
+    }
+
+    public ItemOnAir? Item(SourceRef source, long leaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        // An item's own frames (a side of a mix) are named by the mix, never again here.
+        if (source.Kind != SourceKind.Playlist || _itemRefOwners.ContainsKey(source.Id) || !_playback.Playlists.TryGetValue(source.Id, out var lane)
+            || lane.IsIdle)
+            return null;
+        var (_, clip, itemId) = lane.At(leaderNs);
+        return OnAir(lane.PlaylistId, itemId, clip, leaderNs);
+    }
+
+    /// <summary>An item on the air with the leader instant it started: the instant its in point plays on its clip's anchor (the
+    /// same on every node; a seek, a pause or a rate change moves it with the item's own picture), or the frame's own instant while
+    /// the item is cued and has not started.</summary>
+    private ItemOnAir? OnAir(string playlistId, string? itemId, Core.Playback.ClipTransport clip, long leaderNs)
+    {
+        if (itemId is null || _project.FindPlaylist(playlistId)?.Items.Find(itemId) is not { } item)
+            return null;
+        var a = clip.Anchor;
+        var start = clip.State == Core.Playback.TransportState.Cued ? leaderNs
+            : a.Rate > 0 ? a.LeaderNs - (long)Math.Round((a.MediaNs - clip.InNs) / a.Rate) : a.LeaderNs;
+        return new ItemOnAir(item, start);
     }
 
     /// <summary>A picture the renderer draws itself, not frames from a decoder.</summary>

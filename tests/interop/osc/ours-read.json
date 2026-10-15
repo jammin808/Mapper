@@ -1,0 +1,135 @@
+[
+  {
+    "name": "reply",
+    "read": {
+      "address": "/playmap/reply",
+      "args": [
+        {
+          "type": "s",
+          "value": "OK"
+        },
+        {
+          "type": "s",
+          "value": "{\"id\":\"bd1\"}"
+        },
+        {
+          "type": "s",
+          "value": "a1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "error",
+    "read": {
+      "address": "/playmap/error",
+      "args": [
+        {
+          "type": "s",
+          "value": "not paired"
+        }
+      ]
+    }
+  },
+  {
+    "name": "pong",
+    "read": {
+      "address": "/playmap/pong",
+      "args": [
+        {
+          "type": "h",
+          "value": "1760000000000"
+        },
+        {
+          "type": "h",
+          "value": "1760000000001"
+        },
+        {
+          "type": "h",
+          "value": "1760000000002"
+        }
+      ]
+    }
+  },
+  {
+    "name": "every tag",
+    "read": {
+      "address": "/all",
+      "args": [
+        {
+          "type": "i",
+          "value": -7
+        },
+        {
+          "type": "f",
+          "value": 0.10000000149011612
+        },
+        {
+          "type": "s",
+          "value": "Bühne"
+        },
+        {
+          "type": "b",
+          "value": "090807"
+        },
+        {
+          "type": "d",
+          "value": 83.5
+        },
+        {
+          "type": "T"
+        },
+        {
+          "type": "F"
+        },
+        {
+          "type": "N"
+        },
+        {
+          "type": "[",
+          "value": [
+            {
+              "type": "i",
+              "value": 1
+            },
+            {
+              "type": "s",
+              "value": "x"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "bundle",
+    "read": {
+      "timeTag": "ec98110080000000",
+      "packets": [
+        {
+          "address": "/a",
+          "args": [
+            {
+              "type": "i",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "timeTag": "0000000000000001",
+          "packets": [
+            {
+              "address": "/b",
+              "args": [
+                {
+                  "type": "s",
+                  "value": "two"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

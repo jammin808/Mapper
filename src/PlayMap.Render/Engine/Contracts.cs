@@ -30,12 +30,29 @@ public interface ISourceProvider
     /// routes again. Called on the render thread; must not block. A provider that mixes nothing keeps the
     /// default.</summary>
     SourceMix? Mix(SourceRef source, long leaderNs) => null;
+
+    /// <summary>The item a playlist shows at a leader instant (its current item, or the next once its switch came) and the leader
+    /// instant that item started, or null — for a source that is not a playlist, an idle playlist, or a ref the provider made for
+    /// one item's frames (a side of a mix, whose item <see cref="SourceMix"/> names). Called on the render thread; must not
+    /// block. A provider that names no items keeps the default.</summary>
+    ItemOnAir? Item(SourceRef source, long leaderNs) => null;
 }
+
+/// <summary>A playlist item on the air: its record (its effect chain) and the leader instant it started — the instant its in
+/// point plays on its clip's anchor, the same on every node — from which its chain's time counts.</summary>
+public readonly record struct ItemOnAir(PlaylistItem Item, long StartNs);
 
 /// <summary>Two pictures of one playlist across a transition window: <see cref="From"/> going out,
 /// <see cref="To"/> coming in, weighted by <see cref="Transitions.Weights"/> at <see cref="Progress"/> (0 = the
 /// window opens, 1 = the switch) and mixed in linear light.</summary>
-public readonly record struct SourceMix(SourceRef From, SourceRef To, TransitionKind Kind, double Progress);
+public readonly record struct SourceMix(SourceRef From, SourceRef To, TransitionKind Kind, double Progress)
+{
+    /// <summary>The item going out (<see cref="From"/>'s), or null when the provider names none.</summary>
+    public ItemOnAir? FromItem { get; init; }
+
+    /// <summary>The item coming in (<see cref="To"/>'s), or null when the provider names none.</summary>
+    public ItemOnAir? ToItem { get; init; }
+}
 
 /// <summary>Outputs that show a picture raw this frame — a structured-light frame at the projector's native
 /// pixels: the whole raster, with no warp, mask, blend, lens, trim, rotation, dither or identification card.
@@ -167,13 +184,16 @@ public readonly record struct FrameInputs
     public double LeaderSeconds => LeaderNs / 1e9;
 
     /// <summary>True when the pattern override is up and covers the output.</summary>
-    public bool PatternCovers(string outputId)
+    public bool PatternCovers(string outputId) => PatternCovers(PatternOverride, PatternOutputs, outputId);
+
+    /// <summary>True when a pattern is up and covers the output: <paramref name="outputs"/> names it, or is empty (every output).</summary>
+    public static bool PatternCovers(SourceRef? pattern, ImmutableArray<string> outputs, string outputId)
     {
-        if (PatternOverride is not { IsNone: false })
+        if (pattern is not { IsNone: false })
             return false;
-        if (PatternOutputs.IsDefaultOrEmpty)
+        if (outputs.IsDefaultOrEmpty)
             return true;
-        foreach (var id in PatternOutputs)
+        foreach (var id in outputs)
             if (string.Equals(id, outputId, StringComparison.Ordinal))
                 return true;
         return false;

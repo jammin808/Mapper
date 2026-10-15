@@ -2319,6 +2319,14 @@ public interface IFramePass : IDisposable
 {
     string Name { get; }
     int Order { get; }
+    /// <summary>A playlist item's picture while its playlist shows it (each side of a transition on its own, before the mix): may
+    /// return another picture (an effect chain's result). startNs is the leader instant the item started, the same on every node.</summary>
+    GpuTexture Item(in PassFrame frame, PlaylistItem item, long startNs, GpuTexture picture) => picture;
+    /// <summary>A canvas layer's picture, its source resolved at the layer's rectangle, before anything is drawn into the canvas.</summary>
+    GpuTexture Layer(in PassFrame frame, Layer layer, GpuTexture picture) => picture;
+    /// <summary>A stage surface's content picture, made at one size for the frame (the largest projector raster) before any
+    /// projector pass draws it; every projector samples the result through the surface's UVs.</summary>
+    GpuTexture Surface(in PassFrame frame, Surface surface, GpuTexture picture) => picture;
     /// <summary>After an output's picture is made, before its output stage (warp, blend, trim): may return another picture
     /// (an effect chain's result), drawn on <paramref name="picture"/>'s own scale; the overlay's pre-warp layer draws here.</summary>
     GpuTexture Picture(in PassFrame frame, Output output, GpuTexture picture) => picture;
@@ -2329,9 +2337,28 @@ public interface IFramePass : IDisposable
 }
 
 public readonly record struct PassFrame(long Frame, long LeaderNs, Project Project, GeneratorFrame Generator, GlDevice Device,
-    bool Blackout, bool Freeze);
+    bool Blackout, bool Freeze)
+{
+    /// <summary>The air's test pattern, or null; the outputs it covers (empty = every output); per-output gain, safe look, hold.</summary>
+    public SourceRef? PatternOverride { get; init; }
+    public ImmutableArray<string> PatternOutputs { get; init; }
+    public IAirLevels? Levels { get; init; }
+    /// <summary>The output shows the air's test pattern or a panic's safe look this frame instead of the show.</summary>
+    public bool Covered(string outputId) =>
+        FrameInputs.PatternCovers(PatternOverride, PatternOutputs, outputId) || Levels?.Override(outputId, LeaderNs) is { IsNone: false };
+    /// <summary>The output holds its last picture this frame (FREEZE, or a FREEZE outcome on it).</summary>
+    public bool Held(string outputId) => Freeze || (Levels?.Hold(outputId, LeaderNs) ?? false);
+}
 
-// Render/Engine/RenderEngine.cs — the three call points (spine): in DrawOutput after `picture` is chosen, each pass's Picture in
+// Render/Engine/Contracts.cs — ISourceProvider names the item on the air (default null): `ItemOnAir? Item(SourceRef source,
+// long leaderNs)` with `record struct ItemOnAir(PlaylistItem Item, long StartNs)`; a SourceMix carries `FromItem` and `ToItem`
+// for each side of a transition. SourceResolver calls each pass's Item on a playlist's picture (each side before the mix) only
+// when the item's chain draws, each pass's Layer on a layer's picture before it is drawn into the canvas, and each pass's
+// Surface on a surface's content picture before the projector passes; `ResolvePlain` (internal) resolves a picture with no
+// pass applied, for taps that must see the source as it is. Effect chains attach through these hooks (FxPass); no package
+// keeps its own attach list.
+
+// Render/Engine/RenderEngine.cs — the output call points (spine): in DrawOutput after `picture` is chosen, each pass's Picture in
 // Order; after _outputStage.Draw and DrawIdentify, each pass's Final; in Render after the output loop and before the presents,
 // each pass's FrameEnd. RenderEngine also exposes `public GpuTexture? CanvasPicture(string canvasId)` and
 // `public GpuTexture? SourcePicture(SourceRef source, int width, int height)` for passes that tap them (sends, LEDs).

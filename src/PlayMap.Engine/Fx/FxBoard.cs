@@ -7,7 +7,7 @@ using PlayMap.Render.Effects;
 namespace PlayMap.Engine.Fx;
 
 /// <summary>An effect chain and the entity that owns it: its id, kind ("output", "layer", "canvas", "surface", "item"), name, and
-/// whether this build draws it now (an enabled output's chain).</summary>
+/// whether the renderer may draw it (an enabled output's chain, any layer's, surface's or item's; never a canvas's own).</summary>
 internal sealed record FxOwner(string Id, string Kind, string Name, FxChain Chain, bool Drawn);
 
 /// <summary>One slot as STATE, FX LIST, INDEX, preflight and the context tell it: the record, its owner and place, its kind (null
@@ -27,6 +27,10 @@ internal sealed class FxBoard
     private const long RecentFrames = 120;
 
     internal const string HistoryWords = "integrates frame to frame: not frame-exact across nodes";
+
+    /// <summary>Why a canvas's own chain shows nowhere: its layers' chains, and the chains of the outputs and surfaces that show
+    /// it, are drawn; the canvas's is kept.</summary>
+    internal const string CanvasWords = "not drawn: this build draws a canvas's layers' chains, not the canvas's own";
 
     private volatile FxPass? _pass;
 
@@ -53,13 +57,13 @@ internal sealed class FxBoard
         {
             yield return new FxOwner(c.Id, "canvas", c.Name, c.Fx, false);
             foreach (var ly in c.Layers)
-                yield return new FxOwner(ly.Id, "layer", ly.Name, ly.Fx, false);
+                yield return new FxOwner(ly.Id, "layer", ly.Name, ly.Fx, true);
         }
         foreach (var sf in p.Stage.Surfaces)
-            yield return new FxOwner(sf.Id, "surface", sf.Name, sf.Fx, false);
+            yield return new FxOwner(sf.Id, "surface", sf.Name, sf.Fx, true);
         foreach (var list in p.Playlists)
             foreach (var it in list.Items)
-                yield return new FxOwner(it.Id, "item", it.Label, it.Fx, false);
+                yield return new FxOwner(it.Id, "item", it.Label, it.Fx, true);
     }
 
     /// <summary>Every slot of every chain, as the renderer last observed it.</summary>
@@ -103,8 +107,8 @@ internal sealed class FxBoard
             return ("idle", "no renderer on this node", 0);
         if (stats.TryGet(slot.Id, out var live) && stats.Frame - live.LastFrame <= RecentFrames && live.State != FxSlotState.Bypassed)
             return (Word(live.State), live.Words, live.GpuMs);
-        if (owner.Kind != "output")
-            return ("idle", $"not drawn: this build draws effects on outputs only, not on a {owner.Kind}", 0);
+        if (owner.Kind == "canvas")
+            return ("idle", CanvasWords, 0);
         if (!owner.Drawn)
             return ("idle", "not drawn: its output is off", 0);
         return ("compiling", "waiting for the renderer", 0);

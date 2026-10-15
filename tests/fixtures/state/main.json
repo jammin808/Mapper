@@ -65,7 +65,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     },
     {
       "id": "op_right",
@@ -93,7 +94,8 @@
         "fellOut": 0,
         "rejoins": 0
       },
-      "fx": null
+      "fx": null,
+      "measured": null
     }
   ],
   "media": {
@@ -170,7 +172,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "46677bba312163ea"
+    "index": "dd09d0531f346a04"
   },
   "faults": [],
   "ai": {
@@ -256,6 +258,37 @@
     "preflight": null,
     "minGoMs": 0
   },
+  "fleet": {
+    "role": "solo",
+    "epoch": 0,
+    "state": "serving",
+    "of": null,
+    "backups": [],
+    "mirror": null,
+    "succession": [],
+    "alarm": null,
+    "last": null,
+    "nodes": [],
+    "light": "grey",
+    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet"
+  },
+  "eye": {
+    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",
+    "worst": "",
+    "worstLight": "grey",
+    "worstWords": "",
+    "counts": {
+      "green": 0,
+      "amber": 0,
+      "red": 0,
+      "grey": 3,
+      "things": 3,
+      "links": 0
+    },
+    "focus": "",
+    "lens": "all",
+    "problems": []
+  },
   "decode": {
     "platform": {
       "blocks": {
@@ -273,6 +306,47 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "control": {
+    "enabled": true,
+    "axisHz": 100,
+    "osc": {
+      "port": 9943,
+      "open": false,
+      "words": "no control service on this node"
+    },
+    "midi": {
+      "backend": "none",
+      "open": false,
+      "words": "no control service on this node",
+      "inputs": [],
+      "outputs": []
+    },
+    "dmx": {
+      "artnet": {
+        "enabled": false,
+        "open": false
+      },
+      "sacn": {
+        "enabled": false,
+        "open": false
+      }
+    },
+    "surfaces": [],
+    "bindings": {
+      "count": 0,
+      "enabled": 0,
+      "live": 0,
+      "waiting": 0,
+      "unplugged": 0
+    },
+    "learning": null,
+    "learnt": null,
+    "last": null
+  },
+  "timecode": {
+    "sources": [],
+    "chases": []
   },
   "clients": [],
   "events": {
@@ -401,5 +475,9 @@
     "quadAt": null,
     "contentAt": null,
     "seconds": -1
+  },
+  "align": {
+    "run": null,
+    "groups": []
   }
 }

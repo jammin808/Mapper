@@ -41,7 +41,10 @@ From the polish pass (merged into main):
 - Gate change: AI-proposed lines with secret words (LINK … token) now pass the gate marked, always wait for a person, are high-risk on MCP, and are shown redacted (was: refused outright).
 
 Round 2 W1 notes:
-- wp2-fx: chains on layers/surfaces/playlist items are stored but not drawn — spine amendment needed: layer and surface picture call points (IFramePass or SourceResolver/StageRenderer hooks) plus the item's start time as an item chain's origin; PassFrame should say per output whether a pattern/safe look is up. Do as a spine-lane commit after wp2-output merges; then wire FxPass's IFxAttachPoints.Layer/Surface (small).
+- wp2-fx: chains on playlist items, layers and surfaces draw through the spine's pass hooks (IFramePass.Item, Layer,
+  Surface; an item's chain starts at the item's leader start; PassFrame.Covered/Held say per output whether a pattern, safe
+  look or hold is up — SPINE.md). Open: a canvas's own chain is stored but not drawn (needs a canvas call point after the
+  canvas is composed).
 - wp2-fx edited Assistant.Tests/CatalogueTests to read a named list of trimmed rows (TrimmedRows) — every package that trims rows must add to it.
 - wp2-fx needs audio's MOD BIND route for effect bindings (stretch, next round).
 - wp2-show: McpTools and AssistantTools should ask IShowDecisions (new Core seam, implemented by the engine) before running/queueing a line (companion owns McpTools). WireSession infers transport "desk" from HELLO name PlayMapDesk — any paired client claiming that name is treated as the operator (companion to harden). A backup mirroring mapping while armed (W3 backup) needs a way past the armed lock for fleet sessions. STATE.show refusal count and panic levels only update when STATE's revision moves (stale between). Pinned-count tests break as packages extend: OpsHostTests (extension count 3), CatalogueTests (209 round-2 rows; fx changed it to a TrimmedRows list; show kept BLIND rows unrouted to keep 209), VerbSyntaxTests (SHOW SET forms), EngineRouterTests (show/fx/output changed key list to a prefix check) — reconcile at merge.
@@ -85,3 +88,26 @@ Round 2 W1 notes:
   OutputStage); onboarding.contentAt is stamped on the lane (needs a first-content callback from the render host);
   air.overlay.cursorP95Ms not measured; wall.json rounds solver numbers to 3 decimals (watch Windows CI);
   OpsHostTests.ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd failed once under load (watch it).
+- wp2-fleet: reads at /health and /fleet (web modules, Open, GET/HEAD only, nothing secret; HttpHost refuses modules under
+  /api). The hello carries caps eye and show; the context's command list puts panic, air, transport and Show Mode verbs first
+  (the Eye keeps the first 64). Open for the owner: /api/context sits behind the token, so Patterns reads PlayMap's context
+  over the wire (SUBSCRIBE CONTEXT); opening it is the owner's call. No verb accepts a changed fleet pin (the preflight row
+  names keys/fleet-pins.json). The Patterns-side Eye patch is prepared for Patterns' maintainers and not applied (kept outside
+  this tree).
+- wp2-control (merged): LTC readers open and close off the control loop through audio's capture hub ("<device>@<channel>");
+  PANIC BLACK, HARD, REWIND and NEXT disengage a chase (receipt `released`), CLEAR does not re-engage. Open: after a restart
+  the recovery record keeps which chases are disengaged but not that a panic did it (the words fall back to "plays by hand");
+  a device whose open never returns holds the hub's lock, so ControlService.DisposeAsync and the hub's Dispose wait on it
+  (needs a bounded open in audio's hub); an engine built without the audio part (tests only) has no hub, so LTC and TIMECODE
+  DEVICES say so. The context's command list sorts TIMECODE CHASE, ENGAGE and INTERNAL with the transport verbs, which moves
+  SYNC LEAD, SYNC FOLLOW and LINK PATTERNS out of the Eye's first 64 — which 64 the Eye sees is the owner's call.
+- wp2-align (merged): ALIGN NEW/RUN/STATUS/CANCEL/ACCEPT/REVERT/CORNERS/CLEAR, run folders, STATE.align and outputs[].measured,
+  the measured warp, blend and pedestal drawn by the output stage; AlignLedgerRoundTripTests is the wall × align test. Open: the
+  phone camera hooks in at AlignRunnerOptions.OpenCamera (set in AlignExtension) once phonescan merges; SCAN START does not
+  refuse while an ALIGN RUN shows patterns (align refuses the other way round); a real-camera run does not take the camera from
+  the previews as a scan does (lab); PROJECT SAVE to a new folder copies neither align/<run> nor scans/, so the next edit finds
+  the measured files missing; the ledger records one result per edit, so ALIGN ACCEPT calls wall's ledger directly to apply
+  every output in one edit (a multi-result record would close it); ACCEPT writes the measured γ into the blend γ and a revert to
+  a fallback without a correction does not restore it; wall's ScoreVocabulary still offers next-round fix lines (ALIGN RUN …
+  STEPS COLOR, … COLOR WHITE); align.devices is not written (DEVICE NATIVE is next round); fx's IsfTranslatorTests leaves GL
+  errors queued in the shared context (a later test that checks for none must clear them first).
