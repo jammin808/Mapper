@@ -21,6 +21,7 @@ public sealed partial class EngineCore
 {
     private volatile CalibrationTask? _calibrationTask;
     private Action? _cancelCalibration;
+    private bool _calibrationApplying;
     private readonly Lock _calibrationGate = new();
 
     /// <summary>The ledger as align, facade and the scan record results in (bound to this engine).</summary>
@@ -618,6 +619,7 @@ public sealed partial class EngineCore
                 named.Add(pj);
         }
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(c.Ct);
+        Action cancel = cts.Cancel;
         var taskId = Ids.New("kt");
         var task = new CalibrationTask(taskId, "resolve", "solving", named[0].Id, 0, $"solving {string.Join(", ", named.Select(x => x.Name))} from their pins");
         lock (_calibrationGate)
@@ -625,7 +627,7 @@ public sealed partial class EngineCore
             if (_calibrationTask is { State: "solving" } running)
                 return CommandReply.Fail($"a calibration task is running ({running.Id}) — CALIBRATION CANCEL first");
             _calibrationTask = task;
-            _cancelCalibration = cts.Cancel;
+            _cancelCalibration = cancel;
         }
         FactsChanged();
         var ai = c.Session.Transport is "mcp" or "assistant";
@@ -648,6 +650,14 @@ public sealed partial class EngineCore
             var results = new List<(string Projector, string Snapshot, bool Applied, QualityScore Score, string Why)>();
             var r = await EditAsync(c.Session, $"re-solve {string.Join(", ", named.Select(x => x.Name))}", project =>
             {
+                // On the lane, as CANCEL is: a cancel that came first refuses the whole edit; from here on the result is being applied
+                // and a CANCEL is refused with the way back.
+                lock (_calibrationGate)
+                {
+                    if (cts.IsCancellationRequested)
+                        throw new EditRefusedException(ResolveCancelled);
+                    _calibrationApplying = true;
+                }
                 results.Clear();
                 foreach (var (before, _, after, score, uncertainty) in solved)
                 {
@@ -675,6 +685,11 @@ public sealed partial class EngineCore
             }).ConfigureAwait(false);
             if (!r.Changed)
             {
+                if (cts.IsCancellationRequested)
+                {
+                    SetTask(task with { State = "cancelled", Words = ResolveCancelled });
+                    return CommandReply.Fail(ResolveCancelled);
+                }
                 SetTask(task with { State = "failed", Words = r.Effect });
                 return FromEdit(r);
             }
@@ -727,10 +742,29 @@ public sealed partial class EngineCore
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            SetTask(task with { State = "cancelled", Words = "cancelled — nothing was applied" });
-            return CommandReply.Fail("cancelled — nothing was applied");
+            SetTask(task with { State = "cancelled", Words = ResolveCancelled });
+            return CommandReply.Fail(ResolveCancelled);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A fault ends the task (the router answers and logs it): the next RESOLVE is not held up behind a task that never ends.
+            SetTask(task with { State = "failed", Words = $"the re-solve faulted ({ex.GetType().Name}) — nothing was applied" });
+            throw;
+        }
+        finally
+        {
+            lock (_calibrationGate)
+            {
+                if (ReferenceEquals(_cancelCalibration, cancel))
+                {
+                    _cancelCalibration = null;
+                    _calibrationApplying = false;
+                }
+            }
         }
     }
+
+    private const string ResolveCancelled = "cancelled — nothing was applied";
 
     /// <summary>CALIBRATION CANCEL: stops the running calibration task before it applies anything.</summary>
     private CommandReply CalibrationCancel(VerbCall c)
@@ -739,6 +773,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail("CALIBRATION CANCEL");
         lock (_calibrationGate)
         {
+            if (_calibrationApplying && _calibrationTask is { State: "solving" } applying)
+                return CommandReply.Fail($"{applying.Id} is applying its result — too late to cancel; CALIBRATION FALLBACK {applying.Projector} goes back");
             if (_calibrationTask is not { State: "solving" } t || _cancelCalibration is not { } cancel)
                 return CommandReply.Fail("no calibration task is running");
             cancel();

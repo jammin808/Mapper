@@ -1,7 +1,9 @@
+using System.Text.Json;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Wire;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Wall;
@@ -129,6 +131,42 @@ public sealed class ResolveTests(ITestOutputHelper output)
         Assert.Equal(staged, now.FallbackId);
         Assert.Null(now.StagedId);
         Assert.Equal(rig.Project.FindCalibration(staged)!.Projector!.Pose, now.Pose);
+    }
+
+    private static JsonElement? TaskOf(WallRig rig) =>
+        rig.State().GetProperty("calibration").GetProperty("task") is { ValueKind: JsonValueKind.Object } t ? t : null;
+
+    [Fact]
+    public async Task ACancelBeforeItsResultIsAppliedAppliesNothingAndTheNextOneRuns()
+    {
+        await using var rig = await ThreeSolved();
+        var before = rig.Project.FindProjector("pj_test2")!;
+        var results = rig.Project.Stage.Calibrations;
+        using var hold = new ManualResetEventSlim();
+        // The lane held by an edit: the re-solve's result has to wait for it once the solve is done.
+        var held = rig.Engine.EditAsync(WallRig.Desk, "hold the lane", p =>
+        {
+            hold.Wait();
+            return p;
+        });
+        using var call = new CancellationTokenSource();
+        Assert.True(WireGrammar.TryParse("CALIBRATION RESOLVE pj_test2", out var line, out _));
+        var resolving = rig.Engine.HandleAsync(line, WallRig.Desk, call.Token).AsTask();
+        await WallRig.Until(() => TaskOf(rig) is { } t && t.GetProperty("progress").GetDouble() >= 1, "the solve to finish");
+        await call.CancelAsync();
+        hold.Set();
+        await held;
+        var reply = await resolving;
+        Assert.False(reply.Ok);
+        Assert.Equal("cancelled — nothing was applied", reply.Payload);
+        Assert.Same(before, rig.Project.FindProjector("pj_test2"));
+        Assert.Equal(results, rig.Project.Stage.Calibrations);
+        Assert.Equal("cancelled", TaskOf(rig)!.Value.GetProperty("state").GetString());
+        // The task is over: nothing is left to cancel, and the next re-solve is not held up behind it.
+        Assert.Contains("no calibration task", await rig.Refused("CALIBRATION CANCEL"), StringComparison.Ordinal);
+        var next = WallRig.Json(await rig.Ok("CALIBRATION RESOLVE pj_test2"));
+        Assert.True(next.GetProperty("projectors")[0].GetProperty("applied").GetBoolean());
+        Assert.Equal("done", TaskOf(rig)!.Value.GetProperty("state").GetString());
     }
 
     [Fact]
