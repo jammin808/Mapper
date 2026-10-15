@@ -35,7 +35,7 @@ public sealed partial class EngineCore
         routes.OffLane("CONTROL INJECT", ControlInjectAsync);
         routes.Lane("BIND LIST", c => BindList(c.Args));
         routes.Lane("BIND ADD", c => BindAdd(c.Args, c.Line));
-        routes.OffLane("BIND LEARN", c => Task.FromResult(BindLearn(c.Args, c.Line)));
+        routes.OffLane("BIND LEARN", c => BindLearnAsync(c.Args, c.Line));
         routes.Lane("BIND FORGET", c => BindForget(c.Args, c.Line));
         routes.Lane("BIND ENABLE", c => BindEnable(c.Args));
         routes.Lane("NUDGE", c => Nudge(c.Args));
@@ -621,10 +621,10 @@ public sealed partial class EngineCore
         }), also.Count > 0 ? $"bound {words} (also bound to {string.Join(", ", also.Distinct(StringComparer.Ordinal))})" : $"bound {words}");
     }
 
-    private CommandReply BindLearn(List<string> args, WireLine line)
+    private async Task<CommandReply> BindLearnAsync(List<string> args, WireLine line)
     {
         if (args.Count == 1 && IsOff(args[0]))
-            return ControlInput.CancelLearn() ? CommandReply.Success(effect: "learn stopped — nothing was bound") : CommandReply.Fail("not learning");
+            return await ControlInput.CancelLearnAsync().ConfigureAwait(false) ? CommandReply.Success(effect: "learn stopped — nothing was bound") : CommandReply.Fail("not learning");
         if (args.Count == 0)
             return CommandReply.Fail("BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET|SACN] <target line> | BIND LEARN OFF");
         var from = "";
@@ -645,7 +645,7 @@ public sealed partial class EngineCore
         var now = Services.Mono.NowNs;
         var untilUnix = Services.Wall.UnixMs + 30_000;
         var words = TargetWords(Store.Project, target.Text);
-        ControlInput.Arm(new LearnSession(target, from, now + 30_000_000_000L, untilUnix, words));
+        await ControlInput.ArmAsync(new LearnSession(target, from, now + 30_000_000_000L, untilUnix, words)).ConfigureAwait(false);
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();

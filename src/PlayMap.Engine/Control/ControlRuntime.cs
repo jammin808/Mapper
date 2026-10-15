@@ -42,6 +42,7 @@ public sealed class ControlRuntime
     private readonly Dictionary<string, Gesture> _gestures = new(StringComparer.Ordinal);
     private readonly Lock _monitorGate = new();
     private readonly Lock _tableGate = new();
+    private readonly Lock _settingsGate = new();
     private readonly Queue<MonitorRow> _monitor = new();
     private volatile Table _table = Table.Empty;
     private long _lastStateNs = long.MinValue;
@@ -76,16 +77,21 @@ public sealed class ControlRuntime
 
     public long Heard { get; private set; }
 
-    /// <summary>Changes the node's control settings: persisted first (a change that could not be kept is not taken).</summary>
+    /// <summary>Changes the node's control settings: persisted first (a change that could not be kept is not taken). Changes are made
+    /// one at a time (the lane's and the off-lane verbs' alike), so none is lost and the settings file is written by one caller.</summary>
     public string? ChangeSettings(Func<ControlSettings, ControlSettings> change)
     {
         ArgumentNullException.ThrowIfNull(change);
-        var next = change(_settings);
-        if (next == _settings)
-            return null;
-        if (Persist?.Invoke(next) is { } why)
-            return why;
-        _settings = next;
+        ControlSettings next;
+        lock (_settingsGate)
+        {
+            next = change(_settings);
+            if (next == _settings)
+                return null;
+            if (Persist?.Invoke(next) is { } why)
+                return why;
+            _settings = next;
+        }
         SettingsChanged?.Invoke(next);
         _engine.FactsChanged();
         return null;
@@ -123,22 +129,29 @@ public sealed class ControlRuntime
 
     // ---- learn ----
 
-    public void Arm(LearnSession session)
+    /// <summary>Starts learning. The learner is the control thread's: arming waits its turn behind the events already heard.</summary>
+    public Task ArmAsync(LearnSession session)
     {
-        _learner.Arm(session);
-        _learnt = null;
-        _learning = new LearnView(session.Target.Text, session.Words, session.UntilUnixMs, session.From);
-        _engine.FactsChanged();
+        ArgumentNullException.ThrowIfNull(session);
+        return SerialAsync(() =>
+        {
+            _learner.Arm(session);
+            _learnt = null;
+            _learning = new LearnView(session.Target.Text, session.Words, session.UntilUnixMs, session.From);
+            _engine.FactsChanged();
+            return Task.FromResult(0);
+        });
     }
 
-    public bool CancelLearn()
+    /// <summary>Stops learning (in turn with the events, like <see cref="ArmAsync"/>); answers whether it was learning.</summary>
+    public Task<bool> CancelLearnAsync() => SerialAsync(() =>
     {
         var was = _learner.Cancel();
         _learning = null;
         if (was)
             _engine.FactsChanged();
-        return was;
-    }
+        return Task.FromResult(was);
+    });
 
     // ---- events ----
 
