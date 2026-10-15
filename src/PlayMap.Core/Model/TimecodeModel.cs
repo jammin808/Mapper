@@ -33,7 +33,8 @@ public sealed record TimecodeChase(ImmutableArray<string> Sources)
     public ChaseLoss OnLoss { get; init; } = ChaseLoss.Hold;
     /// <summary>How long a dropout is ridden through on the last line (0–10 s).</summary>
     public long FreewheelNs { get; init; } = 500_000_000;
-    /// <summary>0 = auto: max(2 frames, 5σ).</summary>
+    /// <summary>How far the code may land off its fitted line and still be drift; past it the code has jumped and the chase
+    /// relocates at once. 0 = auto: max(2 frames, 5σ).</summary>
     public long JumpNs { get; init; }
     public ChaseGap Gap { get; init; } = ChaseGap.Black;
 }

@@ -167,6 +167,8 @@
         "freewheelLeftMs": null,
         "onLoss": "hold",
         "gap": "black",
+        "jumpMs": 80,
+        "jumpAuto": true,
         "lastJump": null,
         "words": "locked to Rehearsal"
       }

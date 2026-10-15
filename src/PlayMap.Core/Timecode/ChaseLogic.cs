@@ -101,13 +101,21 @@ public sealed record ChasePlan(ChaseState State, ChaseAction Action, int Region,
 
 public enum ChaseAction { None, Anchor, Gap, Idle, Hold }
 
-/// <summary>A chase's settings as the logic reads them (from the model's <see cref="TimecodeChase"/>).</summary>
+/// <summary>A chase's settings as the logic and its lane read them (from the model's <see cref="TimecodeChase"/>).</summary>
 public sealed record ChaseSettings(long DelayNs, ChaseLoss OnLoss, long FreewheelNs, ChaseGap Gap)
 {
+    /// <summary>The jump threshold (0 = auto): the chase's sources' code is judged by it (<see cref="TimecodeTracker"/>), so code
+    /// further off its line than this relocates the chase at once and code within it is drift the fit takes in; a re-anchor that
+    /// moves the picture's code by more than it is the chase's last jump.</summary>
+    public long JumpNs { get; init; }
+
+    /// <summary>The jump threshold in force for a line of a format and a scatter (σ).</summary>
+    public double JumpThresholdNs(TcFormat format, double sigmaNs) => TimecodeTracker.JumpThresholdNs(JumpNs, format, sigmaNs);
+
     public static ChaseSettings Of(TimecodeChase chase)
     {
         ArgumentNullException.ThrowIfNull(chase);
-        return new ChaseSettings(chase.DelayNs, chase.OnLoss, chase.FreewheelNs, chase.Gap);
+        return new ChaseSettings(chase.DelayNs, chase.OnLoss, chase.FreewheelNs, chase.Gap) { JumpNs = chase.JumpNs };
     }
 }
 
