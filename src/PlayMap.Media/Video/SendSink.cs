@@ -13,6 +13,7 @@ public abstract class SendSink : ISendSink
 {
     private const int RefreshMs = 250;
     private const int EncodeRing = 64;
+    private const int HoldMs = 200;
 
     private readonly Thread _thread;
     private readonly AutoResetEvent _wake = new(false);
@@ -21,6 +22,7 @@ public abstract class SendSink : ISendSink
     private readonly Lock _statsGate = new();
     private SendFrame? _pending;
     private SendFrame? _held;
+    private long _heldSince;
     private long _sent;
     private long _dropped;
     private long _bytes;
@@ -127,6 +129,14 @@ public abstract class SendSink : ISendSink
             if (Interlocked.Exchange(ref _pending, null) is { } frame && !_stopping)
                 Send(frame);
             var now = Stopwatch.GetTimestamp();
+            // A frame the protocol keeps reading is let go when no newer frame came for a while (the protocol's synchronising call
+            // with no frame first), so a quiet send never holds the producer's memory for long.
+            if (_held is { } idle && now - _heldSince > Stopwatch.Frequency * HoldMs / 1000)
+            {
+                FlushQuietly();
+                _held = null;
+                idle.Release();
+            }
             if (now >= nextRefresh)
             {
                 nextRefresh = now + Stopwatch.Frequency * RefreshMs / 1000;
@@ -171,7 +181,10 @@ public abstract class SendSink : ISendSink
             previous.Release();
         }
         if (keeps)
+        {
             _held = frame;
+            _heldSince = Stopwatch.GetTimestamp();
+        }
         else
             frame.Release();
         Interlocked.Increment(ref _sent);

@@ -1,0 +1,357 @@
+using System.Numerics;
+using PlayMap.Core.Media;
+using PlayMap.Core.Model;
+using PlayMap.Render.Gpu;
+
+namespace PlayMap.Render.Video;
+
+/// <summary>One read-back of a packed send frame, handed to the sender as a <see cref="SendFrame"/>: its bytes are the pack buffer's
+/// mapped memory, valid until <see cref="Release"/> (any thread, once). The ring unmaps the buffer on the render thread at its next
+/// collect after the release, so the sender reads the GPU's bytes in place and the render thread copies nothing.</summary>
+public sealed class ReadbackFrame : SendFrame
+{
+    private int _released = 1;
+
+    internal void Arm(nint data, int bytes, int stride, int width, int height, SendFormat format, long leaderNs, int fpsN, int fpsD)
+    {
+        Data = data;
+        Bytes = bytes;
+        Stride = stride;
+        Width = width;
+        Height = height;
+        Format = format;
+        LeaderNs = leaderNs;
+        FpsN = fpsN;
+        FpsD = fpsD;
+        Transfer = TransferFunction.Sdr;
+        Volatile.Write(ref _released, 0);
+    }
+
+    /// <summary>True once the sender let go (or before the frame was ever handed out).</summary>
+    internal bool Released => Volatile.Read(ref _released) != 0;
+
+    public override void Release() => Volatile.Write(ref _released, 1);
+}
+
+/// <summary>Reads packed send frames back without stalling the render thread: each request reads the packed target into the next free
+/// pixel-pack buffer with a fence behind it; <see cref="Collect"/> maps a buffer once its fence has passed and offers it to the sender,
+/// and the buffer stays mapped (GL allows it while that buffer is not used by GL) until the sender releases the frame — then the next
+/// collect unmaps it and frees the slot. A request with no free slot is refused (the caller counts it busy): the render thread never
+/// waits for the GPU or the network. Render thread only, except <see cref="ReadbackFrame.Release"/>.</summary>
+public sealed unsafe class SendReadbackRing : IDisposable
+{
+    private enum SlotState { Free, Reading, Handed }
+
+    private sealed class Slot
+    {
+        public uint Buffer;
+        public int Capacity;
+        public nint Fence;
+        public SlotState State;
+        public long Sequence;
+        public int ReadBytes;
+        public int FrameBytes;
+        public int Stride;
+        public int Width;
+        public int Height;
+        public SendFormat Format;
+        public long LeaderNs;
+        public int FpsN;
+        public int FpsD;
+        public readonly ReadbackFrame Frame = new();
+    }
+
+    private readonly GlDevice _device;
+    private readonly Slot[] _slots;
+    private long _sequence;
+    private bool _disposed;
+
+    public SendReadbackRing(GlDevice device, int slots = 4)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        _device = device;
+        _slots = new Slot[Math.Max(2, slots)];
+        for (var i = 0; i < _slots.Length; i++)
+            _slots[i] = new Slot();
+    }
+
+    /// <summary>Slots in flight on the GPU or held by the sender.</summary>
+    public int InUse
+    {
+        get
+        {
+            var n = 0;
+            foreach (var s in _slots)
+                if (s.State != SlotState.Free)
+                    n++;
+            return n;
+        }
+    }
+
+    /// <summary>Slots the sender holds now (mapped, not released).</summary>
+    public int Handed
+    {
+        get
+        {
+            var n = 0;
+            foreach (var s in _slots)
+                if (s.State == SlotState.Handed && !s.Frame.Released)
+                    n++;
+            return n;
+        }
+    }
+
+    public bool HasFree
+    {
+        get
+        {
+            foreach (var s in _slots)
+                if (s.State == SlotState.Free)
+                    return true;
+            return false;
+        }
+    }
+
+    /// <summary>Queues a read of a packed target (RGBA bytes, top row first). <paramref name="frameBytes"/> and
+    /// <paramref name="stride"/> describe the wire frame the sender receives (the read may be longer: UYVA's last target row).
+    /// False when every slot is in use.</summary>
+    public bool Request(RenderTarget packed, SendFormat format, int width, int height, int frameBytes, int stride, long leaderNs, int fpsN, int fpsD)
+    {
+        ArgumentNullException.ThrowIfNull(packed);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Slot? slot = null;
+        foreach (var s in _slots)
+        {
+            if (s.State == SlotState.Free)
+            {
+                slot = s;
+                break;
+            }
+        }
+        if (slot is null)
+            return false;
+        var readBytes = packed.Width * packed.Height * 4;
+        if (slot.Buffer == 0 || slot.Capacity < readBytes)
+        {
+            if (slot.Buffer != 0)
+                _device.DeleteBuffer(slot.Buffer);
+            slot.Buffer = _device.CreatePixelBuffer(pack: true, readBytes);
+            slot.Capacity = readBytes;
+        }
+        _device.ReadRgbaIntoPackBuffer(packed, slot.Buffer, sixteen: false);
+        slot.Fence = _device.InsertFence();
+        slot.State = SlotState.Reading;
+        slot.Sequence = ++_sequence;
+        slot.ReadBytes = readBytes;
+        slot.FrameBytes = Math.Min(frameBytes, readBytes);
+        slot.Stride = stride;
+        slot.Width = width;
+        slot.Height = height;
+        slot.Format = format;
+        slot.LeaderNs = leaderNs;
+        slot.FpsN = fpsN;
+        slot.FpsD = fpsD;
+        return true;
+    }
+
+    /// <summary>Frees the slots the sender released, then offers every finished read to the sender, oldest first (with no sender the
+    /// read is dropped and its slot freed). Never waits.</summary>
+    public int Collect(ISendSink? sink)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        foreach (var s in _slots)
+        {
+            if (s.State == SlotState.Handed && s.Frame.Released)
+            {
+                _device.UnmapPack(s.Buffer);
+                s.State = SlotState.Free;
+            }
+        }
+        var offered = 0;
+        while (true)
+        {
+            Slot? oldest = null;
+            foreach (var s in _slots)
+                if (s.State == SlotState.Reading && (oldest is null || s.Sequence < oldest.Sequence))
+                    oldest = s;
+            if (oldest is null || !_device.IsSignaled(oldest.Fence))
+                return offered;
+            _device.DeleteFence(oldest.Fence);
+            oldest.Fence = 0;
+            if (sink is null)
+            {
+                oldest.State = SlotState.Free;
+                continue;
+            }
+            var p = _device.MapPack(oldest.Buffer, oldest.ReadBytes);
+            if (p is null)
+            {
+                oldest.State = SlotState.Free;
+                continue;
+            }
+            oldest.Frame.Arm((nint)p, oldest.FrameBytes, oldest.Stride, oldest.Width, oldest.Height, oldest.Format, oldest.LeaderNs, oldest.FpsN, oldest.FpsD);
+            oldest.State = SlotState.Handed;
+            sink.Offer(oldest.Frame);
+            offered++;
+        }
+    }
+
+    /// <summary>Frees every GL object once no sender holds a frame; false (nothing freed) while one still does — the caller asks again
+    /// a frame later.</summary>
+    public bool TryDispose()
+    {
+        if (_disposed)
+            return true;
+        foreach (var s in _slots)
+            if (s.State == SlotState.Handed && !s.Frame.Released)
+                return false;
+        Dispose();
+        return true;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        foreach (var s in _slots)
+        {
+            if (s.State == SlotState.Handed)
+                _device.UnmapPack(s.Buffer);
+            _device.DeleteFence(s.Fence);
+            if (s.Buffer != 0)
+                _device.DeleteBuffer(s.Buffer);
+            s.Buffer = 0;
+            s.Fence = 0;
+            s.State = SlotState.Free;
+        }
+    }
+}
+
+/// <summary>The send pack pass: a picture scaled to the send's size (fit with black bars, fill cropped, or stretched) and packed by
+/// <c>video.pack</c> into an RGBA8 target whose read-back bytes are the wire frame (<see cref="SendFormat.Uyvy"/>: w/2 × h;
+/// <see cref="SendFormat.Uyva"/>: w/2 × (h + ⌈h/2⌉), the alpha plane in the rows below h; <see cref="SendFormat.Bgra8"/>: w × h).
+/// Targets are kept per size and format and reused by every send of that shape; nothing is allocated per frame once warm. Render
+/// thread.</summary>
+public sealed class PackPass : IDisposable
+{
+    private readonly GlDevice _device;
+    private readonly Dictionary<(int W, int H, SendFormat F), RenderTarget> _packed = [];
+    private readonly Dictionary<(int W, int H), RenderTarget> _scaled = [];
+    private RenderTarget? _black;
+
+    public PackPass(GlDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        _device = device;
+    }
+
+    /// <summary>The wire frame's bytes and its first plane's row for a send of this shape.</summary>
+    public static (int Bytes, int Stride) WireShape(SendFormat format, int width, int height) => format switch
+    {
+        SendFormat.Uyvy => (2 * width * height, 2 * width),
+        SendFormat.Uyva => (3 * width * height, 2 * width),
+        _ => (4 * width * height, 4 * width),
+    };
+
+    /// <summary>Scales <paramref name="picture"/> (null = black) to the send's size and packs it; answers the packed target to read.</summary>
+    public RenderTarget Pack(GpuTexture? picture, int width, int height, SendFormat format, SendFit fit)
+    {
+        var source = Scale(picture, width, height, fit);
+        var key = (width, height, format);
+        if (!_packed.TryGetValue(key, out var target))
+        {
+            var (tw, th) = format switch
+            {
+                SendFormat.Uyvy => (width / 2, height),
+                SendFormat.Uyva => (width / 2, height + (height + 1) / 2),
+                _ => (width, height),
+            };
+            target = _device.CreateRenderTarget(tw, th, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
+            _packed[key] = target;
+        }
+        var p = _device.Program("video.pack");
+        _device.BindTarget(target);
+        _device.SetBlend(BlendMode.Opaque);
+        p.SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, _ => 2 });
+        p.SetInt("uWidth", width);
+        p.SetInt("uHeight", height);
+        _device.BindSampler(p, "uPicture", 0, source);
+        _device.DrawFullscreen(p);
+        return target;
+    }
+
+    private GpuTexture Scale(GpuTexture? picture, int width, int height, SendFit fit)
+    {
+        if (picture is null)
+        {
+            if (_black is null || _black.Width != width || _black.Height != height)
+            {
+                _black?.Dispose();
+                _black = _device.CreateRenderTarget(width, height, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
+                _device.BindTarget(_black);
+                _device.Clear(0, 0, 0, 1);
+            }
+            return _black.Color;
+        }
+        if (picture.Width == width && picture.Height == height)
+            return picture;
+        if (!_scaled.TryGetValue((width, height), out var target))
+        {
+            target = _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, filter: TextureFilter.Nearest);
+            _scaled[(width, height)] = target;
+        }
+        _device.BindTarget(target);
+        _device.SetBlend(BlendMode.Opaque);
+        _device.Clear(0, 0, 0, 1);
+        var src = new Vector4(0, 0, 1, 1);
+        int vx = 0, vy = 0, vw = width, vh = height;
+        var srcAspect = picture.Width / (double)picture.Height;
+        var dstAspect = width / (double)height;
+        if (fit == SendFit.Fit && Math.Abs(srcAspect - dstAspect) > 1e-6)
+        {
+            if (srcAspect > dstAspect)
+            {
+                vh = (int)Math.Round(width / srcAspect);
+                vy = (height - vh) / 2;
+            }
+            else
+            {
+                vw = (int)Math.Round(height * srcAspect);
+                vx = (width - vw) / 2;
+            }
+        }
+        else if (fit == SendFit.Fill && Math.Abs(srcAspect - dstAspect) > 1e-6)
+        {
+            if (srcAspect > dstAspect)
+            {
+                var keep = (float)(dstAspect / srcAspect);
+                src = new Vector4((1 - keep) / 2, 0, keep, 1);
+            }
+            else
+            {
+                var keep = (float)(srcAspect / dstAspect);
+                src = new Vector4(0, (1 - keep) / 2, 1, keep);
+            }
+        }
+        _device.SetViewport(vx, vy, Math.Max(1, vw), Math.Max(1, vh));
+        var p = _device.Program("blit");
+        p.Set("uSrc", src);
+        _device.BindSampler(p, "uTex", 0, picture);
+        _device.DrawFullscreen(p);
+        _device.SetViewport(0, 0, width, height);
+        return target.Color;
+    }
+
+    public void Dispose()
+    {
+        foreach (var t in _packed.Values)
+            t.Dispose();
+        _packed.Clear();
+        foreach (var t in _scaled.Values)
+            t.Dispose();
+        _scaled.Clear();
+        _black?.Dispose();
+        _black = null;
+    }
+}
