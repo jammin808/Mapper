@@ -1,6 +1,8 @@
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Show;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Wall;
 
 namespace PlayMap.Engine.Tests.Wall;
@@ -187,10 +189,48 @@ public sealed class QuadVerbTests
         Assert.Equal(ArmedGate.Words, words);
         Assert.Equal(ArmedGate.Words, await rig.Refused("LIGHT WALL #2"));
         Assert.Equal(ArmedGate.Words, await rig.Refused("OVERLAY ON"));
+        // The ledger's verbs that change the calibration are refused the same way.
+        Assert.Equal(ArmedGate.Words, await rig.Refused("CALIBRATION SAVE pj_test1"));
+        Assert.Equal(ArmedGate.Words, await rig.Refused("CALIBRATION RESOLVE pj_test1"));
+        Assert.Empty(rig.Project.Stage.Calibrations);
         Assert.Equal(revision, rig.Engine.Store.Current.Revision);
         Assert.DoesNotContain(rig.Project.Stage.Surfaces, s => s.Pixel is not null);
         Assert.False(rig.Engine.Air.Overlay.On);
         Assert.True(rig.State().GetProperty("air").GetProperty("overlay").GetProperty("armed").GetBoolean());
+    }
+
+    /// <summary>A show gate armed and disarmed by the test.</summary>
+    private sealed class SwitchGate : IShowGate
+    {
+        public bool Armed { get; set; }
+
+        public string ArmedBy => Armed ? "Test desk" : "";
+
+        public string? BlindOwner => null;
+
+        public int MinGoMs => 0;
+
+        public ShowRole RoleOf(SessionInfo session) => ShowRole.Operator;
+
+        public ShowDecision Decide(VerbSpec spec, WireLine line, SessionInfo session) =>
+            Armed && spec.Mutates ? new(ShowVerdict.Refuse, ArmedGate.Words) : new(ShowVerdict.Allow, null);
+
+        public IReadOnlyCollection<string>? Allowed(SessionInfo session) => Armed ? [] : null;
+    }
+
+    [Fact]
+    public async Task ArmingTheShowTakesTheOverlayOffTheWall()
+    {
+        var gate = new SwitchGate();
+        await using var rig = new WallRig(gate: gate);
+        await rig.Ok("LIGHT WALL #2");
+        Assert.True(rig.Engine.Air.Overlay.On);
+        gate.Armed = true;
+        await WallRig.Until(() => !rig.Engine.Air.Overlay.On, "the armed show to take the overlay off");
+        var overlay = rig.State().GetProperty("air").GetProperty("overlay");
+        Assert.False(overlay.GetProperty("on").GetBoolean());
+        Assert.True(overlay.GetProperty("armed").GetBoolean());
+        Assert.Equal(ArmedGate.Words, await rig.Refused("OVERLAY ON"));
     }
 
     [Fact]
