@@ -5,6 +5,7 @@ using System.Text.Json;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using PlayMap.Assistant;
+using PlayMap.Core.Control;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
@@ -25,7 +26,8 @@ namespace PlayMap.Engine.Tests.Host;
 /// a bound OSC button and a line handed to the engine are each refused with the stopping words, journalled, and start no ALIGN RUN;
 /// the host's own last work still happens: the recovery record holds the show and the journal is flushed. A line already waiting for
 /// the lane when the stop begins is refused the same way; an assistant's line over MCP is refused, not queued for a person; a refusal
-/// keeps every secret the node holds out of the journal; the node's own lines (a panic's shutters and effects) still run.</summary>
+/// keeps every secret the node holds out of the journal; the node's own lines (a panic's shutters and effects) still run; a learn
+/// armed as the stop begins binds nothing.</summary>
 public sealed class HostStopTests
 {
     private const string Layout = "flat-screen:tile2x1:o20";
@@ -184,6 +186,78 @@ public sealed class HostStopTests
         Assert.Equal(path, record.ProjectPath);
         Assert.Contains(group, record.UnsavedProjectJson, StringComparison.Ordinal);
         Assert.Contains(binding, record.UnsavedProjectJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>A learn armed when the stop begins binds nothing: a control heard while the host stops (control's OSC socket still
+    /// open) is refused with the stopping words, said as learn's outcome and journalled as its refusal; no binding is added and the
+    /// show's revision stands.</summary>
+    [Fact]
+    public async Task ALearnArmedWhenTheStopBeginsBindsNothing()
+    {
+        var probe = new Probe();
+        // The probe after control: the host stops it while control's socket and learn are still live.
+        var parts = EngineParts.Bare with { Extensions = [setup => new ControlExtension(setup), _ => probe] };
+        await using var node = await HostRig.StartAsync("Stopping node", parts: parts, settings: s => s with
+        {
+            Control = s.Control with { OscBind = ControlRig.Loopback, OscPort = 0, OscQueryEnabled = false, MidiEnabled = false },
+        });
+        var engine = node.Engine;
+        var osc = engine.Services.Control?.OscLocal ?? throw new InvalidOperationException("control's OSC socket did not open: " + engine.Services.Control?.OscProblem);
+        await node.OkAsync("BIND LEARN FROM OSC BLACKOUT TOGGLE");
+        Assert.NotNull(engine.ControlInput.Learning);
+
+        long revisionAtStop = 0, revisionAfter = 0;
+        string? learnt = null;
+        var bindings = 0;
+        probe.OnStop = async e =>
+        {
+            Assert.True(e.Stopping);
+            revisionAtStop = e.Store.Current.Revision;
+            using var client = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            client.Bind(new IPEndPoint(IPAddress.Parse(ControlRig.Loopback), 0));
+            await client.SendToAsync(OscCodec.Write(OscMessage.Of("/go", OscArg.Bool(true))), SocketFlags.None, osc);
+            await ControlRig.Until(() => e.ControlInput.Learnt is not null, "learn's outcome");
+            (learnt, revisionAfter, bindings) = (e.ControlInput.Learnt, e.Store.Current.Revision, e.Store.Project.Control.Bindings.Length);
+        };
+
+        await node.StopAsync();
+        Assert.Null(probe.Fault);
+        Assert.Equal((EngineCore.StoppingWords, revisionAtStop, 0), (learnt, revisionAfter, bindings));
+        Assert.Null(engine.ControlInput.Learning);
+        Assert.Empty(engine.Store.Project.Control.Bindings);
+        var rows = (await File.ReadAllLinesAsync(node.Home.JournalPath)).Select(Json).ToList();
+        Assert.Contains(rows, r => (r.GetProperty("kind").GetString(), r.GetProperty("text").GetString()) == ("refused", "learn refused: " + EngineCore.StoppingWords));
+        Assert.DoesNotContain(rows, r => r.GetProperty("text").GetString()!.StartsWith("learnt:", StringComparison.Ordinal));
+    }
+
+    /// <summary>Learn's edit waiting for the lane when the stop begins is refused the same way when its turn comes.</summary>
+    [Fact]
+    public async Task ALearnsEditWaitingForTheLaneWhenTheStopBeginsBindsNothing()
+    {
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show());
+        await rig.Ok("BIND LEARN BLACKOUT TOGGLE");
+        var revision = rig.Engine.Store.Current.Revision;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busy = rig.Engine.Lane.RunAsync(() =>
+        {
+            entered.SetResult();
+            release.Wait();
+        });
+        await entered.Task;
+
+        // Learn hears a press and stops waiting; its edit waits behind the lane's work.
+        var heard = rig.Engine.ControlInput.InjectAsync(InputAddress.Midi(MidiFamily.Note, 1, 60), 1, CancellationToken.None);
+        await ControlRig.Until(() => rig.Engine.ControlInput.Learning is null, "learn to hear the press");
+        Assert.False(heard.IsCompleted);
+
+        rig.Engine.BeginStop();
+        release.Set();
+        await busy;
+        await heard;
+        Assert.Equal((EngineCore.StoppingWords, revision), (rig.Engine.ControlInput.Learnt, rig.Engine.Store.Current.Revision));
+        Assert.Empty(rig.Engine.Store.Project.Control.Bindings);
+        Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text) == ("refused", "learn refused: " + EngineCore.StoppingWords));
     }
 
     [Fact]

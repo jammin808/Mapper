@@ -29,7 +29,9 @@ another binding verb. A binding to a high-risk line is itself high risk: an assi
 purpose. `BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET|SACN] <target>` binds the next control that moves, and **replaces** what that input
 was bound to, saying what it replaced ("MIDI CC 1 7 → Lobby opacity (was Stage opacity)"). Learn never binds a release, a fader's
 jitter (three steps from its first reading) or a DMX channel that does not move; a continuous control on a target with a number
-makes it `*`, a pad keeps the number. It runs for 30 s, or until `BIND LEARN OFF`; STATE says what it waits for.
+makes it `*`, a pad keeps the number. It runs for 30 s, or until `BIND LEARN OFF`; STATE says what it waits for. Once the node has
+begun to stop, learn binds nothing: a control it hears then is refused with the stopping words ("the node is stopping — it takes
+no more lines", in `control.learnt` and the journal's "learn refused" row), and the show is left as it was.
 
 ## Shaping
 

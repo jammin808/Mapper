@@ -268,7 +268,8 @@ public sealed class ControlRuntime
     }
 
     /// <summary>Learn heard a control: the binding it makes replaces any other on the same input (one undo step), and says what it
-    /// replaced.</summary>
+    /// replaced. Once the node has begun to stop it takes no more lines, and learn makes no edit either: refused with the stopping
+    /// words, judged on the lane, so a stop that begins while the edit waits for it refuses it too.</summary>
     private async Task LearntAsync(LearnOutcome outcome, CancellationToken ct)
     {
         var input = outcome.Input.Format();
@@ -276,6 +277,8 @@ public sealed class ControlRuntime
         var id = "";
         var r = await _engine.EditAsync(new SessionInfo("control", "binding", "", false, "learn", true), $"learn {input}", p =>
         {
+            if (_engine.Stopping)
+                throw new EditRefusedException(EngineCore.StoppingWords);
             var same = p.Control.Bindings.Where(b => InputAddress.Parse(b.Input, out _) is { } a && a == outcome.Input).ToList();
             replaced.AddRange(same.Select(b => _engine.BindingWords(p, b)));
             id = Ids.NewUnique(Ids.ControlBinding, p.Control.Bindings);
