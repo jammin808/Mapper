@@ -123,7 +123,8 @@ is a Companion secret and never rides a line. A node whose web port has no line 
 upgrade is answered 400, 401 or 404) is reached on the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
 required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
 2 s is the watchdog and the clock (the round trip with the least delay of the last eight gives the node's offset). No line for 4 s is
-**stale**: the status says so and every key dims with a ⚠. 10 s drops the link: what the node said is emptied, every feedback is checked
+**stale**: the status says so and every key dims with a ⚠. 10 s (or the node closing) drops the link, the status saying in words
+that the node is not there and when the link tries again: what the node said is emptied, every feedback is checked
 again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token, a locked-out
 address, or a token changed on the node (its lines answered `not paired`) halts the link until the token or address changes — an
 edit to anything else keeps the link and its halt — so a deck never spends the address's wrong tokens. Any other refusal of the
@@ -204,4 +205,6 @@ Key pages authored on the desk (`KEYS …`) and `COMPANION PAGE`/`COMPANION ADD`
 `SELECT` for learn; live output and projector thumbnails from preview views with leases; streamed `ASK` replies; Show Bus hello discovery
 in the module; the desk's Decks drawer; browsing (OSCQuery, WLED) on the same responder; the TLS fingerprint in the TXT record; the
 back-port of id-keyed template groups, value feedbacks and the secret token to Patterns' module; Live slots that press projectors
-(identify, shutter on hold) and surfaces (show or hide), once STATE names a projector's device link and a surface's shown state.
+(identify, shutter on hold), surfaces (show or hide, once STATE says a surface's shown state) and faults (`EYE FOCUS`), and the
+`devices` and `proposals` Live rules; `OUTPUT ENABLE … OFF` pressed twice (a press per argument, where today the row's is one hold);
+a node that raises `scan.*`, `proposal.*`, `peer.*` and `device.*` events (the design lists them; recipes watch variables until then).
