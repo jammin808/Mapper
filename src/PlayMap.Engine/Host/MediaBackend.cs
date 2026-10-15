@@ -138,6 +138,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(item);
         if (item.Kind is MediaKind.Audio or MediaKind.Web or MediaKind.Embed)
             return null;   // no FFmpeg picture: audio is heard, pages and embeds are another renderer's
+        // NDI, OMT, Spout: a handle on the engine's one warm receiver for the input (wp2-videoio), never FFmpeg.
+        if (item.Kind == MediaKind.Stream && LiveUri.TryParse(item.Location, out var live, out _, out _) && live != LiveProtocol.Ffmpeg)
+            return _engine?.VideoIo.Open(item);
         if (!FfmpegReady(out var words))
         {
             SayFfmpeg(words);

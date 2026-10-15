@@ -170,7 +170,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "46677bba312163ea"
+    "index": "3f4309cb0089e697"
   },
   "faults": [],
   "ai": {
@@ -273,6 +273,44 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "videoio": {
+    "ndi": {
+      "state": "absent",
+      "version": "",
+      "path": "",
+      "words": "NDI is not available on this node: no NDI runtime was loaded \u2014 install the NDI 6 runtime (https://ndi.video) and set PLAYMAP_NDI_DIR to its folder",
+      "link": "https://ndi.video",
+      "groups": "",
+      "discovery": "",
+      "advertisers": false
+    },
+    "omt": {
+      "state": "failed",
+      "version": "",
+      "vmx": "missing",
+      "mdns": "none",
+      "server": "",
+      "words": "OMT is not available on this node"
+    },
+    "spout": {
+      "state": "unavailable",
+      "version": "",
+      "senders": 0,
+      "words": "no Spout provider on this node (Spout is Windows only)"
+    },
+    "discoveredCount": 0,
+    "discovered": [],
+    "inputs": [],
+    "sends": [],
+    "bandwidth": {
+      "nic": "",
+      "linkMbps": -1,
+      "inMbps": 0,
+      "outMbps": 0,
+      "limitMbps": 0,
+      "light": "grey"
+    }
   },
   "clients": [],
   "events": {

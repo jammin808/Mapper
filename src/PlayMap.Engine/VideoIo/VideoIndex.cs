@@ -1,0 +1,72 @@
+using System.Text.Json;
+using PlayMap.Core.Model;
+using PlayMap.Render.Passes;
+
+namespace PlayMap.Engine.VideoIo;
+
+/// <summary>INDEX section "video": one row per live input (its name as the label, its state, lit as the context lights it), and a
+/// deck's key per row to reconnect it (refused while it delivers, so a press on a healthy input does nothing but say so).</summary>
+internal sealed class VideoIndex(EngineCore engine) : IIndexContributor
+{
+    public string Section => "video";
+
+    public IndexPresetHint Hint { get; } = new("Video inputs", "input",
+    [
+        new IndexKey("Reconnect", "INPUT RECONNECT $(id)", "videoio.inputs.state", "hold"),
+    ]);
+
+    public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(w);
+        w.WriteStartArray();
+        foreach (var input in engine.VideoIo.InputsOf(project))
+        {
+            var state = input.Source is { } s ? PlayMap.Media.Video.LiveSource.StateWord(s.Live.State) : input.Problem.Length > 0 ? "failed" : "connecting";
+            w.WriteStartObject();
+            w.WriteString("id", input.Id);
+            w.WriteString("kind", "input");
+            w.WriteString("label", input.Item.Name);
+            w.WriteString("parent", "");
+            w.WriteString("light", state switch { "ok" => "green", "connecting" => "grey", "lost" or "failed" => "red", _ => "amber" });
+            w.WriteString("state", state);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+}
+
+/// <summary>INDEX section "sends": one row per send (its name, on or off, lit green while it sends, red when its sender failed) and
+/// the key that starts or stops it.</summary>
+internal sealed class SendsIndex(EngineCore engine) : IIndexContributor
+{
+    public string Section => "sends";
+
+    public IndexPresetHint Hint { get; } = new("Video sends", "send",
+    [
+        new IndexKey("On", "SEND ENABLE $(id) ON", "videoio.sends.state", "hold"),
+        new IndexKey("Off", "SEND ENABLE $(id) OFF", "videoio.sends.state", "hold"),
+    ]);
+
+    public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(w);
+        var slots = engine.VideoIo.SendsOf(project).ToDictionary(s => s.Send.Id, StringComparer.Ordinal);
+        w.WriteStartArray();
+        foreach (var send in project.Sends)
+        {
+            slots.TryGetValue(send.Id, out var slot);
+            var failed = slot is { Problem.Length: > 0 };
+            w.WriteStartObject();
+            w.WriteString("id", send.Id);
+            w.WriteString("kind", "send");
+            w.WriteString("label", send.Name);
+            w.WriteString("parent", SendShape.TryTap(send.Tap, out var kind, out var target, out _, out _) && kind != SendTapKind.Source ? target : "");
+            w.WriteString("light", !send.Enabled ? "grey" : failed ? "red" : "green");
+            w.WriteString("state", !send.Enabled ? "off" : failed ? "failed" : "on");
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+}
