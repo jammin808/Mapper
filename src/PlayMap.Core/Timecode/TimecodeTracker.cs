@@ -38,11 +38,15 @@ public sealed record TcReading(string State, TcLine? Line, TcFormat? Format, dou
 /// MAD, 0.3 frame) dropped, then refitted), its slope bounded to 0.85–1.15 ("varispeed out of range" outside, and nothing
 /// locks). A jump — an observation off the line by more than the jump threshold (a chase's <c>JUMP</c>, else auto: max(2 frames,
 /// 5σ)) — is taken only when the next observation agrees with it, and starts a new run (a relocate); code off the line by no more
-/// than the threshold is drift, and the fit takes it in. A lone outlier is counted invalid. No observation for 2.5 frames is a
-/// dropout; for 1 s, lost. A frame seen three times is parked; an MTC full frame parks at once; a backward run is reverse.</summary>
+/// than the threshold is drift, and the fit takes it in. A threshold set wider than auto's widens drift only to steps the fit can
+/// glide onto within the slope bounds: a step past auto's threshold whose glide would leave them is a jump whatever the threshold.
+/// A lone outlier is counted invalid. No observation for 2.5 frames is a dropout; for 1 s, lost. A frame seen three times is
+/// parked; an MTC full frame parks at once; a backward run is reverse.</summary>
 public sealed class TimecodeTracker
 {
     private const long LostNs = 1_000_000_000;
+    private const double MinRate = 0.85;
+    private const double MaxRate = 1.15;
 
     private readonly TcFormat? _configured;
     private readonly long _windowNs;
@@ -165,8 +169,8 @@ public sealed class TimecodeTracker
         if (_line is { Running: true } line && _points.Count >= _minPoints)
         {
             var jump = JumpThresholdNs(_jumpNs, format, line.SigmaNs);
-            var off = obs.TcNs - line.TcAt(obs.MonoNs);
-            if (Math.Abs(off) > jump)
+            var off = Math.Abs(obs.TcNs - line.TcAt(obs.MonoNs));
+            if (off > jump || off > JumpThresholdNs(0, format, line.SigmaNs) && !Glides(obs, line.Rate, format))
             {
                 if (_pendingJump is { } pending && Math.Abs(obs.TcNs - (pending.TcNs + (obs.MonoNs - pending.MonoNs))) <= jump)
                 {
@@ -270,10 +274,51 @@ public sealed class TimecodeTracker
         var kept = use.Where((_, k) => Math.Abs(residuals[k]) <= limit).ToList();
         if (kept.Count >= 2 && kept.Count < use.Count)
             (slope, intercept, sigma) = Solve(kept, lastMono, lastTc);
-        var running = slope is >= 0.85 and <= 1.15;
+        var running = slope is >= MinRate and <= MaxRate;
         _line = new TcLine(lastMono, lastTc + (long)Math.Round(intercept), running ? slope : 1, sigma, kept.Count, _run, 1, running);
         if (!running)
             _fault = "varispeed out of range (" + slope.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "×) — nothing locks";
+    }
+
+    /// <summary>Whether the fit glides onto code stepped off its line within the slope bounds, rehearsed on the window as it stands:
+    /// the code taken to run on from this observation at the line's rate, a point at the window's cadence (at least an eighth of a
+    /// frame apart), and the window's least-squares slope at each point until the window holds only the new code; a slope outside
+    /// the bounds at any means it cannot. At a glide's steepest, half the window on each code, the fit's outlier rule drops nothing,
+    /// so the fit's slope is the least-squares one there. Running sums: no allocation, one step per point.</summary>
+    private bool Glides(in TcObservation obs, double rate, TcFormat format)
+    {
+        var (mono0, tc0) = (obs.MonoNs, obs.TcNs);
+        double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+        void Take(long mono, long tc, int sign)
+        {
+            double x = mono - mono0, y = tc - tc0;
+            n += sign;
+            sx += sign * x;
+            sy += sign * y;
+            sxx += sign * x * x;
+            sxy += sign * x * y;
+        }
+
+        foreach (var (mono, tc) in _points)
+            Take(mono, tc, 1);
+        var cadence = Math.Max((_points[^1].Mono - _points[0].Mono) / (_points.Count - 1), format.FrameNs / 8);
+        var oldest = 0;
+        for (var k = 0L; ; k++)
+        {
+            var at = mono0 + k * cadence;
+            Take(at, tc0 + (long)Math.Round(k * cadence * rate), 1);
+            while (n > _minPoints && oldest < _points.Count && at - _points[oldest].Mono > _windowNs)
+            {
+                Take(_points[oldest].Mono, _points[oldest].Tc, -1);
+                oldest++;
+            }
+            var spread = n * sxx - sx * sx;
+            var slope = spread > 0 ? (n * sxy - sx * sy) / spread : 1;
+            if (slope is < MinRate or > MaxRate)
+                return false;
+            if (oldest == _points.Count)
+                return true;
+        }
     }
 
     private double Residual(int i, double slope, double intercept, long mono0, long tc0)

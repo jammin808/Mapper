@@ -8,8 +8,8 @@ namespace PlayMap.Engine.Tests.Tc;
 
 /// <summary>TIMECODE SET &lt;playlist&gt; JUMP governs the chase: its sources' code is judged by the chase's jump threshold, so a step of
 /// the code past it relocates the picture at once (STATE's lastJump says from where to where) and a step within it is drift, which
-/// the picture follows as the fit takes it in; AUTO is max(2 frames, 5σ). STATE and TIMECODE STATUS say the threshold in force, and
-/// it is kept in the project.</summary>
+/// the picture follows as the fit takes it in — unless the fit cannot glide it within its slope bounds, when it is a jump whatever
+/// the threshold; AUTO is max(2 frames, 5σ). STATE and TIMECODE STATUS say the threshold in force, and it is kept in the project.</summary>
 public sealed class ChaseJumpTests
 {
     private const long S = 1_000_000_000;
@@ -118,7 +118,8 @@ public sealed class ChaseJumpTests
         var desk = await Desk.StartAsync(rig, clock);
         Assert.Equal((80.0, true), Threshold(desk.Chase()));
 
-        Assert.Equal("Show: a jump is code more than 150 ms off its line, relocated at once; less is drift", (await rig.Ok("TIMECODE SET Show JUMP 150")).Effect);
+        Assert.Equal("Show: a jump is code more than 150 ms off its line, or a step too steep for the fit to glide, relocated at once; less is drift",
+            (await rig.Ok("TIMECODE SET Show JUMP 150")).Effect);
         Assert.Equal(150_000_000, rig.Engine.Store.Project.FindPlaylist("pl_show")!.Chase!.JumpNs);
         Assert.Equal((150.0, false), Threshold(desk.Chase()));
         Assert.Equal((150.0, false), Threshold(JsonDocument.Parse((await rig.Ok("TIMECODE STATUS Show")).Payload!).RootElement));
@@ -147,35 +148,31 @@ public sealed class ChaseJumpTests
         static (double, bool) Threshold(JsonElement chase) => (chase.GetProperty("jumpMs").GetDouble(), chase.GetProperty("jumpAuto").GetBoolean());
     }
 
-    /// <summary>JUMP 500 ms: a six-frame step is drift, but steeper than the fit can glide within its slope bounds — the chase's own
-    /// line (its code judged at 500 ms) reads varispeed out of range while the source, judged at auto, rolls on the new code. The
-    /// chase says so in its words until the window holds only the new code, then it is locked on the code with no jump said.</summary>
+    /// <summary>JUMP 500 ms: a six-frame step is within the threshold but steeper than the fit can glide within its slope bounds,
+    /// so it is a jump all the same, as under auto — relocated by the third frame and named in lastJump, the chase locked on the code
+    /// from then on, never out of range, its threshold still 500 ms.</summary>
     [Fact]
-    public async Task AStepTooSteepForTheFitToGlideIsSaidInTheChasesWords()
+    public async Task AStepTooSteepForTheFitToGlideIsAJumpWhateverTheThreshold()
     {
         var clock = new ManualClock(5 * S);
         await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), clock: clock);
         var desk = await Desk.StartAsync(rig, clock);
         await desk.Roll(40);
         await rig.Ok("TIMECODE SET Show JUMP 500");
+        Assert.Null(desk.LastJump());
         desk.Step(6);
-        var seen = new List<(string Chase, string Words, string Source)>();
+        await desk.Roll(3);
+        Assert.InRange(desk.PictureOff(), -2_000_000, 2_000_000);
+        Assert.Equal("01:00:02:04 → 01:00:02:10", desk.LastJump());
+        var seen = new List<(string State, string Words, double JumpMs)>();
         await desk.Roll(50, () =>
         {
-            var timecode = rig.State().GetProperty("timecode");
-            var chase = timecode.GetProperty("chases")[0];
-            seen.Add((chase.GetProperty("state").GetString()!, chase.GetProperty("words").GetString()!, timecode.GetProperty("sources")[0].GetProperty("state").GetString()!));
+            var chase = desk.Chase();
+            seen.Add((chase.GetProperty("state").GetString()!, chase.GetProperty("words").GetString()!, chase.GetProperty("jumpMs").GetDouble()));
+            Assert.InRange(desk.PictureOff(), -2_000_000, 2_000_000);
         });
-        var unlocked = seen.Where(s => s.Chase != "locked").ToList();
-        Assert.NotEmpty(unlocked);
-        Assert.All(unlocked, s =>
-        {
-            Assert.Equal(("acquiring", "rolling"), (s.Chase, s.Source));
-            Assert.StartsWith("varispeed out of range (", s.Words, StringComparison.Ordinal);
-        });
-        Assert.Equal(("locked", "locked to Desk"), (seen[^1].Chase, seen[^1].Words));
-        Assert.InRange(desk.PictureOff(), -2_000_000, 2_000_000);
-        Assert.Null(desk.LastJump());
+        Assert.All(seen, s => Assert.Equal(("locked", "locked to Desk", 500.0), s));
+        Assert.Equal("01:00:02:04 → 01:00:02:10", desk.LastJump());
     }
 
     /// <summary>TIMECODE SET and TIMECODE INTERNAL take numbers: "NaN" is none, and is refused with the range rather than taken as 0

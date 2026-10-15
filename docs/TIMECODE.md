@@ -47,10 +47,16 @@ of range" and nothing locks). A jump — code off the line by more than the **ju
 agrees with it: the run starts afresh and its line is on the new code by the third frame. Code off the line by no more than the
 threshold is drift: the fit takes it in, gliding the line onto the new code at a raised rate (a three-frame step at JUMP 200 ms
 is ridden at up to 1.12×, reaches the code in about half a second, overshoots it by under a frame and is exact once the window
-holds only the new code). A step steeper than the fit can glide within the 0.85–1.15 slope bounds (four frames or more at 25 fps)
-leaves the chase acquiring, its words "varispeed out of range (…×) — nothing locks", while the picture rides on at its last
-line's rate; once the window holds only the new code (1.5 s by default) the chase locks and the picture moves onto the code at once,
-not named a jump. A lone outlier is counted invalid. The threshold is auto, max(2 frames,
+holds only the new code). A threshold wider than auto's widens drift only to steps the fit can glide within its 0.85–1.15 slope
+bounds: a step past auto's threshold is rehearsed on the window as it stands — the code run on at the line's rate, the window's
+least-squares slope taken at each coming point until the window holds only the new code — and one whose glide would leave the
+bounds is a jump whatever the threshold, relocated by the third frame and named in `lastJump`, as under auto. A glide's steepest
+slope is the code's own rate ± 1.5 × the step ÷ the window, so with the 1.5 s window at 25 fps a step of three frames glides and
+one of four does not; a run younger than its window glides less, and code off its true rate has less room on the side it is off
+to (a three-frame step on a run half a second old, or ahead on code at 1.05×, is a jump; five frames ahead on code at 0.95× glide).
+A step within auto's own threshold is judged as auto judges it: one a short
+window cannot glide (two frames on a window under 0.8 s) reads "varispeed out of range (…×) — nothing locks" until the window
+holds only the new code. A lone outlier is counted invalid. The threshold is auto, max(2 frames,
 5σ), unless a chase sets its own (`TIMECODE SET <playlist> JUMP <ms>|AUTO`; a generic `SET` of `chase.jumpNs` is held to the same
 0 or 1–10000 ms): each threshold a chase sets judges the source's code
 in a tracker of its own, fed the same code, so two chases of one source can judge it differently. The source's own reading (its
@@ -76,7 +82,8 @@ sources, in order), `ChaseLogic` decides the lane:
 
 Within a region the lane is re-anchored only when the content would be off by a quarter frame or more, or the rate by 50 ppm,
 at most four times a second; a region change takes effect at once, and so does a re-anchor that moves the picture's code by more
-than the chase's jump threshold — a jump, which STATE's `lastJump` names from → to. While a chase is engaged, `PLAYLIST GO/CUE/NEXT/PREV` and the
+than the chase's jump threshold, or by more than auto's onto code the tracker relocated to (a step too steep to glide) — a jump,
+which STATE's `lastJump` names from → to. While a chase is engaged, `PLAYLIST GO/CUE/NEXT/PREV` and the
 `VIDEO` clip verbs on its playlist are refused with "Main chases FOH (locked) — TIMECODE ENGAGE Main OFF to drive it by hand".
 Which chases are disengaged, and what disengaged each (a panic), is kept for recovery. A `PANIC` whose outcome moves transport
 (BLACK, HARD, REWIND, NEXT) disengages a chased playlist's chase at its step's instant, so the panic holds whatever the code does;
