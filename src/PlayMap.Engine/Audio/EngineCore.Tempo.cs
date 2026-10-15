@@ -57,7 +57,8 @@ public sealed partial class EngineCore
             w.WriteNumber("beatsPerBar", clock.BeatsPerBar);
             w.WriteNumber("barsPerPhrase", clock.BarsPerPhrase);
             w.WriteString("source", t.Source);
-            w.WriteString("lock", TempoLock(Store.Project));
+            w.WriteString("lock", TempoLockNow);
+            w.WriteNumber("confidence", t.Source == "manual" ? 1 : TempoConfidenceNow);
             w.WriteNumber("leaderNs", now);
             w.WriteStartArray("anchors");
             foreach (var a in clock.Pruned(now).Anchors)
@@ -110,7 +111,7 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         if (ReferenceEquals(Edits, Store))
-            AudioRt.Tempo = AudioRt.Tempo.Pruned(LeaderNowNs).WithTempo(at, bpm, source);
+            AudioRt.Tempo = AudioRt.Tempo.Kept(LeaderNowNs).WithTempo(at, bpm, source);
         TempoInUse();
         return CommandReply.Success(AnchorJson(at), Inv($"tempo {bpm:0.###} BPM from {WhenWords(at)}"));
     }
@@ -132,7 +133,7 @@ public sealed partial class EngineCore
                 "1 tap — tap again on the beat");
         var rounded = Math.Round(Math.Clamp(tapped, MinBpm, MaxBpm), 2);
         // The taps fall on beats: the last one is a whole beat, and the tempo they give runs from one lead after the line.
-        var clock = AudioRt.Tempo.Pruned(LeaderNowNs);
+        var clock = AudioRt.Tempo.Kept(LeaderNowNs);
         var effective = LeaderNowNs + TempoTimeline.LeadNs;
         var beatAtTap = Math.Round(clock.BeatAt(at));
         var beatAtEffective = beatAtTap + (effective - at) * rounded / 60e9;
@@ -167,7 +168,7 @@ public sealed partial class EngineCore
             press = Math.Min(pressAt, LeaderNowNs);
             rest.RemoveRange(atIndex, 2);
         }
-        var clock = AudioRt.Tempo.Pruned(LeaderNowNs);
+        var clock = AudioRt.Tempo.Kept(LeaderNowNs);
         var unit = (rest.FirstOrDefault() ?? "BAR").ToUpperInvariant() switch
         {
             "BEAT" => 1,
@@ -194,7 +195,7 @@ public sealed partial class EngineCore
     {
         if (args.Count != 1)
             return CommandReply.Fail("TEMPO NUDGE <±1-200 ms>|FASTER|SLOWER|STOP");
-        var clock = AudioRt.Tempo.Pruned(LeaderNowNs);
+        var clock = AudioRt.Tempo.Kept(LeaderNowNs);
         var at = LeaderNowNs + TempoTimeline.LeadNs;
         var bpm = Store.Project.Tempo.Bpm;
         var word = args[0].ToUpperInvariant();
@@ -233,6 +234,8 @@ public sealed partial class EngineCore
         var r = Edits.Apply($"tempo source {source}", p => p with { Tempo = p.Tempo with { Source = source } });
         if (!r.Changed)
             return FromEdit(r);
+        if (ReferenceEquals(Edits, Store))
+            DetectionSource(source);
         TempoInUse();
         return CommandReply.Success(effect: source == "manual" ? "the beat comes from taps and TEMPO SET"
             : "the beat is detected from the sound: searching until it locks");

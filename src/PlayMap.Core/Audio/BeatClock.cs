@@ -21,6 +21,10 @@ public sealed record TempoTimeline(ImmutableArray<TempoAnchor> Anchors, int Beat
     /// <summary>How far ahead a change is scheduled: 40 ms.</summary>
     public const long LeadNs = 40_000_000;
 
+    /// <summary>How far back the clock keeps its anchors: a smoothed beat source replays up to a minute, and every node must read the
+    /// same beat at any instant it replays.</summary>
+    public const long HistoryNs = 60_000_000_000;
+
     /// <summary>The largest share a phase correction changes the tempo by while it slews.</summary>
     public const double MaxSlew = 0.02;
 
@@ -113,6 +117,9 @@ public sealed record TempoTimeline(ImmutableArray<TempoAnchor> Anchors, int Beat
         }
         return t;
     }
+
+    /// <summary>The clock with the anchors of more than <see cref="HistoryNs"/> ago dropped (what a node keeps).</summary>
+    public TempoTimeline Kept(long nowNs) => Pruned(nowNs - HistoryNs);
 
     /// <summary>Drops anchors no instant at or after <paramref name="nowNs"/> reads (keeps the one in force and every later one).</summary>
     public TempoTimeline Pruned(long nowNs)

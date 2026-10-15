@@ -52,6 +52,8 @@ public sealed partial class EngineCore
         if (!rt.Paced)
             rt.Synthetic.Pump();
         var changed = KeepTempo(leaderNs);
+        if (DetectTempo(leaderNs))
+            changed = true;
         if (rt.Observe(Services.Mono.NowNs, leaderNs, _audioScratch))
             changed = true;
         KeepListening();
@@ -60,6 +62,9 @@ public sealed partial class EngineCore
         if (changed)
             FactsChanged();
     }
+
+    /// <summary>The audio part of the lane's tick, run now (on the lane): a test on a hand-moved clock runs it at its own instants.</summary>
+    internal void RunAudioTick() => TickAudio(LeaderNowNs);
 
     /// <summary>STATE's audio facts and beat taken now, whatever moved (on the lane): what a test reads at a fixed instant.</summary>
     internal void RefreshAudioFacts()
@@ -76,8 +81,9 @@ public sealed partial class EngineCore
     {
         var rt = AudioRt;
         var t = Store.Project.Tempo;
-        var clock = rt.Tempo.Pruned(leaderNs);
-        if (Math.Abs(clock.Bpm - t.Bpm) > 1e-9)
+        var clock = rt.Tempo.Kept(leaderNs);
+        // Detected, the tempo is the sound's (the show's tempo is the manual one).
+        if (t.Source != "detect" && Math.Abs(clock.Bpm - t.Bpm) > 1e-9)
             clock = clock.WithTempo(leaderNs + TempoTimeline.LeadNs, t.Bpm, "set");
         if (clock.BeatsPerBar != t.BeatsPerBar || clock.BarsPerPhrase != t.BarsPerPhrase)
             clock = clock.WithMeter(t.BeatsPerBar, t.BarsPerPhrase);
@@ -165,8 +171,8 @@ public sealed partial class EngineCore
         w.WriteEndObject();
         w.WriteStartObject("tempo");
         w.WriteString("source", p.Tempo.Source);
-        w.WriteString("lock", TempoLock(p));
-        w.WriteNumber("confidence", p.Tempo.Source == "manual" ? 1 : -1);
+        w.WriteString("lock", TempoLockNow);
+        w.WriteNumber("confidence", p.Tempo.Source == "manual" ? 1 : TempoConfidenceNow);
         w.WriteNumber("bpm", Math.Round(rt.Tempo.Bpm, 3));
         w.WriteNumber("beatsPerBar", rt.Tempo.BeatsPerBar);
         w.WriteNumber("barsPerPhrase", rt.Tempo.BarsPerPhrase);
@@ -243,8 +249,6 @@ public sealed partial class EngineCore
         return [.. list.Distinct(StringComparer.Ordinal)];
     }
 
-    private static string TempoLock(Project p) => p.Tempo.Source == "manual" ? "manual" : "searching";
-
     private static double Round(float v) => Math.Round(v, 3);
 
     private static string Inv(FormattableString text) => FormattableString.Invariant(text);
@@ -275,7 +279,13 @@ public sealed partial class EngineCore
         items.Add(new ContextItem("audio", "audio", "Audio", light, words));
         var tempo = rt.Tempo;
         var tempoWords = Inv($"{tempo.Bpm:0.#} BPM · {tempo.BeatsPerBar} beats a bar · {Store.Project.Tempo.Source}");
-        items.Add(new ContextItem("tempo", "tempo", "Tempo", _tempoInUse ? Light.Green : Light.Grey, tempoWords));
+        var tempoLight = TempoLockNow switch
+        {
+            "searching" or "holding" => Light.Amber,
+            "lost" => Light.Red,
+            _ => _tempoInUse ? Light.Green : Light.Grey,
+        };
+        items.Add(new ContextItem("tempo", "tempo", "Tempo", tempoLight, tempoWords + (TempoLockNow is "manual" or "locked" ? "" : " · " + TempoLockNow)));
     }
 
     partial void ValidateAudio(Project p, object entity, ref string? why)

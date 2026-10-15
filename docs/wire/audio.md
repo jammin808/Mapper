@@ -17,7 +17,7 @@ name), a surface (id or name) or an effect slot (id). Every mutating verb refuse
 | `TEMPO RESYNC` | `TEMPO RESYNC [BEAT\|BAR\|PHRASE] [AT <unix ms>]` | JSON anchor; the bar by default | low | yes |
 | `TEMPO NUDGE` | `TEMPO NUDGE <±1-200 ms>\|FASTER\|SLOWER\|STOP` | JSON anchor; positive milliseconds land the beat earlier | low | yes |
 | `TEMPO HALF`, `TEMPO DOUBLE` | | JSON anchor | low | yes |
-| `TEMPO SOURCE` | `TEMPO SOURCE MANUAL\|DETECT` | effect words | review | yes |
+| `TEMPO SOURCE` | `TEMPO SOURCE MANUAL\|DETECT` | effect words; detected, `TEMPO STATUS` and STATE give `lock` (searching, locked, holding, lost) and `confidence` | review | yes |
 | `TEMPO METER` | `TEMPO METER <beats per bar 1-16> [<bars per phrase 1-64>]` | effect words | low | yes |
 | `MOD SOURCES` | `MOD SOURCES [<prefix>]` | JSON `[{source, value, raw?, determinism, words}]`; `value` is null for a source the node lacks | low | no |
 | `MOD BIND` | `MOD BIND <entity> <param> <source> [AMOUNT <-1…1>] [OFFSET <x>] [MODE ADD\|SCALE\|REPLACE] [CURVE LINEAR\|EASE\|STEP\|EXP\|LOG\|S] [SMOOTH <attack ms>[/<release ms>]] [RANGE <min> <max>] [STEPS <n>] [INVERT]` (aliases `FX BIND`, `GENERATOR BIND`) | JSON binding `{param, source, mode, amount, offset, curve, attackMs, releaseMs, rangeMin, rangeMax, steps, invert, enabled, entity, kind}`; the words say whether the source is live (this node's sound) or pure | review | yes |
@@ -43,7 +43,7 @@ Top level, after `fx`:
 "audio": {"level":0.42,"bpm":128.0,"beat":2,"bar":5,"phrase":1,"phase":0.61,"bass":0.61,"mid":0.30,"high":0.18,"peakDb":-6.1,"silent":false,
           "input":{"key":"test:drums","name":"Test drums","channels":"1+2","rateHz":48000,"state":"off|opening|listening|retrying",
                    "words":"","backend":"test","asked":"test:drums","here":false,"silentForS":0},
-          "tempo":{"source":"manual|detect","lock":"manual|searching","confidence":1,"bpm":128.0,"beatsPerBar":3,"barsPerPhrase":4,
+          "tempo":{"source":"manual|detect","lock":"manual|searching|locked|holding|lost","confidence":1,"bpm":128.0,"beatsPerBar":3,"barsPerPhrase":4,
                    "inUse":true,"epochUnixMs":1759999995000,"anchor":{"leaderNs":5040000000,"beat":10.08,"bpm":128.0,"seq":1,"source":"set"}},
           "latencyMs":{"input":-1,"analysis":10.7,"total":-1,"acoustic":0}},
 "modulation": {"bindings":3,"bypassed":false,"live":1,"shared":0,"pure":2,"unbound":["audio:bass (no audio on this node)"],"held":["gn…"],"flashLimited":-1}
@@ -56,14 +56,16 @@ Top level, after `fx`:
   frame.
 - `latencyMs.input` is −1 (unknown) unless the node's settings give it; `total` likewise. `acoustic` is the listener distance ÷
   343 m/s.
+- `tempo.confidence` is 1 under `MANUAL`, the last estimate's (0–1) when detecting, −1 before the first.
 - `modulation.shared` is 0 (frames are not shared this round); `flashLimited` is −1 (no limiter on this node).
 - Fixture: `tests/fixtures/state/audio.json`, cards `tests/fixtures/state/audio.cards.json`.
 
 ## Context
 
 `audio` (kind `audio`): red when bindings read the sound and nothing is heard (off or retrying); amber silent for more than 10 s,
-opening, or retrying with no binding listening; green listening; grey off. `tempo` (kind `tempo`): green once the clock is in use,
-else grey; words "128 BPM · 4 beats a bar · manual".
+opening, or retrying with no binding listening; green listening; grey off. `tempo` (kind `tempo`): amber while detection searches
+or holds, red when it is lost, green once the clock is in use (manual or locked), else grey; words "128 BPM · 4 beats a bar ·
+manual".
 
 ## INDEX
 
@@ -84,9 +86,9 @@ For the integration docs pass:
 - `ARCHITECTURE.md`: the analyser and the beat clock in Core (`Core/Audio`), the bus and the binding plan in Core
   (`Core/Modulation`), the runtime and verbs in the engine (`Engine/Audio`), the capture backends in Media (`Media/Audio`, WASAPI
   under `Media/Audio/Windows`); bound numbers reach every renderer through the project the render host's compose hook hands it.
-- `ROADMAP.md`: M6 "audio analysis as a modulation source" done for this node (analysis, onsets, tap, the beat clock as anchors,
-  bindings on generators, layers, surfaces and effect slots); shared frames, Link (Carabiner), MIDI clock, analysis tracks and
-  launch quantisation are next.
+- `ROADMAP.md`: M6 "audio analysis as a modulation source" done for this node (analysis, onsets, tap, tempo detection, the beat
+  clock as anchors, bindings on generators, layers, surfaces and effect slots); shared frames, Link (Carabiner), MIDI clock,
+  analysis tracks and launch quantisation are next.
 - Spine amendments asked for: a dispose hook for packages in `EngineCore.DisposeAsync` (the engine's own audio runtime is let go
   by its host's extension, or by a test); `ComposeAudio` runs after `ComposeFx`, so effects that read `FrameInputs.Modulation` in
   their compose see it from the next package on (they read the bus through `PassFrame` today — no effect reads it yet).

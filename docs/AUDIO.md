@@ -59,6 +59,21 @@ Every change is a new anchor one lead (40 ms) ahead of the line, or at the insta
 The show's tempo and meter are project settings (undoable); the clock follows them when they change without a TEMPO verb (an
 undo, a loaded show).
 
+## Tempo detection
+
+`TEMPO SOURCE DETECT` follows the sound (`Core/Audio/TempoTracker`, written from the published descriptions of comb-filtered
+autocorrelation and beat scoring — Ellis 2007, Davies and Plumbley 2007 — with no tracker's code): the last 8 s of the onset
+strength; every 0.5 s its autocorrelation summed at 1–4 periods for each tempo in the window (75–180 BPM by the show's settings,
+0.05 BPM steps), weighted by a log-Gaussian prior an octave wide around 120 BPM; a new tempo replaces the held one only when it is
+1.2 × as salient on three updates running; the beat's phase from the strength summed at the period back from now. Drum and click
+loops at 90–174 BPM are found within ±0.5 BPM, on the right octave, their beats within 15 ms, inside 6 s (tests).
+
+Two sure estimates running (confidence ≥ 0.3) lock the clock: a tempo off by more than 0.2 BPM or a beat off by more than 10 ms is
+corrected one lead ahead — slewed (at most 2 % for whole bars) within a quarter beat, jumped beyond it; a correction still slewing
+is let finish. Silence holds the clock (it keeps counting at the locked tempo); 32 bars of it is `lost`. The lock states are
+`searching`, `locked`, `holding`, `lost` (`manual` under `TEMPO SOURCE MANUAL`). The show's tempo is not written: detection is
+this node's, and `MANUAL` brings the show's tempo back one lead ahead.
+
 ## The modulation bus
 
 `Core/Modulation/ModulationBus` implements `IModulationBus` and `IAudioFrames`. Its sources:
@@ -114,8 +129,10 @@ unknown), and no budget on the bus. The analyser's per-hop cost and allocation a
 
 ## Next round
 
-Shared live frames to followers (PMMD on UDP 9945, HMAC keyed from pairing) so every node reacts to the same sound; Ableton Link
+Shared live frames to followers (PMMD on UDP 9945, HMAC keyed from pairing) so every node reacts to the same sound (and
+followers adopt the listener's detected anchors); analysis tracks at import (`.pmaa`) and an offline tracker; downbeat detection
+(a detected lock keeps the count, the bar line is a resync); Ableton Link
 only through a Carabiner process the user installs (GPLv2+, never bundled); MIDI clock in; named modulators (LFO, envelope,
 steps, random); `MOD AUTO` presets; launch quantisation (`AT BEAT|BAR|PHRASE` on playlist verbs); discrete audio inputs for
-control bindings; `AUDIO CALIBRATE`; analysis tracks at import (`.pmaa`); a zero-allocation overlay for generators (content's
-render path) in place of the per-frame project; RATE bindings.
+control bindings; `AUDIO CALIBRATE`; a zero-allocation overlay for generators (content's render path) in place of the per-frame
+project; RATE bindings.

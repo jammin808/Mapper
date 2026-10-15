@@ -31,6 +31,9 @@ public sealed class AnalysisFrame
     public readonly float[] Spectrum = new float[SpectrumBins];
     /// <summary>The onset strength over its slow peak, 0–1.</summary>
     public float Flux;
+    /// <summary>The onset strength itself (the spectral flux between this hop's window and the one before; what tempo detection
+    /// reads).</summary>
+    public float OnsetStrength;
     /// <summary>The spectral centroid, log-mapped from 30 Hz–16 kHz to 0–1.</summary>
     public float Centroid;
     /// <summary>True when the hop before this frame's was an onset (found one hop late, so its sample is in the past).</summary>
@@ -61,6 +64,7 @@ public sealed class AnalysisFrame
         BandsN.AsSpan().CopyTo(to.BandsN);
         Spectrum.AsSpan().CopyTo(to.Spectrum);
         to.Flux = Flux;
+        to.OnsetStrength = OnsetStrength;
         to.Centroid = Centroid;
         to.Onset = Onset;
         to.LastOnsetSample = LastOnsetSample;
@@ -231,6 +235,7 @@ public sealed class AudioAnalyser
         if (f.Onset)
             f.LastOnsetSample = f.CentreSample - Hop / 2;
         f.Flux = _onsets.SlowPeak <= 1e-9 ? 0f : Clamp01(_onsets.Strength / _onsets.SlowPeak);
+        f.OnsetStrength = (float)_onsets.Strength;
         Twins(f);
     }
 
