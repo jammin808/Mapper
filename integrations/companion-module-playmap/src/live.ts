@@ -56,7 +56,7 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 				key: item.id,
 				label: item.label,
 				sub: onAir ? (now.state === 'playing' ? 'ON AIR' : now.state.toUpperCase()) : next ? 'NEXT' : '',
-				light: onAir ? 'green' : next ? 'amber' : 'grey',
+				light: onAir ? (now.state === 'cued' ? 'amber' : 'green') : next ? 'amber' : 'grey',
 				thumbRef: item.source || null,
 				line: `PLAYLIST GO ${pl.id} ${item.id}`,
 			})

@@ -102,6 +102,7 @@ export function lineOf(row: VerbRow, options: CompanionOptionValues): { line: st
 			continue
 		}
 		const t = text(value)
+		if (/[\r\n]/u.test(t)) return { error: `${p.name} cannot hold a line break — one line is one command` }
 		if (t === '') {
 			if (p.optional) continue
 			return { error: `${row.name} needs ${p.name} — ${row.syntax}` }

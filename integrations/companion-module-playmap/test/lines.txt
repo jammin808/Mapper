@@ -244,6 +244,8 @@ MOD UNBIND pl0a1b2c3d "Front wall"
 MOVE pl0a1b2c3d 1
 NODES
 NUDGE pl0a1b2c3d "Front wall" 1
+NUDGE sf0a1b2c3d opacity +0.05
+NUDGE sf0a1b2c3d opacity -0.05
 OUTPUT ENABLE op0a1b2c3d ON
 OUTPUT IDENTIFY
 OUTPUT IDENTIFY op0a1b2c3d 1

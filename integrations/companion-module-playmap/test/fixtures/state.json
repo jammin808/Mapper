@@ -145,7 +145,18 @@
     "items": 0,
     "missing": 0,
     "ready": true,
-    "transfers": []
+    "transfers": [
+      {
+        "media": "md00000099",
+        "name": "intro.mov",
+        "progress": 0.25,
+        "from": "Stage left",
+        "state": "pulling",
+        "hash": "9f1c2ab07d3e4410",
+        "bytesDone": 25000000,
+        "size": 100000000
+      }
+    ]
   },
   "stage": {
     "surfaces": 0,
@@ -153,7 +164,14 @@
     "projectors": [],
     "scans": 0
   },
-  "scan": null,
+  "scan": {
+    "state": "projecting",
+    "projector": "pj_left",
+    "pattern": 12,
+    "of": 40,
+    "quality": 0.9,
+    "words": "pattern 12 of 40 on Left"
+  },
   "sync": {
     "role": "solo",
     "leader": null,
@@ -180,7 +198,21 @@
       "state": "off"
     },
     "stagewatch": {
-      "state": "off"
+      "state": "live",
+      "host": "10.0.0.9",
+      "paired": true,
+      "detail": "Keynote",
+      "timer": {
+        "state": "running",
+        "text": "4:59",
+        "seconds": 299,
+        "phase": "running",
+        "color": "green",
+        "title": "Keynote",
+        "message": "",
+        "trusted": true,
+        "why": ""
+      }
     }
   },
   "peers": [

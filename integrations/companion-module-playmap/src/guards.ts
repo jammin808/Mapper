@@ -184,11 +184,11 @@ export class Confirms {
 }
 
 /** The module's double-GO guard: a second GO of the same playlist within min_go_ms of the last is not sent (the node keeps its own
- * minimum too, which this never relaxes). */
+ * minimum too, which this never relaxes). Each playlist's window ends on its own timer, so its cooling light goes out when it may GO. */
 export class GoGuard {
 	readonly #last = new Map<string, number>()
+	readonly #timers = new Map<string, ReturnType<typeof setTimeout>>()
 	readonly #now: () => number
-	#timer: ReturnType<typeof setTimeout> | null = null
 	readonly #changed: () => void
 
 	constructor(changed: () => void, now: () => number = (): number => Date.now()) {
@@ -203,12 +203,16 @@ export class GoGuard {
 		if (minGoMs > 0 && last !== undefined && now - last < minGoMs) return false
 		this.#last.set(playlist, now)
 		if (minGoMs > 0) {
-			if (this.#timer) clearTimeout(this.#timer)
+			const before = this.#timers.get(playlist)
+			if (before) clearTimeout(before)
+			this.#timers.set(
+				playlist,
+				setTimeout(() => {
+					this.#timers.delete(playlist)
+					this.#changed()
+				}, minGoMs),
+			)
 			this.#changed()
-			this.#timer = setTimeout(() => {
-				this.#timer = null
-				this.#changed()
-			}, minGoMs)
 		}
 		return true
 	}
@@ -221,5 +225,11 @@ export class GoGuard {
 		}
 		for (const last of this.#last.values()) if (now - last < minGoMs) return true
 		return false
+	}
+
+	clear(): void {
+		for (const t of this.#timers.values()) clearTimeout(t)
+		this.#timers.clear()
+		this.#last.clear()
 	}
 }

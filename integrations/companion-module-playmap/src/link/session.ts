@@ -67,6 +67,8 @@ interface Pending {
 	resolve(reply: Reply): void
 	reject(error: Error): void
 	timer: ReturnType<typeof setTimeout>
+	/** The HELLO: its OK is read in the same tick as the greeting STATE that follows it, so it marks the hello answered at once. */
+	hello: boolean
 }
 
 /** The link to one node: opens the channel, pairs (HELLO, then AUTH-PROOF when the node sends a NONCE), numbers every line "@c<n>"
@@ -150,9 +152,11 @@ export class NodeSession {
 		return this.#request(line, timeoutMs)
 	}
 
-	async #request(line: string, timeoutMs?: number): Promise<Reply> {
+	async #request(line: string, timeoutMs?: number, hello = false): Promise<Reply> {
 		const channel = this.#channel
 		if (!channel) throw new Error('the node is not linked')
+		// One line is one command: a line break would put a second, unnumbered line on the TCP wire.
+		if (/[\r\n]/u.test(line)) throw new Error('a line cannot hold a line break')
 		if (Buffer.byteLength(line, 'utf8') + 16 > MAX_LINE_BYTES)
 			throw new Error('the line is longer than the node reads (64 KiB)')
 		const id = `c${++this.#counter}`
@@ -161,7 +165,7 @@ export class NodeSession {
 				this.#pending.delete(id)
 				reject(new Error(`no answer from the node within ${Math.round((timeoutMs ?? this.#replyTimeoutMs) / 1000)} s`))
 			}, timeoutMs ?? this.#replyTimeoutMs)
-			this.#pending.set(id, { resolve, reject, timer })
+			this.#pending.set(id, { resolve, reject, timer, hello })
 			channel.send(`@${id} ${line}`)
 		})
 	}
@@ -205,10 +209,9 @@ export class NodeSession {
 
 	async #handshake(generation: number): Promise<void> {
 		try {
-			const hello = await this.#request(`HELLO ${this.#host.helloName()} module=${MODULE_VERSION}`)
+			const hello = await this.#request(`HELLO ${this.#host.helloName()} module=${MODULE_VERSION}`, undefined, true)
 			if (generation !== this.#generation) return
 			if (!hello.ok) return this.#fail(InstanceStatus.UnknownError, hello.payload)
-			this.#helloDone = true
 			if (this.#nonce !== null) {
 				const token = normaliseToken(this.#host.token())
 				if (token.length === 0) return this.#fail(InstanceStatus.BadConfig, Words.tokenNeeded)
@@ -255,6 +258,7 @@ export class NodeSession {
 			if (!pending) return
 			this.#pending.delete(line.id)
 			clearTimeout(pending.timer)
+			if (pending.hello && line.word === 'OK') this.#helloDone = true
 			pending.resolve({
 				ok: line.word === 'OK',
 				accepted: line.word === 'OK' && line.rest.startsWith('{"stage":"accepted"'),

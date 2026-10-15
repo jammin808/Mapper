@@ -64,13 +64,22 @@ const FIXED: Record<string, string> = {
 	media_ready: 'All media present',
 	media_missing: 'Media files missing',
 	transfers: 'Media transfers running',
-	scan_state: 'Scan running (running or idle)',
+	transfer_progress: 'Media transfers: how far, together (0-1)',
+	scan_state: 'Scan: its state (projecting …, or idle)',
+	scan_stage: 'Scan: pattern n of all (12/40)',
+	scan_progress: 'Scan: how far (0-1)',
+	scan_words: 'Scan: in words',
 	sync_role: 'Sync role',
 	sync_leader: 'Sync leader',
 	sync_uncertainty_ms: 'Leader-time uncertainty (ms, half the round trip)',
 	sync_rtt_ms: 'Sync round trip (ms)',
 	patterns_link: 'Patterns link',
 	stagewatch_link: 'Stagewatch link',
+	stagewatch_timer: "Stagewatch's timer, as it reads",
+	stagewatch_phase: "Stagewatch's timer phase",
+	cal_score: 'Calibration: the worst score (0-100)',
+	cal_grade: 'Calibration: the worst grade',
+	cal_words: 'Calibration: the worst, in words',
 	ai_proposals: 'AI proposals waiting for a person',
 	cal_moved: 'Projectors that moved since calibration',
 	bpm: 'Tempo (BPM)',
@@ -89,6 +98,7 @@ const BANK_FIELDS = {
 	pl: ['id', 'name', 'state', 'item', 'next', 'remaining', 'progress'],
 	op: ['id', 'name', 'light', 'fps', 'dropped'],
 	pj: ['id', 'name', 'light', 'residual_px'],
+	sf: ['id', 'name'],
 	peer: ['name', 'light', 'headline'],
 } as const
 
@@ -108,7 +118,13 @@ export function variableDefinitions(model: NodeModel, bankSize: number): Compani
 	for (const o of index?.outputs ?? [])
 		for (const f of ['light', 'fps']) defs[idVar('op', o.id, f)] = { name: `${o.name}: ${f}` }
 	for (const pj of index?.projectors ?? [])
-		for (const f of ['light', 'residual_px']) defs[idVar('pj', pj.id, f)] = { name: `${pj.name}: ${f}` }
+		for (const f of ['light', 'residual_px', 'score']) defs[idVar('pj', pj.id, f)] = { name: `${pj.name}: ${f}` }
+	for (const sf of index?.surfaces ?? []) defs[idVar('sf', sf.id, 'name')] = { name: `${sf.name}: name` }
+	// The machines this node hears come from STATE, not INDEX: their definitions move when the set of peers does.
+	for (const peer of list(model.state, P.peers)) {
+		const id = str(field(peer, P.peerId))
+		if (id) defs[idVar('peer', id, 'light')] = { name: `${str(field(peer, P.peerName), id)}: light` }
+	}
 	return defs
 }
 
@@ -157,7 +173,8 @@ export function variablesOf(
 	for (let i = 1; i <= 3; i++) v[`fault_${i}`] = str(field(faults[i - 1], P.faultWords))
 	v.renderer = str(at(s, P.renderer))
 	v.clients = list(s, P.clients).length
-	v.show_mode = model.armed ? 'ARMED' : 'REHEARSAL'
+	// A word about a node the module no longer hears is no fact: empty until STATE or WHOAMI says again.
+	v.show_mode = s || model.whoami ? (model.armed ? 'ARMED' : 'REHEARSAL') : ''
 	v.show_by = str(at(s, P.showBy))
 	v.blind = at(s, P.showBlind) !== null && at(s, P.showBlind) !== undefined
 	v.panic = str(at(s, P.panicOutcome))
@@ -192,13 +209,32 @@ export function variablesOf(
 	v.media_ready = s ? bool(at(s, P.mediaReady)) : false
 	v.media_missing = num(at(s, P.mediaMissing))
 	v.transfers = list(s, P.transfers).length
-	v.scan_state = at(s, P.scan) ? 'running' : 'idle'
+	const transfers = list(s, P.transfers)
+	v.transfer_progress =
+		transfers.length > 0
+			? Math.round(
+					(transfers.reduce((sum: number, t) => sum + num(field(t, P.transferProgress)), 0) / transfers.length) * 100,
+				) / 100
+			: 0
+	const scanning = at(s, P.scan) != null
+	v.scan_state = s ? (scanning ? str(at(s, P.scanState), 'running') : 'idle') : ''
+	const of = num(at(s, P.scanOf))
+	v.scan_stage = scanning ? `${num(at(s, P.scanPattern))}/${of}` : ''
+	v.scan_progress = scanning && of > 0 ? Math.round((num(at(s, P.scanPattern)) / of) * 100) / 100 : 0
+	v.scan_words = str(at(s, P.scanWords))
 	v.sync_role = str(at(s, P.syncRole))
 	v.sync_leader = str(at(s, P.syncLeader))
 	v.sync_uncertainty_ms = num(at(s, P.syncOffsetMs))
 	v.sync_rtt_ms = num(at(s, P.syncRttMs))
 	v.patterns_link = str(at(s, P.patternsLink))
 	v.stagewatch_link = str(at(s, P.stagewatchLink))
+	v.stagewatch_timer = str(at(s, P.stagewatchText))
+	v.stagewatch_phase = str(at(s, P.stagewatchPhase))
+	const worst = worstTarget(list(s, P.calTargets))
+	const score = num(field(worst, P.calTargetScore), -1)
+	v.cal_score = worst && score >= 0 ? Math.round(score) : ''
+	v.cal_grade = str(field(worst, P.calTargetGrade))
+	v.cal_words = str(field(worst, P.calTargetWords))
 	v.ai_proposals = num(at(s, P.proposals))
 	v.cal_moved = list(s, P.calMoved).length
 	v.bpm = num(at(s, P.bpm))
@@ -225,6 +261,9 @@ export function variablesOf(
 		v[`pj_${n}_name`] = str(field(pj, P.pjName))
 		v[`pj_${n}_light`] = pj ? projectorLight(pj) : ''
 		v[`pj_${n}_residual_px`] = num(field(pj, P.pjResidualPx))
+		const sf = model.index?.surfaces[n - 1]
+		v[`sf_${n}_id`] = sf?.id ?? ''
+		v[`sf_${n}_name`] = sf?.name ?? ''
 		const peer = list(s, P.peers)[n - 1]
 		v[`peer_${n}_name`] = str(field(peer, P.peerName))
 		v[`peer_${n}_light`] = peer ? (bool(field(peer, P.peerLive)) ? str(field(peer, P.peerLight), 'grey') : 'grey') : ''
@@ -245,8 +284,42 @@ export function variablesOf(
 		const p = model.projector(pj.id)
 		v[idVar('pj', pj.id, 'light')] = p ? projectorLight(p) : 'grey'
 		v[idVar('pj', pj.id, 'residual_px')] = num(field(p, P.pjResidualPx))
+		v[idVar('pj', pj.id, 'score')] = projectorScore(model, pj.id)
+	}
+	for (const sf of model.index?.surfaces ?? []) v[idVar('sf', sf.id, 'name')] = sf.name
+	for (const peer of list(s, P.peers)) {
+		const id = str(field(peer, P.peerId))
+		if (id)
+			v[idVar('peer', id, 'light')] = bool(field(peer, P.peerLive)) ? str(field(peer, P.peerLight), 'grey') : 'grey'
 	}
 	return v
+}
+
+/** A projector's calibration score (0-100): the node's when it has one, else from its solve's residual (1 px off costs 20). */
+export function projectorScore(model: NodeModel, id: string): number {
+	const target = list(model.state, P.calTargets).find((t) => field(t, P.calTargetId) === id)
+	const score = num(field(target, P.calTargetScore), -1)
+	if (score >= 0) return Math.round(score)
+	const pj = model.projector(id)
+	if (!pj || !bool(field(pj, P.pjSolved))) return 0
+	return Math.max(0, Math.min(100, Math.round(100 - num(field(pj, P.pjResidualPx)) * 20)))
+}
+
+const LIGHT_ORDER: Record<string, number> = { red: 0, amber: 1, grey: 2, green: 3 }
+
+/** The calibration target that needs a look first: the worst light, then the lowest score. */
+function worstTarget(targets: readonly unknown[]): unknown {
+	let worst: unknown = undefined
+	for (const t of targets) {
+		if (worst === undefined) {
+			worst = t
+			continue
+		}
+		const a = LIGHT_ORDER[str(field(t, P.calTargetLight), 'grey')] ?? 2
+		const b = LIGHT_ORDER[str(field(worst, P.calTargetLight), 'grey')] ?? 2
+		if (a < b || (a === b && num(field(t, P.calTargetScore), 101) < num(field(worst, P.calTargetScore), 101))) worst = t
+	}
+	return worst
 }
 
 /** The values that differ from the last emitted map (a key in last missing from next is not sent: definitions clear it). */

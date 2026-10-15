@@ -7,7 +7,7 @@ namespace PlayMap.Engine.Tests.Companion;
 
 /// <summary>The Companion module's fixtures (integrations/companion-module-playmap/test/fixtures/state.json and index.json) are STATE
 /// and INDEX as this engine writes them for a small show — two playlists, a generator, colour items, the show section, one item playing
-/// a second in, a fault and a peer heard — so the module's tests read what a node says and cannot drift from it. The show's random ids are renamed in order of
+/// a second in, a fault, a peer heard, a scan running, a media pull and a Stagewatch timer — so the module's tests read what a node says and cannot drift from it. The show's random ids are renamed in order of
 /// appearance and the two signatures fixed, so the files are the same on every run. PLAYMAP_WRITE_FIXTURES=1 writes them; otherwise
 /// the committed files must be what the engine writes now.</summary>
 public sealed partial class CompanionModuleFixtureTests
@@ -18,7 +18,10 @@ public sealed partial class CompanionModuleFixtureTests
     [Fact]
     public async Task TheModulesStateAndIndexAreWhatTheEngineWrites()
     {
-        await using var rig = new CompanionRig(s => s with { Faults = new OneFault(), Network = new OnePeer() });
+        await using var rig = new CompanionRig(s => s with
+        {
+            Faults = new OneFault(), Network = new OnePeer(), Scan = new OneScan(), Transfers = new OneTransfer(),
+        });
         var show = await rig.Ok("PLAYLIST NEW Show");
         var loops = await rig.Ok("PLAYLIST NEW Loops");
         var gen = await rig.Ok("GENERATOR NEW flat White");
@@ -87,18 +90,39 @@ public sealed partial class CompanionModuleFixtureTests
         public IReadOnlyList<NodeFault> Faults() => [new("mdns", "the network announcement could not open: port 5353 is taken")];
     }
 
-    /// <summary>The network edge as a node with one peer heard and both links off.</summary>
+    /// <summary>The network edge as a node with one peer heard, Patterns off and Stagewatch live with its timer (the shape
+    /// NetworkHost writes).</summary>
     private sealed class OnePeer : INetworkView
     {
         public IReadOnlyList<PeerView> Peers() => [new("playmap", "a1b2c3d4", "Stage left", "amber", "Stage left · output 2 dropping frames", true)];
 
         public LinkView? Patterns() => null;
 
-        public LinkView? Stagewatch() => null;
+        public LinkView? Stagewatch() => new("live", "10.0.0.9", true, "Keynote");
 
-        public string? StagewatchTimerJson() => null;
+        public string? StagewatchTimerJson() =>
+            "{\"state\":\"running\",\"text\":\"4:59\",\"seconds\":299,\"phase\":\"running\",\"color\":\"green\",\"title\":\"Keynote\"," +
+            "\"message\":\"\",\"trusted\":true,\"why\":\"\"}";
 
         public SyncView Sync() => NullBackends.Instance.Sync();
+    }
+
+    /// <summary>A structured-light scan twelve patterns into forty.</summary>
+    private sealed class OneScan : IScanBackend
+    {
+        public ScanProgress? Current => new("projecting", "pj_left", 12, 40, 0.9, "pattern 12 of 40 on Left");
+
+        public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct) =>
+            Task.FromException<string>(new InvalidOperationException("a scan is already running"));
+
+        public bool Cancel() => false;
+    }
+
+    /// <summary>One media file being pulled from a peer, a quarter done.</summary>
+    private sealed class OneTransfer : IMediaTransfers
+    {
+        public IReadOnlyList<MediaTransferView> Transfers() =>
+            [new("9f1c2ab07d3e4410", "md00000099", "intro.mov", "Stage left", 25_000_000, 100_000_000, "pulling")];
     }
 
     /// <summary>A show entity's id: its two-letter kind and eight lowercase hex digits (playlists, items, generators, the project).</summary>

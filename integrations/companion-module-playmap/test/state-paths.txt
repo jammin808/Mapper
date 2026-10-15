@@ -16,6 +16,7 @@ calibration.targets.[].grade
 calibration.targets.[].id
 calibration.targets.[].light
 calibration.targets.[].score
+calibration.targets.[].words
 clients
 events.seq
 faults
@@ -26,11 +27,14 @@ id
 light
 links.patterns.state
 links.stagewatch.state
+links.stagewatch.timer.phase
+links.stagewatch.timer.text
 machine.renderer
 media.items
 media.missing
 media.ready
 media.transfers
+media.transfers.[].progress
 name
 outputs
 outputs.[].dropped
@@ -66,6 +70,10 @@ project.index
 project.name
 project.revision
 scan
+scan.of
+scan.pattern
+scan.state
+scan.words
 seq
 show.armed
 show.blind

@@ -10,7 +10,7 @@ import { RULES, fillHint } from './live.ts'
 import { colourOf, rgbOf } from './palette/playmap.ts'
 import { clockText } from './state/model.ts'
 import { P, at, bool, field, list, num, str } from './state/paths.ts'
-import { projectorLight } from './state/variables.ts'
+import { projectorLight, projectorScore } from './state/variables.ts'
 
 /** What each feedback type depends on: a push or a module change that moves one of these rechecks only the types that read it. */
 export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
@@ -27,6 +27,7 @@ export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
 	playlist_state: ['playlists'],
 	item_on_air: ['playlists'],
 	item_next: ['playlists'],
+	item_cued: ['playlists'],
 	output_light: ['outputs'],
 	output_enabled: ['outputs'],
 	projector_light: ['projectors'],
@@ -92,10 +93,12 @@ export function entityView(ctx: Ctx, ref: string): { label: string; light: strin
 	const nextIn = playlists.find((p) => p.nextId === id)
 	if (item || airIn || nextIn) {
 		// STATE says what is on the air before INDEX is heard; INDEX gives the label of an item that is neither.
+		// A cued item holds its first frame, ready to go: amber (Patterns' cue colour), like the next one; playing or paused is on air.
+		const cued = airIn?.state === 'cued'
 		return dim({
 			label: item?.item.label ?? airIn?.itemLabel ?? nextIn?.nextLabel ?? '',
-			light: airIn ? 'green' : nextIn ? 'amber' : 'grey',
-			state: airIn ? 'air' : nextIn ? 'next' : '',
+			light: airIn ? (cued ? 'amber' : 'green') : nextIn ? 'amber' : 'grey',
+			state: airIn ? (cued ? 'cued' : 'air') : nextIn ? 'next' : '',
 		})
 	}
 	const op = model.output(id)
@@ -272,6 +275,13 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			options: [entityField('item', 'Item', items)],
 			defaultStyle: style(colourOf('item', 'next')),
 			callback: (fb) => linkLive() && entityView(ctx, text(fb.options.item)).state === 'next',
+		},
+		item_cued: {
+			type: 'boolean',
+			name: 'Item: cued (its first frame held, ready to go)',
+			options: [entityField('item', 'Item', items)],
+			defaultStyle: style(colourOf('item', 'cued')),
+			callback: (fb) => linkLive() && entityView(ctx, text(fb.options.item)).state === 'cued',
 		},
 		output_light: {
 			type: 'boolean',
@@ -493,15 +503,7 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			type: 'value',
 			name: "Value: a projector's calibration score (0-100)",
 			options: [entityField('projector', 'Projector', pjs)],
-			callback: (fb) => {
-				const id = text(fb.options.projector)
-				const target = list(ctx.model.state, P.calTargets).find((t) => field(t, P.calTargetId) === id)
-				const score = num(field(target, P.calTargetScore), -1)
-				if (score >= 0) return Math.round(score)
-				const pj = ctx.model.projector(id)
-				if (!pj || !bool(field(pj, P.pjSolved))) return 0
-				return Math.max(0, Math.min(100, Math.round(100 - num(field(pj, P.pjResidualPx)) * 20)))
-			},
+			callback: (fb) => projectorScore(ctx.model, text(fb.options.projector)),
 		},
 		state_path: {
 			type: 'value',

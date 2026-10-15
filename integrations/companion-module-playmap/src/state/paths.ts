@@ -65,8 +65,13 @@ export const P = {
 	mediaMissing: 'media.missing',
 	mediaItems: 'media.items',
 	transfers: 'media.transfers',
+	transferProgress: 'media.transfers.[].progress',
 
 	scan: 'scan',
+	scanState: 'scan.state',
+	scanPattern: 'scan.pattern',
+	scanOf: 'scan.of',
+	scanWords: 'scan.words',
 
 	syncRole: 'sync.role',
 	syncLeader: 'sync.leader',
@@ -75,6 +80,8 @@ export const P = {
 
 	patternsLink: 'links.patterns.state',
 	stagewatchLink: 'links.stagewatch.state',
+	stagewatchText: 'links.stagewatch.timer.text',
+	stagewatchPhase: 'links.stagewatch.timer.phase',
 
 	peers: 'peers',
 	peerId: 'peers.[].id',
@@ -106,6 +113,7 @@ export const P = {
 	calTargetScore: 'calibration.targets.[].score',
 	calTargetGrade: 'calibration.targets.[].grade',
 	calTargetLight: 'calibration.targets.[].light',
+	calTargetWords: 'calibration.targets.[].words',
 
 	bpm: 'audio.bpm',
 	level: 'audio.level',

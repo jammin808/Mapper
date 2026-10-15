@@ -364,9 +364,56 @@ function simple(spec: KeySpec): CompanionSimplePresetDefinition {
 	}
 }
 
-/** A key as Companion takes it: the layered key first, the simple one for hosts that cannot draw it. */
+/** The module's actions that answer a result (every generated `v_` action, and these). */
+const RESULT_ACTIONS = new Set([
+	'go_focused',
+	'next_focused',
+	'prev_focused',
+	'panic',
+	'blackout_toggle',
+	'freeze_toggle',
+	'slot_press',
+	'section_press',
+	'raw',
+	'ask_node',
+])
+
+/** The local variable a key's press stores its result in (`ok`, `stage`, `effect`, `error`), for an *if* block on the key. */
+export const RESULT_VARIABLE = 'result'
+
+const STORE_RESULT = { type: 'local-variable', variableName: RESULT_VARIABLE } as const
+
+function storesResult(entry: PresetAction): PresetAction {
+	if (!('actionId' in entry) || typeof entry.actionId !== 'string') return entry
+	return entry.actionId.startsWith('v_') || RESULT_ACTIONS.has(entry.actionId)
+		? { ...entry, storeResult: STORE_RESULT }
+		: entry
+}
+
+/** A key as Companion takes it: the layered key first, the simple one for hosts that cannot draw it. A press that answers a result
+ * stores it in the key's local variable `result`. */
 function key(spec: KeySpec): CompanionPresetDefinitions[string] {
-	return { type: 'alternatives', variants: [layered(spec), simple(spec)] }
+	const steps = (spec.steps ?? (spec.action ? stepsFor(spec.press, spec.action) : [{ down: [], up: [] }])).map(
+		(step) => {
+			const out: CompanionButtonStepActions = { ...step }
+			for (const [k, v] of Object.entries(step))
+				if (Array.isArray(v))
+					(out as unknown as Record<string, unknown>)[k] = v.map((a: PresetAction) => storesResult(a))
+				else if (v && typeof v === 'object' && Array.isArray((v as { actions?: unknown }).actions))
+					(out as unknown as Record<string, unknown>)[k] = {
+						...v,
+						actions: (v as { actions: PresetAction[] }).actions.map(storesResult),
+					}
+			return out
+		},
+	)
+	const stores = JSON.stringify(steps).includes('"storeResult"')
+	const full: KeySpec = {
+		...spec,
+		steps,
+		locals: stores ? [...spec.locals, { name: RESULT_VARIABLE, startup: '' }] : spec.locals,
+	}
+	return { type: 'alternatives', variants: [layered(full), simple(full)] }
 }
 
 /** The preset definitions: fixed for a config — they never change with the project, so linked keys are not rebuilt by a show edit
@@ -580,6 +627,16 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		light: { feedbackId: 'light', options: { ref: local('peer') } },
 		press: 'instant',
 		receipt: false,
+	})
+	presets.surface_opacity_key = key({
+		name: 'Surface opacity (encoder)',
+		notes: 'Turn: NUDGE the surface’s opacity by 0.05 per detent; the node clamps it to 0-1 and says so at an end.',
+		keywords: ['surface', 'opacity', 'encoder', 'dial'],
+		locals: [{ name: 'surface', startup: '' }],
+		label: { feedbackId: 'label', options: { ref: local('surface') } },
+		press: 'instant',
+		steps: encoderSteps('enc_surface_opacity', { surface: local('surface'), step: '0.05' }),
+		receipt: true,
 	})
 	presets.generator_param_key = key({
 		name: 'Generator parameter',
@@ -860,6 +917,13 @@ export function presetStructure(
 					'surface',
 					index.surfaces.map((s) => ({ name: s.name, value: s.id })),
 				),
+				template(
+					'surfaces_opacity',
+					'Opacity (encoder)',
+					'surface_opacity_key',
+					'surface',
+					index.surfaces.map((s) => ({ name: s.name, value: s.id })),
+				),
 			],
 		})
 	if (groupOn(config, 'live'))
@@ -1005,11 +1069,23 @@ export function compositeDefinitions(): CompanionGraphicsCompositeElementDefinit
 		pm_ring: {
 			type: 'composite',
 			name: 'PlayMap ring',
-			description: 'A ring gauge from red to green',
+			description: 'A ring gauge with a word in it; its stops run red to green, green to red, or by temperature',
 			options: [
 				{ type: 'number', id: 'value', label: 'Value', default: 0, min: -1000000, max: 1000000 },
 				{ type: 'number', id: 'min', label: 'Min', default: 0, min: -1000000, max: 1000000 },
 				{ type: 'number', id: 'max', label: 'Max', default: 100, min: -1000000, max: 1000000 },
+				{ type: 'textinput', id: 'text', label: 'Text', default: '' },
+				{
+					type: 'dropdown',
+					id: 'stops',
+					label: 'Stops',
+					default: 'red_green',
+					choices: [
+						{ id: 'red_green', label: 'Low red, high green (a score)' },
+						{ id: 'green_red', label: 'Low green, high red (a load)' },
+						{ id: 'temperature', label: 'Cool, warm, hot' },
+					],
+				},
 			],
 			elements: [
 				{
@@ -1025,9 +1101,130 @@ export function compositeDefinitions(): CompanionGraphicsCompositeElementDefinit
 					max: expr('$(options:max)'),
 					multiColour: true,
 					stops: [
-						{ value: 0, color: css('red'), gradient: true },
-						{ value: 1, color: css('green'), gradient: true },
+						{
+							value: 0,
+							color: expr(
+								`$(options:stops) == 'red_green' ? '${css('red')}' : $(options:stops) == 'green_red' ? '${css('green')}' : '${css('sky')}'`,
+							),
+							gradient: true,
+						},
+						{
+							value: 1,
+							color: expr(
+								`$(options:stops) == 'red_green' ? '${css('green')}' : $(options:stops) == 'green_red' ? '${css('red')}' : '${css('orange')}'`,
+							),
+							gradient: true,
+						},
 					],
+				},
+				{
+					type: 'text',
+					id: 'text',
+					x: 15,
+					y: 30,
+					width: 70,
+					height: 40,
+					text: expr('$(options:text)'),
+					fontsizeAllowShrink: true,
+					halign: 'center',
+					valign: 'center',
+				},
+			],
+		},
+		pm_thumb: {
+			type: 'composite',
+			name: 'PlayMap picture',
+			description: 'A picture (a data URI, from the thumb feedback or a variable), its label and a progress bar',
+			options: [
+				{ type: 'textinput', id: 'ref', label: 'Picture (data URI)', default: '' },
+				{ type: 'textinput', id: 'label', label: 'Label', default: '' },
+				{ type: 'number', id: 'progress', label: 'Progress (0-1)', default: 0, min: 0, max: 1 },
+			],
+			elements: [
+				{
+					type: 'image',
+					id: 'picture',
+					x: 0,
+					y: 0,
+					width: 100,
+					height: 72,
+					base64Image: expr('$(options:ref)'),
+					fillMode: 'fit',
+				},
+				{
+					type: 'text',
+					id: 'label',
+					x: 2,
+					y: 72,
+					width: 96,
+					height: 20,
+					text: expr('$(options:label)'),
+					fontsizeAllowShrink: true,
+					halign: 'center',
+					valign: 'center',
+				},
+				{
+					type: 'gauge',
+					id: 'progress',
+					x: 4,
+					y: 94,
+					width: 92,
+					height: 5,
+					orientation: 'horizontal',
+					value: expr('$(options:progress)'),
+					min: 0,
+					max: 1,
+				},
+			],
+		},
+		pm_countdown: {
+			type: 'composite',
+			name: 'PlayMap countdown',
+			description:
+				"A playlist's time left over its progress: give it the playlist's name and its remaining and progress variables",
+			options: [
+				{ type: 'textinput', id: 'playlist', label: 'Playlist (its name)', default: '' },
+				{ type: 'textinput', id: 'remaining', label: 'Time left (pl.<id>.remaining)', default: '' },
+				{ type: 'number', id: 'progress', label: 'Progress (pl.<id>.progress)', default: 0, min: 0, max: 1 },
+			],
+			elements: [
+				{
+					type: 'text',
+					id: 'playlist',
+					x: 2,
+					y: 4,
+					width: 96,
+					height: 22,
+					text: expr('$(options:playlist)'),
+					fontsizeAllowShrink: true,
+					halign: 'center',
+					valign: 'top',
+				},
+				{
+					type: 'text',
+					id: 'remaining',
+					x: 2,
+					y: 28,
+					width: 96,
+					height: 50,
+					text: expr('$(options:remaining)'),
+					font: 'companion-mono',
+					weight: 'bold',
+					fontsizeAllowShrink: true,
+					halign: 'center',
+					valign: 'center',
+				},
+				{
+					type: 'gauge',
+					id: 'progress',
+					x: 4,
+					y: 86,
+					width: 92,
+					height: 8,
+					orientation: 'horizontal',
+					value: expr('$(options:progress)'),
+					min: 0,
+					max: 1,
 				},
 			],
 		},

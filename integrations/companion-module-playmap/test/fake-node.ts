@@ -308,7 +308,7 @@ export class FakeNode {
 export const SHOW = {
 	playlist: 'pl00000001',
 	loops: 'pl00000004',
-	intro: 'it00000006',
+	intro: 'it00000007',
 	red: 'it00000002',
 	blue: 'it00000003',
 } as const

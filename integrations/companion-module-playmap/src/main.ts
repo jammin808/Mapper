@@ -304,6 +304,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.#whoamiKey = ''
 		this.receipts.clear()
 		this.confirms.clear()
+		this.goGuard.clear()
 		this.encoders.clear()
 		this.live.clear()
 		if (this.#ticker) clearInterval(this.#ticker)
@@ -339,6 +340,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				})
 				.catch((e: unknown) => this.log('debug', `EVENTS SINCE: ${e instanceof Error ? e.message : String(e)}`))
 		this.thumbs.relinked()
+		// A greeting STATE may have come before the pairing finished: the clocks start now if something plays.
+		this.#runTicker()
+		this.#dirty()
 	}
 
 	#subscribe(line: string): void {
@@ -441,6 +445,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		const peers = JSON.stringify(list(s, P.peers).map((p) => [field(p, P.peerId), field(p, P.peerName)]))
 		if (peers !== this.#peersKey) {
 			this.#peersKey = peers
+			this.#defineVariables()
 			this.#definePresets()
 		}
 		this.#runTicker()
@@ -479,19 +484,22 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	/** Variables, actions, feedbacks, composites and presets, once each, in the order the base asks (presets after the actions and
 	 * feedbacks they name). */
 	#defineAll(): void {
-		const bank = this.#bankSize()
-		const defs = variableDefinitions(this.model, bank)
-		const defsKey = Object.keys(defs).join('|')
-		if (defsKey !== this.#definedVariables) {
-			this.#definedVariables = defsKey
-			this.setVariableDefinitions(defs)
-			this.#lastVars = {}
-		}
+		this.#defineVariables()
 		this.setActionDefinitions(actionDefinitions(this))
 		this.setFeedbackDefinitions(feedbackDefinitions(this))
 		this.setCompositeElementDefinitions(compositeDefinitions())
 		this.#definePresets()
 		this.#dirty()
+	}
+
+	/** The variable definitions for this INDEX, these peers and this bank size, re-sent only when the set of ids moves. */
+	#defineVariables(): void {
+		const defs = variableDefinitions(this.model, this.#bankSize())
+		const defsKey = JSON.stringify(defs)
+		if (defsKey === this.#definedVariables) return
+		this.#definedVariables = defsKey
+		this.setVariableDefinitions(defs)
+		this.#lastVars = {}
 	}
 
 	#definePresets(): void {

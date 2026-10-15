@@ -17,6 +17,9 @@ import { RULES, fillHint } from './live.ts'
 import { P, at, num } from './state/paths.ts'
 import { MODULE_VERSION } from './version.ts'
 
+/** The verbs whose EXPECT names the item they would play next (VIDEO's name the item on the air). */
+const NEXT_EXPECT = new Set(['PLAYLIST GO', 'PLAYLIST NEXT'])
+
 /** The verbs whose press is a GO of a playlist (the double-GO guard applies). */
 const GO_VERBS = new Set(['PLAYLIST GO', 'PLAYLIST NEXT', 'PLAYLIST PREV'])
 
@@ -49,6 +52,8 @@ export const Lines = {
 	generatorBy: (generator: string, param: string, by: number): string =>
 		`GENERATOR SET ${quote(generator)} ${quote(param)} BY ${by}`,
 	lensBy: (device: string, motor: string, by: number): string => `DEVICE LENS ${quote(device)} ${motor} BY ${by}`,
+	nudge: (id: string, path: string, by: number): string =>
+		`NUDGE ${quote(id)} ${quote(path)} ${by >= 0 ? '+' : ''}${by}`,
 	thumb: (ref: string, size: number, etag?: string): string =>
 		`THUMB ${quote(ref)} ${size}x${size}` + (etag ? ` IF ${quote(etag)}` : ''),
 	hello: (name: string): string => `HELLO ${name} module=${MODULE_VERSION}`,
@@ -76,6 +81,8 @@ export function fixedLines(): string[] {
 		Lines.seek(pl, 12.5),
 		Lines.generatorBy('gn0a1b2c3d', 'level', -1),
 		Lines.lensBy('dv0a1b2c3d', 'ZOOM', 2),
+		Lines.nudge('sf0a1b2c3d', 'opacity', 0.05),
+		Lines.nudge('sf0a1b2c3d', 'opacity', -0.05),
 		'OUTPUT IDENTIFY op_1',
 		Lines.thumb('color:#FF0000', 96),
 		Lines.thumb('media:md0a1b2c3d', 144, 'media-5e6f7a8b9c0d1e2f-144x81-j'),
@@ -150,10 +157,16 @@ function generatedAction(ctx: Ctx, row: VerbRow): CompanionActionDefinition {
 						const focused = ctx.model.focused(ctx.nodeNow())
 						if (!focused) return undefined
 						const out: CompanionOptionValues = {}
-						for (const p of learnable) {
-							const value = p.prefix === 'pl' ? focused.id : focused.itemId
-							if (value) out[optionIdOf(p, 0)] = value
-						}
+						// Every learnable option is given a value ('' leaves an item out), so none keeps another playlist's. EXPECT names the
+						// item a GO or NEXT plays next, or the item a VIDEO verb finds on the air; PREV's is not known here.
+						const expect = NEXT_EXPECT.has(row.name)
+							? focused.nextId
+							: row.name === 'PLAYLIST PREV'
+								? null
+								: focused.itemId
+						for (const p of learnable)
+							out[optionIdOf(p, 0)] =
+								p.prefix === 'pl' ? focused.id : p.keyword === 'EXPECT' ? (expect ?? '') : (focused.itemId ?? '')
 						return out
 					},
 				}
@@ -504,6 +517,28 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 					step,
 					absolute: false,
 					write: (by) => Lines.lensBy(device, motor, by),
+				},
+			}
+		},
+	)
+	defs.enc_surface_opacity = encoder(
+		ctx,
+		'Encoder: a surface’s opacity',
+		'NUDGE <surface> opacity by a step (the node clamps it to 0-1 and says so at an end)',
+		[{ type: 'dropdown', id: 'surface', label: 'Surface', default: '', allowCustom: true, choices: ctx.choices('sf') }],
+		0.05,
+		(o, step) => {
+			const surface = text(o.surface)
+			if (!surface) return null
+			return {
+				key: `opacity:${surface}`,
+				target: {
+					value: () => null,
+					min: -Infinity,
+					max: Infinity,
+					step,
+					absolute: false,
+					write: (by) => Lines.nudge(surface, 'opacity', by),
 				},
 			}
 		},
