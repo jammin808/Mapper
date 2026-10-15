@@ -156,6 +156,35 @@ public sealed class PanicChaseTests
         Assert.False(Chase(rig).GetProperty("engaged").GetBoolean());
     }
 
+    /// <summary>Between two items (GAP BLACK) the lane holds only the chase's switch to the next item at its code: the panic's
+    /// release leaves nothing loaded, so the next item does not start under the panic when its code comes.</summary>
+    [Fact]
+    public async Task BetweenItemsTheNextItemDoesNotStartUnderThePanic()
+    {
+        var p = ShowRig.OneScreen();
+        var list = p.Playlists[0];
+        var items = list.Items.SetItem(0, list.Items[0] with { TcIn = "01:00:00:00" }).SetItem(1, list.Items[1] with { TcIn = "01:00:20:00" });
+        await using var rig = new ShowRig(p with { Playlists = [list with { Items = items }] });
+        await rig.Ok("TIMECODE SOURCE ADD Rehearsal INTERNAL FORMAT 25");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal LOCATE 01:00:12:00");
+        await rig.Ok("TIMECODE CHASE Show Rehearsal");
+        await rig.Ok("TIMECODE INTERNAL Rehearsal PLAY");
+        await rig.Engine.StepChasesAsync();
+        Assert.Equal("outside", Chase(rig).GetProperty("state").GetString());
+        var gap = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal((false, null, "it_b"), (gap.IsIdle, gap.ItemId, gap.NextItemId));
+
+        await rig.Ok("PANIC BLACK FADE 500");
+        await Advance(rig, 500);
+        Assert.Equal(("disengaged", false), (Chase(rig).GetProperty("state").GetString(), Chase(rig).GetProperty("engaged").GetBoolean()));
+        Assert.True(rig.Engine.Playback.Lane("pl_show")!.IsIdle);
+        // 01:00:20:00 comes and goes: B does not start.
+        await Advance(rig, 9000);
+        var lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal((true, null), (lane.IsIdle, lane.ItemId));
+        Assert.False(rig.Engine.IsAnimating);
+    }
+
     [Theory]
     [InlineData("RUN")]
     [InlineData("SAFE")]

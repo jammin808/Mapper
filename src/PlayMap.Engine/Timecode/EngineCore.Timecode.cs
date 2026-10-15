@@ -191,8 +191,9 @@ public sealed partial class EngineCore
 
     /// <summary>A panic step is about to move a chased playlist's transport: the chase lets go at the step's instant (as TIMECODE ENGAGE
     /// OFF does: the guard lifted, the lane playing on by hand from where it is), so the panic's outcome holds; STATE shows it
-    /// disengaged by the panic until TIMECODE ENGAGE puts it back (PANIC CLEAR does not). A chase already disengaged, or a
-    /// playlist that chases nothing, is left alone.</summary>
+    /// disengaged by the panic until TIMECODE ENGAGE puts it back (PANIC CLEAR does not). Between two items the lane holds nothing but
+    /// the chase's own switch to the next one at its code: letting go there leaves nothing loaded, so that item does not start under
+    /// the panic. A chase already disengaged, or a playlist that chases nothing, is left alone.</summary>
     partial void ReleaseForPanic(Playlist list, PanicOutcome outcome, long atLeaderNs, bool commit, ref string? words)
     {
         if (list.Chase is not { } chase || (_chases.TryGetValue(list.Id, out var run) && !run.Engaged))
@@ -207,6 +208,8 @@ public sealed partial class EngineCore
         run.Engaged = false;
         run.Memory = ChaseMemory.Start;
         run.DisengagedBy = by;
+        if (Playback.Lane(list.Id) is { IsIdle: false, ItemId: null })
+            Playback.ChaseGap(list, -1, ClipTransport.Empty, long.MaxValue);
         Playback.Guard(list, null, atLeaderNs);
         _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? ""));
         PublishTimecodeFacts(Store.Project, Services.Mono.NowNs);
