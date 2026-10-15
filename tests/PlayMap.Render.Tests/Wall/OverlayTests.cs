@@ -79,6 +79,34 @@ public class OverlayTests(GlFixture gl)
     }
 
     [Fact]
+    public void TheWarpTheHandlesFollowIsTheWarpThePictureTakes()
+    {
+        // The picture alone, lit white through the warp: each corner the overlay computes is the warped picture's own corner (lit
+        // just inside it towards the quad's centre, dark just outside), so the handles above sit on the content they edit.
+        var lamp = PixelSurfaceRenderTests.Lamp();
+        var output = Scene.SourceOutput("op1", SourceRef.None, PW, PH) with { Mode = OutputMode.Projector, ProjectorId = lamp.Id, Warp = Pinned };
+        var quad = PixelSurfaceRenderTests.Keystone();
+        var lit = Scene.Project([], [output], stage: Stage.Empty with
+        {
+            Surfaces = [PixelSurfaceRenderTests.QuadSurface(quad, SourceRef.Solid("#FFFFFF"))],
+            Projectors = [lamp],
+        });
+        var px = Render(lit, Pinned, null, armed: false, withPass: false);
+        var field = new WarpField(Pinned);
+        var shape = PixelQuadShape.Of(quad)!;
+        var centre = OverlayPass.ToFinal(field, 0, shape.Evaluate(0.5, 0.5), PW, PH);
+        for (var k = 0; k < 4; k++)
+        {
+            var at = OverlayPass.ToFinal(field, 0, PixelQuadMath.Corner(quad, k), PW, PH);
+            var inward = (centre - at) * (1 / (centre - at).Length);
+            var inside = at + inward * 6;
+            var outside = at - inward * 6;
+            Assert.True(Pixels.At(px, PW, (int)inside.X, (int)inside.Y).R > 200, $"corner {k}: the picture is lit just inside {at}");
+            Assert.True(Pixels.At(px, PW, (int)outside.X, (int)outside.Y).R < 30, $"corner {k}: the picture is dark just outside {at}");
+        }
+    }
+
+    [Fact]
     public void ArmedTheOutputIsByteIdenticalToNoOverlay()
     {
         var project = Scene3(Pinned);
@@ -90,6 +118,34 @@ public class OverlayTests(GlFixture gl)
         // An overlay that names another output, or is off, draws nothing here either.
         Assert.Equal(none, Render(project, Pinned, Editing with { Outputs = ["op_other"] }, armed: false, withPass: true));
         Assert.Equal(none, Render(project, Pinned, OverlayState.Off, armed: false, withPass: true));
+    }
+
+    [Fact]
+    public void ACursorComesBackWithItsLayer()
+    {
+        var project = Scene3(OutputWarp.None);
+        System.Collections.Immutable.ImmutableArray<WallCursor> cursors = [new WallCursor("s1", "Desk", "op1", new Vec2d(0.25, 0.75), [], "#FF8800", 0, long.MaxValue)];
+        var on = new OverlayState(true, [], OverlayLayers.Cursor | OverlayLayers.Outlines, null, 0, "", 0);
+        var (first, off, back) = gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(c.Device);
+            byte[] Frame(OverlayState state)
+            {
+                var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with { Overlay = state, Cursors = cursors, Passes = [pass] };
+                pass.Prepare(in inputs);
+                engine.Render(inputs);
+                var bytes = new byte[PW * PH * 4];
+                Assert.True(engine.ReadOutput("op1", bytes));
+                return bytes;
+            }
+            // The same cursors throughout: on, the layer off, then on again.
+            return (Frame(on), Frame(on with { Layers = OverlayLayers.Outlines }), Frame(on with { Layers = on.Layers }));
+        });
+        var arm = (X: (int)(0.25 * PW) + 15, Y: (int)(0.75 * PH));
+        Pixels.Near((0xFF, 0x88, 0x00), Pixels.At(first, PW, arm.X, arm.Y), 3, "the cursor at first");
+        Assert.True(Pixels.At(off, PW, arm.X, arm.Y).R < 30, "no cursor with its layer off");
+        Pixels.Near((0xFF, 0x88, 0x00), Pixels.At(back, PW, arm.X, arm.Y), 3, "the cursor with its layer back on");
     }
 
     [Fact]

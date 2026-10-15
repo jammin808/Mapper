@@ -128,7 +128,8 @@ public sealed class OverlayPass : IFramePass
         }
         if ((_state!.Layers & OverlayLayers.Cursor) == 0)
         {
-            e.CursorCount = 0;
+            // Forgotten with the layer, so the cursors are built again when it comes back on.
+            (e.Cursors, e.CursorCount) = (default, 0);
         }
         else if (e.Cursors != _cursors)
         {
