@@ -25,7 +25,6 @@ public sealed class FxChainTests(GlFixture gl)
 
     private static byte[] Draw(RenderEngine engine, FxPass fx, FrameInputs inputs)
     {
-        fx.Prepare(inputs);
         engine.Render(inputs);
         var px = new byte[W * H * 4];
         Assert.True(engine.ReadOutput("op1", px));
@@ -235,7 +234,6 @@ public sealed class FxChainTests(GlFixture gl)
             for (var i = 0; i < 30; i++)
             {
                 inputs = inputs with { LeaderNs = inputs.LeaderNs + 16_666_667 };
-                fx.Prepare(inputs);
                 engine.Render(inputs);
             }
             Assert.All(chain.Slots, s => Assert.Equal(FxSlotState.Ok, FxRig.Live(engine, fx, s.Id).State));
@@ -243,7 +241,6 @@ public sealed class FxChainTests(GlFixture gl)
             for (var i = 0; i < 60; i++)
             {
                 inputs = inputs with { LeaderNs = inputs.LeaderNs + 16_666_667 };
-                fx.Prepare(inputs);
                 engine.Render(inputs);
             }
             Assert.Equal(before, GC.GetAllocatedBytesForCurrentThread());

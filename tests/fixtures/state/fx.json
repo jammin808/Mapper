@@ -101,7 +101,7 @@
         "deterministic": true,
         "history": false,
         "live": {},
-        "words": "not drawn: this build draws effects on outputs only, not on a layer"
+        "words": "not drawn: no output shows its canvas"
       }
     ],
     "plugins": {
