@@ -22,6 +22,8 @@ public sealed class ThumbnailService(EngineCore engine, string? folder, ILogger?
 
     private static readonly TimeSpan ReadyWait = TimeSpan.FromSeconds(2);
 
+    private static readonly System.Buffers.SearchValues<char> HexDigits = System.Buffers.SearchValues.Create("0123456789abcdefABCDEF");
+
     /// <summary>Posters being made now (at most <see cref="MaxMakers"/>; a third waits its turn).</summary>
     private int _making;
 
@@ -231,7 +233,8 @@ public sealed class ThumbnailService(EngineCore engine, string? folder, ILogger?
                     return null;
                 }
                 var hash = item.ContentHash.StartsWith("sha256:", StringComparison.Ordinal) ? item.ContentHash[7..] : item.ContentHash;
-                if (hash.Length < 16)
+                // The hash names the poster's folder, so only hex is ever taken (a project file's own words never make a path).
+                if (hash.Length < 16 || hash.AsSpan(0, 16).ContainsAnyExcept(HexDigits))
                 {
                     why = $"{item.Name} is not hashed yet — its poster follows its hash";
                     return null;

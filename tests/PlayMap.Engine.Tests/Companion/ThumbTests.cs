@@ -85,6 +85,18 @@ public sealed class ThumbTests
     }
 
     [Fact]
+    public async Task AHashThatIsNotHexNeverNamesAFolder()
+    {
+        var p = Project.CreateDefault("Thumbs");
+        var item = new MediaItem("md00000002", "Odd", MediaKind.Video, "/nowhere/odd.mp4", "sha256:../../../../../../tmp/elsewhere", 1000,
+            MediaInfo.Unknown with { Width = 1920, Height = 1080, DurationNs = 10_000_000_000 }, []);
+        await using var rig = new CompanionRig(project: p with { Media = [item] });
+        var refused = await rig.Run("THUMB media:md00000002");
+        Assert.False(refused.Ok);
+        Assert.Equal("Odd is not hashed yet — its poster follows its hash", refused.Payload);
+    }
+
+    [Fact]
     public async Task GeneratorsAndColoursAreDrawnAndAPlaylistIsItsCurrentItem()
     {
         await using var rig = new CompanionRig();
@@ -128,9 +140,11 @@ public sealed class ThumbTests
         var before = first.GetProperty("generator:" + gen).GetString()!;
 
         await rig.Ok($"GENERATOR SET {gen} level 50");
-        await sink.Heard("\"generator:" + gen + "\":\"generator-", 10000);
-        Assert.True(await Eventually.TrueAsync(() =>
-            CompanionRig.Json(sink.Latests["thumbs"]["THUMBS ".Length..]).GetProperty("generator:" + gen).GetString() != before));
+        // The picture's new ETag, as THUMB names it now: the push that carries it is waited for, never a wall-clock window.
+        var after = Picture(await rig.Ok($"THUMB generator:{gen}")).GetProperty("etag").GetString()!;
+        Assert.NotEqual(before, after);
+        await sink.Heard("\"generator:" + gen + "\":\"" + after + "\"");
+        Assert.Equal(after, CompanionRig.Json(sink.Latests["thumbs"]["THUMBS ".Length..]).GetProperty("generator:" + gen).GetString());
 
         var unpaired = new RecordingSink();
         Assert.False(((PlayMap.Net.IPushTopics)rig.Engine).TryOpen("THUMBS", ["color:#000000"], CompanionRig.Paired with { Paired = false }, unpaired, out _, out var words));
