@@ -36,9 +36,10 @@ public sealed record TcReading(string State, TcLine? Line, TcFormat? Format, dou
 /// <summary>One timecode source's observations into a <see cref="TcReading"/> (pure; the caller serialises calls). A run is the
 /// frames since the last discontinuity; its line is a robust least-squares fit over the window (outliers beyond max(4 × 1.4826 ×
 /// MAD, 0.3 frame) dropped, then refitted), its slope bounded to 0.85–1.15 ("varispeed out of range" outside, and nothing
-/// locks). A jump — an observation off the line by more than max(2 frames, 5σ) — is taken only when the next observation agrees
-/// with it; a lone outlier is counted invalid. No observation for 2.5 frames is a dropout; for 1 s, lost. A frame seen three
-/// times is parked; an MTC full frame parks at once; a backward run is reverse.</summary>
+/// locks). A jump — an observation off the line by more than the jump threshold (a chase's <c>JUMP</c>, else auto: max(2 frames,
+/// 5σ)) — is taken only when the next observation agrees with it, and starts a new run (a relocate); code off the line by no more
+/// than the threshold is drift, and the fit takes it in. A lone outlier is counted invalid. No observation for 2.5 frames is a
+/// dropout; for 1 s, lost. A frame seen three times is parked; an MTC full frame parks at once; a backward run is reverse.</summary>
 public sealed class TimecodeTracker
 {
     private const long LostNs = 1_000_000_000;
@@ -46,6 +47,7 @@ public sealed class TimecodeTracker
     private readonly TcFormat? _configured;
     private readonly long _windowNs;
     private readonly int _minPoints;
+    private readonly long _jumpNs;
     private readonly List<(long Mono, long Tc)> _points = [];
     private TcObservation? _last;
     private TcObservation? _pendingJump;
@@ -60,14 +62,45 @@ public sealed class TimecodeTracker
 
     /// <param name="configured">The format the source is set to (null = detect it from the code).</param>
     /// <param name="minPoints">Points before a run is rolling (LTC and Art-Net 3, MTC 2 sequences = 16 pieces).</param>
-    public TimecodeTracker(TcFormat? configured, int fitWindowMs = 1500, int minPoints = 3)
+    /// <param name="jumpNs">The jump threshold the code is judged by (0 = auto: max(2 frames, 5σ)).</param>
+    public TimecodeTracker(TcFormat? configured, int fitWindowMs = 1500, int minPoints = 3, long jumpNs = 0)
     {
         _configured = configured;
         _windowNs = Math.Max(200, fitWindowMs) * 1_000_000L;
         _minPoints = Math.Max(2, minPoints);
+        _jumpNs = Math.Max(0, jumpNs);
+    }
+
+    private TimecodeTracker(TimecodeTracker from, long jumpNs)
+        : this(from._configured, (int)(from._windowNs / 1_000_000), from._minPoints, jumpNs)
+    {
+        _points.AddRange(from._points);
+        _last = from._last;
+        _pendingJump = from._pendingJump;
+        _line = from._line;
+        _detected = from._detected;
+        _run = from._run;
+        _repeats = from._repeats;
+        _located = from._located;
+        _state = from._state;
+        _fault = from._fault;
+        _counts = from._counts;
+        Reading = from.Reading;
     }
 
     public TcReading Reading { get; private set; } = TcReading.None;
+
+    /// <summary>The jump threshold this tracker judges the code by (0 = auto).</summary>
+    public long JumpNs => _jumpNs;
+
+    /// <summary>The jump threshold in force: how far code may land off its fitted line and still be drift the fit takes in. Past it
+    /// the code has jumped (relocated). <paramref name="jumpNs"/> when set, else auto: max(2 frames, 5σ).</summary>
+    public static double JumpThresholdNs(long jumpNs, TcFormat format, double sigmaNs) =>
+        jumpNs > 0 ? jumpNs : Math.Max(2 * format.FrameNs, 5 * sigmaNs);
+
+    /// <summary>This source's code as it stands (its points, line, run, state and counts), judged from here on at another jump
+    /// threshold: a chase that sets its threshold keeps its lock.</summary>
+    public TimecodeTracker JudgedAt(long jumpNs) => new(this, jumpNs);
 
     /// <summary>The input could not open, or died: words for STATE (cleared by the next observation).</summary>
     public void Fault(string words, long nowNs)
@@ -131,7 +164,7 @@ public sealed class TimecodeTracker
         Steps(obs);
         if (_line is { Running: true } line && _points.Count >= _minPoints)
         {
-            var jump = Math.Max(2 * format.FrameNs, 5 * line.SigmaNs);
+            var jump = JumpThresholdNs(_jumpNs, format, line.SigmaNs);
             var off = obs.TcNs - line.TcAt(obs.MonoNs);
             if (Math.Abs(off) > jump)
             {

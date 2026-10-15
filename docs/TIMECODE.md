@@ -43,8 +43,18 @@ Each source's observations become a reading (`TimecodeTracker`): its state — n
 parked, reverse, dropout (no code for 2.5 frames), lost (1 s) — its counts (biphase, missing, duplicate, discontinuity, invalid,
 bad BCD, parity; `TIMECODE SOURCE RESET` clears them) and its **line**: a robust least-squares fit of code against time over the
 last 1.5 s of the run (outliers past max(4 × 1.4826 × MAD, 0.3 frame) dropped, then refitted; slope 0.85–1.15, else "varispeed out
-of range" and nothing locks). A jump — code off the line by more than max(2 frames, 5σ) — is taken when the next observation agrees
-with it; a lone outlier is counted invalid.
+of range" and nothing locks). A jump — code off the line by more than the **jump threshold** — is taken when the next observation
+agrees with it: the run starts afresh and its line is on the new code by the third frame. Code off the line by no more than the
+threshold is drift: the fit takes it in, gliding the line onto the new code at a raised rate (a three-frame step at JUMP 200 ms
+is ridden at up to 1.12×, reaches the code in about half a second, overshoots it by under a frame and is exact once the window
+holds only the new code). A step steeper than the fit can glide within the 0.85–1.15 slope bounds (four frames or more at 25 fps)
+leaves the chase acquiring, its words "varispeed out of range (…×) — nothing locks", while the picture rides on at its last
+line's rate; once the window holds only the new code (1.5 s by default) the chase locks and the picture moves onto the code at once,
+not named a jump. A lone outlier is counted invalid. The threshold is auto, max(2 frames,
+5σ), unless a chase sets its own (`TIMECODE SET <playlist> JUMP <ms>|AUTO`; a generic `SET` of `chase.jumpNs` is held to the same
+0 or 1–10000 ms): each threshold a chase sets judges the source's code
+in a tracker of its own, fed the same code, so two chases of one source can judge it differently. The source's own reading (its
+state, counts and words in STATE) is the auto judgement; a chase says its own judgement in its words.
 
 ## The chase
 
@@ -65,7 +75,8 @@ sources, in order), `ChaseLogic` decides the lane:
 | disengaged | `TIMECODE ENGAGE … OFF`, or a panic step that moves the playlist's transport | the playlist plays on by hand from where it is, at its items' own rates (a panic's step then pauses or cues it) |
 
 Within a region the lane is re-anchored only when the content would be off by a quarter frame or more, or the rate by 50 ppm,
-at most four times a second; a region change takes effect at once. While a chase is engaged, `PLAYLIST GO/CUE/NEXT/PREV` and the
+at most four times a second; a region change takes effect at once, and so does a re-anchor that moves the picture's code by more
+than the chase's jump threshold — a jump, which STATE's `lastJump` names from → to. While a chase is engaged, `PLAYLIST GO/CUE/NEXT/PREV` and the
 `VIDEO` clip verbs on its playlist are refused with "Main chases FOH (locked) — TIMECODE ENGAGE Main OFF to drive it by hand".
 Which chases are disengaged, and what disengaged each (a panic), is kept for recovery. A `PANIC` whose outcome moves transport
 (BLACK, HARD, REWIND, NEXT) disengages a chased playlist's chase at its step's instant, so the panic holds whatever the code does;
@@ -78,7 +89,8 @@ FREEZE and SAFE leave the chase engaged.
 ## STATE, context, preflight, INDEX
 
 `STATE.timecode` lists the sources (state, code, format, measured rate, speed in ppm, the fit's scatter as `jitterUs`, level,
-counts, words) and the chases (state, code, item, rate, delay, freewheel left, loss and gap rules, the last jump, words); each
+counts, words) and the chases (state, code, item, rate, delay, freewheel left, loss and gap rules, the jump threshold in force as
+`jumpMs` with `jumpAuto`, the last jump, words); each
 playlist carries `chase`. A source's or a chase's state, format or words changing moves STATE's revision; the code's frames never
 do, so STATE pushes do not rise to the frame rate. STATE is written afresh once a source's frame or a chase's code has moved (the
 lane's tick notes it), so a read while the code rolls says the code as it is — with nothing playing too — and STATE is not written
