@@ -72,6 +72,11 @@ public static class ProjectorDepth
         options ??= DepthOptions.Default;
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Stride, 1);
         var k = projector.Intrinsics;
+        if (seenBy.FirstOrDefault(v => v.Inverse.ProjectorWidth != k.Width || v.Inverse.ProjectorHeight != k.Height) is { } other)
+        {
+            throw new ArgumentException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"View {other.ViewId} decoded a {other.Inverse.ProjectorWidth} × {other.Inverse.ProjectorHeight} raster; projector {projector.Id} is {k.Width} × {k.Height}."), nameof(seenBy));
+        }
         var s = options.Stride;
         var w = (k.Width + s - 1) / s;
         var h = (k.Height + s - 1) / s;

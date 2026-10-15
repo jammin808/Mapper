@@ -54,6 +54,15 @@ public sealed class DenseDepthTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void AViewDecodedOnAnotherRasterIsRefused()
+    {
+        var pj1 = MultiViewKit.Solved.Projector("pj1");
+        var wide = pj1 with { Intrinsics = pj1.Intrinsics with { Width = 2 * pj1.Intrinsics.Width, Cx = 2 * pj1.Intrinsics.Cx } };
+        var e = Assert.Throws<ArgumentException>(() => ProjectorDepth.Build(wide, MultiViewKit.DepthViews(MultiViewKit.Solved, "pj1")));
+        Assert.StartsWith("View v1 decoded a 512 × 320 raster; projector pj1 is 1024 × 320.", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ThreeViewsCoverTheLitRasterThatNoSingleViewDoes()
     {
         var lit = MultiViewKit.Scene.Projectors.ToDictionary(p => p.Id, p => MultiViewKit.Sim.LitCells(p.Id, 4));
