@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using PlayMap.Core.Control.Osc;
+using PlayMap.Core.Time;
 
 namespace PlayMap.Engine.Tests.Control;
 
@@ -77,6 +78,20 @@ public sealed class OscServerTests
         // A read of a field answers on the same address.
         await client.SendToAsync(OscCodec.Write(OscMessage.Of("/playmap/set/sf_stage/opacity", OscArg.S("?"))), SocketFlags.None, node);
         Assert.Equal(0.5, (await Receive(client, "/playmap/set/sf_stage/opacity")).Args[0].Float, 9);
+    }
+
+    [Fact]
+    public async Task ASenderNotHeardForTenMinutesNoLongerCounts()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, clock: clock);
+        static int Senders(ControlRig r) => r.State().GetProperty("control").GetProperty("osc").GetProperty("senders").GetInt32();
+        using var client = Client();
+        await client.SendToAsync(OscCodec.Write(OscMessage.Of("/playmap/ping")), SocketFlags.None, rig.Service!.OscLocal!);
+        await Receive(client, "/playmap/pong");
+        await ControlRig.Until(() => Senders(rig) == 1, "one sender");
+        clock.AdvanceMs(11 * 60_000);
+        await ControlRig.Until(() => Senders(rig) == 0, "the sender forgotten");
     }
 
     [Fact]

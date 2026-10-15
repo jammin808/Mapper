@@ -123,6 +123,9 @@ public sealed class ArtNetInTests
         Assert.Equal(ArtOp.PollReply, ArtNet.OpOf(reply));
         Assert.Equal("PlayMap", ArtNet.ShortNameOf(reply));
         Assert.Equal((0x01, 0x00, 1, 0x03, 0x08), (reply[18], reply[19], reply[173], reply[190], reply[212]));
+        // A reply speaks for one Net and Sub-Net: a universe of another (0x0215: net 2, sub-net 1) is not passed off as one of these.
+        ArtNet.WritePollReply(reply, new ArtPollReplyInfo([127, 4, 0, 1], "PlayMap", "", "", [0x0103, 0x0215, 0x0109], 0x00FF));
+        Assert.Equal((0x01, 0x00, 2, 0x03, 0x09, 0), (reply[18], reply[19], reply[173], reply[190], reply[191], reply[192]));
     }
 
     [Fact]

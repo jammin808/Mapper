@@ -61,6 +61,8 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private readonly Dictionary<string, MidiPort> _midiInputs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LtcInput> _ltc = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, MtcParser> _mtc = new(StringComparer.Ordinal);
+    private const long OscSenderIdleMs = 600_000;
+
     private readonly ConcurrentDictionary<string, long> _oscSenders = new(StringComparer.Ordinal);
     private readonly byte[] _pollReply = new byte[ArtNet.PollReplyLength];
     private readonly OscFeedback _feedback = new();
@@ -274,6 +276,11 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         {
             _lastRescanNs = now;
             ReconcileMidi(project, engine.ControlInput.Settings);
+            // STATE's OSC senders are the ones heard in the last 10 minutes (as feedback leases its clients), not every one ever.
+            var wall = engine.Services.Wall.UnixMs;
+            foreach (var sender in _oscSenders)
+                if (wall - sender.Value > OscSenderIdleMs)
+                    _oscSenders.TryRemove(sender);
         }
     }
 
@@ -607,20 +614,23 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private async Task ArtNetAsync(byte[] packet, uint from, long now, CancellationToken ct)
     {
         var engine = _engine!;
+        var settings = engine.ControlInput.Settings;
+        var source = new IPAddress(BitConverterBig(from)).ToString();
+        // A source the node does not allow takes no part in DMX input: its frames and its ArtSync never reach the input's state (so it
+        // can neither hold an allowed console's frames nor take a newly bound channel's first level).
+        if (settings.DmxAllow.Length > 0 && (ArtNet.OpOf(packet) is ArtOp.Dmx or ArtOp.Sync) && !settings.DmxAllow.Contains(source, StringComparer.Ordinal))
+            return;
         var events = new List<InputEvent>();
-        _artIn.LearnAll = engine.ControlInput.Learning is not null && engine.ControlInput.Settings.ArtNetEnabled;
+        _artIn.LearnAll = engine.ControlInput.Learning is not null && settings.ArtNetEnabled;
         var result = _artIn.Receive(packet, from, now, events, out var tc);
         if (result == ArtNetInputResult.TimeCode)
         {
             ArtTimeCodeIn(tc, now);
             return;
         }
-        if (!engine.ControlInput.Settings.ArtNetEnabled || events.Count == 0)
+        if (!settings.ArtNetEnabled || events.Count == 0)
             return;
-        var source = new IPAddress(BitConverterBig(from)).ToString();
         var surface = _surfaces.FirstOrDefault(s => s.Kind == "artnet" && s.Enabled && (s.Match.Length == 0 || s.Match == source))?.Name ?? "";
-        if (engine.ControlInput.Settings.DmxAllow.Length > 0 && !engine.ControlInput.Settings.DmxAllow.Contains(source, StringComparer.Ordinal))
-            return;
         foreach (var e in events)
             await engine.ControlInput.ProcessAsync(e with { Address = e.Address with { Surface = surface }, Origin = source }, ct).ConfigureAwait(false);
     }
@@ -632,13 +642,30 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     {
         if (_options.ArtNet is not { } art || _engine is not { } engine)
             return;
-        var iface = art.Interface ?? IPAddress.Loopback;
+        var iface = art.Interface ?? LocalAddressToward(new IPAddress(BitConverterBig(to)));
         var universes = engine.Store.Project.Control.Bindings
             .Select(b => InputAddress.Parse(b.Input, out _)).Where(a => a is { Source: InputSource.ArtNet }).Select(a => a!.Value.Universe).Distinct().Order().ToList();
         var info = new ArtPollReplyInfo(iface.GetAddressBytes(), "PlayMap", $"{engine.Services.Settings.Name} (PlayMap media server)", "#0001 [0000] control input",
             universes, 0x00FF);
         var n = ArtNet.WritePollReply(_pollReply, info);
         art.Send(_pollReply.AsSpan(0, n), art.AddressOf(new IPEndPoint(new IPAddress(BitConverterBig(to)), ArtNet.Port)));
+    }
+
+    /// <summary>The address of this machine's interface that reaches a peer (the route's source address; nothing is sent), or
+    /// loopback when no route reaches it. A socket bound to all interfaces answers a poll with the address the poller can reach.</summary>
+    internal static IPAddress LocalAddressToward(IPAddress peer)
+    {
+        ArgumentNullException.ThrowIfNull(peer);
+        try
+        {
+            using var probe = new System.Net.Sockets.Socket(peer.AddressFamily, System.Net.Sockets.SocketType.Dgram, System.Net.Sockets.ProtocolType.Udp);
+            probe.Connect(new IPEndPoint(peer, ArtNet.Port));
+            return probe.LocalEndPoint is IPEndPoint { Address: var local } && !local.Equals(IPAddress.Any) ? local : IPAddress.Loopback;
+        }
+        catch (System.Net.Sockets.SocketException)
+        {
+            return IPAddress.Loopback;
+        }
     }
 
     // ---- sACN ----

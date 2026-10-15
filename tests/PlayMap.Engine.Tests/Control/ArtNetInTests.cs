@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using PlayMap.Core.Dmx;
@@ -62,6 +64,57 @@ public sealed class ArtNetInTests
         Assert.Equal(node, ((IPEndPoint)from).Address.ToString());
         // The bound universe (259 = net 1, sub-net 0, universe 3) is the reply's first port.
         Assert.Equal((1, 0, 3), (buffer[18], buffer[19], buffer[190]));
+    }
+
+    [Fact]
+    public void ASocketOnEveryInterfaceAnswersAPollerWithItsAddressOnThePollersNetwork()
+    {
+        // Each IPv4 network of this machine: a poller there (another host of that network) is told this machine's address on it.
+        var networks = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+            .Where(u => u.Address.AddressFamily == AddressFamily.InterNetwork && u.PrefixLength is > 0 and < 31).ToList();
+        foreach (var u in networks)
+        {
+            var host = BinaryPrimitives.ReadUInt32BigEndian(u.Address.GetAddressBytes());
+            var mask = uint.MaxValue << (32 - u.PrefixLength);
+            var peer = (host & mask) | ((host & ~mask) == 1 ? 2u : 1u);
+            var bytes = new byte[4];
+            BinaryPrimitives.WriteUInt32BigEndian(bytes, peer);
+            Assert.Equal(u.Address, Engine.Control.ControlService.LocalAddressToward(new IPAddress(bytes)));
+        }
+        Assert.True(IPAddress.IsLoopback(Engine.Control.ControlService.LocalAddressToward(IPAddress.Parse(ControlRig.Address(44)))));
+    }
+
+    [Fact]
+    public async Task ASourceOutsideTheAllowListCannotHoldTheAllowedConsolesFrames()
+    {
+        // On a clock that never moves, a frame held for an ArtSync (Art-Net 4: once a sync is seen, frames wait for the next) would
+        // wait for ever: only the allowed console's packets reach the input, so its frames fire.
+        var clock = new ManualClock(1_000_000_000);
+        var node = ControlRig.Address(47);
+        var allowed = ControlRig.Address(48);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, artNetAddress: node, clock: clock,
+            settings: s => s with { ArtNetEnabled = true, ArtNetInterface = node, DmxAllow = [allowed] });
+        await rig.Ok("BIND ADD ARTNET 0 1 TO SET sf_lobby opacity *");
+        using var allowedDesk = ControlRig.Udp(allowed, ArtNet.Port);
+        using var stranger = ControlRig.Udp(ControlRig.Address(49), ArtNet.Port);
+        var sync = new byte[14];
+        ArtNet.WriteSync(sync);
+        Send(stranger, node, sync);
+        await ControlRig.Until(() => rig.ArtNet!.Packets >= 1, "the stranger's ArtSync");
+        // The allowed console refreshes its universe (Art-Net 4: at least every 4 s; here every 50 ms) until the binding takes it.
+        var dmx = new byte[530];
+        var n = ArtNet.WriteDmx(dmx, 0, 0, [51]);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (Math.Abs(rig.Engine.Store.Project.FindSurface("sf_lobby")!.Opacity - 0.2) > 1e-9)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Lobby never took the allowed console's 20 %");
+            Send(allowedDesk, node, dmx.AsSpan(0, n));
+            await Task.Delay(50);
+        }
+        var monitor = JsonDocument.Parse((await rig.Ok("CONTROL MONITOR")).Payload!).RootElement;
+        Assert.All(monitor.EnumerateArray(), row => Assert.Equal(allowed, row.GetProperty("source").GetString()));
     }
 
     [Fact]

@@ -151,8 +151,10 @@ public static class ArtNet
         BinaryPrimitives.WriteUInt16LittleEndian(into[14..], Port);
         into[16] = 0;
         into[17] = 1;
-        var ports = info.PortAddresses.Take(4).ToList();
-        var first = ports.Count > 0 ? ports[0] : 0;
+        // One reply names one Net and one Sub-Net (NetSwitch, SubSwitch): its ports are the first four universes that share the
+        // first one's; a port's own byte holds only the universe's low nibble.
+        var first = info.PortAddresses.Count > 0 ? info.PortAddresses[0] : 0;
+        var ports = info.PortAddresses.Where(p => (p & 0x7FF0) == (first & 0x7FF0)).Take(4).ToList();
         into[18] = (byte)((first >> 8) & 0x7F);
         into[19] = (byte)((first >> 4) & 0x0F);
         into[20] = (byte)(info.Oem >> 8);
