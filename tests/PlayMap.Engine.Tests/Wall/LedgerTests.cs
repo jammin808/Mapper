@@ -2,6 +2,8 @@ using System.Text.Json;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Time;
+using PlayMap.Engine.Wall;
 
 namespace PlayMap.Engine.Tests.Wall;
 
@@ -151,6 +153,28 @@ public sealed class LedgerTests
         Assert.Contains(ids[^4], mine);
         Assert.DoesNotContain(ids[^5], mine);
         Assert.DoesNotContain(ids[0], mine);
+    }
+
+    [Fact]
+    public async Task TwoEnginesFromOneServicesGetNoSharedLedger()
+    {
+        var services = EngineServices.ForTests(new ManualClock(5_000_000_000));
+        await using var first = new EngineCore(services, WallRig.ProjectorsWithPins(1));
+        await using var second = new EngineCore(services, WallRig.ProjectorsWithPins(1));
+        var pj = second.Store.Project.FindProjector("pj_test1")!;
+        var snapshot = CalibrationLedger.Of(pj, "", "Kept", CalibrationLedger.ScoreAsItStands(pj), CalibrationSource.Manual, "test", 1);
+        // The services' ledger cannot tell the two apart: it refuses rather than record in the wrong project.
+        var (r, id) = await services.Ledger!.RecordAsync(WallRig.Desk, snapshot, apply: true, CancellationToken.None);
+        Assert.False(r.Changed);
+        Assert.Contains("two engines", r.Effect, StringComparison.Ordinal);
+        Assert.Equal("", id);
+        Assert.Empty(first.Store.Project.Stage.Calibrations);
+        Assert.Empty(second.Store.Project.Stage.Calibrations);
+        // Each engine's own ledger records in its own project.
+        var (own, ownId) = await second.CalibrationLedgerService.RecordAsync(WallRig.Desk, snapshot, apply: true, CancellationToken.None);
+        Assert.True(own.Changed, own.Effect);
+        Assert.Equal(ownId, second.Store.Project.FindProjector("pj_test1")!.CalibrationId);
+        Assert.Empty(first.Store.Project.Stage.Calibrations);
     }
 
     [Fact]

@@ -9,30 +9,41 @@ using PlayMap.Engine.Host;
 namespace PlayMap.Engine.Wall;
 
 /// <summary>The ledger the services carry before an engine exists: the first engine built from them binds its own, and every call
-/// after goes there. Before that, records and accepts are refused with words and a score reads as none.</summary>
+/// after goes there. Before that, records and accepts are refused with words and a score reads as none. A caller cannot tell two
+/// engines built from the same services apart, so once a second engine binds, every call is refused (fail closed) rather than
+/// recorded in the wrong engine's project.</summary>
 public sealed class LateCalibrationLedger : ICalibrationLedger
 {
     private volatile ICalibrationLedger? _bound;
+    private volatile bool _shared;
 
-    /// <summary>Binds the engine's ledger once; false when one is bound already.</summary>
+    /// <summary>Binds the engine's ledger once; false when one is bound already (another engine's makes the late ledger shared).</summary>
     public bool Bind(ICalibrationLedger ledger)
     {
         ArgumentNullException.ThrowIfNull(ledger);
-        return Interlocked.CompareExchange(ref _bound, ledger, null) is null;
+        if (Interlocked.CompareExchange(ref _bound, ledger, null) is not { } prior)
+            return true;
+        if (!ReferenceEquals(prior, ledger))
+            _shared = true;
+        return false;
     }
 
-    private static EditResult NoEngine => new(false, "the calibration ledger has no engine yet", 0);
+    private ICalibrationLedger? Bound => _shared ? null : _bound;
+
+    private EditResult Refused => new(false, _shared
+        ? "two engines were built from these services — the calibration ledger cannot tell which one a result is for"
+        : "the calibration ledger has no engine yet", 0);
 
     public Task<(EditResult Result, string SnapshotId)> RecordAsync(SessionInfo session, CalibrationSnapshot snapshot, bool apply, CancellationToken ct) =>
-        _bound?.RecordAsync(session, snapshot, apply, ct) ?? Task.FromResult((NoEngine, ""));
+        Bound?.RecordAsync(session, snapshot, apply, ct) ?? Task.FromResult((Refused, ""));
 
     public Task<EditResult> AcceptAsync(SessionInfo session, string targetOrSnapshotId, CancellationToken ct) =>
-        _bound?.AcceptAsync(session, targetOrSnapshotId, ct) ?? Task.FromResult(NoEngine);
+        Bound?.AcceptAsync(session, targetOrSnapshotId, ct) ?? Task.FromResult(Refused);
 
     public Task<EditResult> FallbackAsync(SessionInfo session, string targetId, CancellationToken ct) =>
-        _bound?.FallbackAsync(session, targetId, ct) ?? Task.FromResult(NoEngine);
+        Bound?.FallbackAsync(session, targetId, ct) ?? Task.FromResult(Refused);
 
-    public QualityScore ScoreOf(Project project, string targetId) => _bound?.ScoreOf(project, targetId) ?? QualityScore.None;
+    public QualityScore ScoreOf(Project project, string targetId) => Bound?.ScoreOf(project, targetId) ?? QualityScore.None;
 }
 
 /// <summary>Preflight's calibration rows: each projector an output shows, its grade and whether it has a fallback to return to.
@@ -65,7 +76,8 @@ internal sealed class WallPreflight : IPreflightCheck
                 : grade == "F" ? (Light.Red, current.Score.Words, pj.FallbackId is not null && pj.FallbackId != pj.CalibrationId ? $"CALIBRATION FALLBACK {pj.Id}" : $"PROJECTOR SOLVE {pj.Id}")
                 : pj.StagedId is { } staged ? (Light.Amber, $"a result waits for a person: {staged}", $"CALIBRATION ACCEPT {staged}")
                 : pj.FallbackId is null ? (Light.Amber, $"{current.Score.Words} — no fallback to return to", $"CALIBRATION ACCEPT {pj.Id}")
-                : grade == "C" ? (Light.Amber, current.Score.Words, current.Score.Terms.Skip(1).Where(t => t.Penalty > 0 && t.Fix.Length > 0).OrderByDescending(t => t.Penalty).Select(t => t.Fix).FirstOrDefault())
+                : grade == "C" ? (Light.Amber, current.Score.Words, current.Score.Terms.Skip(1).Where(t => t.Penalty > 0 && t.Fix.Length > 0).OrderByDescending(t => t.Penalty).Select(t => t.Fix).FirstOrDefault()
+                    ?? $"CALIBRATION RESOLVE {pj.Id}")
                 : (Light.Green, current.Score.Words, null);
             rows.Add(new PreflightRow("calibration:" + pj.Id, node, Section, pj.Name, light, value, note, fix));
         }
