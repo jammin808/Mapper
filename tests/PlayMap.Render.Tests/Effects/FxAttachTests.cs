@@ -13,8 +13,9 @@ namespace PlayMap.Render.Tests.Effects;
 /// chained layer that covers the canvas is drawn over the background, not instead of it; a surface's history effect steps once a
 /// frame however many projectors draw it, and every projector shows the same picture; bypass and mix 0 leave layers and surfaces
 /// bit for bit as they were; what the air shows instead of the show leaves layer and surface chains idle with the reason, and
-/// a chain out of the picture says why; a playlist item's chain counts its time from the item's start, each side of a
-/// transition from its own; and once warm a frame with every kind of chain allocates nothing.</summary>
+/// a chain out of the picture says why; a safe look is drawn through no chain, even of a canvas or playlist the show shows with
+/// its chains; a playlist item's chain counts its time from the item's start, each side of a transition from its own; and once
+/// warm a frame with every kind of chain allocates nothing.</summary>
 [Collection("gl")]
 public sealed class FxAttachTests(GlFixture gl)
 {
@@ -55,6 +56,16 @@ public sealed class FxAttachTests(GlFixture gl)
         public SourceRef? Override(string outputId, long leaderNs) => safe;
 
         public bool Hold(string outputId, long leaderNs) => false;
+    }
+
+    /// <summary>The air on some outputs only: a safe look per output, and one output held.</summary>
+    private sealed class AirOn(IReadOnlyDictionary<string, SourceRef>? safe = null, string? held = null) : IAirLevels
+    {
+        public float Gain(string outputId, long leaderNs) => 1f;
+
+        public SourceRef? Override(string outputId, long leaderNs) => safe?.GetValueOrDefault(outputId);
+
+        public bool Hold(string outputId, long leaderNs) => outputId == held;
     }
 
     /// <summary>A playlist that shows one picture as one item (or a mix of two), started at a known instant.</summary>
@@ -296,6 +307,37 @@ public sealed class FxAttachTests(GlFixture gl)
             Pixels.Near((215, 185, 155), Pixels.At(back.Stage, PW, PW / 2, PH / 2), 1, "the surface's chain back");
             Assert.Equal((FxSlotState.Ok, ""), Said(fx, "fx00000001"));
             Assert.Equal((FxSlotState.Ok, ""), Said(fx, "fx00000002"));
+        });
+    }
+
+    [Fact]
+    public void ASafeLookIsDrawnThroughNoChainEvenOfACanvasOrPlaylistTheShowShowsWithItsChains()
+    {
+        var white = SourceRef.Solid("#FFFFFF");
+        var item = PlaylistItem.For("it_fx", white, "Fx") with { Fx = FxRig.Chain(FxRig.Slot("fx.invert", id: "fx00000002")) };
+        var black = SourceRef.Solid("#000000");
+        // The safe looks come first and last in output order: a show picture made before or after them keeps its chains.
+        var project = Scene.Project([],
+            [Scene.SourceOutput("op1", black, W, H), CanvasOutput("op2", "cv1"), Scene.SourceOutput("op3", SourceRef.Playlist("pl_1"), W, H),
+             Scene.SourceOutput("op4", black, W, H)],
+            [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_fx", "#284664", new RectD(0, 0, W, H), FxRig.Chain(FxRig.Slot("fx.invert")))])])
+            with { Playlists = [new Playlist("pl_1", "List", [item], false, null)] };
+        var air = new AirOn(new Dictionary<string, SourceRef> { ["op1"] = SourceRef.Canvas("cv1"), ["op4"] = SourceRef.Playlist("pl_1") });
+        var sources = new OneItem(new ItemOnAir(item, 0), white);
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, Exact);
+            using var fx = new FxPass(c);
+            var inputs = Scene.Inputs(project, 1, sources) with { Passes = [fx], Levels = air };
+            DrawCompiled(engine, fx, inputs, ["fx00000001", "fx00000002"], "op2");
+            engine.Render(inputs);
+            Assert.Equal((40, 70, 100), Pixels.At(Read(engine, "op1", W, H), W, 10, 10));
+            Pixels.Near((215, 185, 155), Pixels.At(Read(engine, "op2", W, H), W, 10, 10), 1, "the show's canvas with its layer's chain");
+            Pixels.Near((0, 0, 0), Pixels.At(Read(engine, "op3", W, H), W, 10, 10), 1, "the show's playlist with its item's chain");
+            Assert.Equal((255, 255, 255), Pixels.At(Read(engine, "op4", W, H), W, 10, 10));
+            Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000001").State);
+            Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000002").State);
+            Assert.Empty(c.Device.TakeErrors());
         });
     }
 

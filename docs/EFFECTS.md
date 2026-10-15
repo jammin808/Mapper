@@ -31,8 +31,9 @@ Previews of the stage drawn after the frame run no chain: they show the chained 
 projector drew that frame, its content without the chain.
 
 What the air shows instead of the show never passes through a chain: a test pattern over an output, a panic's safe look,
-blackout, a raw scan frame and the identify card. A chain the frame did not reach is `idle` in STATE with the reason, said once
-the frame is wholly drawn:
+blackout, a raw scan frame and the identify card. A safe look that is a canvas or a playlist is drawn as its source is, apart
+from the show: its layers' and items' chains do not run on it, even in a frame where another output shows the same canvas or
+playlist with them. A chain the frame did not reach is `idle` in STATE with the reason, said once the frame is wholly drawn:
 
 | Words | Kept |
 |---|---|

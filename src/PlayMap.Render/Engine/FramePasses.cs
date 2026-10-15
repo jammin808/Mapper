@@ -36,8 +36,9 @@ public interface IMeasuredStages
 /// and an item are each called at most once a frame however many outputs show them (a canvas is composed once a frame, a
 /// chained surface's and an item's pictures are made once a frame), so a pass that integrates from frame to frame steps once a
 /// frame. Previews drawn after the frame call no pass: they show what the frame made, or the picture without its passes.
-/// What the air shows instead of the show (a test pattern, a safe look) is made from neither layers, surfaces nor items, so no
-/// picture call meets it but <see cref="Picture"/>, whose <see cref="PassFrame.Covered"/> says so.</summary>
+/// What the air shows instead of the show (a test pattern, a safe look) is resolved apart from the show with no pass — a canvas
+/// or playlist in it is composed or mixed without its layers' and items' calls — so no picture call meets it but
+/// <see cref="Picture"/>, whose <see cref="PassFrame.Covered"/> says so.</summary>
 public interface IFramePass : IDisposable
 {
     string Name { get; }

@@ -19,7 +19,8 @@ namespace PlayMap.Render.Engine;
 /// The frame's passes (<see cref="SetPasses"/>) see a layer's picture before its canvas is drawn into, an item's picture
 /// (each side of a transition on its own) before it is shown or mixed, and — through <see cref="SurfacePicture"/> — a stage
 /// surface's; each at most once a frame. Once the frame ends the passes are let go, so what is resolved after it (a preview)
-/// shows what the frame made, or the picture without its passes.</summary>
+/// shows what the frame made, or the picture without its passes. What the air shows instead of the show
+/// (<see cref="ResolvePlain"/>) meets no pass: its canvases are composed and its playlists mixed apart from the show's.</summary>
 internal sealed class SourceResolver : IDisposable
 {
     public const int IdleFrames = 120;
@@ -74,7 +75,10 @@ internal sealed class SourceResolver : IDisposable
     private readonly List<string> _staleCanvases = [];
     private readonly Dictionary<SourceRef, ItemEntry> _items = [];
     private readonly List<SourceRef> _staleItems = [];
+    private readonly Dictionary<string, CanvasEntry> _plainCanvases = new(StringComparer.Ordinal);
+    private readonly Dictionary<SourceRef, CanvasEntry> _plainMixes = [];
     private IFramePass[] _passes = [];
+    private int _plain;
     private PassFrame _passFrame;
     private Project? _project;
     private ISourceProvider _provider = NoSources.Instance;
@@ -113,15 +117,35 @@ internal sealed class SourceResolver : IDisposable
     /// <summary>True while the frame's passes run (between <see cref="SetPasses"/> and <see cref="EndFrame"/>).</summary>
     public bool RunsPasses => _passes.Length > 0;
 
+    /// <summary>The passes a picture resolved now meets: none outside the frame, none for what the air shows instead of the show.</summary>
+    private ReadOnlySpan<IFramePass> Passes => _plain > 0 ? default : _passes;
+
     /// <summary>The frame being drawn.</summary>
     public long FrameNumber => _frame;
 
     /// <summary>A stage surface's content through the frame's passes, in order; the caller keeps what comes back for the frame.</summary>
     public GpuTexture SurfacePicture(Surface surface, GpuTexture picture)
     {
-        foreach (var pass in _passes)
+        foreach (var pass in Passes)
             picture = pass.Surface(in _passFrame, surface, picture);
         return picture;
+    }
+
+    /// <summary>What the air shows instead of the show — a test pattern, a panic's safe look, a raw scan frame — as its source is,
+    /// through no pass: a canvas in it is composed, and a playlist in it mixed, into targets of their own (a canvas the show also
+    /// shows is composed twice, once with its layers' chains and once without), and a playlist's item is drawn without its
+    /// chain. Never null.</summary>
+    public GpuTexture ResolvePlain(SourceRef source, int width, int height, GeneratorContext context)
+    {
+        _plain++;
+        try
+        {
+            return Resolve(source, width, height, context);
+        }
+        finally
+        {
+            _plain--;
+        }
     }
 
     /// <summary>The picture of a source for a consumer of the given size (generators draw at it; videos and
@@ -160,12 +184,12 @@ internal sealed class SourceResolver : IDisposable
         {
             if (_provider.Mix(source, _leaderNs) is { } mix)
                 return Mixed(source, mix, width, height, context);
-            if (_items.TryGetValue(source, out var shown) && shown.Frame == _frame)
+            if (_plain == 0 && _items.TryGetValue(source, out var shown) && shown.Frame == _frame)
             {
                 shown.LastUsed = _frame;
                 return shown.Picture!;
             }
-            var item = _passes.Length > 0 ? _provider.Item(source, _leaderNs) : null;
+            var item = !Passes.IsEmpty ? _provider.Item(source, _leaderNs) : null;
             GpuTexture picture;
             if (_provider.Route(source, _leaderNs) is { } routed)
                 picture = Resolve(routed, width, height, context);
@@ -192,16 +216,17 @@ internal sealed class SourceResolver : IDisposable
     /// <summary>An item's picture through the frame's passes, in order.</summary>
     private GpuTexture ItemPicture(in ItemOnAir item, GpuTexture picture)
     {
-        foreach (var pass in _passes)
+        foreach (var pass in Passes)
             picture = pass.Item(in _passFrame, item.Item, item.StartNs, picture);
         return picture;
     }
 
     /// <summary>A playlist between two pictures: both sides resolved first (a side may draw), then mixed into
-    /// the playlist's own target at the larger of their sizes, once a frame.</summary>
+    /// the playlist's own target at the larger of their sizes, once a frame (once more, apart, for the air's own picture).</summary>
     private GpuTexture Mixed(SourceRef playlist, SourceMix mix, int width, int height, GeneratorContext context)
     {
-        if (_mixes.TryGetValue(playlist, out var entry) && entry.LastRendered == _frame)
+        var mixes = _plain > 0 ? _plainMixes : _mixes;
+        if (mixes.TryGetValue(playlist, out var entry) && entry.LastRendered == _frame)
         {
             entry.LastUsed = _frame;
             return entry.Target.Color;
@@ -214,7 +239,7 @@ internal sealed class SourceResolver : IDisposable
         {
             entry?.Dispose();
             entry = new CanvasEntry { Target = _services.Device.CreateRenderTarget(w, h, TextureFormat.Rgba16F) };
-            _mixes[playlist] = entry;
+            mixes[playlist] = entry;
         }
         entry.LastUsed = _frame;
         entry.LastRendered = _frame;
@@ -238,7 +263,7 @@ internal sealed class SourceResolver : IDisposable
     private GpuTexture Side(SourceRef side, ItemOnAir? item, int width, int height, GeneratorContext context)
     {
         var picture = Resolve(side, width, height, context);
-        return _passes.Length > 0 && item is { } on && FxChains.Draws(on.Item.Fx) ? ItemPicture(on, picture) : picture;
+        return !Passes.IsEmpty && item is { } on && FxChains.Draws(on.Item.Fx) ? ItemPicture(on, picture) : picture;
     }
 
     /// <summary>The generator a source names when it is a surface-aware effect (drawn by the stage shader
@@ -255,11 +280,12 @@ internal sealed class SourceResolver : IDisposable
     {
         if (_project?.FindCanvas(id) is not { } canvas || canvas.Width < 1 || canvas.Height < 1)
             return null;
-        if (!_canvases.TryGetValue(id, out var entry) || entry.Target.Width != canvas.Width || entry.Target.Height != canvas.Height)
+        var canvases = _plain > 0 ? _plainCanvases : _canvases;
+        if (!canvases.TryGetValue(id, out var entry) || entry.Target.Width != canvas.Width || entry.Target.Height != canvas.Height)
         {
             entry?.Dispose();
             entry = new CanvasEntry { Target = _services.Device.CreateRenderTarget(canvas.Width, canvas.Height, TextureFormat.Rgba16F) };
-            _canvases[id] = entry;
+            canvases[id] = entry;
         }
         entry.LastUsed = _frame;
         if (entry.LastRendered == _frame)
@@ -302,7 +328,7 @@ internal sealed class SourceResolver : IDisposable
             var h = Math.Max(1, (int)Math.Round(layer.Rect.H));
             var picture = Resolve(layer.Source, w, h, context);
             var drawn = picture;
-            foreach (var pass in _passes)
+            foreach (var pass in Passes)
                 drawn = pass.Layer(in _passFrame, layer, drawn);
             if (count == 0)
                 firstPassed = !ReferenceEquals(drawn, picture);
@@ -403,24 +429,10 @@ internal sealed class SourceResolver : IDisposable
             _videos.Remove(key);
         }
         _staleVideos.Clear();
-        foreach (var (key, e) in _canvases)
-            if (_frame - e.LastUsed > IdleFrames)
-                _staleCanvases.Add(key);
-        foreach (var key in _staleCanvases)
-        {
-            _canvases[key].Dispose();
-            _canvases.Remove(key);
-        }
-        _staleCanvases.Clear();
-        foreach (var (key, e) in _mixes)
-            if (_frame - e.LastUsed > IdleFrames)
-                _staleMixes.Add(key);
-        foreach (var key in _staleMixes)
-        {
-            _mixes[key].Dispose();
-            _mixes.Remove(key);
-        }
-        _staleMixes.Clear();
+        Sweep(_canvases, _staleCanvases);
+        Sweep(_plainCanvases, _staleCanvases);
+        Sweep(_mixes, _staleMixes);
+        Sweep(_plainMixes, _staleMixes);
         foreach (var (key, e) in _items)
             if (_frame - e.LastUsed > IdleFrames)
                 _staleItems.Add(key);
@@ -429,19 +441,40 @@ internal sealed class SourceResolver : IDisposable
         _staleItems.Clear();
     }
 
+    /// <summary>Lets go of the targets no frame has used for <see cref="IdleFrames"/> frames.</summary>
+    private void Sweep<TKey>(Dictionary<TKey, CanvasEntry> entries, List<TKey> stale)
+        where TKey : notnull
+    {
+        foreach (var (key, e) in entries)
+            if (_frame - e.LastUsed > IdleFrames)
+                stale.Add(key);
+        foreach (var key in stale)
+        {
+            entries[key].Dispose();
+            entries.Remove(key);
+        }
+        stale.Clear();
+    }
+
     public void Dispose()
     {
         foreach (var e in _videos.Values)
             e.Dispose();
         foreach (var e in _canvases.Values)
             e.Dispose();
+        foreach (var e in _plainCanvases.Values)
+            e.Dispose();
         foreach (var e in _mixes.Values)
+            e.Dispose();
+        foreach (var e in _plainMixes.Values)
             e.Dispose();
         foreach (var t in _colors.Values)
             t.Dispose();
         _videos.Clear();
         _canvases.Clear();
+        _plainCanvases.Clear();
         _mixes.Clear();
+        _plainMixes.Clear();
         _colors.Clear();
         _items.Clear();
     }

@@ -374,12 +374,12 @@ public sealed class RenderEngine : IDisposable
         {
             if (inputs.Levels?.Override(output.Id, inputs.LeaderNs) is { IsNone: false } safe)
             {
-                // The safe look a panic shows on this output, drawn like a pattern override.
-                picture = _sources.Resolve(safe, output.Width, output.Height, context);
+                // The safe look a panic shows on this output, drawn like a pattern override: as its source is, through no chain.
+                picture = _sources.ResolvePlain(safe, output.Width, output.Height, context);
             }
             else if (inputs.PatternCovers(output.Id))
             {
-                picture = _sources.Resolve(inputs.PatternOverride!, output.Width, output.Height, context);
+                picture = _sources.ResolvePlain(inputs.PatternOverride!, output.Width, output.Height, context);
             }
             else
             {
@@ -451,7 +451,7 @@ public sealed class RenderEngine : IDisposable
         GpuTexture picture;
         try
         {
-            picture = _sources.Resolve(raw, output.Width, output.Height, new GeneratorContext(output.Name, 0, "#FFFFFF", true));
+            picture = _sources.ResolvePlain(raw, output.Width, output.Height, new GeneratorContext(output.Name, 0, "#FFFFFF", true));
         }
         catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
