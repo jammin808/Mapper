@@ -55,8 +55,9 @@ a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
 
 Section `optimise`: amber for each video the show plays at 4K or larger (what outputs and surfaces show, through playlists, canvases
 and generators' inputs, what enabled LED fixtures sample, what enabled sends tap, and the fallback of a live input the show plays)
-that this node decodes on the CPU (what plays here is not a
-HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
+that this node decodes on the CPU (what plays here is not a HAP codec, and its frames come through system memory: the decode
+section's path, so a clip the decoder serves zero-copy is not one), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row
+when there is none.
 
 ## Not in the catalogue
 

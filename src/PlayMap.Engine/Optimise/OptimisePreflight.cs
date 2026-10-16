@@ -10,8 +10,9 @@ using PlayMap.Engine.Host;
 namespace PlayMap.Engine.Optimise;
 
 /// <summary>Preflight, section "optimise": each video the show plays at 4K or larger that this node still decodes on the CPU (what
-/// it plays here — its version when one plays — is not a HAP codec) is amber, with the line that makes a version the GPU plays;
-/// a show with none is one green row.</summary>
+/// it plays here — its version when one plays — is not a HAP codec, and its frames come through system memory: a clip the decoder
+/// serves zero-copy is on the GPU already, <see cref="Decode.DecodePathCheck.CpuPath"/>) is amber, with the line that makes a version
+/// the GPU plays; a show with none is one green row.</summary>
 public sealed class OptimisePreflight : IPreflightCheck
 {
     public const long FourK = 3840L * 2160;
@@ -38,6 +39,8 @@ public sealed class OptimisePreflight : IPreflightCheck
             var played = VersionChoice.Played(item, formats, h => media?.PathForHash(h) is not null);
             var info = played.Info;
             if ((long)info.Width * info.Height < FourK || info.VideoCodec.Length == 0 || HapCodecs.TryFromName(info.VideoCodec, out _) || info.VideoCodec == "hap")
+                continue;
+            if (Decode.DecodePathCheck.CpuPath(engine, media, item) is null)
                 continue;
             rows.Add(new PreflightRow("optimise.cpu:" + item.Id, node, Section, item.Name, Light.Amber, "decodes on the CPU",
                 string.Create(CultureInfo.InvariantCulture, $"{item.Name} is {info.Width}×{info.Height} {info.VideoCodec}: this node decodes it on the CPU — a HAP Q version plays on the GPU"),

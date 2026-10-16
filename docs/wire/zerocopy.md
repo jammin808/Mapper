@@ -26,7 +26,7 @@ Added to wp2-decode's `decode` block (new keys at the end of each object):
 ```json
 "decode":{"platform":{"blocks":{…,"staging":"persistent|copy|none","arenaMb":256,"arenaFreeMb":240,"arenaWords":""},
                       "hapLayers4k60":…,"light":"green|amber|red","words":"…",
-                      "api":"dmabuf|d3d11|opengl|none","describe":"VAAPI → EGL dmabuf on /dev/dri/renderD128 (…)","gl":"egl|glx|wgl|none",
+                      "api":"dmabuf|d3d11|opengl|none","describe":"VAAPI → EGL dmabuf on /dev/dri/renderD128 (…)","gl":"egl|glx|wgl|angle|none",
                       "zeroCopy":"ready|unavailable","direct":"proven|unproven|n/a","why":"the GL is software (llvmpipe): zero-copy needs a GPU"},
           "sources":[{…,"path":"hw-direct|hw-gpu-copy|hap-gpu|hw-copy-back|software","zeroCopy":true,…,"why":"…",
                       "device":"vaapi|d3d11va|cuda|","gpuCopies":0,"width":3840,"height":2160,"surfaces":19,"vramMb":236.4,"importMsP95":0}],
@@ -37,7 +37,8 @@ Added to wp2-decode's `decode` block (new keys at the end of each object):
   rung it passed and why, then the renderer's words when it opened below the top. `busMbPerFrame` is what crosses the bus per frame
   (a copied-back frame twice, a software frame once, a zero-copy frame 0); `surfaces` and `vramMb` are a zero-copy decoder's pool.
 - `platform.zeroCopy` is `ready` when the renderer's device imports decoder surfaces (a GPU's render node and dmabuf imports, or the
-  D3D11 share); `why` says why not. `staging` is `persistent` when the context has an upload arena (`arenaWords` says why not).
+  D3D11 share made with video support and multithread protection); `why` says why not. `platform.gl` is the context's binding:
+  `angle` on the DXGI platform; on Linux a desktop context is `glx` unless `decode.glApi` is `egl`. `staging` is `persistent` when the context has an upload arena (`arenaWords` says why not).
 - `light` is amber when a clip of 4K or more decodes on the CPU ("1 clip at 4K decodes on the CPU: Intro (hw-copy-back)").
 
 Fixture: `tests/fixtures/state/decode.json` and `decode.cards.json` (wp2-decode's, extended).
@@ -49,9 +50,11 @@ The `decode` item (wp2-decode's) turns amber with the same words when a 4K clip 
 ## Preflight
 
 Section `decode`: row `decode.cpu-4k:<md>` — "Intro decodes in software at 3840×2160 — …" (or "copies every frame back through
-memory"), amber, fix `MEDIA OPTIMISE <md> TO hap-q`, for each non-HAP clip of 4K or more the show plays whose frames come through
-memory. The path is the open decoder's own; a clip not open now is read from the rung it would open on, and the row says "would".
-None: one green row `decode.cpu-4k`.
+memory"), amber, fix `MEDIA OPTIMISE <md> TO hap-q`, for each clip of 4K or more the show plays whose frames come through memory:
+what the show plays is optimise's reading of it (outputs, surfaces, playlists, canvases, generator inputs, LED fixtures, sends, live
+inputs' fallbacks), as the version this node plays (a HAP version is on the GPU). The path is the open decoder's own; a clip not open
+now is read from the rung it would open on, and the row says "would". None: one green row `decode.cpu-4k`. Section `optimise` reads
+the same clips and the same path (`optimise.cpu:<md>`).
 
 ## Papers note
 

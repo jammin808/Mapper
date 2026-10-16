@@ -10,6 +10,9 @@ using PlayMap.Core.Preflight;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Decode;
 using PlayMap.Engine.Host;
+using PlayMap.Engine.Optimise;
+using PlayMap.Engine.Presentation;
+using PlayMap.Engine.Tests.Presentation;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Media.Hw;
 using PlayMap.Media.Sources;
@@ -152,6 +155,41 @@ public sealed class DecodeVerbTests
         await using var engine = new EngineCore(EngineServices.ForTests(), Show(Clip("md_hd", 1920, 1080), Clip("md_h", 4096, 2160, "hap")));
         var row = Assert.Single(await Check(engine));
         Assert.Equal(("decode.cpu-4k", Light.Green, (string?)null), (row.Id, row.Light, row.Fix));
+    }
+
+    /// <summary>A preflight with the present path's check, the decode section's and optimise's together: every row has its own id,
+    /// and the two sections that judge a 4K clip on the CPU read the same facts (the same clips, the same path).</summary>
+    [Fact]
+    public async Task EveryPreflightRowHasItsOwnIdWithThePresentPathAndTheDecodeRows()
+    {
+        var folder = Directory.CreateTempSubdirectory("playmap-preflight-ids-");
+        try
+        {
+            var node = new PresentNode(PresentSettings.Default, _ => { }, new PresentFuse(folder.FullName, () => 1_760_000_000_000));
+            var services = EngineServices.ForTests() with
+            {
+                PresentNode = node,
+                Outputs = new ScriptedOutputs(),
+                PreflightChecks = [new OutputPresentCheck(), new HapLayersCheck(), new DecodePathCheck(), new OptimisePreflight()],
+            };
+            await using var engine = new EngineCore(services, Show(Clip("md_a", 3840, 2160), Clip("md_b", 4096, 2160, "hevc"),
+                Clip("md_hd", 1920, 1080), Clip("md_h", 3840, 2160, "hap_q")));
+            var reply = await Run(engine, "PREFLIGHT QUICK WAIT");
+            Assert.True(reply.Ok, reply.Payload);
+            var report = PreflightReports.Read(reply.Payload!)!;
+            var ids = report.Rows.Select(r => r.Id).ToList();
+            Assert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count());
+            Assert.Contains("outputs.present-path", ids);
+            Assert.Contains("decode.hap-layers", ids);
+            var decode = report.Rows.Where(r => r.Id.StartsWith("decode.cpu-4k:", StringComparison.Ordinal)).Select(r => r.Id["decode.cpu-4k:".Length..]).Order().ToList();
+            var optimise = report.Rows.Where(r => r.Id.StartsWith("optimise.cpu:", StringComparison.Ordinal)).Select(r => r.Id["optimise.cpu:".Length..]).Order().ToList();
+            Assert.Equal(["md_a", "md_b"], decode);
+            Assert.Equal(decode, optimise);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
     }
 
     [Fact]

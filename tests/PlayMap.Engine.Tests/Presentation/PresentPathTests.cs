@@ -120,4 +120,27 @@ public sealed class PresentPathTests
         Assert.False(r.Ok);
         Assert.StartsWith("this node keeps no settings", r.Payload, StringComparison.Ordinal);
     }
+
+    /// <summary>The shutdown rule on the present path and the decode policy: once the node has begun to stop, PRESENT PATH, PRESENT
+    /// RESET and DECODE POLICY are refused with the stopping words, nothing is kept on the node, and STATE says what it said before.</summary>
+    [Fact]
+    public async Task AStoppingNodeChangesNoPresentPathNoFuseAndNoDecodePolicy()
+    {
+        await using var rig = new PathRig();
+        rig.Fuse.Arm("dxgi");
+        rig.Engine.BeginStop();
+        foreach (var line in new[] { "PRESENT PATH GL", "PRESENT RESET", "DECODE POLICY SOFTWARE", "DECODE POLICY DIRECT FORCE" })
+        {
+            var r = await rig.Run(line);
+            Assert.False(r.Ok, line);
+            Assert.Equal(EngineCore.StoppingWords, r.Payload);
+        }
+        Assert.Empty(rig.Saved);
+        Assert.NotNull(rig.Fuse.Read());
+        Assert.Equal("auto", rig.PresentPath().GetProperty("asked").GetString());
+        rig.Engine.FactsChanged();
+        using var state = JsonDocument.Parse(rig.Engine.State().Json);
+        var decode = state.RootElement.GetProperty("decode");
+        Assert.Equal(("auto", false), (decode.GetProperty("policy").GetString(), decode.GetProperty("forced").GetBoolean()));
+    }
 }
