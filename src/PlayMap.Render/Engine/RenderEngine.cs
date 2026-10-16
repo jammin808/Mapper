@@ -697,10 +697,7 @@ public sealed class RenderEngine : IDisposable
         }
         var resized = st.Ring.First is { } held && (held.Width != final.Width || held.Height != final.Height);
         if (st.Ring.Delay != st.DelayFrames || resized)
-        {
-            var (w, h) = (final.Width, final.Height);
-            st.Ring.Configure(st.DelayFrames, () => Device.CreateRenderTarget(w, h, TextureFormat.Rgba8), remake: true);
-        }
+            RemakeRing(st, final.Width, final.Height);
         if (!unbroken)
             st.Ring.Restart();
         var head = st.Ring.Next();
@@ -713,6 +710,12 @@ public sealed class RenderEngine : IDisposable
         d.DrawFullscreen(blit);
         return st.Ring.Presented();
     }
+
+    /// <summary>Makes an output's delay pictures again at its delay and size. Its own method: the maker's closure (it captures the
+    /// size) is made only when the ring is remade. Written in <see cref="Delayed"/>, an optimised build would allocate that closure
+    /// at the method's entry, on every frame of every output, whichever branch the frame takes.</summary>
+    private void RemakeRing(OutputState st, int width, int height) =>
+        st.Ring.Configure(st.DelayFrames, () => Device.CreateRenderTarget(width, height, TextureFormat.Rgba8), remake: true);
 
     private void EnsureFinal(OutputState st, int width, int height)
     {
