@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using PlayMap.Core.Numerics;
 
 namespace PlayMap.Core.Geometry;
@@ -193,16 +192,9 @@ public sealed partial class LasChunkSource : IPointChunkSource
         return code > 0 ? "EPSG:" + code.ToString(CultureInfo.InvariantCulture) : "";
     }
 
-    [GeneratedRegex(@"(?:AUTHORITY|ID)\[\s*""EPSG""\s*,\s*""?(\d+)""?", RegexOptions.IgnoreCase)]
-    private static partial Regex WktAuthority();
-
-    /// <summary>The outermost EPSG authority of a WKT text (WKT1 and WKT2 both put it last), or "".</summary>
-    public static string CrsOfWkt(string wkt)
-    {
-        ArgumentNullException.ThrowIfNull(wkt);
-        var matches = WktAuthority().Matches(wkt);
-        return matches.Count == 0 ? "" : "EPSG:" + matches[^1].Groups[1].Value;
-    }
+    /// <summary>The EPSG code a WKT text names (<see cref="CrsInfo.SniffWkt"/>: its outermost authority, else a UTM system named by
+    /// datum and zone), or "".</summary>
+    public static string CrsOfWkt(string wkt) => CrsInfo.SniffWkt(wkt);
 
     public int Read(Span<Vec3d> points, Span<int> colours, CancellationToken ct)
     {

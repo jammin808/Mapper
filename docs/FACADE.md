@@ -1,6 +1,6 @@
 # Facades: sites, surveys, control points, long throws
 
-PlayMap takes a building from a survey to calibrated projectors at 50–150 m. The verbs are in `docs/wire/facade.md`; the design is
+PlayMap takes a building from a survey to calibrated projectors at 50–150 m. The verbs are in `docs/wire/facade.md` and `docs/wire/stacks.md`; the design is
 `docs/round2/design/facade.md`.
 
 ## The site frame
@@ -102,7 +102,55 @@ XYZ, PTS) with the `SURVEY IMPORT` line that reads it.
 A scan with a calibrated camera bridges into the stage's model as it stands: every visible surface on an imported mesh, through its
 placement — never a mesh file's raw coordinates.
 
+## Coordinate systems
+
+A site's system is named as the EPSG dataset names it ("ETRS89 / UTM zone 32N"); a LAS file's WKT record gives its system from the root
+element's own EPSG authority (a compound system's horizontal part's; an authority nested in a unit, a datum or the base system names
+that, not the system) or, when it has none, from a UTM name ("WGS_1984_UTM_Zone_33N"). The geodesy beneath (`Geodesy.cs`) is
+from published specifications: geodetic ↔ ECEF ↔ local east-north-up, and the transverse Mercator by Krüger's series to sixth
+order, within a millimetre of Lantmäteriet's SWEREF 99 TM control points, the Ordnance Survey's worked example and EPSG's
+Luxembourg example, and within a micrometre forward and back over a UTM zone.
+
+## Stacks
+
+Two or more projectors lighting one picture are a stack: `STACK NEW` groups them with a master (the first named, or `MASTER`). A
+member must light at least 80 % of the master's picture (where the master's raster lands on the model, or on a wall at its throw
+without one) and may be in one stack only. The blend treats the stack as one projector whose light is its members' summed.
+
+`STACK ALIGN <stack> FROM <scan>` fits each member to the master's picture from a scan that saw every member through one camera.
+The master is the target and its output is left as it is. The fit is a residual lattice per member, taken through the member's own
+warp (so a corner pin or lattice on it keeps the registration), written to the member's output as its measured correction through the calibration ledger
+(source "stack", the correction it had kept as its fallback; one edit, one undo step), and drawn as the first layer of the output's
+warp. The reply gives each member's held-out residual before and after, in pixels; a member farther than 0.5 px from the master lights
+the stack amber. `STACK MATCH <stack> FROM <scan>` gives each member per-channel gains of at most one that bring its white to the
+master's, from the scan's colour white frames over the area every member lights, written beside the lattice. The white frames carry the
+ambient light as well, the same for every member: a dark scene matches best. The measured lattice is drawn on the air; the wall's
+overlay, the click mapping and MPCDI export follow the operator's warp alone. A projector's own geometry or blend left on beside a
+measured correction is named by align's double-correction guard.
+
+A scan's projector views are held in memory by the node that scanned; after a restart, scan the stack again.
+
+`STACK FAILOVER <stack> HOLD|MATCH` says what happens when a member fails — its projector in standby or cooling down, or reporting an
+error, or its display output not open (a closed shutter is no loss: shutters are closed on purpose). HOLD (the default) tells it: the stack is red
+in STATE, the context and preflight, and the journal names the cause. MATCH also dims every other output of the stack's blend group to
+the light that remains (Σ remaining lumens ÷ Σ lumens), so the building stays even: a runtime gain like BLACKOUT, never an edit,
+fading down in 0.5 s and back over 2 s on the leader's clock when the member returns, multiplied with any degrade gain another part sets.
+
+## The light plan
+
+`PLAN LIGHT` predicts each surface's light from the projectors as placed: at every coverage sample, each projector's lumens spread
+over its raster, scaled by its pixel density there (so a grazing or far surface gets less), falling off to the raster's corners;
+stacked members add, separate projectors share an overlap. It answers lux at p5/p50/p95, nits (albedo 0.5 by default), contrast
+against an ambient, pixel pitch and the lumens short of a target. One 30 000 lm 4K projector at throw ratio 3 from 100 m, head-on,
+gives 48 lux and an 8.7 mm pixel; a double stack 96.
+
+## The facade guide
+
+`SITE GUIDE` (or `FACADE GUIDE`) lists the facade's steps — survey, control points, pins, the lens prior and the solve, stacks, blend,
+score — each with its state and the line that does it, and names the next. STATE's `stage.site.next` carries the next step, so the
+desk and Companion can drive the workflow with the verbs everyone uses.
+
 ## Not here yet
 
-Geodesy (UTM, geographic coordinates, CRS conversion), the facade guide, stacks and the light plan are wp2-stacks'. LAZ, the night
-capture profile, measured photometry, glass masks, camera solves from photos and the desk's facade drawer are next round.
+Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, measured photometry, glass masks, camera solves from photos and
+the desk's facade drawer; geographic or other-zone surveys converted on import.

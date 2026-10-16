@@ -68,6 +68,9 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 {
     private const int Cols = 1001, Rows = 1001; // 2 000 000 triangles
 
+    /// <summary>The longest the import may hold the control lane in one slice (ms).</summary>
+    internal const double LaneSliceBudgetMs = 10;
+
     internal static double ToSurvey(Vec3d stage, SiteFrame site, MeshData original, int cols, int rows)
     {
         // The stage point back on the survey's own grid (Z-up file coordinates are the grid's E, N, H here: LOCAL, scale 1).
@@ -122,7 +125,9 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         Assert.Equal("ready", job.State);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
-        Assert.True(job.LaneMaxMs <= 10, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
+        // The 10 ms slice is a budget on real work: here it is held to its 4× ceiling (the suite runs beside it); the Perf twin,
+        // run alone, holds it to 10 ms.
+        Assert.True(job.LaneMaxMs <= 4 * LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
         // One edit: the revision moved once.
         Assert.Equal(revision + 1, rig.Engine.Store.Current.Revision);
 
@@ -380,6 +385,18 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         log.WriteLine(optimised ? "optimised build: the 15 s budget holds" : "Debug build: recorded against the 4× ceiling (60 s)");
         Assert.True(seconds <= (optimised ? 15 : 60), $"{seconds:0.0} s");
         Assert.True(worstPing <= 50, $"{worstPing:0.0} ms");
+    }
+
+    [Fact]
+    public async Task TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice()
+    {
+        await using var rig = new SiteRig();
+        var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
+        var (job, seconds) = await SurveyImportTests.ImportBig(rig, file);
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices"));
+        Assert.Equal("ready", job.State);
+        Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
+        Assert.True(job.LaneMaxMs <= SurveyImportTests.LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
     }
 }
 

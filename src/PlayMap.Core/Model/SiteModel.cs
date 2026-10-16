@@ -51,7 +51,12 @@ public enum StackFailover { Hold, Match }
 
 /// <summary>Projectors lighting one picture: the blend treats them as one; each member's measured residual and gains live
 /// on its output's MeasuredCorrection.</summary>
-public sealed record StackGroup(string Id, string Name, ImmutableArray<string> ProjectorIds, string MasterId, StackFailover Failover) : IEntity;
+public sealed record StackGroup(string Id, string Name, ImmutableArray<string> ProjectorIds, string MasterId, StackFailover Failover) : IEntity
+{
+    /// <summary>The members as read: none when the file or a generic ADD gave no list.</summary>
+    [JsonIgnore]
+    public ImmutableArray<string> Members => ProjectorIds.IsDefault ? [] : ProjectorIds;
+}
 
 /// <summary>What a solve may assume: a throw ratio with its uncertainty, a position (a control point or coordinates). The file
 /// names the ratio "throw" ("throwRatio" is a lens's derived value, never stored).</summary>

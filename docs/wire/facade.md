@@ -32,8 +32,7 @@ keep the live site until `BLIND COMMIT` lands it; that session's `SITE` and `SIT
 begin "in the blind draft:", and the `site` context item and preflight never take it). A sync group shares none of them: each node
 keeps its own site.
 
-`STACK ALIGN` stays in the catalogue unrouted (the calibration score's stack term names it); `SITE GUIDE`, `PLAN LIGHT` and the other
-`STACK` verbs are wp2-stacks'.
+`SITE GUIDE` and the `STACK` verbs are in `docs/wire/stacks.md`.
 
 **Refusals** leave the project unchanged: a value that would change nothing ("the site is at … already", "the mains are 50 Hz
 already", "all 14 points are in the project as they are", "P1's priors are that already"); a coordinate system that is neither
@@ -51,15 +50,20 @@ EPSG system to another; a pin bound to a control point that is not there or not 
 `stage` (after today's keys):
 
 ```json
-"site": null | {"crs": "EPSG:25832", "name": "", "origin": [512340, 5401230, 120], "rotationDeg": 0, "gridScale": 1, "mainsHz": 50},
+"site": null | {"crs": "EPSG:25832", "name": "ETRS89 / UTM zone 32N", "origin": [512340, 5401230, 120], "rotationDeg": 0, "gridScale": 1,
+         "mainsHz": 50, "next": {"step": "pins", "state": "waiting", "words": "…", "line": "ADD pin …"} | null},
 "controls": 14,
 "surveys": [{"id": "sv…", "name": "North front", "format": "ply", "state": "importing 42 %|ready|failed: …", "points": 1002001,
-             "triangles": 2000000, "mesh": "ms…"|null}]
+             "triangles": 2000000, "mesh": "ms…"|null}],
+"stacks": [ … ]   (docs/wire/stacks.md)
 ```
+
+`name` is the system's name as EPSG gives it ("ETRS89 / UTM zone 32N"; "" for LOCAL or a system PlayMap does not know); `next` is
+the facade guide's next step (docs/wire/stacks.md).
 
 `stage.projectors[]` (before the wall's keys): `"uncertainty": null | {"wallPx": 0.78, "axisM": 0.02, "focalPct": 0, "weak": ""}` (the
 calibration score's, which is the solve's: the pins' information with the projector's priors, a locked zoom held),
-`"priors": "TR 3.02 ±2 % · at CP7 ±5 cm" | ""`.
+`"priors": "TR 3.02 ±2 % · at CP7 ±5 cm" | ""`, `"stack": "sk…" | null`.
 
 ## Context
 
