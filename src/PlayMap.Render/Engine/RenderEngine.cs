@@ -421,8 +421,9 @@ public sealed class RenderEngine : IDisposable
         var mask = _resources.OutputMask(output.Id) is { } m ? _caches.Coverage(m) : null;
         var blend = _resources.Blend(output.Id) is { } b ? _caches.Blend(b) : null;
         var lens = _resources.LensPredistortion(output.Id) is { } l ? _caches.Lens(l) : null;
+        // The dither is seeded by the show frame, a function of the leader instant: a backup's picture is the primary's to the byte.
         _outputStage.Draw(st.Final!, new OutputStageInputs(picture, src, warp, mask, blend, lens, output.Color,
-            OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, Frame)
+            OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, _generatorFrame.ShowFrame)
         {
             Gain = inputs.Levels?.Gain(output.Id, inputs.LeaderNs),
             Measured = inputs.Measured?.For(output.Id),

@@ -163,6 +163,49 @@ public sealed class BackupTests
         }
     }
 
+    [Fact]
+    public async Task MediaFetchVersionPullsOneOptimisedVersionByHashWithTheProof()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var a = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
+        await using var b = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        // FOH-A holds a version's file (any bytes: the pull is by hash and verified by it).
+        var bytes = new byte[300_000];
+        var random = new PlayMap.Core.Numerics.Pcg32(7);
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)random.NextUInt();
+        var file = Path.Combine(a.Dir.FullName, "version.mov");
+        await File.WriteAllBytesAsync(file, bytes);
+        var hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        a.Host.Media.AddVerified(hash, file, "version.mov");
+        var item = new MediaItem("md_clip", "Clip", MediaKind.Video, "/nowhere/clip.mp4", "sha256:" + new string('1', 64), 10, MediaInfo.Unknown, []);
+        var version = new MediaVersion("mv_1", "hap-q", "{}", "ok:" + new string('0', 32), hash, bytes.Length, MediaInfo.Unknown,
+            VersionQuality.None, "hapenc/1", BackupRig.PrimaryId, 1);
+        var show = SyncRig.Show() with { Media = [item with { Versions = [version] }] };
+        await SyncRig.OpenShowAsync(a, show);
+        await SyncRig.OpenShowAsync(b, show);
+        await BackupRig.MeetAsync(a, b);
+
+        Assert.Contains("has no version mv_9", (await b.RunAsync("MEDIA FETCH md_clip VERSION mv_9 FROM FOH-A")).Payload, StringComparison.Ordinal);
+        // Without FOH-A's token the pull is refused at FOH-A's door; nothing lands.
+        Assert.True((await b.RunAsync("MEDIA FETCH md_clip VERSION mv_1 FROM FOH-A")).Ok);
+        Assert.True(await Eventually.TrueAsync(() => b.Journal().Contains("could not be pulled from FOH-A", StringComparison.Ordinal)), b.Journal());
+        Assert.Null(b.Engine.Services.Media!.PathForHash(hash));
+        Assert.Equal(0, Mirror(a).Proved);
+
+        await b.OkAsync($"CREDENTIAL SET node.{a.Id} {HostRig.Token}");
+        var fetch = await b.RunAsync("MEDIA FETCH md_clip VERSION mv_1 FROM FOH-A");
+        Assert.True(fetch.Ok, fetch.Payload);
+        Assert.False(fetch.Applied);   // accepted: the pull reports when it lands
+        Assert.True(await Eventually.TrueAsync(() => b.Engine.Services.Media!.PathForHash(hash) is not null), b.Journal());
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(b.Engine.Services.Media!.PathForHash(hash)!));
+        Assert.Contains("pulled from FOH-A with proof over HTTPS and verified", b.Journal(), StringComparison.Ordinal);
+        Assert.True(Mirror(a).Proved > 0);
+        Assert.Equal(Mirror(a).Proved, Mirror(a).OverHttps);
+        Assert.Contains("is here already", (await b.RunAsync("MEDIA FETCH md_clip VERSION mv_1 FROM FOH-A")).Payload, StringComparison.Ordinal);
+    }
+
     private static JsonElement Air(HostRig rig) => rig.State().GetProperty("air");
 
     private static MirrorWebModule Mirror(HostRig rig) => rig.Engine.Services.Backup!.Web!;

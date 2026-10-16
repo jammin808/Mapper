@@ -785,14 +785,14 @@ public sealed class BackupNode : IAsyncDisposable
         Interlocked.Exchange(ref _missingFiles, wanted.Count);
         foreach (var f in wanted)
         {
-            var (ok, words) = await PullOneAsync(puller, store, f.Hash, f.Size, f.Name, ct).ConfigureAwait(false);
+            var (ok, words) = await PullOneAsync(puller, _primaryName, store, f.Hash, f.Size, f.Name, ct).ConfigureAwait(false);
             engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
             Interlocked.Decrement(ref _missingFiles);
             engine.FactsChanged();
         }
     }
 
-    private async Task<(bool Ok, string Words)> PullOneAsync(MirrorPuller puller, MediaBackend store, string hash, long size, string name, CancellationToken ct)
+    private static async Task<(bool Ok, string Words)> PullOneAsync(MirrorPuller puller, string from, MediaBackend store, string hash, long size, string name, CancellationToken ct)
     {
         var hex = MediaBackend.Hex(hash);
         var destination = store.StorePath(hex, name);
@@ -802,13 +802,13 @@ public sealed class BackupNode : IAsyncDisposable
             if (result.Outcome is MediaPullOutcome.Verified or MediaPullOutcome.AlreadyHere)
             {
                 store.AddVerified(hex, destination, Path.GetFileName(name));
-                return (true, $"{Path.GetFileName(name)} pulled from {_primaryName} with proof{(puller.Tls ? " over HTTPS" : "")} and verified");
+                return (true, $"{Path.GetFileName(name)} pulled from {from} with proof{(puller.Tls ? " over HTTPS" : "")} and verified");
             }
-            return (false, $"{Path.GetFileName(name)} could not be pulled from {_primaryName}: {result.Words}");
+            return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {result.Words}");
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException && !ct.IsCancellationRequested)
         {
-            return (false, $"{Path.GetFileName(name)} could not be pulled from {_primaryName}: {(puller.PinWords.Length > 0 ? puller.PinWords : ex.Message)}");
+            return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {(puller.PinWords.Length > 0 ? puller.PinWords : ex.Message)}");
         }
     }
 
@@ -837,8 +837,8 @@ public sealed class BackupNode : IAsyncDisposable
         {
             using (puller)
             {
-                var (ok, words) = await PullOneAsync(puller, store, version.ContentHash, version.SizeBytes, name, _stop.Token).ConfigureAwait(false);
-                engine.Journal.Add(ok ? "media" : "refused", words.Replace(_primaryName.Length > 0 ? _primaryName : "\u0000", peer.Name, StringComparison.Ordinal), ok: ok);
+                var (ok, words) = await PullOneAsync(puller, peer.Name, store, version.ContentHash, version.SizeBytes, name, _stop.Token).ConfigureAwait(false);
+                engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
                 engine.FactsChanged();
             }
         }, CancellationToken.None));
