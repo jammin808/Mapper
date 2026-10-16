@@ -144,6 +144,14 @@ public sealed class PhoneCamera : ICuedScanCamera
     /// <summary>A phone takes its pictures itself: SCAN NEXT shows its pattern again instead.</summary>
     public bool TakeNow() => false;
 
+    public bool ByHand => false;
+
+    /// <summary>A phone pairs its pictures by what they show: nothing to note before a pattern goes up.</summary>
+    public void Arm()
+    {
+        // The phone's own watcher starts from the cue.
+    }
+
     public async Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct, CancellationToken scan)
     {
         ArgumentNullException.ThrowIfNull(cue);

@@ -28,6 +28,7 @@ public sealed partial class EngineCore
         // A camera released by hand (a manual folder camera) takes its picture now (wp2-multiscan).
         routes.Lane("SCAN NEXT", _ => Services.Scan is not ScanRunner runner ? CommandReply.Fail("no scan is waiting for a picture")
             : runner.TakeByHand() ? CommandReply.Success(effect: "taken: the newest picture in the folder is the pattern's on the glass")
+            : runner.CameraByHand ? CommandReply.Fail("the folder camera is not waiting for a picture yet — SCAN NEXT once the pattern is up and shot")
             : runner.Next() ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
             : CommandReply.Fail("no scan is waiting for a picture"));
         routes.Index(new PhoneIndex(this));

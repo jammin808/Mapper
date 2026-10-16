@@ -165,7 +165,10 @@ internal sealed class CameraBridge : IAsyncDisposable
                     await socket.SendAsync(due.Dequeue().Frame, WebSocketMessageType.Binary, true, ct);
                     Interlocked.Increment(ref _frames);
                 }
-                if (!_manual)
+                bool manual;
+                lock (_gate)
+                    manual = _manual;
+                if (!manual)
                 {
                     var report = Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{{\"t\":\"auto\",\"exposureTime\":{_auto * 100:0.###}}}"));
                     await socket.SendAsync(report, WebSocketMessageType.Text, true, ct);
@@ -323,19 +326,27 @@ internal sealed class LoopPhone : IAsyncDisposable
         start.Environment["PLAYWRIGHT_BROWSERS_PATH"] = Browsers;
         var process = Process.Start(start)!;
         var phone = new LoopPhone(process, output);
-        // What the browser writes is drained as it comes: a full pipe would stop it.
-        phone._errors = process.StandardError.ReadToEndAsync();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        while (true)
+        try
         {
-            var line = await process.StandardOutput.ReadLineAsync(cts.Token);
-            if (line is null || line.StartsWith("FAILED", StringComparison.Ordinal))
-                throw new InvalidOperationException("the page did not join: " + line + " " + await phone._errors.WaitAsync(cts.Token));
-            if (line == "READY")
+            // What the browser writes is drained as it comes: a full pipe would stop it.
+            phone._errors = process.StandardError.ReadToEndAsync();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            while (true)
             {
-                phone._rest = process.StandardOutput.ReadToEndAsync();
-                return phone;
+                var line = await process.StandardOutput.ReadLineAsync(cts.Token);
+                if (line is null || line.StartsWith("FAILED", StringComparison.Ordinal))
+                    throw new InvalidOperationException("the page did not join: " + line + " " + await phone._errors.WaitAsync(cts.Token));
+                if (line == "READY")
+                {
+                    phone._rest = process.StandardOutput.ReadToEndAsync();
+                    return phone;
+                }
             }
+        }
+        catch
+        {
+            await phone.DisposeAsync();
+            throw;
         }
     }
 
@@ -401,47 +412,72 @@ public sealed class PhoneScanE2ETests(ITestOutputHelper output)
         var parts = OpsParts.With(EngineParts.Bare with { RenderHost = RenderHost.ForNode, Extensions = [PhoneExtension.Factory] },
             OpsHostTests.Quick(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(6) }));
         var node = await NodeRig.StartAsync("Loop node", parts: parts);
-        render = Assert.IsType<RenderHost>(node.Host.Render);
-        var aim = truth.Pose.Position + truth.Pose.Forward * 2.5 + new Vec3d(0.3, -0.2, 0.1);
-        var project = Project.CreateDefault("Phone loop") with
+        CameraBridge? bridge = null;
+        LoopPhone? phone = null;
+        try
         {
-            Outputs = [Rendering.HostRig.Screen("op00000001", SourceRef.None, 256, 160) with { ProjectorId = "pj00000001" }],
-        };
-        project = project.WithStage(s => s with
-        {
-            Projectors = [new Projector("pj00000001", "Left", prior, LensDistortion.None, Pose.LookAt(truth.Pose.Position, aim, Vec3d.UnitY), 0, "#FF8800", false, [], SolveLocks.None, 0)],
-        });
-        var folder = Directory.CreateDirectory(Path.Combine(node.Dir.FullName, "show")).FullName;
-        var path = Path.Combine(folder, "show.playmap");
-        await File.WriteAllTextAsync(path, ProjectJson.Serialize(project));
-        await node.OkAsync("PROJECT OPEN " + path);
+            render = Assert.IsType<RenderHost>(node.Host.Render);
+            var aim = truth.Pose.Position + truth.Pose.Forward * 2.5 + new Vec3d(0.3, -0.2, 0.1);
+            var project = Project.CreateDefault("Phone loop") with
+            {
+                Outputs = [Rendering.HostRig.Screen("op00000001", SourceRef.None, 256, 160) with { ProjectorId = "pj00000001" }],
+            };
+            project = project.WithStage(s => s with
+            {
+                Projectors = [new Projector("pj00000001", "Left", prior, LensDistortion.None, Pose.LookAt(truth.Pose.Position, aim, Vec3d.UnitY), 0, "#FF8800", false, [], SolveLocks.None, 0)],
+            });
+            var folder = Directory.CreateDirectory(Path.Combine(node.Dir.FullName, "show")).FullName;
+            var path = Path.Combine(folder, "show.playmap");
+            await File.WriteAllTextAsync(path, ProjectJson.Serialize(project));
+            await node.OkAsync("PROJECT OPEN " + path);
 
-        var bridge = new CameraBridge(() => render, "op00000001", scene, hunting: profile == "ios");
-        await bridge.StartAsync();
-        var invite = JsonDocument.Parse(await node.OkAsync("PHONE INVITE " + (profile == "ios" ? "iPhone" : "Pixel 8"))).RootElement;
-        var url = new UriBuilder(invite.GetProperty("url").GetString()!) { Host = "127.0.0.1" }.Uri.ToString();
-        var phone = await LoopPhone.OpenAsync(url, bridge.Url, profile, node.Dir.FullName);
-        var hub = node.Engine.Services.Phones!;
-        Assert.True(await Eventually.TrueAsync(() => hub.Phones().Any(p => p.Connected && p.Rig.Length > 0), 30_000), "the phone never joined");
-        var facts = hub.Phones().Single(p => p.Connected);
-        // The phone's optics as an earlier scan solved them, where it stands: the scan finds the projector.
-        var cam = truthRig.Camera;
-        var r = await node.Engine.EditAsync(EngineCore.SystemSession, "the phone's optics", p => p.WithStage(s => s with
+            bridge = new CameraBridge(() => render, "op00000001", scene, hunting: profile == "ios");
+            await bridge.StartAsync();
+            var invite = JsonDocument.Parse(await node.OkAsync("PHONE INVITE " + (profile == "ios" ? "iPhone" : "Pixel 8"))).RootElement;
+            var url = new UriBuilder(invite.GetProperty("url").GetString()!) { Host = "127.0.0.1" }.Uri.ToString();
+            phone = await LoopPhone.OpenAsync(url, bridge.Url, profile, node.Dir.FullName);
+            var hub = node.Engine.Services.Phones!;
+            Assert.True(await Eventually.TrueAsync(() => hub.Phones().Any(p => p.Connected && p.Rig.Length > 0), 30_000), "the phone never joined");
+            var facts = hub.Phones().Single(p => p.Connected);
+            // The phone's optics as an earlier scan solved them, where it stands: the scan finds the projector.
+            var cam = truthRig.Camera;
+            var r = await node.Engine.EditAsync(EngineCore.SystemSession, "the phone's optics", p => p.WithStage(s => s with
+            {
+                Cameras = s.Cameras.Update(facts.Rig, c => c with { Intrinsics = cam.Intrinsics, Lens = cam.Lens, Pose = cam.Pose, Calibrated = true }),
+            }));
+            Assert.True(r.Changed, r.Effect);
+            return new Loop(node, bridge, phone, truthRig, scene, facts.Id);
+        }
+        catch
         {
-            Cameras = s.Cameras.Update(facts.Rig, c => c with { Intrinsics = cam.Intrinsics, Lens = cam.Lens, Pose = cam.Pose, Calibrated = true }),
-        }));
-        Assert.True(r.Changed, r.Effect);
-        return new Loop(node, bridge, phone, truthRig, scene, facts.Id);
+            // A loop that did not start leaves no browser, bridge or node behind.
+            if (phone is not null)
+                await phone.DisposeAsync();
+            if (bridge is not null)
+                await bridge.DisposeAsync();
+            await node.DisposeAsync();
+            throw;
+        }
     }
 
+    /// <summary>Runs a scan line to its end; answers the scan and the camera frames its capture took — from the line until the first
+    /// projector's decoding begins (prepare, locate, the patterns and the closing check; the solve after is not the camera's).</summary>
     private async Task<(string Id, long Frames)> ScanAsync(Loop loop, string line)
     {
         var before = loop.Bridge.Frames;
+        long captured = -1;
+        void Watch(ScanView v)
+        {
+            if (v.Stage == "decoding")
+                Interlocked.CompareExchange(ref captured, loop.Bridge.Frames - before, -1);
+        }
+        loop.Runner.Progressed += Watch;
         var started = await loop.Node.RunAsync(line);
         Assert.True(started.Ok, started.Payload);
         Assert.True(await Eventually.TrueAsync(() => loop.Runner.View is { IsRunning: false }, 240_000), "the scan never ended");
+        loop.Runner.Progressed -= Watch;
         var view = loop.Runner.View!;
-        var frames = loop.Bridge.Frames - before;
+        var frames = Interlocked.Read(ref captured);
         output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{line}: {view.State} — {view.Message} ({frames} camera frames)"));
         output.WriteLine(loop.Node.State().GetProperty("scan").GetProperty("pairing").GetRawText());
         Assert.True(view.State == "done", view.Message);

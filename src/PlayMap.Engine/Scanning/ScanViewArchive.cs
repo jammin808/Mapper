@@ -33,13 +33,16 @@ public static class ScanViewArchive
         {
             var folder = Path.Combine(scanFolder, "views", view.Id);
             Directory.CreateDirectory(folder);
-            WriteAtomically(Path.Combine(folder, "view.json"), s => JsonSerializer.Serialize(s, view, ProjectJson.Options));
+            var json = Path.Combine(folder, "view.json");
+            // A view written before keeps its decodes (they never change); a new one writes all of its own, over anything there.
+            var fresh = !File.Exists(json);
             foreach (var (projector, map) in view.Maps)
             {
                 var path = Path.Combine(folder, projector + ".pmcm");
-                if (!File.Exists(path))
+                if (fresh || !File.Exists(path))
                     WriteAtomically(path, s => CorrespondenceArchive.Write(s, map));
             }
+            WriteAtomically(json, s => JsonSerializer.Serialize(s, view, ProjectJson.Options));
         }
         var multiPath = Path.Combine(scanFolder, "multiview.json");
         var depthFolder = Path.Combine(scanFolder, "depth");
@@ -90,9 +93,10 @@ public static class ScanViewArchive
             var depth = new List<ProjectorDepthMap>();
             foreach (var p in result.Projectors)
             {
+                // A projector no view decoded has no depth map: it was written without one.
                 var path = Path.Combine(scanFolder, "depth", p.Id + ".bin");
                 if (!File.Exists(path))
-                    return loaded;
+                    continue;
                 using var s = File.OpenRead(path);
                 depth.Add(ReadDepth(s));
             }

@@ -79,30 +79,49 @@ public sealed partial class ScanRunner
         };
     }
 
-    /// <summary>SCAN START … INTO: the scan the view joins — this node's, with its views kept, the same kind of camera (simulated or
-    /// real) — and the view's id and place in the scan's order.</summary>
+    /// <summary>SCAN START … INTO: the scan the view joins. One this node holds in memory is checked now; one it would read from its
+    /// folder is read by the run (<see cref="Joining"/>), so no file is read on the lane or under the runner's gate.</summary>
     private Setup IntoSetup(EngineCore engine, Setup setup, string into)
     {
         var record = setup.Project.Stage.Scans.Find(into) ?? throw new InvalidOperationException($"no scan {into}");
         if (record.Kind != ScanKind.StructuredLight)
             throw new InvalidOperationException($"{record.Name} is not a structured-light scan: views are added to those only");
-        var existing = Load(engine, record)
-            ?? throw new InvalidOperationException($"{record.Name}'s data is not on this node — views join a scan this node made and keeps");
+        if (_solving.Contains(record.Id))
+            throw new InvalidOperationException($"{record.Name} is being solved — add the view once it is done");
+        var held = Find(record.Id);
+        if (held is null && engine.ProjectFolderForFiles is null)
+            throw new InvalidOperationException($"{record.Name}'s data is not on this node — views join a scan this node made and keeps");
+        return held is null ? setup with { Id = record.Id, IntoRecord = record } : Joining(setup, record, held);
+    }
+
+    /// <summary>The scan the view joins — this node's, with its views kept, the same kind of camera (simulated or real) — and the
+    /// view's id: one past the highest the scan has ever used (a view that no longer reads keeps its number).</summary>
+    private Setup Joining(Setup setup, ScanRecord record, ScanOutcome? existing)
+    {
+        if (existing is null)
+            throw new InvalidOperationException($"{record.Name}'s data is not on this node — views join a scan this node made and keeps");
         if (existing.Captured.IsDefaultOrEmpty)
             throw new InvalidOperationException($"{record.Name} keeps no views (it was made before scans kept them) — scan again, then add views INTO the new scan");
         if (existing.Simulated != setup.Simulated)
             throw new InvalidOperationException(existing.Simulated
                 ? $"{record.Name} is a simulated scan: its views come from the simulator"
                 : $"{record.Name} was scanned through a real camera: the simulator cannot add a view to it");
-        var index = existing.Captured.Length;
+        var numbers = existing.Captured.Select(v => ViewNumber(v.Id)).ToList();
+        if (setup.Folder is { } folder && Directory.Exists(Path.Combine(folder, record.DataPath, "views")))
+            numbers.AddRange(Directory.EnumerateDirectories(Path.Combine(folder, record.DataPath, "views")).Select(d => ViewNumber(Path.GetFileName(d))));
+        var next = numbers.DefaultIfEmpty(0).Max() + 1;
         return setup with
         {
             Id = record.Id,
             Into = existing,
-            ViewId = "v" + (index + 1).ToString(CultureInfo.InvariantCulture),
-            ViewIndex = index,
+            IntoRecord = record,
+            ViewId = "v" + next.ToString(CultureInfo.InvariantCulture),
+            ViewIndex = existing.Captured.Length,
         };
     }
+
+    private static int ViewNumber(string id) =>
+        id.Length > 1 && id[0] == 'v' && int.TryParse(id.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0;
 
     /// <summary>A finished run's view joins its scan: every view solved together, carried onto the scan's frame, and kept.</summary>
     private async Task<string> AddViewAsync(EngineCore engine, Setup setup, Track track, ScanOutcome into, ScanViewData view, List<string> notes,
@@ -171,13 +190,26 @@ public sealed partial class ScanRunner
         ViewsOf()?.Finished(outcome);
         var solution = outcome.Solution;
         var words = string.Join(" ", new[] { solution.Words }.Concat(notes.Where(n => n.Length > 0)));
+        // Suggestions name regions and corners of the solve they were made from: once it is solved again they no longer hold.
+        WithdrawSuggestions(engine, outcome.Id, "the scan was solved again — SCAN SUGGEST again");
         await engine.EditAsync(EngineCore.SystemSession, $"scan {outcome.Name}", p => p.WithStage(s =>
         {
-            var current = s.Scans.Find(outcome.Id);
-            var record = new ScanRecord(outcome.Id, outcome.Name, ScanKind.StructuredLight, current?.CreatedUnixMs ?? engine.Services.Wall.UnixMs, outcome.CameraId,
-                [.. solution.Projectors.Select(x => x.ProjectorId)], dataPath.Length > 0 ? dataPath : current?.DataPath ?? "", null, outcome.WorstResidualPx,
-                solution.Points, words);
-            return s with { Scans = s.Scans.Upsert(record) };
+            // A scan removed meanwhile stays removed.
+            if (s.Scans.Find(outcome.Id) is not { } current)
+                return s;
+            // The camera an earlier SCAN APPLY placed stays the scan's; the new mesh is not on the stage until SCAN APPLY puts it there.
+            var camera = current.CameraId is { } c && p.Stage.Cameras.Find(c) is not null ? c : outcome.CameraId;
+            var record = current with
+            {
+                CameraId = camera,
+                ProjectorIds = [.. solution.Projectors.Select(x => x.ProjectorId)],
+                DataPath = dataPath.Length > 0 ? dataPath : current.DataPath,
+                MeshId = null,
+                Residual = outcome.WorstResidualPx,
+                Points = solution.Points,
+                Notes = words,
+            };
+            return s with { Scans = s.Scans.Update(outcome.Id, _ => record) };
         })).ConfigureAwait(false);
     }
 
@@ -207,6 +239,11 @@ public sealed partial class ScanRunner
                     throw new InvalidOperationException($"nothing would change: every view of {scan.Name} was solved together already — HOLD <projector> re-solves holding one at its stage pose");
                 if (scan.Multi is null && active.Count == 1)
                     throw new InvalidOperationException($"nothing would change: {scan.Name} has one view, solved when it was scanned — SCAN START <camera> INTO {scan.Id} adds another");
+            }
+            else if (scan.Multi is { } held && held.Held.ToHashSet(StringComparer.Ordinal).SetEquals(hold)
+                && held.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
+            {
+                throw new InvalidOperationException($"nothing would change: {scan.Name} was solved holding {string.Join(", ", hold)} already, with the same views");
             }
             var known = scan.Captured.Where(v => v.State != "dropped").SelectMany(v => v.ProjectorIds).ToHashSet(StringComparer.Ordinal);
             if (hold.FirstOrDefault(h => !known.Contains(h)) is { } stranger)
@@ -247,20 +284,20 @@ public sealed partial class ScanRunner
     {
         EngineCore engine;
         CancellationTokenSource cts;
+        var done = new TaskCompletionSource();
         lock (_gate)
         {
             if (_stopped)
                 throw new InvalidOperationException(StoppingWords);
             engine = _engine ?? throw new InvalidOperationException("the scan runner is not bound to an engine");
-            if (_view is { IsRunning: true } running && running.Id == scanId)
+            if (_running is not null && _runningScanId == scanId)
                 throw new InvalidOperationException($"{scanId} is taking a view now — solve it once the view is done");
             if (!_solving.Add(scanId))
                 throw new InvalidOperationException($"{scanId} is being solved already");
             cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        }
-        var done = new TaskCompletionSource();
-        lock (_gate)
+            // Registered with the stop check: a stop that begins after this sees the solve and waits for it.
             _work[done.Task] = cts;
+        }
         try
         {
             var record = engine.Store.Project.Stage.Scans.Find(scanId) ?? throw new InvalidOperationException($"no scan {scanId}");
@@ -328,6 +365,40 @@ public sealed partial class ScanRunner
     private static ImmutableArray<CoverageState> CoverageOf(ScanOutcome outcome) =>
         outcome.Multi is { } m ? [.. m.Coverage.Select(c => new CoverageState(c.ProjectorId, Math.Round(c.Seen, 4), Math.Round(c.Twice, 4)))] : [];
 
+    /// <summary>A scan's suggestions withdrawn: their proposals still waiting are rejected with <paramref name="why"/>.</summary>
+    internal void WithdrawSuggestions(EngineCore engine, string scanId, string why)
+    {
+        ImmutableArray<ScanSuggestion> old;
+        lock (_gate)
+        {
+            old = _suggestions.GetValueOrDefault(scanId, []);
+            _suggestions.Remove(scanId);
+        }
+        if (engine.Services.Assistant?.Queue is not { } queue)
+            return;
+        foreach (var id in old.SelectMany(x => x.Proposals))
+        {
+            if (queue.Find(id) is { State: ProposalState.Pending })
+                queue.Reject(id, "scan suggestions", why);
+        }
+    }
+
+    /// <summary>Scans whose suggestions are being made now (under the gate): one SCAN SUGGEST of a scan at a time.</summary>
+    private readonly HashSet<string> _suggesting = new(StringComparer.Ordinal);
+
+    /// <summary>Claims a scan for one SCAN SUGGEST; false while another is making its suggestions or the runner is stopping.</summary>
+    internal bool BeginSuggest(string scanId)
+    {
+        lock (_gate)
+            return !_stopped && _suggesting.Add(scanId);
+    }
+
+    internal void EndSuggest(string scanId)
+    {
+        lock (_gate)
+            _suggesting.Remove(scanId);
+    }
+
     /// <summary>The suggestions SCAN SUGGEST made for a scan, replacing any it made before.</summary>
     internal void Suggested(string scanId, ImmutableArray<ScanSuggestion> suggestions)
     {
@@ -378,12 +449,13 @@ public sealed partial class ScanRunner
         w.WriteString("view", v.ViewId);
         w.WriteStartArray("views");
         foreach (var x in v.Views)
-            WriteView(w, x);
+            WriteView(w, x, v.Id);
         w.WriteEndArray();
         w.WriteStartArray("coverage");
         foreach (var c in v.Coverage)
         {
             w.WriteStartObject();
+            w.WriteString("scan", v.Id);
             w.WriteString("projector", c.ProjectorId);
             w.WriteNumber("seen", c.Seen);
             w.WriteNumber("twice", c.Twice);
@@ -392,17 +464,18 @@ public sealed partial class ScanRunner
         w.WriteEndArray();
         w.WriteStartArray("suggestions");
         foreach (var s in SuggestionsFor(v.Id))
-            WriteSuggestion(w, s, StateOf(s));
+            WriteSuggestion(w, s, StateOf(s), v.Id);
         w.WriteEndArray();
     }
 
-    /// <summary>A view as STATE.scan.views and SCAN VIEWS show it.</summary>
-    public static void WriteView(Utf8JsonWriter w, ScanViewData x)
+    /// <summary>A view as STATE.scan.views and SCAN VIEWS show it (with its scan, for the lines a row's actions fill).</summary>
+    public static void WriteView(Utf8JsonWriter w, ScanViewData x, string scanId)
     {
         ArgumentNullException.ThrowIfNull(w);
         ArgumentNullException.ThrowIfNull(x);
         w.WriteStartObject();
         w.WriteString("id", x.Id);
+        w.WriteString("scan", scanId);
         w.WriteString("camera", x.CameraId);
         w.WriteStartArray("projectors");
         foreach (var p in x.ProjectorIds)
@@ -417,13 +490,19 @@ public sealed partial class ScanRunner
         w.WriteEndObject();
     }
 
-    /// <summary>A suggestion as STATE.scan.suggestions and SCAN SUGGEST show it.</summary>
-    public static void WriteSuggestion(Utf8JsonWriter w, ScanSuggestion s, string state)
+    /// <summary>A suggestion as STATE.scan.suggestions and SCAN SUGGEST show it: its scan and its first proposal (the SCAN SURFACE line)
+    /// beside the full list, for the lines a row's actions fill.</summary>
+    public static void WriteSuggestion(Utf8JsonWriter w, ScanSuggestion s, string state, string scanId)
     {
         ArgumentNullException.ThrowIfNull(w);
         ArgumentNullException.ThrowIfNull(s);
         w.WriteStartObject();
         w.WriteString("id", s.Id);
+        w.WriteString("scan", scanId);
+        if (s.Proposals.IsDefaultOrEmpty)
+            w.WriteNull("proposal");
+        else
+            w.WriteString("proposal", s.Proposals[0]);
         w.WriteString("region", s.RegionId);
         w.WriteString("label", s.Label);
         w.WriteString("kind", s.Kind);

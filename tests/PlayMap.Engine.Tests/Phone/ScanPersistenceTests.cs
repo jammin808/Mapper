@@ -62,6 +62,16 @@ public sealed class ScanPersistenceTests(ITestOutputHelper output)
             Assert.Null(second.Scanner.Find(id));
             var views = JsonDocument.Parse(await second.Ok("SCAN VIEWS " + id)).RootElement;
             Assert.Equal(["v1"], views.GetProperty("views").EnumerateArray().Select(v => v.GetProperty("id").GetString()));
+            // SCAN SURFACE … ON on the scan read back from its folder alone: its faces index the mesh it puts on the stage.
+            var reloaded = second.Scanner.Find(id)!;
+            var region = reloaded.Regions.First(r => r.Projectors.Contains(MultiViewScanKit.Pj2));
+            var fromDisk = await second.Run($"SCAN SURFACE {id} REGION {region.Id} ON {MultiViewScanKit.Pj2} From disk");
+            Assert.True(fromDisk.Ok, fromDisk.Payload);
+            var made = second.Engine.Store.Project.Stage.Surfaces.Single(s => s.Id == fromDisk.Payload);
+            var meshAsset = second.Engine.Store.Project.FindMesh(made.MeshId)!;
+            Assert.Equal(reloaded.Solution.Mesh!.TriangleCount, meshAsset.Triangles);
+            Assert.All(made.Faces, f => Assert.InRange(f, 0, meshAsset.Triangles - 1));
+            await second.Ok("UNDO");
 
             Assert.Equal(id, await MultiViewScanKit.ScanAsync(second, Line(id)));
             var two = second.Scanner.Find(id)!;
@@ -112,9 +122,27 @@ public sealed class ScanPersistenceTests(ITestOutputHelper output)
                 Assert.Equal(model.Pose, p.Pose);
                 Assert.Equal(model.Intrinsics, p.Intrinsics);
             }
-            // HOLD names projectors the scan's views saw.
+            // HOLD names projectors the scan's views saw; the same HOLD again would change nothing.
             var refused = await second.Run($"SCAN SOLVE {id} HOLD pj0000ffff");
             Assert.False(refused.Ok);
+            var same = await second.Run($"SCAN SOLVE {id} HOLD {MultiViewScanKit.Pj2} {MultiViewScanKit.Pj1}");
+            Assert.False(same.Ok);
+            Assert.StartsWith("nothing would change", same.Payload, StringComparison.Ordinal);
+
+            // Solved again, the scan's new mesh is off the stage until SCAN APPLY, but the projectors placed from it still depend on it:
+            // preflight keeps checking it, and the record keeps the camera the apply placed.
+            var record = second.Engine.Store.Project.Stage.Scans.Single();
+            Assert.Null(record.MeshId);
+            Assert.Equal(MultiViewScanKit.Camera, record.CameraId);
+            row = Assert.Single(await check.RunAsync(new PreflightContext(second.Engine, PreflightDepth.Quick, false), CancellationToken.None));
+            Assert.Equal((Core.Bus.Light.Green, "on disk"), (row.Light, row.Value));
+
+            // The last view cannot go.
+            Assert.True((await second.Run($"SCAN DROP {id} v2")).Ok);
+            var last = await second.Run($"SCAN DROP {id} v1");
+            Assert.False(last.Ok);
+            Assert.Contains("only view", last.Payload, StringComparison.Ordinal);
+            Assert.Equal("dropped", second.Scanner.Find(id)!.Captured.Single(v => v.Id == "v2").State);
         }
         finally
         {

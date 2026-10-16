@@ -26,6 +26,17 @@ public sealed class MultiViewChangeTests(ThreeViewScan scan, ITestOutputHelper o
         var rig = scan.Rig;
         var id = scan.ScanId;
         var clean = scan.ThreeViews.Multi!.Result.RmsPx;
+
+        // Suggestions of the multi-view scan: a region two projectors light proposes its surface ON its main projector, a plane a
+        // four-corner layer; every line parses. Once the scan is solved again (below) they no longer hold and are withdrawn.
+        var suggested = JsonDocument.Parse(await rig.Ok("SCAN SUGGEST " + id)).RootElement.GetProperty("suggestions").EnumerateArray().ToList();
+        var proposals = suggested.SelectMany(x => x.GetProperty("proposals").EnumerateArray().Select(p => p.GetString()!)).ToList();
+        var lines = proposals.Select(p => rig.Assistant.Queue.Find(p)!.Line).ToList();
+        output.WriteLine(string.Join("\n", lines));
+        Assert.Contains(lines, l => l.StartsWith($"SCAN SURFACE {id} REGION ", StringComparison.Ordinal) && l.Contains(" ON pj", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("SURFACE QUAD ", StringComparison.Ordinal));
+        Assert.All(lines, l => Assert.True(Core.Wire.WireGrammar.TryParse(l, out var parsed, out _) && Core.Wire.VerbCatalog.Match(parsed!) is not null, l));
+        Assert.All(suggested, x => Assert.Equal(id, x.GetProperty("scan").GetString()));
         scan.KnockView = "v4";
         try
         {
@@ -35,6 +46,13 @@ public sealed class MultiViewChangeTests(ThreeViewScan scan, ITestOutputHelper o
         {
             scan.KnockView = "";
         }
+        Assert.All(proposals, p =>
+        {
+            var proposal = rig.Assistant.Queue.Find(p)!;
+            Assert.Equal(PlayMap.Assistant.ProposalState.Rejected, proposal.State);
+            Assert.Equal("the scan was solved again — SCAN SUGGEST again", proposal.ResultWords);
+        });
+        Assert.Empty(rig.Scanner.SuggestionsFor(id));
         var knocked = rig.Scanner.Find(id)!;
         var bad = knocked.Multi!;
         output.WriteLine(bad.Result.Words);

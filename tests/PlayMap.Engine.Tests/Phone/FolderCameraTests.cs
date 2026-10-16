@@ -180,7 +180,11 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
             var view = await rig.EndedAsync();
             Assert.True(view.State == "done", view.Message);
             await Task.WhenAll(nexts);
-            Assert.Contains(rig.Engine.Journal.Recent(400), r => r.Text == "taken: the newest picture in the folder is the pattern's on the glass");
+            // Every picture was taken by SCAN NEXT, and no pattern was ever put up again for the camera.
+            var journal = rig.Engine.Journal.Recent(1000);
+            Assert.Equal(shot, journal.Count(r => r.Text == "taken: the newest picture in the folder is the pattern's on the glass"));
+            Assert.DoesNotContain(journal, r => r.Text == "asked: the waited pattern goes up again for the camera");
+            Assert.Equal(0, view.Pairing!.Retakes);
             Assert.True(Assert.Single(rig.Runner.Find(view.Id)!.Solution.Projectors).Solved);
         }
         finally

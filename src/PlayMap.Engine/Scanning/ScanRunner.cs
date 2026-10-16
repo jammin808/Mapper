@@ -123,6 +123,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     private EngineCore? _engine;
     private ScanViews? _views;
     private CancellationTokenSource? _running;
+
+    /// <summary>The scan the running run makes or adds a view to (under the gate; null when none runs).</summary>
+    private string? _runningScanId;
     private Task? _task;
     private volatile ScanView? _view;
     private volatile ScanProgress? _current;
@@ -223,6 +226,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
             cts = new CancellationTokenSource();
             _running = cts;
+            _runningScanId = setup.Id;
             var token = cts.Token;
             track = new Track(this, setup);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
@@ -273,6 +277,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             lock (_gate)
             {
                 _running = null;
+                _runningScanId = null;
                 _task = null;
             }
             cts.Dispose();
@@ -307,6 +312,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         /// <summary>The scan this run adds a view to (SCAN START … INTO), null for a new scan.</summary>
         public ScanOutcome? Into { get; init; }
 
+        /// <summary>The scan's record when the run adds a view to it (its data read by the run when not held in memory).</summary>
+        public ScanRecord? IntoRecord { get; init; }
+
         /// <summary>This run's view of the scan ("v1" for a new scan) and its place in the scan's order (0 for the first).</summary>
         public string ViewId { get; init; } = "v1";
 
@@ -335,6 +343,14 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         private ImmutableArray<ScanRegion> _regions = [];
         private ScanPairing? _pairing;
         private ImmutableArray<ScanViewData> _views = [];
+        private string? _viewId;
+
+        /// <summary>The view this run is, once known (a scan read from its folder for INTO is read by the run itself).</summary>
+        public void ViewIs(string id)
+        {
+            lock (_gate)
+                _viewId = id;
+        }
         private ImmutableArray<CoverageState> _coverage = [];
 
         /// <summary>The scan's views and coverage once it is solved (wp2-multiscan).</summary>
@@ -461,7 +477,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 view = new ScanView(setup.Id, state, _stage, _shown, _patterns, Math.Round(_overall, 3), Math.Round(_quality, 3), _qualityWords, _message,
                     [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
-                    _regions, _projector) { Pairing = _pairing, ViewId = setup.ViewId, Views = _views, Coverage = _coverage };
+                    _regions, _projector) { Pairing = _pairing, ViewId = _viewId ?? setup.ViewId, Views = _views, Coverage = _coverage };
             }
             runner.Publish(view);
         }
@@ -469,6 +485,14 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
 
     private async Task<string> RunAsync(EngineCore engine, Setup setup, Track track, CancellationToken ct)
     {
+        if (setup.IntoRecord is { } joined && setup.Into is null)
+        {
+            // A scan this node does not hold in memory is read from its folder here, off the lane and the runner's gate.
+            track.Step("starting", "reading", $"reading {joined.Name} from its folder");
+            var existing = await Task.Run(() => Load(engine, joined), ct).ConfigureAwait(false);
+            setup = Joining(setup, joined, existing);
+            track.ViewIs(setup.ViewId);
+        }
         var views = new List<(string, ProjectorView)>();
         var notes = new List<string>();
         List<ProjectorCapture> captures;

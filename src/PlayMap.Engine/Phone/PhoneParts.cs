@@ -105,7 +105,8 @@ internal sealed class PhonePreflight : IPreflightCheck
     private static string Quote(string name) => name.Contains(' ', StringComparison.Ordinal) ? "\"" + name.Replace("\"", "", StringComparison.Ordinal) + "\"" : name;
 }
 
-/// <summary>Preflight's scan-data rows (wp2-multiscan): each scan on the stage — applied, or a surface made of it — is on disk (its
+/// <summary>Preflight's scan-data rows (wp2-multiscan): each scan the stage depends on — its mesh on the stage, or a projector's current
+/// calibration from it — is on disk (its
 /// folder's scan.json beside the project), so its projectors' placement can be re-solved, a view added or a surface made after a
 /// restart. Green when it is; amber, with the line that scans those projectors again, when it is not.</summary>
 internal sealed class ScanDataPreflight : IPreflightCheck
@@ -124,7 +125,9 @@ internal sealed class ScanDataPreflight : IPreflightCheck
         var project = engine.Store.Project;
         var folder = engine.ProjectFolderForFiles;
         var rows = new List<PreflightRow>();
-        foreach (var scan in project.Stage.Scans.Where(s => s.Kind == ScanKind.StructuredLight && s.MeshId is not null))
+        // What the stage depends on: a scan whose mesh is on it, or one a projector's current calibration came from.
+        var placedFrom = project.Stage.Projectors.Select(p => project.FindCalibration(p.CalibrationId)?.ScanId).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        foreach (var scan in project.Stage.Scans.Where(s => s.Kind == ScanKind.StructuredLight && (s.MeshId is not null || placedFrom.Contains(s.Id))))
         {
             var placed = scan.ProjectorIds.Select(id => project.FindProjector(id)?.Name).OfType<string>().ToList();
             var on = folder is not null && scan.DataPath.Length > 0 && File.Exists(Path.Combine(folder, scan.DataPath, "scan.json"));

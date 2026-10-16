@@ -22,7 +22,6 @@ public sealed partial class EngineCore
         routes.OffLane("SCAN VIEWS", ScanViewsAsync);
         routes.OffLane("SCAN DROP", ScanDropAsync);
         routes.OffLane("SCAN SUGGEST", ScanSuggestAsync);
-        routes.OffLane("SCAN SURFACE", ScanSurfaceRoutedAsync);
     }
 
     private ScanRunner? Runner => Services.Scan as ScanRunner;
@@ -103,7 +102,7 @@ public sealed partial class EngineCore
         w.WriteString("scan", outcome.Id);
         w.WriteStartArray("views");
         foreach (var v in outcome.Captured)
-            ScanRunner.WriteView(w, v);
+            ScanRunner.WriteView(w, v, outcome.Id);
         w.WriteEndArray();
         w.WriteStartArray("coverage");
         foreach (var c in outcome.Multi?.Coverage ?? [])
@@ -143,8 +142,27 @@ public sealed partial class EngineCore
             return CommandReply.Fail("this node's scans are not the scan runner's: SCAN SUGGEST needs it");
         if (Services.Assistant is not { } assistant)
             return CommandReply.Fail("this node keeps no approval list (it has no assistant service): suggestions wait for a person there");
+        // An assistant's own line never asks the assistant, nor replaces suggestions a person has not decided yet.
+        if (ask && IsAssistantTransport(call.Session))
+            return CommandReply.Fail("an assistant's line cannot ask the assistant: SCAN SUGGEST without ASSISTANT ranks the regions itself");
         if (Store.Project.Stage.Scans.Find(args[0]) is not { } record)
             return CommandReply.Fail($"no scan {args[0]}");
+        if (IsAssistantTransport(call.Session) && runner.SuggestionsFor(record.Id).Any(x => runner.StateOf(x) == "pending"))
+            return CommandReply.Fail($"{record.Name}'s suggestions wait for a person: a person decides them, or asks for new ones");
+        if (!runner.BeginSuggest(record.Id))
+            return CommandReply.Fail($"{record.Name}'s suggestions are being made already, or the node is stopping");
+        try
+        {
+            return await SuggestAsync(call, runner, assistant, record, ask).ConfigureAwait(false);
+        }
+        finally
+        {
+            runner.EndSuggest(record.Id);
+        }
+    }
+
+    private async Task<CommandReply> SuggestAsync(VerbCall call, ScanRunner runner, AssistantService assistant, ScanRecord record, bool ask)
+    {
         var outcome = await Task.Run(() => OutcomeOf(record), call.Ct).ConfigureAwait(false);
         if (outcome is null)
             return CommandReply.Fail(NoData(record));
@@ -182,11 +200,7 @@ public sealed partial class EngineCore
         var byId = names.Where(n => candidates.Any(c => c.Descriptor.Id == n.Id)).GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var ordered = candidates.Select((c, i) => (c, i)).OrderBy(x => byId.TryGetValue(x.c.Descriptor.Id, out var n) ? n.Rank : int.MaxValue).ThenBy(x => x.i)
             .Select(x => x.c).ToList();
-        foreach (var old in runner.SuggestionsFor(record.Id).SelectMany(s => s.Proposals))
-        {
-            if (assistant.Queue.Find(old) is { State: ProposalState.Pending })
-                assistant.Queue.Reject(old, "scan suggestions", "replaced by a newer SCAN SUGGEST");
-        }
+        runner.WithdrawSuggestions(this, record.Id, "replaced by a newer SCAN SUGGEST");
         var list = ImmutableArray.CreateBuilder<ScanSuggestion>();
         var spec = VerbCatalog.Find("SCAN SURFACE")!;
         var quadSpec = VerbCatalog.Find("SURFACE QUAD");
@@ -229,7 +243,7 @@ public sealed partial class EngineCore
             w.WriteString("from", from);
             w.WriteStartArray("suggestions");
             foreach (var s in suggestions)
-                ScanRunner.WriteSuggestion(w, s, runner.StateOf(s));
+                ScanRunner.WriteSuggestion(w, s, runner.StateOf(s), record.Id);
             w.WriteEndArray();
             w.WriteEndObject();
         });
@@ -237,31 +251,28 @@ public sealed partial class EngineCore
             $"{suggestions.Count(s => s.Measured)} surface suggestion(s) for {record.Name} queued for a person: {string.Join(", ", suggestions.Where(s => s.Measured).Select(s => s.Label))}"));
     }
 
-    /// <summary>SCAN SURFACE: a multi-view scan's surfaces, and any scan's with ON &lt;projector&gt; (that projector's smart scan, what it
-    /// lights); a single-view scan without ON is the first round's SCAN SURFACE.</summary>
-    private async Task<CommandReply> ScanSurfaceRoutedAsync(VerbCall call)
+    /// <summary>SCAN SURFACE's ON form and a multi-view scan's surfaces (the first round's handler asks here first): the reply, or
+    /// null for a single-view scan without ON, which the first round's handler answers.</summary>
+    private async Task<CommandReply?> ScanSurfaceMultiscanAsync(List<string> words, WireLine line, SessionInfo session, CancellationToken ct)
     {
-        var args = new List<string>(call.Args);
+        var args = new List<string>(words);
         string? on = null;
-        if (args.Count >= 4 && args[3].Equals("ON", StringComparison.OrdinalIgnoreCase))
+        // ON is the keyword only when a projector follows it: "On stage left" stays a name.
+        if (args.Count >= 5 && args[3].Equals("ON", StringComparison.OrdinalIgnoreCase) && FindProjectorWord(Store.Project, args[4]) is not null)
         {
-            if (args.Count < 5)
-                return CommandReply.Fail("ON takes the projector whose smart scan it is");
             on = args[4];
             args.RemoveRange(3, 2);
         }
         if (args.Count < 3 || Store.Project.Stage.Scans.Find(args[0]) is not { } record)
-            return await ScanSurfaceAsync(args, call.Line, call.Session, call.Ct).ConfigureAwait(false);
-        var outcome = await Task.Run(() => OutcomeOf(record), call.Ct).ConfigureAwait(false);
-        if (outcome is null)
-            return CommandReply.Fail(NoData(record));
-        if (outcome.Multi is null && on is null)
-            return await ScanSurfaceAsync(args, call.Line, call.Session, call.Ct).ConfigureAwait(false);
+            return null;
+        var outcome = await Task.Run(() => OutcomeOf(record), ct).ConfigureAwait(false);
+        if (outcome is null || (outcome.Multi is null && on is null))
+            return null;
+        var call = new VerbCall(VerbCatalog.Find("SCAN SURFACE")!, args, line, session, ct);
         string? projectorId = null;
         if (on is not null)
         {
-            if (FindProjectorWord(Store.Project, on) is not { } pj)
-                return CommandReply.Fail($"no projector {on}");
+            var pj = FindProjectorWord(Store.Project, on)!;
             if (!outcome.Solution.Projectors.Any(p => p.Solved && p.ProjectorId == pj.Id))
                 return CommandReply.Fail($"{record.Name} did not solve {pj.Name}: ON names a projector the scan placed");
             projectorId = pj.Id;
@@ -272,6 +283,8 @@ public sealed partial class EngineCore
             || !double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out y) || x is < 0 or > 1 || y is < 0 or > 1))
             return CommandReply.Fail("SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>] — x and y from 0 to 1 across and down the smart scan — or SCAN SURFACE <scan> REGION <region> [ON <projector>] [<name>]");
         var given = string.Join(' ', args.Skip(3)).Trim();
+        if (!outcome.Solution.Projectors.Any(p => p.Solved))
+            return CommandReply.Fail($"{record.Name} placed no projector: there is no smart scan to select from");
         return outcome.Multi is { } multi
             ? await MultiViewSurfaceAsync(call, record, outcome, multi, byRegion ? args[2] : null, x, y, projectorId, given).ConfigureAwait(false)
             : await SingleViewSurfaceOnAsync(call, record, outcome, byRegion ? args[2] : null, x, y, projectorId!, given).ConfigureAwait(false);
@@ -365,6 +378,10 @@ public sealed partial class EngineCore
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the scan's mesh is written beside it");
         MeshAsset? written = null;
+        // The stage's mesh must be the one these faces index: a scan solved again since (and its record taken back by UNDO) is not.
+        if (ScanMesh(Store.Project, record) is { } onStage && outcome.Solution.Mesh is { } now
+            && (onStage.Triangles != now.TriangleCount || onStage.Vertices != now.VertexCount))
+            return CommandReply.Fail($"{record.Name} was solved again since its mesh joined the stage — SCAN APPLY {record.Id} puts the new one on first");
         if (ScanMesh(Store.Project, record) is null)
         {
             if (outcome.Solution.Mesh is not { } mesh)

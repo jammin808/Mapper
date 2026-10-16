@@ -53,7 +53,8 @@ public sealed record ScanOutcome(
             {
                 CameraId = CameraId,
                 ScanId = Id,
-                DropView = Multi?.Disagreeing ?? "",
+                // Only the projectors the disagreeing view saw are owed its drop.
+                DropView = Multi?.Disagreeing is { } bad && Captured.Any(v => v.Id == bad && v.ProjectorIds.Contains(projectorId, StringComparer.Ordinal)) ? bad : "",
             }
             : null;
 }
@@ -104,6 +105,8 @@ public static class ScanArchive
             WriteAtomically(Path.Combine(folder, "mesh.ply"), stream => MeshIO.WritePly(stream, mesh));
         if (s.Cloud is { } cloud)
             WriteAtomically(Path.Combine(folder, "points.ply"), stream => MeshIO.WritePly(stream, cloud));
+        else
+            File.Delete(Path.Combine(folder, "points.ply"));
         foreach (var (projectorId, view) in outcome.Views)
             WriteAtomically(Path.Combine(folder, "smart-" + projectorId + ".pgm"), stream => WritePgm(stream, view.Width, view.Height, view.SmartScan));
         if (outcome.Geometry is { } g)
@@ -112,12 +115,18 @@ public static class ScanArchive
             WriteAtomically(Path.Combine(folder, "cells.bin"), stream => WriteInts(stream, g.VertexCells));
             WriteAtomically(Path.Combine(folder, "camera.ppm"), stream => WritePpm(stream, g.Image));
         }
+        else
+        {
+            // What click-to-surface read from an earlier single-view solve belongs to that solve only.
+            foreach (var stale in new[] { "grid.bin", "cells.bin", "camera.ppm" })
+                File.Delete(Path.Combine(folder, stale));
+        }
         ScanViewArchive.Save(folder, outcome);
         return relative;
     }
 
-    /// <summary>A scan read back from its folder (no point cloud and no smart scans: the mesh is what applying
-    /// needs); null when the folder or its scan.json is missing or unreadable.</summary>
+    /// <summary>A scan read back from its folder (no smart scans: the mesh is what applying needs), its regions made again from its
+    /// geometry and its views and multi-view solve read back; null when the folder or its scan.json is missing or unreadable.</summary>
     public static ScanOutcome? Load(string projectFolder, string dataPath)
     {
         if (string.IsNullOrEmpty(projectFolder) || string.IsNullOrEmpty(dataPath))
@@ -143,7 +152,10 @@ public static class ScanArchive
                 VertexCells = cells,
             };
             var outcome = new ScanOutcome(file.Id, file.Name, file.CameraId, file.Simulated, file.Scene, solution, [], file.Truth ?? []);
-            return ScanViewArchive.Load(folder, outcome with { Geometry = GeometryOf(outcome, image) });
+            var geometry = GeometryOf(outcome, image);
+            // The regions are made again from the geometry (deterministic: the same ids as when the scan was made).
+            var regions = geometry is null ? [] : ScanSurfaces.LitBy(ScanSurfaces.Regions(geometry), geometry, solution);
+            return ScanViewArchive.Load(folder, outcome with { Geometry = geometry, Regions = regions });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FormatException or NotSupportedException)
         {

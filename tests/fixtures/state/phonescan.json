@@ -79,6 +79,7 @@
     "views": [
       {
         "id": "v1",
+        "scan": "sc_fixture1",
         "camera": "cm_fixture3",
         "projectors": [
           "pj00000001",
@@ -93,6 +94,7 @@
       },
       {
         "id": "v2",
+        "scan": "sc_fixture1",
         "camera": "cm_fixture3",
         "projectors": [
           "pj00000001",
@@ -108,11 +110,13 @@
     ],
     "coverage": [
       {
+        "scan": "sc_fixture1",
         "projector": "pj00000001",
         "seen": 0,
         "twice": 0
       },
       {
+        "scan": "sc_fixture1",
         "projector": "pj00000002",
         "seen": 0,
         "twice": 0
@@ -217,6 +221,8 @@
     "suggestions": [
       {
         "id": "sg1",
+        "scan": "sc_fixture1",
+        "proposal": "ap1",
         "region": "rg1",
         "label": "Wall",
         "kind": "plane",
@@ -237,6 +243,8 @@
       },
       {
         "id": "sg2",
+        "scan": "sc_fixture1",
+        "proposal": "ap3",
         "region": "rg2",
         "label": "Curved surface",
         "kind": "curved",
@@ -256,6 +264,8 @@
       },
       {
         "id": "sg3",
+        "scan": "sc_fixture1",
+        "proposal": "ap4",
         "region": "rg3",
         "label": "Floor",
         "kind": "plane",
@@ -276,6 +286,8 @@
       },
       {
         "id": "sg4",
+        "scan": "sc_fixture1",
+        "proposal": "ap6",
         "region": "rg4",
         "label": "Floor",
         "kind": "plane",
@@ -295,6 +307,8 @@
       },
       {
         "id": "sg5",
+        "scan": "sc_fixture1",
+        "proposal": "ap7",
         "region": "rg5",
         "label": "Box face",
         "kind": "plane",
@@ -313,6 +327,8 @@
       },
       {
         "id": "sg6",
+        "scan": "sc_fixture1",
+        "proposal": "ap8",
         "region": "rg6",
         "label": "Floor",
         "kind": "plane",

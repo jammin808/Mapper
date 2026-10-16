@@ -123,7 +123,7 @@ public static class ScanSuggestions
                 for (var i = 0; i < region.Mask.Coverage.Length; i++)
                 {
                     if (region.Mask.Coverage[i] >= 128 && PointCloud.IsValid(g.Cloud.Points[i]) && device.Project(g.Cloud.Points[i]) is { } q
-                        && q.X >= 0 && q.Y >= 0 && q.X <= solved.Intrinsics.Width && q.Y <= solved.Intrinsics.Height)
+                        && q.X >= 0 && q.Y >= 0 && q.X < solved.Intrinsics.Width && q.Y < solved.Intrinsics.Height)
                         seen.Add(q);
                 }
                 quad = QuadOf(seen);
@@ -210,7 +210,10 @@ public static class ScanSuggestions
         var trimmed = string.Join(' ', name.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         if (trimmed.Length > MaxNameLength || trimmed.Any(ch => !(char.IsLetterOrDigit(ch) || ch is ' ' or '-' or '\'')))
             return null;
-        // A name that reads as a line is not a name: one holding a whole verb ("SCAN START"), or a verb's word in capitals.
+        // A name that reads as a line is not a name: one holding a whole verb ("SCAN START"), or a verb's word in capitals; nor one
+        // starting with ON, which SCAN SURFACE would read as the projector it names.
+        if (trimmed.StartsWith("on ", StringComparison.OrdinalIgnoreCase))
+            return null;
         var upper = " " + trimmed.ToUpperInvariant() + " ";
         if (VerbNames.Any(v => upper.Contains(" " + v + " ", StringComparison.Ordinal)))
             return null;

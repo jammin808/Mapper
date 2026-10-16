@@ -45,6 +45,9 @@ public sealed partial class ScanRunner
     /// glass now. False when the scan's camera is not one waiting so.</summary>
     public bool TakeByHand() => Volatile.Read(ref _cuedCamera)?.TakeNow() == true;
 
+    /// <summary>Whether the scan's camera is released by hand (SCAN NEXT takes its picture, never shows its pattern again).</summary>
+    public bool CameraByHand => Volatile.Read(ref _cuedCamera)?.ByHand == true;
+
     /// <summary>SCAN NEXT: the wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for
     /// afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. False when no scan waits
     /// on a camera.</summary>
@@ -79,6 +82,7 @@ public sealed partial class ScanRunner
     {
         while (true)
         {
+            camera.Arm();
             var present = await show(ct).ConfigureAwait(false);
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
             wait.CancelAfter(camera.Patience ?? _options.PatternTimeout);

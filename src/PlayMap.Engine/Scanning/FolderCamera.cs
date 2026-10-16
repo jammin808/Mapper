@@ -50,6 +50,8 @@ public sealed class FolderCamera : ICuedScanCamera
     private volatile string _problem = "";
     private long _generation;
     private HashSet<string> _seen = new(StringComparer.Ordinal);
+    private bool _armed;
+    private volatile bool _disposed;
 
     public FolderCamera(CameraRig rig, FolderCameraOptions? options = null)
     {
@@ -101,8 +103,18 @@ public sealed class FolderCamera : ICuedScanCamera
 
     private void Wake()
     {
-        if (_changed.CurrentCount == 0)
-            _changed.Release();
+        if (_disposed)
+            return;
+        try
+        {
+            if (_changed.CurrentCount == 0)
+                _changed.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The camera closed while the watcher still reported: nothing waits any more.
+            _disposed = true;
+        }
     }
 
     private HashSet<string> Files() =>
@@ -140,6 +152,17 @@ public sealed class FolderCamera : ICuedScanCamera
         return Task.CompletedTask;
     }
 
+    public bool ByHand => _advance == FolderAdvance.Manual;
+
+    public void Arm()
+    {
+        lock (_gate)
+        {
+            _seen = Files();
+            _armed = true;
+        }
+    }
+
     /// <summary>SCAN NEXT for a manual folder camera: the picture for the pattern on the glass is the newest file since its cue. False
     /// when this camera is not waiting for one.</summary>
     public bool TakeNow()
@@ -157,19 +180,24 @@ public sealed class FolderCamera : ICuedScanCamera
     public async Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct, CancellationToken scan)
     {
         ArgumentNullException.ThrowIfNull(cue);
-        // A picture for this cue is a file the folder did not hold when the cue came (its pattern is on the glass by then).
+        // A picture for this cue is a file the folder did not hold just before its pattern went up (Arm), else when the cue came.
         lock (_gate)
-            _seen = Files();
+        {
+            if (!_armed)
+                _seen = Files();
+            _armed = false;
+        }
         _options.Cued?.Invoke(cue);
         while (true)
         {
             string path;
             if (_advance == FolderAdvance.Manual)
             {
-                Say?.Invoke($"{_rig.Name}: shoot {Describe(cue)}, then SCAN NEXT");
                 var next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 lock (_gate)
                     _next = next;
+                // Waiting before it says so: a SCAN NEXT answering these words always finds the camera waiting.
+                Say?.Invoke($"{_rig.Name}: shoot {Describe(cue)}, then SCAN NEXT");
                 await next.Task.WaitAsync(ct).ConfigureAwait(false);
                 await Task.Delay(_settle, ct).ConfigureAwait(false);
                 HashSet<string> before;
@@ -260,6 +288,9 @@ public sealed class FolderCamera : ICuedScanCamera
 
     public void Dispose()
     {
+        _disposed = true;
+        if (_watcher is not null)
+            _watcher.EnableRaisingEvents = false;
         _watcher?.Dispose();
         _changed.Dispose();
     }

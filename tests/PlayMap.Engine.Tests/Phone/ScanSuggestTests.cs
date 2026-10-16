@@ -150,6 +150,15 @@ public sealed partial class ScanSuggestTests(ITestOutputHelper output)
                 Assert.Equal("replaced by a newer SCAN SUGGEST", proposal.ResultWords);
             });
 
+            // An assistant's own line neither asks the assistant nor replaces suggestions waiting for a person.
+            var asAssistant = new Core.Wire.SessionInfo("a1", "assistant", "127.0.0.1", true, "Assistant", true);
+            var fromAi = await rig.Run($"SCAN SUGGEST {id} ASSISTANT", asAssistant);
+            Assert.StartsWith("an assistant's line cannot ask the assistant", fromAi.Payload, StringComparison.Ordinal);
+            var replace = await rig.Run($"SCAN SUGGEST {id}", asAssistant);
+            Assert.False(replace.Ok);
+            Assert.Contains("wait for a person", replace.Payload, StringComparison.Ordinal);
+            Assert.Empty(model.Requests);
+
             // The assistant off: the ASSISTANT form says so and asks no model.
             await rig.Ok("ASSISTANT SET enabled false");
             var off = await rig.Run($"SCAN SUGGEST {id} ASSISTANT");

@@ -52,4 +52,10 @@ public interface ICuedScanCamera : IScanCamera
     /// <summary>SCAN NEXT for a camera a person releases by hand (a manual folder camera): the picture is taken now. False when the
     /// camera takes its pictures on its own.</summary>
     bool TakeNow();
+
+    /// <summary>Whether SCAN NEXT releases this camera's pictures by hand (it never puts the pattern up again for it).</summary>
+    bool ByHand { get; }
+
+    /// <summary>Called just before a cue's pattern goes up: what the camera holds now is not that pattern's picture.</summary>
+    void Arm();
 }
