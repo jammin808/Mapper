@@ -46,6 +46,8 @@ frame at 60 Hz; `unreachable` when a send failed in the last two seconds or a no
 `refused` when the bandwidth guard refuses the rig. `lagMs` is the worst node's lateness; `lateCollects` counts GPU read-backs
 taken a frame late. Fixture: `tests/fixtures/state/led.json`, cards `led.cards.json`.
 
+The air's moments (blackout, freeze, panic, a scan or align run, output off, the node stopping) are tabled in `docs/LED.md`.
+
 ## Context, INDEX, preflight, hello
 
 - Context: one item `led:<node>` (kind `led`): red unreachable or refused while this machine sends, amber late or a test or locate

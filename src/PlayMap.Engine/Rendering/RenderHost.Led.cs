@@ -27,13 +27,15 @@ public sealed partial class RenderHost
             board.Attach(led);
         }
         var plan = board.Current;
-        var sink = board.Output?.Sink;
-        // Nothing to sample or nowhere to send: the pass stays out of the frame.
-        if (sink is null || (plan.Pixels == 0 && plan.Rows.IsEmpty))
+        var output = board.Output;
+        // Nothing to sample, nowhere to send, or this machine not sending: the pass stays out of the frame (nothing sampled).
+        if (output is not { Master: true } || (plan.Pixels == 0 && plan.Rows.IsEmpty))
             return;
+        var sink = output.Sink;
         led.Sink = sink;
         led.Offer(plan);
         led.Live = board.Live;
+        led.Raw = inputs.Raw;
         // The light of this frame comes (leader instant − leader now) after now, on the clock the sender schedules with.
         led.LightMonoNs = engine.Services.Mono.NowNs + (inputs.LeaderNs - engine.LeaderNowNs);
         if (_ledPasses.IsDefault || inputs.Passes != _ledGiven)

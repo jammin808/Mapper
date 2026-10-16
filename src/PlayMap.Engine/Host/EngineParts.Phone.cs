@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddPhoneParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-phonescan fills this.
+        extensions.Add(Phone.PhoneExtension.Factory);
     }
 }

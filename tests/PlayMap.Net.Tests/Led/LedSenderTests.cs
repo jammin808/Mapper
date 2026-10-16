@@ -413,4 +413,31 @@ public sealed class LedSenderTests
         Assert.True(Sacn.TryReadData(receiver.Take(1)[0].Bytes, out var resumed, out _));
         Assert.False(resumed.Terminated);
     }
+
+    [Fact]
+    public async Task ADisposedSenderLeavesTheRigDarkAndItsSinkRefusesQuietly()
+    {
+        var (clock, art, sender) = ArtNetPair(60);
+        await using var artOwned = art;
+        using var node = new Receiver(Address(61), ArtNet.Port);
+        var plan = Plan(Node(LedProtocol.ArtNet, Address(61)), Strip("lf00000001", "builtin:rgb", 10, new LedPatch("ln00000001", 4, 1)));
+        sender.Apply(LedPrograms.Build(plan, Guid.NewGuid(), "t"));
+        sender.SetMaster(true, false);
+        Submit(sender, plan, 1, clock.NowNs, 99);
+        sender.Pump(clock.NowNs);
+        Assert.Equal(2, node.Take(2).Count);
+        // A frame the render thread holds while the node stops.
+        var held = sender.Sink.Rent(plan.Rows.Length)!;
+        await sender.DisposeAsync();
+        // The node stopping sends one black frame, latched.
+        var stop = node.Take(2);
+        Assert.Equal(2, stop.Count);
+        Assert.True(ArtNet.TryReadDmx(stop[0].Bytes, out var h, out var data));
+        Assert.Equal(4, h.PortAddress);
+        Assert.All(data.ToArray(), b => Assert.Equal(0, b));
+        Assert.True(ArtNet.IsSync(stop[1].Bytes));
+        // Afterwards the sink neither throws nor hands out frames.
+        sender.Sink.Submit(held);
+        Assert.Null(sender.Sink.Rent(plan.Rows.Length));
+    }
 }

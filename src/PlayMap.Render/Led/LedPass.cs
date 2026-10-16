@@ -66,6 +66,7 @@ public sealed class LedPass : IFramePass
     private RenderTarget? _slots;
     private float[] _airData = [];
     private bool _hasColors;
+    private bool _allFollowBlackout;
     private int _write;
     private int _read;
     private IAirLevels? _levels;
@@ -78,7 +79,8 @@ public sealed class LedPass : IFramePass
         ArgumentNullException.ThrowIfNull(pictures);
         _device = device;
         _pictures = pictures;
-        _outputGain = id => _levels?.Gain(id, _leaderNs) ?? 1f;
+        // An output showing a raw frame (a scan or an align run) shows a pattern, not the show: its fixtures are dark.
+        _outputGain = id => Raw?.For(id) is { IsNone: false } ? 0f : _levels?.Gain(id, _leaderNs) ?? 1f;
     }
 
     public string Name => "led";
@@ -91,6 +93,9 @@ public sealed class LedPass : IFramePass
 
     /// <summary>The rig's live air (level, test, locate); set by the host before each frame.</summary>
     public LedLive Live { get; set; } = LedLive.Initial;
+
+    /// <summary>Outputs showing a raw frame this frame (scan and align runs); set by the host before each frame.</summary>
+    public IRawOutputs? Raw { get; set; }
 
     /// <summary>The monotonic instant this frame's light is expected (the host sets it before each frame).</summary>
     public long LightMonoNs { get; set; }
@@ -132,7 +137,9 @@ public sealed class LedPass : IFramePass
         d.SetBlend(BlendMode.Opaque);
         d.SetDepth(false, false);
         var (rigGain, rigHeld) = RigAir(frame);
-        if (plan.Pixels > 0)
+        // Blackout wins before any pass: when it reaches every fixture nothing can light, so no picture is resolved or sampled
+        // (pass 2 still sends the black frame, constants kept).
+        if (plan.Pixels > 0 && !(frame.Blackout && _allFollowBlackout))
         {
             Sample(plan, frame.Freeze, rigHeld);
             _hasColors = true;
@@ -184,6 +191,9 @@ public sealed class LedPass : IFramePass
         foreach (var g in plan.Groups)
         {
             if (g.Count == 0 || (_hasColors && (freeze || (rigHeld && g.Binding != LedBinding.Output))))
+                continue;
+            // An output on a raw frame shows a pattern: its fixtures are dark (their air is 0), so its picture is not sampled.
+            if (_hasColors && g.Binding == LedBinding.Output && Raw?.For(g.Key) is { IsNone: false })
                 continue;
             // The picture first: making it (a canvas composed on demand) binds targets and textures of its own.
             // A group with no picture this frame samples one black texel: its pixels are black.
@@ -299,6 +309,7 @@ public sealed class LedPass : IFramePass
         var colorRows = plan.ColorRows;
         // A new plan places pixels anew: colours held from the old one would land on the wrong pixels.
         _hasColors = false;
+        _allFollowBlackout = plan.Fixtures.All(f => f.FollowBlackout);
         if (_colors is null || _colors.Height != colorRows)
         {
             _colors?.Dispose();

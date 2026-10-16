@@ -93,7 +93,8 @@ this node's, and `MANUAL` brings the show's tempo back one lead ahead.
 For ISF audio textures and FFGL buffers, `IAudioFrames` answers the spectrum (the frame's 64 bins, resampled to the bins asked)
 and the mono waveform (the listener keeps the last 2 s) at a frame's instant: the samples that end there, or the newest ones when
 the frame is drawn for an instant ahead of the sound that reaches it; nothing while the node listens to nothing or once the sound is
-more than 1 s old.
+more than 1 s old. The frame carries it to the renderer, where nothing reads it yet: an ISF `audio` input reads silence (a 0.5
+grey) and `audioFFT` black.
 
 Any source may end in `~<attack ms>[/<release ms>]`, or a binding may give `SMOOTH`: a one-pole follower on a fixed 5 ms grid of
 leader time, never per render frame, so 50, 60 or 144 frames a second read the same value at the same instant. It runs as two
@@ -112,10 +113,13 @@ frame the render host's compose hook resolves the show's bindings once per proje
 hands the renderer a project with every bound number of a layer, a surface or an effect slot at its live value and those bindings
 taken off — the store keeps the base value and its revision never moves for modulation. A generator is the exception: its
 renderer re-reads its whole parameter set whenever a number changes (a particle field re-seeds, a flash guard forgets its last
-flash), so its numbers are never rewritten per frame; its bindings stay on it, for its renderer to evaluate on its own render path
-through the bus the frame carries. This node's generator renderers do not read them yet, so a generator's bound numbers are drawn
-at their base (STATE `modulation.unbound` and `MOD PEEK` say so; `MOD PEEK` still gives the live value the binding makes). The
-rule:
+flash), so its numbers are never rewritten per frame; its bindings stay on it, and its renderer evaluates them on the render
+thread through the bus the frame carries, at the frame's leader instant. The kinds that read their numbers every frame draw them
+live: `particles.flow`, `particles.image`, the fractals, `reactive.scene` and the moving patterns (`pattern.motion`,
+`pattern.colorcycle`, `pattern.checker`). The CPU particle field (it restarts from its seed on any change), the sync marks, the
+still patterns and the surface effects draw a bound number at its base, as does a number a kind reads once per change (a field's
+`lifeMin`/`lifeMax`, a raymarched fractal's `renderScale`); STATE `modulation.unbound` and `MOD PEEK` name each, and `MOD PEEK`
+still gives the live value the binding makes. The rule:
 
 u = curve(clamp(invert(s) − Offset, 0, 1)), quantised to `STEPS` levels, then **ADD** base + Amount·u·(max − min), **SCALE**
 base·lerp(1 − |Amount|, 1, u), **REPLACE** the range's own min + u·its width (`RANGE` as fractions of the parameter's); the result
@@ -136,16 +140,16 @@ surface's `opacity`, an effect slot's `mix` and its kind's numbers (from the eff
 
 ## Measured, not governed
 
-No governor is added this round: there is no flash limiter on audio-driven numbers (STATE `modulation.flashLimited` is −1,
+No governor acts on the bus: there is no flash limiter on audio-driven numbers (STATE `modulation.flashLimited` is −1,
 unknown), and no budget on the bus. The analyser's per-hop cost and allocation are measured by its tests (no allocation per hop).
 
 ## Next round
 
-Shared live frames to followers (PMMD on UDP 9945, HMAC keyed from pairing) so every node reacts to the same sound (and
-followers adopt the listener's detected anchors); analysis tracks at import (`.pmaa`) and an offline tracker; downbeat detection
-(a detected lock keeps the count, the bar line is a resync); Ableton Link
-only through a Carabiner process the user installs (GPLv2+, never bundled); MIDI clock in; named modulators (LFO, envelope,
-steps, random); `MOD AUTO` presets; launch quantisation (`AT BEAT|BAR|PHRASE` on playlist verbs); discrete audio inputs for
-control bindings; `AUDIO CALIBRATE`; generators that evaluate their own bindings (content's render path; the plan already leaves
-them on the generator); a zero-allocation overlay in place of the per-frame project for layers, surfaces and effect slots; RATE
-bindings.
+Shared live frames to followers (PMMD on UDP 9945, HMAC keyed from pairing) so every node reacts to the same sound (and followers
+adopt the listener's detected anchors); analysis tracks at import (`.pmaa`) and an offline tracker; downbeat detection (a detected
+lock keeps the count, the bar line is a resync); Ableton Link only through a Carabiner process the user installs (GPLv2+, never
+bundled); MIDI clock in; named modulators (LFO, envelope, steps, random); `MOD AUTO` presets; launch quantisation
+(`AT BEAT|BAR|PHRASE` on playlist verbs); discrete audio inputs for control bindings; `AUDIO CALIBRATE`; live ISF `audio` and
+`audioFFT` textures; live bindings on the generator kinds that draw them at their base (the CPU particle field, the still
+patterns, the surface effects); a zero-allocation overlay in place of the per-frame project for layers, surfaces and effect slots;
+RATE bindings.

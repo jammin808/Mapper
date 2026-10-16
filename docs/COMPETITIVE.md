@@ -1,6 +1,6 @@
 # Where PlayMap stands
 
-*Competitive position as of 12 October 2026. PlayMap main is at `4d30e00`. Every third-party fact carries a source URL. **Estimate** marks our own judgement, not a measurement.*
+*PlayMap's competitive position: the field, the matrix, and what to learn from each. Every third-party fact carries a source URL. **Estimate** marks our own judgement, not a measurement.*
 
 **How to read the sources.** The research pass read most vendor pages through search-result summaries, because many vendor domains (madmapper.com, resolume.com, dataton.com, disguise.one, pixera.one, help.disguise.one and others) did not resolve from our build environment. A final fact check on 12 October could not re-open those domains and had no search budget left. So:
 
@@ -14,11 +14,10 @@ Vendor capability claims are the vendors' own. We have tested none of these prod
 
 **No. PlayMap is not better than MadMapper today, and it is not in the class of disguise, Pixera or Watchout.** It has never put a frame on a real projector.
 
-Status of main at `4d30e00`:
-- All ten modules are merged and tested: assistant (76 tests), calibration (36), network (55), mapping maths (54), media (73), scanning (53), projector control (102), render (60), vision (61) and the desk (42).
-- The desk has the window, the three workspaces, the drawers, a demo engine, view models and drag tests through the real input path. It has never talked to a real engine.
-- The engine's composition root — real media, render, network and scan backends behind its seams, and `PlayMap engine [headless]` — is being integrated now. Until it lands, the seams (`IMediaBackend`, `IOutputBackend`, `IScanBackend`, `INetworkView`) have only null backends.
-- No camera, projector, GPU decode path, SAM model or second machine has been used. Every scan, solve and device test runs against simulators or protocol fixtures.
+Status of main:
+- All ten modules are merged and tested, and `PlayMap engine [headless]` composes the real media, render, network and scan backends. The desk starts and watches this machine's engine or attaches to a node on the network; the round-two verbs run over the wire until the desk's controls for them land.
+- The round-two work is built on simulators: show safety, vblank truth and the frame lock, the HAP family on the GPU, optimise to HAP on import, OSC, MIDI, Art-Net and sACN input with bindings, timecode chase, the node's side of Companion, ISF effect chains, audio analysis and modulation, generative content, pixel quads and the calibration ledger, camera auto-align, fleet health and LED pixel mapping (docs/ROADMAP.md §0).
+- No real camera, projector, sync board, SAM model or second machine has been used; the GL tests run on Mesa's software renderer. Every scan, solve and device test runs against simulators or protocol fixtures.
 
 **By design, PlayMap aims past MadMapper in 3D calibration, multi-node sync and automation. That is a hypothesis until Round 1 publishes RMS figures from real hardware** (docs/ROADMAP.md). Scope is not robustness. Our simulators do not model rolling shutter, auto-exposure, projector image processing, interreflection or subsurface scattering, and those are what break structured light in real rooms.
 
@@ -33,30 +32,30 @@ Five design ideas we have not found combined in one product:
 **What "frame-accurate sync" means here.** Every node picks the same frame index for a given show time. Without genlock, the moment that frame reaches the projector can differ by up to one refresh between nodes. That ±1 refresh figure is a design target and has not been measured. Presenting on the same vblank needs framelock (ROADMAP R4.2).
 
 **Where PlayMap is behind, and stays behind until it is built:**
-- **Output smoothness:** OpenGL 3.3, one render thread and one pacing window. No D3D11 flip-model, no framelock.
-- **Codecs:** no GPU HAP path. Hardware decode copies frames back to system memory.
+- **Output smoothness:** OpenGL 3.3 core or ES 3.00 and one render thread; each output measures its vblanks and presents. No D3D11 flip-model; the frame-lock machine is built, but its NVAPI tier is compile-only and joins no swap group.
+- **Codecs:** the HAP family decodes on the GPU and clips optimise to HAP on import, but hardware decode of other codecs copies frames back to system memory.
 - **Video IO:** no NDI, Spout, OMT or capture-card SDKs.
-- **Control:** no OSC, MIDI, DMX/Art-Net, timecode chase or Companion module.
-- **Show floor:** no redundancy, Show Mode, preflight or fleet health.
-- **Creative breadth:** no ISF or FFGL effects, audio reactivity, LED pixel mapping, laser output or export.
+- **Control:** OSC, MIDI, Art-Net and sACN input with bindings, and timecode chase, are built; no Companion module yet (the node's side is built), no MIDI out or OSCQuery.
+- **Show floor:** Show Mode, locks, panic, preflight and fleet health are built; no redundancy and no blind edit.
+- **Creative breadth:** ISF effect chains, audio reactivity and LED pixel mapping are built; no FFGL, laser output or export.
 - **Adoption:** no importers from other tools, no signed installer, no reference hardware list, no support offer, and one maintainer.
 
 ## 2. What PlayMap is today
 
-| Area | Merged and tested (simulators only) | On a branch | Designed only | Absent |
+| Area | Merged and tested (simulators only) | In progress | Designed only | Absent |
 |---|---|---|---|---|
-| Playback core | Playlists, gapless lanes, `ClipTransport`, `TimelineAnchor`, frame selection, `AT` starts, sync groups | — | Web/YouTube (enum only), Stagewatch timer source | Cue stack and timeline (by design), timecode chase, reverse play |
-| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, OpenAL audio (never run on a device) | — | HAP BC upload, D3D11VA zero-copy, NDI | Spout, OMT, Syphon, HDR out, transcode, ASIO |
-| Render | GL 3.3 projector pass; output stage (warp, mask, blend, black level, trim, dither); frame pacer; every catalogued generator; Fade and Dip between scheduled items | — | D3D11 flip-model | Transitions on a manual take, Vulkan, Metal |
-| Mapping maths | Lattices, TPS pin warp, Bezier tools, mask raster, 3D auto-blend, intensity compensation, coverage analysis, MPCDI export package | — | Rescan retargeting | Mesh deform, planner UI, LED pixel mapping |
-| Scan and calibration | Gray code + phase decoder, smart scan, quality score, meshing, `PoseSolver`, self-calibration, ICP, bridged registration, mesh and cloud IO, scan simulator | — | Scan runner, phone `/scan` page | Any real-camera run |
-| Vision | Segmenter router (classical, plus SAM when a verified model is present), depth previs, mask-to-path, pin suggester, drift watch | — | Verbs, STATE, MCP and desk wiring | Model files: catalogue checksums are not yet verified, so built-in models refuse to load |
-| Devices | PJLink 1/2, Christie, Panasonic, Barco Pulse and Epson drivers written from public protocol code; NEC and Sony gated as unverified | — | Geometry reset wired into scans | Projector verbs; model link Projector to device |
-| Network | Show Bus hello, wire server, HTTP/WS, MCP, TLS with certificate pinning, content-addressed media transfer, fine clock sync | — | Show Bus 1.3 proposals | OSC, MIDI, Art-Net/sACN, mDNS, Companion |
-| AI | Assistant (Claude or a local LLM), `CommandGate`, proposals, recipes | — | Voice, deixis | — |
-| Desk | Window, PLAY / MAP / SCAN, drawers, demo engine, view models, drag tests | Attaching to a real engine (integration in progress) | Desk attached to a remote node | Web remote, roles, onboarding, XR |
+| Playback core | Playlists, gapless lanes, `ClipTransport`, `TimelineAnchor`, frame selection, `AT` starts, sync groups, timecode chase | Blind edit, sound on the air, the sync group's leader clock | Web/YouTube (enum only), Stagewatch timer source | Cue stack and timeline (by design), reverse play |
+| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, sound input, the HAP family on the GPU, optimise to HAP on import with PlayMap's own GPU encoder, an OpenAL audio output no engine part drives yet (clips play silent) | OMT and NDI in and out | D3D11VA zero-copy | Spout, Syphon, HDR out, ASIO |
+| Render | GL 3.3 core or ES 3.00 projector pass; output stage (warp, mask, blend, black level, trim, dither); vblank clock and present ledger per output; ISF effect chains; the edit overlay; every catalogued generator; Fade and Dip between scheduled items | — | D3D11 flip-model | Transitions on a manual take, Vulkan, Metal |
+| Mapping maths | Lattices, TPS pin warp, Bezier tools, mask raster, 3D auto-blend, intensity compensation, coverage analysis, MPCDI export package, pixel quads, LED pixel mapping | — | Rescan retargeting | Mesh deform, planner UI |
+| Scan and calibration | Gray code + phase decoder, smart scan, quality score, meshing, `PoseSolver`, self-calibration, ICP, bridged registration, mesh and cloud IO, scan simulator, the scan runner, the calibration score and ledger, camera auto-align of flat screens, the multi-view solve (Core only) | The phone as a scan camera | — | Any real-camera run |
+| Vision | Segmenter router (classical, plus SAM when a verified model is present), depth previs, mask-to-path, pin suggester, drift watch; click-to-surface and suggested regions by verb (`SCAN SURFACE`) | — | Verbs for depth previs, pin suggestions and drift watch | Model files: catalogue checksums are not yet verified, so built-in models refuse to load |
+| Devices | PJLink 1/2, Christie, Panasonic, Barco Pulse and Epson drivers written from public protocol code; NEC and Sony gated as unverified; projector verbs (`DEVICE …`), the link from a projector to its device, geometry reset before each scan | — | — | Low-latency mode |
+| Network | Show Bus hello, wire server, HTTP/WS, MCP, TLS with certificate pinning, content-addressed media transfer, fine clock sync, OSC, MIDI and Art-Net/sACN input, the LED sender, mDNS, the node's side of Companion, the fleet monitor | The Companion module | Show Bus 1.3 proposals | — |
+| AI | Assistant (a hosted or a local model), `CommandGate`, proposals, recipes | — | Voice, deixis | — |
+| Desk | Window, PLAY / MAP / SCAN, drawers, demo engine, view models, drag tests; the real engine, local or on the network | Controls for the round-two verbs | — | Web remote, roles, XR; onboarding beyond `LIGHT WALL` |
 
-The verb catalogue has 78 verbs. `SCAN START`, `SCAN APPLY`, `BLEND SOLVE` and `LATENCY MEASURE` refuse today because their backends are null. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
+The verb catalogue has 298 rows; a node answers the 104 first-round rows and the 137 round-two rows the packages route (`VERBS` marks each). `SCAN START` and `SCAN APPLY` run on a capture camera or the scan simulator, and `BLEND SOLVE` solves on a worker; `LATENCY MEASURE` refuses: its camera path is not built. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
 
 ## 3. The field in October 2026
 
@@ -101,8 +100,8 @@ These are real alternatives a buyer will weigh. Most were not researched in dept
 
 | | Mapping | Calibration | Playback and codecs | Sync and scale |
 |---|---|---|---|---|
-| **PlayMap built** | Catmull-Rom/Bezier lattices, TPS pin warp, Bezier masks in UV, 3D auto-blend maths, black level, intensity compensation | Decoder, smart scan, PnP/DLT/P3P + RANSAC, self-calibration, ICP, bridged registration | FFmpeg 9 decode, HW decode with copy-back, frame-accurate seek, gapless loops; GL 3.3 output stage | Frame = f(leader show time); ns UDP clock; content-addressed media. Never run on two machines |
-| **PlayMap designed** | Masks and warps survive rescans; click-to-surface | Webcam or phone autocal with projector geometry reset; drift watch | GPU HAP incl. HAP R/HDR, D3D11VA zero-copy, D3D11 flip-model | ±1 refresh without genlock (unmeasured); NVAPI framelock later |
+| **PlayMap built** | Catmull-Rom/Bezier lattices, TPS pin warp, Bezier masks in UV, 3D auto-blend maths, black level, intensity compensation, pixel quads, click-to-surface | Decoder, smart scan, PnP/DLT/P3P + RANSAC, self-calibration, ICP, bridged registration; scan runner with projector geometry reset; explainable score and calibration ledger; camera auto-align of flat screens; multi-view solve in Core | FFmpeg 9 decode, HW decode with copy-back, frame-accurate seek, gapless loops; GPU HAP incl. HAP R/HDR; optimise to HAP on import; GL 3.3 or ES 3.00 output stage with vblank truth | Frame = f(leader show time); ns UDP clock; content-addressed media; frame-lock machine (NVAPI tier compile-only). Never run on two machines |
+| **PlayMap designed** | Masks and warps survive rescans | Phone autocal; drift watch | D3D11VA zero-copy, D3D11 flip-model | ±1 refresh without genlock (unmeasured); NVAPI swap groups once outputs present through DXGI |
 | **MadMapper 6** | Quads, masks, Bezier mesh warp, soft edge | Manual point matching on an imported model, about 6 points (dates from v2.0). Space Scanner (5.3+) captures what the projector sees with structured light through a DSLR, webcam or NDI camera, mainly as a mask or background aid ([guide PDF](https://madmapper.com/files/13-Space%20Scanner%20Guide-1.pdf)). Automatic 3D multi-projector blend: unknown | FFmpeg plus HAP | Follows timecode, MIDI and OSC; Ableton Link reported. No built-in automatic failover found (source needed) |
 | **Resolume Arena 7** | 2D slices, mesh warp, masks, edge blend. Staff: "Resolume works in 2D currently" ([forum](https://www.resolume.com/forum/viewtopic.php?p=79682)) | None built in | DXV3, HAP, H.264, ProRes; 10-bit reported | Timecode and OSC |
 | **HeavyM 2** | 2D shapes, Bezier, effects; "not suited for complex 3D mapping" ([HeavyM](https://www.heavym.net/heavym2/)) | None | Common codecs | Single machine |
@@ -120,7 +119,7 @@ These are real alternatives a buyer will weigh. Most were not researched in dept
 
 | | Control and integration | UX | AI | Price and lock-in |
 |---|---|---|---|---|
-| **PlayMap built** | Wire, HTTP/WS, MCP, Show Bus, Patterns and Stagewatch links | Desk merged, demo engine only so far | Risk-gated assistant (Claude or local), recipes; never used on a live show | Single exe, no dongle |
+| **PlayMap built** | Wire, HTTP/WS, MCP, Show Bus, Patterns and Stagewatch links; OSC, MIDI, Art-Net and sACN input with bindings; timecode chase; the node's side of Companion; Art-Net, sACN and DDP LED output; projector control | The desk on the real engine, local or over the network; round-two verbs over the wire until the desk's controls land | Risk-gated assistant (a hosted or a local model), recipes; never used on a live show | Single exe, no dongle |
 | **PlayMap designed** | Every parameter a dotted path; desk uses the same verbs | PLAY / MAP / SCAN; right-click mirrors verbs | Click-to-surface, depth previs, drift watch | Same |
 | **MadMapper** | MIDI, OSC, DMX/Art-Net/sACN, LED and laser output, Syphon/Spout/NDI ([features](https://madmapper.com/madmapper/features)); OSCQuery, Ableton Link and MTC/LTC not re-checked | Surface-first; on-wall video cursor | Unknown | See §3. Projector control reported as a paid add-on; MiniMad hardware player (price unknown) |
 | **Resolume Arena** | OSC, MIDI, DMX, REST, Companion module | Clip grid instrument | Local MCP servers and segmentation/depth features reported in 7.26–7.28 blog posts ([7.26](https://resolume.com/blog/34484)) | Perpetual |
@@ -137,19 +136,19 @@ These are real alternatives a buyer will weigh. Most were not researched in dept
 
 ### 5a. Today
 
-No, on every axis that counts on a job. A tool that cannot play a frame through an output cannot be compared on smoothness, setup time or reliability.
+No, on every axis that counts on a job. A tool that has never played a frame through a real projector cannot be compared on smoothness, setup time or reliability.
 
-The output path is a specific risk. On Windows, the documented route to reliable vblank timing and independent flip is a DXGI flip-model swap chain with frame statistics. OpenGL presentation goes through each driver's own path (estimate, our engineering judgement). PlayMap ships OpenGL 3.3 with one render thread for every output and one pacing window. A MadMapper forum thread reports staff steering Windows users towards Direct3D output for VBL sync, and users moving a stuttering four-projector HAP blend to Watchout ([forum](https://forum.garagecube.com/viewtopic.php?f=20&t=36303); unverified, and one thread is an anecdote, not a measurement). We do not need that thread to make the decision: D3D11 lands before any pro release (§8).
+The output path is a specific risk. On Windows, the documented route to reliable vblank timing and independent flip is a DXGI flip-model swap chain with frame statistics. OpenGL presentation goes through each driver's own path (estimate, our engineering judgement). PlayMap presents through OpenGL 3.3 core or ES 3.00, with one render thread for every output; each output keeps a vblank clock and a present ledger, so a missed vblank is counted, not guessed. A MadMapper forum thread reports staff steering Windows users towards Direct3D output for VBL sync, and users moving a stuttering four-projector HAP blend to Watchout ([forum](https://forum.garagecube.com/viewtopic.php?f=20&t=36303); unverified, and one thread is an anecdote, not a measurement). We do not need that thread to make the decision: D3D11 lands before any pro release (§8).
 
 ### 5b. By design, per user
 
 | User | Better than MadMapper by design? | Better than disguise / Pixera / Watchout by design? | What decides it |
 |---|---|---|---|
-| **3D mapping artist** | **Likely, if the scan works on real materials.** MadMapper's 3D calibration is manual point matching. PlayMap plans structured light, self-calibration, ICP to LiDAR, 3D auto-blend and UV-anchored work | **Narrower in scope until mid-term.** They have field hardening, multi-camera solves and mesh deform. PlayMap's multi-camera capture is ROADMAP M3 and mesh deform is R4.7 | Time to a good image on a tested webcam; robustness on bad materials; a mesh-deform and export round trip |
-| **Corporate AV tech** | **Yes, once it runs:** multi-node sync, content distribution, projector control, STATE | **Not until** redundancy, preflight, framelock, Show Mode and Companion exist. Then cost wins. Projectors' own autocal also competes here (§3b) | Mirror backup, a pre-show health page, re-align after a bump in ≤60 s |
-| **Permanent install / museum** | Yes: scheduler, unattended re-check and drift watch are planned | Close to OmniCal recal and Atlas once calibration-as-a-service exists (R4.8) | Nightly check with a score gate, boot to show, fleet view |
-| **VJ / club** | **No.** MadMapper, Resolume and HeavyM win on effects, audio, MIDI learn, LED/DMX and live ergonomics | n/a | Interop first (Spout, OMT, NDI, OSC/MIDI), then the instrument layer |
-| **Touring / broadcast programmer** | n/a | **No** until timecode chase, framelock, 10-bit output, ST 2110 and redundancy exist | LTC chase as a fitted anchor; NVAPI swap groups; mirror failover |
+| **3D mapping artist** | **Likely, if the scan works on real materials.** MadMapper's 3D calibration is manual point matching. PlayMap has structured light, self-calibration, ICP to LiDAR, 3D auto-blend and UV-anchored work in code, tested only on simulators | **Narrower in scope until mid-term.** They have field hardening, multi-camera solves and mesh deform. PlayMap's joint multi-view solve is in Core with no verb yet (ROADMAP M3) and mesh deform is R4.7 | Time to a good image on a tested webcam; robustness on bad materials; a mesh-deform and export round trip |
+| **Corporate AV tech** | **Yes, once it runs:** multi-node sync, content distribution, projector control, STATE | **Not until** redundancy and framelock exist (Show Mode, preflight and the node's side of Companion are built). Then cost wins. Projectors' own autocal also competes here (§3b) | Mirror backup, a pre-show health page, re-align after a bump in ≤60 s |
+| **Permanent install / museum** | Yes: scheduler, unattended re-check and drift watch are planned | Close to OmniCal recal and Atlas with calibration as a service (R4.8, built in large part as `CALIBRATION` and `ALIGN`) | Nightly check with a score gate, boot to show, fleet view |
+| **VJ / club** | **No.** MadMapper, Resolume and HeavyM win on effects, audio, MIDI learn, LED/DMX and live ergonomics (PlayMap has ISF chains, audio modulation, `BIND LEARN` and LED output, but not their depth or the instrument layer) | n/a | Interop first (Spout, OMT, NDI, OSC/MIDI), then the instrument layer |
+| **Touring / broadcast programmer** | n/a | **No** until framelock, 10-bit output, ST 2110 and redundancy exist (timecode chase is built) | LTC chase as a fitted anchor; NVAPI swap groups; mirror failover |
 | **AI / automation integrator** | Possibly: we found no MCP or AI layer in MadMapper | Possibly: disguise has an AI assistant; we found none in Watchout or Pixera; Resolume reportedly ships local MCP. **PlayMap's risk gate has never gated a live show** | Safe, staged, risk-gated actions proven in rehearsal |
 
 **Bottom line.** By design, PlayMap should beat MadMapper for 3D artists, corporate AV and installs, and lose to it for VJs. It reaches the high end only on calibration accessibility, recovery without rework and automation, and only after the show-floor work in Rounds 2–4. Until Round 1 runs on hardware, every "better" in this table is a hypothesis. Our public message should say exactly that.
@@ -191,7 +190,7 @@ The output path is a specific risk. On Windows, the documented route to reliable
 | disguise | Per disguise docs, Director failover limits editing and Understudy needs matching hardware ([failover](https://help.disguise.one/designer/networking/failover); unverified) | Copy the routing and API; keep live editing working after a failover |
 | **Pixera** | Locks that still allow playback; warps that keep their shape when the point count changes ([26.1](https://help.pixera.one/pixera-261-overview-changelog); unverified) | Match these micro-interactions |
 | Pixera Hub | Fleet health with EDID and framelock state | Network drawer becomes a fleet view |
-| **Watchout 7** | Runners keep playing if the Director dies; spare by node name; optimise on import (reported) | Followers keep playing on leader loss (a design goal, untested); optimise-on-import to HAP keyed by hash |
+| **Watchout 7** | Runners keep playing if the Director dies; spare by node name; optimise on import (reported) | Followers keep playing on leader loss (a design goal, untested); optimise-on-import to HAP keyed by hash (built for HAP and HAP Q: docs/OPTIMISE.md) |
 | Any fixed-width frame counter | A 24-bit frame counter at 60 fps wraps every 3 d 5 h 40 m (arithmetic) | Handle counter wrap explicitly; soak for weeks, not hours |
 | **Smode / disguise / Watchout** | OpenTrackIO and PSN inputs are standard | One tracking input path, also used for glasses pose |
 | **Modulo / Hippotizer / 7thSense** | Non-backward-compatible files and matched builds hurt fleets | Capability negotiation on the wire; N-1 interop in CI |
@@ -206,7 +205,7 @@ The output path is a specific risk. On Windows, the documented route to reliable
 
 | Question | Positions | Decision and why |
 |---|---|---|
-| Who do we serve first? | VJ lens: creative breadth. Show-programmer and systems lenses: show-floor discipline | **3D mapping artists, corporate AV and installs first.** Our structural strengths matter most there. VJs are served early through **interop** (Spout, OMT, NDI, OSC/MIDI learn) so PlayMap can be the mapper behind Resolume or TouchDesigner. The instrument layer (ISF, FFGL, audio, Link, pixel mapping) is mid-term |
+| Who do we serve first? | VJ lens: creative breadth. Show-programmer and systems lenses: show-floor discipline | **3D mapping artists, corporate AV and installs first.** Our structural strengths matter most there. VJs are served early through **interop** (Spout, OMT, NDI, OSC/MIDI learn) so PlayMap can be the mapper behind Resolume or TouchDesigner. The instrument layer (ISF, FFGL, audio, Link, pixel mapping) is mid-term; ISF chains, audio modulation and LED pixel mapping are built already, FFGL and Link are not |
 | When does D3D11 land? | Systems: v1 critical path. Others: after first light | **First light on GL 3.3; D3D11 flip-model before anything is called a pro release.** D3D11 is needed for smooth multi-output playback, zero-copy decode, native BC6H/BC7 and NVAPI framelock |
 | Timeline or not? | VJ and UX: no. Show programmer: touring needs timecode-sectioned shows | **No timeline engine.** TC-locked playlists (items with TC in-points), per-item keyframed `SET` tracks, per-item behaviours and actions. Patterns or QLab owns GO in theatre |
 | When does XR start? | XR lens: 2027. UX lens: a phone in weeks | **`PICK`, `HIGHLIGHT` and `CURSOR` in Round 1**, because the desk's on-wall cursor needs them. Registration, roles, the phone app and a laser-pointer pick follow in Round 3, once camera ingest and measured latency exist. Headsets mid-term; glasses with displays long-term. "A phone in weeks" ignored the dependency chain |
@@ -222,9 +221,9 @@ Rounds and IDs refer to docs/ROADMAP.md. The professional baseline is the HAP fa
 
 | Format or IO | When | Plan | Notes and sources |
 |---|---|---|---|
-| **HAP, HAP Alpha, HAP Q, HAP Q Alpha** | Round 2 (R2.3) | Own parser, chunked Snappy, direct BC1/BC3/BC4 upload; YCoCg conversion in the shader | FFmpeg master maps only `Hap1`, `Hap5`, `HapY`, `HapA` and `HapM`, and decodes to CPU pixels (verified: [isom_tags.c](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavformat/isom_tags.c), [hapdec.c](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavcodec/hapdec.c)). We parse ourselves to keep compressed textures on the GPU. Spec: [Vidvox/hap](https://github.com/Vidvox/hap) |
-| **HAP R (`Hap7`, BC7), HAP HDR (`HapH`, BC6H)** | Round 2 (R2.3) | Decode ourselves; BPTC check on GL; CPU fallback decoder | FFmpeg master has no tag mapping or decoder for either; its HAP decoder accepts only DXT1, DXT5, YCoCg-DXT5 and RGTC1 (verified: [hap.h](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavcodec/hap.h)) |
-| **Optimise on import** | Round 2 (R2.4) | Background transcode to HAP Q or HAP R, keyed by (source hash, codec, params), synced like any asset, source kept. BC7/BC6H encoding is slow on CPU (estimate), so use a GPU encoder | Watchout reportedly optimises on import ([formats](https://docs.dataton.com/watchout-7/am/formats_and_codecs.html); unverified) |
+| **HAP, HAP Alpha, HAP Q, HAP Q Alpha** | Round 2 (R2.3); built | Own parser, chunked Snappy, direct BC1/BC3/BC4 upload; YCoCg conversion in the shader | FFmpeg master maps only `Hap1`, `Hap5`, `HapY`, `HapA` and `HapM`, and decodes to CPU pixels (verified: [isom_tags.c](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavformat/isom_tags.c), [hapdec.c](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavcodec/hapdec.c)). We parse ourselves to keep compressed textures on the GPU. Spec: [Vidvox/hap](https://github.com/Vidvox/hap) |
+| **HAP R (`Hap7`, BC7), HAP HDR (`HapH`, BC6H)** | Round 2 (R2.3); built on GL with the BPTC check | Decode ourselves; BPTC check on GL; CPU fallback decoder (not built: a GPU without BPTC refuses them) | FFmpeg master has no tag mapping or decoder for either; its HAP decoder accepts only DXT1, DXT5, YCoCg-DXT5 and RGTC1 (verified: [hap.h](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavcodec/hap.h)) |
+| **Optimise on import** | Round 2 (R2.4); built for HAP, HAP Alpha, HAP Q and HAP Q Alpha | Background transcode to HAP Q or HAP R, keyed by (source hash, codec, params), synced like any asset, source kept. BC7/BC6H encoding is slow on CPU (estimate), so use a GPU encoder. PlayMap's own GPU encoder makes the BC1/BC3/BC4 families in a worker process; HAP R, HAP HDR and syncing versions between nodes are next (docs/OPTIMISE.md) | Watchout reportedly optimises on import ([formats](https://docs.dataton.com/watchout-7/am/formats_and_codecs.html); unverified) |
 | **H.264 / HEVC 8–10-bit / AV1** | Exists (copy-back); zero-copy in Round 2 (R2.2) | Preflight proves hardware decode per node | AV1 hardware decode: NVIDIA RTX 30 and later, AMD RDNA2 and later except Navi 24 (RX 6500 XT / 6400), Intel Xe and later, Apple M3 and later ([HotHardware](https://hothardware.com/news/av1-codec-support-and-importance-explained); not re-verified) |
 | **HEVC 4:2:2 10-bit** | Round 2 | Try hwaccel; fall back to CPU with a pre-show warning | Hardware decode on Intel Gen11 / Xe and later, NVIDIA Blackwell, and Apple Silicon; AMD and Qualcomm unknown ([NVIDIA](https://developer.nvidia.com/blog/nvidia-video-codec-sdk-13-0-powered-by-nvidia-blackwell/); Intel and Apple not re-verified) |
 | **ProRes, DNxHR, CineForm, APV, DXV** | Round 2 (CPU); long term (GPU) | FFmpeg CPU decode plus an "optimise?" prompt; Vulkan decode once GPU interop exists | FFmpeg 9 Vulkan codecs ([9to5linux](https://9to5linux.com/ffmpeg-9-0-lei-open-source-multimedia-framework-officially-released); unverified). Skip ProRes RAW |
@@ -259,7 +258,7 @@ Rounds and IDs refer to docs/ROADMAP.md. The professional baseline is the HAP fa
 | **YouTube terms** | See §9 |
 | **Prompt injection** | Media file names, metadata, web-page sources and STATE fields that remote clients can write all reach the assistant's context. They are data, never instructions. High-risk verbs always wait for a human. While armed, the assistant can only queue proposals |
 | **Web content on a show node** | CEF runs sandboxed in its own process, with no file or device access, and is off by default |
-| **Exposed HTTP / MCP on venue networks** | TLS and pairing exist. Default posture: remote verbs need pairing, MCP is off until enabled, and a firewall profile is offered on first run |
+| **Exposed HTTP / MCP on venue networks** | TLS and pairing exist, and every verb that changes something needs pairing. MCP is served by default; the posture to ship is MCP off until enabled, with a firewall profile offered on first run (ROADMAP R3.14) |
 | **Unsigned binaries** | An unsigned exe with embedded FFmpeg and ONNX Runtime triggers SmartScreen and antivirus false positives, and corporate IT will block it. Code signing is a Round 0 item. Show machines never auto-update, and an armed node never updates |
 
 ## 11. Confidence

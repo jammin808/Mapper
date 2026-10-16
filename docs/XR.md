@@ -1,6 +1,6 @@
 # XR: look at an area and control it
 
-*The smart-glasses goal, as of 12 Oct 2026. Device and API facts carry source URLs; **(verified)** means re-read from a primary source on 12 Oct, **(unverified)** means it comes from the research pass and could not be re-checked. Accuracy and latency figures marked **estimate** are our judgement.*
+*The smart-glasses goal: look at an area and control it. Device and API facts carry source URLs; **(verified)** means re-read from a primary source on 12 Oct 2026, **(unverified)** means it comes from the research pass and could not be re-checked. Accuracy and latency figures marked **estimate** are our judgement.*
 
 ## 1. The goal and the honest answer
 
@@ -8,7 +8,7 @@
 
 **Answer: this is buildable, and PlayMap's design suits it unusually well. It comes after the core works, not instead of it.**
 
-- **Today PlayMap has no XR code.** The prerequisites are missing: no runnable engine yet (its composition root is being integrated), no scan runner, no pick or highlight verb, no roles beyond a pairing token.
+- **PlayMap has no XR code.** Some prerequisites are in place: the engine runs with its real backends, the scan runner scans through a capture camera or the simulator, `CURSOR` draws a cursor on the wall through the edit overlay, and Show Mode decides each line by the caller's role (operator, remote, assistant, observer). Missing: a pick or highlight verb, roles for XR clients, and any run on a real projector.
 - **The first gate:** one projector scanned, solved and showing content on a real object. Until then there is no projector-to-surface map to point at.
 - **The user's literal ask includes uncalibrated areas.** "Look at an area to be mapped" can mean an area nobody has scanned yet. §5.4 designs that flow: look, say "scan this", and the projector covering it scans while the glasses or phone camera watches.
 - **We found no projection-mapping or media-server vendor shipping headset or glasses look-and-control** (Oct 2026; not exhaustive). Spatial control of live stages does exist elsewhere: ETC ships phone and tablet AR in Eos through Augment3d ([ETC](https://www.etcconnect.com/About/News/Eos-gets-Augment3d-with-the-release-of-Eos-v3-0.aspx)), and Unreal Engine has VR scouting and a Remote Control web app for virtual production stages (source needed). Mapping prototypes include Spatial Mapper on Snap Spectacles ([write-up](https://rbkavin.studio/insights/building-spatial-mapper-snap-spectacles.html)) and Project Ion on visionOS ([TestFlight](https://testflight.apple.com/join/hzXHAZ4B)).
@@ -20,10 +20,10 @@ Once a projector is calibrated, PlayMap holds a dense map: projector pixel → 3
 
 | Ingredient | PlayMap | MadMapper / Resolume / HeavyM | disguise / Pixera / Watchout |
 |---|---|---|---|
-| Calibrated 3D model of each projector | Designed; solvers built and tested on simulators | No (2D, or manual point matching in MadMapper) | Yes |
+| Calibrated 3D model of each projector | Built and tested on simulators (scan runner, solvers, calibration ledger); never on hardware | No (2D, or manual point matching in MadMapper) | Yes |
 | Surfaces as named objects with UV-anchored masks and warps | Yes | Partly | Yes |
 | Open control surface a new client can use | Verbs, STATE, MCP; the desk has no private API | Partly (Resolume REST) | Yes: APIs and variables |
-| Ray-pick and highlight verbs for thin clients | Designed (§5.1) | No | Not found |
+| Ray-pick and highlight verbs for thin clients | Designed (§5.1); `CURSOR` built | No | Not found |
 | Pose solver that registers any camera seeing projected light | Built (DLT/PnP/P3P + RANSAC) | No | Inside their calibration |
 | Local segmentation for "make that a surface" | Built (classical + SAM-class when a verified model is present) | No | Not found |
 | Deterministic frames, so content can act as a fiducial | Built | No | Unknown |
@@ -84,7 +84,7 @@ Every XR device is another client of the Show Bus, HTTP/WS and MCP. It adds a **
 | `POSE <device>` stream | Timestamped head pose; also OpenTrackIO or PSN | 3 |
 | Roles | `xr-observer`, `xr-rehearsal` (+ HIGHLIGHT, FIDUCIAL, content), `xr-operator` (+ warp, pin and mask edits). Armed behaviour follows docs/UX.md §7.1: operators drop to transport-only, everyone else to observer | 3 |
 
-`PICK`, `HIGHLIGHT` and `CURSOR` give the desk its on-wall cursor and hover highlight, so they are Round 1 desk work (ROADMAP R1.12), not a side project.
+`PICK`, `HIGHLIGHT` and `CURSOR` give the desk its on-wall cursor and hover highlight, so they are Round 1 desk work (ROADMAP R1.12), not a side project. `CURSOR` is built, as `CURSOR <output> <x> <y>` (0–1 across the output) rather than a ray; `PICK` and `HIGHLIGHT` are not.
 
 ### 5.2 Phase 0.5: point with a laser, no device
 
@@ -183,7 +183,7 @@ ROADMAP IDs in brackets. Time targets are in the canonical table, docs/UX.md §5
 | Quest camera frame | About 40–60 ms (unverified) |
 | Fiducial registration | About 0.3–1 s including flash, capture and PnP |
 
-Fine for select and confirm; too slow for direct dragging. Drags show a device-local cursor while projector updates stream behind it. Rays carry device timestamps, and the engine times `HIGHLIGHT` to the predicted vblank, the same clock discipline as multi-node sync. PlayMap reads and, where the protocol allows, sets projector low-latency mode, and uses measured per-output latency (`LATENCY MEASURE`).
+Fine for select and confirm; too slow for direct dragging. Drags show a device-local cursor while projector updates stream behind it. Rays carry device timestamps, and the engine times `HIGHLIGHT` to the predicted vblank, the same clock discipline as multi-node sync. PlayMap is to read and, where the protocol allows, set projector low-latency mode, and to use measured per-output latency (`LATENCY MEASURE`, which needs a camera; R1.3, R1.11).
 
 ## 8. Risks
 
@@ -204,11 +204,11 @@ Fine for select and confirm; too slow for direct dragging. Drags show a device-l
 ## 9. What to build first
 
 1. **Pass the gate:** one calibrated projector on a real object (ROADMAP Round 1).
-2. **Edit overlay pass** in the output stage: cursors, outlines, names, lattice nodes, TTL and source tags, stripped automatically when armed (R1.5). The desk needs it anyway.
-3. **`PICK RAY`, `PICK PIXEL`, `HIGHLIGHT`, `CURSOR`** (R1.12), tested against the scan simulator before hardware.
+2. **Edit overlay pass** in the output stage: cursors, outlines, names, lattice nodes, TTL and source tags, stripped automatically when armed (R1.5). The desk needs it anyway. Built: outlines, handles, lattices and cursors through the output's warp, nothing while armed; not names or tags.
+3. **`PICK RAY`, `PICK PIXEL`, `HIGHLIGHT`, `CURSOR`** (R1.12), tested against the scan simulator before hardware. `CURSOR` is built.
 4. **Measured per-output latency** (R1.11), so highlights are timed correctly.
 5. **Laser-pointer pick** with the rig camera (R3.10). The first look-and-control anyone can try.
-6. **Roles and Show Mode gating** for remote clients, plus the beam guard (R3.5, R3.8).
+6. **Roles and Show Mode gating** for remote clients, plus the beam guard (R3.5, R3.8). Show Mode's gate by the caller's role is built; XR roles and the beam guard are not.
 7. **`FIDUCIAL FLASH` + `REGISTER`,** reusing `PoseSolver` (R3.9).
 8. **Engine-served `/remote` PWA** with freeze-frame picking and QR pairing (R3.8, R3.9).
 9. **Then camera glasses (Meta toolkit), then Quest 3, then Galaxy XR,** then XREAL Aura and Vision Pro. Ray-Ban Display runs in parallel as a HUD remote.

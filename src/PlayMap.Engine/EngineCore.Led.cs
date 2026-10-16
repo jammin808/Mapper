@@ -713,10 +713,19 @@ public sealed partial class EngineCore
     }
 
     private long _ledFadePublishedNs;
+    private int _ledShown;
 
     partial void TickLed(long leaderNs)
     {
         var live = Led.Live;
+        // What STATE.led shows that moves on its own (the sender's words and numbers, the locate's time left): STATE is written
+        // afresh when it moved, and not otherwise.
+        var shown = HashCode.Combine(Led.Output?.Shown() ?? 0, live.Locating(leaderNs) ? (live.LocateUntilNs - leaderNs) / 1_000_000 : -1);
+        if (shown != _ledShown)
+        {
+            _ledShown = shown;
+            Moved();
+        }
         // A level fade moves STATE without an edit: published ten times a second while it runs, and once when it lands.
         if (live.FadeLengthNs > 0 && _ledFadePublishedNs <= live.FadeStartNs + live.FadeLengthNs
             && (leaderNs - _ledFadePublishedNs >= 100_000_000 || leaderNs >= live.FadeStartNs + live.FadeLengthNs))

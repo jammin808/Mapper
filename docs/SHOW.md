@@ -8,9 +8,10 @@ not ready with the line that fixes it. The verbs, replies and STATE are in docs/
 
 ## Show Mode
 
-Rehearsal is today's node: every paired caller may change anything. `SHOW ARM [<why>]` arms the show, with no password: from then
-on the table below decides every line, after pairing and before its handler, for every caller — the desk, Patterns, Companion,
-OSC and MIDI bindings, the wire, MCP and the assistant. `SHOW DISARM` goes back to rehearsal. Neither is an undo step.
+In rehearsal, a node's ordinary state, every paired caller may change anything. `SHOW ARM [<why>]` arms the show, with no
+password: from then on the table below decides every line, after pairing and before its handler, for every caller — the desk,
+Patterns, Companion, OSC and MIDI bindings, the wire, MCP and the assistant. `SHOW DISARM` goes back to rehearsal. Neither is an
+undo step.
 
 **Armed is the safe side**, so it survives a restart: the recovery record keeps who armed it, when and why, and a node that comes
 back comes back armed (a panic in force comes back too, at its outcome at once).
@@ -135,10 +136,11 @@ it shows paused, `hard:true`. A press after every fade has settled changes nothi
 The render thread reads `AirLevels`, built on the lane once per change and allocation-free per frame: each output's gain is master
 × panic level × degrade gain (`IOutputGains`), multiplied last in the output stage (`uAir`) so 0 is true black; the SAFE look rides
 the pattern-override path; FREEZE holds the output's picture. The air's sound gain (`IAirLevels.AudioGain`) is master × the darkest
-panic, from the same fades, so sound fades on the same frames as picture (a SAFE look has no show sound).
+panic, from the same fades, so the part that plays sound will fade on the same frames as the picture (a SAFE look has no show
+sound); no engine part plays sound yet, so clips play silent.
 
-`MASTER <0-100> [FADE <ms>]` is the grand master over every output, picture and sound, faded on the show clock; it is runtime, not
-an undo step.
+`MASTER <0-100> [FADE <ms>]` is the grand master over every output's picture (and the air's sound gain), faded on the show clock;
+it is runtime, not an undo step.
 
 SHUTTER and FX-OFF send their lines as the node itself (`system`), through the gate like any other line, and keep each line's stage
 (`sent`, `scheduled`, `applied`, `refused: …`) in `STATE.air.panic.devices`; the projector's own report is the fact.
