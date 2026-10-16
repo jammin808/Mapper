@@ -503,6 +503,53 @@ public sealed class PackUnpackTests(GlFixture gl)
     }
 
     [Fact]
+    public void ASendThatFollowsTheAirTakesTheMasterWhenNoOutputDecidesForIt()
+    {
+        const int w = 64, h = 36;
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            var card = new Canvas("cv_1", "Card", w, h, "#000000",
+                [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            var output = Scene.SourceOutput("op_1", SourceRef.Solid("#202020"), w, h);
+            var withOutput = Scene.Project([], [output], [card]);
+            var noOutput = Scene.Project([], [output with { Enabled = false }], [card]);
+            var sink = new TestSink(hold: false);
+            var send = new SendPlanEntry
+            {
+                Id = "sd_c", Name = "sd_c", Kind = SendTapKind.Canvas, Target = "cv_1", Width = w, Height = h, Format = SendFormat.Bgra8,
+                FpsN = 60, FpsD = 1, Fit = SendFit.Fit, Sink = sink, FollowAir = true,
+            };
+            using var stage = new SendStage(engine) { Plan = [send] };
+            var passes = ImmutableArray.Create<IFramePass>(stage);
+            var i = 0L;
+            var centre = ((h / 2) * w + w / 2) * 4;
+            // Two frames of the 60 Hz grid (the read-back of the first is offered on the second); answers the send's centre pixel.
+            byte[] Frames(Project p, IAirLevels? levels, IRawOutputs? raw = null)
+            {
+                stage.Raw = raw;
+                for (var k = 0; k < 2; k++)
+                {
+                    i++;
+                    engine.Render(Scene.Inputs(p) with { Passes = passes, Raw = raw, Levels = levels, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
+                    c.Device.Finish();
+                }
+                return sink.Frames[^1][centre..(centre + 4)];
+            }
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frames(noOutput, null));
+            // A node with no output on (a send-only node): the master is the air's only level, and the send takes it as the LED rig does.
+            var half = Frames(noOutput, new FixedLevels(0.5f));
+            Assert.InRange(half[0], 0x3F, 0x41);
+            Assert.Equal([0, 0, 0, 0xFF], Frames(noOutput, new FixedLevels(0f)));
+            // Every output on a scan pattern decides nothing for the send, but the master still holds it down.
+            Assert.Equal([0, 0, 0, 0xFF], Frames(withOutput, new FixedLevels(0f), new RawOn("op_1")));
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frames(withOutput, null, new RawOn("op_1")));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
     public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
     {
         gl.Run(c =>

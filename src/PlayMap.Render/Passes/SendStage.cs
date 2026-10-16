@@ -224,8 +224,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     /// or a FREEZE outcome: the output keeps its last picture), then a safe look, then the test pattern (on every output or on this
     /// one), else the live show — and then for the send: the live show at the brightest gain of the outputs that show it, while any
     /// does; else a hold, while any output holds; else the pattern while every output shows it, or the safe look while every output
-    /// shows the same one, at the brightest of their gains; else black (a mixed panic plan). With no enabled output (or no levels and
-    /// no pattern) the air is untouched but for FREEZE. Allocation-free.</summary>
+    /// shows the same one, at the brightest of their gains; else black (a mixed panic plan). With no output to decide (none enabled,
+    /// or every one on a raw frame) the send takes the master alone, and FREEZE. Allocation-free.</summary>
     private void ReadAir(in Engine.PassFrame frame)
     {
         _airGain = 1;
@@ -275,7 +275,12 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
             showGain = Math.Max(showGain, gain);
         }
         if (!any)
+        {
+            // No output decides (none on, or every one on a raw frame): the master is the air's one level, as the LED rig takes it.
+            if (levels is not null)
+                _airGain = Math.Clamp(levels.Gain("", frame.LeaderNs), 0f, 1f);
             return;
+        }
         _airHeld = !showing && anyHeld;
         if (showing)
         {
