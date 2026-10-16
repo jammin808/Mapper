@@ -745,7 +745,7 @@ public sealed partial class RenderHost : IRenderHost
                 moved |= before != (h.Open, h.Dropped > 0, h.Fps > 0);
             }
             if (!_firstFrames && _dxgiUp)
-                _firstFrames = PresentFirstFrames.Reached(_health.Select(h => (h.Open, h.OutputId == windows.Pacer, h.HasPresent, h.Present)), renderer.Frame);
+                _firstFrames = FirstFramesUp(windows.Pacer, renderer.Frame);
         }
         return moved;
     }

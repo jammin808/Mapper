@@ -109,6 +109,11 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         return plan.AirLatencyMs > 0 ? plan.AirLatencyNs : _options.DisplayLatencyNs;
     }
 
+    /// <summary>Under the health gate, DXGI starts only (its own method: the lambda's closure is made only when it runs, never on a GL
+    /// frame).</summary>
+    private bool FirstFramesUp(string? pacer, long framesDrawn) =>
+        PresentFirstFrames.Reached(_health.Select(h => (h.Open, h.OutputId == pacer, h.HasPresent, h.Present)), framesDrawn);
+
     public bool ConfirmFirstFrames()
     {
         // A health pass runs a couple of times a second: up with no display output open is seen there too.
