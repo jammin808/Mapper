@@ -20,14 +20,15 @@ public static class SolveUncertaintyAnalysis
 
     /// <summary>The uncertainty of a solved device whose inlier pairs are given, or null when the pairs cannot carry it (fewer
     /// residuals than parameters, or a point behind the device).</summary>
-    public static SolveUncertainty? Of(Intrinsics k, LensDistortion lens, Pose pose, IReadOnlyList<Correspondence> inliers, SolveLocks locks)
+    public static SolveUncertainty? Of(Intrinsics k, LensDistortion lens, Pose pose, IReadOnlyList<Correspondence> inliers, SolveLocks locks,
+        PosePriors? priors = null)
     {
-        return Analyse(k, lens, pose, inliers, locks)?.Uncertainty;
+        return Analyse(k, lens, pose, inliers, locks, priors)?.Uncertainty;
     }
 
     /// <summary>The uncertainty and every raster sample's predicted error (px), for a confidence share.</summary>
     public static (SolveUncertainty Uncertainty, double[] SamplesPx)? Analyse(Intrinsics k, LensDistortion lens, Pose pose,
-        IReadOnlyList<Correspondence> inliers, SolveLocks locks)
+        IReadOnlyList<Correspondence> inliers, SolveLocks locks, PosePriors? priors = null)
     {
         ArgumentNullException.ThrowIfNull(k);
         ArgumentNullException.ThrowIfNull(lens);
@@ -64,6 +65,7 @@ public static class SolveUncertaintyAnalysis
         var sigma2 = ssr / (2 * n - m);
         // Columns scaled to unit norm, so the condition and the weakest direction do not depend on the parameters' units.
         var info = j.NormalMatrix();
+        AddPriors(info, free, priors);
         var scale = new double[m];
         for (var c = 0; c < m; c++)
             scale[c] = info[c, c] > 0 ? 1 / Math.Sqrt(info[c, c]) : 0;
@@ -130,6 +132,20 @@ public static class SolveUncertaintyAnalysis
         var u = new SolveUncertainty(wall, worst, focalPct, Math.Sqrt(cov[Tz, Tz]), Math.Sqrt(cov[3, 3] + cov[4, 4]), condition,
             Weak(free, weakest, condition));
         return (u, used);
+    }
+
+    /// <summary>The priors' information beside the pins' (wp2-facade): a focal prior adds (σ_px/σ_f)² on the focal, a position prior
+    /// (σ_px/σ_C)² on each centre axis (isotropic, so the device's axes serve as well as the stage's).</summary>
+    private static void AddPriors(DenseMatrix info, List<int> free, PosePriors? priors)
+    {
+        if (priors is null || priors.IsNone)
+            return;
+        var f = free.IndexOf(F);
+        if (priors.Focal is not null && f >= 0)
+            info[f, f] += priors.FocalWeight * priors.FocalWeight;
+        if (priors.Centre is not null)
+            for (var t = 3; t < 6; t++)
+                info[t, t] += priors.CentreWeight * priors.CentreWeight;
     }
 
     /// <summary>The weakest direction in words when the solve is ill-conditioned there ("" when it is not).</summary>
