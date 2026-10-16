@@ -23,14 +23,16 @@ internal sealed class HostRig : IAsyncDisposable
     public const string Token = "K7QM-3XWD-P9RA";
 
     private readonly ILoggerFactory _logs;
+    private readonly NodeLogProvider _log;
     private int _stopped;
 
-    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs)
+    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs, NodeLogProvider log)
     {
         Dir = dir;
         Home = home;
         Host = host;
         _logs = logs;
+        _log = log;
     }
 
     public DirectoryInfo Dir { get; }
@@ -66,7 +68,10 @@ internal sealed class HostRig : IAsyncDisposable
             };
             home.SaveSettings(settings?.Invoke(s) ?? s);
         }
-        var logs = LoggerFactory.Create(b => b.AddProvider(NodeLogProvider.For(home)));
+        // A provider handed to the factory is not the factory's to dispose: the rig closes the log itself, as the engine's
+        // entry does, so the file is let go when the node stops.
+        var log = NodeLogProvider.For(home);
+        var logs = LoggerFactory.Create(b => b.AddProvider(log));
         var host = new EngineHost((options ?? Options)(dir.FullName), home, new EngineHostOptions
         {
             Parts = parts ?? EngineParts.Bare,
@@ -74,7 +79,7 @@ internal sealed class HostRig : IAsyncDisposable
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
         });
-        var rig = new HostRig(dir, home, host, logs);
+        var rig = new HostRig(dir, home, host, logs, log);
         try
         {
             await host.StartAsync();
@@ -139,6 +144,7 @@ internal sealed class HostRig : IAsyncDisposable
             return;
         await Host.DisposeAsync();
         _logs.Dispose();
+        _log.Dispose();
     }
 
     public async ValueTask DisposeAsync()
