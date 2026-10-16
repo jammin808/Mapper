@@ -50,10 +50,13 @@ is ridden at up to 1.12×, reaches the code in about half a second, overshoots i
 holds only the new code). A threshold wider than auto's widens drift only to steps the fit can glide within its 0.85–1.15 slope
 bounds: a step past auto's threshold is rehearsed on the window as it stands — the code run on at the line's rate, the window's
 least-squares slope taken at each coming point until the window holds only the new code — and one whose glide would leave the
-bounds is a jump whatever the threshold, relocated by the third frame and named in `lastJump`, as under auto. A glide's steepest
-slope is the code's own rate ± 1.5 × the step ÷ the window, so with the 1.5 s window at 25 fps a step of three frames glides and
-one of four does not; a run younger than its window glides less, and code off its true rate has less room on the side it is off
-to (a three-frame step on a run half a second old, or ahead on code at 1.05×, is a jump; five frames ahead on code at 0.95× glide).
+bounds is a jump whatever the threshold, relocated by the third frame and named in `lastJump`, as under auto. The rehearsal lets
+each old point go one frame early, since the fit's window may hold a point fewer as the observations' jitter moves its edge, so a
+step whose glide would only reach a bound is a jump too (four frames at 25 fps on a 1.6 s window); a step judged a jump stays one,
+relocated by the next observation that agrees with it. A glide's steepest slope is the code's own rate ± 1.5 × the step ÷ the
+window, so with the 1.5 s window at 25 fps a step of three frames glides and one of four does not; a run younger than its window
+glides less, and code off its true rate has less room on the side it is off to (a three-frame step on a run half a second old, or
+ahead on code at 1.05×, is a jump; four frames ahead on code at 0.95× glide, five do not).
 A step within auto's own threshold is judged as auto judges it: one a short
 window cannot glide (two frames on a window under 0.8 s) reads "varispeed out of range (…×) — nothing locks" until the window
 holds only the new code. A lone outlier is counted invalid. The threshold is auto, max(2 frames,

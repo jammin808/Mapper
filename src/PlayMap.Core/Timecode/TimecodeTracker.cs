@@ -170,9 +170,12 @@ public sealed class TimecodeTracker
         {
             var jump = JumpThresholdNs(_jumpNs, format, line.SigmaNs);
             var off = Math.Abs(obs.TcNs - line.TcAt(obs.MonoNs));
-            if (off > jump || off > JumpThresholdNs(0, format, line.SigmaNs) && !Glides(obs, line.Rate, format))
+            // A step judged a jump stays one: the next observation that agrees with it relocates the run, whatever a rehearsal from
+            // that observation would say.
+            var agrees = _pendingJump is { } held && Math.Abs(obs.TcNs - (held.TcNs + (obs.MonoNs - held.MonoNs))) <= jump;
+            if (off > jump || off > JumpThresholdNs(0, format, line.SigmaNs) && (agrees || !Glides(obs, line.Rate, format)))
             {
-                if (_pendingJump is { } pending && Math.Abs(obs.TcNs - (pending.TcNs + (obs.MonoNs - pending.MonoNs))) <= jump)
+                if (agrees && _pendingJump is { } pending)
                 {
                     _counts = _counts with { Discontinuity = _counts.Discontinuity + 1 };
                     NewRun();
@@ -284,7 +287,9 @@ public sealed class TimecodeTracker
     /// the code taken to run on from this observation at the line's rate, a point at the window's cadence (at least an eighth of a
     /// frame apart), and the window's least-squares slope at each point until the window holds only the new code; a slope outside
     /// the bounds at any means it cannot. At a glide's steepest, half the window on each code, the fit's outlier rule drops nothing,
-    /// so the fit's slope is the least-squares one there. Running sums: no allocation, one step per point.</summary>
+    /// so the fit's slope is the least-squares one there. The rehearsal lets an old point go one cadence early: the fit's window may
+    /// hold a point fewer than the rehearsal's as the observations' jitter moves its edge, and the shorter window glides steeper, so
+    /// a step whose glide would only touch a bound is a jump. Running sums: no allocation, one step per point.</summary>
     private bool Glides(in TcObservation obs, double rate, TcFormat format)
     {
         var (mono0, tc0) = (obs.MonoNs, obs.TcNs);
@@ -307,7 +312,7 @@ public sealed class TimecodeTracker
         {
             var at = mono0 + k * cadence;
             Take(at, tc0 + (long)Math.Round(k * cadence * rate), 1);
-            while (n > _minPoints && oldest < _points.Count && at - _points[oldest].Mono > _windowNs)
+            while (n > _minPoints && oldest < _points.Count && at - _points[oldest].Mono > _windowNs - cadence)
             {
                 Take(_points[oldest].Mono, _points[oldest].Tc, -1);
                 oldest++;
