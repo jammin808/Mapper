@@ -113,7 +113,9 @@ adds nothing to the node's wire.
   actions write. Every line it can send is in `test/lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to
   its row; no line it sends exceeds 64 KiB.
 - **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
-  and `THUMBS`; the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the engine wrote. Unknown pushes are ignored.
+  and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
+  `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
+  engine wrote. Unknown pushes are ignored.
 - **The web port's rules hold**: it sends no `Origin`; a refused upgrade's JSON `error` is shown as the node wrote it; a node that asks for
   a token is paired by proof, so the Host rule for tokenless admission does not apply to it.
 
