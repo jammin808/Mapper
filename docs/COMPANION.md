@@ -137,10 +137,11 @@ type-checked (a vocabulary that builds no actions is not taken), and nothing a p
 
 **Once paired** it says `PRESENCE` (its version, its Live source and page, how many pictures it holds), asks `WHOAMI` (again when Show
 Mode or the controllers move) and `VERBS`, subscribes to `INDEX` and `EVENTS`, asks `EVENTS SINCE <seq>` for what a drop missed, and
-watches the pictures its keys show with `SUBSCRIBE THUMBS`. After a drop it replays from the last event it took (or, having taken
-none, from the node's `events.seq` when it first heard it); events pushed while the replay is in flight wait for it, a replay the node
-does not answer is asked again (three tries, 2 s apart) and one the link drops leaves them untaken, so the last seq never passes a gap;
-a node whose newest seq is below it started again and is replayed from its first. An `EVENTS overflow` line replays the same way.
+watches the pictures its keys show with `SUBSCRIBE THUMBS`. After every drop it replays from the last event it took (or, having taken
+none, from the node's `events.seq` when it first heard it, 0 included — a later greeting's seq, which counts what was raised while the
+link was down, never moves it); events pushed while the replay is in flight wait for it, a replay the node does not answer is asked
+again (three tries, 2 s apart) and one the link drops leaves them untaken, so the last seq never passes a gap; a node whose newest seq
+is below it started again and is replayed from its first. An `EVENTS overflow` line replays the same way.
 
 **STATE and INDEX.** STATE is read through one table of paths (`src/state/paths.ts`); the node's contract test finds every one of them in
 a STATE the engine wrote. Variables are computed from it as a pure function of STATE, the module's own facts and the node's clock, diffed,

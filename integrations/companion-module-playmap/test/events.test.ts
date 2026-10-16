@@ -2,12 +2,13 @@
 // node's own words) follow it — and an event_pulse feedback is true for hold_ms after an event whose kind matches (exactly, or by a
 // "fault.*" prefix) and, when it names a ref, one of whose fields is that ref, timed by the node's clock; an event at or below the
 // last seq heard is never taken again; after a drop the re-paired link asks EVENTS SINCE the last seq heard and takes what it missed,
-// whatever the node pushes meanwhile; an EVENTS overflow is replayed and the subscription opened again, never left a silent gap.
+// whatever the node pushes meanwhile (a deck that took none, from the node's events.seq when it first heard it, 0 too); an EVENTS
+// overflow is replayed and the subscription opened again, never left a silent gap.
 // The hold's end on the node's clock runs on fake timers (the one such test in this file).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeepStrictEqual } from 'node:util'
-import { FakeNode, SHOW } from './fake-node.ts'
+import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, type Booted } from './harness.ts'
 import { advance, fakeChannels, settle } from './fake-channel.ts'
 
@@ -287,7 +288,7 @@ void test('after a drop the re-paired link asks EVENTS SINCE its last seq, after
 	}
 })
 
-void test('a node that started again numbers its events afresh: the re-paired link takes them from its first', async () => {
+void test('a node that started again numbers its events afresh: the re-paired link takes them from its first, and later from the last taken', async () => {
 	const node = await new FakeNode().start()
 	const ring: Record<string, unknown>[] = []
 	const asked: string[] = []
@@ -320,6 +321,16 @@ void test('a node that started again numbers its events afresh: the re-paired li
 		node.push(eventLine(3, node.now(), 'item.start', { item: SHOW.blue, words: 'Show: Blue started' }))
 		await seqHeard(m, 3, 'the push after the replay')
 		assert.deepEqual(taken(m), [1, 2, 3])
+
+		// Another drop: the started-again node is replayed from the last event taken, never from the seq its next greeting says.
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.host.variables.get('link') !== 'live', 'the link down again')
+		ring.push(eventJson(4, node.now(), 'item.end', { item: SHOW.blue, words: 'Show: Blue ended' }))
+		ring.push(eventJson(5, node.now(), 'show.disarmed', { words: 'Show disarmed' }))
+		node.state = { ...(node.state as object), events: { seq: 5 } }
+		await seqHeard(m, 5, 'the events raised during the second drop')
+		assert.deepEqual(asked, ['412', '0', '3'])
+		assert.deepEqual(taken(m), [1, 2, 3, 4, 5])
 	} finally {
 		await m.stop()
 		await node.stop()
@@ -345,6 +356,37 @@ void test('a deck that heard no event yet replays, after a drop, from the seq of
 		await seqHeard(m, 3, 'the event raised during the drop')
 		assert.deepEqual(asked, ['2'], 'from the greeting STATE’s events.seq')
 		assert.deepEqual(taken(m), [3])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a deck that first heard a node with no event yet takes, after a drop, every event raised while the link was down', async () => {
+	const state = copy(fixture('state.json')) as { events: { seq: number } }
+	state.events.seq = 0
+	const node = await new FakeNode({ state }).start()
+	const ring: Record<string, unknown>[] = []
+	const asked: string[] = []
+	serveRing(node, ring, asked)
+	const m = await boot(configFor(node.webPort), {}, { random: () => 0 })
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		assert.deepEqual(asked, [], 'a first pairing replays nothing')
+		assert.equal(m.instance.events.baseline, 0, "the node's events.seq when first heard")
+
+		// Down: the node raises two events, and the STATE it greets the next pairing with counts them.
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.host.variables.get('link') !== 'live', 'the link down')
+		ring.push(eventJson(1, node.now(), 'fault.raised', { ref: 'op_1', words: 'Output 1 lost its display' }))
+		ring.push(eventJson(2, node.now(), 'item.end', { item: SHOW.red, words: 'Show: Red ended' }))
+		node.state = copy({ ...state, events: { seq: 2 } })
+
+		await seqHeard(m, 2, 'both events raised during the drop')
+		assert.deepEqual(asked, ['0'], 'EVENTS SINCE 0: from where the deck first heard the node, not from the greeting')
+		assert.deepEqual(taken(m), [1, 2])
+		assert.equal(m.host.variables.get('event_last'), 'Show: Red ended')
 	} finally {
 		await m.stop()
 		await node.stop()

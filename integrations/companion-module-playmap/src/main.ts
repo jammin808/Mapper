@@ -441,8 +441,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe(Lines.subscribe('INDEX'))
-		// A first pairing has missed nothing; a later one replays what was raised while the link was down.
-		if (this.#pairedBefore && this.events.from() > 0) this.#replayEvents()
+		// A first pairing has missed nothing; every later one replays what was raised while the link was down, from 0 too.
+		if (this.#pairedBefore) this.#replayEvents()
 		else this.#subscribe(Lines.subscribe('EVENTS'))
 		this.#pairedBefore = true
 		this.thumbs.relinked()
@@ -466,6 +466,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				this.events.restarted()
 				return since(0)
 			}
+			// A node heard to start again is replayed from its first: that, not a later STATE's seq, is where it was first heard.
+			this.events.heard(seq)
 			this.#takeAll(Array.isArray(o.events) ? o.events : [])
 			return true
 		}
@@ -589,7 +591,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#state(json: unknown): void {
 		this.model.setState(json)
 		const s = this.model.state
-		if (this.events.baseline === 0 && this.events.lastSeq === 0) this.events.baseline = numOf(at(s, P.eventsSeq))
+		this.events.heard(numOf(at(s, P.eventsSeq)))
 		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
 		this.encoders.stateMoved()
 		const armed = bool(at(s, P.showArmed))
