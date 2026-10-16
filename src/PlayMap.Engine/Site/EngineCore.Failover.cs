@@ -9,10 +9,12 @@ namespace PlayMap.Engine;
 /// <summary>
 /// What a stack does when a member fails (facade §3.9). Degraded is a measured fact: the member's projector in standby or cooling down,
 /// or reporting an error; or the member's output, a real display, not open. A closed shutter is no loss: PlayMap and the operator
-/// close shutters on purpose (DEVICE SHUTTER, PANIC SHUTTER, a scan). HOLD keeps the rest as they are and says so (STATE, the context, the journal). MATCH dims every other output of the stack's
-/// blend group (its members' outputs and those the solved blend overlaps with them, transitively) to the stack's remaining light —
-/// Σ remaining lumens ÷ Σ lumens — as a runtime degrade gain through <see cref="IOutputGains"/>, fading down in 0.5 s and back up over
-/// 2 s when the member returns. Each change is journalled with its cause. The watch runs on the lane.
+/// close shutters on purpose (DEVICE SHUTTER, PANIC SHUTTER, a scan). HOLD keeps the rest as they are and says so (STATE, the context, the journal). MATCH brings the
+/// stack's blend group (the outputs the solved blend overlaps with its members', transitively) to the stack's remaining light —
+/// Σ remaining lumens ÷ Σ lumens: the stack's own members give that light already and stay as they are, every other output of the
+/// group dims to it (a member of another degraded stack by the light its own stack has left) — as a runtime degrade gain through
+/// <see cref="IOutputGains"/>, fading down in 0.5 s and back up over 2 s when the member returns. Each change is journalled with its
+/// cause. The watch runs on the lane.
 /// </summary>
 public sealed partial class EngineCore
 {
@@ -50,7 +52,7 @@ public sealed partial class EngineCore
             WatchStacks();
         var word = policy == StackFailover.Match ? "match" : "hold";
         var said = Staged(staged, policy == StackFailover.Match
-            ? $"{stack.Name} matches: when a member fails, its blend group dims to the light that remains"
+            ? $"{stack.Name} matches: when a member fails, the rest of its blend group dims to the light that remains"
             : $"{stack.Name} holds: when a member fails, the rest stay as they are");
         if (Services.StackGains is null && policy == StackFailover.Match)
             said += " — this node composes no degrade gains (the site part is not attached), so the stack holds";
@@ -125,6 +127,11 @@ public sealed partial class EngineCore
             return;
         var next = ImmutableDictionary.CreateBuilder<string, StackDegradation>(StringComparer.Ordinal);
         var targets = new Dictionary<string, float>(StringComparer.Ordinal);
+        // The light each degraded stack's remaining members give (Σ remaining ÷ Σ lumens, whatever its policy), by the outputs that
+        // draw them: their picture is already at that level, so a group dimmed to it leaves them as they are.
+        var own = new Dictionary<string, float>(StringComparer.Ordinal);
+        var dark = new HashSet<string>(StringComparer.Ordinal);
+        var match = new List<(StackGroup Stack, float Level)>();
         foreach (var stack in p.Stage.Stacks)
         {
             var lost = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
@@ -141,15 +148,32 @@ public sealed partial class EngineCore
                 if (!lost.ContainsKey(id))
                     left += lumens;
             }
-            var gain = stack.Failover == StackFailover.Match && Services.StackGains is not null ? (float)(all > 0 ? left / all : 0) : 1f;
+            var level = (float)(all > 0 ? left / all : 0);
+            foreach (var id in stack.Members)
+                if (OutputOf(p, id)?.Id is { } output)
+                {
+                    if (lost.ContainsKey(id))
+                        dark.Add(output);
+                    else
+                        own[output] = Math.Min(own.GetValueOrDefault(output, 1f), level);
+                }
+            var gain = stack.Failover == StackFailover.Match && Services.StackGains is not null ? level : 1f;
             next[stack.Id] = new StackDegradation(lost.ToImmutable(), gain);
-            if (gain >= 1)
-                continue;
-            var dark = lost.Keys.Select(id => OutputOf(p, id)?.Id).Where(id => id is not null).ToHashSet(StringComparer.Ordinal);
-            foreach (var output in BlendGroupOf(p, stack))
-                if (!dark.Contains(output))
-                    targets[output] = Math.Min(targets.GetValueOrDefault(output, 1f), gain);
+            if (gain < 1)
+                match.Add((stack, gain));
         }
+        // A MATCH stack's blend group goes to the light it has left: each other output dims to that level over the light its own
+        // stack still gives (a neighbour on its own to the level; a member of another stack that lost light less, so their pictures
+        // meet), and the stack's own members, whose picture is that level already, stay as they are.
+        foreach (var (stack, level) in match)
+            foreach (var output in BlendGroupOf(p, stack))
+            {
+                if (dark.Contains(output))
+                    continue;
+                var to = Math.Min(1f, level / Math.Max(own.GetValueOrDefault(output, 1f), 1e-6f));
+                if (to < 1)
+                    targets[output] = Math.Min(targets.GetValueOrDefault(output, 1f), to);
+            }
         var was = _degraded;
         var now = next.ToImmutable();
         Services.StackGains?.Set(targets);
@@ -162,11 +186,11 @@ public sealed partial class EngineCore
             foreach (var (id, why) in after?.Members ?? ImmutableSortedDictionary<string, string>.Empty)
                 if (before is null || !before.Members.ContainsKey(id))
                     Journal.Add("stack", $"{stack.Name} lost {NameOfProjector(p, id)} ({why}) — " + (after!.Gain < 1
-                        ? string.Create(CultureInfo.InvariantCulture, $"matched: its blend group dims to {after.Gain * 100:0} %")
+                        ? string.Create(CultureInfo.InvariantCulture, $"matched: the rest of its blend group dims to {after.Gain * 100:0} %, the light its members have left")
                         : "held: the rest stay as they are"));
             foreach (var id in before?.Members.Keys ?? Enumerable.Empty<string>())
                 if (after is null || !after.Members.ContainsKey(id))
-                    Journal.Add("stack", $"{stack.Name}: {NameOfProjector(p, id)} is back" + (after is null && before!.Gain < 1 ? " — its blend group returns to full over 2 s" : ""));
+                    Journal.Add("stack", $"{stack.Name}: {NameOfProjector(p, id)} is back" + (after is null && before!.Gain < 1 ? " — the rest of its blend group returns to full over 2 s" : ""));
         }
         Volatile.Write(ref _degraded, now);
         FactsChanged();

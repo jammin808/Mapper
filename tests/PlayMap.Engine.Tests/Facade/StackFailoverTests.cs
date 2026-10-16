@@ -15,11 +15,12 @@ using PlayMap.Engine.Tests.Fleet;
 namespace PlayMap.Engine.Tests.Facade;
 
 /// <summary>
-/// STACK FAILOVER (facade S2) on a hand-moved clock: a three-projector stack under MATCH loses a member (its display output closes) —
-/// the other outputs of its blend group head to 2/3 of the light, reached 0.5 s later (and through the air's own gain), composed with a
-/// degrade gain another part set before, never overwriting it; STATE, the context, preflight and the journal name the cause; the member's
-/// return fades the group back over 2 s. Under HOLD the loss is told and nothing dims. A projector reporting a lamp error through its
-/// device link is a lost member too.
+/// STACK FAILOVER (facade S2) on a hand-moved clock: a three-projector stack on a wall, blended (BLEND SOLVE) with a neighbour beside
+/// it, under MATCH loses a member (its display output closes) — its picture is at 2/3 of its light, so the neighbour heads to 2/3,
+/// reached 0.5 s later (and through the air's own gain), and the stack's remaining members stay at full (dimming them too would leave
+/// the stack at 4/9 beside a neighbour at 2/3); composed with a degrade gain another part set before, never overwriting it; STATE, the
+/// context, preflight and the journal name the cause; the member's return fades the neighbour back over 2 s. Under HOLD the loss is
+/// told and nothing dims. A projector reporting a lamp error through its device link is a lost member too.
 /// </summary>
 public sealed class StackFailoverTests
 {
@@ -31,23 +32,38 @@ public sealed class StackFailoverTests
     }
 
     private static Output Display(string id, string projectorId) =>
-        StackKit.OutputFor(id, projectorId, 320, 180) with { Kind = OutputKind.Display };
+        StackKit.OutputFor(id, projectorId, 320, 180) with { Kind = OutputKind.Display, Blend = BlendSettings.Default with { Auto3D = true } };
 
+    /// <summary>A 6 × 3 m wall; the stack's three projectors 4 m back aimed left of its middle, P4 beside them aimed right: each picture
+    /// 4 m wide, the stack's and P4's sharing the middle 2.2 m.</summary>
     private static Project ThreeStack()
     {
-        var k = Intrinsics.FromThrowRatio(320, 180, 1.5);
-        var pose = Pose.LookAt(new Vec3d(0, 0, 5), Vec3d.Zero, Vec3d.UnitY);
+        var k = Intrinsics.FromThrowRatio(320, 180, 1.0);
+        var pose = Pose.LookAt(new Vec3d(-1.2, 0, 4), new Vec3d(-0.9, 0, 0), Vec3d.UnitY);
         Projector At(string id, string name, Pose p) => new(id, name, k, LensDistortion.None, p, 10_000, "#FFFFFF", false, [], SolveLocks.None, 0);
+        var wall = new MeshAsset("ms_wall", "Wall", MeshOrigin.Primitive, "", "", "plane",
+            ParamSet.Empty.With("width", 6.0).With("height", 3.0).With("segments", 12), 0, 0);
         var p = Project.CreateDefault("Failover");
         return p with
         {
             Outputs = [Display("op00000001", P1), Display("op00000002", P2), Display("op00000003", P3), Display("op00000004", P4)],
             Stage = p.Stage with
             {
-                Projectors = [At(P1, "P1", pose), At(P2, "P2", pose), At(P3, "P3", pose), At(P4, "P4", Pose.LookAt(new Vec3d(9, 0, 5), new Vec3d(9, 0, 0), Vec3d.UnitY))],
+                Meshes = [wall],
+                Surfaces = [new Surface("sf_wall", "Wall", "ms_wall", Transform3.Identity, [], SurfaceContent.Empty, 1, [], true, false, "#ffffff", [])],
+                Projectors = [At(P1, "P1", pose), At(P2, "P2", pose), At(P3, "P3", pose), At(P4, "P4", Pose.LookAt(new Vec3d(1.2, 0, 4), new Vec3d(0.9, 0, 0), Vec3d.UnitY))],
                 Stacks = [new StackGroup("sk00000001", "S1", [P1, P2, P3], P1, StackFailover.Match)],
             },
         };
+    }
+
+    /// <summary>BLEND SOLVE through the wire, waited for: the stack blends as one projector beside P4, so P4 is in its blend group.</summary>
+    private static async Task Blended(EngineCore engine)
+    {
+        Assert.True(WireGrammar.TryParse("BLEND SOLVE", out var parsed, out _));
+        Assert.True((await engine.HandleAsync(parsed, SiteRig.Desk, CancellationToken.None)).Ok);
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(TimeSpan.FromMinutes(2)))!.State);
+        Assert.Contains("OP00000001", engine.LastBlendSolve!.Solution.For("op00000004")!.OverlapsWith);
     }
 
     private static async Task<string> Ok(EngineCore engine, string line)
@@ -70,6 +86,7 @@ public sealed class StackFailoverTests
         Assert.IsType<ComposedGains>(services.OutputGains);
         await using var engine = new EngineCore(services, ThreeStack());
         var gains = services.OutputGains!;
+        await Blended(engine);
 
         await engine.Lane.RunAsync(engine.WatchStacks);
         Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
@@ -81,15 +98,17 @@ public sealed class StackFailoverTests
         var stack = Stack(engine);
         Assert.Equal([P3], stack.GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(0.667, stack.GetProperty("gain").GetDouble());
-        // The fade starts where the gain is and reaches 2/3 0.5 s later; the fence another part set stays multiplied in.
-        Assert.Equal(1f, gains.GainOf("op00000002"));
-        clock.AdvanceMs(250);
-        Assert.InRange(gains.GainOf("op00000002"), 0.82f, 0.85f);
-        clock.AdvanceMs(250);
-        Assert.Equal(2f / 3, gains.GainOf("op00000002"), 4);
-        Assert.Equal(0.5f * 2f / 3, gains.GainOf("op00000001"), 4);
+        // The neighbour's fade starts where its gain is and reaches 2/3 0.5 s later; the stack's remaining members give 2/3 of its
+        // light already and stay at full; the fence another part set stays multiplied in.
         Assert.Equal(1f, gains.GainOf("op00000004"));
-        Assert.Equal(2f / 3, engine.AirGain("op00000002", engine.LeaderNowNs), 4);
+        clock.AdvanceMs(250);
+        Assert.InRange(gains.GainOf("op00000004"), 0.82f, 0.85f);
+        clock.AdvanceMs(250);
+        Assert.Equal(2f / 3, gains.GainOf("op00000004"), 4);
+        Assert.Equal(1f, gains.GainOf("op00000002"));
+        Assert.Equal(0.5f, gains.GainOf("op00000001"));
+        Assert.Equal(2f / 3, engine.AirGain("op00000004", engine.LeaderNowNs), 4);
+        Assert.Equal(1f, engine.AirGain("op00000002", engine.LeaderNowNs));
 
         var item = ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001");
         Assert.Equal(Light.Red, item.Light);
@@ -106,17 +125,17 @@ public sealed class StackFailoverTests
         await engine.Lane.RunAsync(engine.WatchStacks);
         Assert.Equal(before, engine.Journal.Recent(50).Count);
 
-        // P3 is back: the group returns to full over 2 s.
+        // P3 is back: the neighbour returns to full over 2 s.
         outputs.Now = [.. outputs.Now.Select(h => h with { Open = true })];
         await engine.Lane.RunAsync(engine.WatchStacks);
         Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
         Assert.Equal(1.0, Stack(engine).GetProperty("gain").GetDouble());
-        Assert.Equal(2f / 3, gains.GainOf("op00000002"), 4);
+        Assert.Equal(2f / 3, gains.GainOf("op00000004"), 4);
         clock.AdvanceMs(1000);
-        Assert.Equal(5f / 6, gains.GainOf("op00000002"), 3);
+        Assert.Equal(5f / 6, gains.GainOf("op00000004"), 3);
         clock.AdvanceMs(1000);
-        Assert.Equal(1f, gains.GainOf("op00000002"));
-        Assert.Contains(engine.Journal.Recent(20), r => r.Kind == "stack" && r.Text == "S1: P3 is back — its blend group returns to full over 2 s");
+        Assert.Equal(1f, gains.GainOf("op00000004"));
+        Assert.Contains(engine.Journal.Recent(20), r => r.Kind == "stack" && r.Text == "S1: P3 is back — the rest of its blend group returns to full over 2 s");
         Assert.Equal(Light.Amber, ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001").Light);
     }
 
@@ -127,6 +146,7 @@ public sealed class StackFailoverTests
         var outputs = new HealthTests.Outputs { Now = [.. new[] { 1, 2, 3, 4 }.Select(i => new OutputHealth($"op0000000{i}", i != 2, 60, 0, 4, $"DP-{i}"))] };
         var services = new SiteExtension().Configure(EngineServices.ForTests(clock) with { Outputs = outputs });
         await using var engine = new EngineCore(services, ThreeStack());
+        await Blended(engine);
         var said = JsonDocument.Parse(await Ok(engine, "STACK FAILOVER S1 HOLD")).RootElement;
         Assert.Equal("hold", said.GetProperty("failover").GetString());
         Assert.Equal(StackFailover.Hold, engine.Store.Project.Stage.Stacks[0].Failover);
@@ -134,16 +154,17 @@ public sealed class StackFailoverTests
         var stack = Stack(engine);
         Assert.Equal([P2], stack.GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(1.0, stack.GetProperty("gain").GetDouble());
-        Assert.Equal(1f, services.OutputGains!.GainOf("op00000001"));
+        Assert.Equal(1f, services.OutputGains!.GainOf("op00000004"));
         Assert.Contains("held", ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001").State, StringComparison.Ordinal);
         var row = Assert.Single(await new SitePreflight().RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None),
             r => r.Id == "stack:sk00000001");
         Assert.Equal("STACK FAILOVER sk00000001 MATCH", row.Fix);
 
-        // MATCH again: applied at once from the verb.
+        // MATCH again: applied at once from the verb, to the neighbour; the stack's remaining members stay at full.
         await Ok(engine, "STACK FAILOVER S1 MATCH");
         clock.AdvanceMs(500);
-        Assert.Equal(2f / 3, services.OutputGains.GainOf("op00000001"), 4);
+        Assert.Equal(2f / 3, services.OutputGains.GainOf("op00000004"), 4);
+        Assert.Equal(1f, services.OutputGains.GainOf("op00000001"));
         var again = await engine.HandleAsync(Parse("STACK FAILOVER S1 MATCH"), SiteRig.Desk, CancellationToken.None);
         Assert.False(again.Ok);
         Assert.Contains("would change nothing", again.Payload, StringComparison.Ordinal);
@@ -153,7 +174,7 @@ public sealed class StackFailoverTests
     /// <see cref="PlayMap.Engine.Fleet.FenceGains"/>, composed both ways round (the node composes the fleet's part before the site's; a fence composed after
     /// takes what came before as its inner gain): a fenced node (FENCE, or the primary a FAILOVER took the show from) is black on every
     /// output whatever its stack's gain, and the stack is still measured and told; lifting the fence (FAILBACK, the show handed back)
-    /// leaves every output at the stack's gain; a member back fades the group up again while the node holds the show.</summary>
+    /// leaves every output at the stack's gain; a member back fades the neighbour up again while the node holds the show.</summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -180,6 +201,7 @@ public sealed class StackFailoverTests
         }
         await using var engine = new EngineCore(services, ThreeStack());
         float Air(string output) => engine.AirGain(output, engine.LeaderNowNs);
+        await Blended(engine);
 
         // Fenced, with a member lost: every output black, the stack measured, dimmed underneath and told.
         fence.Held = true;
@@ -189,24 +211,24 @@ public sealed class StackFailoverTests
         Assert.All(new[] { "op00000001", "op00000002", "op00000003", "op00000004" }, o => Assert.Equal(0f, Air(o)));
         Assert.Equal([P3], Stack(engine).GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(0.667, Stack(engine).GetProperty("gain").GetDouble());
-        Assert.Equal(2f / 3, services.StackGains!.GainOf("op00000002"), 4);
+        Assert.Equal(2f / 3, services.StackGains!.GainOf("op00000004"), 4);
 
-        // The fence lifted (the show handed back): the group at the light that remains, the rest at full.
+        // The fence lifted (the show handed back): the neighbour at the light that remains, the stack's own members at full.
         fence.Held = false;
-        Assert.Equal(2f / 3, Air("op00000001"), 4);
-        Assert.Equal(2f / 3, Air("op00000002"), 4);
-        Assert.Equal(1f, Air("op00000004"));
+        Assert.Equal(1f, Air("op00000001"));
+        Assert.Equal(1f, Air("op00000002"));
+        Assert.Equal(2f / 3, Air("op00000004"), 4);
 
-        // Fenced again (a FAILOVER took the show) as the member comes back: black throughout, the group fading up underneath.
+        // Fenced again (a FAILOVER took the show) as the member comes back: black throughout, the neighbour fading up underneath.
         fence.Held = true;
         outputs.Now = [.. outputs.Now.Select(h => h with { Open = true })];
         await engine.Lane.RunAsync(engine.WatchStacks);
         clock.AdvanceMs(1000);
-        Assert.Equal(0f, Air("op00000002"));
-        Assert.Equal(5f / 6, services.StackGains.GainOf("op00000002"), 3);
+        Assert.Equal(0f, Air("op00000004"));
+        Assert.Equal(5f / 6, services.StackGains.GainOf("op00000004"), 3);
         fence.Held = false;
         clock.AdvanceMs(1000);
-        Assert.Equal(1f, Air("op00000002"));
+        Assert.Equal(1f, Air("op00000004"));
         Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
     }
 
@@ -231,6 +253,7 @@ public sealed class StackFailoverTests
         var services = new SiteExtension().Configure(EngineServices.ForTests(clock) with { Devices = devices });
         await using var engine = new EngineCore(services, ThreeStack());
         await using var attached = devices.Attach(engine);
+        await Blended(engine);
         var id = (await Ok(engine, $"DEVICE ADD Third pjlink 127.0.0.1:{projector.Port} PROJECTOR {P3}")).Trim();
         // The device's own poll reads it; a loaded machine can take a while, so the wait is long and ends at the read.
         Assert.True(await OpsRig.Eventually(() => devices.State(id) is { Online: true, FaultsRead: true }, 60_000), "the link's first full read");
@@ -244,7 +267,8 @@ public sealed class StackFailoverTests
         Assert.Equal([P3], Stack(engine).GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Contains(engine.Journal.Recent(20), r => r.Kind == "stack" && r.Text.StartsWith("S1 lost P3 (Third: ", StringComparison.Ordinal));
         clock.AdvanceMs(500);
-        Assert.Equal(2f / 3, services.OutputGains!.GainOf("op00000001"), 4);
+        Assert.Equal(2f / 3, services.OutputGains!.GainOf("op00000004"), 4);
+        Assert.Equal(1f, services.OutputGains.GainOf("op00000001"));
     }
 }
 

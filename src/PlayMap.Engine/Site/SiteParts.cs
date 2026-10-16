@@ -53,7 +53,7 @@ internal sealed class SitePreflight : IPreflightCheck
             {
                 var who = string.Join("; ", lost.Members.Select(m => $"{p.FindProjector(m.Key)?.Name ?? m.Key}: {m.Value}"));
                 rows.Add(new PreflightRow("stack:" + sk.Id, node, "site", sk.Name, Light.Red, "degraded",
-                    $"{sk.Name} has lost {who}" + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $" — its blend group is dimmed to {lost.Gain * 100:0} %") : " — held"),
+                    $"{sk.Name} has lost {who}" + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $" — the rest of its blend group is dimmed to {lost.Gain * 100:0} %, the light its members have left") : " — held"),
                     sk.Failover == StackFailover.Hold ? $"STACK FAILOVER {sk.Id} MATCH" : null));
                 continue;
             }
