@@ -29,6 +29,7 @@ public sealed partial class EngineCore
             ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
             : CommandReply.Fail("no scan is waiting for a picture"));
         routes.Index(new PhoneIndex(this));
+        RouteMultiscan(routes);
     }
 
     /// <summary>Joins the phone hub to this engine: a joining phone becomes (or updates) its camera rig, and every phone fact moves
@@ -224,6 +225,31 @@ public sealed partial class EngineCore
                 : f.Camera?.Exposure == "steady" ? $"{f.Name}: ready, brightness kept steady (no exposure lock from a web page)"
                 : $"{f.Name}: ready";
             items.Add(new ContextItem("phone:" + f.Id, "phone", f.Name, light, state));
+        }
+        ContextMultiscan(items);
+    }
+
+    /// <summary>The context's scan items (wp2-multiscan): surface suggestions waiting for a person (amber, with the lines that decide
+    /// them), and a projector the last scan's views saw less than 80 % of (amber, with the line that adds a view).</summary>
+    private void ContextMultiscan(List<ContextItem> items)
+    {
+        if (Services.Scan is not ScanRunner runner)
+            return;
+        var waiting = runner.Waiting();
+        if (waiting.Count > 0)
+        {
+            var proposals = waiting.SelectMany(x => x.Suggestion.Proposals).Take(6).Select(id => "APPROVE " + id);
+            items.Add(new ContextItem("scan:suggestions", "scan", "Scan suggestions", Light.Amber, string.Create(CultureInfo.InvariantCulture,
+                $"{waiting.Count} surface suggestion{(waiting.Count == 1 ? "" : "s")} wait for a person — {string.Join(", ", proposals)} (or REJECT)")));
+        }
+        if (runner.View is { IsRunning: false } v && !v.Coverage.IsDefaultOrEmpty)
+        {
+            var camera = v.Views.LastOrDefault()?.CameraId ?? "<camera>";
+            foreach (var c in v.Coverage.Where(c => c.Seen < 0.8))
+            {
+                items.Add(new ContextItem($"scan:{v.Id}:coverage:{c.ProjectorId}", "scan", "Coverage", Light.Amber, string.Create(CultureInfo.InvariantCulture,
+                    $"{v.Id}'s views saw {c.Seen * 100:0} % of {c.ProjectorId} — SCAN START {camera} INTO {v.Id} (aim at what is not seen)")));
+            }
         }
     }
 

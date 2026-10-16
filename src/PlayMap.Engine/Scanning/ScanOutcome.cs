@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Geometry;
@@ -30,15 +31,30 @@ public sealed record ScanOutcome(
     /// <summary>The surfaces the scan suggests, placed on the smart scan.</summary>
     public IReadOnlyList<ScanRegion> Regions { get; init; } = [];
 
+    /// <summary>Where the camera stood for this scan, each place a view with its decodes (wp2-multiscan); empty for a scan made
+    /// before views were kept.</summary>
+    public ImmutableArray<ScanViewData> Captured { get; init; } = [];
+
+    /// <summary>The views solved together, when the scan has more than one (wp2-multiscan).</summary>
+    public MultiViewOutcome? Multi { get; init; }
+
     /// <summary>The worst solved projector's reprojection RMS (pixels), 0 when none solved.</summary>
     public double WorstResidualPx => Solution.Projectors.Where(p => p.Solved).Select(p => p.RmsPx).DefaultIfEmpty(0).Max();
 
     /// <summary>What the calibration ledger scores a solved projector of this scan by (wp2-wall): its dense fit over its inlier
     /// pairs, the share of its picture the decode judged good (the quality report's 0–100), and one camera view; null when the
     /// scan did not solve that projector.</summary>
+    /// <remarks>A multi-view scan scores by its joint solve (wp2-multiscan): the projector's dense fit over its tracks, the share its
+    /// views decoded, the views that saw it, and the view that disagrees with the rest when one does (its fix drops it).</remarks>
     public Core.Calibration.Scoring.ScanScoreInputs? ScoreInputs(string projectorId) =>
         Solution.Projectors.FirstOrDefault(p => p.Solved && string.Equals(p.ProjectorId, projectorId, StringComparison.Ordinal)) is { } x
-            ? new Core.Calibration.Scoring.ScanScoreInputs(projectorId, x.RmsPx, x.Inliers, Math.Clamp(x.Quality / 100.0, 0, 1), 1) { CameraId = CameraId }
+            ? new Core.Calibration.Scoring.ScanScoreInputs(projectorId, x.RmsPx, x.Inliers, Math.Clamp(x.Quality / 100.0, 0, 1),
+                Multi is { } m ? Math.Max(1, m.Result.Views.Count(v => v.RmsByProjector.ContainsKey(projectorId))) : 1)
+            {
+                CameraId = CameraId,
+                ScanId = Id,
+                DropView = Multi?.Disagreeing ?? "",
+            }
             : null;
 }
 
@@ -96,6 +112,7 @@ public static class ScanArchive
             WriteAtomically(Path.Combine(folder, "cells.bin"), stream => WriteInts(stream, g.VertexCells));
             WriteAtomically(Path.Combine(folder, "camera.ppm"), stream => WritePpm(stream, g.Image));
         }
+        ScanViewArchive.Save(folder, outcome);
         return relative;
     }
 
@@ -126,7 +143,7 @@ public static class ScanArchive
                 VertexCells = cells,
             };
             var outcome = new ScanOutcome(file.Id, file.Name, file.CameraId, file.Simulated, file.Scene, solution, [], file.Truth ?? []);
-            return outcome with { Geometry = GeometryOf(outcome, image) };
+            return ScanViewArchive.Load(folder, outcome with { Geometry = GeometryOf(outcome, image) });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FormatException or NotSupportedException)
         {

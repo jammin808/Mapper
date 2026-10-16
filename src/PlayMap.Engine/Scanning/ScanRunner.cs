@@ -11,7 +11,7 @@ using PlayMap.Vision.Segmentation;
 namespace PlayMap.Engine.Scanning;
 
 /// <summary>How the scan runner paces a real capture and opens its cameras.</summary>
-public sealed record ScanRunnerOptions
+public sealed partial record ScanRunnerOptions
 {
     /// <summary>White flashes (each followed by black) that measure the camera's latency.</summary>
     public int LatencyFlashes { get; init; } = 3;
@@ -75,7 +75,7 @@ public sealed record ScanProjectorState(string Id, string Name, double Progress,
 /// <summary>STATE.scan: the running (or last) scan — its id from the start, "starting", "running", "done", "failed" or
 /// "cancelled", the step it is on, patterns shown of all, progress and quality (0–1), the quality in words, a
 /// message, each projector's progress, and the regions it suggests as surfaces (on the smart-scan picture, 0–1).</summary>
-public sealed record ScanView(
+public sealed partial record ScanView(
     string Id,
     string State,
     string Stage,
@@ -187,7 +187,12 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         Keep(outcome);
     }
 
-    public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct)
+    public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct) =>
+        StartAsync(cameraId, projectorIds, mode, null, ct);
+
+    /// <summary>SCAN START: a new scan, or (<paramref name="into"/>) one more view of a scan this node holds, solved with its other
+    /// views (wp2-multiscan).</summary>
+    public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, string? into, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
@@ -203,11 +208,13 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 return Task.FromException<string>(new InvalidOperationException("the scan runner is not bound to an engine"));
             if (_running is not null)
                 return Task.FromException<string>(new InvalidOperationException("a scan is already running — SCAN CANCEL stops it"));
+            if (into is not null && _solving.Contains(into))
+                return Task.FromException<string>(new InvalidOperationException($"{into} is being solved — add the view once it is done"));
             var engine = _engine;
             Setup setup;
             try
             {
-                setup = ReadSetup(engine, cameraId, projectorIds, mode);
+                setup = ReadSetup(engine, cameraId, projectorIds, mode, into);
             }
             catch (InvalidOperationException ex)
             {
@@ -297,6 +304,14 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     /// <summary>What a scan reads from the project when it starts.</summary>
     private sealed record Setup(string Id, CameraRig? Rig, ScanCameraView Camera, List<Part> Parts, Project Project, string? Folder, bool Simulated)
     {
+        /// <summary>The scan this run adds a view to (SCAN START … INTO), null for a new scan.</summary>
+        public ScanOutcome? Into { get; init; }
+
+        /// <summary>This run's view of the scan ("v1" for a new scan) and its place in the scan's order (0 for the first).</summary>
+        public string ViewId { get; init; } = "v1";
+
+        public int ViewIndex { get; init; }
+
         public string Names => string.Join(", ", Parts.Select(p => p.Projector.Name));
 
         /// <summary>The camera's id as its views name it ("sim" for the bare simulator).</summary>
@@ -319,6 +334,18 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         private string? _projector;
         private ImmutableArray<ScanRegion> _regions = [];
         private ScanPairing? _pairing;
+        private ImmutableArray<ScanViewData> _views = [];
+        private ImmutableArray<CoverageState> _coverage = [];
+
+        /// <summary>The scan's views and coverage once it is solved (wp2-multiscan).</summary>
+        public void Solved(ScanOutcome outcome)
+        {
+            lock (_gate)
+            {
+                _views = outcome.Captured;
+                _coverage = CoverageOf(outcome);
+            }
+        }
 
         public void Step(string state, string stage, string message, int? part = null, string? partState = null, double? overall = null)
         {
@@ -386,6 +413,16 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             Publish("running");
         }
 
+        /// <summary>How the last cued projector of this run was paired (null when the camera streamed frames).</summary>
+        public ScanPairing? PairingNow
+        {
+            get
+            {
+                lock (_gate)
+                    return _pairing;
+            }
+        }
+
         public void Regions(IReadOnlyList<ScanRegion> regions)
         {
             lock (_gate)
@@ -424,7 +461,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 view = new ScanView(setup.Id, state, _stage, _shown, _patterns, Math.Round(_overall, 3), Math.Round(_quality, 3), _qualityWords, _message,
                     [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
-                    _regions, _projector) { Pairing = _pairing };
+                    _regions, _projector) { Pairing = _pairing, ViewId = setup.ViewId, Views = _views, Coverage = _coverage };
             }
             runner.Publish(view);
         }
@@ -440,7 +477,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         if (setup.Simulated)
         {
             rig = new SimulatedRig(SimulatedRig.SceneOf(setup.Rig), setup.Camera.Intrinsics.Width, setup.Camera.Intrinsics.Height,
-                setup.Parts.Select(p => p.Projector.Intrinsics).ToList());
+                setup.Parts.Select(p => p.Projector.Intrinsics).ToList(), setup.ViewIndex,
+                [.. setup.Parts.Select(p => setup.Project.Stage.Projectors.Select(x => x.Id).ToList().IndexOf(p.Projector.Id))]);
             await PrepareDevicesAsync(engine, setup, track, null, notes, ct).ConfigureAwait(false);
             SimTruth truth;
             await HoldCameraAsync(setup).ConfigureAwait(false);
@@ -459,6 +497,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             captures = await CaptureRealAsync(engine, setup, track, views, notes, ct).ConfigureAwait(false);
         }
 
+        var view = NewView(setup, captures, track.PairingNow, engine.Services.Wall.UnixMs);
+        if (setup.Into is { } into)
+            return await AddViewAsync(engine, setup, track, into, view, notes, ct).ConfigureAwait(false);
+
         track.Step("running", "calibrating", $"solving {setup.Names}", overall: 0.88);
         var options = new ScanSolveOptions { KnownDistance = known, Model = StageModel(setup) };
         var solution = await Task.Run(() => ScanSolver.Solve(setup.Camera, captures, options, ct), ct).ConfigureAwait(false);
@@ -472,7 +514,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var outcome = new ScanOutcome(setup.Id, name, setup.Rig?.Id ?? SimulatedRig.CameraId, setup.Simulated, rig?.SceneName ?? "", solution, views, truthDevices);
         var geometry = ScanArchive.GeometryOf(outcome, ScanSurfaces.CameraImage(captures[0].Map));
         var regions = geometry is null ? [] : await Task.Run(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
-        outcome = outcome with { Geometry = geometry, Regions = regions };
+        regions = ScanSurfaces.LitBy(regions, geometry, solution);
+        outcome = outcome with { Geometry = geometry, Regions = regions, Captured = [Placed(view, solution)] };
         track.Regions(regions);
         if (rig is not null)
             notes.Add(TruthWords(outcome));
@@ -494,6 +537,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         }
         Keep(outcome);
         ViewsOf()?.Finished(outcome);
+        track.Solved(outcome);
         var record = new ScanRecord(setup.Id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
             [.. setup.Parts.Select(p => p.Projector.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
             string.Join(" ", new[] { solution.Words }.Concat(notes)));
@@ -505,7 +549,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         return setup.Id;
     }
 
-    private Setup ReadSetup(EngineCore engine, string cameraId, IReadOnlyList<string> projectorIds, string mode)
+    private Setup ReadSetup(EngineCore engine, string cameraId, IReadOnlyList<string> projectorIds, string mode, string? into)
     {
         var p = engine.Store.Project;
         var rig = p.Stage.Cameras.Find(cameraId);
@@ -549,7 +593,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 parts.Select(x => x.Projector.Intrinsics).ToList()).Camera;
             camera = new ScanCameraView(SimulatedRig.CameraId, "Simulated camera", truth.Intrinsics, truth.Lens, truth.Pose, true);
         }
-        return new Setup(p.NewId(Ids.Scan), rig, camera, parts, p, engine.ProjectFolderForFiles, simulated);
+        var setup = new Setup(p.NewId(Ids.Scan), rig, camera, parts, p, engine.ProjectFolderForFiles, simulated);
+        return into is null ? setup : IntoSetup(engine, setup, into);
     }
 
     /// <summary>The stage's first imported mesh that loads from the project folder, for a bridged registration.</summary>
@@ -581,7 +626,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         for (var j = 0; j < setup.Parts.Count; j++)
         {
             var part = setup.Parts[j];
-            var sim = rig.Simulator(j, part.Plan);
+            var camera = _options.SimulatedNudge?.Invoke(setup.ViewId, part.Projector.Id, rig.Camera) ?? rig.Camera;
+            var sim = rig.Simulator(j, part.Plan, camera, (ulong)setup.ViewIndex);
             first ??= sim.Truth;
             var frames = new byte[part.Plan.Count][];
             for (var i = 0; i < part.Plan.Count; i++)
@@ -901,6 +947,11 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             w.WriteNumberValue(r.H);
             w.WriteEndArray();
             w.WriteNumber("confidence", r.Confidence);
+            w.WriteString("projector", r.Projector ?? v.Projectors.FirstOrDefault()?.Id ?? "");
+            w.WriteStartArray("projectors");
+            foreach (var id in r.Projectors)
+                w.WriteStringValue(id);
+            w.WriteEndArray();
             w.WriteEndObject();
         }
         w.WriteEndArray();
@@ -926,6 +977,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             w.WriteString("words", pairing.Words);
             w.WriteEndObject();
         }
+        WriteViews(w, v);
         w.WriteEndObject();
     }
 
@@ -955,8 +1007,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     }
 
     /// <summary>Stops the runner: from the moment it begins no scan starts (<see cref="StartAsync"/> refuses with
-    /// <see cref="StoppingWords"/>); the scan running now, if any, is stopped and waited for until it has ended (its outputs
-    /// are back on the show and its words published); then its feeds come off the node's views and every camera is let go.
+    /// <see cref="StoppingWords"/>) and no solve or suggestion begins; the scan running now, if any, is stopped and waited for until
+    /// it has ended (its outputs are back on the show and its words published), and so is any solve under way; then its feeds come
+    /// off the node's views and every camera is let go.
     /// The node calls this before the parts a scan uses go (the projectors' links, the engine).</summary>
     public async Task StopAsync()
     {
@@ -990,6 +1043,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 // A scan stopped by the node's end ends here, whatever stopped it; Finish published its words.
             }
         }
+        await StopWorkAsync().ConfigureAwait(false);
         if (ViewsOf() is { } views)
             await views.StopAsync().ConfigureAwait(false);
     }

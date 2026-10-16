@@ -14,4 +14,16 @@ public static class ScanCameras
             return engine?.Services.Phones is { } hub ? new PhoneCamera(hub, rig) : null;
         return CaptureCamera.OptionsFor(rig) is { } options ? new CaptureCamera(options) : null;
     }
+
+    /// <summary>The camera rig a line names: by its id, or "phone:&lt;phone id&gt;" for the rig a phone joined as; null when none.</summary>
+    public static CameraRig? Find(Project project, string word)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(word);
+        const string Phone = "phone:";
+        if (!word.StartsWith(Phone, StringComparison.OrdinalIgnoreCase))
+            return project.Stage.Cameras.Find(word);
+        var phone = word[Phone.Length..];
+        return project.Stage.Cameras.FirstOrDefault(c => c.SourceKind == CameraSourceKind.Phone && string.Equals(c.Source, phone, StringComparison.Ordinal));
+    }
 }
