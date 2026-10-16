@@ -8,7 +8,7 @@ namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>What keeps a hot-backup pair to one node with the show, real nodes on loopback: a hand-back is taken only by a backup whose
 /// mirror is identical; a node that has begun to stop takes no show over; a primary that could not hear a takeover (its fleet monitor
-/// off) takes no backup.</summary>
+/// off) takes no backup; a second backup does not take a show another node has already taken from its primary.</summary>
 public sealed class BackupGuardTests
 {
     private const long Second = SyncRig.Second;
@@ -87,6 +87,34 @@ public sealed class BackupGuardTests
         Assert.Contains("fleet monitor is off", joined.Payload, StringComparison.Ordinal);
         Assert.Equal("solo", BackupRig.Role(backup));
         Assert.Equal("solo", BackupRig.Role(primary));
+    }
+
+    [Fact]
+    public async Task ASecondBackupDoesNotTakeAShowAnotherNodeTookFromItsPrimary()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var first = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await using var second = await BackupRig.StartAsync("FOH-C", BackupRig.ThirdId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, first, second);
+        await BackupRig.BackUpAsync(primary, first);
+        await BackupRig.BackUpAsync(primary, second);
+
+        var takeover = await first.RunAsync("FAILOVER");
+        Assert.True(takeover.Ok, takeover.Payload);
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary).ToString());
+        // The second backup hears that FOH-B took FOH-A's show: its own FAILOVER would make two primaries of one show.
+        Assert.True(await Eventually.TrueAsync(() => second.Engine.Services.FleetPeers!.Peers()
+            .Any(p => p.Id == first.Id && p.Health?.Facts is { Role: "primary" } f && f.Of == primary.Id)));
+        var again = await second.RunAsync("FAILOVER");
+        Assert.False(again.Ok);
+        Assert.Contains("FOH-B took FOH-A's show", again.Payload, StringComparison.Ordinal);
+        Assert.Contains("FLEET BACKUP FOH-B", again.Payload, StringComparison.Ordinal);
+        Assert.Equal("backup", BackupRig.Role(second));
+        Assert.Equal("primary", BackupRig.Role(first));
     }
 
     private static async Task<CommandReply> Own(HostRig rig, string text)

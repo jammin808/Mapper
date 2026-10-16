@@ -522,9 +522,15 @@ public sealed class BackupNode : IAsyncDisposable
             // A node that stops would take the show, switch the projectors to itself and go: none would serve it.
             if (engine.Stopping)
                 return CommandReply.Fail(StoppingTakesNothing);
+            var from = _settings.Of;
+            // A primary's other backup that took its show already serves it (the primary fenced itself on that node's epoch, not on
+            // this one's): a second takeover would put two primaries of one show on the air.
+            if ((engine.Services.FleetPeers?.Peers() ?? []).FirstOrDefault(p => p.Id != SelfId && p.Heard == FleetHeard.Live
+                    && p.Health?.Facts is { Role: FleetRoles.Primary } f && string.Equals(f.Of, from, StringComparison.Ordinal)) is { } taken)
+                return CommandReply.Fail(string.Create(CultureInfo.InvariantCulture,
+                    $"{taken.Name} took {Label(from)}'s show already (epoch {taken.Health!.Facts.Epoch}) — FLEET BACKUP {taken.Name} to mirror it"));
             var started = Clock.Local.NowNs;
             var id = NewId();
-            var from = _settings.Of;
             var trail = new List<string>();
             var epoch = Takeover.NextEpoch(_settings.Epoch, [.. HeardEpochs(), Interlocked.Read(ref _primaryEpoch)]);
             var kept = Persist(s => s with { Role = FleetRoles.Primary, Of = from, Epoch = epoch });
