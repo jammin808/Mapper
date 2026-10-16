@@ -15,7 +15,7 @@ namespace PlayMap.Engine;
 internal sealed record CalibrationTask(string Id, string Kind, string State, string Projector, double Progress, string Words)
 {
     /// <summary>Capturing, matching, solving or verifying: the task holds the calibration lane.</summary>
-    public bool IsRunning => State is "capturing" or "matching" or "solving" or "verifying";
+    public bool IsRunning => PatternTasks.CalibrationRunning(State);
 }
 
 /// <summary>The calibration ledger's verbs (CALIBRATION STATUS, HISTORY, SAVE, RECALL, ACCEPT, FALLBACK, FORGET), the re-solve of

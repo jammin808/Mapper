@@ -205,10 +205,11 @@ public sealed class ObjectMenusModule : DeskModule
         return list;
     }
 
-    /// <summary>Esc while a learn waits (STATE.control.learning): BIND LEARN OFF, before the overlays and PANIC.</summary>
+    /// <summary>Esc while a learn waits (STATE.control.learning): BIND LEARN OFF, before the overlays and PANIC; a stop the gate
+    /// would refuse (armed) is not sent, and Esc goes on down the ladder.</summary>
     public override bool TryEscape()
     {
-        if (!_learning)
+        if (!_learning || _session.GateWords("BIND LEARN OFF") is not null)
             return false;
         _session.Fire("BIND LEARN OFF");
         return true;

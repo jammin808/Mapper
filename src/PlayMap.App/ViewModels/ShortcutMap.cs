@@ -9,6 +9,9 @@ namespace PlayMap.App.ViewModels;
 public sealed record Shortcut(string Keys, string Words, string Scope, Key Key, KeyModifiers Modifiers, ICommand Command, Func<bool>? When = null)
 {
     public bool WhileTyping { get; init; }
+
+    /// <summary>While a field types, the key runs the shortcut and still reaches the field (Esc: the field's own cancel).</summary>
+    public bool FieldKeepsKey { get; init; }
 }
 
 /// <summary>The desk's keyboard: one table that both handles the keys and fills the F1 overlay, so the help
@@ -33,8 +36,8 @@ public sealed class ShortcutMap
         List<Shortcut> e =
         [
             new("F1", "Show or hide this help", "Desk", Key.F1, KeyModifiers.None, vm.ToggleHelp) { WhileTyping = true },
-            new("Esc", "The Esc ladder: cancel a pattern task, a learn or a draft; close the help and the drawers; PANIC in PLAY when the desk's preference says so", "Desk",
-                Key.Escape, KeyModifiers.None, vm.EscapeCommand) { WhileTyping = true },
+            new("Esc", "The Esc ladder: cancel a pattern task, a learn or a draft; close the help and the drawers; PANIC in PLAY when the desk's preference says so; clear the selection. While a field types, Esc is the field's and only closes the help and the drawers", "Desk",
+                Key.Escape, KeyModifiers.None, vm.EscapeCommand) { WhileTyping = true, FieldKeepsKey = true },
             new("Ctrl+1", "PLAY workspace", "Desk", Key.D1, KeyModifiers.Control, vm.ShowPlay) { WhileTyping = true },
             new("Ctrl+2", "MAP workspace", "Desk", Key.D2, KeyModifiers.Control, vm.ShowMap) { WhileTyping = true },
             new("Ctrl+3", "SCAN workspace", "Desk", Key.D3, KeyModifiers.Control, vm.ShowScan) { WhileTyping = true },
@@ -66,8 +69,9 @@ public sealed class ShortcutMap
         return new ShortcutMap(e);
     }
 
-    /// <summary>Runs the shortcut for a key press; true when one ran. <paramref name="typing"/> is true
-    /// while a text field has the focus (the field keeps every key but the few marked WhileTyping).</summary>
+    /// <summary>Runs the shortcut for a key press; true when one ran and the key is spent (false for a key the focused field keeps
+    /// as well). <paramref name="typing"/> is true while a text field has the focus (the field keeps every key but the few marked
+    /// WhileTyping).</summary>
     public bool Handle(Key key, KeyModifiers modifiers, bool typing)
     {
         foreach (var s in Entries)
@@ -79,9 +83,9 @@ public sealed class ShortcutMap
             if (s.When is { } when && !when())
                 continue;
             if (!s.Command.CanExecute(null))
-                return true;
+                return !(typing && s.FieldKeepsKey);
             s.Command.Execute(null);
-            return true;
+            return !(typing && s.FieldKeepsKey);
         }
         return false;
     }

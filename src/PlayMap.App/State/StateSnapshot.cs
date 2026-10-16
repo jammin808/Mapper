@@ -55,7 +55,7 @@ public sealed record ScanProjectorProgress(string Id, string Name, double Progre
 public sealed record ScanState(string Id, string State, string Stage, int Pattern, int Patterns, double Progress, double Quality,
     string QualityWords, string Message, ImmutableArray<ScanProjectorProgress> Projectors, ImmutableArray<ScanRegion> Regions)
 {
-    public bool IsRunning => State is "running" or "starting";
+    public bool IsRunning => PlayMap.Core.Calibration.PatternTasks.ScanRunning(State);
 
     public bool IsDone => State == "done";
 }

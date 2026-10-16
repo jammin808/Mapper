@@ -5,11 +5,22 @@ public sealed record EscapeRung(int Order, string Name, Func<bool> TryEscape);
 
 /// <summary>Esc goes to the first rung that uses it, lowest order first: a pattern task on the wall, a learn, a draft,
 /// the overlays (help, a drawer, a picker), PANIC (PLAY with the desk's preference), the selection. The guard: after a
-/// rung below <see cref="Panic"/> used a key, Esc cannot reach PANIC for <see cref="GuardMs"/>, so two quick Escs that
-/// close a drawer never panic (the rungs after PANIC still answer); and Esc never reaches PANIC while a text field types.
-/// The clock is injected so the guard is deterministic under test.</summary>
+/// rung below <see cref="Panic"/> used a key, or anything the operator was looking at closed (a drawer, the help, a menu, a
+/// flyout — by Esc, a click or its own button: <see cref="Closed"/>), Esc cannot reach PANIC for <see cref="GuardMs"/>, so two
+/// quick Escs that close something never panic (the rungs after PANIC still answer). While a text field types, Esc is the
+/// field's: only the overlays answer it. The clock is injected so the guard is deterministic under test.</summary>
 public sealed class EscapeLadder(Func<long> nowMs)
 {
+    /// <summary>The desk's own clock for the guard: milliseconds since <paramref name="startTimestamp"/> on the stopwatch, without
+    /// overflow however long the machine has run.</summary>
+    public static Func<long> MonotonicMs(long startTimestamp) =>
+        () => ElapsedMs(System.Diagnostics.Stopwatch.GetTimestamp() - startTimestamp, System.Diagnostics.Stopwatch.Frequency);
+
+    /// <summary><paramref name="ticks"/> of a clock running at <paramref name="frequency"/> per second, in milliseconds, without
+    /// overflow for any tick count.</summary>
+    public static long ElapsedMs(long ticks, long frequency) =>
+        ticks / frequency * 1000 + ticks % frequency * 1000 / frequency;
+
     public const int PatternTask = 0;
     public const int Learn = 1;
     public const int Draft = 2;
@@ -35,14 +46,20 @@ public sealed class EscapeLadder(Func<long> nowMs)
             _rungs.Insert(at, rung);
     }
 
+    /// <summary>Something the operator was looking at closed (a drawer, the help, a menu, a flyout): Esc cannot reach PANIC for
+    /// <see cref="GuardMs"/>.</summary>
+    public void Closed() => _guardUntil = nowMs() + GuardMs;
+
     /// <summary>The name of the rung that used Esc, or null when none did. While a text field types (<paramref name="typing"/>),
-    /// Esc never reaches PANIC: it is the field's cancel.</summary>
+    /// only the overlays answer: Esc is the field's cancel, and never cancels a task, a learn or a selection, or reaches PANIC.</summary>
     public string? Escape(bool typing = false)
     {
         var now = nowMs();
         foreach (var rung in _rungs)
         {
-            if (rung.Order == Panic && (typing || now < _guardUntil))
+            if (typing && rung.Order != Overlays)
+                continue;
+            if (rung.Order == Panic && now < _guardUntil)
                 continue;
             if (!rung.TryEscape())
                 continue;

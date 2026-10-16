@@ -43,7 +43,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         ArgumentNullException.ThrowIfNull(session);
         Session = session;
         Prefs = prefs ?? DeskPrefs.InMemory();
-        Escape = new EscapeLadder(nowMs ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency));
+        Escape = new EscapeLadder(nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
         _connections = new ConnectionManager(session);
         // The supervisor speaks from its own worker; the toast goes up on the UI thread.
         _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));
@@ -92,6 +92,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Drawers.Add(new DrawerTab("network", "links", "Links", Network, 0));
         Drawers.Opened += d =>
         {
+            // A drawer closed however it closed (Esc, its button, its pill): Esc right after it does not reach PANIC.
+            if (d is null)
+                Escape.Closed();
             Raise(nameof(IsOutputsOpen), nameof(IsNetworkOpen), nameof(IsInputsOpen), nameof(IsHealthOpen));
             if (d == Drawers.Outputs && d.Selected?.Content == Outputs)
                 Outputs.Opened();
@@ -159,32 +162,35 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     /// <summary>The desk's own preferences (Simple or Pro, Esc is panic).</summary>
     public DeskPrefs Prefs { get; }
 
-    /// <summary>True while a text field has the focus (the window sets it before each key): Esc is then the field's.</summary>
+    /// <summary>True while a text field has the focus (the window sets it before each key): Esc is then the field's, and only the
+    /// overlays answer it too.</summary>
     public bool IsTyping { get; set; }
 
     /// <summary>The first rung: a scan, an align run or a calibration task putting patterns on the wall is cancelled — the
-    /// safe direction, the wall goes back to the show.</summary>
+    /// safe direction, the wall goes back to the show. A cancel the gate would refuse (armed, the node's policy holds it) is not
+    /// sent: Esc goes on down the ladder.</summary>
     private bool CancelPatternTask()
     {
         var s = Session.State;
         string? line = null;
         if (s.Scan is { IsRunning: true })
             line = "SCAN CANCEL";
-        else if (Running(s, "align", "run"))
+        else if (Running(s, "align", "run", PlayMap.Core.Calibration.PatternTasks.AlignRunning))
             line = "ALIGN CANCEL";
-        else if (Running(s, "calibration", "task"))
+        else if (Running(s, "calibration", "task", PlayMap.Core.Calibration.PatternTasks.CalibrationRunning))
             line = "CALIBRATION CANCEL";
-        if (line is null)
+        if (line is null || Session.GateWords(line) is not null)
             return false;
         Session.Fire(line);
         return true;
     }
 
-    private static bool Running(StateSnapshot s, string section, string task) =>
+    /// <summary>STATE.&lt;section&gt;.&lt;task&gt;.state is a state the task runs in.</summary>
+    private static bool Running(StateSnapshot s, string section, string task, Func<string?, bool> running) =>
         s.Root.ValueKind == System.Text.Json.JsonValueKind.Object && s.Root.TryGetProperty(section, out var sec)
         && sec.ValueKind == System.Text.Json.JsonValueKind.Object && sec.TryGetProperty(task, out var t)
         && t.ValueKind == System.Text.Json.JsonValueKind.Object && t.TryGetProperty("state", out var st)
-        && st.ValueKind == System.Text.Json.JsonValueKind.String && st.GetString() is "running" or "starting" or "measuring" or "scanning";
+        && st.ValueKind == System.Text.Json.JsonValueKind.String && running(st.GetString());
 
     /// <summary>The Esc ladder (Esc's one row in the key table runs it).</summary>
     public EscapeLadder Escape { get; }
@@ -402,7 +408,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     public bool IsHelpOpen
     {
         get => _isHelpOpen;
-        set => Set(ref _isHelpOpen, value);
+        set
+        {
+            if (Set(ref _isHelpOpen, value) && !value)
+                Escape.Closed();
+        }
     }
 
     /// <summary>STATE.air.blackout — the button follows the engine, never its own press (a press sends the
