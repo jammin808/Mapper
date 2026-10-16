@@ -1588,16 +1588,22 @@ public sealed class BackupNode : IAsyncDisposable
         return n;
     }
 
+    /// <summary>The words a client's line that would change the show meets on this node — the mirror's or the fence's way out — or null
+    /// on a node with a show of its own (STATE.fleet.door, so a client greys what this node would refuse with these words).</summary>
+    public string? DoorWords => DoorWordsOf(_settings);
+
+    private string? DoorWordsOf(FleetSettings settings) => settings.Role switch
+    {
+        FleetRoles.Backup => $"{SelfName} mirrors {Label(settings.Of)} — send it to {Label(settings.Of)}{(_primaryAddress.Length > 0 ? " (" + _primaryAddress + ")" : "")}, or FAILOVER to make this node the show",
+        FleetRoles.Fenced => $"fenced: {Label(settings.Of)} has the show (epoch {settings.Epoch}) — FLEET BACKUP {Label(settings.Of)} to mirror it",
+        _ => null,
+    };
+
     /// <summary>The words a client's line meets on a backup or a fenced node, or null when it may run (<see cref="BackupGate"/>).</summary>
     public string? Refused(VerbSpec spec, WireLine line, SessionInfo session)
     {
-        var role = _settings.Role;
-        if (role is not (FleetRoles.Backup or FleetRoles.Fenced))
-            return null;
-        var words = role == FleetRoles.Backup
-            ? $"{SelfName} mirrors {Label(_settings.Of)} — send it to {Label(_settings.Of)}{(_primaryAddress.Length > 0 ? " (" + _primaryAddress + ")" : "")}, or FAILOVER to make this node the show"
-            : $"fenced: {Label(_settings.Of)} has the show (epoch {_settings.Epoch}) — FLEET BACKUP {Label(_settings.Of)} to mirror it";
-        return BackupGate.Refused(spec, line, session.Transport, role, words);
+        var settings = _settings;
+        return DoorWordsOf(settings) is { } words ? BackupGate.Refused(spec, line, session.Transport, settings.Role, words) : null;
     }
 
     // ---- Small things -----------------------------------------------------------------------------------------------------

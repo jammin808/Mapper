@@ -23,7 +23,7 @@ public static class LockGuard
             return "locks change only through LOCK and UNLOCK";
         foreach (var l in before.Show.Locks)
         {
-            var why = l.Kind == LockKind.Area ? AreaChanged(before, after, l.Target) ? AreaWords(l) : null : EntityWords(before, after, l);
+            var why = l.Kind == LockKind.Area ? AreaChanged(before, after, l.Target) ? AreaWords(l) : null : EntityChangedWords(before, after, l);
             if (why is not null)
                 return why;
         }
@@ -144,7 +144,7 @@ public static class LockGuard
     private static bool ContentMoved(Output before, Output after) =>
         !(before.Source, before.Color, before.Fx).Equals((after.Source, after.Color, after.Fx));
 
-    private static string? EntityWords(Project before, Project after, ShowLock l)
+    private static string? EntityChangedWords(Project before, Project after, ShowLock l)
     {
         var was = ShowEntities.Find(before, l.Target);
         if (was is null)
@@ -152,7 +152,16 @@ public static class LockGuard
         var now = ShowEntities.Find(after, l.Target);
         if (ReferenceEquals(was, now) || Equals(was, now) || OnlyLockedFlagMoved(was, now))
             return null;
-        var (label, kind) = ShowEntities.Describe(was);
+        return EntityWords(l, was);
+    }
+
+    /// <summary>The words an edit of <paramref name="entity"/> meets under its entity lock <paramref name="l"/>: what the node refuses
+    /// it with, and what a client shows before it sends one.</summary>
+    public static string EntityWords(ShowLock l, object entity)
+    {
+        ArgumentNullException.ThrowIfNull(l);
+        ArgumentNullException.ThrowIfNull(entity);
+        var (label, kind) = ShowEntities.Describe(entity);
         var why = l.Words.Length > 0 ? $"'{l.Words}', " : "";
         return $"{label} ({kind}) is locked by {l.By} ({why}{Clock(l.AtUnixMs)}) — UNLOCK {l.Target} first";
     }
@@ -165,7 +174,7 @@ public static class LockGuard
             foreach (var s in before.Stage.Surfaces)
             {
                 if (s.Locked && after.Stage.Surfaces.Find(s.Id) is var a && !ReferenceEquals(s, a) && !OnlyLockedFlagMoved(s, a))
-                    return $"{s.Name} (surface) is locked — SET {s.Id} locked false first";
+                    return FlagWords(s);
             }
         }
         if (before.Stage.Projectors != after.Stage.Projectors)
@@ -173,7 +182,7 @@ public static class LockGuard
             foreach (var p in before.Stage.Projectors)
             {
                 if (p.Locked && after.Stage.Projectors.Find(p.Id) is var a && !ReferenceEquals(p, a) && !OnlyLockedFlagMoved(p, a))
-                    return $"{p.Name} (projector) is locked — SET {p.Id} locked false first";
+                    return FlagWords(p);
             }
         }
         return null;
@@ -186,10 +195,27 @@ public static class LockGuard
         _ => false,
     };
 
-    private static string AreaWords(ShowLock l)
+    /// <summary>The words an edit in the area of the area lock <paramref name="l"/> meets: what the node refuses it with, and what a
+    /// client shows before it sends one.</summary>
+    public static string AreaWords(ShowLock l)
     {
+        ArgumentNullException.ThrowIfNull(l);
         var why = l.Words.Length > 0 ? $"'{l.Words}', " : "";
         return $"{l.Target} is locked by {l.By} ({why}{Clock(l.AtUnixMs)}) — UNLOCK AREA {l.Target} first";
+    }
+
+    /// <summary>The words an edit of a surface or projector whose own Locked flag is set meets (only the flag itself may change).</summary>
+    public static string FlagWords(Surface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        return $"{surface.Name} (surface) is locked — SET {surface.Id} locked false first";
+    }
+
+    /// <inheritdoc cref="FlagWords(Surface)"/>
+    public static string FlagWords(Projector projector)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+        return $"{projector.Name} (projector) is locked — SET {projector.Id} locked false first";
     }
 
     /// <summary>A lock's time as the operator's clock reads it (hours and minutes).</summary>

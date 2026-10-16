@@ -284,7 +284,8 @@
     "light": "grey",
     "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",
     "routes": [],
-    "routeTest": null
+    "routeTest": null,
+    "door": null
   },
   "eye": {
     "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",

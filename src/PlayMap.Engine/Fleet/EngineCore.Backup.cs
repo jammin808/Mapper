@@ -380,7 +380,8 @@ public sealed partial class EngineCore
         }
     }
 
-    /// <summary>STATE.fleet.routes: each route of the show, and the last route test's words.</summary>
+    /// <summary>STATE.fleet.routes: each route of the show, and the last route test's words; then the door's words (null on a node with
+    /// a show of its own).</summary>
     private void WriteRoutesState(Utf8JsonWriter w)
     {
         w.WriteStartArray("routes");
@@ -406,6 +407,10 @@ public sealed partial class EngineCore
             w.WriteString("words", words);
             w.WriteEndObject();
         }
+        if (Services.Backup?.DoorWords is { } door)
+            w.WriteString("door", door);
+        else
+            w.WriteNull("door");
     }
 
     /// <summary>The context's word when this follower's group leader is gone and no node has taken the lead: who should act.</summary>

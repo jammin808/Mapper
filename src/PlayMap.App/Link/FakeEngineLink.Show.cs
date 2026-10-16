@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using PlayMap.Core.Fleet;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
 
@@ -7,8 +9,9 @@ namespace PlayMap.App.Link;
 
 /// <summary>Show Mode in the demo, with the engine's meaning and STATE shapes (tests/fixtures/state/show.json): SHOW
 /// ARM/DISARM (no password), PANIC and PANIC CLEAR (a second PANIC within the fade is HARD), LOCK/UNLOCK of an entity or
-/// an area, LOCKS, MASTER, SHOW SET. While armed, a line the show's policy refuses the desk is refused here with the same
-/// words, as the engine's gate does. A verb that would change nothing is refused with the reason.</summary>
+/// an area, LOCKS, MASTER, SHOW SET. On a hot backup or a fenced node (STATE.fleet.door, from the backup fixture) a line that
+/// would change the show is refused with the door's words, and while armed a line the show's policy refuses the desk is refused
+/// with the same words, as the engine's doors do, in their order. A verb that would change nothing is refused with the reason.</summary>
 public sealed partial class FakeEngineLink
 {
     private long _panicFadeUntilMs;
@@ -17,6 +20,17 @@ public sealed partial class FakeEngineLink
     private long UnixMs => 1_760_000_000_000 + _clock.NowNs / 1_000_000;
 
     private bool Armed => _sections.TryGetValue("show", out var s) && s is JsonObject o && o["armed"]?.GetValue<bool>() == true;
+
+    /// <summary>The fleet's door for the desk, as the engine's: on a hot backup or a fenced node, the door's words for a line that would
+    /// change the show it mirrors, or null.</summary>
+    private string? DoorRefusal(WireLine line)
+    {
+        if (!_sections.TryGetValue("fleet", out var f) || f is not JsonObject fleet || fleet["door"] is not JsonValue door
+            || door.GetValueKind() != JsonValueKind.String || VerbCatalog.Match(line) is not { } m)
+            return null;
+        var role = fleet["role"] is JsonValue r && r.GetValueKind() == JsonValueKind.String ? r.GetValue<string>() : FleetRoles.Solo;
+        return BackupGate.Refused(m.Spec, line, "desk", role, door.GetValue<string>());
+    }
 
     /// <summary>The engine's gate for the desk (its role) while armed: the policy's words, or null.</summary>
     private string? ArmedRefusal(WireLine line)
@@ -32,7 +46,7 @@ public sealed partial class FakeEngineLink
 
     partial void TryShowVerbs(WireLine line, ref WireReply? reply)
     {
-        if (ArmedRefusal(line) is { } why)
+        if ((DoorRefusal(line) ?? ArmedRefusal(line)) is { } why)
         {
             reply = Err(why);
             return;

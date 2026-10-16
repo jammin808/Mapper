@@ -5,6 +5,7 @@ using Avalonia.Input;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
 using PlayMap.App.State;
+using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
@@ -12,7 +13,22 @@ using PlayMap.Core.Wire;
 namespace PlayMap.App.ViewModels.Show;
 
 /// <summary>One lock as STATE.show.locks has it.</summary>
-public sealed record ShowLockState(string Target, string Kind, string By, string Words, bool Implicit, long AtUnixMs);
+public sealed record ShowLockState(string Target, string Kind, string By, string Words, bool Implicit, long AtUnixMs)
+{
+    /// <summary>The lock as Core's LockGuard holds it, so its words are the guard's own.</summary>
+    public ShowLock AsCore() => new(Target, Kind == "area" ? LockKind.Area : LockKind.Entity, By, AtUnixMs, Words);
+}
+
+/// <summary>STATE.fleet's door as the desk reads it: the node's place in a hot-backup pair (solo, primary, backup, fenced) and the
+/// words a client's edit meets there (null on a node with a show of its own).</summary>
+public sealed record FleetDoor(string Role, string? Words)
+{
+    public static readonly FleetDoor None = new(FleetRoles.Solo, null);
+
+    public static FleetDoor Read(JsonElement? e) => e is { ValueKind: JsonValueKind.Object } f
+        ? new FleetDoor(f.Str("role", FleetRoles.Solo), f.StrOrNull("door"))
+        : None;
+}
 
 /// <summary>One output's part of a panic.</summary>
 public sealed record PanicOutputState(string Id, string Outcome, double Level);
@@ -169,10 +185,12 @@ public sealed class ShowStripViewModel : ObservableObject
     }
 }
 
-/// <summary>The show package's module: the strip's slot; the panic banner (Clear with a fade) and the rehearsal banner;
-/// the gate (the Core show policy for the desk's role and the locks in STATE.show, so a control greys with the engine's
-/// own words before the press); Lock/Unlock in every surface, projector, output, playlist and item menu with a padlock
-/// badge; F12 and Ctrl+Shift+A; and the Esc ladder's PANIC rung (PLAY only, with the desk's preference, after the guard).</summary>
+/// <summary>The show package's module: the strip's slot; the panic banner (Clear with a fade), the rehearsal banner and the
+/// mirror's banner on a hot backup or a fenced node; the gate (the fleet's door as Core's BackupGate decides it with the node's own
+/// words from STATE.fleet.door, then the Core show policy for the desk's role, then the locks in STATE.show with LockGuard's words,
+/// in the engine's order, so a control greys with the engine's own words before the press); Lock/Unlock in every surface,
+/// projector, output, playlist and item menu with a padlock badge; F12 and Ctrl+Shift+A; and the Esc ladder's PANIC rung (PLAY
+/// only, with the desk's preference, after the guard).</summary>
 public sealed class ShowStripModule : DeskModule
 {
     private static readonly HashSet<string> Lockable = new(StringComparer.Ordinal) { "surface", "projector", "output", "playlist", "item" };
@@ -187,8 +205,12 @@ public sealed class ShowStripModule : DeskModule
     private readonly ImmutableArray<DeskAction> _rehearsalActions;
     private readonly Dictionary<string, DeskAction> _locks = new(StringComparer.Ordinal);
     private ShowSection _show = ShowSection.Absent;
+    private FleetDoor _door = FleetDoor.None;
     private Project? _project;
     private bool _airDark;
+
+    /// <summary>The transport the desk's lines arrive on at the node: a client's, never one of the fleet's own parts.</summary>
+    private const string DeskTransport = "desk";
 
     public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth)
     {
@@ -216,6 +238,7 @@ public sealed class ShowStripModule : DeskModule
     {
         ArgumentNullException.ThrowIfNull(state);
         _show = state.Section("show", ShowSection.Read);
+        _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
         Strip.Update(_show);
         foreach (var a in _locks.Values)
@@ -248,6 +271,9 @@ public sealed class ShowStripModule : DeskModule
         }
         if (show.Present && show.ExpectArmed && !show.Armed && state.Playlists.Any(p => p.IsPlaying))
             yield return new Banner("rehearsal", "amber", "rehearsal while playing — SHOW ARM before doors", _rehearsalActions, 40);
+        // A hot backup's or a fenced node's show is another node's: its edits are refused with these words (FAILOVER is on its card).
+        if (state.Section("fleet", FleetDoor.Read) is { Words: { } door } d)
+            yield return new Banner("fleet", d.Role == FleetRoles.Fenced ? "red" : "amber", door, [], 20);
     }
 
     public override IEnumerable<Shortcut> Shortcuts() =>
@@ -256,14 +282,18 @@ public sealed class ShowStripModule : DeskModule
         new("Ctrl+Shift+A", "Arm or disarm the show (SHOW ARM / SHOW DISARM)", "Show", Key.A, KeyModifiers.Control | KeyModifiers.Shift, Strip.Arm.Command) { WhileTyping = true },
     ];
 
-    /// <summary>The engine's own decision for this desk's role (WHOAMI) with the facts in STATE.show, then the locks as the
-    /// engine's LockGuard holds them: an edit of the document in a locked area, of a locked entity (the one the line
-    /// names first), or of a surface or projector whose own Locked flag is set is refused with LockGuard's words.
-    /// Playback, the air, panic, commands to devices and reading are never held by a lock.</summary>
+    /// <summary>The engine's doors in the engine's order. The fleet's: on a hot backup or a fenced node (STATE.fleet.door) a line
+    /// that would change the show is refused with the node's own words, while queries, panic, Show Mode, the node's administration
+    /// and the fleet's verbs (FAILOVER among them) stay. Then the show policy's decision for this desk's role (WHOAMI) with the facts
+    /// in STATE.show. Then the locks as the engine's LockGuard holds them: an edit of the document in a locked area, of a locked
+    /// entity (the one the line names first), or of a surface or projector whose own Locked flag is set is refused with LockGuard's
+    /// words. Playback, the air, panic, commands to devices and reading are never held by a lock.</summary>
     public override string? Gate(WireLine line, VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(spec);
+        if (_door.Words is { } door && BackupGate.Refused(spec, line, DeskTransport, _door.Role, door) is { } mirrored)
+            return mirrored;
         if (_show.Present)
         {
             var role = Enum.TryParse<ShowRole>(_session.Role, ignoreCase: true, out var r) ? r : ShowRole.Remote;
@@ -275,24 +305,21 @@ public sealed class ShowStripModule : DeskModule
         if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK" || AreaOf(ShowPolicy.ClassOf(spec, line)) is not { } area)
             return null;
         if (_show.LockOn(area) is { Kind: "area" } al)
-            return $"{area} is locked by {al.By} ({(al.Words.Length > 0 ? $"'{al.Words}', " : "")}{LockGuard.Clock(al.AtUnixMs)}) — UNLOCK AREA {area} first";
+            return LockGuard.AreaWords(al.AsCore());
         var words = spec.Name.Split(' ').Length;
         if (line.Count <= words)
             return null;
         var target = line.Word(words);
         if (_show.LockOn(target) is { Kind: "entity" } el && _project is { } p && ShowEntities.Find(p, target) is { } entity)
-        {
-            var (label, kind) = ShowEntities.Describe(entity);
-            return $"{label} ({kind}) is locked by {el.By} ({(el.Words.Length > 0 ? $"'{el.Words}', " : "")}{LockGuard.Clock(el.AtUnixMs)}) — UNLOCK {target} first";
-        }
+            return LockGuard.EntityWords(el.AsCore(), entity);
         // A surface's or projector's own Locked flag (the gizmo lock): only that flag may change.
         var flagOnly = spec.Name == "SET" && line.Count > 2 && line.Word(2) == "locked";
         if (!flagOnly && _project is { } q)
         {
             if (q.Stage.Surfaces.Find(target) is { Locked: true } sf)
-                return $"{sf.Name} (surface) is locked — SET {sf.Id} locked false first";
+                return LockGuard.FlagWords(sf);
             if (q.Stage.Projectors.Find(target) is { Locked: true } pj)
-                return $"{pj.Name} (projector) is locked — SET {pj.Id} locked false first";
+                return LockGuard.FlagWords(pj);
         }
         return null;
     }
@@ -330,7 +357,10 @@ public sealed class ShowStripModule : DeskModule
         ArgumentNullException.ThrowIfNull(target);
         if (_show.LockOn(target.Id) is not { Kind: "entity" } l)
             return [];
-        return [new ObjectBadge("lock", "lock", "", "amber", $"Locked by {l.By} ({(l.Words.Length > 0 ? $"'{l.Words}', " : "")}{LockGuard.Clock(l.AtUnixMs)}) — UNLOCK {l.Target} to change it")];
+        var words = _project is { } p && ShowEntities.Find(p, l.Target) is { } entity
+            ? LockGuard.EntityWords(l.AsCore(), entity)
+            : $"{l.Target} is locked by {l.By} — UNLOCK {l.Target} first";
+        return [new ObjectBadge("lock", "lock", "", "amber", words)];
     }
 
     /// <summary>Esc's PANIC rung: in PLAY, with the desk's preference on, on a node with Show Mode.</summary>

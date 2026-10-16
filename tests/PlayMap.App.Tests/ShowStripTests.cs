@@ -94,13 +94,13 @@ public class ShowStripTests
         // A locked area greys its edits with the lock's words (show.json locks content: "show night").
         var source = sf.Actions.Single(a => a.Id == "content").Children.First(c => c.Verb == $"SURFACE SOURCE {sf.Id} color:#FFFFFF");
         Assert.False(source.IsEnabled);
-        // The words are the engine's LockGuard's for that edit under that lock.
+        // The desk shows LockGuard's own words for STATE's lock, and they are what the engine's guard refuses that edit with.
+        var contentLock = new ShowLock("content", LockKind.Area, "Desk", 1760000000000, "show night");
+        Assert.Equal(LockGuard.AreaWords(contentLock), source.Refusal);
         var project = desk.Link.CurrentProject;
-        var surface = project.Stage.Surfaces.Find(sf.Id)!;
-        var locked = project with { Show = project.Show with { Locks = [new PlayMap.Core.Model.ShowLock("content", PlayMap.Core.Model.LockKind.Area, "Desk", 1760000000000, "show night")] } };
-        var edited = locked.WithStage(st => st with { Surfaces = st.Surfaces.Update(sf.Id, x => x with { Content = x.Content with { Source = PlayMap.Core.Model.SourceRef.Solid("#FFFFFF") } }) });
+        var locked = project with { Show = project.Show with { Locks = [contentLock] } };
+        var edited = locked.WithStage(st => st with { Surfaces = st.Surfaces.Update(sf.Id, x => x with { Content = x.Content with { Source = SourceRef.Solid("#FFFFFF") } }) });
         Assert.Equal(LockGuard.Check(locked, edited, armed: false), source.Refusal);
-        Assert.NotNull(surface);
 
         // The show stays live: transport, Blackout, PANIC, identify (setup is refused armed; transport is not).
         Assert.True(desk.Main.Blackout.IsEnabled);
@@ -306,6 +306,11 @@ public class ShowStripTests
         var remove = sf.Actions.Single(a => a.Id == "remove");
         Assert.StartsWith($"{desk.Link.CurrentProject.Stage.Surfaces.Find(sf.Id)!.Name} (surface) is locked by Desk (", remove.Refusal, StringComparison.Ordinal);
         Assert.EndsWith($") — UNLOCK {sf.Id} first", remove.Refusal, StringComparison.Ordinal);
+        // Those are LockGuard's own words for STATE's lock on that entity, and the padlock's tooltip says the same.
+        var held = desk.Session.State.Section("show", ViewModels.Show.ShowSection.Read).LockOn(sf.Id)!.AsCore();
+        var words = LockGuard.EntityWords(held, ShowEntities.Find(desk.Link.CurrentProject, sf.Id)!);
+        Assert.Equal(words, remove.Refusal);
+        Assert.Equal(words, Assert.Single(badge.Shown).Tip);
         Assert.True(lockAction.IsEnabled);
         await lockAction.Command.ExecuteAsync();
         DeskHarness.Pump();
