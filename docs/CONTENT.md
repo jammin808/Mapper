@@ -26,7 +26,9 @@ second is what they are for.
 
 **On a stage surface.** A surface-aware effect (`effect.sweep`, `effect.outline`, `effect.relight`) shown on a surface is drawn by
 the projector pass from the surface's own geometry, on the same own time it draws at anywhere else: `RETIME` moves it there too,
-the shader is handed only the seconds since its origin, and STATE counts the surface's draw (`ok`, on the air, its `timeS`).
+the shader is handed only the seconds since its origin, and STATE counts the surface's draw (`ok`, on the air, its `timeS`). An
+effect kind this node does not have (a show made on a newer node) faults as any generator does: its surface shows the error card,
+STATE says `faulted`, and every other surface the projector lights is drawn as before.
 
 ## Stings
 

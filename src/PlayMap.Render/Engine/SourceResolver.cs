@@ -266,13 +266,14 @@ internal sealed class SourceResolver : IDisposable
         return !Passes.IsEmpty && item is { } on && FxChains.Draws(on.Item.Fx) ? ItemPicture(on, picture) : picture;
     }
 
-    /// <summary>The generator a source names when it is a surface-aware effect (drawn by the stage shader
-    /// with the surface's own geometry), else null.</summary>
+    /// <summary>The generator a source names when it is a surface-aware effect of a kind this node has (drawn by the stage shader
+    /// with the surface's own geometry), else null: an effect kind it does not have is resolved as any generator, so its surface
+    /// shows the host's error card and no other surface of the pass is touched.</summary>
     public Generator? EffectOf(SourceRef source)
     {
         if (source.Kind != SourceKind.Generator || _project?.FindGenerator(source.Id) is not { } g)
             return null;
-        return EffectUniforms.IsEffect(g.Kind) ? g : null;
+        return EffectUniforms.IsEffect(g.Kind) && GeneratorCatalog.Find(g.Kind) is not null ? g : null;
     }
 
     /// <summary>The frame a surface-aware effect the stage draws is drawn at: on its own clock, as it draws anywhere else, with the
