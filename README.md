@@ -25,8 +25,10 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 
 - **Plays.** FFmpeg with hardware decode, every decoder saying the path its frames come by and why not a better one — on Linux
   VAAPI frames sampled in place through the GL's dmabuf imports (an EGL context, `decode.glApi egl`), on Windows D3D11VA on the
-  renderer's own Direct3D 11 device, else copied back or decoded in software, stepping down and never up while a clip plays;
-  all seven HAP codecs block-compressed on the GPU, HAP R and HAP HDR included;
+  renderer's own Direct3D 11 device with one GPU copy a frame, wherever the renderer can import them; else copied back or
+  decoded in software, stepping down and never up while a clip plays (`DECODE STATUS`, `DECODE POLICY`); all seven HAP codecs
+  block-compressed on the GPU, HAP R and HAP HDR included, their frames written straight into the renderer's upload arena where
+  the GL maps one;
   Patterns' test patterns, 2D and raymarched 3D fractals, a GPU particle field of up to 1 M particles, sound-reactive
   scenes, stings and thirty curated looks. Every generator counts its own time on the show clock, so a late joiner, a backup
   or a chase draws the same picture. A clip that costs this node CPU decode (ProRes, DNxHD and the like, or long-GOP at 1080p
@@ -83,10 +85,11 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   frame-lock machine for sync boards, whose NVAPI tier is compile-only and joins no swap group yet; OpenGL 3.3 core or OpenGL
   ES 3.00 (EGL, or surfaceless with no window system), and on Windows the Direct3D 11 flip model through ANGLE (`PRESENT PATH
   DXGI`, experimental; AUTO is OpenGL) with frame statistics as vblank truth and a fuse that falls back to OpenGL after a start
-  that never reached its first frames. Displays of different input lag are held to the slowest, whole frames at a time. A sync
-  group's members report each
-  output's vblank to the leader, whose board gives each output's phase, the next slip and one verdict, and they join and leave
-  the leader's frame lock as it applies and releases it.
+  that never reached its first frames. Each output names its display's input lag: the node draws every frame for the instant
+  its light leaves the slowest display (its air latency, in STATE), and each faster output holds its picture back whole frames
+  so all of them light the same picture together. A sync group's members report each output's vblank to the leader, whose
+  board gives each output's phase, the next slip and one verdict, and they join and leave the leader's frame lock as it applies
+  and releases it.
 - **Takes control.** OSC, MIDI, Art-Net and sACN bound to wire lines, with curves, ranges, pick-up and feedback; a playlist
   chases LTC, MTC, Art-Net timecode or an internal generator; Companion and other controllers get the full line wire over the
   web port, the show's index, its events and key pictures; the node announces itself over mDNS.
@@ -98,9 +101,9 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it.
 
-**In progress:** lab proof of the Direct3D 11 path, Spout and hardware decode on real GPUs; the Companion module;
-projector stacks and the facade guide; a hot backup that takes over the air; and the desk's
-controls for show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
+**In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); the
+Companion module; projector stacks and the facade guide; a hot backup that takes over the air; and the desk's controls for
+show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
 
 ## What it is made of
 

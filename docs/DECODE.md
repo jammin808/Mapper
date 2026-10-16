@@ -66,7 +66,8 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
   copy-back), when the first frame's planes are not a (fourcc, modifier) the display imports, when, while playing, it waits more
   than three frame periods for a free surface three times in ten seconds (`StarvationWatch`; a pause or a seek is no wait), or
   when the device hands the stream back to software. Each step is one journal row (`decode`, "Intro: hw-direct → hw-copy-back — …") and moves STATE. A source steps back up
-  only when it is opened again (its import failure is forgotten then).
+  only when it is opened again: the share forgets its import failure at the open (`IGpuShare.Forget`, on every share), so the new
+  decoder starts from the top of the ladder.
 - **The path a source reports is its latest frame's**: the path it published by (a copied-back frame says `hw-copy-back`, a
   frame the device handed back says `software`), never only the rung it opened on.
 

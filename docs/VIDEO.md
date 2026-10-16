@@ -120,15 +120,17 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
 
 - **Discovery** reads the sender list (`SpoutSenderNames`: 256-byte slots, the names in order) under its mutex — Spout's 67 ms wait,
   on the provider's own timer, never the frame path — and each sender's 280-byte info map (share handle, size, DXGI format, usage,
-  the sender's exe path, partner id). `spout:*` is the active sender.
+  the sender's exe path, partner id). `spout:*` is the active sender. A name with no map is asked of the kernel
+  (`OpenFileMappingW`) before it is opened, so looking for an absent sender throws nothing.
 - **Receiving** (`SpoutReceiver`, on the input's own thread, a step every 2 ms — every 250 ms while no sender of the name exists —
   never blocking): the info at 0 ms on its mutex (its
   texture reopened when the handle, size or format changes); then **in Spout's order** the access lock first — the texture's keyed
   mutex at key 0 where it has one, else `<sender>_SpoutAccessMutex` at 0 ms; inside it the frame counter (take one, give it back,
   the count before; nothing given back when nothing was taken), a count equal to the last copied one being not new; then `CopyResource` into one of three staging textures,
   the lock released, `<sender>_Sync_Event` set, and only then the count committed — a busy lock or a failed copy leaves it, so the
-  next step copies frame N. A copied frame is mapped one step later with `DO_NOT_WAIT` (a copy still in flight is tried again, never
-  waited for) into the input's frame pool as BGRA or RGBA. B8G8R8A8 and R8G8B8A8 senders are received this round (format 0 and the
+  next step copies frame N. A copied frame is mapped one step later with `DO_NOT_WAIT` (a copy still in flight is tried again at the
+  next step, before any other copy is made, never waited for) into the input's frame pool as BGRA or RGBA, so every copy made is
+  delivered. B8G8R8A8 and R8G8B8A8 senders are received this round (format 0 and the
   D3D9 formats read as B8G8R8A8); a sender's texture on another GPU is refused with the words. Spout has no tally.
 - **Sending** (`SpoutSender` behind a `SendSink`): the published name is `PlayMap <node> - <send>` (printable ASCII; anything else is
   `?`). Registering inserts the name in the sender list under its mutex (refused when a live sender already has it, naming its exe),
@@ -137,7 +139,8 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
   hands every sender of that tap — so a Spout send follows the air as outputs show it: black while blacked out, held while frozen, a
   pattern's black, the master applied, a blind draft never in it — converted to BGRA on the send's worker (UYVY and UYVA by BT.709,
   P216 and PA16 by their high bytes) and uploaded: the access mutex tried for up to 20 ms on the send's worker (a receiver still
-  holding it skips the frame, counted dropped with words), the counter given net one, the mutex released, the event set, and PlayMap's facts written to `<sender>_map`
+  holding it skips the frame, counted dropped with words; a frame of a format that does not convert is dropped with words too, never
+  counted sent), the counter given net one, the mutex released, the event set, and PlayMap's facts written to `<sender>_map`
   (`{"pm":1,"node","send","rate","tap","frame","leaderNs","w","h"}`). Spout shows no receivers, so a send counts one connection (its
   shared texture) and sends whenever it is on; stopping sends one black frame and removes the name.
 - **The GPU target** (`IGpuSendTarget`, videoio's GPU send provider) gives a renderer the shared texture to draw into, made on the
@@ -155,8 +158,9 @@ for real over loopback, lock-step at 1080p in UYVY, UYVA, BGRA, P216 and PA16, w
 sending an output and receiving it as an input; discovery with no avahi daemon; NDI against the fake runtime (loader, find with
 groups and the discovery server, receive, the async send ring, tally both ways, advertisers on 6.3 and not 6.2, colour info); the
 loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
-list, Spout's order on both sides, the busy-mutex case, a failed copy, a read-back in flight, keyed textures, a sender that left) and
-a Spout send following the air on the real render host. On the Windows CI job (WARP): a sender and a receiver round-trip a 64×36
+list, Spout's order on both sides, the busy-mutex case, a failed copy, a read-back in flight read before the next copy, keyed
+textures, a sender that left, a frame that does not convert dropped and never counted sent) and a Spout send following the air on
+the real render host. On the Windows CI job (WARP): a sender and a receiver round-trip a 64×36
 chart through two WARP devices and the kernel's real named objects. Opt-in: `NdiRealRuntimeTests` with `PLAYMAP_NDI_DIR` pointing
 at a real NDI 6 runtime (120 frames sent and received back).
 

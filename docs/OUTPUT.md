@@ -99,7 +99,8 @@ every frame is drawn for the instant its light leaves the slowest display. Each 
 made only when the delay changes, so a warm frame allocates nothing). Two outputs of 17 and 50 ms at 60 Hz: the first waits 2
 frames, 0.33 ms left over; the node's air is 50 ms. A scan's raw frame is never delayed (its present stamp is the frame's own).
 Previews show what was presented (`RenderEngine.PresentedPicture`); the finished picture — what sends, LED maps and snapshots
-read (`OutputPicture`) — is the frame's own. After a scan's raw frame the ring starts again (nothing from before it is shown after it). STATE:
+read (`OutputPicture`) — is the frame's own. After a scan's raw frame, or frames the output skipped (switched off, not drawn), the
+ring starts again: nothing from before the break is shown after it, and the delay builds again from the first picture written. STATE:
 `outputs[].present.delayFrames`, `latencyResidualMs` (|residual| ≤ half a frame), `machine.present.airLatencyMs`, `latencyWords`.
 At most six frames: an input lag that would need more is refused with the words.
 
@@ -155,7 +156,8 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 - **Drivers** (`IFrameLockDriver`, `src/PlayMap.Render/Sync`): `nvapi` on Windows reads the sync board through NVAPI's GSync calls
   (board names by id: 856 Quadro G-Sync (P358), 8288 Quadro Sync (P2060), 8289 Quadro Sync II (P2061); any other "sync board
   0x…", capabilities unknown). NVAPI's swap groups act on a DXGI swap chain, so on a GL window the join is refused with words and
-  the output runs free, measured. `none` elsewhere ("NVAPI is Windows only"). `fake` scripts a board for tests and rehearsals.
+  the output runs free, measured; on the DXGI path the join is refused too ("this build joins no DXGI swap chain to a swap group
+  yet") and the output runs free, measured. `none` elsewhere ("NVAPI is Windows only"). `fake` scripts a board for tests and rehearsals.
   The board is polled off the render thread once a second.
 
 ## Preflight, INDEX, context
@@ -186,10 +188,11 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
   STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the
   layout and vtable-slot goldens of every hand-declared structure and COM method (against the mingw-w64 headers), and the ANGLE
-  loader's file and every entry point it resolves against the package's PE export table. The delay ring on the real renderer.
+  loader's file and every entry point it resolves against the package's PE export table. The delay ring on the real renderer (an
+  output back after a gap presents what it draws). The device lock's rules on a GL platform wearing a shared device.
 - **On the Windows CI job (WARP, no GPU)**: the device on WARP, ANGLE's context with every program translated, a flip-model swap
   chain on a window, 120 presents with buffer 0 wrapped once, the frame statistics read, and the frame read back from buffer 0 top
-  row first (`DxgiWarpPresenterTests`, Category=Windows).
+  row first (`DxgiWarpPresenterTests`, Category=Windows: skipped with the words off Windows, never passed with nothing run).
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
   CI job it says why it has no board ("no NVIDIA driver on this machine"). The DXGI path on a real GPU and display (lab).
 - **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);
