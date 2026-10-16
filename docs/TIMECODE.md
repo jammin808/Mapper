@@ -100,8 +100,14 @@ plays. The context has
 loss rule took over). Preflight's `timecode` section checks every chased playlist's source is present and rolling. INDEX's
 `timecode` section lists the chased playlists with an Engage key.
 
+## In a sync group
+
+A group's leader chases; its followers need no timecode of their own. Each follower takes the leader's anchors of a chased
+playlist, so it plays the same item at the same media instant for the same leader instant, and holds when the leader's chase
+holds (docs/SYNC.md).
+
 ## Not in this build
 
 Timecode outputs (LTC, MTC, Art-Net), TC cues, triggered mode, backup-source switching beyond "the first rolling source", jump
-preload, the timecode test card, `SUBSCRIBE TIMECODE`, `TIMECODE CALIBRATE`, LTC from a looping file, MIDI clock, and the
-leader/follower relay of a chase across a sync group — the next round.
+preload, the timecode test card, `SUBSCRIBE TIMECODE`, `TIMECODE CALIBRATE`, LTC from a looping file and MIDI clock — the next
+round.

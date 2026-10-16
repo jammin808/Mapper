@@ -3,7 +3,8 @@
 One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the TCP line wire (9941) and the same line
 wire over the web port's WebSocket (`/ws` with the subprotocol `playmap.lines.v1`), HTTP `POST /api/cmd` (9940), the screens'
 WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, OSC (`/playmap/line` on UDP 9943), the lines control
-bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), and the desk.
+bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync group's leader sends its members
+(docs/SYNC.md), and the desk.
 
 ## Lines
 
@@ -53,6 +54,7 @@ The router journals who did what and the transports fence by it. The transport i
 | `assistant` | a line the node's own assistant ran (`ASK`) |
 | `approval` | a line a person approved, on this node (`APPROVE`) or on a Stagewatch approval desk (§11), run through the node's own checks |
 | `patterns`, `stagewatch` | the links this node dials itself: the Patterns desk's blackout fact, a Stagewatch operator's screen command |
+| `sync` | a line a sync group's member runs from its leader's anchor feed: the leader's anchors (`PLAYLIST ANCHOR`) and air lines (`PANIC`, `PANIC CLEAR`, `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM`, `PREFLIGHT`; any other is refused), a peer to the show's gate |
 | `system` | the node's own work: a panic's shutter and effects lines, a scan's record |
 
 ## A connection's life (TCP wire)
@@ -141,7 +143,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
   trip): the raw difference between two machines' monotonic clocks says nothing about the show and is not shown.
-  A leader shows its own id as `leader`; a node that neither leads nor follows is `solo`.
+  A leader shows its own id as `leader`; a node that neither leads nor follows is `solo`. The sync part adds the group,
+  its feed (`live`, `connecting`, `lost`, `off`), whether the clock is slewing, its steps and free-wheel seconds, the
+  board's outputs and pairs, and its verdict and words (docs/wire/sync.md).
 - `links.patterns.clip` is the desk's clip as this node counts it on ("VT 2:28"), or why there is none;
   `links.stagewatch.timer.text` is `?` whenever the time is not a fact (no frame, the link quiet, Stagewatch stuck).
 - `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
@@ -181,8 +185,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
 - `PAIRING NEW` (high risk) makes a new pairing token, writes it to the node's settings first, then hands it to the
   wire and the web port: a peer paired with the old one is unpaired at its next verb. The reply says where the token
   is read (the node's settings and the Network drawer) — never the token.
-- `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF` is the air's *Follow Patterns' blackout* switch; the desk's blackout fact
-  is kept either way, so switching back on blacks out at once when the desk is blacked out.
+- `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF` is the air's *Follow Patterns' blackout* switch, kept in the node's settings
+  and on the air again before the first transport opens at the next start; the desk's blackout fact is kept either way,
+  so switching back on blacks out at once when the desk is blacked out.
 - `LINK PATTERNS <host[:port]> [<token>]` and `LINK STAGEWATCH <host[:port]>|"" [<key>]` (`""`: the first
   Stagewatch heard) are accepted at once and dial beside the engine; the link is kept in the node's settings, its
   token or key with it, and comes back at the next start. `OFF` forgets both.
@@ -254,9 +259,10 @@ The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <w
 `<what>` is `editor`, `output:<id>`, `projector:<id>` (the stage as that projector lights it, at its raster),
 `camera:<id>` or `scan:<id>:smart|confidence`; `VIEW <view> CAMERA {"intrinsics":…,"pose":…}` moves an editor
 view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> KEEP` renews it;
-`VIEW <view> HIDE` lets it go. A shown view is leased: SHOW, CAMERA and KEEP renew it, and a view not renewed for
-15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the node nothing for
-long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
+`VIEW <view> HIDE` lets it go; `VIEW <view> SHOW editor DRAFT` is the editor's view of the blind draft (the air when no
+draft is open), on a view id of its own (docs/SHOW.md). A shown view is leased: SHOW, CAMERA and KEEP renew it, and a
+view not renewed for 15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the
+node nothing for long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
 every view it shows every 5 s.
 Pictures are BGRA in the shared-memory ring `PreviewRing.PathFor(nodeId, view)`, fitted inside the size asked
 (and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
@@ -290,27 +296,30 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
   gesture (a drag, a nudge) is journalled once per gesture by its owner.
 - **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
-  fleet) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's lines (what it says while it opens
-  comes after the OK). An unknown topic is refused with the list this node serves. In-order lines are bounded per session; a
-  reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends (the connection and its own replies stay).
-  Latest-wins lines keep only the newest per key. `SUBSCRIBE OFF` ends every push. On the screens' WebSocket,
+  fleet; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,
+  the only session a receipt is taken from) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's
+  lines (what it says while it opens comes after the OK). An unknown topic is refused with the list this node serves.
+  In-order lines are bounded per session; a reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends
+  (the connection and its own replies stay). Latest-wins lines keep only the newest per key. `SUBSCRIBE OFF` ends every push. On the screens' WebSocket,
   `{"cmd":"SUBSCRIBE INDEX"}` answers its receipt, then `{"type":"push","topic":"INDEX","line":"…"}` frames.
 - **Events.** Show events (`item.start`, `item.end`, `air.blackout`, `air.freeze`, and each package's) carry the show-clock
   instant they happened at; companion's `EVENTS` topic serves them.
 - **STATE.** New keys are appended at the end of their object, in this order:
   top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
-  `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `latencyMs`, `lock`;
+  `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
+  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
+  (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage.projectors[]` — `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
   `null` means the node has none; an unknown number is `-1` and grey, never `0`. `tests/fixtures/state/main.json` is the
   whole STATE; each package's fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it. The
   fixtures of the packages in the last list below are their plans: no node writes their keys.
-- **Each package's rows and keys**: [show](wire/show.md) · [output](wire/output.md) · [decode](wire/decode.md) ·
-  [optimise](wire/optimise.md) · [control and timecode](wire/control.md) · [companion](wire/companion.md) · [fx](wire/fx.md) ·
+- **Each package's rows and keys**: [show](wire/show.md) · [blind](wire/blind.md) · [sync](wire/sync.md) ·
+  [output](wire/output.md) · [decode](wire/decode.md) · [optimise](wire/optimise.md) · [control and timecode](wire/control.md) ·
+  [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) · [multiview](wire/multiview.md) (Core only: no verb, no STATE).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
-  answers "not available on this node yet" (stacks, resolve and multiscan have no rows of their own): [blind](wire/blind.md) ·
-  [sync](wire/sync.md) · [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) ·
-  [videoio](wire/videoio.md) · [facade](wire/facade.md) · [stacks](wire/stacks.md) · [resolve](wire/resolve.md) ·
-  [multiscan](wire/multiscan.md).
+  answers "not available on this node yet" (stacks, resolve and multiscan have no rows of their own):
+  [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) · [videoio](wire/videoio.md) ·
+  [facade](wire/facade.md) · [stacks](wire/stacks.md) · [resolve](wire/resolve.md) · [multiscan](wire/multiscan.md).

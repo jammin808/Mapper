@@ -5,10 +5,11 @@ PlayMap is two things in one portable exe:
 1. **A player / render node.** Standalone, it plays anything FFmpeg decodes (H.264/HEVC/AV1/VP9/ProRes/DNxHR/
    NotchLC…), the HAP family block-compressed on the GPU, stills, image sequences, network streams, generators (test
    patterns, 2D and raymarched 3D fractals, a GPU particle field, reactive scenes) and live inputs, through chains of
-   ISF effects, from any number of independent playlists, in frame-accurate step with other PlayMap nodes on the
-   network, a playlist chasing timecode if asked, and makes HAP versions of clips it decodes on the CPU in the
-   background. On the Show Bus it is a node of the Patterns ecosystem: Patterns (and Stagewatch, controllers, and an
-   AI through MCP) can see everything it is doing and drive everything it can do.
+   ISF effects, from any number of independent playlists, a playlist chasing timecode if asked; in a sync group it
+   follows one leader's show clock, transports and air, so every node draws the frame for the same show instant; and it
+   makes HAP versions of clips it decodes on the CPU in the background. On the Show Bus it is a node of the Patterns
+   ecosystem: Patterns (and Stagewatch, controllers, and an AI through MCP) can see everything it is doing and drive
+   everything it can do.
 2. **A 3D projection-mapping suite.** Scan an object, a room or a building with structured light (a capture camera, or
    the scan simulator) and/or put a LiDAR or photogrammetry model on the stage; get projector poses, a mesh and surfaces
    in minutes; click an object to make it a surface; play media through the warped 3D mesh with automatic blends;
@@ -50,12 +51,12 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 |---|---|---|
 | `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, the calibration score, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
 | `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
-| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back) |
-| `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync (UDP 9942), OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
+| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), sound out (`AudioOut`: OpenAL Soft, slaved to a timeline), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back) |
+| `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and its follower, the sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
 | `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), the machine's MIDI ports (ALSA sequencer, WinMM) |
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
-| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, playback lanes, timecode chase, control bindings, output windows, preview shared memory, scan runner, align runs, the calibration ledger, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
+| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, output windows, preview shared memory, scan runner, align runs, the calibration ledger, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
 | `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
@@ -77,14 +78,29 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   person on the node's proposal list.
   Locks are one guard in the store, checked as an edit applies and kept outside undo; live actions (the master, a panic,
   a lock) are not undo steps (docs/SHOW.md).
+- A blind draft is a second store seeded with the live root, written on the same lane: the gate sends its owner's edits
+  there, off the air. Its commit is published as a (root, leader instant) pair in the engine's snapshot, so the render
+  thread draws the new root's content from the boundary's frame on, and the lane makes it the document, as one undo step, on
+  the tick that reaches it (the stage's meshes and warps follow then) (docs/SHOW.md).
 
 ## 4. Time and sync — content is a pure function of show time
 
 - Every node has a monotonic clock (`MonoClock`, ns). A sync group has a **leader**; followers estimate the
   leader's clock with an NTP-style exchange on UDP 9942 every 250 ms (min-RTT filtering + drift regression,
-  `ClockOffsetEstimator`; slewed, never stepped). Show Bus links use the same estimator on `PING t1` lines (ms).
+  `ClockOffsetEstimator`) and read it through `NetworkClock`, lock-free. A correction of at most 1 ms is slewed at
+  200 ppm, so leader time stays continuous; a larger one steps, on the engine's control lane, which moves the playlists'
+  anchors, scheduled starts, the air's fades and a waiting blind commit by the same Δ in the same action (a group playlist
+  already on the leader's time line stays), so nothing lands early or late. A leader quiet for 3 s is held on its last
+  estimate. Show Bus links use the same estimator on `PING t1` lines (ms).
 - A playlist's transport is a `TimelineAnchor` (media time M at leader time L, rate, running). Commands carry an
-  optional start instant (`AT +200`): every node in the group gets the same anchor and starts on the same vblank.
+  optional start instant (`AT +200`). A leader pushes each transport change of a group playlist on its anchor feed
+  (`SUBSCRIBE ANCHORS`), and each follower takes it through its own `PLAYLIST ANCHOR` and its own gate, once its clock reads
+  the leader's time line: every node in the group holds the same anchor.
+- The group's air rides the same feed: a leader's `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` (but a line with `HERE`,
+  or a panic naming outputs) go to every member, which runs each through its own gate as a peer, pinned to the leader's
+  instant so fades start on the same frames; `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` take the same path. Each member
+  answers each line with `SYNC RECEIPT`, and the leader journals the receipts. Members report each output's vblank to the
+  leader (PMVB on UDP 9942), whose board measures phase, slip and rate against a reference (docs/SYNC.md).
 - The render loop predicts its next vblank, maps it to leader time (plus a host-wide display-latency setting, 0 by
   default) and asks `FrameSelector` which frame to show; while an output is frame-locked (`SYNC APPLY`) the instant is the
   lock anchor's time of the pacer's next count, the same integers on every node that holds the anchor. No node integrates a
@@ -104,10 +120,12 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   last T before the switch (cut to what both can give), the incoming item is anchored to start in it (at its
   opening for a fade, its middle for a dip) and prepared ahead, and the renderer mixes the two pictures in linear
   light (`Transitions`). The window is a function of the two anchors, so every node mixes the same pictures at the
-  same instant. A GO taken by hand cuts.
-- No engine part plays sound yet: clips play silent. The air's sound gain (master × panic) is computed from the same
-  fades as the picture for the part that will. Sound comes in: one capture per input feeds the analyser and the LTC
-  reader.
+  same instant. A GO, NEXT or PREV taken by hand into such an item opens the window at the GO's instant and mixes the same
+  way; a playlist in a sync group cuts at the GO, since the anchor its followers take carries no window.
+- The on-air item's sound (the focused playlist's) plays through one `AudioOut` slaved to the item's anchor: its rate nudged
+  by at most ±0.5 % to stay within 10 ms, resynced hard on a jump. Its gain is the air's sound gain (master × the darkest
+  panic, from the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Sound
+  comes in: one capture per input feeds the analyser and the LTC reader.
 
 ## 5. Rendering
 
@@ -138,7 +156,8 @@ Per frame, on the engine's render thread (one GL context, all outputs). Blackout
 7. **Present** through the output's presenter; its vblank clock and present ledger record which refresh showed each
    picture (missed vblanks, held and late presents; docs/OUTPUT.md).
 8. **Previews**: requested views (desk viewports, output thumbnails) are rendered to targets and read back
-   asynchronously (PBO ring) into the preview shared memory.
+   asynchronously (PBO ring) into the preview shared memory. An editor view of the blind draft is drawn after the air's
+   frame by a second renderer that has no outputs, so it never moves the air's present.
 
 A warm frame with no modulated layer, surface or effect slot allocates nothing (tests hold it for static frames, a test
 pattern, a projector at another raster, effect chains and an unchanged measured set). The render thread reads the air's

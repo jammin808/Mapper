@@ -36,7 +36,7 @@ Five design ideas we have not found combined in one product:
 - **Codecs:** the HAP family decodes on the GPU and clips optimise to HAP on import, but hardware decode of other codecs copies frames back to system memory.
 - **Video IO:** no NDI, Spout, OMT or capture-card SDKs.
 - **Control:** OSC, MIDI, Art-Net and sACN input with bindings, and timecode chase, are built; no Companion module yet (the node's side is built), no MIDI out or OSCQuery.
-- **Show floor:** Show Mode, locks, panic, preflight and fleet health are built; no redundancy and no blind edit.
+- **Show floor:** Show Mode, locks, panic, blind edit, preflight and fleet health are built; no redundancy.
 - **Creative breadth:** ISF effect chains, audio reactivity and LED pixel mapping are built; no FFGL, laser output or export.
 - **Adoption:** no importers from other tools, no signed installer, no reference hardware list, no support offer, and one maintainer.
 
@@ -44,18 +44,18 @@ Five design ideas we have not found combined in one product:
 
 | Area | Merged and tested (simulators only) | In progress | Designed only | Absent |
 |---|---|---|---|---|
-| Playback core | Playlists, gapless lanes, `ClipTransport`, `TimelineAnchor`, frame selection, `AT` starts, sync groups, timecode chase | Blind edit, sound on the air, the sync group's leader clock | Web/YouTube (enum only), Stagewatch timer source | Cue stack and timeline (by design), reverse play |
-| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, sound input, the HAP family on the GPU, optimise to HAP on import with PlayMap's own GPU encoder, an OpenAL audio output no engine part drives yet (clips play silent) | OMT and NDI in and out | D3D11VA zero-copy | Spout, Syphon, HDR out, ASIO |
-| Render | GL 3.3 core or ES 3.00 projector pass; output stage (warp, mask, blend, black level, trim, dither); vblank clock and present ledger per output; ISF effect chains; the edit overlay; every catalogued generator; Fade and Dip between scheduled items | — | D3D11 flip-model | Transitions on a manual take, Vulkan, Metal |
+| Playback core | Playlists, gapless lanes, `ClipTransport`, `TimelineAnchor`, frame selection, `AT` starts, sync groups (the leader clock, anchors and the group's air carried to followers, the vblank board), timecode chase, blind edit, sound on the air | — | Web/YouTube (enum only), Stagewatch timer source | Cue stack and timeline (by design), reverse play |
+| Media | FFmpeg 9 probe, hashing, HW decode with copy-back (never run on a GPU), frame-accurate seek, stills, sequences, avdevice capture, sound input, the HAP family on the GPU, optimise to HAP on import with PlayMap's own GPU encoder, an OpenAL audio output that plays the on-air item's sound | OMT and NDI in and out | D3D11VA zero-copy | Spout, Syphon, HDR out, ASIO |
+| Render | GL 3.3 core or ES 3.00 projector pass; output stage (warp, mask, blend, black level, trim, dither); vblank clock and present ledger per output; ISF effect chains; the edit overlay; every catalogued generator; Fade and Dip on scheduled switches and on a GO by hand; the blind draft's editor view | — | D3D11 flip-model | Vulkan, Metal |
 | Mapping maths | Lattices, TPS pin warp, Bezier tools, mask raster, 3D auto-blend, intensity compensation, coverage analysis, MPCDI export package, pixel quads, LED pixel mapping | — | Rescan retargeting | Mesh deform, planner UI |
 | Scan and calibration | Gray code + phase decoder, smart scan, quality score, meshing, `PoseSolver`, self-calibration, ICP, bridged registration, mesh and cloud IO, scan simulator, the scan runner, the calibration score and ledger, camera auto-align of flat screens, the multi-view solve (Core only) | The phone as a scan camera | — | Any real-camera run |
 | Vision | Segmenter router (classical, plus SAM when a verified model is present), depth previs, mask-to-path, pin suggester, drift watch; click-to-surface and suggested regions by verb (`SCAN SURFACE`) | — | Verbs for depth previs, pin suggestions and drift watch | Model files: catalogue checksums are not yet verified, so built-in models refuse to load |
 | Devices | PJLink 1/2, Christie, Panasonic, Barco Pulse and Epson drivers written from public protocol code; NEC and Sony gated as unverified; projector verbs (`DEVICE …`), the link from a projector to its device, geometry reset before each scan | — | — | Low-latency mode |
-| Network | Show Bus hello, wire server, HTTP/WS, MCP, TLS with certificate pinning, content-addressed media transfer, fine clock sync, OSC, MIDI and Art-Net/sACN input, the LED sender, mDNS, the node's side of Companion, the fleet monitor | The Companion module | Show Bus 1.3 proposals | — |
+| Network | Show Bus hello, wire server, HTTP/WS, MCP, TLS with certificate pinning, content-addressed media transfer, fine clock sync, the sync group's anchor feed and vblank reports, OSC, MIDI and Art-Net/sACN input, the LED sender, mDNS, the node's side of Companion, the fleet monitor | The Companion module | Show Bus 1.3 proposals | — |
 | AI | Assistant (a hosted or a local model), `CommandGate`, proposals, recipes | — | Voice, deixis | — |
 | Desk | Window, PLAY / MAP / SCAN, drawers, demo engine, view models, drag tests; the real engine, local or on the network | Controls for the round-two verbs | — | Web remote, roles, XR; onboarding beyond `LIGHT WALL` |
 
-The verb catalogue has 298 rows; a node answers the 104 first-round rows and the 137 round-two rows the packages route (`VERBS` marks each). `SCAN START` and `SCAN APPLY` run on a capture camera or the scan simulator, and `BLEND SOLVE` solves on a worker; `LATENCY MEASURE` refuses: its camera path is not built. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
+The verb catalogue has 294 rows; a node answers the 104 first-round rows and the 148 round-two rows the packages route (`VERBS` marks each). `SCAN START` and `SCAN APPLY` run on a capture camera or the scan simulator, and `BLEND SOLVE` solves on a worker; `LATENCY MEASURE` refuses: its camera path is not built. `PROJECTOR SOLVE` is wired to the solver but has only simulated input.
 
 ## 3. The field in October 2026
 

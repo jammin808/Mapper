@@ -50,8 +50,10 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
 
 - **Sync groups**: a playlist with `syncGroup` follows that group's leader. Followers keep the leader's clock with
   a nanosecond NTP-style exchange on UDP 9942 (min-RTT filtering plus drift); the leader sends each transport
-  change as a timeline anchor, so every node computes the same frame for the same instant. Commands can carry a
-  start instant (`PLAYLIST GO show AT +250`) so a group starts on one vblank.
+  change as a timeline anchor on its anchor feed (`SUBSCRIBE ANCHORS` on its wire), so every node computes the same
+  frame for the same instant. Commands can carry a start instant (`PLAYLIST GO show AT +250`) so a group starts at one
+  show instant. The leader's `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` ride the same feed, each answered with a
+  member's receipt, and members report their vblanks to the leader's board (docs/SYNC.md).
 - **Media**: library items are identified by SHA-256; a node that lacks a file pulls it from any peer that has it
   (`MEDIA FETCH ALL`), in resumable 8 MiB ranges, throttled while a show plays; STATE says which files are
   present, verified and decodable on each node.
