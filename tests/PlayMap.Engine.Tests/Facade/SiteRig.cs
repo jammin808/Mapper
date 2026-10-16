@@ -16,11 +16,12 @@ internal sealed class SiteRig : IAsyncDisposable
     public readonly EngineCore Engine;
     public readonly string Folder;
 
-    public SiteRig(Project? project = null)
+    public SiteRig(Project? project = null, Func<EngineServices, EngineServices>? services = null)
     {
         Folder = Path.Combine(Path.GetTempPath(), "playmap-facade-" + Guid.NewGuid().ToString("N")[..10]);
         Directory.CreateDirectory(Folder);
-        Engine = new EngineCore(EngineServices.ForTests(Clock) with { ProjectFolder = Folder }, project);
+        var s = EngineServices.ForTests(Clock) with { ProjectFolder = Folder };
+        Engine = new EngineCore(services?.Invoke(s) ?? s, project);
     }
 
     public string File(string name) => Path.Combine(Folder, name);

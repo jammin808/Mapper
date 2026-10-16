@@ -142,6 +142,7 @@ public static class BlendSolver3D
         if (scene.World.TriangleCount == 0)
             problems.Add("The stage has no visible surface, so no projector lands anywhere.");
 
+        var stacked = Stack(stage, views);
         var known = views.Where(v => v.Projector.Lumens > 0).Select(v => v.Projector.Lumens).ToList();
         var meanLumens = known.Count > 0 ? known.Average() : 1;
         foreach (var v in views)
@@ -165,7 +166,7 @@ public static class BlendSolver3D
         }
         foreach (var v in views)
         {
-            Weigh(v, views, scene, options, po);
+            Weigh(v, views, scene, options, po, stacked);
             Step();
         }
 
@@ -252,10 +253,13 @@ public static class BlendSolver3D
         public readonly bool[] Shadowed;
         public ulong SeenUnion;
         public double Lumens = 1;
+        /// <summary>The view whose group this one blends in: a stack's master for its members, else itself.</summary>
+        public int Group;
 
         public View(int index, Output output, Projector projector, BlendSolveOptions options)
         {
             Index = index;
+            Group = index;
             Output = output;
             Projector = projector;
             Optics = Optics.Of(projector);
@@ -424,12 +428,33 @@ public static class BlendSolver3D
         return distance <= expected + Math.Max(hi - lo, 1e-3 * expected);
     }
 
-    private static void Weigh(View v, List<View> views, StageScene scene, BlendSolveOptions o, ParallelOptions po)
+    /// <summary>The stacks' collapse (facade §3.9): each stack with two or more members on outputs here becomes one group, led by its
+    /// master (else its first member there). True when any stack does.</summary>
+    private static bool Stack(Stage stage, List<View> views)
+    {
+        var any = false;
+        foreach (var sk in stage.Stacks)
+        {
+            var members = views.Where(v => sk.ProjectorIds.Contains(v.Projector.Id, StringComparer.Ordinal)).ToList();
+            if (members.Count < 2)
+                continue;
+            var lead = members.FirstOrDefault(v => v.Projector.Id == sk.MasterId) ?? members[0];
+            foreach (var v in members)
+                v.Group = lead.Index;
+            any = true;
+        }
+        return any;
+    }
+
+    private static void Weigh(View v, List<View> views, StageScene scene, BlendSolveOptions o, ParallelOptions po, bool stacked)
     {
         var unions = new ulong[v.H];
         Parallel.For(0, v.H, po, y =>
         {
             ulong rowUnion = 0;
+            Span<double> edges = stackalloc double[stacked ? views.Count : 0];
+            Span<double> geometry = stackalloc double[stacked ? views.Count : 0];
+            Span<double> light = stackalloc double[stacked ? views.Count : 0];
             for (var x = 0; x < v.W; x++)
             {
                 var i = y * v.W + x;
@@ -477,17 +502,26 @@ public static class BlendSolver3D
                     var cos = Math.Abs(Vec3d.Dot(shade, dir));
                     var incidence = Math.Pow(Math.Max(cos, o.MinCosine), o.IncidenceExponent);
                     var falloff = o.UseDistance ? 1 / Math.Max(d * d, 1e-12) : 1;
-                    var weight = Math.Max(EdgeFactor(j, pj, o.EdgeWidth) * incidence * falloff * j.Lumens, 1e-30);
+                    var edge = EdgeFactor(j, pj, o.EdgeWidth);
+                    var weight = Math.Max(edge * incidence * falloff * j.Lumens, 1e-30);
                     sum += weight;
                     if (j == v)
                         own = weight;
                     var cosAlpha = Math.Max(0, -Vec3d.Dot(dir, j.Optics.Forward));
                     var c2 = cosAlpha * cosAlpha;
                     emix += weight * j.Lumens * cos / Math.Max(d * d, 1e-12) * c2 * c2;
+                    if (stacked)
+                    {
+                        edges[j.Index] = edge;
+                        geometry[j.Index] = incidence * falloff;
+                        light[j.Index] = j.Lumens * cos / Math.Max(d * d, 1e-12) * c2 * c2;
+                    }
                     floor += Math.Clamp(j.Output.Blend.BlackLevel, 0, 1);
                     count++;
                     seen |= 1UL << j.Index;
                 }
+                if (stacked)
+                    (sum, own, emix) = Collapse(v, views, seen, edges, geometry, light);
                 v.Light[i] = (float)(own / sum);
                 v.Emix[i] = (float)(emix / sum);
                 v.Floor[i] = (float)floor;
@@ -499,6 +533,44 @@ public static class BlendSolver3D
         });
         foreach (var u in unions)
             v.SeenUnion |= u;
+    }
+
+    /// <summary>A point's weights with each stack as one projector: the group's weight is its lead's geometry (incidence and
+    /// distance; the first member seeing the point when the lead does not), the least edge factor of its members that see the point,
+    /// and their summed lumens. Every member gets its group's share, so stacked light adds and the stack hands over to its
+    /// neighbours as one projector.</summary>
+    private static (double Sum, double Own, double Emix) Collapse(View v, List<View> views, ulong seen, ReadOnlySpan<double> edges,
+        ReadOnlySpan<double> geometry, ReadOnlySpan<double> light)
+    {
+        Span<double> groupWeight = stackalloc double[views.Count];
+        Span<double> groupEdge = stackalloc double[views.Count];
+        Span<double> groupGeometry = stackalloc double[views.Count];
+        Span<double> groupLumens = stackalloc double[views.Count];
+        groupEdge.Fill(double.PositiveInfinity);
+        groupGeometry.Fill(-1);
+        foreach (var j in views)
+        {
+            if ((seen & (1UL << j.Index)) == 0)
+                continue;
+            var g = j.Group;
+            groupEdge[g] = Math.Min(groupEdge[g], edges[j.Index]);
+            groupLumens[g] += j.Lumens;
+            if (j.Index == g || groupGeometry[g] < 0)
+                groupGeometry[g] = geometry[j.Index];
+        }
+        double sum = 0;
+        for (var g = 0; g < views.Count; g++)
+        {
+            if (groupGeometry[g] < 0)
+                continue;
+            groupWeight[g] = Math.Max(groupEdge[g] * groupGeometry[g] * groupLumens[g], 1e-30);
+            sum += groupWeight[g];
+        }
+        double emix = 0;
+        foreach (var j in views)
+            if ((seen & (1UL << j.Index)) != 0)
+                emix += groupWeight[j.Group] * light[j.Index];
+        return (sum, groupWeight[v.Group], emix);
     }
 
     private static OutputBlend Finish(View v, List<View> views, double floorTarget, double target, double brightest, BlendSolveOptions o)

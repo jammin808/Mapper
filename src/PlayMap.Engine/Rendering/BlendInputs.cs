@@ -6,7 +6,7 @@ namespace PlayMap.Engine.Rendering;
 
 /// <summary>What the automatic 3D blend depends on, as a value two snapshots can be compared by: the stage's
 /// surfaces, meshes and projectors (by identity — an edit to any of them makes a new array, an untouched one
-/// is shared) and every output that blends automatically (by the fields the solve reads). Equal inputs give
+/// is shared), its stacks (by members and master) and every output that blends automatically (by the fields the solve reads). Equal inputs give
 /// the same blend, so a solve is never repeated for them and a solve's maps are installed only while the
 /// inputs they were solved for are still the project's.</summary>
 public sealed class BlendInputs : IEquatable<BlendInputs>
@@ -72,7 +72,7 @@ public sealed class BlendInputs : IEquatable<BlendInputs>
         if (ReferenceEquals(this, other))
             return true;
         if (Stage.Surfaces != other.Stage.Surfaces || Stage.Meshes != other.Stage.Meshes || Stage.Projectors != other.Stage.Projectors
-            || Outputs.Length != other.Outputs.Length)
+            || !SameStacks(Stage.Stacks, other.Stage.Stacks) || Outputs.Length != other.Outputs.Length)
             return false;
         for (var i = 0; i < Outputs.Length; i++)
             if (!SameForBlend(Outputs[i], other.Outputs[i]))
@@ -83,6 +83,19 @@ public sealed class BlendInputs : IEquatable<BlendInputs>
     public override bool Equals(object? obj) => Equals(obj as BlendInputs);
 
     public override int GetHashCode() => HashCode.Combine(Stage.Surfaces.Length, Stage.Projectors.Length, Outputs.Length);
+
+    /// <summary>The stacks as the blend reads them (members and master; a failover policy changes no blend).</summary>
+    private static bool SameStacks(ImmutableArray<StackGroup> a, ImmutableArray<StackGroup> b)
+    {
+        if (a == b)
+            return true;
+        if (a.Length != b.Length)
+            return false;
+        for (var i = 0; i < a.Length; i++)
+            if (a[i].Id != b[i].Id || a[i].MasterId != b[i].MasterId || !a[i].ProjectorIds.SequenceEqual(b[i].ProjectorIds, StringComparer.Ordinal))
+                return false;
+        return true;
+    }
 
     private static bool SameForBlend(Output a, Output b) =>
         ReferenceEquals(a, b)

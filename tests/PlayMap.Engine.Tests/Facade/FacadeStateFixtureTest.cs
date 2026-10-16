@@ -7,7 +7,8 @@ using PlayMap.Engine.Tests.Spine;
 namespace PlayMap.Engine.Tests.Facade;
 
 /// <summary>tests/fixtures/state/facade.json is the facade's STATE keys from a real scenario — a georeferenced model imported, 14 control
-/// points surveyed and checked, a far projector given a lens prior and solved from flat pins (the zoom locked from the lens) — and
+/// points surveyed and checked, a far projector given a lens prior and solved from flat pins (the zoom locked from the lens), a twin
+/// stacked on it (not yet aligned), and the guide's next step — and
 /// facade.cards.json the cards the desk draws from them. This test writes both (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the
 /// committed files are what the engine writes now, ids made stable; every card's path and fields resolve in the fixture and every
 /// action is a line of the catalogue.</summary>
@@ -53,9 +54,28 @@ public sealed partial class FacadeStateFixtureTest
                 Field("Weak", "weak")),
             ["actions"] = new JsonArray("PROJECTOR SOLVE $(id)", "PROJECTOR PRIOR $(id) THROW 3 ±2", "PROJECTOR PRIOR $(id) CLEAR"),
         },
+        new JsonObject
+        {
+            ["title"] = "Next step",
+            ["path"] = "stage.site.next",
+            ["light"] = new JsonArray(Rule("if", "line", "amber"), new JsonObject { ["light"] = "green" }),
+            ["words"] = "{step}: {words} — {line}",
+            ["fields"] = new JsonArray(Field("Step", "step"), Field("State", "state"), Field("What", "words"), Field("Line", "line")),
+            ["actions"] = new JsonArray("SITE GUIDE"),
+        },
+        new JsonObject
+        {
+            ["title"] = "Stack",
+            ["path"] = "stage.stacks.0",
+            ["light"] = new JsonArray(Rule("if", "aligned", "green"), new JsonObject { ["light"] = "amber" }),
+            ["words"] = "{name}: {members} on {master} · {residualPx} px · failover {failover}",
+            ["fields"] = new JsonArray(Field("Name", "name"), Field("Members", "members"), Field("Master", "master"), Field("Aligned", "aligned"),
+                Field("Matched", "matched"), Field("Residual (px)", "residualPx"), Field("Failover", "failover"), Field("Degraded", "degraded"), Field("Gain", "gain")),
+            ["actions"] = new JsonArray("STACK LIST", "STACK ALIGN $(id) FROM <scan>", "STACK MATCH $(id) FROM <scan>", "REMOVE $(id)"),
+        },
     ];
 
-    [GeneratedRegex(@"\b(sv|ms|sf|cp|pj|pn|cs)[0-9a-f]{8}\b")]
+    [GeneratedRegex(@"\b(sv|ms|sf|cp|pj|pn|cs|sk)[0-9a-f]{8}\b")]
     private static partial Regex RandomIds();
 
     private static string Fixture(JsonElement state)
@@ -69,6 +89,7 @@ public sealed partial class FacadeStateFixtureTest
                 ["id"] = pj.GetProperty("id").GetString(),
                 ["uncertainty"] = JsonNode.Parse(pj.GetProperty("uncertainty").GetRawText()),
                 ["priors"] = pj.GetProperty("priors").GetString(),
+                ["stack"] = JsonNode.Parse(pj.GetProperty("stack").GetRawText()),
             });
         }
         var root = new JsonObject
@@ -78,6 +99,7 @@ public sealed partial class FacadeStateFixtureTest
                 ["site"] = JsonNode.Parse(stage.GetProperty("site").GetRawText()),
                 ["controls"] = stage.GetProperty("controls").GetInt32(),
                 ["surveys"] = JsonNode.Parse(stage.GetProperty("surveys").GetRawText()),
+                ["stacks"] = JsonNode.Parse(stage.GetProperty("stacks").GetRawText()),
                 ["projectors"] = projectors,
             },
         };
@@ -122,6 +144,10 @@ public sealed partial class FacadeStateFixtureTest
         await rig.Ok($"PROJECTOR PRIOR {far.Id} THROW 3.02 ±2");
         var solve = SiteRig.Json(await rig.Ok($"PROJECTOR SOLVE {far.Id}"));
         Assert.Equal("focal", solve.GetProperty("locked")[0].GetString());
+        // A second projector stacked on the far one: the stack waits for its scan, and the guide says what comes next.
+        var twin = far with { Id = "pj0a0b0c0e", Name = "Far twin" };
+        Assert.True((await rig.Engine.EditAsync(SiteRig.Desk, "add its twin", p => p.WithStage(st => st with { Projectors = st.Projectors.Add(twin) }))).Changed);
+        await rig.Ok($"STACK NEW Front {far.Id} {twin.Id}");
 
         var state = rig.State();
         var fixture = Fixture(state);

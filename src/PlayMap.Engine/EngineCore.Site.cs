@@ -5,8 +5,8 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine;
 
-/// <summary>wp2-facade's hooks into the engine (EngineCore.Modules.cs): the site verbs, STATE.stage.site, controls and surveys,
-/// each projector's uncertainty and priors, the site and survey context items, and the check of a control point or a bound pin an
+/// <summary>wp2-facade's hooks into the engine (EngineCore.Modules.cs): the site and stack verbs, STATE.stage.site, controls, surveys
+/// and stacks, each projector's uncertainty, priors and stack, the site, survey and stack context items, and the check of a control point or a bound pin an
 /// edit adds.</summary>
 public sealed partial class EngineCore
 {
@@ -20,6 +20,8 @@ public sealed partial class EngineCore
         routes.Lane("SURVEY IMPORT", SurveyImport);
         routes.Lane("SURVEY LIST", _ => SurveyList());
         routes.Lane("PROJECTOR PRIOR", c => ProjectorPrior(c.Args));
+        routes.Lane("SITE GUIDE", SiteGuideQuery);
+        RouteStacks(routes);
     }
 
     partial void StageSite(Utf8JsonWriter w)
@@ -39,6 +41,11 @@ public sealed partial class EngineCore
             w.WriteNumber("rotationDeg", stage.Site.RotationDeg);
             w.WriteNumber("gridScale", stage.Site.GridScale);
             w.WriteNumber("mainsHz", stage.Site.MainsHz);
+            w.WritePropertyName("next");
+            if (Core.Site.SiteGuide.Next(GuideFor(Store.Project)) is { } next)
+                WriteGuideStep(w, next);
+            else
+                w.WriteNullValue();
             w.WriteEndObject();
         }
         else
@@ -48,6 +55,8 @@ public sealed partial class EngineCore
         w.WriteNumber("controls", stage.Controls.Length);
         w.WritePropertyName("surveys");
         WriteSurveyRows(w, stage, provenance: false);
+        w.WritePropertyName("stacks");
+        WriteStacks(w, Store.Project, list: false);
     }
 
     partial void ProjectorSite(Utf8JsonWriter w, Projector pj)
@@ -67,6 +76,10 @@ public sealed partial class EngineCore
             w.WriteNullValue();
         }
         w.WriteString("priors", PriorWords(Store.Project, pj.Priors));
+        if (Store.Project.Stage.Stacks.FirstOrDefault(s => s.ProjectorIds.Contains(pj.Id, StringComparer.Ordinal)) is { } stack)
+            w.WriteString("stack", stack.Id);
+        else
+            w.WriteNull("stack");
     }
 
     partial void ContextSite(List<ContextItem> items, List<ContextLink> links)
@@ -95,6 +108,7 @@ public sealed partial class EngineCore
                 : Light.Green;
             items.Add(new ContextItem("survey:" + row.Id, "survey", row.Name, light, row.State));
         }
+        ContextStacks(p, items);
     }
 
     partial void ValidateSite(Project p, object entity, ref string? why)
@@ -117,6 +131,18 @@ public sealed partial class EngineCore
                 why = string.Create(SiteInv, $"a pin bound to {bound.Name} sits at it: world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}");
                 break;
             }
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.ProjectorIds.FirstOrDefault(id => p.FindProjector(id) is null) is { } missing:
+                why = $"stack {sk.Name}: no projector {missing}";
+                break;
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.ProjectorIds.Distinct(StringComparer.Ordinal).Count() != sk.ProjectorIds.Length:
+                why = $"stack {sk.Name} names a projector twice";
+                break;
+            case StackGroup sk when sk.MasterId.Length > 0 && !sk.ProjectorIds.IsDefault && !sk.ProjectorIds.Contains(sk.MasterId, StringComparer.Ordinal):
+                why = $"stack {sk.Name}'s master must be one of its members";
+                break;
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && p.Stage.Stacks.FirstOrDefault(o => o.Id != sk.Id && o.ProjectorIds.Intersect(sk.ProjectorIds, StringComparer.Ordinal).Any()) is { } other:
+                why = $"a projector of {sk.Name} is in stack {other.Name} already";
+                break;
             case ControlPoint cp when p.Stage.Controls.Find(cp.Id) is { } was && was.Grid != cp.Grid
                 && p.Stage.Projectors.Any(pj => pj.Priors.ControlId == cp.Id || pj.Pins.Any(x => x.ControlId == cp.Id)):
                 why = $"pins or priors are bound to {cp.Name} — re-survey it with SITE POINTS, so they follow it";

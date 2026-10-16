@@ -125,5 +125,98 @@
       "PROJECTOR PRIOR $(id) THROW 3 \u00B12",
       "PROJECTOR PRIOR $(id) CLEAR"
     ]
+  },
+  {
+    "title": "Next step",
+    "path": "stage.site.next",
+    "light": [
+      {
+        "if": "line",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{step}: {words} \u2014 {line}",
+    "fields": [
+      {
+        "label": "Step",
+        "path": "step"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "What",
+        "path": "words"
+      },
+      {
+        "label": "Line",
+        "path": "line"
+      }
+    ],
+    "actions": [
+      "SITE GUIDE"
+    ]
+  },
+  {
+    "title": "Stack",
+    "path": "stage.stacks.0",
+    "light": [
+      {
+        "if": "aligned",
+        "light": "green"
+      },
+      {
+        "light": "amber"
+      }
+    ],
+    "words": "{name}: {members} on {master} \u00B7 {residualPx} px \u00B7 failover {failover}",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Members",
+        "path": "members"
+      },
+      {
+        "label": "Master",
+        "path": "master"
+      },
+      {
+        "label": "Aligned",
+        "path": "aligned"
+      },
+      {
+        "label": "Matched",
+        "path": "matched"
+      },
+      {
+        "label": "Residual (px)",
+        "path": "residualPx"
+      },
+      {
+        "label": "Failover",
+        "path": "failover"
+      },
+      {
+        "label": "Degraded",
+        "path": "degraded"
+      },
+      {
+        "label": "Gain",
+        "path": "gain"
+      }
+    ],
+    "actions": [
+      "STACK LIST",
+      "STACK ALIGN $(id) FROM \u003Cscan\u003E",
+      "STACK MATCH $(id) FROM \u003Cscan\u003E",
+      "REMOVE $(id)"
+    ]
   }
 ]

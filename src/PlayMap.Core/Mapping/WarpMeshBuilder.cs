@@ -23,10 +23,11 @@ public static class WarpMeshBuilder
     /// a side, and the whole grid into at least <paramref name="minGrid"/> a side so a corner pin's
     /// perspective is sampled finely enough that affine interpolation inside a triangle does not show.
     /// A disabled or resting warp is <see cref="IdentityQuad"/>.</summary>
-    public static WarpMeshGeometry Build(OutputWarp warp, int subdivisionsPerCell = 8, int minGrid = 32, PinWarp? pins = null)
+    public static WarpMeshGeometry Build(OutputWarp warp, int subdivisionsPerCell = 8, int minGrid = 32, PinWarp? pins = null,
+        WarpLattice? measured = null)
     {
         ArgumentNullException.ThrowIfNull(warp);
-        return Tessellate(new WarpField(warp, pins), subdivisionsPerCell, minGrid);
+        return Tessellate(new WarpField(warp, pins, measured), subdivisionsPerCell, minGrid);
     }
 
     /// <summary>Tessellates a compiled field (see <see cref="Build"/>).</summary>
@@ -38,8 +39,10 @@ public static class WarpMeshBuilder
         subdivisionsPerCell = Math.Clamp(subdivisionsPerCell, 1, 64);
         minGrid = Math.Clamp(minGrid, 1, 1024);
         var lattice = field.Lattice;
-        var cellsU = lattice?.CellsU ?? 1;
-        var cellsV = lattice?.CellsV ?? 1;
+        var measured = field.Measured;
+        // With a measured layer the grid follows the finer of the two lattices and every vertex runs the whole field.
+        var cellsU = Math.Max(lattice?.CellsU ?? 1, measured?.CellsU ?? 1);
+        var cellsV = Math.Max(lattice?.CellsV ?? 1, measured?.CellsV ?? 1);
         var ku = Math.Max(subdivisionsPerCell, (minGrid + cellsU - 1) / cellsU);
         var kv = Math.Max(subdivisionsPerCell, (minGrid + cellsV - 1) / cellsV);
         var gw = cellsU * ku;
@@ -48,7 +51,16 @@ public static class WarpMeshBuilder
         var vh = gh + 1;
         var n = vw * vh;
         var pts = new Vec2d[n];
-        if (lattice is not null)
+        if (measured is not null)
+        {
+            for (var y = 0; y < vh; y++)
+                for (var x = 0; x < vw; x++)
+                {
+                    var m = measured.Evaluate(x / (double)gw, y / (double)gh);
+                    pts[y * vw + x] = lattice is null ? m : lattice.Evaluate(m.X, m.Y);
+                }
+        }
+        else if (lattice is not null)
         {
             lattice.EvaluateGrid(ku, kv, pts);
         }

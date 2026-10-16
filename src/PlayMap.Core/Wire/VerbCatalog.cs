@@ -453,7 +453,7 @@ public static class VerbCatalog
         V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>] | LED LEVEL BY <delta> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED MONITOR", "LED MONITOR <node> <universe>", "The bytes last sent to a universe, with the fixtures in it", VerbCategory.Led, VerbRisk.Low, false),
 
-        // Facades: site, survey, control points, long-throw priors (wp2-facade; the guide, the light plan and stacks are wp2-stacks').
+        // Facades: site, survey, control points, long-throw priors, the guide and stacks (wp2-facade, continued by wp2-stacks).
         V2("SITE", "SITE", "The site frame: coordinate system, grid origin, rotation, scale and mains frequency", VerbCategory.Site, VerbRisk.Low, false),
         V2("SITE ORIGIN", "SITE ORIGIN <e> <n> <h> [CRS <code>|LOCAL] [ROTATE <deg>]", "Sets the site frame; the whole stage moves with it in one edit", VerbCategory.Site, VerbRisk.Review, true),
         V2("SITE MAINS", "SITE MAINS 50|60", "The venue's mains frequency", VerbCategory.Site, VerbRisk.Low, true),
@@ -462,8 +462,11 @@ public static class VerbCatalog
         V2("SURVEY IMPORT", "SURVEY IMPORT <path> [CRS <code>|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL <m>] [DECIMATE <triangles>|OFF] [NAME <name>]", "Imports a surveyed model or point cloud (OBJ, PLY, glTF, LAS, E57, XYZ) into the site frame, off the control lane; answers its id", VerbCategory.Site, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
         V2("SURVEY LIST", "SURVEY LIST", "Imported surveys with provenance and state", VerbCategory.Site, VerbRisk.Low, false),
         V2("PROJECTOR PRIOR", "PROJECTOR PRIOR <projector> THROW <ratio> [±<pct>] | PROJECTOR PRIOR <projector> AT <control> [±<m>] | PROJECTOR PRIOR <projector> AT <x> <y> <z> [±<m>] | PROJECTOR PRIOR <projector> CLEAR", "What a solve may assume about a projector's lens and position", VerbCategory.Mapping, VerbRisk.Review, true),
-        // Kept unrouted for wp2-stacks: the calibration score's stack term names it as its fix (unavailable until routed).
+        V2("SITE GUIDE", "SITE GUIDE", "The facade workflow as steps (survey, control points, pins, priors and solve, stacks, blend, score), each with its state and the line that does it", VerbCategory.Site, VerbRisk.Low, false, "FACADE GUIDE"),
+        V2("STACK NEW", "STACK NEW <name> <projector> <projector> [<projector>…] [MASTER <projector>]", "Groups projectors lighting one picture (the blend treats them as one); answers its id", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK ALIGN", "STACK ALIGN <stack> FROM <scan> [GRID <c>x<r>]", "Fits each member's measured residual to the master's picture from a shared scan", VerbCategory.Mapping, VerbRisk.Review, true),
+        V2("STACK MATCH", "STACK MATCH <stack> FROM <scan>", "Matches the members' colour gains from the scan's white frames", VerbCategory.Mapping, VerbRisk.Review, true),
+        V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
         // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass, ALIGN SCORE and DEVICE NATIVE).
         V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),

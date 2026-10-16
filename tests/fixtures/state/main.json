@@ -118,6 +118,7 @@
         "pins": 0,
         "uncertainty": null,
         "priors": "",
+        "stack": null,
         "grade": "",
         "quads": 0
       },
@@ -129,6 +130,7 @@
         "pins": 0,
         "uncertainty": null,
         "priors": "",
+        "stack": null,
         "grade": "",
         "quads": 0
       }
@@ -136,7 +138,8 @@
     "scans": 0,
     "site": null,
     "controls": 0,
-    "surveys": []
+    "surveys": [],
+    "stacks": []
   },
   "scan": null,
   "sync": {
@@ -181,7 +184,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "8190583918669fd9"
+    "index": "9d8230d782cd015c"
   },
   "faults": [],
   "ai": {
