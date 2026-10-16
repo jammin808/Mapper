@@ -4,14 +4,17 @@ using PlayMap.Core.Tc;
 namespace PlayMap.Engine.Tc;
 
 /// <summary>The show's timecode sources at run time: one tracker per source, fed from the inputs' own threads (each source under its
-/// own lock) and read by the chase on the lane. Internal sources are exact lines run by TIMECODE INTERNAL. An input's level, its
-/// open state and its words ride beside the reading.</summary>
+/// own lock) and read by the chase on the lane. A source's own tracker judges its code at the auto jump threshold; each threshold a
+/// chase of it sets (TIMECODE SET … JUMP) has a tracker of its own, fed the same code, so every chase reads the code judged by its
+/// own threshold. Internal sources are exact lines run by TIMECODE INTERNAL. An input's level, its open state and its words ride
+/// beside the reading.</summary>
 public sealed class TimecodeBoard
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
-    /// <summary>Keeps one entry per source of the show (a source whose kind, format or window changed starts afresh).</summary>
+    /// <summary>Keeps one entry per source of the show (a source whose kind, format or window changed starts afresh), judged at the
+    /// jump thresholds its chases set.</summary>
     public void Reconcile(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -23,11 +26,13 @@ public sealed class TimecodeBoard
             {
                 if (_entries.TryGetValue(s.Id, out var e) && e.Source.Kind == s.Kind && e.Source.Format == s.Format && e.Source.FitWindowMs == s.FitWindowMs
                     && e.Source.Channel == s.Channel && e.Source.Device == s.Device)
-                {
                     e.Source = s;
-                    continue;
-                }
-                _entries[s.Id] = new Entry(s);
+                else
+                    _entries[s.Id] = e = new Entry(s);
+                var thresholds = project.Playlists.Select(l => l.Chase).OfType<TimecodeChase>()
+                    .Where(c => c.JumpNs > 0 && c.Sources.Contains(s.Id)).Select(c => c.JumpNs).ToHashSet();
+                lock (e.Gate)
+                    e.JudgeAt(thresholds);
             }
         }
     }
@@ -65,7 +70,8 @@ public sealed class TimecodeBoard
             return;
         lock (e.Gate)
             foreach (var o in observations)
-                e.Tracker.Observe(o);
+                foreach (var t in e.Trackers)
+                    t.Observe(o);
     }
 
     public void Observe(string sourceId, TcObservation observation) => Observe(sourceId, [observation]);
@@ -92,7 +98,8 @@ public sealed class TimecodeBoard
         {
             e.Open = false;
             e.InputWords = words;
-            e.Tracker.Fault(words, nowNs);
+            foreach (var t in e.Trackers)
+                t.Fault(words, nowNs);
         }
     }
 
@@ -101,7 +108,8 @@ public sealed class TimecodeBoard
         if (Find(sourceId) is not { } e)
             return;
         lock (e.Gate)
-            e.Tracker.Silent(nowNs);
+            foreach (var t in e.Trackers)
+                t.Silent(nowNs);
     }
 
     public void Count(string sourceId, TcCounters counts)
@@ -109,7 +117,8 @@ public sealed class TimecodeBoard
         if (Find(sourceId) is not { } e)
             return;
         lock (e.Gate)
-            e.Tracker.Count(counts);
+            foreach (var t in e.Trackers)
+                t.Count(counts);
     }
 
     /// <summary>TIMECODE SOURCE RESET: the counts start again.</summary>
@@ -118,12 +127,14 @@ public sealed class TimecodeBoard
         if (Find(sourceId) is not { } e)
             return false;
         lock (e.Gate)
-            e.Tracker.ResetCounts();
+            foreach (var t in e.Trackers)
+                t.ResetCounts();
         return true;
     }
 
-    /// <summary>A source's reading at an instant (dropout and loss judged then); an internal source's exact line.</summary>
-    public TcReading ReadingOf(string sourceId, long nowNs)
+    /// <summary>A source's reading at an instant (dropout and loss judged then), its code judged at a jump threshold (0 = auto, the
+    /// source's own); an internal source's exact line.</summary>
+    public TcReading ReadingOf(string sourceId, long nowNs, long jumpNs = 0)
     {
         if (Find(sourceId) is not { } e)
             return TcReading.None with { State = "none", Words = $"no source {sourceId}" };
@@ -131,8 +142,9 @@ public sealed class TimecodeBoard
         {
             if (e.Source.Kind == TimecodeKind.Internal)
                 return e.InternalReading(nowNs);
-            e.Tracker.Tick(nowNs);
-            return e.Tracker.Reading;
+            var tracker = e.JudgedAt(jumpNs);
+            tracker.Tick(nowNs);
+            return tracker.Reading;
         }
     }
 
@@ -195,7 +207,35 @@ public sealed class TimecodeBoard
 
         public Lock Gate { get; } = new();
         public TimecodeSource Source { get; set; }
+
+        /// <summary>The source's own tracker: its code judged at the auto jump threshold.</summary>
         public TimecodeTracker Tracker { get; }
+
+        /// <summary>The trackers for the jump thresholds its chases set, by threshold.</summary>
+        private Dictionary<long, TimecodeTracker> Judged { get; } = [];
+
+        public IEnumerable<TimecodeTracker> Trackers => Judged.Values.Prepend(Tracker);
+
+        /// <summary>The tracker judging the code at a threshold (0 = auto); one asked for before the board heard of it starts from the
+        /// code as the source's own tracker has it.</summary>
+        public TimecodeTracker JudgedAt(long jumpNs)
+        {
+            if (jumpNs <= 0)
+                return Tracker;
+            if (!Judged.TryGetValue(jumpNs, out var t))
+                Judged[jumpNs] = t = Tracker.JudgedAt(jumpNs);
+            return t;
+        }
+
+        /// <summary>Keeps a tracker for each of these thresholds and no other; a new one starts from the code as it stands.</summary>
+        public void JudgeAt(IReadOnlySet<long> thresholds)
+        {
+            foreach (var gone in Judged.Keys.Where(k => !thresholds.Contains(k)).ToList())
+                Judged.Remove(gone);
+            foreach (var j in thresholds)
+                JudgedAt(j);
+        }
+
         public TcFormat Format { get; }
         public bool Open { get; set; }
         public double LevelDbfs { get; set; } = -120;

@@ -84,7 +84,8 @@ show (another file imported, another slot changed) never restarts a slot on the 
 - Imported pictures (`IMPORTED`) travel with the show inside the asset (PNG or JPEG) and are decoded on the compile lane, at
   most 4096 × 4096 (the size is read from the file's header first). `FX IMPORT` of a path takes pictures only from inside the
   file's own folder.
-- Sound inputs read silence this round (`audio` is a 0.5 grey, `audioFFT` black); the audio package brings the live textures.
+- Sound inputs read silence (`audio` is a 0.5 grey, `audioFFT` black): the frame carries the sound (docs/AUDIO.md), and the live
+  textures are next.
 
 ## Time, and what is frame-exact
 
@@ -132,6 +133,11 @@ Ten effects written for PlayMap as ISF files, embedded in the renderer, each wit
 
 A show's own ISF files are kinds `isf:<asset id>` beside them (`FX IMPORT`).
 
+## Bindings
+
+A slot's `mix` and its kind's numbers move with the sound, the beat clock or an LFO through `MOD BIND` (alias `FX BIND`): each
+frame the drawn project carries the slot's bound numbers at their live values while the show keeps the base (docs/AUDIO.md).
+
 ## Measured, not governed
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
@@ -146,8 +152,8 @@ allocates nothing on the frame path.
 - A canvas's own chain (its layers' chains draw).
 - A chain on a flat colour runs on its one-pixel picture: colour effects are right, spatial ones (blur, vignette, tile, feedback
   zoom) have nothing to work on until a one-pixel picture is drawn at its owner's size.
-- Modulation bindings (`FX BIND` through `IModulationBus`, with the built-in `lfo:` and `ramp:` sources), the geometry-aware
-  effects (`PM_POSITION`, `PM_NORMAL`, `PM_EDGE`) and the rest of the library.
+- Live `audio` and `audioFFT` textures, the geometry-aware effects (`PM_POSITION`, `PM_NORMAL`, `PM_EDGE`) and the rest of the
+  library.
 - FFGL 2.x: the in-process host, the probe child and quarantine, the isolated host, the Windows GL island.
 - The ES fix-up tokenizer (hoisting non-constant global initialisers, explicit int → float), history pre-roll, ISF generators and
   transitions, presets and linked looks, audition on a preview, the shader editor.

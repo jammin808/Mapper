@@ -161,7 +161,8 @@
         "bytesDone": 25000000,
         "size": 100000000
       }
-    ]
+    ],
+    "optimise": null
   },
   "stage": {
     "surfaces": 0,
@@ -479,6 +480,71 @@
     "held": [],
     "flashLimited": -1
   },
+  "content": {
+    "budgetMs": 6,
+    "governor": "advise",
+    "light": "grey",
+    "costMs": 0,
+    "renderer": "none",
+    "sting": null,
+    "generators": [
+      {
+        "id": "gn_testcard",
+        "kind": "pattern.testcard",
+        "name": "Test card",
+        "state": "idle",
+        "progress": 0,
+        "time": "pure",
+        "originNs": 0,
+        "timeS": 0,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "grey",
+        "words": "no renderer on this node",
+        "warnings": []
+      },
+      {
+        "id": "gn00000008",
+        "kind": "pattern.flat",
+        "name": "White",
+        "state": "idle",
+        "progress": 0,
+        "time": "pure",
+        "originNs": 5000000000,
+        "timeS": 0,
+        "gpuMs": 0,
+        "gpuMsP95": 0,
+        "count": 0,
+        "morph": null,
+        "live": {},
+        "inputs": {},
+        "onAir": false,
+        "light": "grey",
+        "words": "no renderer on this node",
+        "warnings": []
+      }
+    ]
+  },
+  "led": {
+    "output": false,
+    "level": 1,
+    "fixtures": 0,
+    "pixels": 0,
+    "universes": 0,
+    "mbps": 0,
+    "test": null,
+    "locate": null,
+    "lagMs": 0,
+    "lateCollects": 0,
+    "nodes": [],
+    "conflicts": [],
+    "warnings": []
+  },
   "calibration": {
     "moved": [],
     "task": null,
@@ -495,5 +561,6 @@
   "align": {
     "run": null,
     "groups": []
-  }
+  },
+  "phones": []
 }

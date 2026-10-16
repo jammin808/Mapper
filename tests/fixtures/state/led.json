@@ -1,1 +1,58 @@
-{}
+{
+  "led": {
+    "output": true,
+    "level": 1,
+    "fixtures": 4,
+    "pixels": 40,
+    "universes": 1,
+    "mbps": 0.065,
+    "test": {
+      "pattern": "walk",
+      "on": "lf00000002"
+    },
+    "locate": null,
+    "lagMs": 0,
+    "lateCollects": 0,
+    "nodes": [
+      {
+        "id": "ln00000001",
+        "name": "Bar",
+        "protocol": "ddp",
+        "host": "127.0.0.70",
+        "state": "sending",
+        "fps": 0,
+        "universes": 1,
+        "lateMs": 0,
+        "seen": null,
+        "why": ""
+      },
+      {
+        "id": "ln00000002",
+        "name": "Spare",
+        "protocol": "artnet",
+        "host": "127.0.0.71",
+        "state": "disabled",
+        "fps": 0,
+        "universes": 0,
+        "lateMs": 0,
+        "seen": null,
+        "why": "this node is off in the show \u2014 LED OUTPUT ON ln00000002"
+      }
+    ],
+    "conflicts": [
+      {
+        "node": "ln00000001",
+        "universe": 0,
+        "from": 60,
+        "to": 73,
+        "fixtures": [
+          "lf00000002",
+          "lf00000003"
+        ]
+      }
+    ],
+    "warnings": [
+      "Halo is a world fixture \u2014 world sampling is next round, black for now"
+    ]
+  }
+}

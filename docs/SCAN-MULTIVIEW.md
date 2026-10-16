@@ -1,13 +1,14 @@
 # Multi-view scanning: many projectors, many views, curved surfaces
 
-A scan used to be one camera place and one solve per projector. Multi-view scanning lets the operator move the camera (a
+A single-view scan is one camera place and one solve per projector. Multi-view scanning lets the operator move the camera (a
 phone, a webcam on a stand) to more places; each place is one more **view**, and every projector, every view and the
 camera's own optics are solved **together**, in one frame, anchored on the projectors. From all views together each projector
 gets a **dense depth map** on its own raster, so curved plaster, a column or a sculpture needs nothing special; the
 projectors' meshes are joined into one stage mesh, and the scan reports how much of each projector's light the views saw.
 
-This is the Core of it (`src/PlayMap.Core/Scan/MultiView/`): pure computation, no engine hooks, no verbs, no STATE. The
-engine's verbs (`SCAN START … INTO`, `SCAN SOLVE`, `SCAN VIEWS`, `SCAN DROP`) are wp2-multiscan's, built on this.
+This is the Core of it (`src/PlayMap.Core/Scan/MultiView/`): pure computation, no engine hooks, no verbs, no STATE. No verb
+drives it yet: the catalogue's `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` and the `INTO` form of `SCAN START` are the engine's
+side, still to come; a node answers the three "not available on this node yet".
 
 ## Why anchor on the projectors
 
@@ -77,7 +78,7 @@ tracks in the same order whatever order the views arrive in. `TrackSet.Without(v
   fixes everything and the result is metric.
 - **HOLD**: a held projector is never a parameter. Its result *is* its stage pose and prior optics, bit for bit. This is "re-solve
   only the projector that moved": one new view that sees the moved projector and two held ones is enough.
-- **Projector lenses** are held as given (the round's projectors are distortion-free or measured); camera rigs solve k1, k2.
+- **Projector lenses** are held as given (taken as distortion-free or measured); camera rigs solve k1, k2.
 
 **Outputs** (`MultiViewResult`): per view its pose, RMS, observations, inliers and RMS per projector; per projector its pose,
 optics, RMS, tracks, inliers and the 1σ of its position along its axis (from the reduced system with the priors, scaled by the
@@ -90,7 +91,7 @@ A view that disagrees with the rest (the camera moved between two projectors' ru
 joint solve spreads its error over every view (on the test scene a 2 px shift of one view's run gives 0.19–0.35 px on every
 view and projector alike). So the scan names it by **influence**: `MultiViewCalibration.Influence` re-solves without each view
 in turn (warm, from the current result) and reports each view's RMS with and without it. The view whose removal lowers the
-residual most is the one to drop (`SCAN DROP` in the engine).
+residual most is the one to drop (what `SCAN DROP` is for).
 
 `DropView(input, previous, view)` removes the view's pairs and observations (tracks no other view saw go too) and re-solves
 **warm** from the previous result: the root view stays where it was and keeps its distance to its projector, so the frame and
@@ -164,10 +165,10 @@ registered to the world on its track points (as registering a scan to a surveyed
 
 ## Wire
 
-None: this is Core. wp2-multiscan routes `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` through `MultiViewCalibration.Solve`,
-`Influence` and `DropView`, keeps the tracks and depth maps under the scan's folder, fills the scan's score terms
-(`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`, and gives `SCAN SURFACE … ON
-<projector>` and STATE's regions (with `projectors`) from `ProjectorRegions`.
+None yet: this is Core. The engine's side is to route `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` through
+`MultiViewCalibration.Solve`, `Influence` and `DropView`, keep the tracks and depth maps under the scan's folder, fill the scan's
+score terms (`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`, and give `SCAN
+SURFACE … ON <projector>` and STATE's regions (with `projectors`) from `ProjectorRegions`.
 
 ## Next
 

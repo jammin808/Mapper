@@ -1,7 +1,9 @@
 # PlayMap's wire, STATE and pushes
 
-One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the TCP line wire (9941), HTTP
-`POST /api/cmd` (9940), the WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, and the desk.
+One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the TCP line wire (9941) and the same line
+wire over the web port's WebSocket (`/ws` with the subprotocol `playmap.lines.v1`), HTTP `POST /api/cmd` (9940), the screens'
+WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, OSC (`/playmap/line` on UDP 9943), the lines control
+bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), and the desk.
 
 ## Lines
 
@@ -13,14 +15,24 @@ is JSON to the end of the line. Replies: `OK`, `OK <payload>`, `ERR <reason>`, t
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
 transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
 
+A node that has begun to stop takes no more lines, from any source — every transport here (MCP's tools before they
+would queue a line for a person), OSC, a control binding, the assistant, an approval: each is answered `ERR the node
+is stopping — it takes no more lines` and journalled as any refusal of its verb, and a line still waiting for the lane
+is refused the same way. The node's own lines still run — a panic's shutters and effects, sent at the panic's instant
+while the projector links are open (they close last), since a panic put back after a restart takes its shutters as
+closed — and its last work (the recovery record, the journal) is not a line and still happens.
+
 ### Answered by the transport, refused off the wire
 
 - Every transport answers a bare `STATE` (and its alias `STATUS`), `CONTEXT` and `VERBS`, and `PING`, itself, from
   the node's facts and the catalogue — before the line reaches the engine's router (`CommandRunner`). `STATE` with
   more words after it is the router's, like every other verb.
-- `HELLO`, `NONCE`, `AUTH`, `AUTH-PROOF` and `SUBSCRIBE` belong to the line wire. HTTP `POST /api/cmd`, the
-  WebSocket, MCP's `run_command` and lines approved on a Stagewatch desk refuse them before anything runs: `ERR HELLO,
-  NONCE, AUTH, AUTH-PROOF and SUBSCRIBE belong to the line wire — on the web the token rides in X-PlayMap-Token`.
+- `HELLO`, `NONCE`, `AUTH`, `AUTH-PROOF` and `SUBSCRIBE` belong to the line wire: TCP 9941, and the line channel on `/ws`
+  (subprotocol `playmap.lines.v1`), which refuses plain `AUTH` and takes proofs only (docs/wire/companion.md). HTTP
+  `POST /api/cmd`, the screens' WebSocket, MCP's `run_command` and lines approved on a Stagewatch desk refuse them before
+  anything runs: `ERR HELLO, NONCE, AUTH, AUTH-PROOF and SUBSCRIBE belong to the line wire — on the web the token rides in
+  X-PlayMap-Token`. The screens' WebSocket takes one form: `SUBSCRIBE <topic>` opens a package's topic and `SUBSCRIBE OFF`
+  ends them (Round 2 below); `STATE`, `CONTEXT` and `PROJECT` stay the line wire's.
 
 ### Who sent a line (`SessionInfo.Transport`)
 
@@ -28,20 +40,27 @@ The router journals who did what and the transports fence by it. The transport i
 
 | Transport | When |
 |---|---|
-| `desk` | a line-wire session that said `HELLO PlayMapDesk` (the desk's engine link) |
+| `desk` | a TCP line-wire session that said `HELLO PlayMapDesk` **and** proved the node's token on that connection, from this machine or an address the node lists as a desk (`Companion.DeskAddresses`); on a node that asks no token, only this machine's. The name alone makes no desk |
 | `stagewatch` | a line-wire session that said `HELLO Stagewatch` (Stagewatch's VT link) |
+| `companion` | a line-wire session that said `HELLO Companion` or `HELLO Companion:<label>` (a controller) |
 | `patterns-device` | a line-wire session that never said HELLO from an address on the trusted list (a Patterns "Lines" device) |
-| `wire` | any other line-wire session |
-| `http`, `ws`, `mcp` | `POST /api/cmd`, the WebSocket, MCP's tools (each past the web's token gate, so paired) |
-| `approval` | a line approved for this node on a Stagewatch approval desk (§11), run through the node's own checks |
+| `wire` | any other session on TCP 9941 |
+| `ws` | any other session on the `/ws` line channel, and the screens' WebSocket |
+| `http`, `mcp` | `POST /api/cmd`, MCP's tools (each past the web's token gate, so paired) |
+| `osc` | a line that arrived as OSC on UDP 9943 |
+| `binding` | a line a control binding fired, or its learn |
+| `assistant` | a line the node's own assistant ran (`ASK`) |
+| `approval` | a line a person approved, on this node (`APPROVE`) or on a Stagewatch approval desk (§11), run through the node's own checks |
 | `patterns`, `stagewatch` | the links this node dials itself: the Patterns desk's blackout fact, a Stagewatch operator's screen command |
+| `system` | the node's own work: a panic's shutter and effects lines, a scan's record |
 
 ## A connection's life (TCP wire)
 
 1. On connect: if the node has a pairing token and the peer is neither loopback (when trusted) nor in the
    trusted-address list, the first line is `NONCE <32 hex>`.
 2. `HELLO <name>` → `OK`; the session becomes a **state listener**: `STATE {json}` at once, then on every change
-   (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays.
+   (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays or
+   anything else STATE shows moves on its own (a rolling timecode with nothing playing).
    `SUBSCRIBE STATE|CONTEXT|PROJECT|OFF` adds or stops pushes (`CONTEXT {json}`, and
    `PROJECT {"revision":N,"project":{…}}` — the revision rides beside the document, which does not carry it; a
    reader compares revisions, never contents). Each subscription answers `OK subscribed …` and pushes at once.
@@ -76,12 +95,13 @@ as raw substrings):
    "seekable":true,"seq":7},
  "playlists":[{"id":"pl…","name":"Show","focused":true,"state":"playing","index":0,"item":{"id":"it…","label":"Intro",
    "source":"media:md…"},"positionMs":62000,"lengthMs":210000,"remainingMs":148000,"rate":1,"loop":false,
-   "syncGroup":null,"leader":null,"seq":7,"next":{"id":"it…","label":"Main"}}],
- "outputs":[{"id":"op_1","name":"Projector 1","mode":"projector","display":"DISPLAY2","width":1920,"height":1080,
-   "refreshHz":60,"open":true,"fps":60.0,"dropped":0,"frameMsP95":4.1,"pattern":null,"light":"green"}],
+   "syncGroup":null,"seq":7,"next":{"id":"it…","label":"Main"},"items":2}],
+ "outputs":[{"id":"op_1","name":"Projector 1","mode":"projector","kind":"display","display":"DISPLAY2","width":1920,
+   "height":1080,"refreshHz":60,"enabled":true,"open":true,"fps":60.0,"dropped":0,"frameMsP95":4.1,"pattern":null,
+   "projector":"pj…","light":"green"}],
  "media":{"items":12,"missing":0,"ready":true,"transfers":[{"media":"md…","name":"Intro","progress":0.42,
    "from":"Stage right","state":"pulling","hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
- "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6}],"scans":1},
+ "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6,"pins":12}],"scans":1},
  "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
    "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
    "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…"},
@@ -91,17 +111,20 @@ as raw substrings):
    "timer":{"state":"running","text":"12:30","seconds":750,"phase":"warning","color":"#F59E0B","title":"Keynote",
    "message":"","trusted":true,"why":""}}},
  "peers":[{"t":"patterns","id":"…","name":"FOH","light":"green","headline":"Programme: VT1","live":true}],
- "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","cpuPct":12,"memMb":840,"gcPauseMsMax":0.4},
+ "machine":{"renderer":"OpenGL 4.6 NVIDIA RTX A4000","memMb":840,"gcPauseMsTotal":12.4},
  "project":{"id":"pr…","name":"Show","revision":118,"path":"D:/Shows/show.playmap","dirty":false},
  "faults":[],
- "ai":{"mcp":true,"clients":1,"proposals":0,"assistant":{"enabled":true,"provider":"claude","model":"…","effort":"medium",
+ "ai":{"mcp":true,"clients":1,"proposals":0,"assistant":{"enabled":true,"provider":"…","model":"…","effort":"medium",
    "baseUrl":"","runLowWithoutAsking":true,"runReviewWithoutAsking":false,"keySet":true,"kept":true}},
  "devices":[{"id":"dv…","name":"Left box","protocol":"pjlink","host":"10.0.0.21","port":0,"projector":"pj…","output":"op_1",
    "light":"green","headline":"on · shutter open · input 31 · 1234 h","liveness":"live","online":true,"power":"on",
    "shutter":"open","input":"31","frozen":false,"lampHours":[1234],"errors":[],"faultsRead":true,"model":"PT-RZ120",
    "serial":"SH1234567","problem":"","credential":true,"last":{"command":"power on","stage":"observed","words":"…","at":1760101234000}}],
- "solve":null}
+ "solve":null,"cameras":[]}
 ```
+
+These are the keys every node writes; the packages' keys follow at the end of their objects (Round 2 below), and
+`tests/fixtures/state/main.json` is the whole STATE a node writes.
 
 - `video` is Patterns' row for the **focused** playlist's current item (null when nothing is loaded), so
   Stagewatch's VT link and countdown work unchanged; `seq` moves on every discontinuity.
@@ -109,9 +132,10 @@ as raw substrings):
   current picture, its transitions included. An edit that would make a playlist play itself, directly or through
   others, is refused with the reason; a loop already in a project draws black there and its playlists' rows carry
   `"problem":"plays itself (A → B → A) — black there"`.
-- `outputs[].dropped` counts that output's refresh slots that passed without a new picture, against its own target:
-  a windowed output's display refresh, a headless output's configured `refreshHz` (the headless loop runs at the
-  fastest enabled output's refresh, not the show's frame rate). `fps` and `frameMsP95` are measured the same way.
+- `outputs[].dropped` is that output's late presents in the last 10 s once they pass 0.5 % of its refreshes (0 within
+  that budget), what lights the output amber; the totals are in `outputs[].present` (docs/OUTPUT.md). `fps` and
+  `frameMsP95` are measured against the output's own target: a windowed output's display refresh, a headless output's
+  configured `refreshHz` (the headless loop runs at the fastest enabled output's refresh, not the show's frame rate).
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
@@ -122,8 +146,9 @@ as raw substrings):
 - `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
   next fetch of that file); a verified pull leaves the list and its item turns ready.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
-  `web`, `hello`, `sync`), no certificate (`tls`), the render host, the scanner, an extension, the project or the
-  recovery record. Each is also a red item in the context. A node starts while at least one of the wire and the web
+  `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
+  `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings, the Patterns or
+  Stagewatch link, the project or the recovery record. Each is also a red item in the context. A node starts while at least one of the wire and the web
   port listens.
 - `ai` is the assistant's door: `mcp` (served at `/mcp`), `clients` (MCP clients heard in the last minute and open
   WebSockets), `proposals` (waiting for a person; 0 on a node without an assistant), and `assistant` — its settings
@@ -204,9 +229,13 @@ as raw substrings):
 
 `GET /api/state` (`?since=<seq>` long-polls ≤ 25 s), `GET /api/context`, `GET /api/project`, `GET /api/verbs`,
 `POST /api/cmd` (body = one line; `X-Request-Id` → receipt JSON), `GET /api/media/<sha256>` (range requests,
-between nodes), `GET /api/media` (manifest), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s,
-`{"cmd":"…","id":"…"}` commands with receipts, `{"cmd":"ping","t":…}` → pong), `GET /tls`, `GET /tls.cer`,
-`/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in a URL.
+between nodes), `GET /api/media` (manifest), `GET /api/thumb?ref=<media:…|generator:…|playlist:…|color:#RRGGBB>&w=&h=&fmt=jpeg|png`
+(a key's picture, with an ETag), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s, `{"cmd":"…","id":"…"}`
+commands with receipts, `{"cmd":"ping","t":…}` → pong, and `{"type":"push","topic":…,"line":…}` frames for a package's
+topic; with the subprotocol `playmap.lines.v1` it is the line wire instead, docs/wire/companion.md), `GET /tls`,
+`GET /tls.cer`, `/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in
+a URL. Outside `/api`, two reads need no token: `GET /health` (this machine's health record; as a WebSocket, every record as
+it is published) and `GET /fleet` (the fleet board), docs/wire/fleet.md.
 
 A page in a browser never drives the node from another site. A request whose `Origin` is not the node's own (another site,
 or `null`) is refused with 403 on every node route (`/api`, `/ws`, `/mcp`) before it runs; controllers, scripts and other
@@ -245,39 +274,42 @@ with the reason.
 
 ## Round 2
 
-Round 2 adds its packages' verbs, topics and STATE keys through the engine's hooks; nothing a first-round client reads moves.
+Round 2's packages add their verbs, topics and STATE keys through the engine's hooks. Every key above keeps its place;
+`outputs[].dropped` counts late presents (above).
 
-- **Rows.** Every round-2 row is in the catalogue from the start and answers `ERR <VERB> is not available on this node yet`
-  until its package routes it. `VERBS` lists every row but the node-to-node ones, each with `"available"`; MCP's `list_verbs`,
-  the assistant's prompt and `list_verbs`, and the context's `commands` list only the rows the node answers now. An
-  assistant's line naming a row the node does not answer, or a node-to-node verb, is refused with these words by
-  `propose_commands` and MCP's `run_command` before anything runs or waits for a person.
-- **The door.** A verb that changes something, or a paired-only query (`RECORD`, `PRESENCE`, `THUMB`, `SELECT`, the board's
-  focus), needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and
-  the node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode, the blind draft, MinGo),
-  then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus, a selection) is never
-  journalled; a gesture (a drag, a nudge) is journalled once per gesture by its owner.
-- **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; ANCHORS — sync;
-  HEALTH — fleet; MIRROR — backup) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's lines (what it
-  says while it opens comes after the OK). An unknown topic is refused with the list this node serves. In-order lines are
-  bounded per session; a reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends (the connection and
-  its own replies stay). Latest-wins lines keep only the newest per key. `SUBSCRIBE OFF` ends every push. On the WebSocket,
+- **Rows.** Each package keeps its block of the catalogue to what it builds. A node answers every first-round row and each
+  round-two row a package routes; any other row answers `ERR <VERB> is not available on this node yet`. `VERBS` lists every
+  row but the node-to-node ones, each with `"available"`; MCP's `list_verbs`, the assistant's prompt and `list_verbs`, and
+  the context's `commands` list only the rows the node answers. An assistant's line naming a row the node does not answer,
+  or a node-to-node verb, is refused with these words by `propose_commands` and MCP's `run_command` before anything runs or
+  waits for a person.
+- **The door.** A verb that changes something, or a paired-only query (`PRESENCE`, `THUMB`, the board's focus and lens),
+  needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and the
+  node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode and the GO fence, docs/SHOW.md),
+  then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
+  gesture (a drag, a nudge) is journalled once per gesture by its owner.
+- **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
+  fleet) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's lines (what it says while it opens
+  comes after the OK). An unknown topic is refused with the list this node serves. In-order lines are bounded per session; a
+  reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends (the connection and its own replies stay).
+  Latest-wins lines keep only the newest per key. `SUBSCRIBE OFF` ends every push. On the screens' WebSocket,
   `{"cmd":"SUBSCRIBE INDEX"}` answers its receipt, then `{"type":"push","topic":"INDEX","line":"…"}` frames.
 - **Events.** Show events (`item.start`, `item.end`, `air.blackout`, `air.freeze`, and each package's) carry the show-clock
   instant they happened at; companion's `EVENTS` topic serves them.
 - **STATE.** New keys are appended at the end of their object, in this order:
-  top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`,
-  `selection`, `fx`, `audio`, `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`;
-  `air` — `master`, `panic`, `overlay`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`;
-  `playlists[]` — `chase`; `sync` — `group`, `feed`, `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`,
-  `words`, `latencyMs`, `lock`, `epoch`; `media` — `optimise`; `stage` — `site`, `controls`, `surveys`, `stacks`;
-  `stage.projectors[]` — `uncertainty`, `priors`, `stack`, `grade`, `quads`; `machine` — `present`, `gl`;
-  `project` — `index`. `null` means the node has none; an unknown number is `-1` and grey, never `0`. Each package's
-  STATE fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it.
-- **Each package's rows and keys**: [show](wire/show.md) · [blind](wire/blind.md) · [fleet](wire/fleet.md) ·
-  [backup](wire/backup.md) · [output](wire/output.md) · [d3d11](wire/d3d11.md) · [sync](wire/sync.md) ·
-  [decode](wire/decode.md) · [zerocopy](wire/zerocopy.md) · [optimise](wire/optimise.md) · [videoio](wire/videoio.md) ·
-  [control](wire/control.md) · [companion](wire/companion.md) · [fx](wire/fx.md) · [audio](wire/audio.md) ·
-  [content](wire/content.md) · [led](wire/led.md) · [facade](wire/facade.md) · [stacks](wire/stacks.md) ·
-  [align](wire/align.md) · [resolve](wire/resolve.md) · [phonescan](wire/phonescan.md) · [multiscan](wire/multiscan.md) ·
-  [wall](wire/wall.md).
+  top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
+  `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
+  `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `latencyMs`, `lock`;
+  `stage.projectors[]` — `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
+  `null` means the node has none; an unknown number is `-1` and grey, never `0`. `tests/fixtures/state/main.json` is the
+  whole STATE; each package's fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it. The
+  fixtures of the packages in the last list below are their plans: no node writes their keys.
+- **Each package's rows and keys**: [show](wire/show.md) · [output](wire/output.md) · [decode](wire/decode.md) ·
+  [optimise](wire/optimise.md) · [control and timecode](wire/control.md) · [companion](wire/companion.md) · [fx](wire/fx.md) ·
+  [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
+  [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) · [multiview](wire/multiview.md) (Core only: no verb, no STATE).
+- **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
+  answers "not available on this node yet" (stacks, resolve and multiscan have no rows of their own): [blind](wire/blind.md) ·
+  [sync](wire/sync.md) · [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) ·
+  [videoio](wire/videoio.md) · [facade](wire/facade.md) · [stacks](wire/stacks.md) · [resolve](wire/resolve.md) ·
+  [multiscan](wire/multiscan.md).

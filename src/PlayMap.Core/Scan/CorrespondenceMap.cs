@@ -161,6 +161,51 @@ public sealed class CorrespondenceMap
         return pairs;
     }
 
+    /// <summary>Takes the camera pixels a mask marks out of the decode (a tag's footprint: what it shows is the tag, not the
+    /// pattern); answers how many valid pixels were dropped. The totals are recounted.</summary>
+    public int Exclude(bool[] cameraMask)
+    {
+        ArgumentNullException.ThrowIfNull(cameraMask);
+        if (cameraMask.Length != Flags.Length)
+            throw new ArgumentException("The mask is not the camera's raster.", nameof(cameraMask));
+        return Drop(k => cameraMask[k]);
+    }
+
+    /// <summary>Takes out every pixel whose decoded projector point lies within <paramref name="marginPx"/> of one of the projector
+    /// rectangles (where a tag was painted over the pattern); answers how many were dropped.</summary>
+    public int ExcludeProjectorRects(IReadOnlyList<PixelRect> rects, double marginPx)
+    {
+        ArgumentNullException.ThrowIfNull(rects);
+        if (rects.Count == 0)
+            return 0;
+        return Drop(k =>
+        {
+            var u = ProjectorX[k];
+            var v = ProjectorY[k];
+            foreach (var r in rects)
+            {
+                if (u >= r.X - marginPx && u <= r.Right + marginPx && v >= r.Y - marginPx && v <= r.Bottom + marginPx)
+                    return true;
+            }
+            return false;
+        });
+    }
+
+    private int Drop(Func<int, bool> drop)
+    {
+        var dropped = 0;
+        for (var k = 0; k < Flags.Length; k++)
+        {
+            if ((Flags[k] & DecodeStatus.Valid) == 0 || !drop(k))
+                continue;
+            Flags[k] = (Flags[k] & ~DecodeStatus.Valid) | DecodeStatus.Rejected;
+            dropped++;
+        }
+        if (dropped > 0)
+            Recount(Stats.UncertainBits, Stats.DecidedBits, Stats.NoiseSigma);
+        return dropped;
+    }
+
     /// <summary>Recounts the totals from the per-pixel results (the decoder's bit counts are carried over).</summary>
     internal void Recount(long uncertainBits, long decidedBits, double noiseSigma)
     {

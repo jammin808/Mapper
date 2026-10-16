@@ -44,6 +44,29 @@ public sealed record ScanRunnerOptions
     /// <summary>The segmenter click-to-surface uses (null: Vision's router with the classical segmenter, which needs
     /// no model).</summary>
     public ISegmenter? Segmenter { get; init; }
+
+    /// <summary>A cued camera (a phone) that says nothing about a pattern for this long has it shown again.</summary>
+    public TimeSpan PatternTimeout { get; init; } = TimeSpan.FromSeconds(8);
+
+    /// <summary>How many times one pattern is shown again before the view fails.</summary>
+    public int MaxRetakes { get; init; } = 2;
+
+    /// <summary>The tag places a cued view uses (at most).</summary>
+    public int MaxTagSites { get; init; } = 3;
+
+    /// <summary>Pictures a cued camera may still be uploading while the next patterns go up.</summary>
+    public int MaxInFlight { get; init; } = 6;
+
+    /// <summary>Without tag places, the closing picture may differ from the first by this many levels (brightness levelled) before the
+    /// view counts as moved.</summary>
+    public double MoveCheckLevels { get; init; } = 6;
+
+    /// <summary>A tag place found this many camera pixels from where the locate run saw it means the camera moved.</summary>
+    public double MoveCheckPx { get; init; } = 1;
+
+    /// <summary>The background of the locate frames for a camera that keeps its own exposure: mid-grey, so its mean stays near
+    /// the coded frames'.</summary>
+    public byte LocateBackgroundSteady { get; init; } = 96;
 }
 
 /// <summary>One projector's part of a scan as STATE.scan shows it.</summary>
@@ -67,6 +90,9 @@ public sealed record ScanView(
     string? ProjectorId)
 {
     public bool IsRunning => State is "starting" or "running";
+
+    /// <summary>How the last cued view was paired (null when the camera streamed frames).</summary>
+    public ScanPairing? Pairing { get; init; }
 }
 
 /// <summary>
@@ -81,7 +107,7 @@ public sealed record ScanView(
 /// scan simulator instead. One scan at a time; <see cref="Cancel"/> stops it and gives the outputs back. Progress is
 /// <see cref="View"/> (STATE.scan) and <see cref="Current"/> (the seam's summary).
 /// </summary>
-public sealed class ScanRunner : IScanBackend, IAsyncDisposable
+public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
 {
     private const int KeptOutcomes = 8;
 
@@ -101,6 +127,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     private volatile ScanView? _view;
     private volatile ScanProgress? _current;
 
+    /// <summary>Set under the gate once <see cref="StopAsync"/> has begun: no scan starts from then on.</summary>
+    private bool _stopped;
+
     public ScanRunner(IScanDisplay? display, ScanRunnerOptions? options = null)
     {
         _display = display;
@@ -112,6 +141,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
 
     /// <summary>STATE.scan's row: the running or last scan (null before the first).</summary>
     public ScanView? View => _view;
+
+    /// <summary>What <see cref="StartAsync"/> says once the runner has begun to stop.</summary>
+    public const string StoppingWords = "the node is stopping — no scan starts";
 
     /// <summary>The id of the scan running now (null when none is).</summary>
     public string? RunningId => _view is { IsRunning: true } v ? v.Id : null;
@@ -133,7 +165,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             if (_engine is not null)
                 throw new InvalidOperationException("the scan runner is bound to an engine already");
             _engine = engine;
-            views = new ScanViews(this, engine, _options.OpenCamera ?? DefaultCamera, _options.OpenCamera is not null,
+            views = new ScanViews(this, engine, _options.OpenCamera ?? OpenCameraFor, _options.OpenCamera is not null,
                 _options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
             _views = views;
         }
@@ -159,16 +191,20 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
-        EngineCore engine;
         CancellationTokenSource cts;
-        Setup setup;
+        Track track;
+        Task<Task<string>> start;
+        Task<string> run;
         lock (_gate)
         {
+            if (_stopped)
+                return Task.FromException<string>(new InvalidOperationException(StoppingWords));
             if (_engine is null)
                 return Task.FromException<string>(new InvalidOperationException("the scan runner is not bound to an engine"));
             if (_running is not null)
                 return Task.FromException<string>(new InvalidOperationException("a scan is already running — SCAN CANCEL stops it"));
-            engine = _engine;
+            var engine = _engine;
+            Setup setup;
             try
             {
                 setup = ReadSetup(engine, cameraId, projectorIds, mode);
@@ -180,12 +216,21 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
             cts = new CancellationTokenSource();
             _running = cts;
-        }
-        var track = new Track(this, setup);
-        track.Step("starting", "starting", "getting ready");
-        var run = Task.Run(() => RunAsync(engine, setup, track, cts.Token), CancellationToken.None);
-        lock (_gate)
+            var token = cts.Token;
+            track = new Track(this, setup);
+            // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
+            start = new Task<Task<string>>(() => RunAsync(engine, setup, track, token));
+            run = start.Unwrap();
             _task = run;
+        }
+        try
+        {
+            track.Step("starting", "starting", "getting ready");
+        }
+        finally
+        {
+            start.Start(TaskScheduler.Default);
+        }
         return Finish(run, track, cts);
     }
 
@@ -273,6 +318,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         private string _message = "";
         private string? _projector;
         private ImmutableArray<ScanRegion> _regions = [];
+        private ScanPairing? _pairing;
 
         public void Step(string state, string stage, string message, int? part = null, string? partState = null, double? overall = null)
         {
@@ -333,6 +379,13 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             }
         }
 
+        public void Pairing(ScanPairing pairing)
+        {
+            lock (_gate)
+                _pairing = pairing;
+            Publish("running");
+        }
+
         public void Regions(IReadOnlyList<ScanRegion> regions)
         {
             lock (_gate)
@@ -371,7 +424,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 view = new ScanView(setup.Id, state, _stage, _shown, _patterns, Math.Round(_overall, 3), Math.Round(_quality, 3), _qualityWords, _message,
                     [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
-                    _regions, _projector);
+                    _regions, _projector) { Pairing = _pairing };
             }
             runner.Publish(view);
         }
@@ -546,10 +599,11 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     }
 
     private static ProjectorCapture Decode(int j, Part part, int cameraWidth, int cameraHeight, byte[][] frames, int[]? colour,
-        List<(string, ProjectorView)> views, Track track)
+        List<(string, ProjectorView)> views, Track track, Action<CorrespondenceMap>? exclude = null)
     {
         track.Step("running", "decoding", $"{part.Projector.Name}: decoding {part.Plan.Count} frames", j, "decoding");
         var map = new StructuredLightDecoder(part.Plan).Decode(cameraWidth, cameraHeight, frames, colour);
+        exclude?.Invoke(map);
         var quality = ScanQuality.Assess(map);
         if (map.Axes == ScanAxes.Both && map.Stats.Valid > 0)
             views.Add((part.Projector.Id, ProjectorView.Build(map)));
@@ -618,15 +672,29 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         IScanCamera? camera = null;
         try
         {
-            camera = (_options.OpenCamera ?? DefaultCamera)(rig)
+            camera = (_options.OpenCamera ?? OpenCameraFor)(rig)
                 ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot scan through yet");
             if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                 throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
             await PrepareDevicesAsync(engine, setup, track, camera, notes, ct).ConfigureAwait(false);
             var captures = new List<ProjectorCapture>();
+            var cuedScan = new CuedScan();
             for (var j = 0; j < setup.Parts.Count; j++)
             {
                 var part = setup.Parts[j];
+                if (camera is ICuedScanCamera cued)
+                {
+                    var (cuedFrames, cw, ch, located, pairing) = await CaptureCuedAsync(display, cued, setup.CameraId,
+                        (rig.Intrinsics.Width, rig.Intrinsics.Height), cuedScan, j, part, track, notes, ct).ConfigureAwait(false);
+                    track.Pairing(pairing);
+                    captures.Add(Decode(j, part, cw, ch, cuedFrames, null, views, track, map =>
+                    {
+                        // The tags are not the pattern: their footprint and anything decoded beside their places is left out.
+                        map.Exclude(located.Shadow);
+                        map.ExcludeProjectorRects([.. located.Sites.Select(site => site.Rect)], 2);
+                    }));
+                    continue;
+                }
                 track.Step("running", "latency", $"{part.Projector.Name}: measuring the camera's latency with white flashes", j, "latency");
                 var latency = await MeasureLatencyAsync(display, camera, setup.CameraId, part.Output!, ct).ConfigureAwait(false);
                 notes.Add($"{part.Projector.Name}: {latency.Words}.");
@@ -658,8 +726,14 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return 0;
     }
 
-    private static IScanCamera? DefaultCamera(CameraRig rig) =>
-        CaptureCamera.OptionsFor(rig) is { } options ? new CaptureCamera(options) : null;
+    /// <summary>The camera a rig is (<see cref="ScanCameras.Open"/>) for this runner's node.</summary>
+    private IScanCamera? OpenCameraFor(CameraRig rig)
+    {
+        EngineCore? engine;
+        lock (_gate)
+            engine = _engine;
+        return ScanCameras.Open(engine, rig);
+    }
 
     /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present;
     /// every frame's mean brightness collected meanwhile.</summary>
@@ -834,6 +908,24 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
             w.WriteNull("projector");
         else
             w.WriteString("projector", v.ProjectorId);
+        if (v.Pairing is not { } pairing)
+        {
+            w.WriteNull("pairing");
+        }
+        else
+        {
+            w.WriteStartObject("pairing");
+            w.WriteString("mode", pairing.Mode);
+            w.WriteNumber("sites", pairing.Sites);
+            w.WriteNumber("rollingRejects", pairing.RollingRejects);
+            w.WriteNumber("retakes", pairing.Retakes);
+            w.WriteNumber("caught", pairing.Caught);
+            w.WriteNumber("timingDisagrees", pairing.TimingDisagrees);
+            w.WriteNumber("aeDriftPct", pairing.AeDriftPct);
+            w.WriteString("exposure", pairing.Exposure);
+            w.WriteString("words", pairing.Words);
+            w.WriteEndObject();
+        }
         w.WriteEndObject();
     }
 
@@ -862,15 +954,17 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         return (Core.Numerics.Vec3d.Distance(a.Position, b.Position), angle);
     }
 
-    /// <summary>Stops the scan running now, if any, and waits until it has ended (its outputs are back on the show and
-    /// its words published), then takes its feeds off the node's views and lets every camera go. The node calls this
-    /// before the parts a scan uses go (the projectors' links, the engine).</summary>
+    /// <summary>Stops the runner: from the moment it begins no scan starts (<see cref="StartAsync"/> refuses with
+    /// <see cref="StoppingWords"/>); the scan running now, if any, is stopped and waited for until it has ended (its outputs
+    /// are back on the show and its words published); then its feeds come off the node's views and every camera is let go.
+    /// The node calls this before the parts a scan uses go (the projectors' links, the engine).</summary>
     public async Task StopAsync()
     {
         Task? task;
         CancellationTokenSource? running;
         lock (_gate)
         {
+            _stopped = true;
             running = _running;
             task = _task;
         }

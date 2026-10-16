@@ -339,14 +339,12 @@ public static class VerbCatalog
         V2("DECODE PROBE", "DECODE PROBE [<media>|ALL] [DIRECT]", "Decodes clips by every path and compares the pictures; DIRECT writes the direct-sampling proof for this driver", VerbCategory.Media, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
 
         // Optimise on import (wp2-optimise).
-        V2("MEDIA OPTIMISE", "MEDIA OPTIMISE <media>…|ALL|SUGGESTED [TO hap|hap-alpha|hap-q|hap-q-alpha|rechunk] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]", "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs", VerbCategory.Media, VerbRisk.Review, true, "MEDIA OPTIMIZE") with { Show = ShowClass.Heavy, RiskWhen = [new(0, "CANCEL", VerbRisk.Low), new(0, "PAUSE", VerbRisk.Low), new(0, "RESUME", VerbRisk.Low)] },
+        V2("MEDIA OPTIMISE", "MEDIA OPTIMISE <media>…|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]", "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs", VerbCategory.Media, VerbRisk.Review, true, "MEDIA OPTIMIZE") with { Show = ShowClass.Heavy, RiskWhen = [new(0, "CANCEL", VerbRisk.Low), new(0, "PAUSE", VerbRisk.Low), new(0, "RESUME", VerbRisk.Low)] },
         V2("MEDIA JOBS", "MEDIA JOBS", "Every optimise job and the governor's state", VerbCategory.Media, VerbRisk.Low, false),
-        V2("MEDIA ESTIMATE", "MEDIA ESTIMATE <media>…|ALL|SUGGESTED [TO <target>] [QUALITY FAST|SHOW]", "What optimising would do, how long and how much disk, before any work", VerbCategory.Media, VerbRisk.Low, false),
         V2("MEDIA VERSIONS", "MEDIA VERSIONS <media>", "A clip's versions, which plays on this node and why", VerbCategory.Media, VerbRisk.Low, false),
         V2("MEDIA USE", "MEDIA USE <media> AUTO|SOURCE|<version>", "Which file a clip plays (from its next open, never mid-air)", VerbCategory.Media, VerbRisk.Review, true),
-        V2("MEDIA VERSION", "MEDIA VERSION REMOVE <version> [FILES]", "Forgets a version (FILES also deletes this node's derived file when nothing else names it)", VerbCategory.Media, VerbRisk.Review, true),
-        V2("MEDIA RULES", "MEDIA RULES", "The optimise mode, this show's rules, then the built-in table", VerbCategory.Media, VerbRisk.Low, false),
-        V2("MEDIA RULE", "MEDIA RULE MODE AUTO|ASK|NEVER | MEDIA RULE ADD <json> [AT <n>] | MEDIA RULE REMOVE <n>|<name>", "Changes the optimise mode or this show's rules", VerbCategory.Media, VerbRisk.Review, true),
+        V2("MEDIA RULES", "MEDIA RULES", "The optimise mode and quality, this show's rules, then the built-in table's rule names", VerbCategory.Media, VerbRisk.Low, false),
+        V2("MEDIA RULE", "MEDIA RULE MODE AUTO|NEVER", "Changes the optimise mode: AUTO optimises clips imported from now on as the rules say, NEVER optimises nothing unless a person asks", VerbCategory.Media, VerbRisk.Review, true),
 
         // Network video and texture sharing: NDI, OMT, Spout (wp2-videoio).
         V2("INPUT LIST", "INPUT LIST", "Every live input with its health, its users and whether it is on air", VerbCategory.Video, VerbRisk.Low, false),
@@ -431,14 +429,13 @@ public static class VerbCatalog
         V2("MOD BYPASS", "MOD BYPASS ON|OFF|TOGGLE [<entity>|ALL]", "Holds every modulated number at its base value", VerbCategory.Modulation, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("MOD PEEK", "MOD PEEK <entity>", "The live value of each modulated number of an entity", VerbCategory.Modulation, VerbRisk.Low, false),
 
-        // Particles, fractals, reactive: looks, morphs, stings (wp2-content).
+        // Particles, fractals, reactive: time, inputs, looks, stings (wp2-content).
         V2("GENERATOR GET", "GENERATOR GET <generator>", "A generator with its effective values, bindings, inputs, morph, cost and state", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RESET", "GENERATOR RESET <generator> [<param>|ALL]", "Parameters back to their defaults", VerbCategory.Content, VerbRisk.Review, true),
-        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source|flow|matte <source>|NONE", "A picture a generator reads (particles emit from it)", VerbCategory.Content, VerbRisk.Review, true),
+        V2("GENERATOR INPUT", "GENERATOR INPUT <generator> source <source>|NONE", "A picture a generator reads (a particle flow emits where it is bright)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR PRESETS", "GENERATOR PRESETS [<kind>|<family>]", "Curated and saved looks", VerbCategory.Content, VerbRisk.Low, false),
         V2("GENERATOR RECALL", "GENERATOR RECALL <generator> <preset>", "Applies a look (one undo step)", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR SAVE", "GENERATOR SAVE <generator> <name>", "Saves the generator's look in the show; answers its id", VerbCategory.Content, VerbRisk.Low, true),
-        V2("GENERATOR MORPH", "GENERATOR MORPH <generator> <preset> [OVER <0.1-600 s>] [AT +<ms>|<unix ms>] [CURVE LINEAR|EASE]", "Crossfades a generator to a look on the show clock", VerbCategory.Content, VerbRisk.Review, true),
         V2("GENERATOR RETIME", "GENERATOR RETIME <generator>|ALL [AT +<ms>|<unix ms>]", "Restarts a generator's own time (particles re-seed from that instant)", VerbCategory.Content, VerbRisk.Review, true),
         V2("STING", "STING <preset> [<100-5000 ms>] [AT +<ms>|<unix ms>]", "Fires a sting every generator answers, on the show clock", VerbCategory.Content, VerbRisk.Review, true) with { Show = ShowClass.Perform },
         V2("STING CLEAR", "STING CLEAR", "Stops the sting", VerbCategory.Content, VerbRisk.Low, true) with { Show = ShowClass.Perform },
@@ -446,15 +443,14 @@ public static class VerbCatalog
 
         // LED pixel mapping (wp2-led).
         V2("LED LIST", "LED LIST", "The LED rig: nodes, fixtures, pixels, universes, conflicts and bandwidth", VerbCategory.Led, VerbRisk.Low, false),
-        V2("LED NEW", "LED NEW LINE|GRID|RING <count>[x<rows>] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>|world] [TYPE <type>] [<name>]", "Adds a fixture laid out on a space; answers its id", VerbCategory.Led, VerbRisk.Low, true),
-        V2("LED IMPORT", "LED IMPORT <path> [AS CSV] [ON <space>] [SCALE <x>] [NODE <node>]", "Imports pixel positions and patches from a CSV (one undo step)", VerbCategory.Led, VerbRisk.Review, true),
+        V2("LED NEW", "LED NEW LINE|GRID|RING <count>[x<rows>] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>] [TYPE <type>] [<name>]", "Adds a fixture laid out on a space; answers its id", VerbCategory.Led, VerbRisk.Low, true),
+        V2("LED IMPORT", "LED IMPORT <path> [AS CSV] [ON canvas:<id>|output:<id>|surface:<id>|source:<ref>] [SCALE <x>] [NODE <node>]", "Imports pixel positions and patches from a CSV (one undo step)", VerbCategory.Led, VerbRisk.Review, true),
         V2("LED PATCH", "LED PATCH <fixture> <node> <universe>[.<address>] [FORCE]", "Patches a fixture to a node's universe and address (FORCE allows an overlap)", VerbCategory.Led, VerbRisk.Review, true),
-        V2("LED AUTOPATCH", "LED AUTOPATCH [<fixture>|#<tag>|ALL] [NODE <node>…] [FROM <universe>[.<address>]] [ALIGN ON|OFF] [EACH ON|OFF]", "Patches fixtures in order within each node's capacity", VerbCategory.Led, VerbRisk.Review, true),
-        V2("LED DISCOVER", "LED DISCOVER [ARTNET|ALL] [<seconds 1-10>]", "Polls the network for Art-Net nodes", VerbCategory.Led, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+        V2("LED AUTOPATCH", "LED AUTOPATCH [<fixture>|#<tag>|ALL] [NODE <node>…] [FROM <universe>[.<address>]] [EACH ON|OFF]", "Patches fixtures in order within each node's capacity", VerbCategory.Led, VerbRisk.Review, true),
         V2("LED OUTPUT", "LED OUTPUT ON|OFF [<node>|ALL] [HOLD]", "This machine sends pixel data, or stops (one black frame first unless HOLD)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED TEST", "LED TEST CHASE|ORDER|UNIVERSE|FIXTURE|GRADIENT|WALK|WHITE|FULL|BLACK|OFF [ON <node>|<fixture>|#<tag>|ALL]", "A test pattern on the LEDs instead of the show", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V2("LED LOCATE", "LED LOCATE <fixture> [<seconds 1-60>]", "Blinks one fixture", VerbCategory.Led, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
+        V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>] | LED LEVEL BY <delta> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED MONITOR", "LED MONITOR <node> <universe>", "The bytes last sent to a universe, with the fixtures in it", VerbCategory.Led, VerbRisk.Low, false),
 
         // Facades: site, survey, control points, long-throw priors, light plan, stacks (wp2-facade).
@@ -484,15 +480,11 @@ public static class VerbCatalog
         V2("ALIGN CORNERS", "ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> | ALIGN CORNERS <group> CLEAR", "The screen's corners in the camera picture (0–1), for an exact canvas", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
 
-        // The phone as a scan camera, fully local; many views into one scan (wp2-phonescan; SCAN SOLVE/VIEWS/DROP by wp2-multiscan).
+        // The phone as a scan camera, fully local (wp2-phonescan; many views into one scan are wp2-multiscan's).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V2("PHONE LIST", "PHONE LIST", "Phones paired with this node and what their cameras can do", VerbCategory.Scan, VerbRisk.Low, false),
         V2("PHONE FORGET", "PHONE FORGET <phone>|ALL", "Forgets a phone's key and disconnects it", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("SCAN NEXT", "SCAN NEXT", "The picture for the current pattern is taken (a folder camera in manual mode waits for this)", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("SCAN SUGGEST", "SCAN SUGGEST <scan> [ASSISTANT]", "Measured surface suggestions for a scan (regions, and a pixel quad per planar region), each queued as a proposal a person approves (ASSISTANT: names from the node's assistant, from text only)", VerbCategory.Scan, VerbRisk.Low, false),
-        V2("SCAN SOLVE", "SCAN SOLVE <scan>", "Solves every projector, view and the camera of a scan together (projector-anchored bundle adjustment)", VerbCategory.Scan, VerbRisk.Review, true),
-        V2("SCAN VIEWS", "SCAN VIEWS <scan>", "A scan's views with their residuals, coverage per projector and pairing facts", VerbCategory.Scan, VerbRisk.Low, false),
-        V2("SCAN DROP", "SCAN DROP <scan> <view>", "Drops a view from a scan and solves again", VerbCategory.Scan, VerbRisk.Review, true),
+        V2("SCAN NEXT", "SCAN NEXT", "The pattern a scan's camera waits on goes up again and is asked for afresh (a phone that was bumped or lost its view)", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
 
         // On-wall editing and the quad path (wp2-wall).
         V2("LIGHT WALL", "LIGHT WALL <display>|#<n>|<output> [AS <name>] [THROW <ratio>]", "First light in one line: an output full screen on that display as a projector, with the edit overlay and the wall cursor on", VerbCategory.Mapping, VerbRisk.High, true) with { Show = ShowClass.Layout },

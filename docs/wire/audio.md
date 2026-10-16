@@ -57,7 +57,10 @@ Top level, after `fx`:
 - `latencyMs.input` is −1 (unknown) unless the node's settings give it; `total` likewise. `acoustic` is the listener distance ÷
   343 m/s.
 - `tempo.confidence` is 1 under `MANUAL`, the last estimate's (0–1) when detecting, −1 before the first.
-- `modulation.shared` is 0 (frames are not shared this round); `flashLimited` is −1 (no limiter on this node).
+- `modulation.shared` is 0 (frames are not shared between nodes); `flashLimited` is −1 (no limiter on this node).
+- `modulation.unbound` names each binding that holds its base value on the air: a source the node lacks ("audio:bass (no audio
+  on this node)"), or a generator number its kind draws at its base (the CPU particle field, the sync marks, the still patterns,
+  the surface effects, and a number read once per change such as a field's `lifeMin`).
 - Fixture: `tests/fixtures/state/audio.json`, cards `tests/fixtures/state/audio.cards.json`.
 
 ## Context
@@ -79,20 +82,12 @@ Section `audio`: one row — green "not needed" when no binding reads the sound;
 or "opening" (an input that stops delivering without a fault counts as silent from a second after its last sound); red "missing"
 (the device's words) or "off", both with the fix `AUDIO LISTEN DEFAULT`.
 
-## Papers note
+## Where it lives
 
-For the integration docs pass:
-
-- `WIRE.md`: the seventeen rows above (none removed from the block; `TEMPO SET` gains `+n`/`-n`, `MOD BIND` loses `MODE RATE`,
-  `MOD SOURCES` names its sources) and STATE `audio` / `modulation`.
-- `ARCHITECTURE.md`: the analyser and the beat clock in Core (`Core/Audio`), the bus and the binding plan in Core
-  (`Core/Modulation`), the runtime and verbs in the engine (`Engine/Audio`), the capture backends in Media (`Media/Audio`, WASAPI
-  under `Media/Audio/Windows`); bound numbers of layers, surfaces and effect slots reach the renderer through the project the
-  render host's compose hook hands it; a generator keeps its numbers and its bindings, for its renderer to evaluate on its own
-  render path (content), and until then is drawn at its base (named in STATE `modulation.unbound`).
-- `ROADMAP.md`: M6 "audio analysis as a modulation source" done for this node (analysis, onsets, tap, tempo detection, the beat
-  clock as anchors, bindings on layers, surfaces and effect slots drawn live; on generators kept and evaluated for their own
-  render path); shared frames, Link (Carabiner), MIDI clock, analysis tracks and launch quantisation are next.
-- Spine amendments asked for: a dispose hook for packages in `EngineCore.DisposeAsync` (the engine's own audio runtime is let go
-  by its host's extension, or by a test); `ComposeAudio` runs after `ComposeFx`, so effects that read `FrameInputs.Modulation` in
-  their compose see it from the next package on (they read the bus through `PassFrame` today — no effect reads it yet).
+- The analyser and the beat clock are Core's (`Core/Audio`), with the bus and the binding plan (`Core/Modulation`); the runtime
+  and the verbs are the engine's (`Engine/Audio`); the capture backends are Media's (`Media/Audio`, WASAPI under
+  `Media/Audio/Windows`).
+- Bound numbers of layers, surfaces and effect slots reach the renderer through the project the render host's compose hook hands
+  it. A generator keeps its numbers and its bindings, and its renderer evaluates them on the render thread through the frame's
+  bus for the kinds that read their numbers every frame (`particles.flow`, `particles.image`, the fractals, `reactive.scene`, the
+  moving patterns); the rest are drawn at their base and named in `modulation.unbound`.

@@ -45,6 +45,10 @@ public sealed record SimOptions
     public bool Shadows { get; init; } = true;
 
     public ulong Seed { get; init; } = 1;
+
+    /// <summary>A camera's auto-exposure hunting: each plan frame's gain is the one before times (1 + a normal of this standard
+    /// deviation), from 1 at frame 0, seeded by <see cref="Seed"/> (0.01 is a 1 % random walk per frame; 0, none).</summary>
+    public double GainWalk { get; init; }
 }
 
 /// <summary>
@@ -284,6 +288,7 @@ public sealed class ScanSimulator
     private readonly int _samples;
     private readonly float[] _projectorLut = new float[256];
     private readonly float[] _cameraLut = new float[4097];
+    private readonly double[] _gains;
 
     public ScanSimulator(SimScene scene, ScanPlan plan, SimOptions? options = null)
         : this(new SimGeometry(scene), plan, options)
@@ -332,6 +337,15 @@ public sealed class ScanSimulator
             _irradiance[at] = (float)(_options.ProjectorGain * geometry.SampleCos[at]);
             _direct[at] = (float)(albedo * _irradiance[at]);
         }
+        _gains = new double[plan.Count];
+        var walk = new Pcg32(_options.Seed, 0xAE);
+        var gain = 1.0;
+        for (var i = 0; i < _gains.Length; i++)
+        {
+            if (i > 0 && _options.GainWalk > 0)
+                gain *= 1 + _options.GainWalk * walk.NextGaussian();
+            _gains[i] = gain;
+        }
         Truth = new SimTruth(geometry);
         var region = plan.Region;
         for (var k = 0; k < n; k++)
@@ -377,17 +391,25 @@ public sealed class ScanSimulator
         return (float)(_cameraLut[i0] + (_cameraLut[i1] - _cameraLut[i0]) * (i - i0));
     }
 
+    /// <summary>The gain the camera's auto-exposure had for plan frame <paramref name="index"/> (1 without <see cref="SimOptions.GainWalk"/>).</summary>
+    public double GainOf(int index) => _gains[index];
+
     /// <summary>The camera's gray8 picture of plan frame <paramref name="index"/>.</summary>
-    public byte[] Render(int index)
+    public byte[] Render(int index) => RenderRaster(_plan.Render(index), (ulong)index, _gains[index]);
+
+    /// <summary>The camera's gray8 picture of any picture on the projector (gray8 at its raster: a pattern with tags painted in, a
+    /// locate frame), its noise seeded by <paramref name="frameSeed"/>, the camera's gain times <paramref name="gain"/>.</summary>
+    public byte[] RenderRaster(ReadOnlySpan<byte> raster, ulong frameSeed, double gain = 1)
     {
-        var pattern = _plan.Render(index);
-        var light = new float[pattern.Length];
-        for (var i = 0; i < pattern.Length; i++)
-            light[i] = _projectorLut[pattern[i]];
-        var image = new byte[CameraWidth * CameraHeight];
         var pw = _plan.ProjectorWidth;
         var ph = _plan.ProjectorHeight;
-        var seed = _options.Seed * 0x9E3779B97F4A7C15UL + (ulong)index;
+        if (raster.Length < pw * ph)
+            throw new ArgumentException("The picture is smaller than the projector's raster.", nameof(raster));
+        var light = new float[pw * ph];
+        for (var i = 0; i < light.Length; i++)
+            light[i] = _projectorLut[raster[i]];
+        var image = new byte[CameraWidth * CameraHeight];
+        var seed = _options.Seed * 0x9E3779B97F4A7C15UL + frameSeed;
         var sigma = (float)_options.NoiseSigma;
         var u = _geometry.SampleRasterX;
         var v = _geometry.SampleRasterY;
@@ -406,7 +428,7 @@ public sealed class ScanSimulator
                     if (_direct[at] > 0)
                         shade += _direct[at] * SampleBilinear(light, pw, ph, u[at] - 0.5, v[at] - 0.5);
                 }
-                var level = Record(shade / samples);
+                var level = Record(shade * gain / samples);
                 if (sigma > 0)
                 {
                     // Box–Muller gives two independent normals per draw; the second is kept for the next pixel.

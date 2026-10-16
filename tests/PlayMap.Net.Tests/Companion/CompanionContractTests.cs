@@ -76,7 +76,7 @@ public sealed partial class CompanionContractTests
     /// <summary>Sample row ids for a section the fixture's show has no rows of, by the hint's row kind.</summary>
     private static readonly Dictionary<string, string> SampleRowIds = new(StringComparer.Ordinal)
     {
-        ["align"] = "Front wall", ["projector"] = "pj0a1b2c3d", ["fx"] = "fx0a1b2c3d", ["output"] = "op0a1b2c3d", ["chase"] = "pl0a1b2c3d",
+        ["align"] = "Front wall", ["projector"] = "pj0a1b2c3d", ["fx"] = "fx0a1b2c3d", ["output"] = "op0a1b2c3d", ["chase"] = "pl0a1b2c3d", ["lednode"] = "ln0a1b2c3d",
     };
 
     [Fact]
@@ -96,8 +96,12 @@ public sealed partial class CompanionContractTests
                 .Select(r => r.GetProperty("id").GetString()!).ToList();
             if (ids.Count == 0)
             {
-                Assert.True(SampleRowIds.TryGetValue(kind, out var sample), $"section {section.GetProperty("section")} has no rows and no sample id for its row kind '{kind}'");
-                ids.Add(sample!);
+                // A section whose key lines name no row ("SCAN NEXT") needs no sample row id.
+                var named = hint.GetProperty("keys").EnumerateArray()
+                    .Any(k => k.TryGetProperty("line", out var l) && l.GetString()?.Contains("$(id)", StringComparison.Ordinal) == true);
+                Assert.True(SampleRowIds.TryGetValue(kind, out var sample) || !named,
+                    $"section {section.GetProperty("section")} has no rows and no sample id for its row kind '{kind}'");
+                ids.Add(sample ?? "");
             }
             foreach (var key in hint.GetProperty("keys").EnumerateArray())
             {

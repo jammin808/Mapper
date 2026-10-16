@@ -12,7 +12,7 @@ public sealed class VerbSyntaxTests
     {
         Assert.Equal(["GENERATOR SET <generator> <param> <value>", "GENERATOR SET <generator> <param> BY <delta>"], Forms("GENERATOR SET"));
         Assert.Equal(["UNLOCK <id>", "UNLOCK AREA <area>", "UNLOCK ALL"], Forms("UNLOCK"));
-        Assert.Equal(["MEDIA RULE MODE AUTO|ASK|NEVER", "MEDIA RULE ADD <json> [AT <n>]", "MEDIA RULE REMOVE <n>|<name>"], Forms("MEDIA RULE"));
+        Assert.Equal(["MEDIA OPTIMISE <media>…|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW]", "MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]"], Forms("MEDIA OPTIMISE"));
         Assert.Equal(
         [
             "VIDEOIO SET NDI ON|OFF", "VIDEOIO SET NDI-GROUPS <groups>", "VIDEOIO SET NDI-DISCOVERY <host,…>|OFF", "VIDEOIO SET OMT ON|OFF",

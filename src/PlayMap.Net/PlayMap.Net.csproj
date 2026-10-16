@@ -21,4 +21,8 @@
     <InternalsVisibleTo Include="PlayMap.Net.Tests" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-phonescan">
+    <EmbeddedResource Include="Phone\www\**" LogicalName="phone/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

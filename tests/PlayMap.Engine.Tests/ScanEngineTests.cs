@@ -73,6 +73,45 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task AScannerThatHasBegunToStopStartsNoScanAndTheVerbSaysWhy()
+    {
+        var rig = new OpsRig(project: TwoProjectors());
+        try
+        {
+            var started = await rig.Run("SCAN START sim MODE FAST");
+            Assert.True(started.Ok, started.Payload);
+            var first = JsonDocument.Parse(started.Payload!).RootElement.GetProperty("scan").GetString()!;
+
+            // The node stops its scanner: the scan under way is the last, ended and waited for.
+            await rig.Scanner.StopAsync();
+            var ended = rig.Scanner.View!;
+            Assert.Equal(first, ended.Id);
+            Assert.False(ended.IsRunning);
+            Assert.Null(rig.Scanner.RunningId);
+
+            // SCAN START now answers the runner's words; nothing is published and no scan runs.
+            var refused = await rig.Run("SCAN START sim MODE FAST");
+            Assert.False(refused.Ok, refused.Payload);
+            Assert.Equal(ScanRunner.StoppingWords, refused.Payload);
+            Assert.Same(ended, rig.Scanner.View);
+            Assert.Null(rig.Scanner.RunningId);
+            Assert.Equal((first, ended.State), (rig.State().GetProperty("scan").GetProperty("id").GetString(),
+                rig.State().GetProperty("scan").GetProperty("state").GetString()));
+
+            // The seam refuses the same way whoever calls it.
+            var direct = rig.Scanner.StartAsync("sim", ["pj00000001"], "fast", CancellationToken.None);
+            Assert.True(direct.IsFaulted);
+            Assert.Equal(ScanRunner.StoppingWords, direct.Exception!.InnerException!.Message);
+            Assert.Same(ended, rig.Scanner.View);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    [Fact]
     public async Task ACameraThatCannotOpenSaysWhyOnItsViewAndInState()
     {
         var opens = 0;

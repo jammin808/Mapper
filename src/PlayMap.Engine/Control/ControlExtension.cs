@@ -172,7 +172,8 @@ internal sealed class TimecodePreflight : IPreflightCheck
                     $"TIMECODE CHASE {list.Id} OFF"));
                 continue;
             }
-            var readings = chase.Sources.Select(s => (Id: s, Reading: engine.TimecodeSources.ReadingOf(s, mono))).ToList();
+            // The sources as this chase reads them: their code judged at its jump threshold.
+            var readings = chase.Sources.Select(s => (Id: s, Reading: engine.TimecodeSources.ReadingOf(s, mono, chase.JumpNs))).ToList();
             var rolling = readings.FirstOrDefault(r => r.Reading.State is "rolling" or "parked");
             if (rolling.Id is not null)
             {

@@ -6686,7 +6686,7 @@
   },
   {
     "name": "MEDIA OPTIMISE",
-    "syntax": "MEDIA OPTIMISE \u003Cmedia\u003E\u2026|ALL|SUGGESTED [TO hap|hap-alpha|hap-q|hap-q-alpha|rechunk] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [\u003Cjob\u003E|ALL]",
+    "syntax": "MEDIA OPTIMISE \u003Cmedia\u003E\u2026|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [\u003Cjob\u003E|ALL]",
     "words": "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs",
     "category": "media",
     "risk": "review",
@@ -6716,7 +6716,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "MEDIA OPTIMISE \u003Cmedia\u003E\u2026|ALL|SUGGESTED [TO hap|hap-alpha|hap-q|hap-q-alpha|rechunk] [QUALITY FAST|SHOW]",
+      "MEDIA OPTIMISE \u003Cmedia\u003E\u2026|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW]",
       "MEDIA OPTIMISE CANCEL|PAUSE|RESUME [\u003Cjob\u003E|ALL]"
     ],
     "available": false,
@@ -6725,7 +6725,7 @@
         "name": "media",
         "kind": "entity",
         "prefix": "md",
-        "alt": "ALL|SUGGESTED",
+        "alt": "ALL",
         "repeats": true
       },
       {
@@ -6737,8 +6737,7 @@
           "hap",
           "hap-alpha",
           "hap-q",
-          "hap-q-alpha",
-          "rechunk"
+          "hap-q-alpha"
         ]
       },
       {
@@ -6758,7 +6757,7 @@
           "name": "media",
           "kind": "entity",
           "prefix": "md",
-          "alt": "ALL|SUGGESTED",
+          "alt": "ALL",
           "repeats": true
         },
         {
@@ -6770,8 +6769,7 @@
             "hap",
             "hap-alpha",
             "hap-q",
-            "hap-q-alpha",
-            "rechunk"
+            "hap-q-alpha"
           ]
         },
         {
@@ -6825,77 +6823,6 @@
     "params": [],
     "formParams": [
       []
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "MEDIA ESTIMATE",
-    "syntax": "MEDIA ESTIMATE \u003Cmedia\u003E\u2026|ALL|SUGGESTED [TO \u003Ctarget\u003E] [QUALITY FAST|SHOW]",
-    "words": "What optimising would do, how long and how much disk, before any work",
-    "category": "media",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "MEDIA ESTIMATE \u003Cmedia\u003E\u2026|ALL|SUGGESTED [TO \u003Ctarget\u003E] [QUALITY FAST|SHOW]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "media",
-        "kind": "entity",
-        "prefix": "md",
-        "alt": "ALL|SUGGESTED",
-        "repeats": true
-      },
-      {
-        "name": "to",
-        "kind": "entity",
-        "optional": true,
-        "keyword": "TO"
-      },
-      {
-        "name": "quality",
-        "kind": "enum",
-        "optional": true,
-        "keyword": "QUALITY",
-        "values": [
-          "FAST",
-          "SHOW"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "media",
-          "kind": "entity",
-          "prefix": "md",
-          "alt": "ALL|SUGGESTED",
-          "repeats": true
-        },
-        {
-          "name": "to",
-          "kind": "entity",
-          "optional": true,
-          "keyword": "TO"
-        },
-        {
-          "name": "quality",
-          "kind": "enum",
-          "optional": true,
-          "keyword": "QUALITY",
-          "values": [
-            "FAST",
-            "SHOW"
-          ]
-        }
-      ]
     ],
     "press": "instant"
   },
@@ -6980,60 +6907,9 @@
     "press": "instant"
   },
   {
-    "name": "MEDIA VERSION",
-    "syntax": "MEDIA VERSION REMOVE \u003Cversion\u003E [FILES]",
-    "words": "Forgets a version (FILES also deletes this node\u0027s derived file when nothing else names it)",
-    "category": "media",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "media",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "MEDIA VERSION REMOVE \u003Cversion\u003E [FILES]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "remove",
-        "kind": "text",
-        "keyword": "REMOVE"
-      },
-      {
-        "name": "files",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "FILES"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "remove",
-          "kind": "text",
-          "keyword": "REMOVE"
-        },
-        {
-          "name": "files",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "FILES"
-          ]
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
     "name": "MEDIA RULES",
     "syntax": "MEDIA RULES",
-    "words": "The optimise mode, this show\u0027s rules, then the built-in table",
+    "words": "The optimise mode and quality, this show\u0027s rules, then the built-in table\u0027s rule names",
     "category": "media",
     "risk": "low",
     "mutates": false,
@@ -7055,8 +6931,8 @@
   },
   {
     "name": "MEDIA RULE",
-    "syntax": "MEDIA RULE MODE AUTO|ASK|NEVER | MEDIA RULE ADD \u003Cjson\u003E [AT \u003Cn\u003E] | MEDIA RULE REMOVE \u003Cn\u003E|\u003Cname\u003E",
-    "words": "Changes the optimise mode or this show\u0027s rules",
+    "syntax": "MEDIA RULE MODE AUTO|NEVER",
+    "words": "Changes the optimise mode: AUTO optimises clips imported from now on as the rules say, NEVER optimises nothing unless a person asks",
     "category": "media",
     "risk": "review",
     "mutates": true,
@@ -7067,9 +6943,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "MEDIA RULE MODE AUTO|ASK|NEVER",
-      "MEDIA RULE ADD \u003Cjson\u003E [AT \u003Cn\u003E]",
-      "MEDIA RULE REMOVE \u003Cn\u003E|\u003Cname\u003E"
+      "MEDIA RULE MODE AUTO|NEVER"
     ],
     "available": false,
     "params": [
@@ -7085,7 +6959,6 @@
         "kind": "enum",
         "values": [
           "AUTO",
-          "ASK",
           "NEVER"
         ]
       }
@@ -7104,30 +6977,8 @@
           "kind": "enum",
           "values": [
             "AUTO",
-            "ASK",
             "NEVER"
           ]
-        }
-      ],
-      [
-        {
-          "name": "add",
-          "kind": "json",
-          "keyword": "ADD"
-        },
-        {
-          "name": "at",
-          "kind": "integer",
-          "optional": true,
-          "keyword": "AT"
-        }
-      ],
-      [
-        {
-          "name": "remove",
-          "kind": "integer",
-          "keyword": "REMOVE",
-          "alt": "\u003Cname\u003E"
         }
       ]
     ],
@@ -10869,8 +10720,8 @@
   },
   {
     "name": "GENERATOR INPUT",
-    "syntax": "GENERATOR INPUT \u003Cgenerator\u003E source|flow|matte \u003Csource\u003E|NONE",
-    "words": "A picture a generator reads (particles emit from it)",
+    "syntax": "GENERATOR INPUT \u003Cgenerator\u003E source \u003Csource\u003E|NONE",
+    "words": "A picture a generator reads (a particle flow emits where it is bright)",
     "category": "content",
     "risk": "review",
     "mutates": true,
@@ -10881,7 +10732,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "GENERATOR INPUT \u003Cgenerator\u003E source|flow|matte \u003Csource\u003E|NONE"
+      "GENERATOR INPUT \u003Cgenerator\u003E source \u003Csource\u003E|NONE"
     ],
     "available": false,
     "params": [
@@ -10891,16 +10742,14 @@
         "prefix": "gn"
       },
       {
-        "name": "choice",
+        "name": "source",
         "kind": "enum",
         "values": [
-          "source",
-          "flow",
-          "matte"
+          "source"
         ]
       },
       {
-        "name": "source",
+        "name": "source2",
         "kind": "ref",
         "alt": "NONE"
       }
@@ -10913,16 +10762,14 @@
           "prefix": "gn"
         },
         {
-          "name": "choice",
+          "name": "source",
           "kind": "enum",
           "values": [
-            "source",
-            "flow",
-            "matte"
+            "source"
           ]
         },
         {
-          "name": "source",
+          "name": "source2",
           "kind": "ref",
           "alt": "NONE"
         }
@@ -11048,95 +10895,6 @@
         {
           "name": "name",
           "kind": "text"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "GENERATOR MORPH",
-    "syntax": "GENERATOR MORPH \u003Cgenerator\u003E \u003Cpreset\u003E [OVER \u003C0.1-600 s\u003E] [AT \u002B\u003Cms\u003E|\u003Cunix ms\u003E] [CURVE LINEAR|EASE]",
-    "words": "Crossfades a generator to a look on the show clock",
-    "category": "content",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "content",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "GENERATOR MORPH \u003Cgenerator\u003E \u003Cpreset\u003E [OVER \u003C0.1-600 s\u003E] [AT \u002B\u003Cms\u003E|\u003Cunix ms\u003E] [CURVE LINEAR|EASE]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "generator",
-        "kind": "entity",
-        "prefix": "gn"
-      },
-      {
-        "name": "preset",
-        "kind": "text"
-      },
-      {
-        "name": "over",
-        "kind": "number",
-        "optional": true,
-        "keyword": "OVER"
-      },
-      {
-        "name": "at",
-        "kind": "time",
-        "optional": true,
-        "keyword": "AT",
-        "alt": "\u003Cunix ms\u003E"
-      },
-      {
-        "name": "curve",
-        "kind": "enum",
-        "optional": true,
-        "keyword": "CURVE",
-        "values": [
-          "LINEAR",
-          "EASE"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "generator",
-          "kind": "entity",
-          "prefix": "gn"
-        },
-        {
-          "name": "preset",
-          "kind": "text"
-        },
-        {
-          "name": "over",
-          "kind": "number",
-          "optional": true,
-          "keyword": "OVER"
-        },
-        {
-          "name": "at",
-          "kind": "time",
-          "optional": true,
-          "keyword": "AT",
-          "alt": "\u003Cunix ms\u003E"
-        },
-        {
-          "name": "curve",
-          "kind": "enum",
-          "optional": true,
-          "keyword": "CURVE",
-          "values": [
-            "LINEAR",
-            "EASE"
-          ]
         }
       ]
     ],
@@ -11321,7 +11079,7 @@
   },
   {
     "name": "LED NEW",
-    "syntax": "LED NEW LINE|GRID|RING \u003Ccount\u003E[x\u003Crows\u003E] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E|world] [TYPE \u003Ctype\u003E] [\u003Cname\u003E]",
+    "syntax": "LED NEW LINE|GRID|RING \u003Ccount\u003E[x\u003Crows\u003E] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E] [TYPE \u003Ctype\u003E] [\u003Cname\u003E]",
     "words": "Adds a fixture laid out on a space; answers its id",
     "category": "led",
     "risk": "low",
@@ -11333,7 +11091,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "LED NEW LINE|GRID|RING \u003Ccount\u003E[x\u003Crows\u003E] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E|world] [TYPE \u003Ctype\u003E] [\u003Cname\u003E]"
+      "LED NEW LINE|GRID|RING \u003Ccount\u003E[x\u003Crows\u003E] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E] [TYPE \u003Ctype\u003E] [\u003Cname\u003E]"
     ],
     "available": false,
     "params": [
@@ -11355,7 +11113,7 @@
         "kind": "entity",
         "optional": true,
         "keyword": "ON",
-        "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E|world"
+        "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E"
       },
       {
         "name": "type",
@@ -11389,7 +11147,7 @@
           "kind": "entity",
           "optional": true,
           "keyword": "ON",
-          "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E|world"
+          "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E"
         },
         {
           "name": "type",
@@ -11408,7 +11166,7 @@
   },
   {
     "name": "LED IMPORT",
-    "syntax": "LED IMPORT \u003Cpath\u003E [AS CSV] [ON \u003Cspace\u003E] [SCALE \u003Cx\u003E] [NODE \u003Cnode\u003E]",
+    "syntax": "LED IMPORT \u003Cpath\u003E [AS CSV] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E] [SCALE \u003Cx\u003E] [NODE \u003Cnode\u003E]",
     "words": "Imports pixel positions and patches from a CSV (one undo step)",
     "category": "led",
     "risk": "review",
@@ -11420,7 +11178,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "LED IMPORT \u003Cpath\u003E [AS CSV] [ON \u003Cspace\u003E] [SCALE \u003Cx\u003E] [NODE \u003Cnode\u003E]"
+      "LED IMPORT \u003Cpath\u003E [AS CSV] [ON canvas:\u003Cid\u003E|output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E] [SCALE \u003Cx\u003E] [NODE \u003Cnode\u003E]"
     ],
     "available": false,
     "params": [
@@ -11446,9 +11204,10 @@
       },
       {
         "name": "on",
-        "kind": "text",
+        "kind": "entity",
         "optional": true,
-        "keyword": "ON"
+        "keyword": "ON",
+        "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E"
       },
       {
         "name": "scale",
@@ -11487,9 +11246,10 @@
         },
         {
           "name": "on",
-          "kind": "text",
+          "kind": "entity",
           "optional": true,
-          "keyword": "ON"
+          "keyword": "ON",
+          "alt": "output:\u003Cid\u003E|surface:\u003Cid\u003E|source:\u003Cref\u003E"
         },
         {
           "name": "scale",
@@ -11576,7 +11336,7 @@
   },
   {
     "name": "LED AUTOPATCH",
-    "syntax": "LED AUTOPATCH [\u003Cfixture\u003E|#\u003Ctag\u003E|ALL] [NODE \u003Cnode\u003E\u2026] [FROM \u003Cuniverse\u003E[.\u003Caddress\u003E]] [ALIGN ON|OFF] [EACH ON|OFF]",
+    "syntax": "LED AUTOPATCH [\u003Cfixture\u003E|#\u003Ctag\u003E|ALL] [NODE \u003Cnode\u003E\u2026] [FROM \u003Cuniverse\u003E[.\u003Caddress\u003E]] [EACH ON|OFF]",
     "words": "Patches fixtures in order within each node\u0027s capacity",
     "category": "led",
     "risk": "review",
@@ -11588,7 +11348,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "LED AUTOPATCH [\u003Cfixture\u003E|#\u003Ctag\u003E|ALL] [NODE \u003Cnode\u003E\u2026] [FROM \u003Cuniverse\u003E[.\u003Caddress\u003E]] [ALIGN ON|OFF] [EACH ON|OFF]"
+      "LED AUTOPATCH [\u003Cfixture\u003E|#\u003Ctag\u003E|ALL] [NODE \u003Cnode\u003E\u2026] [FROM \u003Cuniverse\u003E[.\u003Caddress\u003E]] [EACH ON|OFF]"
     ],
     "available": false,
     "params": [
@@ -11611,16 +11371,6 @@
         "kind": "integer",
         "optional": true,
         "keyword": "FROM"
-      },
-      {
-        "name": "align",
-        "kind": "enum",
-        "optional": true,
-        "keyword": "ALIGN",
-        "values": [
-          "ON",
-          "OFF"
-        ]
       },
       {
         "name": "each",
@@ -11656,16 +11406,6 @@
           "keyword": "FROM"
         },
         {
-          "name": "align",
-          "kind": "enum",
-          "optional": true,
-          "keyword": "ALIGN",
-          "values": [
-            "ON",
-            "OFF"
-          ]
-        },
-        {
           "name": "each",
           "kind": "enum",
           "optional": true,
@@ -11674,63 +11414,6 @@
             "ON",
             "OFF"
           ]
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "LED DISCOVER",
-    "syntax": "LED DISCOVER [ARTNET|ALL] [\u003Cseconds 1-10\u003E]",
-    "words": "Polls the network for Art-Net nodes",
-    "category": "led",
-    "risk": "low",
-    "mutates": true,
-    "aliases": [],
-    "show": "perform",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "LED DISCOVER [ARTNET|ALL] [\u003Cseconds 1-10\u003E]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "choice",
-        "kind": "enum",
-        "optional": true,
-        "values": [
-          "ARTNET",
-          "ALL"
-        ]
-      },
-      {
-        "name": "seconds",
-        "kind": "number",
-        "optional": true,
-        "min": 1,
-        "max": 10
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "choice",
-          "kind": "enum",
-          "optional": true,
-          "values": [
-            "ARTNET",
-            "ALL"
-          ]
-        },
-        {
-          "name": "seconds",
-          "kind": "number",
-          "optional": true,
-          "min": 1,
-          "max": 10
         }
       ]
     ],
@@ -11927,7 +11610,7 @@
   },
   {
     "name": "LED LEVEL",
-    "syntax": "LED LEVEL \u003C0-100\u003E [FADE \u003Cms\u003E]",
+    "syntax": "LED LEVEL \u003C0-100\u003E [FADE \u003Cms\u003E] | LED LEVEL BY \u003Cdelta\u003E [FADE \u003Cms\u003E]",
     "words": "The LED rig\u0027s master level (live, not an undo step)",
     "category": "led",
     "risk": "high",
@@ -11939,7 +11622,8 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "LED LEVEL \u003C0-100\u003E [FADE \u003Cms\u003E]"
+      "LED LEVEL \u003C0-100\u003E [FADE \u003Cms\u003E]",
+      "LED LEVEL BY \u003Cdelta\u003E [FADE \u003Cms\u003E]"
     ],
     "available": false,
     "params": [
@@ -11963,6 +11647,19 @@
           "kind": "number",
           "min": 0,
           "max": 100
+        },
+        {
+          "name": "fade",
+          "kind": "number",
+          "optional": true,
+          "keyword": "FADE"
+        }
+      ],
+      [
+        {
+          "name": "by",
+          "kind": "number",
+          "keyword": "BY"
         },
         {
           "name": "fade",
@@ -13478,7 +13175,7 @@
   {
     "name": "SCAN NEXT",
     "syntax": "SCAN NEXT",
-    "words": "The picture for the current pattern is taken (a folder camera in manual mode waits for this)",
+    "words": "The pattern a scan\u0027s camera waits on goes up again and is asked for afresh (a phone that was bumped or lost its view)",
     "category": "scan",
     "risk": "review",
     "mutates": true,
@@ -13495,170 +13192,6 @@
     "params": [],
     "formParams": [
       []
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "SCAN SUGGEST",
-    "syntax": "SCAN SUGGEST \u003Cscan\u003E [ASSISTANT]",
-    "words": "Measured surface suggestions for a scan (regions, and a pixel quad per planar region), each queued as a proposal a person approves (ASSISTANT: names from the node\u0027s assistant, from text only)",
-    "category": "scan",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "SCAN SUGGEST \u003Cscan\u003E [ASSISTANT]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "scan",
-        "kind": "entity",
-        "prefix": "sc"
-      },
-      {
-        "name": "assistant",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "ASSISTANT"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "scan",
-          "kind": "entity",
-          "prefix": "sc"
-        },
-        {
-          "name": "assistant",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "ASSISTANT"
-          ]
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "SCAN SOLVE",
-    "syntax": "SCAN SOLVE \u003Cscan\u003E",
-    "words": "Solves every projector, view and the camera of a scan together (projector-anchored bundle adjustment)",
-    "category": "scan",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "heavy",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "SCAN SOLVE \u003Cscan\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "scan",
-        "kind": "entity",
-        "prefix": "sc"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "scan",
-          "kind": "entity",
-          "prefix": "sc"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "SCAN VIEWS",
-    "syntax": "SCAN VIEWS \u003Cscan\u003E",
-    "words": "A scan\u0027s views with their residuals, coverage per projector and pairing facts",
-    "category": "scan",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "SCAN VIEWS \u003Cscan\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "scan",
-        "kind": "entity",
-        "prefix": "sc"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "scan",
-          "kind": "entity",
-          "prefix": "sc"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "SCAN DROP",
-    "syntax": "SCAN DROP \u003Cscan\u003E \u003Cview\u003E",
-    "words": "Drops a view from a scan and solves again",
-    "category": "scan",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "heavy",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "SCAN DROP \u003Cscan\u003E \u003Cview\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "scan",
-        "kind": "entity",
-        "prefix": "sc"
-      },
-      {
-        "name": "view",
-        "kind": "text"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "scan",
-          "kind": "entity",
-          "prefix": "sc"
-        },
-        {
-          "name": "view",
-          "kind": "text"
-        }
-      ]
     ],
     "press": "instant"
   },

@@ -252,7 +252,7 @@ public sealed partial class EngineCore
         {
             if (item.Problem.Length > 0)
                 list.Add($"{item.Entity.Name} {item.Binding.Param}: {item.Problem}");
-            else if (!ModulationPlan.DrawsLive(item.Entity.Kind))
+            else if (DrawnAtBase(plan.Project, item.Entity, item.Param))
                 list.Add($"{item.Entity.Name} {item.Binding.Param}: {GeneratorDrawsBase}");
             else if (item.Source is { IsAudio: true } && !listening)
                 list.Add($"{item.Binding.Source} (no audio on this node)");
@@ -260,9 +260,9 @@ public sealed partial class EngineCore
         return [.. list.Distinct(StringComparer.Ordinal)];
     }
 
-    /// <summary>Why a generator's bound number is drawn at its base: its renderer evaluates its own bindings, and this node's
-    /// generator renderers do not yet.</summary>
-    internal const string GeneratorDrawsBase = "drawn at its base: a generator reads its bindings on its own render path, and the generators on this node do not yet";
+    /// <summary>Why a generator's bound number is drawn at its base: its renderer evaluates its own bindings, and this kind's renderer
+    /// reads its numbers once per change, not every frame.</summary>
+    internal const string GeneratorDrawsBase = "drawn at its base: a generator reads its bindings on its own render path, and its kind reads this number once per change";
 
     private static double Round(float v) => Math.Round(v, 3);
 

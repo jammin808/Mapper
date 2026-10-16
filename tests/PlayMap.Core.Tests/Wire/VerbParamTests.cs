@@ -124,7 +124,7 @@ public sealed class VerbParamTests
         var mode = VerbParams.For("SCAN START").Single(p => p.Name == "mode");
         Assert.Equal((ParamKind.Enum, "MODE", true), (mode.Kind, mode.Keyword, mode.Optional));
         Assert.Equal(["FAST", "ROBUST", "DIFFICULT"], mode.Values);
-        Assert.Equal(["hap", "hap-alpha", "hap-q", "hap-q-alpha", "rechunk"], VerbParams.For("MEDIA OPTIMISE").Single(p => p.Keyword == "TO").Values);
+        Assert.Equal(["hap", "hap-alpha", "hap-q", "hap-q-alpha"], VerbParams.For("MEDIA OPTIMISE").Single(p => p.Keyword == "TO").Values);
 
         Assert.False(Assert.Single(VerbParams.For("AUDIO GAIN")).Repeats);
         Assert.False(VerbParams.For("MOD BIND").Single(p => p.Name == "amount").Repeats);

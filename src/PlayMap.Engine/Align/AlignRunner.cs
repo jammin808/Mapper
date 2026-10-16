@@ -121,7 +121,8 @@ public sealed record AlignRunnerOptions
 /// output's structured-light plan alone, decoded), solve (the flat fit, the canvas, each output's measured warp and blend), stage (the
 /// files and run.json written under align/&lt;run&gt;/, never over an earlier run's). A simulated camera — "sim", or a rig of kind
 /// Simulated whose source names a layout — is its own display; a real camera goes through the scan display and the camera seam with
-/// its latency measured first. One run at a time, on a pool task; nothing reaches the project until ALIGN ACCEPT.
+/// its latency measured first. One run at a time, on a pool task, and none once the runner has begun to stop; nothing reaches the project
+/// until ALIGN ACCEPT.
 /// </summary>
 public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
 {
@@ -136,6 +137,9 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
     private Task? _task;
     private volatile AlignRunView? _view;
 
+    /// <summary>Set under the gate once <see cref="DisposeAsync"/> has begun: no run starts from then on.</summary>
+    private bool _stopping;
+
     public AlignRunner(IScanDisplay? display, AlignRunnerOptions? options = null)
     {
         _display = display;
@@ -148,6 +152,9 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
 
     public event Action<AlignRunView>? Progressed;
 
+    /// <summary>What <see cref="Start"/> says once the runner has begun to stop.</summary>
+    public const string StoppingWords = "the node is stopping — no alignment run starts";
+
     /// <summary>The run's task (tests wait on it; null before the first).</summary>
     public Task? Running => _task;
 
@@ -158,6 +165,8 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(setup);
         lock (_gate)
         {
+            if (_stopping)
+                throw new InvalidOperationException(StoppingWords);
             if (_view is { IsRunning: true } v)
                 throw new InvalidOperationException($"{v.Id} is running — ALIGN CANCEL first");
             if (!IsSimulated(setup.Rig) && _display is null)
@@ -402,13 +411,17 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         }
     }
 
+    /// <summary>Stops the runner: from the moment it begins no run starts (<see cref="Start"/> refuses with <see cref="StoppingWords"/>),
+    /// so the run it cancels and waits for is the last; a run under way ends cancelled with its outputs handed back. A second call waits
+    /// for the same run and cancels nothing again.</summary>
     public async ValueTask DisposeAsync()
     {
         CancellationTokenSource? cts;
         Task? task;
         lock (_gate)
         {
-            cts = _running;
+            cts = _stopping ? null : _running;
+            _stopping = true;
             task = _task;
         }
         if (cts is not null)

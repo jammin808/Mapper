@@ -11,9 +11,9 @@
       "syncGroup": null,
       "items": [
         {
-          "id": "it00000008",
+          "id": "it00000009",
           "label": "Intro",
-          "source": "generator:gn00000009",
+          "source": "generator:gn00000008",
           "kind": "generator",
           "lengthMs": null
         },
@@ -98,7 +98,7 @@
       ]
     },
     {
-      "id": "gn00000009",
+      "id": "gn00000008",
       "name": "White",
       "kind": "pattern.flat",
       "params": [
@@ -191,6 +191,39 @@
         ]
       },
       "rows": []
+    },
+    {
+      "section": "content",
+      "hint": {
+        "title": "Content",
+        "rowKind": "generator",
+        "keys": [
+          {
+            "label": "Retime",
+            "line": "GENERATOR RETIME $(id)",
+            "feedback": "content.state",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "gn_testcard",
+          "kind": "generator",
+          "label": "Test card \u00B7 Test card",
+          "parent": "",
+          "light": "grey",
+          "state": "idle"
+        },
+        {
+          "id": "gn00000008",
+          "kind": "generator",
+          "label": "White \u00B7 Flat field",
+          "parent": "",
+          "light": "grey",
+          "state": "idle"
+        }
+      ]
     },
     {
       "section": "eye",
@@ -286,6 +319,46 @@
       "rows": []
     },
     {
+      "section": "led",
+      "hint": {
+        "title": "LED",
+        "rowKind": "lednode",
+        "keys": [
+          {
+            "label": "On",
+            "line": "LED OUTPUT ON $(id)",
+            "feedback": "led.node",
+            "press": "instant"
+          },
+          {
+            "label": "Off",
+            "line": "LED OUTPUT OFF $(id)",
+            "feedback": "led.node",
+            "press": "instant"
+          },
+          {
+            "label": "Test",
+            "line": "LED TEST CHASE ON $(id)",
+            "feedback": "led.test",
+            "press": "instant"
+          },
+          {
+            "label": "Level \u002B",
+            "line": "LED LEVEL BY 5",
+            "feedback": "led.level",
+            "press": "hold"
+          },
+          {
+            "label": "Level \u2212",
+            "line": "LED LEVEL BY -5",
+            "feedback": "led.level",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "present",
       "hint": {
         "title": "Outputs: present and lock",
@@ -315,6 +388,34 @@
           "state": "free-unknown"
         }
       ]
+    },
+    {
+      "section": "scan",
+      "hint": {
+        "title": "Scan",
+        "rowKind": "phone",
+        "keys": [
+          {
+            "label": "Next picture",
+            "line": "SCAN NEXT",
+            "feedback": "scan.waiting",
+            "press": "instant"
+          },
+          {
+            "label": "Cancel scan",
+            "line": "SCAN CANCEL",
+            "feedback": "scan.running",
+            "press": "hold"
+          },
+          {
+            "label": "Phones",
+            "line": "PHONE LIST",
+            "feedback": "phone.connected",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
     },
     {
       "section": "show",
@@ -402,6 +503,119 @@
           "parent": "show",
           "light": "green",
           "state": "100"
+        }
+      ]
+    },
+    {
+      "section": "sting",
+      "hint": {
+        "title": "Stings",
+        "rowKind": "sting",
+        "keys": [
+          {
+            "label": "Fire",
+            "line": "STING $(id)",
+            "feedback": "content.sting",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "Explosion",
+          "kind": "sting",
+          "label": "Explosion",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Rush",
+          "kind": "sting",
+          "label": "Rush",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Flash",
+          "kind": "sting",
+          "label": "Flash",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Bloom",
+          "kind": "sting",
+          "label": "Bloom",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Shockwave",
+          "kind": "sting",
+          "label": "Shockwave",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Vortex",
+          "kind": "sting",
+          "label": "Vortex",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Strobe",
+          "kind": "sting",
+          "label": "Strobe",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Supernova",
+          "kind": "sting",
+          "label": "Supernova",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Freeze",
+          "kind": "sting",
+          "label": "Freeze",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Gust",
+          "kind": "sting",
+          "label": "Gust",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Rainbow",
+          "kind": "sting",
+          "label": "Rainbow",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Quake",
+          "kind": "sting",
+          "label": "Quake",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
         }
       ]
     },

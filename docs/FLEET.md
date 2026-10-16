@@ -81,9 +81,9 @@ PlayMap gives them in this order: `show`, `machine`, the outputs (beyond six, th
 with their devices folded in, the playlists that play (idle ones as one `playlists` item), mirrors, sync, media, preflight, links,
 the rest, faults; what an aggregate stands for follows, still there for an assistant. Its links are only the Eye's eleven verbs.
 
-Patterns today draws PlayMap as a grey app heard on the network. Three changes on Patterns' side make PlayMap's things appear lit
-(prepared as a patch with tests against Patterns' `ShowBusView` and `EyeGraph`, built and run in a scratch copy of Patterns at
-bcdbf28, not applied — Patterns' maintainers take it or not): **P1** its kind reads "PlayMap"; **P2** the context of every live peer
+Patterns draws PlayMap as a grey app heard on the network. Three changes on Patterns' side make PlayMap's things appear lit
+(prepared as a patch with tests against Patterns' `ShowBusView` and `EyeGraph`, built and run in a scratch copy of Patterns, not
+applied — Patterns' maintainers take it or not): **P1** its kind reads "PlayMap"; **P2** the context of every live peer
 whose hello offers the `context` cap is read (a PlayMap peer's over its line wire, `CONTEXT` being an open read there, since
 `/api/context` is behind the node's token) and drawn with the peer; **P3** another app's outputs, projectors, surfaces, playlists and
 media sit on the Video band. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns' `ShowContext.Parse`

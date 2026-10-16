@@ -24,6 +24,7 @@ public sealed partial class EngineCore
     private volatile ImmutableDictionary<string, ChaseView> _chaseViews = ImmutableDictionary<string, ChaseView>.Empty.WithComparers(StringComparer.Ordinal);
     private Project? _timecodeProject;
     private int _timecodeFacts;
+    private int _timecodeShown;
 
     /// <summary>The show's timecode sources at run time (fed by the control service's inputs, read by the chase).</summary>
     public TimecodeBoard TimecodeSources { get; } = new();
@@ -31,9 +32,9 @@ public sealed partial class EngineCore
     /// <summary>A playlist's chase as the last tick left it, or null.</summary>
     public ChaseView? ChaseOf(string playlistId) => _chaseViews.GetValueOrDefault(playlistId);
 
-    /// <summary>A chase as STATE shows it.</summary>
+    /// <summary>A chase as STATE shows it, with the auto jump threshold for its code as it last ran (max(2 frames, 5σ)).</summary>
     public sealed record ChaseView(string PlaylistId, ImmutableArray<string> Sources, string Active, bool Engaged, ChaseState State, string Text,
-        string? ItemId, double Rate, long FreewheelLeftMs, string Words, string? LastJump);
+        string? ItemId, double Rate, long FreewheelLeftMs, string Words, string? LastJump, double AutoJumpNs);
 
     private sealed class ChaseRun
     {
@@ -98,13 +99,15 @@ public sealed partial class EngineCore
         PublishTimecodeFacts(p, mono);
     }
 
-    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves (the code's frames never move it; its
-    /// text is written from the line when STATE is read).</summary>
+    /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves. A source's frame or a chase's code
+    /// moved: STATE is written afresh on its next read (<see cref="Moved"/>) with its revision where it is, so STATE says the code as
+    /// it is whether or not anything plays, and its pushes do not rise to the frame rate.</summary>
     private void PublishTimecodeFacts(Project p, long mono)
     {
         if (p.Timecode.Sources.IsEmpty && _chaseViews.IsEmpty && _timecodeFacts == 0)
             return;
         var facts = new HashCode();
+        var shown = new HashCode();
         foreach (var s in p.Timecode.Sources)
         {
             var r = TimecodeSources.ReadingOf(s.Id, mono);
@@ -112,6 +115,7 @@ public sealed partial class EngineCore
             facts.Add(r.State);
             facts.Add(r.Format?.Text);
             facts.Add(r.Words);
+            shown.Add(r.Frame);
         }
         foreach (var (id, v) in _chaseViews)
         {
@@ -120,6 +124,13 @@ public sealed partial class EngineCore
             facts.Add(v.Engaged);
             facts.Add(v.Active);
             facts.Add(v.ItemId);
+            shown.Add(v.Text);
+        }
+        var frames = shown.ToHashCode();
+        if (frames != _timecodeShown)
+        {
+            _timecodeShown = frames;
+            Moved();
         }
         var signature = facts.ToHashCode();
         if (signature == _timecodeFacts)
@@ -128,13 +139,15 @@ public sealed partial class EngineCore
         FactsChanged();
     }
 
-    /// <summary>One chase at one instant: the active source (the first rolling one in order, else the first), its line in leader
-    /// time, the plan, and the lane made to match it when it moves by a quarter frame or more (at most four times a second within a
-    /// region; at once when the region or the state changes).</summary>
+    /// <summary>One chase at one instant: the active source (the first rolling one in order, else the first), its code judged at
+    /// the chase's jump threshold, its line in leader time, the plan, and the lane made to match it when it moves by a quarter frame
+    /// or more (at most four times a second within a region; at once past the jump threshold, or when the region or the state
+    /// changes).</summary>
     private ChaseView Step(Playlist list, TimecodeChase chase, ChaseRun run, long leaderNs, long mono)
     {
         var sources = chase.Sources;
-        var readings = sources.Select(s => (Id: s, Reading: TimecodeSources.ReadingOf(s, mono))).ToList();
+        var settings = ChaseSettings.Of(chase);
+        var readings = sources.Select(s => (Id: s, Reading: TimecodeSources.ReadingOf(s, mono, chase.JumpNs))).ToList();
         var active = readings.FirstOrDefault(r => r.Reading.State is "rolling" or "parked");
         if (active.Id is null)
             active = readings.FirstOrDefault(r => r.Id == run.Active) is { Id: not null } kept ? kept : readings.FirstOrDefault();
@@ -143,17 +156,19 @@ public sealed partial class EngineCore
             Journal.Add("timecode", $"{list.Name} switched to {SourceName(active.Id)}", "timecode");
         run.Active = active.Id ?? "";
         var sourceName = SourceName(run.Active);
+        var format = reading.Format ?? FormatOf(run.Active);
+        var sigma = reading.Line?.SigmaNs ?? 0;
+        var autoJump = TimecodeTracker.JumpThresholdNs(0, format, sigma);
         if (!run.Engaged)
         {
             Playback.Guard(list, null, leaderNs);
             run.Memory = ChaseMemory.Start;
-            return DisengagedView(list, sources, run, reading.Text);
+            return DisengagedView(list, sources, run, reading.Text, autoJump);
         }
-        var format = reading.Format ?? FormatOf(run.Active);
         var regions = RegionsOf(list, format, run);
         var line = reading.Line is { } l ? l with { AtNs = Services.Clock.ToLeader(l.AtNs) } : (TcLine?)null;
         var before = run.Memory.State;
-        var (plan, memory) = ChaseLogic.Decide(ChaseSettings.Of(chase), regions.Regions, reading.State, line, run.Memory, leaderNs);
+        var (plan, memory) = ChaseLogic.Decide(settings, regions.Regions, reading.State, line, run.Memory, leaderNs);
         run.Memory = memory;
         run.Plan = plan;
         if (before != memory.State)
@@ -172,22 +187,26 @@ public sealed partial class EngineCore
             }
         }
         Playback.Guard(list, $"{list.Name} chases {sourceName} ({StateWord(plan.State)}) — TIMECODE ENGAGE {list.Name} OFF to drive it by hand", leaderNs);
-        Apply(list, regions.Regions, plan, format, run, leaderNs);
+        Apply(list, regions.Regions, plan, format, settings.JumpThresholdNs(format, sigma), run, leaderNs);
         var freewheelLeft = plan.State == ChaseState.Freewheel && memory.FreewheelSinceNs != long.MinValue
             ? Math.Max(0, (chase.FreewheelNs - (leaderNs - memory.FreewheelSinceNs)) / 1_000_000) : -1;
+        // Code arriving on a fitted line that does not run (its slope outside 0.85–1.15: a varispeed, or a step this chase's threshold
+        // takes as drift that is too steep to glide) leaves the chase unlocked for the reason its reading gives; the source's own
+        // reading, judged at auto, may roll meanwhile, so the chase's words carry it.
         var words = plan.State == ChaseState.Locked
             ? $"locked to {sourceName}{(chase.DelayNs != 0 ? $", picture {Fmt(chase.DelayNs / 1e6)} ms later" : "")}"
+            : plan.State == ChaseState.Acquiring && reading.Line is { Running: false, Points: > 1 } ? reading.Words
             : regions.Problem.Length > 0 && plan.State == ChaseState.Outside ? regions.Problem : plan.Words;
         var item = plan.Region >= 0 && plan.Region < regions.Regions.Length ? regions.Regions[plan.Region].ItemId : Playback.Lane(list.Id)?.ItemId;
         return new ChaseView(list.Id, sources, run.Active, true, plan.State, line is null ? "" : format.Format(format.FrameOf(plan.TcNs)), item,
-            plan.Rate, freewheelLeft, words, run.LastJump);
+            plan.Rate, freewheelLeft, words, run.LastJump, autoJump);
     }
 
     /// <summary>A disengaged chase as STATE shows it: the playlist plays by hand, and the words say what let go and the way back.</summary>
-    private ChaseView DisengagedView(Playlist list, ImmutableArray<string> sources, ChaseRun run, string text) =>
+    private ChaseView DisengagedView(Playlist list, ImmutableArray<string> sources, ChaseRun run, string text, double autoJumpNs) =>
         new(list.Id, sources, run.Active, false, ChaseState.Disengaged, text, Playback.Lane(list.Id)?.ItemId, 0, 0,
             run.DisengagedBy is { } by ? $"disengaged by {by} — TIMECODE ENGAGE {list.Name} ON to follow the code again" : $"disengaged — {list.Name} plays by hand",
-            run.LastJump);
+            run.LastJump, autoJumpNs);
 
     /// <summary>A panic step is about to move a chased playlist's transport: the chase lets go at the step's instant (as TIMECODE ENGAGE
     /// OFF does: the guard lifted, the lane playing on by hand from where it is), so the panic's outcome holds; STATE shows it
@@ -222,7 +241,8 @@ public sealed partial class EngineCore
         run.Memory = ChaseMemory.Start;
         run.DisengagedBy = by;
         LetGoForPanic(list, atLeaderNs);
-        _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? ""));
+        _chaseViews = _chaseViews.SetItem(list.Id, DisengagedView(list, chase.Sources, run, _chaseViews.GetValueOrDefault(list.Id)?.Text ?? "",
+            _chaseViews.GetValueOrDefault(list.Id)?.AutoJumpNs ?? AutoJump(chase)));
         PublishTimecodeFacts(Store.Project, Services.Mono.NowNs);
     }
 
@@ -244,7 +264,9 @@ public sealed partial class EngineCore
         return (format, regions, problem);
     }
 
-    private void Apply(Playlist list, ImmutableArray<TcRegion> regions, ChasePlan plan, TcFormat format, ChaseRun run, long leaderNs)
+    /// <summary>Makes the lane match the plan. Within a region a re-anchor that moves the picture's code by more than the jump
+    /// threshold in force is a jump: taken at once, and STATE's lastJump says from where to where; less is a correction.</summary>
+    private void Apply(Playlist list, ImmutableArray<TcRegion> regions, ChasePlan plan, TcFormat format, double jumpAtNs, ChaseRun run, long leaderNs)
     {
         var lane = Playback.Lane(list.Id);
         var quarter = Math.Max(1, format.FrameNs / 4);
@@ -272,11 +294,12 @@ public sealed partial class EngineCore
                     var off = Math.Abs(lane.Clip.Anchor.MediaAt(leaderNs) - anchor.MediaAt(leaderNs));
                     var rateOff = Math.Abs(lane.Clip.Anchor.Rate - anchor.Rate) / Math.Max(1e-9, Math.Abs(anchor.Rate));
                     var nextSame = lane.NextIndex == nextIndex && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter;
+                    var jumped = off / r.Rate > jumpAtNs;
                     if (off < quarter && rateOff < 50e-6 && nextSame)
                         return;
-                    if (off < 4 * quarter && nextSame && run.LastAnchorNs != long.MinValue && leaderNs - run.LastAnchorNs < ReanchorEveryNs)
+                    if (!jumped && off < 4 * quarter && nextSame && run.LastAnchorNs != long.MinValue && leaderNs - run.LastAnchorNs < ReanchorEveryNs)
                         return;
-                    if (off >= 4 * quarter)
+                    if (jumped)
                         run.LastJump = $"{format.Format(format.FrameOf(r.StartNs + (long)((lane.Clip.Anchor.MediaAt(leaderNs) - r.InNs) / r.Rate)))} → {format.Format(format.FrameOf(plan.TcNs))}";
                 }
                 if (Playback.Chase(list, r.Index, clip, nextIndex, next, plan.NextAtLeaderNs))
@@ -294,11 +317,23 @@ public sealed partial class EngineCore
                     return;
                 }
                 var r = regions[plan.Region];
-                var held = new ClipTransport(r.ItemId, TransportState.Paused, new TimelineAnchor(plan.MediaNs, leaderNs, r.Rate, false), r.InNs, r.OutNs, r.Loop, 0);
-                if (lane is { IsIdle: false } h && h.Index == r.Index && h.Clip.State == TransportState.Paused
-                    && Math.Abs(h.Clip.Anchor.MediaAt(leaderNs) - plan.MediaNs) < quarter && h.NextIndex == -1 && plan.NextRegion < 0)
-                    return;
                 var next = NextClip(out var nextIndex);
+                // The last frame is held from the instant the code left the item, so on every node the item counts as started (the
+                // origin of its effects' time) its length before that. While the lane holds that frame of that item from within a
+                // quarter frame of that instant, its anchor stands as it is however long the code rolls; code that stands still names
+                // no instant, so a hold it finds is kept and one it begins starts now.
+                var holding = lane is { IsIdle: false } h && h.Index == r.Index && h.ItemId == r.ItemId && h.Clip.State == TransportState.Paused
+                    && Math.Abs(h.Clip.Anchor.MediaAt(leaderNs) - plan.MediaNs) < quarter
+                    && Math.Abs(h.Clip.Anchor.Rate - r.Rate) / Math.Max(1e-9, Math.Abs(r.Rate)) < 50e-6
+                    && (plan.AtLeaderNs == long.MinValue || Math.Abs(h.Clip.Anchor.LeaderNs - plan.AtLeaderNs) < quarter);
+                var anchor = holding ? lane!.Clip.Anchor
+                    : new TimelineAnchor(plan.MediaNs, plan.AtLeaderNs == long.MinValue ? leaderNs : plan.AtLeaderNs, r.Rate, false);
+                var held = new ClipTransport(r.ItemId, TransportState.Paused, anchor, r.InNs, r.OutNs, r.Loop, 0);
+                // The next item is rescheduled when its instant is off by a quarter frame or its rate (the code's) by 50 ppm.
+                if (holding && lane!.Clip with { Seq = 0 } == held && lane.NextIndex == nextIndex
+                    && Math.Abs(lane.SwitchAtLeaderNs - plan.NextAtLeaderNs) < quarter
+                    && Math.Abs(lane.NextClip.Anchor.Rate - next.Anchor.Rate) / Math.Max(1e-9, Math.Abs(next.Anchor.Rate)) < 50e-6)
+                    return;
                 Playback.Chase(list, r.Index, held, nextIndex, next, plan.NextAtLeaderNs);
                 return;
             }
@@ -328,6 +363,9 @@ public sealed partial class EngineCore
 
     private TcFormat FormatOf(string sourceId) =>
         Store.Project.FindTimecodeSource(sourceId) is { } s && TcFormat.TryParse(s.Format, out var f) ? f : TcFormat.Fps25;
+
+    /// <summary>A chase's auto jump threshold before it has run: two frames of its first source's format.</summary>
+    private double AutoJump(TimecodeChase chase) => TimecodeTracker.JumpThresholdNs(0, FormatOf(chase.Sources.FirstOrDefault() ?? ""), 0);
 
     // ---- verbs ----
 
@@ -586,10 +624,11 @@ public sealed partial class EngineCore
         if (list.Chase is not { } chase)
             return CommandReply.Fail($"{list.Name} chases no timecode — TIMECODE CHASE {list.Name} <source>");
         var value = args[2];
+        // A number of ms within the range ("NaN" is none, and is refused like any other word).
         bool Ms(double lo, double hi, out long ns)
         {
             ns = 0;
-            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || ms < lo || ms > hi)
+            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || !(ms >= lo && ms <= hi))
                 return false;
             ns = (long)Math.Round(ms * 1e6);
             return true;
@@ -620,12 +659,12 @@ public sealed partial class EngineCore
                 if (value.Equals("AUTO", StringComparison.OrdinalIgnoreCase))
                 {
                     next = chase with { JumpNs = 0 };
-                    effect = $"{list.Name}: jumps when the code moves by more than 2 frames or 5σ";
+                    effect = $"{list.Name}: a jump is code more than 2 frames (or 5σ) off its line, relocated at once; less is drift";
                 }
                 else if (Ms(1, 10000, out var jump))
                 {
                     next = chase with { JumpNs = jump };
-                    effect = $"{list.Name}: jumps when the code moves by more than {Fmt(jump / 1e6)} ms";
+                    effect = $"{list.Name}: a jump is code more than {Fmt(jump / 1e6)} ms off its line, relocated at once; less is drift";
                 }
                 else
                 {
@@ -644,7 +683,12 @@ public sealed partial class EngineCore
         if (next == chase)
             return CommandReply.Fail($"{list.Name} is already so");
         var r = Edits.Apply($"{list.Name} chase {args[1].ToLowerInvariant()}", p => p with { Playlists = p.Playlists.Update(list.Id, l => l with { Chase = next }) });
-        return r.Changed ? CommandReply.Success(effect: effect) : CommandReply.Fail(r.Effect);
+        if (!r.Changed)
+            return CommandReply.Fail(r.Effect);
+        // The live chase's code is judged at its jump threshold from this reply on, not from the lane's next tick (a blind draft's
+        // edit leaves the live show as it is).
+        TimecodeSources.Reconcile(Store.Project);
+        return CommandReply.Success(effect: effect);
     }
 
     private CommandReply TimecodeIn(List<string> args)
@@ -713,7 +757,7 @@ public sealed partial class EngineCore
                 tc = format.Ns(frame);
                 break;
             case "RATE" when args.Count == 3:
-                if (!double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || rate < 0.5 || rate > 2)
+                if (!double.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || !(rate >= 0.5 && rate <= 2))
                     return CommandReply.Fail("RATE is 0.5 to 2");
                 break;
             default:
@@ -814,6 +858,10 @@ public sealed partial class EngineCore
             w.WriteNull("freewheelLeftMs");
         w.WriteString("onLoss", chase.OnLoss.ToString().ToLowerInvariant());
         w.WriteString("gap", chase.Gap.ToString().ToLowerInvariant());
+        // The jump threshold in force: what the chase's code is judged by, set or auto (max(2 frames, 5σ) of its code now); a
+        // threshold of 0 or less is auto, as the tracker judges it.
+        w.WriteNumber("jumpMs", Math.Round((chase.JumpNs > 0 ? chase.JumpNs : v?.AutoJumpNs ?? AutoJump(chase)) / 1e6, 1));
+        w.WriteBoolean("jumpAuto", chase.JumpNs <= 0);
         if (v?.LastJump is { } jump)
             w.WriteString("lastJump", jump);
         else
@@ -896,6 +944,19 @@ public sealed partial class EngineCore
             return "an MTC source names its MIDI port";
         if (t.FitWindowMs is < 200 or > 10000)
             return "a fit window is 200 to 10000 ms";
+        return null;
+    }
+
+    /// <summary>A chase's tuning is held to the bounds TIMECODE SET keeps, however it is edited: DELAY −2000…2000 ms, FREEWHEEL
+    /// 0…10000 ms, JUMP 0 (auto) or 1…10000 ms.</summary>
+    private static string? TimecodeChaseProblem(TimecodeChase c)
+    {
+        if (c.DelayNs is < -2_000_000_000 or > 2_000_000_000)
+            return "a chase's delayNs is −2000 to 2000 ms";
+        if (c.FreewheelNs is < 0 or > 10_000_000_000)
+            return "a chase's freewheelNs is 0 to 10000 ms";
+        if (c.JumpNs != 0 && c.JumpNs is < 1_000_000 or > 10_000_000_000)
+            return "a chase's jumpNs is 0 (auto) or 1 to 10000 ms";
         return null;
     }
 

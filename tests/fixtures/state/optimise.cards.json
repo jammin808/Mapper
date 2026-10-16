@@ -1,1 +1,90 @@
-[]
+[
+  {
+    "id": "media.optimise",
+    "title": "Optimise",
+    "path": "media.optimise",
+    "light": "",
+    "words": "media.optimise.words",
+    "fields": [
+      {
+        "label": "Mode",
+        "path": "media.optimise.mode"
+      },
+      {
+        "label": "Governor",
+        "path": "media.optimise.governor"
+      },
+      {
+        "label": "Running",
+        "path": "media.optimise.running"
+      },
+      {
+        "label": "Queued",
+        "path": "media.optimise.queued"
+      },
+      {
+        "label": "Failed",
+        "path": "media.optimise.failed"
+      },
+      {
+        "label": "Worker GL",
+        "path": "media.optimise.worker.gl"
+      },
+      {
+        "label": "Restarts",
+        "path": "media.optimise.worker.restarts"
+      }
+    ],
+    "actions": [
+      "MEDIA OPTIMISE PAUSE ALL",
+      "MEDIA OPTIMISE RESUME ALL",
+      "MEDIA OPTIMISE CANCEL ALL",
+      "MEDIA RULE MODE AUTO",
+      "MEDIA RULE MODE NEVER"
+    ]
+  },
+  {
+    "id": "media.optimise.job",
+    "title": "Optimise job",
+    "path": "media.optimise.jobs[]",
+    "key": "id",
+    "light": "",
+    "words": "words",
+    "fields": [
+      {
+        "label": "Clip",
+        "path": "name"
+      },
+      {
+        "label": "To",
+        "path": "to"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Frames",
+        "path": "framesDone"
+      },
+      {
+        "label": "Of",
+        "path": "frames"
+      },
+      {
+        "label": "ETA s",
+        "path": "etaS"
+      },
+      {
+        "label": "PSNR dB",
+        "path": "psnrAvg"
+      }
+    ],
+    "actions": [
+      "MEDIA OPTIMISE PAUSE {id}",
+      "MEDIA OPTIMISE RESUME {id}",
+      "MEDIA OPTIMISE CANCEL {id}",
+      "MEDIA VERSIONS {media}"
+    ]
+  }
+]

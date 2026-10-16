@@ -45,8 +45,7 @@ public sealed partial class EngineCore
 
     private async Task<CommandReply> RunOpsAsync(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
-        // A credential line carries a secret: it is named, never quoted, wherever the line would be kept.
-        var shown = spec.Name.StartsWith("CREDENTIAL", StringComparison.Ordinal) ? spec.Name + " …" : Redact(line.Raw);
+        var shown = OpsShown(spec, line);
         CommandReply reply;
         try
         {
@@ -75,6 +74,11 @@ public sealed partial class EngineCore
                 session.ClientName, shown, reply.Ok);
         return reply;
     }
+
+    /// <summary>An operations line as the journal keeps it: a credential line (it carries a secret) named, never quoted; any other
+    /// with every secret the node holds masked.</summary>
+    private string OpsShown(VerbSpec spec, WireLine line) =>
+        spec.Name.StartsWith("CREDENTIAL", StringComparison.Ordinal) ? spec.Name + " …" : Redact(line.Raw);
 
     /// <summary>Masks every secret the node holds (the credential store's, its tokens and keys) and anything shaped
     /// like a key.</summary>
