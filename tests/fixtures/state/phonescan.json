@@ -74,6 +74,262 @@
       "aeDriftPct": 0,
       "exposure": "locked",
       "words": "paired by tag at 3 places"
-    }
+    },
+    "view": "v2",
+    "views": [
+      {
+        "id": "v1",
+        "camera": "cm_fixture3",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "state": "done",
+        "rmsPx": 0,
+        "tracks": 0,
+        "pairing": "simulated",
+        "exposure": "simulated",
+        "words": ""
+      },
+      {
+        "id": "v2",
+        "camera": "cm_fixture3",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "state": "done",
+        "rmsPx": 0,
+        "tracks": 0,
+        "pairing": "simulated",
+        "exposure": "simulated",
+        "words": ""
+      }
+    ],
+    "coverage": [
+      {
+        "projector": "pj00000001",
+        "seen": 0,
+        "twice": 0
+      },
+      {
+        "projector": "pj00000002",
+        "seen": 0,
+        "twice": 0
+      }
+    ],
+    "regions": [
+      {
+        "id": "rg1",
+        "label": "wall",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000002",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ]
+      },
+      {
+        "id": "rg2",
+        "label": "curved surface",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000001",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ]
+      },
+      {
+        "id": "rg3",
+        "label": "floor",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000002",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ]
+      },
+      {
+        "id": "rg4",
+        "label": "floor",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000001",
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ]
+      },
+      {
+        "id": "rg5",
+        "label": "box face",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000002",
+        "projectors": [
+          "pj00000002"
+        ]
+      },
+      {
+        "id": "rg6",
+        "label": "floor",
+        "rect": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "confidence": 0,
+        "projector": "pj00000001",
+        "projectors": [
+          "pj00000001"
+        ]
+      }
+    ],
+    "suggestions": [
+      {
+        "id": "sg1",
+        "region": "rg1",
+        "label": "Wall",
+        "kind": "plane",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "proposals": [
+          "ap1",
+          "ap2"
+        ],
+        "state": "pending"
+      },
+      {
+        "id": "sg2",
+        "region": "rg2",
+        "label": "Curved surface",
+        "kind": "curved",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "proposals": [
+          "ap3"
+        ],
+        "state": "pending"
+      },
+      {
+        "id": "sg3",
+        "region": "rg3",
+        "label": "Floor",
+        "kind": "plane",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "proposals": [
+          "ap4",
+          "ap5"
+        ],
+        "state": "pending"
+      },
+      {
+        "id": "sg4",
+        "region": "rg4",
+        "label": "Floor",
+        "kind": "plane",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000001",
+          "pj00000002"
+        ],
+        "proposals": [
+          "ap6"
+        ],
+        "state": "pending"
+      },
+      {
+        "id": "sg5",
+        "region": "rg5",
+        "label": "Box face",
+        "kind": "plane",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000002"
+        ],
+        "proposals": [
+          "ap7"
+        ],
+        "state": "pending"
+      },
+      {
+        "id": "sg6",
+        "region": "rg6",
+        "label": "Floor",
+        "kind": "plane",
+        "confidence": 0,
+        "reasons": [
+          "reason"
+        ],
+        "measured": true,
+        "projectors": [
+          "pj00000001"
+        ],
+        "proposals": [
+          "ap8",
+          "ap9"
+        ],
+        "state": "pending"
+      }
+    ]
   }
 }

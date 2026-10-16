@@ -210,6 +210,7 @@ public sealed partial class EngineCore
 
     partial void ContextPhone(List<ContextItem> items, List<ContextLink> links)
     {
+        ContextMultiscan(items);
         if (Services.Phones is not { } hub)
             return;
         var p = _snapshot.Project.Project;
@@ -226,7 +227,6 @@ public sealed partial class EngineCore
                 : $"{f.Name}: ready";
             items.Add(new ContextItem("phone:" + f.Id, "phone", f.Name, light, state));
         }
-        ContextMultiscan(items);
     }
 
     /// <summary>The context's scan items (wp2-multiscan): surface suggestions waiting for a person (amber, with the lines that decide

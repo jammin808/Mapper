@@ -54,6 +54,9 @@ public static class ScanSuggestions
     /// <summary>The catalogue's verbs' first words: a name carrying one is not put in a line.</summary>
     private static readonly FrozenSet<string> VerbWords = VerbCatalog.All.Select(v => v.Name.Split(' ')[0]).ToFrozenSet(StringComparer.Ordinal);
 
+    /// <summary>The catalogue's verbs of more than one word.</summary>
+    private static readonly string[] VerbNames = [.. VerbCatalog.All.Select(v => v.Name).Where(n => n.Contains(' ', StringComparison.Ordinal))];
+
     /// <summary>The measured candidates of a scan, best first (confidence, then size, then id).</summary>
     public static IReadOnlyList<SuggestionCandidate> Candidates(ScanOutcome outcome, Project project)
     {
@@ -119,7 +122,8 @@ public static class ScanSuggestions
                 var seen = new List<Vec2d>();
                 for (var i = 0; i < region.Mask.Coverage.Length; i++)
                 {
-                    if (region.Mask.Coverage[i] >= 128 && PointCloud.IsValid(g.Cloud.Points[i]) && device.Project(g.Cloud.Points[i]) is { } q)
+                    if (region.Mask.Coverage[i] >= 128 && PointCloud.IsValid(g.Cloud.Points[i]) && device.Project(g.Cloud.Points[i]) is { } q
+                        && q.X >= 0 && q.Y >= 0 && q.X <= solved.Intrinsics.Width && q.Y <= solved.Intrinsics.Height)
                         seen.Add(q);
                 }
                 quad = QuadOf(seen);
@@ -197,8 +201,8 @@ public static class ScanSuggestions
         return lines;
     }
 
-    /// <summary>A name fit for a line: letters, digits, spaces, hyphens and apostrophes, at most 40 characters, no verb's word; null
-    /// otherwise.</summary>
+    /// <summary>A name fit for a line: letters, digits, spaces, hyphens and apostrophes, at most 40 characters, nothing that reads as a
+    /// verb (a whole verb of the catalogue, or a verb's word in capitals); null otherwise.</summary>
     public static string? SafeName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -206,7 +210,11 @@ public static class ScanSuggestions
         var trimmed = string.Join(' ', name.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         if (trimmed.Length > MaxNameLength || trimmed.Any(ch => !(char.IsLetterOrDigit(ch) || ch is ' ' or '-' or '\'')))
             return null;
-        return trimmed.Split(' ').Any(w => VerbWords.Contains(w.ToUpperInvariant())) ? null : trimmed;
+        // A name that reads as a line is not a name: one holding a whole verb ("SCAN START"), or a verb's word in capitals.
+        var upper = " " + trimmed.ToUpperInvariant() + " ";
+        if (VerbNames.Any(v => upper.Contains(" " + v + " ", StringComparison.Ordinal)))
+            return null;
+        return trimmed.Split(' ').Any(w => w.Length > 1 && w == w.ToUpperInvariant() && VerbWords.Contains(w)) ? null : trimmed;
     }
 
     /// <summary>The one request an assistant gets: the descriptors and the projectors' names as JSON text, a fixed instruction, and the
