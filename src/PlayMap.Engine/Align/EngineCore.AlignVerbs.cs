@@ -510,21 +510,15 @@ public sealed partial class EngineCore
                 continue;
             (p, var previous) = KeepAsItStands(p, o, who, now);
             var id = p.NewId(Ids.Calibration);
+            var gamma = Math.Clamp(ro.Gamma, 1.0, BlendMath.MaxGamma);
             var snap = new CalibrationSnapshot(id, CalibrationLedger.NameFor(p, o.Id, CalibrationSource.Align), CalibrationTarget.Output, o.Id, now,
                 CalibrationSource.Align, null, previous, record.Score, who, false)
             {
                 Output = ro.Measured,
+                BlendGamma = double.IsFinite(gamma) ? Math.Round(gamma, 3) : 0,
             };
             (p, _) = CalibrationLedger.Record(p, snap, apply: true);
-            var gamma = Math.Clamp(ro.Gamma, 1.0, BlendMath.MaxGamma);
-            p = p with
-            {
-                Outputs = p.Outputs.Update(o.Id, x => x with
-                {
-                    FallbackId = previous,
-                    Blend = double.IsFinite(gamma) ? x.Blend with { Gamma = Math.Round(gamma, 3) } : x.Blend,
-                }),
-            };
+            p = p with { Outputs = p.Outputs.Update(o.Id, x => x with { FallbackId = previous }) };
             applied.Add((o.Id, id, previous));
         }
         if (applied.Count == 0)
@@ -539,13 +533,15 @@ public sealed partial class EngineCore
     /// result, applied) — so whatever ACCEPT, CLEAR or REVERT replaces can be returned to.</summary>
     private static (Project Project, string Id) KeepAsItStands(Project p, Output o, string who, long now)
     {
-        if (o.CalibrationId is { } cid && p.FindCalibration(cid) is { } cur && Equals(cur.Output, o.Measured))
+        if (o.CalibrationId is { } cid && p.FindCalibration(cid) is { } cur && Equals(cur.Output, o.Measured)
+            && (cur.BlendGamma <= 0 || cur.BlendGamma == o.Blend.Gamma))
             return (p, cid);
         var id = p.NewId(Ids.Calibration);
         var snap = new CalibrationSnapshot(id, o.Measured is null ? "No measured correction" : "As it stood", CalibrationTarget.Output, o.Id, now,
             CalibrationSource.Manual, null, o.CalibrationId, AsItStandsScore, who, false)
         {
             Output = o.Measured,
+            BlendGamma = o.Blend.Gamma,
         };
         return (CalibrationLedger.Record(p, snap, apply: true).Project, id);
     }

@@ -61,4 +61,8 @@ public sealed record CalibrationSnapshot(string Id, string Name, CalibrationTarg
     public string MeshHash { get; init; } = "";
     public string RunId { get; init; } = "";
     public string DataPath { get; init; } = "";
+
+    /// <summary>An output's blend γ as this result has it (0 = not recorded: a result made before it was, or a projector's), put back with
+    /// it so a revert to a result from before a measured run restores the γ that run wrote.</summary>
+    public double BlendGamma { get; init; }
 }
