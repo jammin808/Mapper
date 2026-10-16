@@ -112,9 +112,10 @@ adds nothing to the node's wire.
 
 - **Says**, every line with `@c<n>`: `HELLO Companion:<label> module=<version>`, `AUTH-PROOF <hex>` after a `NONCE`, `PING <t1>` every
   2 s, `PRESENCE {"kind":"companion","module","live","page","thumbs"}`, `WHOAMI` (again when STATE's `show.armed` or `clients` move),
-  `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop (of a node whose STATE has `events`),
-  `SUBSCRIBE THUMBS <ref>…` (the refs its keys show, at most 128), `THUMB <ref> <n>x<n> [IF <etag>]` (again when the show disarms,
-  for one refused while armed), `INDEX` (when `project.index` moved and no push came within 500 ms), and the lines its actions write.
+  `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop (of a node whose STATE in this session has
+  `events`), `SUBSCRIBE THUMBS <ref>…` (the refs its keys show, at most 128), `THUMB <ref> <n>x<n> [IF <etag>]` (again when the show
+  disarms, for one refused while armed), `INDEX` (when `project.index` moved and no push came within 500 ms), and the lines its actions
+  write.
   Every line it can send is in `test/lines.txt`, and every line a section key or Live slot sends for the INDEX fixture in
   `test/section-lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends
   exceeds 64 KiB.

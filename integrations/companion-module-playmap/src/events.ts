@@ -57,9 +57,9 @@ export function readEvent(json: unknown): NodeEvent | null {
  * what is left of its window. */
 export class EventLog {
 	lastSeq = 0
-	/** The node's events.seq when this deck first heard it (0 for a node seen to start again): a deck that took no event yet replays
-	 * from it after a drop. Taken once, so a later STATE, whose seq counts the events raised while the link was down, never moves a
-	 * replay past them. */
+	/** The node's events.seq when this deck first heard it (0 for a node seen to start again, and for a pairing that dropped before
+	 * any STATE told it): a deck that took no event yet replays from it after a drop. Taken once, so a later STATE, whose seq counts
+	 * the events raised while the link was down, never moves a replay past them. */
 	baseline = 0
 	#baselineTaken = false
 	last: NodeEvent | null = null

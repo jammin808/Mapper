@@ -157,9 +157,11 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#held: NodeEvent[] | null = null
 	#replayTimer: ReturnType<typeof setTimeout> | null = null
 	#pairedBefore = false
-	/** Whether the node speaks events: the last STATE heard (the greeting's, once taken) has events.seq. An older node's has none, and
-	 * it refuses EVENTS. */
-	#speaksEvents = false
+	/** Whether the node speaks events, as this session's STATE says: true when it has events.seq, false when it has none (an older
+	 * node, which refuses EVENTS), null until this session's first STATE (the link emptied it). */
+	#speaksEvents: boolean | null = null
+	/** A re-pair heard before this session's first STATE: its replay, or only its subscription, waits for that STATE. */
+	#eventsAwaitState = false
 	/** STATE's show.armed as last heard (false once the link drops: a relink asks every picture again anyway). */
 	#armed = false
 	/** What the instance last handed Companion's presets (the test reads it to compare with what the host kept). */
@@ -405,6 +407,12 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.#held = null
 		if (this.#replayTimer) clearTimeout(this.#replayTimer)
 		this.#replayTimer = null
+		// Whether the node speaks events is the next session's to say: the node may be another one by then.
+		this.#speaksEvents = null
+		this.#eventsAwaitState = false
+		// A pairing that ends before a STATE told this deck the node's events.seq replays, after it, from 0: the next greeting's seq
+		// counts what was raised while the link was down, so it is never where the replay starts.
+		if (this.#pairedBefore) this.events.heard(0)
 		this.model.state = null
 		this.#armed = false
 		this.model.whoami = null
@@ -448,14 +456,23 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe(Lines.subscribe('INDEX'))
 		// A first pairing has missed nothing; every later one replays what was raised while the link was down, from 0 too — from a
-		// node that speaks events: an older node raises none, so it is asked no replay and no gap is warned of.
-		if (this.#pairedBefore && this.#speaksEvents) this.#replayEvents()
+		// node that speaks events, as this session's STATE says.
+		if (this.#pairedBefore) this.#eventsAfterDrop()
 		else this.#subscribe(Lines.subscribe('EVENTS'))
 		this.#pairedBefore = true
 		this.thumbs.relinked()
 		// The greeting STATE, heard before the pairing finished, was taken as the link paired: the clocks run if something plays.
 		this.#runTicker()
 		this.#dirty()
+	}
+
+	/** A re-pair's events: replayed from a node that speaks them; from one that does not (an older node raises none), only subscribed,
+	 * so it is asked no replay and no gap is warned of; before this session's first STATE says which (the node's WS channel greets
+	 * after the pairing), decided when that STATE comes — never from the session before, whose node may be another. */
+	#eventsAfterDrop(): void {
+		if (this.#speaksEvents === null) this.#eventsAwaitState = true
+		else if (this.#speaksEvents) this.#replayEvents()
+		else this.#subscribe(Lines.subscribe('EVENTS'))
 	}
 
 	/** Opens EVENTS and replays what this deck missed since the last seq it took. Events pushed while the replay is in flight are held
@@ -599,6 +616,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		const s = this.model.state
 		if (s) this.#speaksEvents = at(s, P.eventsSeq) !== undefined
 		this.events.heard(numOf(at(s, P.eventsSeq)))
+		if (s && this.#eventsAwaitState) {
+			this.#eventsAwaitState = false
+			this.#eventsAfterDrop()
+		}
 		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
 		this.encoders.stateMoved(numOf(at(s, P.seq)))
 		const armed = bool(at(s, P.showArmed))
