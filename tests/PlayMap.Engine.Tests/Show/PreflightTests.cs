@@ -222,7 +222,14 @@ public sealed class PreflightTests
             await hanging.Started.WaitAsync(TimeSpan.FromSeconds(30));
             await othersDone.Task.WaitAsync(TimeSpan.FromSeconds(30));
             rig.Advance(3_600_000);
-            Assert.True(await ShowRig.Eventually(() => !rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean()));
+            // The done event is the run's last word: its report, its file, its journal row and STATE come before it, so a listener
+            // that reads them on hearing it reads the finished run. Waiting for STATE alone could read before the event is out.
+            Assert.True(await ShowRig.Eventually(() =>
+            {
+                lock (events)
+                    return events.Any(e => e.Kind == "preflight.done");
+            }), "the preflight was never done");
+            Assert.False(rig.Show().GetProperty("preflight").GetProperty("running").GetBoolean());
 
             var summary = rig.Show().GetProperty("preflight");
             Assert.Equal(id, summary.GetProperty("id").GetString());
