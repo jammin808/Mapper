@@ -36,7 +36,8 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   fallback. Core also solves many camera views of many projectors together into depth maps and a merged mesh.
 - **Drives LEDs.** Fixtures laid on a canvas, an output, a surface or a source sample its picture in linear light every frame
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
-  patterns and locate, all by verb.
+  patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,
+  and dark where an output shows a scan or alignment pattern.
 - **Keeps the show safe.** `SHOW ARM` turns a rehearsal into a show and decides every line by who sent it; locks on finished
   work; `PANIC` takes each output to its planned outcome on the show clock and `PANIC CLEAR` brings it back; a grand master;
   a fence against the double GO; `PREFLIGHT` says what is not ready, each row with the line that fixes it.
