@@ -78,6 +78,7 @@ public sealed class CursorTests(ITestOutputHelper log)
         await rig.Host.FramesAsync(10).WaitAsync(HostRig.Patience);
         var before = rig.Host.Stats;
 
+        // Moves faster than frames: three lines between frame waits, the two sessions in turn.
         var rng = new Pcg32(42);
         for (var i = 0; i < 300; i++)
         {
@@ -85,7 +86,8 @@ public sealed class CursorTests(ITestOutputHelper log)
             var x = (i % 2 == 0 ? 0.25 : 0.75) + rng.Range(-0.1, 0.1);
             var y = 0.5 + rng.Range(-0.2, 0.2);
             await Ok(rig, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"CURSOR op_1 {x:0.0000} {y:0.0000}"), who);
-            await rig.Host.FramesAsync(1).WaitAsync(HostRig.Patience);
+            if (i % 3 == 2)
+                await rig.Host.FramesAsync(1).WaitAsync(HostRig.Patience);
         }
         await rig.Host.FramesAsync(2).WaitAsync(HostRig.Patience);
         var after = rig.Host.Stats;
@@ -94,8 +96,24 @@ public sealed class CursorTests(ITestOutputHelper log)
         var period = 1000.0 / 60;
         log.WriteLine($"cursor p95 {p95:0.0} ms ({p95 / period:0.0} frames) over 300 moves; {after.Frames - before.Frames} frames, " +
             $"{after.FramePathAllocatedBytes - before.FramePathAllocatedBytes} bytes on the frame path");
-        Assert.InRange(p95, period - 0.1, 2 * period + 0.1);
+        Assert.True(p95 <= 2 * period + 0.1, $"{p95} ms");
         Assert.Equal(before.FramePathAllocatedBytes, after.FramePathAllocatedBytes);
+    }
+
+    [Fact]
+    public async Task AMoveTheOverlayDoesNotDrawIsMeasuredWhenItIsDrawnAndReadsLate()
+    {
+        await using var rig = HostRig.Start(OneProjector());
+        // The overlay on without its cursor layer: the move is on the board but no frame draws it.
+        await Ok(rig, "OVERLAY ON ON op_1 LAYERS outlines", Alice);
+        await Ok(rig, "CURSOR op_1 0.5 0.5 COLOR #FF00FF", Alice);
+        await rig.Host.FramesAsync(12).WaitAsync(HostRig.Patience);
+        Assert.Equal(-1, WallRig.Json(rig.Engine.State().Json).GetProperty("air").GetProperty("overlay").GetProperty("cursorP95Ms").GetDouble());
+        // The layer on: the first frame that draws it is a dozen frames after the line arrived, and the measure says so.
+        await Ok(rig, "OVERLAY ON ON op_1 LAYERS ALL", Alice);
+        var p95 = await PollP95(rig);
+        log.WriteLine($"a move drawn late reads {p95:0.0} ms ({p95 / (1000.0 / 60):0.0} frames)");
+        Assert.True(p95 > 10 * 1000.0 / 60, $"{p95} ms");
     }
 
     /// <summary>STATE's cursor p95 once the render host has reported one.</summary>

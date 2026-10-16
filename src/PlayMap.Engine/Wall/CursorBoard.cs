@@ -3,8 +3,8 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Wall;
 
-/// <summary>Every session's cursor on the wall: written on the control lane only (CURSOR, the tick's lease), read by the render
-/// thread through one volatile swap of an immutable set, so a reader never sees a half-made board. A session has at most one cursor;
+/// <summary>Every session's cursor on the wall: written under one lock (CURSOR as its line arrives, the lane's tick for the lease),
+/// read by the render thread through one volatile swap of an immutable set, so a reader never sees a half-made board. A session has at most one cursor;
 /// past the node's maximum the oldest goes. Cursor traffic never moves the project or the journal; only a change in how many are
 /// up moves STATE. Each cursor carries the instant its line arrived on the node's monotonic clock (the render thread's), so the frame
 /// that first draws it can say how late it is.</summary>
@@ -14,6 +14,7 @@ internal sealed class CursorBoard
     public sealed record Board(ImmutableArray<WallCursor> Items, ImmutableArray<long> Arrived);
 
     private volatile Board _board = new([], []);
+    private readonly Lock _write = new();
 
     /// <summary>The cursors up now (any thread).</summary>
     public ImmutableArray<WallCursor> Cursors => _board.Items;
@@ -24,6 +25,12 @@ internal sealed class CursorBoard
     /// <summary>Puts a session's cursor (replacing its last), dropping the oldest past <paramref name="max"/>; true when the count
     /// changed.</summary>
     public bool Put(WallCursor cursor, int max, long arrivedNs)
+    {
+        lock (_write)
+            return PutLocked(cursor, max, arrivedNs);
+    }
+
+    private bool PutLocked(WallCursor cursor, int max, long arrivedNs)
     {
         var items = _board.Items;
         var arrived = _board.Arrived;
@@ -59,6 +66,12 @@ internal sealed class CursorBoard
     }
 
     private bool Keep(Func<WallCursor, bool> keep)
+    {
+        lock (_write)
+            return KeepLocked(keep);
+    }
+
+    private bool KeepLocked(Func<WallCursor, bool> keep)
     {
         var board = _board;
         if (board.Items.All(keep))

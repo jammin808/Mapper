@@ -51,7 +51,8 @@ public sealed partial class EngineCore
         routes.Lane("HANDLE PREV", Guarded(c => HandleStep(c, -1)));
         routes.Lane("HANDLE NUDGE", Guarded(HandleNudge));
         routes.Lane("OVERLAY", Guarded(Overlay));
-        routes.Lane("CURSOR", Guarded(Cursor));
+        // Off the lane: a cursor line goes on the board as it arrives (stamped then), never queued behind edits.
+        routes.OffLane("CURSOR", c => Task.FromResult(WallGate(c) ?? Cursor(c)));
     }
 
     // ---- parsing ---------------------------------------------------------------------------------------------------------
@@ -840,6 +841,8 @@ public sealed partial class EngineCore
     /// journal, no undo, no answer but OK; STATE moves only when the number of cursors does.</summary>
     private CommandReply Cursor(VerbCall c)
     {
+        // The render clock's instant the line arrived: the frame that first draws the move counts from it.
+        var arrived = Core.Time.MonoClock.Instance.NowNs;
         const string Syntax = "CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb] | CURSOR OFF";
         if (c.Args.Count == 1 && c.Args[0].Equals("OFF", StringComparison.OrdinalIgnoreCase))
         {
@@ -879,7 +882,7 @@ public sealed partial class EngineCore
         var now = Services.Mono.NowNs;
         var cursor = new WallCursor(c.Session.SessionId, c.Session.ClientName, output.Id, new Vec2d(x, y), trail.ToImmutable(), color, now,
             now + Services.Settings.Wall.CursorLeaseMs * 1_000_000L);
-        if (_cursors.Put(cursor, Services.Settings.Wall.MaxCursors, Core.Time.MonoClock.Instance.NowNs))
+        if (_cursors.Put(cursor, Services.Settings.Wall.MaxCursors, arrived))
             FactsChanged();
         return CommandReply.NoReply();
     }
