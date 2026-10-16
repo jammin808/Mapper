@@ -2,13 +2,17 @@
 // fault, positional bank and per-id variables, every id one the host takes and every value set under a definition; per-id variables
 // follow their entity through a reorder; every variable design 4.6 names is defined. Between pushes a playing item's clock runs at
 // 10 Hz from STATE's positionMs, rate and at plus the PING offset, while the module hands Companion at most 25 variable updates a
-// second; once the link drops, every value that came from STATE is emptied and only INDEX's names stay.
+// second; once the link drops, every value that came from STATE is emptied and only INDEX's names stay. A calibration score is read
+// on the scale its unit says.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { JsonValue } from '@companion-module/base'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { fakeChannels, settle } from './fake-channel.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
+import { readFileSync } from 'node:fs'
+import { NodeModel } from '../src/state/model.ts'
+import { projectorScore, variablesOf, type ModuleFacts } from '../src/state/variables.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 /** The host's rule for a variable id. */
@@ -563,6 +567,77 @@ void test('every variable design 4.6 names is defined, positional banks to bank_
 		await m.stop()
 		await node.stop()
 	}
+})
+
+void test("a calibration score is read on its unit's scale: px, lower better, becomes points whose grades are the node's", () => {
+	const facts: ModuleFacts = {
+		link: 'live',
+		moduleBehind: false,
+		lastError: '',
+		lastRefusal: '',
+		lastReceipt: '',
+		eventLast: '',
+		eventLastKind: '',
+		eventSeq: 0,
+		liveRule: 'focused',
+		livePage: '',
+	}
+	const modelOf = (state: unknown): NodeModel => {
+		const model = new NodeModel()
+		model.setState(state)
+		return model
+	}
+	// The node's own STATE (tests/fixtures/state/wall.json): Projector 1 solved to 0.2 px, grade A, green.
+	const wall = JSON.parse(
+		readFileSync(new URL('../../../tests/fixtures/state/wall.json', import.meta.url), 'utf8'),
+	) as {
+		calibration: { targets: Record<string, unknown>[] }
+	}
+	const one = wall.calibration.targets.find((t) => t.id === 'pj_test1')
+	assert.deepEqual([one?.score, one?.unit, one?.grade, one?.light], [0.2, 'px', 'A', 'green'])
+	const model = modelOf(wall)
+	const score = projectorScore(model, 'pj_test1')
+	assert.equal(score, 97, 'grade A at 0.2 px is a high score')
+	// The projector preset's ground, colorMix('#E0342E', '#1E9E5A', score / 100), is on the green side.
+	const mix = (red: number, green: number): number => red + (green - red) * (score / 100)
+	assert.ok(mix(0x34, 0x9e) > mix(0xe0, 0x1e), 'more green than red')
+	const v = variablesOf(model, Date.now(), facts, 8)
+	assert.deepEqual([v.cal_score, v.cal_grade], [97, 'A'], 'the worst target (Projector 2, amber at 0.2 px) in points')
+
+	// px converts piecewise so the grade boundaries coincide (A ≤ 1.0 px is ≥ 85, B ≤ 1.5 is ≥ 70, C ≤ 4 is ≥ 50); points are points.
+	const scoreOf = (value: number, unit: string): number =>
+		projectorScore(modelOf({ calibration: { targets: [{ id: 'pj_x', score: value, unit, light: 'green' }] } }), 'pj_x')
+	assert.deepEqual(
+		[0, 0.5, 1, 1.25, 1.5, 4, 6, 8, 99.9].map((px) => scoreOf(px, 'px')),
+		[100, 93, 85, 78, 70, 50, 25, 0, 0],
+	)
+	assert.deepEqual(
+		[100, 85, 70, 50, 0].map((points) => scoreOf(points, 'points')),
+		[100, 85, 70, 50, 0],
+	)
+	// A solve with no calibration score is its residual on the same scale; a unit the module does not know is no score.
+	const solved = { stage: { projectors: [{ id: 'pj_y', solved: true, residualPx: 1.5 }] } }
+	assert.equal(projectorScore(modelOf(solved), 'pj_y'), 70)
+	const unknown = { ...solved, calibration: { targets: [{ id: 'pj_y', score: 12, unit: 'furlongs', light: 'green' }] } }
+	assert.equal(projectorScore(modelOf(unknown), 'pj_y'), 70)
+
+	// The worst of targets with the same light is the lowest in points, whatever their units.
+	const worst = (targets: unknown[]): unknown =>
+		variablesOf(modelOf({ calibration: { targets } }), Date.now(), facts, 8).cal_score
+	assert.equal(
+		worst([
+			{ id: 'a', score: 0.5, unit: 'px', light: 'green' },
+			{ id: 'b', score: 80, unit: 'points', light: 'green' },
+		]),
+		80,
+	)
+	assert.equal(
+		worst([
+			{ id: 'a', score: 3, unit: 'px', light: 'amber' },
+			{ id: 'b', score: 80, unit: 'points', light: 'amber' },
+		]),
+		58,
+	)
 })
 
 void test('once the link drops, every value that came from STATE is emptied; INDEX names stay', async () => {

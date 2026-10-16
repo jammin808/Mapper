@@ -242,8 +242,8 @@ export function variablesOf(
 	v.stagewatch_timer = str(at(s, P.stagewatchText))
 	v.stagewatch_phase = str(at(s, P.stagewatchPhase))
 	const worst = worstTarget(list(s, P.calTargets))
-	const score = num(field(worst, P.calTargetScore), -1)
-	v.cal_score = worst && score >= 0 ? Math.round(score) : ''
+	const score = targetPoints(worst)
+	v.cal_score = score === null ? '' : Math.round(score)
 	v.cal_grade = str(field(worst, P.calTargetGrade))
 	v.cal_words = str(field(worst, P.calTargetWords))
 	v.ai_proposals = num(at(s, P.proposals))
@@ -312,19 +312,47 @@ export function variablesOf(
 	return v
 }
 
-/** A projector's calibration score (0-100): the node's when it has one, else from its solve's residual (1 px off costs 20). */
-export function projectorScore(model: NodeModel, id: string): number {
-	const target = list(model.state, P.calTargets).find((t) => field(t, P.calTargetId) === id)
+/** px-equivalents (lower is better) and the points (0-100, higher is better) they read as: piecewise linear through the node's grade
+ * boundaries (QualityScore: A ≤ 1.0 px or ≥ 85, B ≤ 1.5 or ≥ 70, C ≤ 4 or ≥ 50), so a grade reads the same on either scale. */
+const PX_POINTS: readonly (readonly [number, number])[] = [
+	[0, 100],
+	[1, 85],
+	[1.5, 70],
+	[4, 50],
+	[8, 0],
+]
+
+/** A score in points (0-100) from its value and the unit the node says it is on; null for a unit the module does not know. */
+export function scorePoints(value: number, unit: string): number | null {
+	if (unit === 'points') return Math.max(0, Math.min(100, value))
+	if (unit !== 'px') return null
+	let from = PX_POINTS[0] ?? [0, 100]
+	for (const to of PX_POINTS) {
+		if (value <= to[0])
+			return to[0] === from[0] ? to[1] : from[1] + ((to[1] - from[1]) * (value - from[0])) / (to[0] - from[0])
+		from = to
+	}
+	return 0
+}
+
+/** A calibration target's score in points, or null when it has none (the node writes -1) or says no unit the module knows. */
+function targetPoints(target: unknown): number | null {
 	const score = num(field(target, P.calTargetScore), -1)
-	if (score >= 0) return Math.round(score)
+	return score < 0 ? null : scorePoints(score, str(field(target, P.calTargetUnit)))
+}
+
+/** A projector's calibration score in points (0-100): the node's when it has one, else its solve's residual on the same scale. */
+export function projectorScore(model: NodeModel, id: string): number {
+	const points = targetPoints(list(model.state, P.calTargets).find((t) => field(t, P.calTargetId) === id))
+	if (points !== null) return Math.round(points)
 	const pj = model.projector(id)
 	if (!pj || !bool(field(pj, P.pjSolved))) return 0
-	return Math.max(0, Math.min(100, Math.round(100 - num(field(pj, P.pjResidualPx)) * 20)))
+	return Math.round(scorePoints(num(field(pj, P.pjResidualPx)), 'px') ?? 0)
 }
 
 const LIGHT_ORDER: Record<string, number> = { red: 0, amber: 1, grey: 2, green: 3 }
 
-/** The calibration target that needs a look first: the worst light, then the lowest score. */
+/** The calibration target that needs a look first: the worst light, then the lowest score in points (one with none last). */
 function worstTarget(targets: readonly unknown[]): unknown {
 	let worst: unknown = undefined
 	for (const t of targets) {
@@ -334,7 +362,7 @@ function worstTarget(targets: readonly unknown[]): unknown {
 		}
 		const a = LIGHT_ORDER[str(field(t, P.calTargetLight), 'grey')] ?? 2
 		const b = LIGHT_ORDER[str(field(worst, P.calTargetLight), 'grey')] ?? 2
-		if (a < b || (a === b && num(field(t, P.calTargetScore), 101) < num(field(worst, P.calTargetScore), 101))) worst = t
+		if (a < b || (a === b && (targetPoints(t) ?? 101) < (targetPoints(worst) ?? 101))) worst = t
 	}
 	return worst
 }

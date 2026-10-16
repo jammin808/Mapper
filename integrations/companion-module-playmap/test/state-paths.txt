@@ -17,6 +17,7 @@ calibration.targets.[].grade
 calibration.targets.[].id
 calibration.targets.[].light
 calibration.targets.[].score
+calibration.targets.[].unit
 calibration.targets.[].words
 clients
 devices

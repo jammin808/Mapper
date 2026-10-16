@@ -125,6 +125,7 @@ export const P = {
 	calTargets: 'calibration.targets',
 	calTargetId: 'calibration.targets.[].id',
 	calTargetScore: 'calibration.targets.[].score',
+	calTargetUnit: 'calibration.targets.[].unit',
 	calTargetGrade: 'calibration.targets.[].grade',
 	calTargetLight: 'calibration.targets.[].light',
 	calTargetWords: 'calibration.targets.[].words',

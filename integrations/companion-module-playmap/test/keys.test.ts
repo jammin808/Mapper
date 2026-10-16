@@ -170,13 +170,13 @@ void test('a key’s time left reads as m:ss or seconds; a projector’s score r
 		await m.place('score', 'score', { projector: PJ })
 		await values(
 			m,
-			{ clock: '1:13', seconds: 73, none: '', score: 84 },
-			'time left rounded up; a solve 0.8 px off scores 84',
+			{ clock: '1:13', seconds: 73, none: '', score: 88 },
+			'time left rounded up; a solve 0.8 px off scores 88 (grade A, as the node grades px, is 85 and up)',
 		)
 
-		// The node's calibration score wins over the solve's.
+		// The node's calibration score, on the unit it says, wins over the solve's.
 		const scored = copy(state) as unknown as { calibration: { targets: unknown[] } }
-		scored.calibration.targets = [{ id: PJ, score: 96.4, grade: 'A', words: 'Left is good' }]
+		scored.calibration.targets = [{ id: PJ, score: 96.4, unit: 'points', grade: 'A', words: 'Left is good' }]
 		node.pushState(scored)
 		await values(m, { score: 96 }, 'the calibration’s own score')
 	} finally {
