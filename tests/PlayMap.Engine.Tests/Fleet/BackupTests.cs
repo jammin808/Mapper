@@ -214,14 +214,15 @@ public sealed class BackupTests
         Assert.False(fetch.Applied);   // accepted: the pull reports when it lands
         Assert.True(await Eventually.TrueAsync(() => b.Engine.Services.Media!.PathForHash(hash) is not null), b.Journal());
         Assert.Equal(bytes, await File.ReadAllBytesAsync(b.Engine.Services.Media!.PathForHash(hash)!));
-        Assert.Contains("pulled from FOH-A with proof over HTTPS and verified", b.Journal(), StringComparison.Ordinal);
+        // The file is a fact first; the journal's row follows it.
+        Assert.True(await Eventually.TrueAsync(() => b.Journal().Contains("pulled from FOH-A with proof over HTTPS and verified", StringComparison.Ordinal)), b.Journal());
         Assert.True(Mirror(a).Proved > 0);
         Assert.Equal(Mirror(a).Proved, Mirror(a).OverHttps);
         Assert.Contains("is here already", (await b.RunAsync("MEDIA FETCH md_clip VERSION mv_1 FROM FOH-A")).Payload, StringComparison.Ordinal);
         // The clip's own file the same way (MEDIA FETCH with the fleet's part pulls with the proof, from the first node that holds it).
         Assert.True((await b.RunAsync("MEDIA FETCH md_clip")).Ok);
         Assert.True(await Eventually.TrueAsync(() => b.Engine.Services.Media!.PathForHash(clipHash) is not null), b.Journal());
-        Assert.Contains("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", b.Journal(), StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => b.Journal().Contains("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", StringComparison.Ordinal)), b.Journal());
     }
 
     private static JsonElement Air(HostRig rig) => rig.State().GetProperty("air");
