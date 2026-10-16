@@ -31,6 +31,9 @@ public static class ScanViewArchive
         ArgumentNullException.ThrowIfNull(outcome);
         foreach (var view in outcome.Captured)
         {
+            // A view whose files did not read is never written over: what is on disk is all there is of it.
+            if (view.State == "unreadable")
+                continue;
             var folder = Path.Combine(scanFolder, "views", view.Id);
             Directory.CreateDirectory(folder);
             var json = Path.Combine(folder, "view.json");
@@ -62,8 +65,10 @@ public static class ScanViewArchive
     }
 
     /// <summary>The outcome with its views and multi-view solve read back from <paramref name="scanFolder"/>; unchanged when the
-    /// folder keeps no views (a scan made before views were kept). A view or a solve that does not read is left out with no
-    /// guess: the views that read stand, and a solve that does not read is solved again on the next SCAN SOLVE.</summary>
+    /// folder keeps no views (a scan made before views were kept). Nothing that does not read is guessed: a view whose view.json or
+    /// every decode does not read is listed "unreadable" with the words why (it takes no part, and its folder is never written over),
+    /// a view missing one projector's decode keeps the others and names the one it lacks, a folder with no view.json (a view whose
+    /// write never finished) is no view, and a solve that does not read is solved again on the next SCAN SOLVE.</summary>
     public static ScanOutcome Load(string scanFolder, ScanOutcome outcome)
     {
         ArgumentNullException.ThrowIfNull(scanFolder);
@@ -133,29 +138,49 @@ public static class ScanViewArchive
         var json = Path.Combine(folder, "view.json");
         if (!File.Exists(json))
             return null;
+        ScanViewData? view;
         try
         {
-            ScanViewData? view;
-            using (var s = File.OpenRead(json))
-                view = JsonSerializer.Deserialize<ScanViewData>(s, ProjectJson.Options);
-            if (view is null)
-                return null;
-            var maps = ImmutableDictionary.CreateBuilder<string, CorrespondenceMap>(StringComparer.Ordinal);
-            foreach (var projector in view.ProjectorIds)
+            using var s = File.OpenRead(json);
+            view = JsonSerializer.Deserialize<ScanViewData>(s, ProjectJson.Options);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            return Unreadable(Path.GetFileName(folder), $"its view.json did not read ({ex.Message})");
+        }
+        if (view is null || view.ProjectorIds.IsDefault)
+            return Unreadable(Path.GetFileName(folder), "its view.json holds no view");
+        var maps = ImmutableDictionary.CreateBuilder<string, CorrespondenceMap>(StringComparer.Ordinal);
+        var unread = new List<string>();
+        foreach (var projector in view.ProjectorIds)
+        {
+            var path = Path.Combine(folder, projector + ".pmcm");
+            try
             {
-                var path = Path.Combine(folder, projector + ".pmcm");
-                if (!File.Exists(path))
-                    continue;
                 using var s = File.OpenRead(path);
                 maps[projector] = CorrespondenceArchive.Read(s);
             }
-            return maps.Count == 0 ? null : view with { Maps = maps.ToImmutable() };
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+            {
+                unread.Add(ex is FileNotFoundException ? $"{projector}.pmcm is missing" : $"{projector}.pmcm did not read: {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or NotSupportedException)
+        if (maps.Count == 0)
         {
-            return null;
+            return view with
+            {
+                State = "unreadable",
+                Words = $"its decodes did not read from the scan's folder ({(unread.Count > 0 ? string.Join("; ", unread) : "it names no projector")}) — it takes no part",
+            };
         }
+        return unread.Count == 0
+            ? view with { Maps = maps.ToImmutable() }
+            : view with { Maps = maps.ToImmutable(), Words = $"{string.Join("; ", unread)}: the view takes part with the decodes that read" };
     }
+
+    /// <summary>A view whose view.json did not read: its folder's name, the words why, nothing else known.</summary>
+    private static ScanViewData Unreadable(string id, string why) =>
+        new(id, "", "", new Intrinsics(1, 1, 0, 0, 1, 1), LensDistortion.None, false, [], "", "", 0) { State = "unreadable", Words = why + " — it takes no part" };
 
     private static void WriteAtomically(string path, Action<Stream> write)
     {

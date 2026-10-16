@@ -136,11 +136,13 @@ public sealed partial class ScanRunner
         CancellationToken ct)
     {
         ImmutableArray<ScanViewData> views = [.. into.Captured, view];
-        var active = views.Count(v => v.State != "dropped");
+        var active = views.Count(v => v.Solvable);
         track.Step("running", "calibrating", string.Create(CultureInfo.InvariantCulture, $"solving {active} views of {into.Name} together"), overall: 0.88);
         var project = engine.Store.Project;
         if (MultiViewScan.FrameMoved(views, project))
             notes.Add(MultiViewScan.CarriedWords + ".");
+        if (MultiViewScan.UnreadWords(views) is { } unread)
+            notes.Add(unread + ".");
         var (multi, placed) = await Task.Run(() => MultiViewScan.Solve(views, project, [], into.Solution.Metric, null, ct), ct).ConfigureAwait(false);
         var outcome = Combined(into, multi, placed, project, into.Solution.Metric || multi.Result.Metric);
         track.Regions(outcome.Regions);
@@ -255,7 +257,7 @@ public sealed partial class ScanRunner
         ArgumentNullException.ThrowIfNull(hold);
         return RunWorkAsync(scanId, async (engine, scan, token) =>
         {
-            var active = scan.Captured.Where(v => v.State != "dropped").Select(v => v.Id).ToList();
+            var active = scan.Captured.Where(v => v.Solvable).Select(v => v.Id).ToList();
             // A scan whose views were placed in a site frame the stage has moved from since changes when solved again: it is carried.
             var moved = MultiViewScan.FrameMoved(scan.Captured, engine.Store.Project);
             if (hold.Count == 0)
@@ -271,7 +273,7 @@ public sealed partial class ScanRunner
             {
                 throw new InvalidOperationException($"nothing would change: {scan.Name} was solved holding {string.Join(", ", hold)} already, with the same views{LeftOutWords(held)}");
             }
-            var known = scan.Captured.Where(v => v.State != "dropped").SelectMany(v => v.ProjectorIds).ToHashSet(StringComparer.Ordinal);
+            var known = scan.Captured.Where(v => v.Solvable).SelectMany(v => v.ProjectorIds).ToHashSet(StringComparer.Ordinal);
             if (hold.FirstOrDefault(h => !known.Contains(h)) is { } stranger)
                 throw new InvalidOperationException($"{stranger} is not a projector of {scan.Name}: HOLD names projectors its views saw");
             var project = engine.Store.Project;
@@ -290,7 +292,7 @@ public sealed partial class ScanRunner
         m.Result.LeftOut.IsDefaultOrEmpty ? "" : " (" + string.Join("; ", m.Result.LeftOut.Select(l => l.Words)) + " — left out again by the same solve)";
 
     /// <summary>SCAN DROP: the scan without one view, solved again warm from its last solve (the frame and its scale kept). Refused
-    /// for a view the scan does not have, one already dropped, and the scan's last view.</summary>
+    /// for a view the scan does not have, one already dropped, one that did not read from the folder, and the scan's last view.</summary>
     public Task<ScanOutcome> DropAsync(string scanId, string viewId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(scanId);
@@ -301,7 +303,9 @@ public sealed partial class ScanRunner
                 ?? throw new InvalidOperationException($"{scan.Name} has no view {viewId} — SCAN VIEWS {scan.Id} lists them");
             if (view.State == "dropped")
                 throw new InvalidOperationException($"{view.Id} of {scan.Name} is dropped already");
-            if (scan.Captured.Count(v => v.State != "dropped") < 2)
+            if (view.State == "unreadable")
+                throw new InvalidOperationException($"{view.Id} of {scan.Name} did not read from the scan's folder: it takes no part already ({view.Words})");
+            if (scan.Captured.Count(v => v.Solvable) < 2)
                 throw new InvalidOperationException($"{view.Id} is {scan.Name}'s only view: there would be nothing left to solve");
             var project = engine.Store.Project;
             var warm = scan.Multi is { } m && m.ViewIds.Contains(view.Id) ? (m, view.Id) : ((MultiViewOutcome, string)?)null;
@@ -344,11 +348,15 @@ public sealed partial class ScanRunner
             var scan = Load(engine, record) ?? throw new InvalidOperationException($"{record.Name}'s data is not on this node");
             if (scan.Captured.IsDefaultOrEmpty)
                 throw new InvalidOperationException($"{record.Name} keeps no views (it was made before scans kept them) — scan again");
+            if (!scan.Captured.Any(v => v.Solvable))
+                throw new InvalidOperationException($"none of {record.Name}'s views can be solved: {MultiViewScan.UnreadWords(scan.Captured) ?? "every one is dropped"} — scan again");
             var carried = MultiViewScan.FrameMoved(scan.Captured, engine.Store.Project);
             var outcome = await work(engine, scan, cts.Token).ConfigureAwait(false);
             var notes = new List<string>();
             if (carried)
                 notes.Add(MultiViewScan.CarriedWords + ".");
+            if (MultiViewScan.UnreadWords(outcome.Captured) is { } unread)
+                notes.Add(unread + ".");
             if (outcome.Simulated)
                 notes.Add(TruthWords(outcome));
             await CommitAsync(engine, outcome, notes, cts.Token).ConfigureAwait(false);
@@ -401,7 +409,7 @@ public sealed partial class ScanRunner
             return;
         var solved = outcome.Solution.Projectors;
         var worst = solved.Where(p => p.Solved).Select(p => p.Quality).DefaultIfEmpty(0).Min();
-        var last = outcome.Captured.LastOrDefault(v => v.State != "dropped") ?? outcome.Captured.LastOrDefault();
+        var last = outcome.Captured.LastOrDefault(v => v.Solvable) ?? outcome.Captured.LastOrDefault();
         Publish(new ScanView(outcome.Id, "done", "done", 0, 0, 1, Math.Round(worst / 100.0, 3), outcome.Solution.Words, message,
             [.. solved.Select(p => new ScanProjectorState(p.ProjectorId, p.Name, 1, p.Solved ? "done" : "failed"))], [.. outcome.Regions], null)
         {

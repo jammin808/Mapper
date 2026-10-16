@@ -48,8 +48,13 @@ public sealed record ScanViewData(
     /// <summary>The tracks this view observed in the last solve.</summary>
     public int Tracks { get; init; }
 
-    /// <summary>"done" when the last solve used it; "left out" with <see cref="Words"/> when it could not.</summary>
+    /// <summary>"done" when the last solve used it; "left out" with <see cref="Words"/> when it could not; "dropped" once SCAN DROP took
+    /// it out; "unreadable" with the words why when its decodes did not read back from the scan's folder.</summary>
     public string State { get; init; } = "done";
+
+    /// <summary>Whether a solve takes the view: not one dropped, nor one whose decodes did not read back (it keeps its folder as it is).</summary>
+    [JsonIgnore]
+    public bool Solvable => State is not ("dropped" or "unreadable");
 
     public string Words { get; init; } = "";
 
@@ -113,8 +118,8 @@ public static class MultiViewScan
         ArgumentNullException.ThrowIfNull(views);
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(hold);
-        // A dropped view stays in the scan's folder (its decodes are kept) but takes no part.
-        var active = views.Where(v => v.State != "dropped").ToList();
+        // A dropped view stays in the scan's folder (its decodes are kept) but takes no part, nor does one whose decodes did not read.
+        var active = views.Where(v => v.Solvable).ToList();
         var (input, inverses) = Input(active, project, hold);
         if (input.Projectors.IsDefaultOrEmpty)
             throw new InvalidOperationException("none of the scan's projectors is in the project any more");
@@ -174,11 +179,20 @@ public static class MultiViewScan
     {
         ArgumentNullException.ThrowIfNull(views);
         ArgumentNullException.ThrowIfNull(project);
-        return views.Any(v => v.State != "dropped" && MoveSince(v.Site, project.Stage.Site) is not null);
+        return views.Any(v => v.Solvable && MoveSince(v.Site, project.Stage.Site) is not null);
     }
 
     /// <summary>What a re-solve that carried its views into the stage's frame now says.</summary>
     public const string CarriedWords = "its views were carried into the site frame SITE ORIGIN set since they were taken";
+
+    /// <summary>What a solve says of the views whose decodes did not read back from the scan's folder (they took no part); null when
+    /// every view read.</summary>
+    public static string? UnreadWords(IReadOnlyList<ScanViewData> views)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+        var unread = views.Where(v => v.State == "unreadable").Select(v => v.Id).ToList();
+        return unread.Count == 0 ? null : $"{string.Join(", ", unread)} did not read from the scan's folder and took no part (SCAN VIEWS says why)";
+    }
 
     /// <summary>The scan's camera latencies: each projector's from the newest view still in the scan that measured it.</summary>
     public static IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> Latencies(IReadOnlyList<ScanViewData> views)
@@ -280,7 +294,7 @@ public static class MultiViewScan
     }
 
     /// <summary>The views with what the solve says of each written back: its place (in the stage's site frame now) and baseline,
-    /// residual and tracks, or "left out" and why; a dropped view is "dropped".</summary>
+    /// residual and tracks, or "left out" and why; a dropped view is "dropped", and an unreadable one stays as it read.</summary>
     private static ImmutableArray<ScanViewData> WriteBack(IReadOnlyList<ScanViewData> views, MultiViewResult result, string? dropped, SiteFrame site)
     {
         var list = ImmutableArray.CreateBuilder<ScanViewData>();
@@ -298,8 +312,13 @@ public static class MultiViewScan
                 list.Add(v with { Pose = s.Pose, Baseline = baseline, RmsPx = Math.Round(s.RmsPx, 4), Tracks = s.Observations, State = "done", Words = "", Site = site });
                 continue;
             }
+            if (!v.Solvable)
+            {
+                list.Add(v);
+                continue;
+            }
             var why = result.LeftOut.FirstOrDefault(l => l.ViewId == v.Id)?.Words ?? "the solve did not use it";
-            list.Add(v with { State = v.State == "dropped" ? "dropped" : "left out", Words = v.State == "dropped" ? v.Words : why });
+            list.Add(v with { State = "left out", Words = why });
         }
         return list.ToImmutable();
     }
@@ -316,7 +335,7 @@ public static class MultiViewScan
         var rig = r.Rig(root.RigId);
         var rootView = views.First(v => v.Id == root.Id);
         var camera = new ScanCameraView(rig.Id, rootView.CameraName, rig.Intrinsics, rig.Lens, root.Pose, rootView.Calibrated);
-        var projectorIds = views.Where(v => v.State != "dropped").SelectMany(v => v.ProjectorIds).Distinct(StringComparer.Ordinal).ToList();
+        var projectorIds = views.Where(v => v.Solvable).SelectMany(v => v.ProjectorIds).Distinct(StringComparer.Ordinal).ToList();
         var scanned = new List<ScannedProjector>();
         foreach (var id in projectorIds)
         {

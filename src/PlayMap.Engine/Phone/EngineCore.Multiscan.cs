@@ -65,9 +65,10 @@ public sealed partial class EngineCore
         try
         {
             var outcome = await runner.SolveAsync(args[0], hold, call.Ct).ConfigureAwait(false);
+            var unread = MultiViewScan.UnreadWords(outcome.Captured) is { } words ? " — " + words : "";
             return Solved(outcome, hold.Count > 0
-                ? $"solved {outcome.Name} again holding {string.Join(", ", hold)}"
-                : $"solved {outcome.Name} again from every view");
+                ? $"solved {outcome.Name} again holding {string.Join(", ", hold)}{unread}"
+                : $"solved {outcome.Name} again from every view{(unread.Length > 0 ? " that reads" + unread : "")}");
         }
         catch (InvalidOperationException ex)
         {
