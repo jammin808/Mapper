@@ -245,7 +245,7 @@ public sealed class VideoIoLossTests
         while (!switching.IsCompleted)
         {
             primary.Push(luma: 60);
-            await Task.Yield();
+            await Task.Delay(5);
         }
         var back = await switching;
         Assert.True(back.Ok, back.Payload);

@@ -84,7 +84,7 @@ public sealed class VideoIoEdgeTests
         {
             if (rig.Omt.Opened.Count == 2)
                 rig.Omt.Opened[1].Push();
-            await Task.Yield();
+            await Task.Delay(5);
         }
         Assert.Equal("reconnected Cam 4: frames are arriving", (await reconnect).Effect);
         Assert.Equal(2, rig.Omt.Opened.Count);
@@ -132,7 +132,7 @@ public sealed class VideoIoEdgeTests
         while (!reconnect.IsCompleted)
         {
             rig.Omt.Opened[^1].Push();
-            await Task.Yield();
+            await Task.Delay(5);
         }
         Assert.Equal("reconnected Cam 1: frames are arriving", (await reconnect).Effect);
     }
