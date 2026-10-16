@@ -52,7 +52,8 @@ public sealed class OutputPresentCheck : IPreflightCheck
     {
         const string Id = "outputs.present-path";
         var machine = (engine.Services.Outputs as IPresentBackend)?.Machine();
-        if (engine.Services.PresentNode?.FuseNow is { } fuse && !(machine?.FuseArmed ?? false))
+        if (engine.Services.PresentNode is { } kept && kept.FuseNow is { } fuse && !(machine?.FuseArmed ?? false)
+            && PresentChoice.Normalise(kept.Saved.Path) == "dxgi")
             return new PreflightRow(Id, node, "outputs", "Present path", Light.Amber, "fuse blown",
                 PresentChoice.Decide("dxgi", fuse).Words, "PRESENT RESET");
         if (machine is null)

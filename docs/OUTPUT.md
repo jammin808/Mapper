@@ -48,7 +48,9 @@ runs GL:
    (`EGL_ANGLE_device_d3d11`), display (`EGL_ANGLE_d3d_texture_client_buffer`, `EGL_KHR_surfaceless_context`).
 4. **The context**: `eglCreateDeviceANGLE` on our device, the display on it (verified: the display's device is ours, else "ANGLE made
    its own device"), an ES 3.0 context current with no surface, adopted as the renderer's (`RenderContext.Adopt`); every program
-   is translated at start.
+   is translated inside the start (a program ANGLE refuses is the `programs` stage's words and a GL start). ANGLE keeps pipeline
+   state on the device's immediate context, so nothing else issues immediate-context work on it from another thread: sharers open
+   what they need by share handle on a device of their own (Spout does).
 5. **One window and swap chain per display output** (`DxgiOutputWindow`): a borderless top-most popup over the monitor (transitions
    off, the cursor hidden), a waitable `FLIP_DISCARD` swap chain (three B8G8R8A8 buffers, no scaling, no tearing, frame latency 1),
    Alt+Enter and window changes left to PlayMap; a swap chain that lands on another display than its monitor is refused with words.
@@ -60,7 +62,8 @@ runs GL:
 7. **Present**: `glFlush` then `Present1(1, DO_NOT_WAIT)` — a full queue holds the previous picture one refresh (counted, never a
    block, never a tear); occluded and device-removed come back as the result's problem. The pacing output waits on its waitable
    object after it presents (pumping window messages, at most three periods), so the next frame starts just after the vblank as a
-   GL swap returns; every other output presents only when its waitable is already signalled.
+   GL swap returns; every other output presents only when its waitable is already signalled, and a count it took for a present that
+   did not queue is kept for its next present rather than lost.
 8. **Statistics**: after every output presented, `GetFrameStatistics` once per swap chain. The first statistics switch the output's
    clock to display timing — `SyncRefreshCount` and `SyncQPCTime` (QPC to ns as `(q / f)·10⁹ + (q % f)·10⁹ / f`, which never
    overflows) feed the fit, and the ledger is told which refresh first showed which present (32-bit counters unwrapped with unsigned
@@ -68,10 +71,11 @@ runs GL:
    returns and ask the compositor nudge, which calls `DwmFlush` on its own thread at most once a second — never on the render thread.
 
 **The fuse.** Before a DXGI start the render host writes `<node home>/playmap.present.fuse` (`{"path","attempt","at"}`); the lane
-deletes it once every display output has presented 120 frames on a settled clock. A fuse still there at the next start (a crash or a
+deletes it once every open display output has presented 120 frames and the pacing one's clock has settled (with no display open,
+once 120 frames were drawn), and an orderly stop deletes it too. A start that fell back to GL in-process leaves it blown. A fuse still there at the next start (a crash or a
 hang before the outputs came up) makes that start GL, with words naming the attempts and when; `machine.present.fuse` says `clear`,
 `armed` (this start waits for its outputs) or `blown`; the preflight's present-path row is amber with `PRESENT RESET`, which clears
-it, as `PRESENT PATH DXGI` does. **`PRESENT PATH AUTO|DXGI|GL`** keeps the path on the node for the render host's next start;
+it, as asking any path again with `PRESENT PATH` does. **`PRESENT PATH AUTO|DXGI|GL`** keeps the path on the node for the render host's next start;
 `machine.present.asked` is what the next start asks, `path` what this one runs, `experimental` true on DXGI.
 
 ## Per-output latency
@@ -82,7 +86,8 @@ every frame is drawn for the instant its light leaves the slowest display. Each 
 `d = round((L_air − L_o) / T_o)` frames ago, from a **delay ring** of `d + 1` pictures of its size (indices swapped; the pictures are
 made only when the delay changes, so a warm frame allocates nothing). Two outputs of 17 and 50 ms at 60 Hz: the first waits 2
 frames, 0.33 ms left over; the node's air is 50 ms. A scan's raw frame is never delayed (its present stamp is the frame's own).
-Previews show what was presented; the finished picture — what sends and snapshots read — is the frame's own. STATE:
+Previews show what was presented (`RenderEngine.PresentedPicture`); the finished picture — what sends, LED maps and snapshots
+read (`OutputPicture`) — is the frame's own. After a scan's raw frame the ring starts again (nothing from before it is shown after it). STATE:
 `outputs[].present.delayFrames`, `latencyResidualMs` (|residual| ≤ half a frame), `machine.present.airLatencyMs`, `latencyWords`.
 At most six frames: an input lag that would need more is refused with the words.
 

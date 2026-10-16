@@ -477,6 +477,7 @@ public sealed partial class RenderHost : IRenderHost
         try
         {
             _platform = GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
+            _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
             _context = _platform.Context;
             _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
             _renderer.WarmUp();
@@ -743,8 +744,8 @@ public sealed partial class RenderHost : IRenderHost
                     h.Display = display;
                 moved |= before != (h.Open, h.Dropped > 0, h.Fps > 0);
             }
-            if (!_firstFrames && _platform?.Path == PresentPath.DxgiFlip)
-                _firstFrames = FirstFramesReached();
+            if (!_firstFrames && _dxgiUp)
+                _firstFrames = PresentFirstFrames.Reached(_health.Select(h => (h.Open, h.OutputId == windows.Pacer, h.HasPresent, h.Present)), renderer.Frame);
         }
         return moved;
     }
@@ -846,6 +847,12 @@ public sealed partial class RenderHost : IRenderHost
         }
         _wake.Set();
         await _exited.Task.ConfigureAwait(false);
+        // An orderly stop of a DXGI start is no crash: the fuse it armed goes, whether or not its outputs reached their first frames.
+        if (_dxgiUp && !_fuseCleared && _options.Fuse is { } fuse)
+        {
+            _fuseCleared = true;
+            fuse.Clear();
+        }
         if (_stage is not null)
             await _stage.DisposeAsync().ConfigureAwait(false);
         // The render thread has exited: nothing raises the signal any more.

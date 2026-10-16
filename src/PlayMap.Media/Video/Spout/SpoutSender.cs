@@ -160,13 +160,14 @@ public sealed class SpoutSender : IDisposable
         }
     }
 
-    /// <summary>Frame path, never blocks: the texture to draw into this frame, or false (a receiver holds it: skipped, counted).</summary>
-    public bool TryBegin(out ISpoutTexture texture)
+    /// <summary>The texture to draw into this frame, or false (a receiver holds it: skipped, counted). The render thread asks with
+    /// 0 ms; a sender's own worker may wait a little (<paramref name="waitMs"/>) for a receiver to finish its copy.</summary>
+    public bool TryBegin(out ISpoutTexture texture, int waitMs = 0)
     {
         texture = _texture!;
         if (!_registered || _texture is null || _holding)
             return false;
-        var taken = _access!.TryEnter(0);
+        var taken = _access!.TryEnter(waitMs);
         if (taken == LockTry.Busy)
         {
             Busy++;
@@ -214,10 +215,11 @@ public sealed class SpoutSender : IDisposable
         }
     }
 
-    /// <summary>Uploads one frame's rows (top first) and tells receivers; false when a receiver held the texture.</summary>
-    public bool Publish(ReadOnlySpan<byte> pixels, int stride, long leaderNs = 0)
+    /// <summary>Uploads one frame's rows (top first) and tells receivers; false when a receiver held the texture past
+    /// <paramref name="waitMs"/>.</summary>
+    public bool Publish(ReadOnlySpan<byte> pixels, int stride, long leaderNs = 0, int waitMs = 0)
     {
-        if (!TryBegin(out var texture))
+        if (!TryBegin(out var texture, waitMs))
             return false;
         var drawn = false;
         try

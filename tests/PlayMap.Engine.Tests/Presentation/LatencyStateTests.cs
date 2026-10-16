@@ -63,3 +63,22 @@ public sealed class LatencyStateTests
         Assert.Equal(33, rig.Engine.Store.Project.Outputs.Single(o => o.Id == "op_slow").LatencyMs);
     }
 }
+
+/// <summary>The six-frame check runs only on an edit that moves the plan: a project loaded with lags too far apart still takes a rename.</summary>
+public sealed class LatencyEditTests
+{
+    [Fact]
+    public async Task ARenameIsNotRefusedForLagsTheEditDoesNotMove()
+    {
+        var project = HostRig.WithOutputs(
+            HostRig.Screen("op_fast", SourceRef.Solid("#336699"), 64, 36) with { LatencyMs = 0 },
+            HostRig.Screen("op_slow", SourceRef.Solid("#996633"), 64, 36) with { LatencyMs = 150 });
+        await using var engine = new EngineCore(EngineServices.ForTests(), project);
+        Assert.True(Core.Wire.WireGrammar.TryParse("SET op_fast name \"Left\"", out var rename, out _));
+        Assert.True((await engine.HandleAsync(rename!, PresentRig.Desk, CancellationToken.None)).Ok);
+        Assert.True(Core.Wire.WireGrammar.TryParse("SET op_fast latencyMs 1", out var lag, out _));
+        var refused = await engine.HandleAsync(lag!, PresentRig.Desk, CancellationToken.None);
+        Assert.False(refused.Ok);
+        Assert.Contains("the delay ring holds at most 6", refused.Payload, StringComparison.Ordinal);
+    }
+}

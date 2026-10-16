@@ -101,9 +101,13 @@ public sealed class LatencyRingTests(GlFixture gl)
                 Assert.InRange(bgra[1], Level(Math.Max(0, f - 2)) - 1, Level(Math.Max(0, f - 2)) + 1);
                 Assert.True(engine.ReadPresented("op_slow", bgra));
                 Assert.InRange(bgra[1], Level(f) - 1, Level(f) + 1);
-                // The finished picture is this frame's on both (sends and snapshots read it).
+                // The finished picture is this frame's on both (sends, LED maps and snapshots read it); the presented one is the
+                // delayed one (previews show it).
                 Assert.True(engine.ReadOutput("op_fast", bgra));
                 Assert.InRange(bgra[1], Level(f) - 1, Level(f) + 1);
+                Assert.Same(engine.OutputPicture("op_fast"), engine.OutputPicture("op_fast"));
+                Assert.NotSame(engine.OutputPicture("op_fast"), engine.PresentedPicture("op_fast"));
+                Assert.Same(engine.OutputPicture("op_slow"), engine.PresentedPicture("op_slow"));
             }
             var present = engine.Present("op_fast")!.Value;
             Assert.Equal(2, present.DelayFrames);

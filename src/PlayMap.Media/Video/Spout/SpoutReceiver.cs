@@ -105,8 +105,8 @@ public sealed class SpoutReceiver : IDisposable
         {
             if (_counter is { } counter)
             {
-                _ = counter.TryTake(0);
-                count = counter.Release(1);
+                // Given back only what was taken: another receiver racing for the count must not raise the sender's counter.
+                count = counter.TryTake(0) ? counter.Release(1) : 0;
                 if (count == _lastCount)
                     return ReceiveStep.NotNew;
             }
@@ -172,15 +172,17 @@ public sealed class SpoutReceiver : IDisposable
         SpoutInfo info;
         try
         {
+            // The texture's fields first: the description (a string) is read only when the texture changed, so a steady step
+            // allocates nothing.
+            if (_haveInfo && SpoutInfo.SameTexture(_infoMap.Bytes, _info))
+                return true;
             info = SpoutInfo.Read(_infoMap.Bytes);
         }
         finally
         {
-            _infoLock?.Exit();
+            if (taken != LockTry.Busy)
+                _infoLock?.Exit();
         }
-        if (_haveInfo && info.ShareHandle == _info.ShareHandle && info.Width == _info.Width && info.Height == _info.Height
-            && info.Format == _info.Format)
-            return true;
         _info = info;
         _haveInfo = true;
         CloseTexture();

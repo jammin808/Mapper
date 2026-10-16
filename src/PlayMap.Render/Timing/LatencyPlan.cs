@@ -128,6 +128,13 @@ public sealed class DelayRing<T> : IDisposable
         return _slots[(_head - back + _slots.Length) % _slots.Length];
     }
 
+    /// <summary>Forgets what was written (the pictures stay): the next frame presents what it writes, then the delay builds again.</summary>
+    public void Restart()
+    {
+        _head = -1;
+        _written = 0;
+    }
+
     private void Release()
     {
         foreach (var s in _slots)

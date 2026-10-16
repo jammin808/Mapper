@@ -209,6 +209,26 @@ public sealed class SpoutProtocolTests
     }
 
     [Fact]
+    public void AReceiverThatFindsTheCounterTakenGivesNothingBack()
+    {
+        var (kernel, gpu, sender) = Registered();
+        using (sender)
+        using (var receiver = new SpoutReceiver(kernel, gpu, Name))
+        {
+            sender.Publish(Frame(1), W * 4);
+            Assert.Equal(ReceiveStep.Copied, receiver.Step());
+            // Another receiver holds the count between its take and its give: this one's take fails and it must not add one.
+            using var other = kernel.OpenSemaphore(SpoutNames.Counter(Name))!;
+            Assert.True(other.TryTake(0));
+            Assert.True(other.TryTake(0));
+            Assert.Equal(0, kernel.Count(SpoutNames.Counter(Name)));
+            _ = receiver.Step();
+            Assert.Equal(0, kernel.Count(SpoutNames.Counter(Name)));
+            Assert.Equal(0, other.Release(2));
+        }
+    }
+
+    [Fact]
     public void AFailedCopyLeavesTheCountAndAReadBackInFlightIsNeverWaitedFor()
     {
         var (kernel, gpu, sender) = Registered();

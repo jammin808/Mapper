@@ -117,8 +117,10 @@ public sealed class PresentClock
     private bool _display;
     private uint _lastSync;
     private ulong _sync;
-    private uint _lastPresent;
-    private ulong _present;
+    private uint _lastQueued;
+    private ulong _queued;
+    private uint _lastShownPresent;
+    private ulong _shownPresent;
     private uint _lastShown;
     private ulong _shownRefresh;
     private bool _haveShown;
@@ -180,7 +182,7 @@ public sealed class PresentClock
         {
             // The display's statistics time this output: the present is recorded under the platform's own number, meant for the
             // refresh after the one in progress, and shown when the statistics name it.
-            var pid = Unwrap(result.PresentCount, ref _lastPresent, ref _present);
+            var pid = Unwrap(result.PresentCount, ref _lastQueued, ref _queued);
             Ledger.OnPresent(pid, Vblank.HasPhase ? Vblank.IndexAt(result.ReturnedNs) + 1 : 0);
             return;
         }
@@ -224,8 +226,12 @@ public sealed class PresentClock
             Vblank = new VblankClock(Vblank.NominalHz);
             _lastSync = syncRefreshCount;
             _sync = syncRefreshCount;
-            _lastPresent = presentCount;
-            _present = presentCount;
+            // Both present numberings start at the same 64-bit value: the newest queued and the last shown are the same 32-bit
+            // counter read at different times (the shown one lags), each unwrapped on its own.
+            _lastQueued = presentCount;
+            _queued = presentCount;
+            _lastShownPresent = presentCount;
+            _shownPresent = presentCount;
             _haveShown = false;
         }
         var k = Unwrap(syncRefreshCount, ref _lastSync, ref _sync);
@@ -236,7 +242,7 @@ public sealed class PresentClock
         _lastShown = presentRefreshCount;
         _shownRefresh = refresh;
         _haveShown = true;
-        var pid = Unwrap(presentCount, ref _lastPresent, ref _present);
+        var pid = Unwrap(presentCount, ref _lastShownPresent, ref _shownPresent);
         Ledger.OnShown(pid, refresh, Vblank.TimeOf(refresh));
     }
 

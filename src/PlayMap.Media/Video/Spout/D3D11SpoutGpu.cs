@@ -93,6 +93,20 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
         return new D3D11SpoutGpu(device, context, warp);
     }
 
+    /// <summary>Spout's textures on a device another part owns (the renderer's, on the DXGI path): a reference is taken on it and its
+    /// immediate context, and given back on dispose.</summary>
+    public static D3D11SpoutGpu OnDevice(nint device)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(device);
+        _ = ((delegate* unmanaged<nint, uint>)Slot(device, 1))(device);
+        nint context = 0;
+        ((delegate* unmanaged<nint, nint*, void>)Slot(device, SpoutCom.DeviceGetImmediateContext))(device, &context);
+        return new D3D11SpoutGpu(device, context, false) { Shared = true };
+    }
+
+    /// <summary>On a device another part made (its describe says so).</summary>
+    public bool Shared { get; private init; }
+
     internal static string Hr(int hr) => "0x" + ((uint)hr).ToString("X8", CultureInfo.InvariantCulture);
 
     internal static void* Slot(nint obj, int slot) => (*(void***)obj)[slot];
@@ -193,8 +207,19 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             _keyed = Query(texture, SpoutCom.IidKeyedMutex);
             if (!staging)
                 return;
-            for (var i = 0; i < _staging.Length; i++)
-                _staging[i] = gpu.MakeTexture(width, height, format, UsageStaging, 0, CpuAccessRead, 0);
+            try
+            {
+                for (var i = 0; i < _staging.Length; i++)
+                    _staging[i] = gpu.MakeTexture(width, height, format, UsageStaging, 0, CpuAccessRead, 0);
+            }
+            catch
+            {
+                // Built in part: what was made goes; the caller releases the texture it handed in.
+                for (var i = 0; i < _staging.Length; i++)
+                    Release(ref _staging[i]);
+                Release(ref _keyed);
+                throw;
+            }
         }
 
         public uint Handle { get; }

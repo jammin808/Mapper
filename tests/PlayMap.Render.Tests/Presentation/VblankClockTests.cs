@@ -308,3 +308,36 @@ public sealed class DisplayStatisticsClockTests
         Assert.Equal(61, clock.Snapshot(t + Period).Presented);
     }
 }
+
+/// <summary>The statistics name the last present the display showed, which lags the newest queued one: the two counts are unwrapped
+/// apart, so a shown present is matched with the one queued under its number and a lag of one or two presents is no glitch.</summary>
+public sealed class LaggingStatisticsTests
+{
+    private const long Period = 16_666_667;
+
+    [Fact]
+    public void AShownCountBehindTheQueuedOneMatchesItsOwnPresent()
+    {
+        var clock = new PresentClock(60, measured: true, PresentPath.DxgiFlip);
+        var sync = uint.MaxValue - 20;
+        var queued = uint.MaxValue - 30;
+        long t = 1_000_000_000;
+        clock.OnDisplayStatistics(queued, sync, sync, t);
+        for (var f = 1; f <= 90; f++)
+        {
+            t += Period;
+            sync++;
+            queued++;
+            clock.OnPresented(PresentResult.Done(t - Period + 1_000_000) with { PresentCount = queued });
+            // The display shows the present queued one frame before, at the refresh it was meant for.
+            if (f >= 2)
+                clock.OnDisplayStatistics(queued - 1, sync - 1, sync, t);
+        }
+        var s = clock.Snapshot(t);
+        Assert.Equal(90, s.Presented);
+        Assert.Equal(0, s.Glitches);
+        Assert.Equal(0, s.MissedVblanks);
+        Assert.Equal(0, clock.Ledger.Discarded);
+        Assert.True(clock.Ledger.Shown >= 88);
+    }
+}

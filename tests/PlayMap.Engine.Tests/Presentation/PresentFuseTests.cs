@@ -1,6 +1,7 @@
 using PlayMap.Core.Bus;
 using PlayMap.Core.Preflight;
 using PlayMap.Engine.Presentation;
+using PlayMap.Engine.Rendering;
 
 namespace PlayMap.Engine.Tests.Presentation;
 
@@ -98,5 +99,42 @@ public sealed class PresentFuseTests
         Assert.Null(rig.Fuse.Read());
         Assert.Equal("clear", rig.PresentPath().GetProperty("fuse").GetProperty("state").GetString());
         Assert.Contains(rig.Engine.Journal.Recent(20), r => r.Text.Contains("its fuse is cleared", StringComparison.Ordinal));
+    }
+}
+
+/// <summary>When a DXGI start counts as up: every open display output presented 120 frames and the pacing one (the only measured
+/// clock) settled — a second display's nominal clock never settles, and must not hold the fuse forever; with no display open, once
+/// 120 frames were drawn.</summary>
+public sealed class PresentFirstFramesTests
+{
+    private static PlayMap.Render.Timing.PresentSnapshot Snap(long presented, bool settled) =>
+        new(PlayMap.Render.Platform.PresentPath.DxgiFlip, PlayMap.Render.Timing.PresentMode.Unknown, PlayMap.Render.Timing.ModeEvidence.None,
+            settled, 60, 60, 0, settled, presented, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    [Fact]
+    public void TwoDisplaysAreUpWhenThePacerSettledAndBothPresented120()
+    {
+        Assert.True(PresentFirstFrames.Reached([(true, true, true, Snap(120, true)), (true, false, true, Snap(120, false))], 0));
+        Assert.False(PresentFirstFrames.Reached([(true, true, true, Snap(120, false)), (true, false, true, Snap(120, false))], 500));
+        Assert.False(PresentFirstFrames.Reached([(true, true, true, Snap(120, true)), (true, false, true, Snap(119, false))], 500));
+        Assert.False(PresentFirstFrames.Reached([(true, true, false, Snap(0, false))], 500));
+        // A closed output does not hold it; with none open, the frames drawn decide.
+        Assert.True(PresentFirstFrames.Reached([(true, true, true, Snap(200, true)), (false, false, false, Snap(0, false))], 0));
+        Assert.False(PresentFirstFrames.Reached([], 119));
+        Assert.True(PresentFirstFrames.Reached([], 120));
+    }
+
+    [Fact]
+    public async Task AskingGlLetsABlownFuseGo()
+    {
+        await using var rig = new PathRig("dxgi");
+        rig.Fuse.Arm("dxgi");
+        rig.Node.RefreshFuse();
+        Assert.Equal("fuse blown", (await rig.PathRow()).Value);
+        var r = await rig.Run("PRESENT PATH GL");
+        Assert.True(r.Ok, r.Payload);
+        Assert.True(System.Text.Json.JsonDocument.Parse(r.Payload!).RootElement.GetProperty("fuseCleared").GetBoolean());
+        Assert.Null(rig.Fuse.Read());
+        Assert.Equal("clear", rig.PresentPath().GetProperty("fuse").GetProperty("state").GetString());
     }
 }

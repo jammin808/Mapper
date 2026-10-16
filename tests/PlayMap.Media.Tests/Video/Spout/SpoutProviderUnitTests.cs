@@ -92,6 +92,20 @@ public sealed class SpoutProviderUnitTests
         }
         Assert.Equal(1, sink.Stats.Sent);
         Assert.All(texture.Rows, b => Assert.Equal(255, b));
+        // A receiver holding the texture past the worker's wait: the frame is skipped and counted dropped, never counted sent.
+        Assert.True(kernel.HoldByAnotherApp(SpoutNames.AccessMutex("PlayMap stage - Main")));
+        using (var grey = new TestFrame(4, 2, 8, SendFormat.Uyvy, [128, 126, 128, 126]))
+        {
+            sink.Offer(grey);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (sink.Stats.Dropped == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(2);
+        }
+        Assert.Equal(1, sink.Stats.Dropped);
+        Assert.Equal(1, sink.Stats.Sent);
+        Assert.Contains("held", sink.Words, StringComparison.Ordinal);
+        Assert.All(texture.Rows, b => Assert.Equal(255, b));
+        kernel.ReleaseByAnotherApp(SpoutNames.AccessMutex("PlayMap stage - Main"));
         sink.Dispose();
         // Stopping sent one black frame, then the name went from the list.
         Assert.Equal([0, 0, 0, 255], texture.Rows[..4]);

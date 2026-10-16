@@ -121,10 +121,11 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
 - **Discovery** reads the sender list (`SpoutSenderNames`: 256-byte slots, the names in order) under its mutex — Spout's 67 ms wait,
   on the provider's own timer, never the frame path — and each sender's 280-byte info map (share handle, size, DXGI format, usage,
   the sender's exe path, partner id). `spout:*` is the active sender.
-- **Receiving** (`SpoutReceiver`, on the input's own thread, a step every 2 ms, never blocking): the info at 0 ms on its mutex (its
+- **Receiving** (`SpoutReceiver`, on the input's own thread, a step every 2 ms — every 250 ms while no sender of the name exists —
+  never blocking): the info at 0 ms on its mutex (its
   texture reopened when the handle, size or format changes); then **in Spout's order** the access lock first — the texture's keyed
-  mutex at key 0 where it has one, else `<sender>_SpoutAccessMutex` at 0 ms; inside it the frame counter (take one, give one back,
-  the count before), a count equal to the last copied one being not new; then `CopyResource` into one of three staging textures,
+  mutex at key 0 where it has one, else `<sender>_SpoutAccessMutex` at 0 ms; inside it the frame counter (take one, give it back,
+  the count before; nothing given back when nothing was taken), a count equal to the last copied one being not new; then `CopyResource` into one of three staging textures,
   the lock released, `<sender>_Sync_Event` set, and only then the count committed — a busy lock or a failed copy leaves it, so the
   next step copies frame N. A copied frame is mapped one step later with `DO_NOT_WAIT` (a copy still in flight is tried again, never
   waited for) into the input's frame pool as BGRA or RGBA. B8G8R8A8 and R8G8B8A8 senders are received this round (format 0 and the
@@ -135,12 +136,13 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
   access mutex, the frame counter (a semaphore from 1), the sync event and the data map. Each frame is the frame the **send stage**
   hands every sender of that tap — so a Spout send follows the air as outputs show it: black while blacked out, held while frozen, a
   pattern's black, the master applied, a blind draft never in it — converted to BGRA on the send's worker (UYVY and UYVA by BT.709,
-  P216 and PA16 by their high bytes) and uploaded: the access mutex tried at 0 ms (a receiver holding it skips the frame, counted
-  dropped), the counter given net one, the mutex released, the event set, and PlayMap's facts written to `<sender>_map`
+  P216 and PA16 by their high bytes) and uploaded: the access mutex tried for up to 20 ms on the send's worker (a receiver still
+  holding it skips the frame, counted dropped with words), the counter given net one, the mutex released, the event set, and PlayMap's facts written to `<sender>_map`
   (`{"pm":1,"node","send","rate","tap","frame","leaderNs","w","h"}`). Spout shows no receivers, so a send counts one connection (its
   shared texture) and sends whenever it is on; stopping sends one black frame and removes the name.
-- **The GPU target** (`IGpuSendTarget`, videoio's GPU send provider) gives a renderer the shared texture to draw into on the device
-  it is handed, with the same lock and counter; videoio's send stage drives the packed path this round, so Spout sends go through it.
+- **The GPU target** (`IGpuSendTarget`, videoio's GPU send provider) gives a renderer the shared texture to draw into, made on the
+  renderer's own Direct3D 11 device when it has one (`IGpuShare`), with the same lock and counter (a frame of another size is
+  skipped and counted, never remade on the frame path); videoio's send stage drives the packed path this round, so Spout sends go through it.
 - **Spout's device** is its own Direct3D 11 device (the default adapter; WARP on CI): the renderer is OpenGL on `auto`, and the shared
   textures are legacy share handles, as Spout publishes them.
 - A PC set to Spout 2.006 memory share (SpoutSettings) is said in STATE: PlayMap shares GPU textures only.

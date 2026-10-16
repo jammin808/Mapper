@@ -207,11 +207,11 @@ internal static unsafe partial class DxgiNative
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial int CreateDXGIFactory2(uint flags, Guid* riid, nint* factory);
 
-    [LibraryImport("user32.dll", EntryPoint = "RegisterClassExW")]
+    [LibraryImport("user32.dll", EntryPoint = "RegisterClassExW", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial ushort RegisterClassEx(WndClassEx* wc);
 
-    [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial nint CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int w, int h,
         nint parent, nint menu, nint instance, nint param);

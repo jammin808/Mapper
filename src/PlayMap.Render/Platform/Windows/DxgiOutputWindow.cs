@@ -42,6 +42,8 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
     private nint _waitable;
     private uint _vao;
     private bool _waited;
+    private bool _owed;
+    private readonly Func<nint, Pbuffer> _wrap;
     private uint _lastStatsCount;
     private long _lastStatsNs;
     private bool _disposed;
@@ -54,6 +56,8 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
         _nudge = nudge;
         Width = width;
         Height = height;
+        // Made once: a method group handed on every frame would be a new delegate every frame.
+        _wrap = Wrap;
         _periodMs = 1000.0 / (hz > 1 ? hz : 60);
     }
 
@@ -228,10 +232,13 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
             _ = WaitForFrame();
             _waited = true;
         }
-        else if (!pacer && DxgiNative.WaitForSingleObjectEx(_waitable, 0, 0) != DxgiNative.WaitObject0)
+        else if (!pacer && !_owed && DxgiNative.WaitForSingleObjectEx(_waitable, 0, 0) != DxgiNative.WaitObject0)
         {
             return new PresentResult(false, MonoClock.Instance.NowNs, PresentProblem.Held);
         }
+        // The waitable's count taken for this present is spent only by a present that queues: one that does not leaves it owed, and
+        // the next present uses it instead of waiting again (a count lost would hold the output forever at frame latency 1).
+        _owed = !pacer;
         Draw(picture);
         var parameters = default(DxgiPresentParameters);
         var hr = ((delegate* unmanaged<nint, uint, uint, DxgiPresentParameters*, int>)Com.Slot(_swapChain, ComSlots.SwapChainPresent1))(
@@ -246,6 +253,7 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
         };
         if (problem != PresentProblem.None)
             return new PresentResult(false, MonoClock.Instance.NowNs, problem);
+        _owed = false;
         uint count = 0;
         _ = ((delegate* unmanaged<nint, uint*, int>)Com.Slot(_swapChain, ComSlots.SwapChainGetLastPresentCount))(_swapChain, &count);
         if (pacer)
@@ -289,7 +297,7 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
             throw new InvalidOperationException($"the swap chain gave no buffer 0 ({Com.Hr(hr)})");
         try
         {
-            return _backBuffer.Get(texture, Wrap);
+            return _backBuffer.Get(texture, _wrap);
         }
         finally
         {

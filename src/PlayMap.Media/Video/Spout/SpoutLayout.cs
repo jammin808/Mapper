@@ -26,6 +26,12 @@ public readonly record struct SpoutInfo(uint ShareHandle, uint Width, uint Heigh
             BinaryPrimitives.ReadUInt32LittleEndian(map[276..]));
     }
 
+    /// <summary>Whether a map holds the same texture as <paramref name="info"/> (handle, size, format), without reading its text.</summary>
+    public static bool SameTexture(ReadOnlySpan<byte> map, in SpoutInfo info) =>
+        map.Length >= Size && BinaryPrimitives.ReadUInt32LittleEndian(map) == info.ShareHandle
+        && BinaryPrimitives.ReadUInt32LittleEndian(map[4..]) == info.Width && BinaryPrimitives.ReadUInt32LittleEndian(map[8..]) == info.Height
+        && BinaryPrimitives.ReadUInt32LittleEndian(map[12..]) == info.Format;
+
     public void Write(Span<byte> map)
     {
         if (map.Length < Size)

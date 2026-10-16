@@ -13,10 +13,8 @@ namespace PlayMap.Engine.Rendering;
 /// lock (<see cref="IFrameLockBackend"/>), both published from the render thread and read from any thread.</summary>
 public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
 {
-    /// <summary>Settled frames every display output presents before a DXGI start counts as up (its fuse goes).</summary>
-    private const int FuseFrames = 120;
-
     private volatile bool _firstFrames;
+    private volatile bool _dxgiUp;
     private volatile bool _fuseCleared;
     private volatile LatencyPlan _latency = LatencyPlan.None;
     private double _groupAirMs;
@@ -73,7 +71,9 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         return new MachinePresentView(dxgi ? "d3d11" : "gl", adapter, path, dxgi, platform?.Words ?? "", 0, Math.Round(p95, 2), dialect,
             platform?.Api ?? "")
         {
-            FuseArmed = _options.Fuse is not null && !_fuseCleared,
+            // Armed only while this start runs DXGI and waits for its outputs: a start that fell back to GL in-process leaves the fuse
+            // blown (PRESENT RESET or PRESENT PATH DXGI clears it).
+            FuseArmed = _options.Fuse is not null && _dxgiUp && !_fuseCleared,
             FirstFrames = _firstFrames,
             AirLatencyMs = Math.Round(_latency.AirLatencyMs > 0 ? _latency.AirLatencyMs : _options.DisplayLatencyNs / 1e6, 3),
             LatencyWords = _latency.Words,
@@ -109,24 +109,9 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         return plan.AirLatencyMs > 0 ? plan.AirLatencyNs : _options.DisplayLatencyNs;
     }
 
-    /// <summary>Every display output of the DXGI start has presented 120 frames on a settled clock (render thread, under the health
-    /// gate): what the fuse waits for.</summary>
-    private bool FirstFramesReached()
-    {
-        var any = false;
-        foreach (var h in _health)
-        {
-            if (!h.Open)
-                continue;
-            if (!h.HasPresent || h.Present.Presented < FuseFrames || !h.Present.Settled)
-                return false;
-            any = true;
-        }
-        return any;
-    }
-
     public bool ConfirmFirstFrames()
     {
+        // A health pass runs a couple of times a second: up with no display output open is seen there too.
         if (!_firstFrames || _fuseCleared || _options.Fuse is not { } fuse)
             return false;
         _fuseCleared = true;
@@ -205,5 +190,28 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
                 w.WriteString("words", s.Words);
             });
         }, (Engine: engine, OutputId: outputId, Words: words, LeaderNs: leaderNs), preferLocal: false);
+    }
+}
+
+/// <summary>When a DXGI start counts as up, so its fuse may go: every open display output has presented
+/// <see cref="Frames"/> frames and the pacing one (the only one whose clock is fitted) has a settled clock; with no display output
+/// open, once the renderer has drawn that many frames. Pure.</summary>
+public static class PresentFirstFrames
+{
+    public const int Frames = 120;
+
+    public static bool Reached(IEnumerable<(bool Open, bool Pacer, bool HasPresent, PresentSnapshot Present)> outputs, long framesDrawn)
+    {
+        ArgumentNullException.ThrowIfNull(outputs);
+        var open = 0;
+        foreach (var (isOpen, pacer, has, present) in outputs)
+        {
+            if (!isOpen)
+                continue;
+            open++;
+            if (!has || present.Presented < Frames || (pacer && !present.Settled))
+                return false;
+        }
+        return open > 0 || framesDrawn >= Frames;
     }
 }

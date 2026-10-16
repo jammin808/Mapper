@@ -154,13 +154,22 @@ public sealed class AnglePlatform : IGpuPlatform
             egl = AngleEgl.Load();
             angle = AngleContext.Create(egl, adapter.Device, options.DebugOutput);
             egl = null;
-            RenderContext context;
+            RenderContext? context = null;
             try
             {
                 context = RenderContext.Adopt(angle, angle.Proc, options with { Dialect = GlDialect.Es300 }, "angle-d3d11");
+                // Every program translated here, inside the start: a shader ANGLE refuses is this stage's words and a GL start,
+                // never a render host that fails later.
+                foreach (var name in Shaders.ShaderLibrary.Names)
+                    context.Device.Program(name);
             }
-            catch (Exception ex) when (ex is GlException or InvalidOperationException or NotSupportedException)
+            catch (Exception ex) when (ex is GlException or InvalidOperationException or NotSupportedException or ArgumentException)
             {
+                if (context is not null)
+                {
+                    context.Dispose();
+                    angle = null;
+                }
                 throw new GpuPlatformStartException(DxgiStartStage.Programs, $"ANGLE's context gave no usable GL device: {ex.Message}");
             }
             return new AnglePlatform(adapter, angle, context);
@@ -213,8 +222,10 @@ public sealed class AnglePlatform : IGpuPlatform
         _adapter.Dispose();
     }
 
-    /// <summary>The device as decoders and Spout see it: Direct3D 11 with its LUID; multithread-protected, so its lock is the
-    /// device's own (Enter/Exit have nothing more to do).</summary>
+    /// <summary>The device as decoders see it: Direct3D 11 with its LUID; multithread-protected, so single calls from other threads
+    /// are ordered. ANGLE keeps pipeline state on the immediate context, so a sharer issues no immediate-context work on it from another
+    /// thread: decoders and texture sharers open what they need by share handle on a device of their own (Spout does), or on a
+    /// deferred path a later round adds behind Enter/Exit.</summary>
     private sealed class D3D11Share(D3D11Adapter adapter, RenderContext context) : IGpuShare
     {
         private static long _epochs;
@@ -290,6 +301,8 @@ internal static unsafe class DisplayList
         {
             _collect = null;
         }
+        for (var i = 0; i < list.Count; i++)
+            list[i] = list[i] with { Index = i };
         return list;
     }
 
@@ -305,7 +318,12 @@ internal static unsafe class DisplayList
         var name = DxgiNative.Text(&info, MonitorInfoEx.DeviceOffset, 32);
         var (num, den) = Refresh(name);
         var hz = den > 0 ? (int)Math.Round(num / (double)den) : 0;
-        list.Add(new MonitorInfo(list.Count, name, info.Left, info.Top, info.Right - info.Left, info.Bottom - info.Top, hz));
+        var m = new MonitorInfo(list.Count, name, info.Left, info.Top, info.Right - info.Left, info.Bottom - info.Top, hz);
+        // The primary display first (MONITORINFOF_PRIMARY): the adapter that drives it is the one the device goes on.
+        if ((info.Flags & 1) != 0)
+            list.Insert(0, m);
+        else
+            list.Add(m);
         return 1;
     }
 
@@ -382,7 +400,8 @@ internal sealed class DwmNudge : IDisposable
     public void Dispose()
     {
         _stop.Set();
-        _thread.Join(2000);
+        // Joined to the end: the thread's handles are disposed only once it can no longer wait on them.
+        _thread.Join();
         _asked.Dispose();
         _stop.Dispose();
     }

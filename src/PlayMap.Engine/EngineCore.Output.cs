@@ -65,12 +65,13 @@ public sealed partial class EngineCore
         var saved = node.Saved;
         var current = PresentChoice.Normalise(saved.Path);
         var blown = BlownFuse;
-        if (current == word && !(word == "dxgi" && blown is not null))
+        if (current == word && blown is null)
             return CommandReply.Fail($"PRESENT PATH is already {word.ToUpperInvariant()} (from the render host's next start)");
         var cleared = false;
         if (current != word)
             node.Save(saved with { Path = word });
-        if (word == "dxgi" && blown is not null)
+        // Any path asked lets a blown fuse go: DXGI tries again, GL and AUTO no longer need it.
+        if (blown is not null)
         {
             cleared = node.Fuse.Clear();
             node.RefreshFuse();
@@ -541,6 +542,10 @@ public sealed partial class EngineCore
             return;
         }
         // The delay ring holds at most six frames: input lags further apart than that cannot be lined up on one node.
+        // Only an edit that moves the plan (the lag, the refresh, on or off) is checked: a rename of a project loaded with lags too far
+        // apart is not refused for them.
+        if (p.FindOutput(o.Id) is { } before && before.LatencyMs.Equals(o.LatencyMs) && before.RefreshHz.Equals(o.RefreshHz) && before.Enabled == o.Enabled)
+            return;
         if (o.Enabled && LatencyPlan.Refuse(p.Outputs.Where(x => x.Enabled && x.Id != o.Id).Append(o).Select(x => (x.Id, x.LatencyMs, x.RefreshHz))) is { } apart)
             why = apart;
     }

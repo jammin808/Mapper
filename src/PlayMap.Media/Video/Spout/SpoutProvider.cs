@@ -28,6 +28,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     private readonly IMonoClock _clock;
     private readonly ISpoutKernel? _kernel;
     private readonly Func<ISpoutGpu>? _makeGpu;
+    private readonly Func<nint, ISpoutGpu>? _shareGpu;
     private readonly Lock _gate = new();
     private readonly Timer? _discovery;
     private ISpoutGpu? _gpu;
@@ -36,8 +37,10 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     private int _disposed;
 
     /// <summary>A provider over a kernel and a GPU maker (null both: unavailable, with <paramref name="words"/>).</summary>
-    public SpoutProvider(SpoutOptions options, IMonoClock clock, ISpoutKernel? kernel, Func<ISpoutGpu>? gpu, string words = "")
+    public SpoutProvider(SpoutOptions options, IMonoClock clock, ISpoutKernel? kernel, Func<ISpoutGpu>? gpu, string words = "",
+        Func<nint, ISpoutGpu>? shareGpu = null)
     {
+        _shareGpu = shareGpu;
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
         _options = options;
@@ -61,7 +64,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     /// <summary>The Windows provider (WARP: the CI runner's software device).</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public static SpoutProvider Windows(SpoutOptions options, IMonoClock clock, bool warp) =>
-        new(options, clock, new Win32SpoutKernel(), () => D3D11SpoutGpu.Create(warp));
+        new(options, clock, new Win32SpoutKernel(), () => D3D11SpoutGpu.Create(warp), shareGpu: D3D11SpoutGpu.OnDevice);
 
     public string Words { get; }
 
@@ -163,13 +166,16 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     {
         ArgumentNullException.ThrowIfNull(send);
         ArgumentNullException.ThrowIfNull(gpu);
-        if (_kernel is null || Gpu() is not { } device)
+        if (_kernel is null || Gpu() is not { } own)
             throw new NotSupportedException(Unavailable());
+        // On the renderer's own Direct3D 11 device when it has one (the DXGI path), so it draws into the texture with no copy;
+        // else Spout's device.
+        var device = gpu.Api == GpuApi.D3D11 && gpu.D3D11Device != 0 && _shareGpu is not null ? _shareGpu(gpu.D3D11Device) : own;
         var name = PublishedName(send.Name, publishedName);
         var data = new SpoutDataWriter(_options.Node, send.Id, send.Tap, send.Fps > 0 ? send.Fps.ToString(System.Globalization.CultureInfo.InvariantCulture) : "show");
         var sender = new SpoutSender(_kernel, device, name, SpoutFormats.Bgra8, data);
         sender.Register(Math.Max(1, send.Width > 0 ? send.Width : 1920), Math.Max(1, send.Height > 0 ? send.Height : 1080));
-        return new SpoutGpuTarget(send.Id, sender, Math.Max(1, send.RateDivider), _clock);
+        return new SpoutGpuTarget(send.Id, sender, Math.Max(1, send.RateDivider), _clock, ReferenceEquals(device, own) ? null : device);
     }
 
     public void Dispose()
@@ -225,20 +231,24 @@ public sealed class SpoutSource : LiveSource
         _thread.Start();
     }
 
+    /// <summary>How long the receive thread waits between steps while no sender of the name exists.</summary>
+    public const int AbsentPollMs = 250;
+
     private void Loop()
     {
-        while (!_stop.Wait(_pollMs))
-            Poll();
+        var wait = _pollMs;
+        while (!_stop.Wait(wait))
+            wait = Poll() ? AbsentPollMs : _pollMs;
     }
 
-    /// <summary>One step: the pending copy read back into the pool (or left for the next step), then the next frame copied. The receive
-    /// thread calls it; a test with no thread calls it lock-step.</summary>
-    public void Poll()
+    /// <summary>One step: the pending copy read back into the pool (or left for the next step), then the next frame copied; true when
+    /// no sender of the name exists (the thread then backs off). The receive thread calls it; a test with no thread calls it lock-step.</summary>
+    public bool Poll()
     {
         lock (_stepGate)
         {
             if (IsDisposed || _kernel is null || _gpu is null)
-                return;
+                return false;
             _receiver ??= new SpoutReceiver(_kernel, _gpu, Resolve());
             var r = _receiver;
             if (r.HasPending)
@@ -253,11 +263,12 @@ public sealed class SpoutSource : LiveSource
                         r.Dispose();
                         _receiver = null;
                     }
-                    break;
+                    return true;
                 case ReceiveStep.Failed:
                     CountDropped();
                     break;
             }
+            return false;
         }
     }
 
@@ -305,7 +316,9 @@ public sealed class SpoutSource : LiveSource
     protected override void Close()
     {
         _stop.Set();
-        _thread?.Join(1000);
+        // Joined to the end (a step never blocks; a spout:* step waits at most Spout's 67 ms on the list): nothing it uses is disposed
+        // while it can still run.
+        _thread?.Join();
         lock (_stepGate)
         {
             _receiver?.Dispose();
@@ -317,10 +330,13 @@ public sealed class SpoutSource : LiveSource
 
 /// <summary>A Spout send fed by the send stage: each packed frame (the frame every sender of the tap is handed: blackout black, freeze
 /// held, a pattern black, the master applied, a blind draft never in it) is converted to BGRA on the sender's worker and uploaded into
-/// the shared texture; a receiver holding the texture skips the frame (counted dropped). Spout shows no receivers, so the send counts
+/// the shared texture; a receiver holding the texture past <see cref="BusyWaitMs"/> skips the frame (counted dropped). Spout shows no receivers, so the send counts
 /// one connection — its shared texture — and sends whenever it is on. Stopping sends one black frame first (the base class).</summary>
 internal sealed class SpoutSink : SendSink
 {
+    /// <summary>How long the send's worker waits for a receiver holding the texture (a receiver's copy takes microseconds).</summary>
+    public const int BusyWaitMs = 20;
+
     private readonly SpoutSender _sender;
     private byte[] _bgra = [];
 
@@ -349,7 +365,11 @@ internal sealed class SpoutSink : SendSink
         }
         if (_sender.Texture is { } t && (t.Width != frame.Width || t.Height != frame.Height))
             _sender.Resize(frame.Width, frame.Height);
-        Words = _sender.Publish(_bgra.AsSpan(0, bytes), frame.Width * 4, frame.LeaderNs) ? "" : Words;
+        // The worker may wait a little for a receiver's copy (the stop's black frame among them); still held, the frame is skipped and
+        // counted dropped (the base class counts a frame whose transmit throws).
+        if (!_sender.Publish(_bgra.AsSpan(0, bytes), frame.Width * 4, frame.LeaderNs, BusyWaitMs))
+            throw new InvalidOperationException($"a Spout receiver held {_sender.Name}'s texture past {BusyWaitMs} ms: the frame was skipped");
+        Words = "";
         return false;
     }
 
@@ -362,9 +382,11 @@ internal sealed class SpoutSink : SendSink
     protected override void Close() => _sender.Dispose();
 }
 
-/// <summary>A Spout send the renderer draws into on the GPU: every <c>RateDivider</c>-th frame, the access mutex tried at 0 ms (busy:
-/// skipped, counted), the texture handed as a <see cref="GpuSurface"/>, then counted, released and announced. Render thread.</summary>
-internal sealed class SpoutGpuTarget(string key, SpoutSender sender, int divider, IMonoClock clock) : IGpuSendTarget
+/// <summary>A Spout send the renderer draws into on the GPU, its texture on the renderer's own device: every <c>RateDivider</c>-th
+/// frame, the access mutex tried at 0 ms (busy: skipped, counted), the texture handed as a <see cref="GpuSurface"/>, then counted,
+/// released and announced. A frame of another size than the texture is skipped and counted (the texture is made at its send's size
+/// on the control lane). Render thread.</summary>
+internal sealed class SpoutGpuTarget(string key, SpoutSender sender, int divider, IMonoClock clock, ISpoutGpu? ownDevice) : IGpuSendTarget
 {
     private readonly GpuSurface _surface = new() { Api = GpuApi.D3D11, Format = GpuSurfaceFormat.Bgra8, Persistent = true };
     private long _offered;
@@ -394,8 +416,12 @@ internal sealed class SpoutGpuTarget(string key, SpoutSender sender, int divider
             _dropped++;
             return false;
         }
+        // A new size is never made on the frame path (it waits on the info mutex and makes a texture): the frame is skipped, counted.
         if (sender.Texture is { } t && (t.Width != width || t.Height != height))
-            sender.Resize(width, height);
+        {
+            _dropped++;
+            return false;
+        }
         if (!sender.TryBegin(out var texture))
             return false;
         (_surface.Handle, _surface.Width, _surface.Height, _surface.CodedWidth, _surface.CodedHeight) = (texture.Native, width, height, width, height);
@@ -413,5 +439,9 @@ internal sealed class SpoutGpuTarget(string key, SpoutSender sender, int divider
         _lastNs = now;
     }
 
-    public void Dispose() => sender.Dispose();
+    public void Dispose()
+    {
+        sender.Dispose();
+        ownDevice?.Dispose();
+    }
 }

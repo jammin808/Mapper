@@ -125,11 +125,7 @@ internal sealed unsafe class AngleEgl : IDisposable
 
     public string ErrorWords() => "EGL error 0x" + GetError().ToString("X4", System.Globalization.CultureInfo.InvariantCulture);
 
-    public void Dispose()
-    {
-        if (_library == 0)
-            return;
-        NativeLibrary.Free(_library);
-        _library = 0;
-    }
+    /// <summary>Lets the entry points go; the library itself stays loaded for the process (ANGLE keeps worker threads of its own,
+    /// and the desk's own ANGLE use loads the same file), so nothing is freed.</summary>
+    public void Dispose() => _library = 0;
 }

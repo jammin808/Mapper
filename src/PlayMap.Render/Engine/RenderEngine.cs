@@ -203,9 +203,14 @@ public sealed class RenderEngine : IDisposable
         }
     }
 
-    /// <summary>An output's picture as it goes to its display (8-bit, top row first): the finished picture, or with a delay the one
-    /// drawn that many frames ago — what the previews show; null before it was drawn.</summary>
+    /// <summary>An output's finished picture this frame (8-bit, top row first) — what a pass that taps the output (a send, an LED
+    /// map) reads, whatever delay its display has; null before it was drawn.</summary>
     public GpuTexture? OutputPicture(string outputId) =>
+        _outputs.TryGetValue(outputId, out var st) && st.HasPicture ? st.Final?.Color : null;
+
+    /// <summary>An output's picture as it went to its display this frame: with a delay, the one drawn that many frames ago — what the
+    /// previews show; null before it was drawn.</summary>
+    public GpuTexture? PresentedPicture(string outputId) =>
         _outputs.TryGetValue(outputId, out var st) && st.HasPicture ? st.Shown ?? st.Final?.Color : null;
 
     /// <summary>Holds an output's picture back whole frames (per-output latency: the faster displays wait for the slowest), with the
@@ -577,7 +582,7 @@ public sealed class RenderEngine : IDisposable
         }
         else
         {
-            var picture = request.OutputId is { } id ? OutputPicture(id) : null;
+            var picture = request.OutputId is { } id ? PresentedPicture(id) : null;
             var d = Device;
             d.BindTarget(pv.Target);
             d.SetBlend(BlendMode.Opaque);
@@ -686,6 +691,8 @@ public sealed class RenderEngine : IDisposable
         {
             if (st.DelayFrames == 0 && st.Ring.Delay > 0)
                 st.Ring.Configure(0, NoPicture);
+            // A raw frame breaks the sequence: what the ring held from before it is never shown after it.
+            st.Ring.Restart();
             return final;
         }
         var resized = st.Ring.First is { } held && (held.Width != final.Width || held.Height != final.Height);
