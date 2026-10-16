@@ -7,6 +7,9 @@ export interface EncoderTarget {
 	readonly max: number
 	readonly step: number
 	readonly absolute: boolean
+	/** The value moves by itself (a playing item's position): STATE shows it where it was when written, so a target sent steers the
+	 * next turn only until the first STATE written after it. */
+	readonly moving?: boolean
 	/** The line for an absolute target or a relative step. */
 	readonly write: (n: number) => string
 }
@@ -24,7 +27,9 @@ export class Encoders {
 		string,
 		{ delta: number; target: EncoderTarget; controlId: string; timer: ReturnType<typeof setTimeout> }
 	>()
-	readonly #shadow = new Map<string, { value: number; at: number }>()
+	readonly #shadow = new Map<string, { value: number; at: number; seq: number | null; moving: boolean }>()
+	/** STATE's seq as last heard (null before any STATE). */
+	#seq: number | null = null
 	readonly #targets = new Map<string, EncoderTarget>()
 	readonly #send: (line: string, controlId: string) => void
 	readonly #now: () => number
@@ -63,9 +68,15 @@ export class Encoders {
 		return s && this.#now() - s.at < SHADOW_MS ? s.value : null
 	}
 
-	/** STATE moved: a shadow STATE now shows is confirmed and dropped. */
-	stateMoved(): void {
+	/** STATE (of this seq) moved: a shadow STATE now shows is confirmed and dropped, and so is one of a moving value that a STATE
+	 * written after it (its seq moved) shows where it went. */
+	stateMoved(seq: number): void {
+		this.#seq = seq
 		for (const [key, s] of this.#shadow) {
+			if (s.moving) {
+				if (s.seq !== seq) this.#shadow.delete(key)
+				continue
+			}
 			const v = this.#targets.get(key)?.value() ?? null
 			if (v !== null && Math.abs(v - s.value) < 1e-6) this.#shadow.delete(key)
 		}
@@ -76,6 +87,7 @@ export class Encoders {
 		this.#pending.clear()
 		this.#shadow.clear()
 		this.#targets.clear()
+		this.#seq = null
 	}
 
 	#flush(key: string, delta: number, t: EncoderTarget, controlId: string): void {
@@ -87,7 +99,7 @@ export class Encoders {
 		if (base === null) return
 		const next = round(Math.min(t.max, Math.max(t.min, base + delta * t.step)))
 		if (next === base) return
-		this.#shadow.set(key, { value: next, at: this.#now() })
+		this.#shadow.set(key, { value: next, at: this.#now(), seq: this.#seq, moving: t.moving === true })
 		this.#send(t.write(next), controlId)
 	}
 }

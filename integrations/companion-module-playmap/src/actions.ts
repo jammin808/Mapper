@@ -547,7 +547,8 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			const p = focusedOr(o)
 			if (!p || p.lengthMs === null) return null
 			return {
-				key: `seek:${p.id}`,
+				// A seek's target is its item's: one sent before a GO never steers the next item's.
+				key: `seek:${p.id}:${p.itemId ?? ''}`,
 				target: {
 					value: () => {
 						const now = ctx.model.playlist(p.id, ctx.nodeNow())
@@ -557,6 +558,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 					max: p.lengthMs / 1000,
 					step,
 					absolute: true,
+					moving: true,
 					write: (s) => Lines.seek(p.id, s),
 				},
 			}

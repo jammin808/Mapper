@@ -594,7 +594,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		const s = this.model.state
 		this.events.heard(numOf(at(s, P.eventsSeq)))
 		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
-		this.encoders.stateMoved()
+		this.encoders.stateMoved(numOf(at(s, P.seq)))
 		const armed = bool(at(s, P.showArmed))
 		if (this.#armed && !armed) this.thumbs.disarmed()
 		this.#armed = armed

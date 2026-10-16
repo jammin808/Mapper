@@ -172,10 +172,11 @@ must start with a verb of the node, never the session's words, a secret's or pai
 for a row with a line or JSON parameter, and `SET`, every run of its words to the end, every word and every string of its JSON is read
 as a line too (`BIND ADD … TO AUTH …`, a binding's JSON `target`, `SET <binding> target "LINK …"`); a refusal names only the outer
 verb, never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
-value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a surface's
-opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local variable `result`,
-for an *if* block on the key; a part of a Live slot's press that does nothing for its slot (the release or 800 ms of an instant one,
-the down of a held one) answers the key's last result unchanged, so `result` stays the press's answer.
+value plus the steps sent and not yet confirmed, clamped to the range; a seek's target is its playlist's and item's, and since a
+playhead moves by itself it steers only until the first STATE written after it) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a
+surface's opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local
+variable `result`, for an *if* block on the key; a part of a Live slot's press that does nothing for its slot (the release or 800 ms of
+an instant one, the down of a held one) answers the key's last result unchanged, so `result` stays the press's answer.
 
 **Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
 are held 0.8 s; a projector's power, a project opened or made, a scan started and a proposal approved are two held presses within 3 s
