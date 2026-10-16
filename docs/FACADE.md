@@ -89,7 +89,8 @@ assistant, and held by `LOCK AREA mapping` and by a lock on the point or survey 
 they run into the draft and say "staged" until `BLIND COMMIT` lands them, and its `SITE` and `SITE CHECK` read the draft (a draft's
 check is never taken as the stage's by the context or preflight). `SURVEY IMPORT` is heavy work: refused while armed, and never
 staged. A sync group shares none of them: each node keeps its own site. A survey is no media: the show's media, preflight's
-media rows and the optimiser never see its files.
+media rows and the optimiser never see its files, and `MEDIA IMPORT` refuses a survey or model file (OBJ, PLY, glTF, LAS, LAZ, E57,
+XYZ, PTS) with the `SURVEY IMPORT` line that reads it.
 
 ## Scans bridge into the stage as placed
 

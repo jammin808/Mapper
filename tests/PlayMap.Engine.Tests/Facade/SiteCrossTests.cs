@@ -4,7 +4,8 @@ namespace PlayMap.Engine.Tests.Facade;
 
 /// <summary>The site's verbs under the node's other rules: once the node begins to stop every site line is refused with the words and
 /// nothing moves; LOCK AREA mapping holds the site, its points and the priors (a survey import is refused before its file is read),
-/// and a locked control point holds against a re-survey; a survey is no media, so the show's media and the optimiser never see it.</summary>
+/// and a locked control point holds against a re-survey; a survey is no media, so the show's media and the optimiser never see it, and
+/// a survey file given to MEDIA IMPORT is refused with the verb that reads it.</summary>
 public sealed class SiteCrossTests
 {
     [Fact]
@@ -47,6 +48,20 @@ public sealed class SiteCrossTests
         var survey = rig.Engine.Store.Project.Stage.Surveys[0].Id;
         await rig.Ok($"LOCK {survey}");
         Assert.Contains("(survey) is locked by", await rig.Refused($"SET {survey} name \"Front\""), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ASurveyFileGivenAsMediaIsRefusedWithTheVerbThatReadsIt()
+    {
+        await using var rig = await ControlPointVerbTests.Surveyed();
+        var revision = rig.Engine.Store.Current.Revision;
+        foreach (var name in new[] { "scan.e57", "scan.las", "scan.laz", "front.obj", "cloud.pts" })
+        {
+            await File.WriteAllTextAsync(rig.File(name), "not media");
+            Assert.Contains("SURVEY IMPORT", await rig.Refused($"MEDIA IMPORT {rig.File(name)}"), StringComparison.Ordinal);
+        }
+        Assert.Empty(rig.Engine.Store.Project.Media);
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
     }
 
     [Fact]
