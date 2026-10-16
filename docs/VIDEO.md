@@ -56,10 +56,13 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   frame, held until the sender releases it (NDI's async send keeps it until the next send). Nothing is allocated per frame once warm.
 - **Nobody watching costs nothing.** A send packs and reads back only while a receiver is connected, unless `ALWAYS`; frames skipped
   are counted. A frame due while every slot is still with the sender is counted busy, never waited for.
-- **What the air shows.** An output tap is the output's final raster, so blackout, freeze, the test pattern, a safe look, the
-  master and panic gain and covered or held outputs reach the send exactly as they reach the projector; a disabled output's tap
-  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what the outputs do to the show, each
-  output decided as it decides itself (a hold first, then a safe look, then the test pattern, else the live show): the live show at
+- **What the air shows.** An output tap is the output's final raster, after its output stage (warp, mask, blend, the measured
+  correction an align run made, trim), so blackout, freeze, the test pattern, a safe look, the master and panic gain and covered
+  or held outputs reach the send exactly as they reach the projector; a disabled output's tap sends black, and so does the tap of
+  an output on a raw frame (a scan or an align run's pattern is not the show, and a send's light must not spoil the camera's
+  capture: that output's LED fixtures go dark too). An output on a raw frame decides nothing for a canvas or source tap, which
+  plays on as the rest of the LED rig does. A canvas or source tap that follows the air (`FollowAir`, the default) takes what
+  the outputs do to the show, each output decided as it decides itself (a hold first, then a safe look, then the test pattern, else the live show): the live show at
   the brightest gain of the outputs that show it (its signal clamped and scaled as an output's final stage does; the key is the
   tap's own), while any does; else a hold, while any output holds; else the pattern or the safe look when every output shows it,
   stretched over the picture; else black (a mixed panic plan). A send larger than the GPU's textures is refused in words, before
@@ -69,6 +72,15 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   its size — a BGRA frame is RGB, which the runtime converts by its own rule, so it carries no tag), and an idle sender releases what
   it holds after 200 ms. Receivers
   and tally are refreshed every 250 ms. The node's sends are held to a **bandwidth guard** at `SEND ADD`, `SEND ENABLE ON` and any edit of a send.
+- **Stopping.** A send that stops (disabled, removed, its tap gone, the node stopping) sends one black frame of its last shape
+  before its sender closes, as a stopped output and the LED rig go dark: most receivers keep a lost source's last frame. A send
+  made again under its own name (a new size or format) hands over with no black between. Once the node has begun to stop no
+  receiver or sender starts, and the render thread drawing on while the hub closes under it offers its frames to senders that let
+  them go: nothing throws and no fault is journalled.
+- **One air for a group, none for a draft.** A send reads only its frame's air, so a sync group's member sends what the group's air
+  makes of its outputs (the leader's blackout, master and panic run on it as lines); its frames fall on the leader's time grid. A
+  send or input staged in a blind draft is not sent or received until the draft lands: the hub reads the live project only, and
+  the draft's views are drawn with no pass at all.
 
 ## OMT
 

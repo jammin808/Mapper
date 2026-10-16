@@ -44,6 +44,11 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
   patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,
   and dark where an output shows a scan or alignment pattern.
+- **Takes and sends network video.** OMT (vendored, on every node) and NDI 6 (through the runtime the user installs) in and out:
+  a live input is a library item received once however many surfaces, outputs and previews show it, with its health, tally, a
+  backup feed and a loss policy (hold, black or a fallback); a send taps an output's final picture, a canvas or a source, packs it
+  on the GPU on the show clock's grid and costs nothing until a receiver connects. Sends follow the air as the outputs do: dark
+  under blackout, black from an output showing a scan or alignment pattern, and one black frame as a send or the node stops.
 - **Keeps the show safe.** `SHOW ARM` turns a rehearsal into a show and decides every line by who sent it; locks on finished
   work; `PANIC` takes each output to its planned outcome on the show clock, picture and sound, and `PANIC CLEAR` brings it
   back; a grand master; a fence against the double GO; `PREFLIGHT` says what is not ready, each row with the line that fixes
@@ -68,7 +73,7 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it; the multi-view solve is Core's alone so far.
 
-**In progress:** video in and out over OMT and NDI; the Companion module; and the desk's controls for show safety, locks,
+**In progress:** the Companion module; Spout; and the desk's controls for show safety, locks,
 blind edit, the sync board, effects and the rest, which today run over the wire.
 
 ## What it is made of
@@ -78,7 +83,7 @@ blind edit, the sync board, effects and the rest, which today run over the wire.
 | `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, the leader clock (slewed, stepped on the engine's lane, held while the leader is quiet) and its drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy, preflight and the blind draft's diff, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, fleet health, and optimise's planner, rules, governor, HAP packer and version choice. |
 | `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the calibration ledger, align runs, the scan runner, the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
 | `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload; the edit overlay; LED sampling; previews; the GPU HAP encoder |
-| `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; HAP's own parser with its Snappy stage on a worker pool; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
+| `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; OMT (libomtnet and libvmx, vendored) and NDI 6 (the user's runtime, loaded at run time) receivers and senders over a lock-free frame pool; HAP's own parser with its Snappy stage on a worker pool; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and the leader's sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, and resetting internal geometry before scans. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
@@ -115,6 +120,7 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/AUDIO.md` — listening, the beat clock and the modulation bus
 - `docs/CONTENT.md` — particles, fractals, reactive scenes, stings and looks
 - `docs/LED.md` — LED pixel mapping: fixtures, sampling, patching and sending
+- `docs/VIDEO.md` — video in and out over OMT and NDI: live inputs, sends, the loss policy
 - `docs/CALIBRATION.md` — the quad on the wall, the edit overlay, the score and the calibration ledger
 - `docs/ALIGN.md` — camera auto-align of flat screens
 - `docs/PHONESCAN.md` — the phone as a scan camera, fully local

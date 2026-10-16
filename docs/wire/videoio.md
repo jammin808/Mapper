@@ -40,8 +40,9 @@ cannot receive). `INPUT SWITCH` is a person's word: refused "already on its prim
 "Cam 1's backup has given no frame yet", "… has given no frame for 1.5 s"; answered at the next frame from the feed switched to,
 or accepted when none came in 3 s.
 
-**Sends.** A tap is `output:<id>` (the final picture of an output), `canvas:<id>` or `source:<sourceref>`, and names something in
-the show; `prewarp:` is refused
+**Sends.** A tap is `output:<id>` (the final picture of an output: after its output stage — warp, mask, blend, the measured
+correction of an align run, trim — exactly what the projector gets; black while the output is off or shows a scan or align
+pattern), `canvas:<id>` or `source:<sourceref>`, and names something in the show; `prewarp:` is refused
 ("prewarp taps are next round"). The size defaults to the tap's (a source tap's to 1920×1080) and is fitted to the format: UYVY,
 P216 and PA16 to even widths, UYVA to a multiple of 4 — the effect says so ("1918 → 1916 (UYVA needs a multiple of 4)"). The rate
 defaults to the output's refresh, else the show's; 23.976, 29.97, 59.94 and 119.88 are sent as 1001 rationals. `QUALITY` is OMT's
@@ -61,6 +62,23 @@ then on, whichever verb asks (INPUT ADD, INPUT BACKUP, SEND ADD, SEND ENABLE ON,
 "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it"; a live item's backup counts), and preflight and the context
 go amber. `SPOUT` is kept for the Spout package, which reads it when it registers; on a node with no Spout provider the effect says
 so. Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
+
+**Show Mode.** Every line that changes a send is content, whichever verb says it (`SEND ADD`, `SEND ENABLE`, `SEND REMOVE`, and the
+generic `ADD send`, `SET sd…`, `REMOVE sd…`), as `LOCK AREA content` locks sends: armed, an operator runs them, a remote client is
+refused and an assistant proposes. `INPUT ADD`, `INPUT FALLBACK` and `INPUT BACKUP` are content; `INPUT SWITCH` and
+`INPUT RECONNECT` are repairs an operator may run armed (device class); `VIDEOIO SET` is set-up, refused armed.
+
+**Blind edit.** A session editing blind stages `INPUT ADD`, `INPUT FALLBACK`, `INPUT BACKUP`, `SEND ADD`, `SEND ENABLE` and
+`SEND REMOVE` in its draft. The hub reads the live project only, so nothing staged is received or sent until the draft lands, and
+the answer says so: `INPUT ADD` answers `"state":"staged"` and "staged Cam (omt:STUDIO (Cam 1)) in the blind draft — it is received
+when the blind draft lands"; `SEND ADD` answers its id with an empty `fullName` and "staged Main from output:op_1 in the blind draft
+— it sends when the blind draft lands"; the others "Main stops when the blind draft lands" and the like.
+
+**Stopping.** A send that stops — `SEND ENABLE … OFF`, `SEND REMOVE`, its tap gone, its protocol off, the node stopping — sends one
+black frame of its last size and format before its sender closes, so a receiver that keeps a lost source's last frame keeps black;
+a send made again under its own name (a new size or format) hands over with none. Once the node has begun to stop no receiver or
+sender starts: a consumer gets a handle only on an input already received, the hub makes nothing the project names, and an
+`INPUT RECONNECT` already past the door is refused "the node is stopping — no receiver starts".
 
 Generic verbs keep working: `SET md… live {"pacing":"smooth"}`, `SET sd… width 1280`, `REMOVE sd…`, `REMOVE md…`, `ADD send {…}`.
 The checks refuse a send name outside 1–48 printable characters, an enabled send whose tap is empty, does not parse or names nothing
