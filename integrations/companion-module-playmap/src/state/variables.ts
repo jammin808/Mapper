@@ -243,7 +243,7 @@ export function variablesOf(
 	v.stagewatch_phase = str(at(s, P.stagewatchPhase))
 	const worst = worstTarget(list(s, P.calTargets))
 	const score = targetPoints(worst)
-	v.cal_score = score === null ? '' : Math.round(score)
+	v.cal_score = score === null ? '' : shownPoints(score)
 	v.cal_grade = str(field(worst, P.calTargetGrade))
 	v.cal_words = str(field(worst, P.calTargetWords))
 	v.ai_proposals = num(at(s, P.proposals))
@@ -335,6 +335,13 @@ export function scorePoints(value: number, unit: string): number | null {
 	return 0
 }
 
+/** Points as a key shows them: whole, rounded down, so a value past a grade boundary (4.01 px, 84.9 points) never reads as the better
+ * grade — every grade's threshold is a whole point. The 1e-9 only absorbs the piecewise line's float error, far below the 0.01 px
+ * the node writes a score to. */
+function shownPoints(points: number): number {
+	return Math.floor(points + 1e-9)
+}
+
 /** A calibration target's score in points, or null when it has none (the node writes -1) or says no unit the module knows. */
 function targetPoints(target: unknown): number | null {
 	const score = num(field(target, P.calTargetScore), -1)
@@ -344,10 +351,10 @@ function targetPoints(target: unknown): number | null {
 /** A projector's calibration score in points (0-100): the node's when it has one, else its solve's residual on the same scale. */
 export function projectorScore(model: NodeModel, id: string): number {
 	const points = targetPoints(list(model.state, P.calTargets).find((t) => field(t, P.calTargetId) === id))
-	if (points !== null) return Math.round(points)
+	if (points !== null) return shownPoints(points)
 	const pj = model.projector(id)
 	if (!pj || !bool(field(pj, P.pjSolved))) return 0
-	return Math.round(scorePoints(num(field(pj, P.pjResidualPx)), 'px') ?? 0)
+	return shownPoints(scorePoints(num(field(pj, P.pjResidualPx)), 'px') ?? 0)
 }
 
 const LIGHT_ORDER: Record<string, number> = { red: 0, amber: 1, grey: 2, green: 3 }

@@ -88,7 +88,7 @@ $(playmap:show_mode) == 'ARMED' ? 40 + 60 * oscillate(2000) : 100
 $(playmap:faults_count) > 0 ? blink(500) : true
 ```
 
-**A score in colour.** On a projector key's ground, from its calibration score (a feedback-based local variable `score` from the score feedback; 0-100, higher is better, with grade A at 85 and up, B at 70, C at 50 — a pin solve's px off is read on that scale):
+**A score in colour.** On a projector key's ground, from its calibration score (a feedback-based local variable `score` from the score feedback; 0-100, higher is better, with grade A at 85 and up, B at 70, C at 50 — a pin solve's px off is read on that scale, in whole points rounded down, so 4.01 px reads 49, never C's 50):
 
 ```
 colorMix('#E0342E', '#1E9E5A', $(local:score) / 100)

@@ -209,7 +209,8 @@ section key's and a Live slot's light word) and typed values a layered key binds
 `$(this:value)` style overrides: label, light, state word, progress, time left, picture, score, any STATE path, a Live slot, a section
 key's value, the focused playlist. A score (and `cal_score`, the worst target's) is 0-100 points, higher better: a calibration
 target's `unit` says its scale, and a `px` score (lower better), like a solve's residual, reads piecewise through the node's grade
-boundaries — 0 px is 100, A's 1 px is 85, B's 1.5 px is 70, C's 4 px is 50, 8 px and past is 0. `event_pulse` is true for `hold_ms`
+boundaries — 0 px is 100, A's 1 px is 85, B's 1.5 px is 70, C's 4 px is 50, 8 px and past is 0 — and is shown in whole points
+rounded down, so a value past a boundary never reads as the better grade (1.01 px is 84, 4.01 px is 49). `event_pulse` is true for `hold_ms`
 after an `EVENT` of its kind, on the node's clock. A projector's power and shutter are its box's
 (`STATE.devices`, linked by projector); a scan runs while its state is not an end; an entity STATE no longer lists but INDEX does keeps
 its name, dimmed, and reads REMOVED only when INDEX drops it too. `variable` binds a key to one of the connection's variables (Show

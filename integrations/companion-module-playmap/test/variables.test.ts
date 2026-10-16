@@ -3,7 +3,7 @@
 // follow their entity through a reorder; every variable design 4.6 names is defined. Between pushes a playing item's clock runs at
 // 10 Hz from STATE's positionMs, rate and at plus the PING offset, while the module hands Companion at most 25 variable updates a
 // second; once the link drops, every value that came from STATE is emptied and only INDEX's names stay. A calibration score is read
-// on the scale its unit says.
+// on the scale its unit says, in whole points rounded down, so no value past a grade boundary reads as the better grade.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { JsonValue } from '@companion-module/base'
@@ -611,15 +611,29 @@ void test("a calibration score is read on its unit's scale: px, lower better, be
 	assert.deepEqual([v.cal_score, v.cal_grade], [97, 'A'], 'the worst target (Projector 2, amber at 0.2 px) in points')
 
 	// px converts piecewise so the grade boundaries coincide (A ≤ 1.0 px is ≥ 85, B ≤ 1.5 is ≥ 70, C ≤ 4 is ≥ 50); points are points.
+	// Points are shown whole and floored, so a value just past a boundary never reads as the better grade.
 	const scoreOf = (value: number, unit: string): number =>
 		projectorScore(modelOf({ calibration: { targets: [{ id: 'pj_x', score: value, unit, light: 'green' }] } }), 'pj_x')
 	assert.deepEqual(
-		[0, 0.5, 1, 1.25, 1.5, 4, 6, 8, 99.9].map((px) => scoreOf(px, 'px')),
-		[100, 93, 85, 78, 70, 50, 25, 0, 0],
+		[0, 0.2, 0.5, 1, 1.01, 1.25, 1.3, 1.5, 1.51, 1.56, 4, 4.01, 4.02, 6, 8, 99.9].map((px) => scoreOf(px, 'px')),
+		[100, 97, 92, 85, 84, 77, 76, 70, 69, 69, 50, 49, 49, 25, 0, 0],
 	)
 	assert.deepEqual(
-		[100, 85, 70, 50, 0].map((points) => scoreOf(points, 'points')),
-		[100, 85, 70, 50, 0],
+		[1.01, 1.51, 4.02].map(
+			(px) =>
+				variablesOf(
+					modelOf({ calibration: { targets: [{ id: 'pj_x', score: px, unit: 'px', light: 'amber' }] } }),
+					Date.now(),
+					facts,
+					8,
+				).cal_score,
+		),
+		[84, 69, 49],
+		'cal_score floors too',
+	)
+	assert.deepEqual(
+		[100, 85, 84.9, 70, 69.99, 50, 0].map((points) => scoreOf(points, 'points')),
+		[100, 85, 84, 70, 69, 50, 0],
 	)
 	// A solve with no calibration score is its residual on the same scale; a unit the module does not know is no score.
 	const solved = { stage: { projectors: [{ id: 'pj_y', solved: true, residualPx: 1.5 }] } }
