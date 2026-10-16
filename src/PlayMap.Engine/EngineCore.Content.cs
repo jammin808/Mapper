@@ -305,9 +305,6 @@ public sealed partial class EngineCore
             coalesceKey: $"warp {o.Id} {col} {row}"));
     }
 
-    private CommandReply ProjectorSolve(List<string> args) =>
-        args.Count < 1 ? CommandReply.Fail("PROJECTOR SOLVE <projector> [LOCK SHIFT|FOCAL|NONE]") : SolveProjector(args);
-
     private CommandReply BlendSolve(List<string> args) => SolveBlend(args);
 
     private CommandReply ScanStart(List<string> args, SessionInfo session, CancellationToken ct)

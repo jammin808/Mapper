@@ -112,17 +112,6 @@ public sealed partial class EngineCore
         }), said);
     }
 
-    /// <summary>PROJECTOR SOLVE's solve (wp2-facade): the projector's priors as rows, the focal locked from the lens when the pins
-    /// cannot carry it (the locks it answers then hold the focal; with no LOCK word given, such a lock is asked again), the
-    /// uncertainty with the priors' information. A pin bound to a control point that is not at it is refused with the line that puts
-    /// it there: a solve never runs on a bound pin's stale world point.</summary>
-    private LongThrowResult SolveWithPriors(Projector pj, SolveLocks locks, bool retestLock)
-    {
-        if (BoundPinAway(Edits.Project.Stage, pj) is { } away)
-            throw new EditRefusedException(away);
-        return LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retestLock);
-    }
-
     /// <summary>The refusal for a projector whose enabled pin is bound to a control point it is not at, with the line that puts it
     /// there; null when every bound pin sits at its point. Every solve from pins asks it first.</summary>
     internal static string? BoundPinAway(Stage stage, Projector pj)

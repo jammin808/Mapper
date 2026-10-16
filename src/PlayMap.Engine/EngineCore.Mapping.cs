@@ -1,5 +1,6 @@
 using System.Globalization;
 using PlayMap.Core.Calibration;
+using PlayMap.Core.Calibration.Scoring;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
@@ -12,44 +13,42 @@ namespace PlayMap.Engine;
 public sealed partial class EngineCore
 {
     /// <summary>PROJECTOR SOLVE: the pose (and the unlocked optics) from the projector's pins. "LOCK SHIFT|FOCAL|
-    /// NONE" overrides the projector's own locks for this solve and is kept on it. A solve worse than the one the
-    /// projector has is still applied — the operator asked — but the words say it got worse. The calibration ledger records
-    /// the result, scored, in the same edit (one undo step); the first result of a projector is its fallback. The round-one
-    /// router hands this verb no session, so the result's "who" is the verb's own name.</summary>
-    private CommandReply SolveProjector(List<string> args)
+    /// NONE" overrides the projector's own locks for this solve and is kept on it as the operator's (a focal named there is never
+    /// let go by a later solve). A solve worse than the one the projector has is still applied — the operator asked — but the words
+    /// say it got worse. The solve and its score run off the control lane, from the projector as the session's store held it (the
+    /// blind draft's, for the session that holds one); the calibration ledger records the result, scored, in one edit (one undo step),
+    /// refused when the projector changed meanwhile; the first result of a projector is its fallback. The result's "who" is the verb's
+    /// own name.</summary>
+    private async Task<CommandReply> ProjectorSolveAsync(VerbCall c)
     {
-        var pj = Edits.Project.FindProjector(args[0]) ?? Edits.Project.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
-        if (pj is null)
-            return CommandReply.Fail($"no projector {args[0]}");
-        var locks = pj.Locks;
-        var li = args.FindIndex(a => a.Equals("LOCK", StringComparison.OrdinalIgnoreCase));
-        if (li >= 0)
-        {
-            locks = SolveLocks.None;
-            foreach (var word in args.Skip(li + 1))
-            {
-                locks |= word.ToUpperInvariant() switch
-                {
-                    "SHIFT" => SolveLocks.Shift,
-                    "FOCAL" or "ZOOM" => SolveLocks.Focal,
-                    "DISTORTION" or "LENS" => SolveLocks.Distortion,
-                    "NONE" => SolveLocks.None,
-                    _ => throw new EditRefusedException($"LOCK takes SHIFT, FOCAL, DISTORTION or NONE — not {word}"),
-                };
-            }
-        }
-        var pins = pj.Pins.Count(x => x.Enabled);
-        if (pins < 4)
-            return CommandReply.Fail($"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
-        var longThrow = SolveWithPriors(pj, locks, retestLock: li < 0);
+        const string Usage = "PROJECTOR SOLVE <projector> [LOCK SHIFT|FOCAL|NONE]";
+        var args = c.Args.ToList();
+        if (args.Count < 1)
+            return CommandReply.Fail(Usage);
+        var (pj, locks, retest, refused) = await _lane.RunAsync(() => SolveInputs(EditsFor(c.Session).Project, args)).ConfigureAwait(false);
+        if (refused is not null || pj is null)
+            return CommandReply.Fail(refused ?? Usage);
+        var longThrow = await Task.Run(() => LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retest),
+            c.Ct).ConfigureAwait(false);
         var solution = longThrow.Solution;
-        locks = longThrow.LocksUsed;
         if (solution.Inliers.Count(x => x) < 4 || double.IsNaN(solution.RmsPx))
             return CommandReply.Fail($"{pj.Name}: no solve — {solution.Words}");
-        var before = pj.SolveResidualPx;
-        var (r, snapshot, score, _) = RecordSolve(pj, locks, solution, "PROJECTOR SOLVE");
+        var solved = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = longThrow.LocksUsed, FocalLock = longThrow.FocalLockBy };
+        var (score, uncertainty) = CalibrationScoring.ForPins(solved, solution, analysed: longThrow.Analysis);
+        if (Stopping)
+            return CommandReply.Fail(StoppingWords);
+        var snapshot = "";
+        var unaligned = "";
+        var r = await EditAsync(c.Session, $"solve {pj.Name}", p =>
+        {
+            if (p.FindProjector(pj.Id) is not { } now || !SolvedFrom(now, pj))
+                throw new EditRefusedException($"{pj.Name} was changed while it was being solved — nothing was applied; PROJECTOR SOLVE {pj.Id} again");
+            (p, snapshot, unaligned) = ApplySolve(p, pj.Id, longThrow, score, uncertainty, "PROJECTOR SOLVE");
+            return p;
+        }).ConfigureAwait(false);
         if (!r.Changed)
             return FromEdit(r);
+        var before = pj.SolveResidualPx;
         var worse = before > 0 && solution.RmsPx > before * 1.5 ? $" (worse than the {before:0.0} px it had — check the pins)" : "";
         return CommandReply.Success(JsonOut(w =>
         {
@@ -72,8 +71,48 @@ public sealed partial class EngineCore
             w.WriteString("words", solution.Words);
             WriteLongThrow(w, longThrow);
             w.WriteEndObject();
-        }), $"{pj.Name}: {solution.Words}{LongThrowWords(longThrow)}{worse} — {score.Words} ({snapshot})");
+        }), $"{pj.Name}: {solution.Words}{LongThrowWords(longThrow)}{worse} — {score.Words} ({snapshot}){unaligned}");
     }
+
+    /// <summary>On the lane: the projector a PROJECTOR SOLVE names, the locks it solves with (the LOCK word's, else its own, a focal the
+    /// lens locked asked again), or the words why it cannot be solved.</summary>
+    private static (Projector? Projector, SolveLocks Locks, bool Retest, string? Refused) SolveInputs(Project project, List<string> args)
+    {
+        var pj = project.FindProjector(args[0]) ?? project.Stage.Projectors.FirstOrDefault(x => x.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase));
+        if (pj is null)
+            return (null, SolveLocks.None, false, $"no projector {args[0]}");
+        var locks = pj.Locks;
+        var li = args.FindIndex(a => a.Equals("LOCK", StringComparison.OrdinalIgnoreCase));
+        if (li >= 0)
+        {
+            locks = SolveLocks.None;
+            foreach (var word in args.Skip(li + 1))
+            {
+                SolveLocks? one = word.ToUpperInvariant() switch
+                {
+                    "SHIFT" => SolveLocks.Shift,
+                    "FOCAL" or "ZOOM" => SolveLocks.Focal,
+                    "DISTORTION" or "LENS" => SolveLocks.Distortion,
+                    "NONE" => SolveLocks.None,
+                    _ => null,
+                };
+                if (one is not { } l)
+                    return (null, SolveLocks.None, false, $"LOCK takes SHIFT, FOCAL, DISTORTION or NONE — not {word}");
+                locks |= l;
+            }
+        }
+        var pins = pj.Pins.Count(x => x.Enabled);
+        if (pins < 4)
+            return (null, SolveLocks.None, false, $"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
+        if (BoundPinAway(project.Stage, pj) is { } away)
+            return (null, SolveLocks.None, false, away);
+        return (pj, locks, li < 0, null);
+    }
+
+    /// <summary>True when the projector still stands as the solve read it: its optics, pose, locks, pins and priors.</summary>
+    private static bool SolvedFrom(Projector now, Projector read) =>
+        now.Intrinsics == read.Intrinsics && now.Lens == read.Lens && now.Pose == read.Pose && now.Locks == read.Locks && now.FocalLock == read.FocalLock
+        && now.Priors == read.Priors && now.Pins.SequenceEqual(read.Pins);
 
     private StageMeshes? _meshes;
     private BlendSolveResult? _lastBlendSolve;

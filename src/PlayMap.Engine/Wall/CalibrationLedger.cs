@@ -20,10 +20,10 @@ internal static class CalibrationLedger
         long createdUnixMs, bool pinned = false, string? scanId = null) =>
         new(id, name, CalibrationTarget.Projector, pj.Id, createdUnixMs, source, scanId, pj.CalibrationId, score, who, pinned)
         {
-            Projector = new Core.Model.ProjectorCalibration(pj.Intrinsics, pj.Lens, pj.Pose, pj.Locks, pj.Pins),
+            Projector = new Core.Model.ProjectorCalibration(pj.Intrinsics, pj.Lens, pj.Pose, pj.Locks, pj.Pins) { FocalLock = pj.FocalLock },
         };
 
-    /// <summary>A projector with a result's optics, pose, locks and pins put back exactly.</summary>
+    /// <summary>A projector with a result's optics, pose, locks (and who locked the focal) and pins put back exactly.</summary>
     public static Projector ApplyTo(Projector pj, CalibrationSnapshot s)
     {
         var c = s.Projector ?? throw new ArgumentException($"{s.Id} is not a projector's result", nameof(s));
@@ -33,6 +33,7 @@ internal static class CalibrationLedger
             Lens = c.Lens,
             Pose = c.Pose,
             Locks = c.Locks,
+            FocalLock = c.FocalLock,
             Pins = c.Pins,
             // A solve's (or a recalled solve's) residual; a result kept as it stood leaves the projector's own.
             SolveResidualPx = s.Source != CalibrationSource.Manual && s.Score.RmsPx is >= 0 and < 99 ? Math.Max(s.Score.RmsPx, 1e-6) : pj.SolveResidualPx,
@@ -53,7 +54,7 @@ internal static class CalibrationLedger
     /// <summary>True when the projector stands exactly as the result has it.</summary>
     public static bool Matches(Projector pj, CalibrationSnapshot s) =>
         s.Projector is { } c && c.Intrinsics == pj.Intrinsics && c.Lens == pj.Lens && c.Pose == pj.Pose && c.Locks == pj.Locks
-        && c.Pins.SequenceEqual(pj.Pins);
+        && c.FocalLock == pj.FocalLock && c.Pins.SequenceEqual(pj.Pins);
 
     /// <summary>Adds a result, applies or stages it, and prunes its target's history. Answers how many results were dropped.</summary>
     public static (Project Project, int Dropped) Record(Project p, CalibrationSnapshot s, bool apply)

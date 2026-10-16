@@ -120,7 +120,6 @@ public sealed partial class EngineCore
 
             "SURFACE SOURCE" => SurfaceSource(args),
             "SURFACE SHOW" => SurfaceShow(args),
-            "PROJECTOR SOLVE" => ProjectorSolve(args),
             "BLEND SOLVE" => BlendSolve(args),
             "WARP RESET" => WarpReset(args),
             "WARP NODE" => WarpNode(args),

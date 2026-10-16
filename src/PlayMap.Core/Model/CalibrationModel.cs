@@ -46,7 +46,11 @@ public enum CalibrationSource { Pins, Scan, Resolve, Revert, Align, Stack, Manua
 
 /// <summary>A projector's optics, pose, locks and pins as solved.</summary>
 public sealed record ProjectorCalibration(Intrinsics Intrinsics, LensDistortion Lens, Pose Pose, SolveLocks Locks,
-    ImmutableArray<CalibrationPin> Pins);
+    ImmutableArray<CalibrationPin> Pins)
+{
+    /// <summary>Who put the focal lock in <see cref="Locks"/>, put back with it (<see cref="Projector.FocalLock"/>).</summary>
+    public FocalLockSource FocalLock { get; init; } = FocalLockSource.Operator;
+}
 
 /// <summary>A calibration result, never edited after it is made: a projector's pose and optics, or an output's measured
 /// correction, with the score that explains it and where it came from. Files beside it live in DataPath.</summary>

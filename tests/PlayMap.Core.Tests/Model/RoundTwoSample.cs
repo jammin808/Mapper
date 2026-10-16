@@ -32,7 +32,11 @@ internal static class RoundTwoSample
 
     public static MeasuredCorrection Measured() => new(new MeasuredWarp(33, 19, "align/op_1.pfm", "sha256:1", 0.4), Lattice(),
         new MeasuredBlend(480, 270, "align/op_1.blend", "sha256:2"), new MeasuredColor(0.98, 1, 1.02, 2.2, 0.01), 0.6, "sc1", "sk0a0b0c01",
-        "ar0a0b0c01", 1_760_000_000_000);
+        "ar0a0b0c01", 1_760_000_000_000)
+    {
+        FittedTo = new FittedPoses(new Pose(new Vec3d(0.001, 0, 0), new Vec3d(0, 0.0002, 0.009)), Intrinsics.FromThrowRatio(1920, 1080, 1.5),
+            LensDistortion.None, Intrinsics.FromThrowRatio(1920, 1080, 1.505), new LensDistortion(0.01, 0, 0, 0, 0)),
+    };
 
     public static Project Build()
     {
@@ -75,7 +79,7 @@ internal static class RoundTwoSample
         {
             Priors = new SolvePriors(1.5, 3, new Vec3d(0, 2, -8), "cp0a0b0c01", 0.05, "datasheet"),
             Uncertainty = new SolveUncertainty(0.8, 0.3, 1.2, 0.04, 0.01, 1e4, "zoom↔distance"),
-            CalibrationId = "cs0a0b0c01", FallbackId = "cs0a0b0c01", StagedId = null,
+            CalibrationId = "cs0a0b0c01", FallbackId = "cs0a0b0c01", StagedId = null, FocalLock = FocalLockSource.Lens,
             Pins = p.Stage.Projectors[0].Pins.SetItem(0, p.Stage.Projectors[0].Pins[0] with { ControlId = "cp0a0b0c01" }),
         };
         var camera = p.Stage.Cameras[0] with
@@ -92,7 +96,10 @@ internal static class RoundTwoSample
             CalibrationSource.Pins, null, null, new QualityScore(0.8, "px", "A", 0.7, 1.4, 0.9,
                 [new ScoreTerm(ScoreTermCodes.Rms, "pins agree", 0.7, "px", 0.5, "green", "", "", "")], "good") { Source = "pins" }, "desk", true)
         {
-            Projector = new ProjectorCalibration(projector.Intrinsics, projector.Lens, projector.Pose, SolveLocks.Shift, projector.Pins),
+            Projector = new ProjectorCalibration(projector.Intrinsics, projector.Lens, projector.Pose, SolveLocks.Shift | SolveLocks.Focal, projector.Pins)
+            {
+                FocalLock = FocalLockSource.Lens,
+            },
             VerifiedP50Px = 0.6, VerifiedP95Px = 1.1, MeshHash = "sha256:3", RunId = "kt0a0b0c01", DataPath = "calibration/cs0a0b0c01",
         };
         var outputSnapshot = snapshot with { Id = "cs0a0b0c02", Target = CalibrationTarget.Output, TargetId = "op_1", Projector = null, Output = Measured() };
