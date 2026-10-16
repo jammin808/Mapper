@@ -5,7 +5,9 @@ import assert from 'node:assert/strict'
 import { InstanceStatus } from '@companion-module/base'
 import { FakeNode } from './fake-node.ts'
 import { boot, configFor } from './harness.ts'
+import { fakeChannels, settle } from './fake-channel.ts'
 import { authProof } from '../src/link/pairing.ts'
+import { NodeSession, type SessionHost } from '../src/link/session.ts'
 import { Words } from '../src/words.ts'
 import { parseAddress, type PlayMapConfig } from '../src/config.ts'
 import { MODULE_VERSION } from '../src/version.ts'
@@ -275,5 +277,69 @@ void test('a config edit that moves nothing the link depends on keeps it, and ke
 	} finally {
 		await m.stop()
 		await node.stop()
+	}
+})
+
+void test('a rename relinks: the node hears the new name in a second HELLO and pairs it on its proof', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const config = configFor(node.webPort)
+	const m = await boot(config, { token: TOKEN })
+	try {
+		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired as FOH deck')
+		await node.heard(helloOf('FOH deck'))
+		// Companion renames the connection: the host sets the label, then hands the same config and secrets.
+		await m.wrapper.configUpdateAndLabel('FOH-B', config, { token: TOKEN })
+		await node.heard(helloOf('FOH-B'))
+		await m.host.until(
+			() => m.host.status?.status === InstanceStatus.Ok && m.instance.linked(),
+			'paired again as FOH-B',
+		)
+		assert.ok(
+			[...node.sessions].some((s) => s.paired && s.name === 'Companion:FOH-B'),
+			'the node pairs the new name on its proof',
+		)
+		assert.equal(node.sent().filter((l) => l.startsWith('HELLO')).length, 2)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a rename mid-handshake proves the name the HELLO said', async () => {
+	const { factory, opened } = fakeChannels()
+	let name = 'Companion:FOH deck'
+	const host: SessionHost = {
+		helloName: () => name,
+		token: () => TOKEN,
+		target: () => ({ host: '10.0.0.5', port: 9940, wirePort: 9941, channel: 'ws', pin: '' }),
+		status: () => undefined,
+		link: () => undefined,
+		paired: () => undefined,
+		push: () => undefined,
+		offset: () => undefined,
+		pinLearned: () => undefined,
+	}
+	const session = new NodeSession(host, { factory })
+	session.start()
+	try {
+		const ch = opened[0]
+		assert.ok(ch)
+		const nonce = '00112233445566778899aabbccddeeff'
+		ch.say(`NONCE ${nonce}`)
+		ch.events.open({})
+		await settle()
+		assert.deepEqual(
+			ch.sent.map((l) => l.replace(/^@\S+ /u, '')),
+			[`HELLO Companion:FOH deck module=${MODULE_VERSION}`],
+		)
+		// The label moves between the HELLO and its answer.
+		name = 'Companion:FOH-B'
+		ch.ok('HELLO')
+		await settle()
+		const proof = ch.sent.find((l) => / AUTH-PROOF /u.test(l))
+		assert.ok(proof, ch.sent.join(' | '))
+		assert.equal(proof.split(' ')[2], authProof(TOKEN, nonce, 'Companion:FOH deck'))
+	} finally {
+		session.stop()
 	}
 })

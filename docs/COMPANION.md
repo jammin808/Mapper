@@ -127,9 +127,9 @@ required) shows the node's own words from the body. Every line carries `@c<n>`; 
 that the node is not there and when the link tries again: what the node said is emptied, every feedback is checked
 again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token, a locked-out
 address (in a line, by close 4401, or at the upgrade: HTTP 429), or a token changed on the node (its lines answered `not paired`)
-halts the link until the token or address changes — an
-edit to anything else keeps the link and its halt — so a deck never spends the address's wrong tokens. Any other refusal of the
-greeting is the node's passing fault and is tried again. An address is read as typed (`host`, `host:port`, `[v6]:port`, a scheme
+halts the link until the token, the address or the connection's label changes (the HELLO names the label, so a rename relinks
+under the new name) — an edit to anything else keeps the link and its halt — so a deck never spends the address's wrong tokens.
+Any other refusal of the greeting is the node's passing fault and is tried again. An address is read as typed (`host`, `host:port`, `[v6]:port`, a scheme
 left off); one no link could open says so in words. Lines the module sends are held to the
 node's 64 KiB; what the node sends is not (VERBS and INDEX are long), but JSON nested past 64 levels is dropped, every VERBS field is
 type-checked (a vocabulary that builds no actions is not taken), and nothing a push holds can throw into Companion's process.

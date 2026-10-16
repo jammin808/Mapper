@@ -223,15 +223,17 @@ export class NodeSession {
 	}
 
 	async #handshake(generation: number): Promise<void> {
+		// One name per handshake: the proof is checked against the name the HELLO said, whatever the label is by its answer.
+		const name = this.#host.helloName()
 		try {
-			const hello = await this.#request(Lines.hello(this.#host.helloName()), undefined, true)
+			const hello = await this.#request(Lines.hello(name), undefined, true)
 			if (generation !== this.#generation) return
 			// Only what retrying cannot mend halts (a token, a lockout, a pin); any other refusal is the node's passing fault.
 			if (!hello.ok) return this.#dropAndRetry(hello.payload)
 			if (this.#nonce !== null) {
 				const token = normaliseToken(this.#host.token())
 				if (token.length === 0) return this.#fail(InstanceStatus.BadConfig, Words.tokenNeeded)
-				const proof = await this.#request(Lines.proof(authProof(token, this.#nonce, this.#host.helloName())))
+				const proof = await this.#request(Lines.proof(authProof(token, this.#nonce, name)))
 				if (generation !== this.#generation) return
 				if (!proof.ok) {
 					if (isWrongToken(proof.payload))

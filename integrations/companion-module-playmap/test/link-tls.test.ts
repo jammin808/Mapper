@@ -14,6 +14,7 @@ import { InstanceStatus } from '@companion-module/base'
 import { boot } from './harness.ts'
 import { fixture } from './fake-node.ts'
 import { normalisePin } from '../src/link/channel.ts'
+import type { PlayMapConfig } from '../src/config.ts'
 import { Words } from '../src/words.ts'
 
 interface TlsNode {
@@ -96,9 +97,14 @@ void test('the first wss link keeps the certificate it saw; a later one is held 
 		try {
 			await first.host.until(() => first.host.status?.status === InstanceStatus.Ok, 'linked over wss')
 			await first.host.until(() => first.host.saved.length > 0, 'the pin kept')
-			const kept = first.host.saved.at(-1)?.config as { tls_pin?: string }
+			const kept = first.host.saved.at(-1)?.config as PlayMapConfig & { tls_pin?: string }
 			assert.equal(normalisePin(kept.tls_pin ?? ''), normalisePin(node.fingerprint))
 			await first.host.until(() => first.host.variables.get('node_name') === 'Test node', 'STATE over wss')
+			// The kept pin comes back with the next edit: it is the running link's own, so the link stays up.
+			await first.wrapper.configUpdateAndLabel('FOH deck', { ...kept, bank_size: 4 }, {})
+			await first.instance.ask('WHOAMI')
+			assert.equal(node.lines.filter((l) => /^@c\d+ HELLO /u.test(l)).length, 1, 'no second HELLO')
+			assert.equal(first.instance.link(), 'live')
 		} finally {
 			await first.stop()
 		}

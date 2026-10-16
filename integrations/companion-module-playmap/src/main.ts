@@ -138,6 +138,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	)
 	live = new LivePage('focused')
 	#session: NodeSession | null = null
+	/** The link key (#linkKey) the running link started with, or holds since it learned its pin. */
+	#runningKey = ''
 	#lastVars: Record<string, JsonValue> = {}
 	#slices = new Map<string, string>()
 	#forced = new Set<string>()
@@ -175,15 +177,15 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	async configUpdated(config: PlayMapConfig, secrets: PlayMapSecrets | undefined): Promise<void> {
-		const before = this.#linkKey()
 		this.config = config
 		this.#secrets = secrets ?? {}
 		this.live.rule = typeof config.live_rule === 'string' && config.live_rule ? config.live_rule : this.live.rule
 		this.#presetsKey = ''
 		this.#structureKey = ''
 		// An edit that moves nothing the link depends on (a preset group, the bank size, the Live source) keeps it — and keeps a halt,
-		// so a deck halted on a wrong token never spends the address's wrong tokens on an unrelated edit.
-		const relink = !this.#session || this.#linkKey() !== before
+		// so a deck halted on a wrong token never spends the address's wrong tokens on an unrelated edit. The new key is compared with
+		// the one the running link started with: the host sets a new label before it calls this, so a rename relinks.
+		const relink = !this.#session || this.#linkKey() !== this.#runningKey
 		if (relink) this.#stop()
 		this.#defineAll()
 		if (relink) this.#start()
@@ -342,12 +344,15 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				},
 				pinLearned: (fp) => {
 					this.config = { ...this.config, tls_pin: fp }
+					// The pin is the running link's own: the saved config coming back with it is no edit to relink on.
+					this.#runningKey = this.#linkKey()
 					this.saveConfig(this.config, this.#secrets)
 				},
 			},
 			PlayMapInstance.testHooks.session ?? {},
 		)
 		this.#session = session
+		this.#runningKey = this.#linkKey()
 		session.start()
 	}
 
