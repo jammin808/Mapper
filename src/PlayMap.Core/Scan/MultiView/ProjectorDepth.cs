@@ -2,6 +2,7 @@ using PlayMap.Core.Calibration;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Scan.MultiView;
 
@@ -89,7 +90,7 @@ public static class ProjectorDepth
         Array.Fill(points, PointCloud.Invalid);
         var pose = projector.Pose;
         var r = pose.CameraToWorld;
-        Parallel.For(0, h, new ParallelOptions { CancellationToken = ct }, j =>
+        Parallel.For(0, h, Compute.With(ct), j =>
         {
             Span<double> d = stackalloc double[seenBy.Count];
             Span<double> vr = stackalloc double[seenBy.Count];

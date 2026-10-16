@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -85,7 +86,7 @@ public static class WarpMeshBuilder
             }
         }
         if (n >= ParallelVertexCount)
-            Parallel.For(0, vh, Row);
+            Parallel.For(0, vh, Compute.Options, Row);
         else
             for (var y = 0; y < vh; y++)
                 Row(y);

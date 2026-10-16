@@ -3,6 +3,7 @@ using System.Text;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Calibration;
 
@@ -362,7 +363,7 @@ public static class SelfCalibration
         {
             var n = _pairs.Count;
             var partial = new double[Blocks];
-            Parallel.For(0, Blocks, b =>
+            Parallel.For(0, Blocks, Compute.Options, b =>
             {
                 var (start, end) = Block(b, n);
                 double sum = 0;
@@ -484,7 +485,7 @@ public static class SelfCalibration
             var rs = new Vec2d[n];
             var jds = new Vec2d[n];
             var ok = new bool[n];
-            Parallel.For(0, Blocks, b =>
+            Parallel.For(0, Blocks, Compute.Options, b =>
             {
                 var (start, end) = Block(b, n);
                 for (var i = start; i < end; i++)
@@ -826,7 +827,7 @@ public static class SelfCalibration
         public bool Trim()
         {
             var residuals = new double[_pairs.Count];
-            Parallel.For(0, _pairs.Count, i =>
+            Parallel.For(0, _pairs.Count, Compute.Options, i =>
             {
                 if (!_active[i])
                     _s.Rho[i] = BestDepth(_pairs[i], _s.Rho[i]);
@@ -873,7 +874,7 @@ public static class SelfCalibration
                 var adjusted = new bool[count];
                 for (var k = 0; k < p.Subset.Length; k++)
                     adjusted[_pairs[p.First + k].Source] = true;
-                Parallel.For(0, p.Subset.Length, k =>
+                Parallel.For(0, p.Subset.Length, Compute.Options, k =>
                 {
                     var i = p.First + k;
                     Fill(_pairs[i], _s.Rho[i], _active[i], points, residuals, inliers);
@@ -882,7 +883,7 @@ public static class SelfCalibration
                 var rel = new RelativePose(_s.R[j], _s.T[j]);
                 var k2 = ProjectorIntrinsics(j);
                 var owner = j;
-                Parallel.For(0, count, src =>
+                Parallel.For(0, count, Compute.Options, src =>
                 {
                     if (adjusted[src])
                         return;

@@ -1,6 +1,7 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Calibration;
 
@@ -46,7 +47,7 @@ public static class LensPrewarp
             throw new ArgumentException("The raster has no size.");
         var uv = new float[w * h * 2];
         var map = new PrewarpMap(w, h, k.Width, k.Height, uv);
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, Compute.Options, y =>
         {
             for (var x = 0; x < w; x++)
             {

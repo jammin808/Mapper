@@ -4,6 +4,7 @@ using System.Text;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -97,7 +98,7 @@ public static class CoverageAnalysis
         var samples = new CoverageSample[offsets[^1]];
         var optics = projectors.Select(p => (Projector: p, Rot: p.Pose.CameraToWorld.Transposed())).ToArray();
         var delta = spacing * 0.25;
-        Parallel.For(0, world.TriangleCount, new ParallelOptions { CancellationToken = cancellationToken }, t =>
+        Parallel.For(0, world.TriangleCount, Compute.With(cancellationToken), t =>
         {
             var (ia, ib, ic) = world.Triangle(t);
             var pa = world.Position(ia);

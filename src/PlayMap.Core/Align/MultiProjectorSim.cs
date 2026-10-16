@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Align;
 
@@ -188,7 +189,7 @@ public sealed class MultiProjectorSim
                 lut[v] = (float)Math.Pow(v / 255.0, projectors[j].Gamma);
             _luts[j] = lut;
         }
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             for (var x = 0; x < CameraWidth; x++)
             {
@@ -403,7 +404,7 @@ public sealed class MultiProjectorSim
         var cam = Camera;
         var inv = 1 / cam.EncodeGamma;
         var exposure = cam.AutoExposure ? AutoExposure(j => shown[j] is { } f ? (f, 1) : (null, 1)) : cam.Exposure;
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             var rng = new Pcg32(cam.Seed * 0x9E3779B97F4A7C15UL + capture, (ulong)y * 2 + 1);
             for (var x = 0; x < CameraWidth; x++)
@@ -446,7 +447,7 @@ public sealed class MultiProjectorSim
         var inv = 1 / cam.EncodeGamma;
         var exposure = cam.AutoExposure ? AutoExposure(j => shown[j] is { } f ? (f, 3) : (null, 3)) : cam.Exposure;
         var responses = Projectors.Select(p => p.Response ?? Mat3d.Identity).ToArray();
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             var rng = new Pcg32(cam.Seed * 0x9E3779B97F4A7C15UL + capture, (ulong)y * 2 + 1);
             for (var x = 0; x < CameraWidth; x++)
@@ -483,7 +484,7 @@ public sealed class MultiProjectorSim
     private double AutoExposure(Func<int, (byte[]? Frame, int Channels)> frameOf)
     {
         var rows = new double[CameraHeight];
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             double sum = 0;
             for (var x = 0; x < CameraWidth; x++)

@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Xml;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -150,7 +151,7 @@ public static class MpcdiExport
         ArgumentNullException.ThrowIfNull(warp);
         var field = new WarpField(warp, pins);
         var rgb = new float[samplesX * samplesY * 3];
-        Parallel.For(0, samplesY, y =>
+        Parallel.For(0, samplesY, Compute.Options, y =>
         {
             for (var x = 0; x < samplesX; x++)
             {

@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Calibration;
 
@@ -122,7 +123,7 @@ public static class PointNormals
         ArgumentNullException.ThrowIfNull(points);
         tree ??= new KdTree3(points);
         var normals = new Vec3d[points.Count];
-        Parallel.For(0, points.Count, i =>
+        Parallel.For(0, points.Count, Compute.Options, i =>
         {
             var p = points[i];
             if (!PointCloud.IsValid(p))
@@ -303,7 +304,7 @@ public static class Icp
 
     private static void Pair(Vec3d[] src, Similarity3 t, KdTree3 tree, Vec3d[] moved, int[] nearest, double[] dist2)
     {
-        Parallel.For(0, src.Length, i =>
+        Parallel.For(0, src.Length, Compute.Options, i =>
         {
             var p = t.Apply(src[i]);
             moved[i] = p;

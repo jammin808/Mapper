@@ -1,6 +1,7 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Scan;
 
@@ -87,7 +88,7 @@ public sealed class SimGeometry
         Array.Fill(RasterX, float.NaN);
         Array.Fill(RasterY, float.NaN);
         var caster = new MeshRaycaster(scene.Mesh);
-        Parallel.For(0, Height, y =>
+        Parallel.For(0, Height, Compute.Options, y =>
         {
             for (var x = 0; x < Width; x++)
             {
@@ -121,7 +122,7 @@ public sealed class SimGeometry
         SampleCos = new float[n * s2];
         SampleOccluded = new bool[n * s2];
         SampleAlbedo = new float[n * s2];
-        Parallel.For(0, Height, y =>
+        Parallel.For(0, Height, Compute.Options, y =>
         {
             for (var x = 0; x < Width; x++)
             {
@@ -414,7 +415,7 @@ public sealed class ScanSimulator
         var u = _geometry.SampleRasterX;
         var v = _geometry.SampleRasterY;
         var samples = _samples;
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             var rng = new Pcg32(seed, (ulong)y);
             var spare = float.NaN;

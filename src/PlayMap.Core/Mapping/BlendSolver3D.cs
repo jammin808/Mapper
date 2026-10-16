@@ -3,6 +3,7 @@ using System.Text;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -148,7 +149,7 @@ public static class BlendSolver3D
         foreach (var v in views)
             v.Lumens = options.UseLumens ? (v.Projector.Lumens > 0 ? v.Projector.Lumens : meanLumens) / meanLumens : 1;
 
-        var po = new ParallelOptions { CancellationToken = cancellationToken };
+        var po = Compute.With(cancellationToken);
         // Three passes over every projector, then the finish: each pass of each projector is one step.
         var steps = 3 * views.Count + 1;
         var done = 0;

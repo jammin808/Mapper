@@ -3,6 +3,7 @@ using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Align;
 
@@ -124,7 +125,7 @@ public static class AlignSolve
         // Each output's warp to the one target.
         var warps = new WarpFitResult[input.Outputs.Count];
         var fitRms = planar.OutputRmsPx;
-        Parallel.For(0, input.Outputs.Count, new ParallelOptions { CancellationToken = ct }, j =>
+        Parallel.For(0, input.Outputs.Count, Compute.With(ct), j =>
         {
             var o = input.Outputs[j];
             var from = reference is not null && input.Rescanned?.Contains(j) == true ? fresh[j] : pairs[j];
