@@ -20,9 +20,9 @@ public sealed class CardFieldViewModel(string label) : ObservableObject
     }
 }
 
-/// <summary>A generic STATE card: a package's block of STATE with its light, its words, up to six fields and its actions,
-/// each a catalogue verb line (the card's toolbar and its right-click menu are the same list). Updated in place on every
-/// push, so a value that moves repaints only itself.</summary>
+/// <summary>A generic STATE card: a package's block of STATE with its light, its words, its fields (six on its face, the rest
+/// under "more") and its actions, each a catalogue verb line (the card's toolbar and its right-click menu are the same list).
+/// Updated in place on every push, so a value that moves repaints only itself.</summary>
 public sealed class CardViewModel : ObservableObject
 {
     private CardInstance _instance;
@@ -36,7 +36,10 @@ public sealed class CardViewModel : ObservableObject
         _instance = instance;
         Key = KeyOf(instance);
         Package = instance.Descriptor.Package;
-        Fields = [.. instance.Fields.Select(f => new CardFieldViewModel(f.Label))];
+        var fields = instance.Fields.Select(f => new CardFieldViewModel(f.Label)).ToList();
+        _all = fields;
+        Fields = [.. fields.Take(CardDescriptor.MaxFields)];
+        More = [.. fields.Skip(CardDescriptor.MaxFields)];
         var actions = new List<DeskAction>();
         for (var i = 0; i < instance.Actions.Length; i++)
         {
@@ -87,7 +90,18 @@ public sealed class CardViewModel : ObservableObject
 
     public bool HasWords => _words.Length > 0;
 
+    private readonly List<CardFieldViewModel> _all;
+
+    /// <summary>The fields on the card's face (the descriptor's first six).</summary>
     public IReadOnlyList<CardFieldViewModel> Fields { get; }
+
+    /// <summary>The descriptor's fields after the sixth, under the card's "more".</summary>
+    public IReadOnlyList<CardFieldViewModel> More { get; }
+
+    public bool HasMore => More.Count > 0;
+
+    /// <summary>"4 more".</summary>
+    public string MoreText => More.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " more";
 
     /// <summary>The card's actions (its toolbar and its right-click menu).</summary>
     public IReadOnlyList<DeskAction> Actions { get; }
@@ -101,8 +115,8 @@ public sealed class CardViewModel : ObservableObject
         Title = instance.Title;
         Light = instance.Light;
         Words = instance.Words;
-        for (var i = 0; i < Fields.Count && i < instance.Fields.Length; i++)
-            ((CardFieldViewModel)Fields[i]).Value = instance.Fields[i].Value;
+        for (var i = 0; i < _all.Count && i < instance.Fields.Length; i++)
+            _all[i].Value = instance.Fields[i].Value;
         Actions.RefreshAll();
     }
 }

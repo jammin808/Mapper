@@ -130,18 +130,32 @@
     ]
   },
   {
-    "title": "Projectors\u0027 own processing",
-    "path": "align",
-    "light": [
-      {
-        "light": "grey"
-      }
-    ],
-    "words": "the double-correction guard: {devices}",
+    "title": "Projector\u0027s own processing",
+    "path": "align.devices",
+    "each": true,
+    "label": "id",
+    "light": "light",
+    "words": "words",
     "fields": [
       {
-        "label": "Guarded devices",
-        "path": "devices"
+        "label": "Outputs",
+        "path": "outputs"
+      },
+      {
+        "label": "Read",
+        "path": "read"
+      },
+      {
+        "label": "Own geometry",
+        "path": "geometry"
+      },
+      {
+        "label": "Own blend",
+        "path": "blend"
+      },
+      {
+        "label": "Fix",
+        "path": "fix"
       }
     ],
     "actions": [

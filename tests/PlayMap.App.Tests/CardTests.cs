@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
@@ -12,9 +13,10 @@ using PlayMap.App.Views.Cards;
 namespace PlayMap.App.Tests;
 
 /// <summary>The generic STATE cards: every descriptor a package wrote is built into the desk and renders from its own
-/// fixture with its light and words; every action resolves to a catalogue line and sends it; the cards show under Health
-/// and in the inspector of the object they are about; main.json's solve, cameras and the assistant have cards, and the
-/// fake engine answers the assistant's verbs as the engine does.</summary>
+/// fixture (each scenario of a fixture of several nodes) with its light and words; every action resolves to a catalogue line
+/// and sends it; each package's fixture yields a card; the cards show under Health and in the inspector of the object they are
+/// about; main.json's solve, cameras and the assistant have cards, and the fake engine answers the assistant's verbs as the
+/// engine does.</summary>
 public class CardTests(ITestOutputHelper output)
 {
     private static JsonElement Root(string json)
@@ -23,16 +25,29 @@ public class CardTests(ITestOutputHelper output)
         return doc.RootElement.Clone();
     }
 
-    /// <summary>A package's fixture with main's laid under it (a card may read a root key main carries).</summary>
-    private static JsonElement FixtureRoot(string package)
+    /// <summary>A package's fixture (its first scenario, or the sections given) with main's laid under it (a card may read a root
+    /// key main carries).</summary>
+    internal static JsonElement FixtureRoot(string package, JsonObject? sections = null)
     {
-        var main = System.Text.Json.Nodes.JsonNode.Parse(StateFixtures.Read("main"))!.AsObject();
+        var main = JsonNode.Parse(StateFixtures.Read("main"))!.AsObject();
         if (package != "main")
         {
-            foreach (var (k, v) in System.Text.Json.Nodes.JsonNode.Parse(StateFixtures.Read(package))!.AsObject())
+            foreach (var (k, v) in sections ?? StateFixtures.Scenarios(package)[0].Sections)
                 main[k] = v?.DeepClone();
         }
         return Root(main.ToJsonString());
+    }
+
+    /// <summary>The list a per-element path names ("align.devices[]" → align.devices), or null when STATE has none there.</summary>
+    private static JsonElement? ListAt(JsonElement root, string path)
+    {
+        var node = root;
+        foreach (var part in path.TrimEnd('[', ']').Split('.'))
+        {
+            if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(part, out node))
+                return null;
+        }
+        return node;
     }
 
     [Fact]
@@ -60,28 +75,47 @@ public class CardTests(ITestOutputHelper output)
             var descriptors = CardDescriptor.BuiltIn.Where(d => d.Package == package).ToList();
             if (descriptors.Count == 0)
                 continue;
-            var root = FixtureRoot(package == "desk" ? "main" : package);
-            foreach (var d in descriptors)
+            var scenarios = StateFixtures.Scenarios(package == "desk" ? "main" : package);
+            var shown = descriptors.ToDictionary(d => d.Index, _ => 0);
+            foreach (var (scenario, sections) in scenarios)
             {
-                var cards = CardReader.Read(d, root).ToList();
-                output.WriteLine($"{package}#{d.Index} {d.Title} ({d.Path}): {cards.Count} card(s)");
-                foreach (var c in cards)
+                var root = FixtureRoot(package == "desk" ? "main" : package, sections);
+                foreach (var d in descriptors)
                 {
-                    output.WriteLine($"   [{c.Light}] {c.Title} — {c.Words} | {string.Join("; ", c.Fields.Select(f => f.Label + "=" + f.Value))} | entity {c.EntityId}");
-                    foreach (var a in c.Actions)
-                        output.WriteLine($"      {a.Label}: {a.Line ?? "(" + a.Missing + ")"}");
-                    Assert.Contains(c.Light, lights);
-                    Assert.True(c.Fields.Length <= CardDescriptor.MaxFields);
-                    foreach (var a in c.Actions)
+                    var cards = CardReader.Read(d, root).ToList();
+                    output.WriteLine($"{package}/{scenario}#{d.Index} {d.Title} ({d.Path}): {cards.Count} card(s)");
+                    foreach (var c in cards)
                     {
-                        Assert.True(a.Line is not null, $"{package} {d.Title}: '{a.Label}' does not resolve: {a.Missing}");
-                        Assert.Null(DeskVerbRuleTests.Fault(a.Line!));
+                        output.WriteLine($"   [{c.Light}] {c.Title} — {c.Words} | {string.Join("; ", c.Fields.Select(f => f.Label + "=" + f.Value))} | entity {c.EntityId}");
+                        foreach (var a in c.Actions)
+                            output.WriteLine($"      {a.Label}: {a.Line ?? "(" + a.Missing + ")"}");
+                        Assert.Contains(c.Light, lights);
+                        // Every field the descriptor names is on the card (six on its face, the rest under "more").
+                        Assert.Equal(d.Fields.Length, c.Fields.Length);
+                        // Words a descriptor gives render whole: no template left unfilled.
+                        if (d.Words.Length > 0)
+                            Assert.DoesNotContain("{", c.Words, StringComparison.Ordinal);
+                        // An action resolves to a catalogue line; one that names an element's field of a list block left empty here
+                        // ("FLEET FOCUS $(node)" with no backups) stays greyed with the words why.
+                        var emptyList = ListAt(root, d.Path) is { ValueKind: JsonValueKind.Array } block && block.GetArrayLength() == 0;
+                        foreach (var a in c.Actions)
+                        {
+                            Assert.True(a.Line is not null || (emptyList && a.Missing is not null), $"{package} {d.Title}: '{a.Label}' does not resolve: {a.Missing}");
+                            if (a.Line is not null)
+                                Assert.Null(DeskVerbRuleTests.Fault(a.Line));
+                        }
                     }
+                    shown[d.Index] += cards.Count;
+                    // A card per element shows none for an empty list: its fixture has none of them.
+                    if (cards.Count == 0 && d.Path.EndsWith("[]", StringComparison.Ordinal))
+                        Assert.True(ListAt(root, d.Path) is not { ValueKind: JsonValueKind.Array } list || list.GetArrayLength() == 0, $"{package} {d.Title}");
                 }
-                // A descriptor whose package wrote a fixture shows at least one card from it (cameras: none are open in main's).
-                if (!(package == "desk" && d.Path == "cameras[]"))
-                    Assert.NotEmpty(cards);
             }
+            // Each package's fixture yields a card, and every descriptor shows in some scenario of it unless it is a card per element
+            // of a list that fixture leaves empty (main's cameras: none are open; align's guarded devices: none are linked).
+            Assert.True(shown.Values.Sum() > 0, package + " yields no card");
+            foreach (var d in descriptors.Where(d => shown[d.Index] == 0))
+                Assert.True(d.Path.EndsWith("[]", StringComparison.Ordinal), $"{package} {d.Title} ({d.Path}) shows no card from its fixture");
         }
     }
 
@@ -99,8 +133,11 @@ public class CardTests(ITestOutputHelper output)
         Assert.Equal("PANIC black by Desk", panic.Words);
         Assert.Equal("3 locks", cards.Single(c => c.Descriptor.Path == "show.locks").Words);
         var preflight = cards.Single(c => c.Descriptor.Path == "show.preflight");
-        Assert.Equal("red", preflight.Light);
-        Assert.Equal("3 green · 0 amber · 1 red · show-ready 4/5", preflight.Words);
+        var run = show.GetProperty("show").GetProperty("preflight");
+        Assert.Equal(run.GetProperty("light").GetString(), preflight.Light);
+        Assert.Equal(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{run.GetProperty("green").GetInt32()} green · {run.GetProperty("amber").GetInt32()} amber · {run.GetProperty("red").GetInt32()} red · show-ready {run.GetProperty("ready").GetString()}"),
+            preflight.Words);
 
         // A per-element card per output; its action names that output.
         var outputs = CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == "output"), FixtureRoot("output"));
@@ -157,6 +194,76 @@ public class CardTests(ITestOutputHelper output)
         Assert.Empty(CardReader.Read(d, Root("""{"y":{}}""")));
     }
 
+    /// <summary>The descriptors new to the desk read their fixtures as their packages mean them: the hot backup's (a light from a
+    /// state with its own words per light, a fixed light, one fixture per node), facade's and align's blocks owned by a list element
+    /// (their actions name the element, their cards sit in its inspector), multiscan's lines naming the scan they sit in, the decode
+    /// path's words and fields past the sixth, the frame lock's words as lights, videoio's per-element cards.</summary>
+    [Fact]
+    public void TheNewPackagesCardsReadTheirFixturesAsTheyMeanThem()
+    {
+        IEnumerable<CardInstance> Read(string package, string? scenario = null)
+        {
+            var sections = scenario is null ? null : StateFixtures.Scenarios(package).Single(x => x.Name == scenario).Sections;
+            return CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == package), FixtureRoot(package, sections));
+        }
+
+        // backup: the mirror's light from its state ("identical" green; "lost" red; a state the descriptor names no light for reads
+        // as the engine lights it: "joining" amber), a fixed light, and each scenario's own cards.
+        var mirror = Read("backup", "backup").Single(c => c.Descriptor.Path == "fleet.mirror");
+        Assert.Equal(("green", "same show (rev 4), clock, transports and air as FOH-A"), (mirror.Light, mirror.Words));
+        Assert.Equal(["FAILOVER", "FLEET SOLO", "PREFLIGHT QUICK"], mirror.Actions.Select(a => a.Line ?? "").ToArray());
+        foreach (var (state, light) in new[] { ("lost", "red"), ("joining", "amber"), ("identical", "green") })
+        {
+            var root = Root("""{"fleet":{"mirror":{"of":"0badc0de","name":"FOH-A","state":"STATE","rev":4,"behindRev":1,"words":"w"}}}""".Replace("STATE", state, StringComparison.Ordinal));
+            Assert.Equal(light, CardReader.Read(mirror.Descriptor, root).Single().Light);
+        }
+        Assert.DoesNotContain(Read("backup", "primary"), c => c.Descriptor.Path == "fleet.mirror");
+        var backups = Read("backup", "primary").Single(c => c.Descriptor.Path == "fleet.backups");
+        Assert.Equal(("green", "1 hot backups", "FLEET FOCUS 9f8e7d6c"), (backups.Light, backups.Words, backups.Actions[0].Line));
+        var last = Read("backup", "takenOver").Single(c => c.Descriptor.Path == "fleet.last");
+        Assert.Equal("green", last.Light);
+        Assert.Equal("grey", Read("backup", "fenced").Single(c => c.Descriptor.Path == "fleet.routes").Light);
+
+        // facade: the uncertainty block is the first projector's — its actions name it and its card sits in its inspector.
+        var uncertainty = Read("facade").Single(c => c.Descriptor.Path == "stage.projectors.0.uncertainty");
+        Assert.Equal(("amber", "pj_fixture1"), (uncertainty.Light, uncertainty.EntityId));
+        Assert.Equal("PROJECTOR SOLVE pj_fixture1", uncertainty.Actions[0].Line);
+        Assert.StartsWith("on the wall ±0.781 px", uncertainty.Words, StringComparison.Ordinal);
+        // align: the measured correction is the first output's; a guarded device would have a card of its own.
+        Assert.Equal("op1", Read("align").Single(c => c.Descriptor.Path == "outputs.0.measured").EntityId);
+        var guard = CardDescriptor.BuiltIn.Single(d => d.Package == "align" && d.Path == "align.devices[]");
+        var device = CardReader.Read(guard, Root("""{"align":{"devices":[{"id":"dv1","outputs":["op1"],"read":true,"geometry":true,"blend":false,"at":1,"light":"amber","words":"own geometry is on while PlayMap corrects op1","fix":"DEVICE RAW dv1 VXX:GMMI0=+00000"}]}}""")).Single();
+        Assert.Equal(("amber", "own geometry is on while PlayMap corrects op1", "DEVICE NATIVE dv1", "dv1"), (device.Light, device.Words, device.Actions[0].Line, device.EntityId));
+
+        // multiscan: a region's lines name the scan it sits in; a suggestion waits for APPROVE of its proposal.
+        var region = Read("phonescan").Single(c => c.Descriptor.Path == "scan.regions.0");
+        Assert.Equal("SCAN SURFACE sc_fixture1 REGION rg1", region.Actions[0].Line);
+        Assert.Equal("APPROVE ap1", Read("phonescan").Single(c => c.Descriptor.Path == "scan.suggestions.0").Actions[0].Line);
+
+        // decode: the platform's words name the GL binding's decode path; every field is on the card, the ones past six under "more".
+        using (var doc = JsonDocument.Parse(StateFixtures.Read("decode")))
+        {
+            var platform = doc.RootElement.GetProperty("decode").GetProperty("platform");
+            var card = Read("decode").Single(c => c.Descriptor.Path == "decode.platform");
+            Assert.Equal(platform.GetProperty("words").GetString(), card.Words);
+            Assert.Equal(platform.GetProperty("zeroCopy").GetString(), card.Fields.Single(f => f.Label == "Zero-copy").Value);
+            Assert.Equal(platform.GetProperty("why").GetString(), card.Fields.Single(f => f.Label == "Why not").Value);
+            Assert.True(card.Fields.ToList().FindIndex(f => f.Label == "Why not") >= CardDescriptor.MaxFields);
+        }
+
+        // output and d3d11: the frame lock's words light as the engine's context lights them; each output's latency and present path.
+        Assert.All(Read("output").Where(c => c.Descriptor.Path is "outputs[].lock" or "sync.lock"), c => Assert.Equal("green", c.Light));
+        var present = Read("output").First(c => c.Descriptor.Path == "outputs[].present");
+        Assert.Equal("33 ms", present.Fields.Single(f => f.Label == "Latency").Value);
+        Assert.Equal("offscreen", Read("output").Single(c => c.Descriptor.Path == "machine.present").Fields.Single(f => f.Label == "Path").Value);
+
+        // videoio: a card per input and send, each lit by its own state ("connecting" is not measured yet: grey).
+        var inputs = Read("videoio").Where(c => c.Descriptor.Path == "videoio.inputs[]").ToList();
+        Assert.Equal([("input_1", "green"), ("input_2", "grey")], inputs.Select(c => (c.EntityId!, c.Light)).ToArray());
+        Assert.Equal("INPUT RECONNECT input_2", inputs[1].Actions[0].Line);
+        Assert.Equal("green", Read("videoio").Single(c => c.Descriptor.Path == "videoio.sends[]").Light);
+    }
+
     [AvaloniaFact]
     public async Task UnderHealthEveryCardShowsItsLightAndWordsAndEachActionSendsItsLine()
     {
@@ -176,7 +283,15 @@ public class CardTests(ITestOutputHelper output)
             Assert.Equal(LightBrushConverter.Brushes.For(card.Light), light.Fill);
             if (card.HasWords)
                 Assert.Equal(card.Words, view.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "CardWords").Text);
+            // Six fields on the face; the descriptor's others under "more", none dropped.
+            Assert.Equal(card.Instance.Descriptor.Fields.Length, card.Fields.Count + card.More.Count);
+            Assert.True(card.Fields.Count <= CardDescriptor.MaxFields);
+            var more = view.GetVisualDescendants().OfType<Expander>().Single(e => e.Name == "CardMore");
+            Assert.Equal(card.HasMore, more.IsVisible);
+            if (card.HasMore)
+                Assert.Equal(card.More.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " more", more.Header);
         }
+        Assert.Contains(shown, c => c.HasMore);
 
         // Each action button sends its line, as the wire, MCP and Companion would.
         var sent = 0;

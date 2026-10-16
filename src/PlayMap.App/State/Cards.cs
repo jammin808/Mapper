@@ -14,13 +14,13 @@ public sealed record CardFieldSpec(string Label, string Path, string Unit);
 public sealed record CardActionSpec(string Label, string Line);
 
 /// <summary>A package's description of one STATE block as a card (tests/fixtures/state/&lt;pkg&gt;.cards.json and the README
-/// there): its title, its path (<c>a.b</c>, <c>a.0</c>, <c>a[]</c> for one card per element), the light, the words, up to
-/// six fields and its actions as verb lines. Read tolerantly: every dialect the packages wrote reads, an entry without a
-/// path is skipped.</summary>
+/// there): its title, its path (<c>a.b</c>, <c>a.0</c>, <c>a[]</c> for one card per element), the light, the words, its fields
+/// (the first six on the card's face, the rest under "more") and its actions as verb lines. Read tolerantly: every dialect the
+/// packages wrote reads, an entry without a path is skipped.</summary>
 public sealed record CardDescriptor(string Package, int Index, string Title, string Path, string? LabelField, string? KeyField,
     JsonElement Light, string Words, ImmutableArray<CardFieldSpec> Fields, ImmutableArray<CardActionSpec> Actions)
 {
-    /// <summary>The fields a card shows at most.</summary>
+    /// <summary>The fields on a card's face; the rest are under its "more".</summary>
     public const int MaxFields = 6;
 
     public static ImmutableArray<CardDescriptor> ParseFile(string package, string json)
@@ -118,8 +118,10 @@ public sealed record CardInstance(CardDescriptor Descriptor, string Key, string 
 /// cards.</summary>
 public static partial class CardReader
 {
-    /// <summary>Where a card instance sits: the block, the elements above it (innermost last) and the root.</summary>
-    private sealed record Scope(JsonElement Root, JsonElement Node, ImmutableArray<JsonElement> Elements, string NormalisedPath);
+    /// <summary>Where a card instance sits: the block, the elements above it (innermost last), every object the path passed
+    /// through below the root (its owners, innermost last, each with the key it was reached by, "" for an element) and the root.</summary>
+    private sealed record Scope(JsonElement Root, JsonElement Node, ImmutableArray<JsonElement> Elements, string NormalisedPath,
+        ImmutableArray<(string Name, JsonElement Node)> Owners);
 
     public static IEnumerable<CardInstance> Read(CardDescriptor d, JsonElement root)
     {
@@ -129,16 +131,16 @@ public static partial class CardReader
 
     private static IEnumerable<CardInstance> ReadCore(CardDescriptor d, JsonElement root)
     {
-        foreach (var (node, elements, key) in Expand(root, d.Path.Split('.'), 0, root, [], ""))
+        foreach (var (node, elements, key, owners) in Expand(root, d.Path.Split('.'), 0, root, [], "", []))
         {
             if (node.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined or JsonValueKind.False)
                 continue;
-            var scope = new Scope(root, node, elements, d.Path);
+            var scope = new Scope(root, node, elements, d.Path, owners);
             var element = elements.IsEmpty ? (JsonElement?)null : elements[^1];
             // A per-element card is titled by its label field, or by the element's own name.
             var label = element is { } el ? Text(Get(el, d.LabelField ?? "name")) : null;
             var title = label is { Length: > 0 } && label != "—" ? d.Title + " · " + label : d.Title;
-            var fields = d.Fields.Take(CardDescriptor.MaxFields)
+            var fields = d.Fields
                 .Select(f => (f.Label, Value: Text(Resolve(f.Path, scope)) is var v && v != "—" && f.Unit.Length > 0 ? v + " " + f.Unit : Text(Resolve(f.Path, scope))))
                 .ToImmutableArray();
             var actions = d.Actions.Select(a => ResolveLine(a, scope, d)).ToImmutableArray();
@@ -150,14 +152,20 @@ public static partial class CardReader
     public static ImmutableArray<CardInstance> ReadAll(IEnumerable<CardDescriptor> descriptors, JsonElement root) =>
         [.. descriptors.SelectMany(d => Read(d, root))];
 
-    private static IEnumerable<(JsonElement Node, ImmutableArray<JsonElement> Elements, string Key)> Expand(
-        JsonElement root, string[] parts, int at, JsonElement node, ImmutableArray<JsonElement> elements, string key)
+    private static IEnumerable<(JsonElement Node, ImmutableArray<JsonElement> Elements, string Key, ImmutableArray<(string Name, JsonElement Node)> Owners)> Expand(
+        JsonElement root, string[] parts, int at, JsonElement node, ImmutableArray<JsonElement> elements, string key,
+        ImmutableArray<(string Name, JsonElement Node)> owners)
     {
         if (at == parts.Length)
         {
-            yield return (node, elements, key);
+            yield return (node, elements, key, owners);
             yield break;
         }
+        // The node this step leaves is an owner of what is below it (the root is not: its fields are the node's own), named by the
+        // key it was reached by ("scan"), or "" when it is an element of a list.
+        var reachedBy = at == 0 ? "" : parts[at - 1];
+        var ownerName = reachedBy.EndsWith("[]", StringComparison.Ordinal) || int.TryParse(reachedBy, NumberStyles.None, CultureInfo.InvariantCulture, out _) ? "" : reachedBy;
+        var below = at == 0 || node.ValueKind != JsonValueKind.Object ? owners : owners.Add((ownerName, node));
         var part = parts[at];
         var many = part.EndsWith("[]", StringComparison.Ordinal);
         var name = many ? part[..^2] : part;
@@ -166,7 +174,7 @@ public static partial class CardReader
             yield break;
         if (!many)
         {
-            foreach (var r in Expand(root, parts, at + 1, n, elements, key))
+            foreach (var r in Expand(root, parts, at + 1, n, elements, key, below))
                 yield return r;
             yield break;
         }
@@ -176,7 +184,7 @@ public static partial class CardReader
         foreach (var e in n.EnumerateArray())
         {
             var id = Text(Get(e, "id")) is { } s && s != "—" ? s : i.ToString(CultureInfo.InvariantCulture);
-            foreach (var r in Expand(root, parts, at + 1, e, elements.Add(e), key.Length == 0 ? id : key + "/" + id))
+            foreach (var r in Expand(root, parts, at + 1, e, elements.Add(e), key.Length == 0 ? id : key + "/" + id, below))
                 yield return r;
             i++;
         }
@@ -286,20 +294,41 @@ public static partial class CardReader
         _ => 0,
     };
 
-    /// <summary>A word as a light: the four light words, and the common state words of the packages' STATE.</summary>
+    /// <summary>A word as a light: the four light words, and the common state words of the packages' STATE — the frame lock's
+    /// and a hot backup's mirror's as the engine lights them in its context.</summary>
     public static string LightWord(string word)
     {
         ArgumentNullException.ThrowIfNull(word);
         return word.ToLowerInvariant() switch
         {
-            "green" or "ok" or "good" or "live" or "ready" or "locked" or "listening" or "rolling" or "done" or "playing" => "green",
-            "amber" or "yellow" or "warn" or "warning" or "stale" or "acquiring" or "opening" or "fair" or "running" or "busy" => "amber",
-            "red" or "fault" or "faulted" or "failed" or "error" or "lost" or "down" or "missing" or "poor" or "bad" => "red",
+            "green" or "ok" or "good" or "live" or "ready" or "locked" or "listening" or "rolling" or "done" or "playing"
+                or "framelocked" or "house-locked" or "identical" => "green",
+            "amber" or "yellow" or "warn" or "warning" or "stale" or "acquiring" or "opening" or "fair" or "running" or "busy"
+                or "joining" or "soft-locked" or "grouped" or "free-measured" or "resyncing" or "different" => "amber",
+            "red" or "fault" or "faulted" or "failed" or "error" or "lost" or "down" or "missing" or "poor" or "bad" or "fell-out" => "red",
             _ => "grey",
         };
     }
 
     private static string Worst(IEnumerable<string> lights) => lights.DefaultIfEmpty("grey").MaxBy(Rank)!;
+
+    /// <summary>The light a "from" rule names for a value (<c>{"from": "state", "green": "identical", "red": ["lost"]}</c>: a word
+    /// or a list of them per light), or null when it names none for it.</summary>
+    private static string? Mapped(JsonElement rule, JsonElement value)
+    {
+        var text = Text(value);
+        foreach (var light in (string[])["red", "amber", "green", "grey"])
+        {
+            if (!rule.TryGetProperty(light, out var listed))
+                continue;
+            if (listed.ValueKind == JsonValueKind.String && listed.GetString() == text)
+                return light;
+            if (listed.ValueKind == JsonValueKind.Array && listed.EnumerateArray().Any(x => x.GetRawText() == value.GetRawText()
+                || (x.ValueKind == JsonValueKind.String && x.GetString() == text)))
+                return light;
+        }
+        return null;
+    }
 
     private static string LightOf(JsonElement spec, Scope s)
     {
@@ -328,11 +357,13 @@ public static partial class CardReader
                             return light;
                         continue;
                     }
+                    if (rule.TryGetProperty("fixed", out var fixedLight) && fixedLight.ValueKind == JsonValueKind.String)
+                        return LightWord(fixedLight.GetString() ?? "");
                     if (rule.TryGetProperty("from", out var from) && from.ValueKind == JsonValueKind.String)
                     {
                         var got = Resolve(from.GetString() ?? "", s);
                         if (got.Count > 0)
-                            return Worst(got.Select(v => LightWord(Text(v))));
+                            return Worst(got.Select(v => Mapped(rule, v) ?? LightWord(Text(v))));
                         continue;
                     }
                     if (light is not null)
@@ -442,13 +473,16 @@ public static partial class CardReader
         return missing is null ? new CardAction(a.Label, line, null) : new CardAction(a.Label, null, "STATE has no " + missing + " for this card");
     }
 
-    /// <summary>A field an action names: the block's own, then the elements' above it (innermost first), then the first
-    /// element of a block that is a list; "id" falls back to the descriptor's key field.</summary>
+    /// <summary>A field an action names: the block's own, then the elements' above it (innermost first), then the first element of a
+    /// block that is a list, then the objects that own the block (innermost first: "stage.projectors.0.uncertainty" reads the
+    /// projector's id); "id" falls back to the descriptor's key field. A name no place holds as a field names the owner reached by
+    /// that key: <c>$(scan)</c> in "scan.regions.0" is the scan's id.</summary>
     private static string? Field(string name, Scope s, CardDescriptor d)
     {
         IEnumerable<JsonElement> places = [s.Node, .. s.Elements.Reverse()];
         if (s.Node.ValueKind == JsonValueKind.Array && s.Node.GetArrayLength() > 0)
             places = places.Append(s.Node[0]);
+        places = places.Concat(s.Owners.Reverse().Select(o => o.Node));
         foreach (var p in places)
         {
             if (p.ValueKind == JsonValueKind.Object && Get(p, name) is { ValueKind: JsonValueKind.String or JsonValueKind.Number } v)
@@ -456,13 +490,20 @@ public static partial class CardReader
             if (name == "id" && d.KeyField is { } k && p.ValueKind == JsonValueKind.Object && Get(p, k) is { ValueKind: JsonValueKind.String } kv)
                 return kv.GetString();
         }
+        foreach (var (key, node) in s.Owners.Reverse())
+        {
+            if (key == name && Get(node, "id") is { ValueKind: JsonValueKind.String } id)
+                return id.GetString();
+        }
         return null;
     }
 
-    /// <summary>The entity a card is about, for the inspector: the element's id (or its key field), else the block's id.</summary>
+    /// <summary>The entity a card is about, for the inspector: the element's id (or its key field), else the block's id, else the
+    /// id of the list element that owns the block ("outputs.0.measured" is the output's, "stage.projectors.0.uncertainty" the
+    /// projector's).</summary>
     private static string? EntityOf(Scope s, CardDescriptor d)
     {
-        foreach (var p in (IEnumerable<JsonElement>)[.. s.Elements.Reverse(), s.Node])
+        foreach (var p in (IEnumerable<JsonElement>)[.. s.Elements.Reverse(), s.Node, .. s.Owners.Reverse().Where(o => o.Name.Length == 0).Select(o => o.Node)])
         {
             if (p.ValueKind != JsonValueKind.Object)
                 continue;
