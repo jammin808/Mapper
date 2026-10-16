@@ -549,6 +549,80 @@ public sealed class PackUnpackTests(GlFixture gl)
         });
     }
 
+    /// <summary>A pass that replaces one layer's picture with a green one (an effect chain on it): it runs wherever the layer's picture
+    /// is made with the frame's passes.</summary>
+    private sealed class GreenLayer(GpuTexture green, string layerId) : IFramePass
+    {
+        public string Name => "test.green";
+
+        public int Order => 100;
+
+        public GpuTexture Layer(in PassFrame frame, Layer layer, GpuTexture picture) => layer.Id == layerId ? green : picture;
+
+        public void Dispose()
+        {
+            // The texture is the test's.
+        }
+    }
+
+    [Fact]
+    public void ASafeLookOrPatternOnASendIsDrawnAsTheOutputsDrawItThroughNoPass()
+    {
+        const int w = 64, h = 36;
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            using var green = c.Device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
+            c.Device.Upload(green, [0, 255, 0, 255], UploadFormat.Rgba8);
+            var show = new Canvas("cv_1", "Card", w, h, "#000000",
+                [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            // The look a panic shows (or the pattern the air shows): a canvas whose layer carries an effect in the show.
+            var look = new Canvas("cv_look", "Look", w, h, "#000000",
+                [new Layer("ly_look", "red", SourceRef.Solid("#FF0000"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            var project = Scene.Project([], [Scene.SourceOutput("op_1", SourceRef.Canvas("cv_1"), w, h)], [show, look]);
+            var sink = new TestSink(hold: false);
+            var send = new SendPlanEntry
+            {
+                Id = "sd_c", Name = "sd_c", Kind = SendTapKind.Canvas, Target = "cv_1", Width = w, Height = h, Format = SendFormat.Bgra8,
+                FpsN = 60, FpsD = 1, Fit = SendFit.Fit, Sink = sink, FollowAir = true,
+            };
+            using var stage = new SendStage(engine) { Plan = [send] };
+            using var effect = new GreenLayer(green, "ly_look");
+            var passes = ImmutableArray.Create<IFramePass>(effect, stage);
+            var i = 0L;
+            var centre = ((h / 2) * w + w / 2) * 4;
+            var shown = new byte[w * h * 4];
+            // Two frames of the 60 Hz grid; answers the output's centre pixel and the send's.
+            (byte[] Output, byte[] Send) Frames(IAirLevels? levels = null, SourceRef? pattern = null)
+            {
+                for (var k = 0; k < 2; k++)
+                {
+                    i++;
+                    engine.Render(Scene.Inputs(project) with
+                    {
+                        Passes = passes, Levels = levels, PatternOverride = pattern, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9),
+                    });
+                    c.Device.Finish();
+                }
+                Assert.True(engine.ReadOutput("op_1", shown));
+                return (shown[centre..(centre + 4)], sink.Frames[^1][centre..(centre + 4)]);
+            }
+            var (output, sent) = Frames();
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], output);
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], sent);
+            // The safe look on every output: the output draws it as its source is, through no chain, and so does the send.
+            (output, sent) = Frames(new FixedLevels(1f, SourceRef.Canvas("cv_look")));
+            Assert.Equal([0x00, 0x00, 0xFF, 0xFF], output);
+            Assert.Equal(output, sent);
+            // The same for the air's test pattern.
+            (output, sent) = Frames(pattern: SourceRef.Canvas("cv_look"));
+            Assert.Equal([0x00, 0x00, 0xFF, 0xFF], output);
+            Assert.Equal(output, sent);
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
     [Fact]
     public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
     {

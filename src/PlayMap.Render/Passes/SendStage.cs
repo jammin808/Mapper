@@ -314,7 +314,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster (after its output stage:
     /// warp, mask, blend, the measured correction, trim), so blackout, a test pattern or a safe look on it, its gain and a hold reach
     /// the send exactly as they reach the output; a disabled output, and one on a raw frame, sends black. A canvas or source tap that
-    /// follows the air is black in blackout and shows the air's test pattern or safe look while it covers every output.</summary>
+    /// follows the air is black in blackout and shows the air's test pattern or safe look while it covers every output, drawn as the
+    /// outputs draw it: as its source is, through no pass.</summary>
     private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
     {
         fit = entry.Fit;
@@ -322,11 +323,12 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         {
             if (frame.Blackout || _airBlack)
                 return null;
-            // What every output shows instead of the show, stretched over the whole picture as the output stage stretches it.
+            // What every output shows instead of the show, drawn as the outputs draw it (through no pass) and stretched over the whole
+            // picture as the output stage stretches it.
             if ((_airSafe ?? _airPattern) is { IsNone: false } look)
             {
                 fit = SendFit.Stretch;
-                return renderer.SourcePicture(look, entry.Width, entry.Height);
+                return renderer.LookPicture(look, entry.Width, entry.Height);
             }
         }
         return entry.Kind switch

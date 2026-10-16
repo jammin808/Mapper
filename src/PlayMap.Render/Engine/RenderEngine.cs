@@ -444,6 +444,15 @@ public sealed class RenderEngine : IDisposable
         return source.IsNone ? null : _sources.Resolve(source, width, height, GeneratorContext.None);
     }
 
+    /// <summary>What the air shows instead of the show (a safe look, a test pattern) at a size, for a pass that taps it: resolved as
+    /// an output resolves it, through no pass (a canvas or playlist in it composed or mixed without its layers' and items' calls).
+    /// Render thread, during a frame.</summary>
+    public GpuTexture? LookPicture(SourceRef look, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(look);
+        return look.IsNone ? null : _sources.ResolvePlain(look, width, height, GeneratorContext.None);
+    }
+
     /// <summary>A raw picture over the whole raster: the identity warp, no mask, blend or lens, a neutral trim,
     /// no rotation and no dither, so an 8-bit code in is the same code out at the same pixel.</summary>
     private void DrawRaw(Output output, OutputState st, SourceRef raw)
