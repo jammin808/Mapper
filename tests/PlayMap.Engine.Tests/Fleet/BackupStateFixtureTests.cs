@@ -16,7 +16,8 @@ namespace PlayMap.Engine.Tests.Fleet;
 /// What moves between runs (times, ids, milliseconds, the other machines' health) is set to fixed values.</summary>
 public sealed partial class BackupStateFixtureTests
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    /// <summary>The fixtures' own text (lines ended by "\n" on every platform), with the words' dashes and arrows written as they are.</summary>
+    private static readonly JsonSerializerOptions Indented = new(FixtureJson.Indented) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 
