@@ -539,7 +539,10 @@ public sealed class VideoIoHub : IDisposable
             }
             if (slot.Sink is not null && (slot.MadeFor != send.Protocol || slot.Spec is { } old
                 && (old.Name != spec.Name || old.Format != spec.Format || old.Width != spec.Width || old.Height != spec.Height)))
-                CloseSink(slot);
+            {
+                // The same name on the same protocol goes on at once from the new sender: its receivers get no black between.
+                CloseSink(slot, black: slot.MadeFor != send.Protocol || slot.Spec?.Name != spec.Name);
+            }
             if (slot.Sink is null)
             {
                 try
@@ -598,13 +601,17 @@ public sealed class VideoIoHub : IDisposable
         && e.Format == shape.Format && e.FpsN == shape.FpsN && e.FpsD == shape.FpsD && e.Fit == send.Fit
         && e.OnlyWhenWatched == send.OnlyWhenWatched && e.FollowAir == send.FollowAir && e.Name == send.Name;
 
-    private static void CloseSink(SendSlot slot)
+    /// <summary>Stops a send's sender: the render thread offers it nothing more, and a network sender sends one black frame before
+    /// it closes (<paramref name="black"/>), as a stopped output goes dark.</summary>
+    private static void CloseSink(SendSlot slot, bool black = true)
     {
         if (slot.Plan is { } entry)
             entry.Sink = null;
         if (slot.Sink is { } sink)
         {
             slot.Sink = null;
+            if (sink is PlayMap.Media.Video.SendSink network)
+                network.BlackOnStop = black;
             sink.Dispose();
         }
         slot.Spec = null;

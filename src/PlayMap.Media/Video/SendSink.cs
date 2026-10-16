@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using PlayMap.Core.Media;
+using PlayMap.Core.Model;
 
 namespace PlayMap.Media.Video;
 
@@ -8,7 +10,9 @@ namespace PlayMap.Media.Video;
 /// hands each frame to <see cref="Transmit"/>; a protocol that keeps reading the frame's memory after the call returns (NDI's
 /// asynchronous send) says so and the frame is released at the protocol's next synchronising call, otherwise at once. Every
 /// 250 ms, frames or not, the worker asks the protocol for its connections and tally (<see cref="Refresh"/>). The render thread only
-/// offers; it never waits on the network.</summary>
+/// offers; it never waits on the network. A sender that stops after sending sends one black frame of its last shape first (unless
+/// <see cref="BlackOnStop"/> is cleared), so a receiver that keeps the last frame of a source that went keeps black, as a stopped
+/// node's outputs and LED rig go dark.</summary>
 public abstract class SendSink : ISendSink
 {
     private const int RefreshMs = 250;
@@ -24,6 +28,7 @@ public abstract class SendSink : ISendSink
     private SendFrame? _pending;
     private SendFrame? _held;
     private long _heldSince;
+    private (int Width, int Height, int Stride, SendFormat Format, long LeaderNs, int FpsN, int FpsD)? _last;
     private long _sent;
     private long _dropped;
     private long _bytes;
@@ -43,6 +48,10 @@ public abstract class SendSink : ISendSink
 
     /// <summary>What the sender was last asked to send.</summary>
     public SendSpec Spec { get; private set; }
+
+    /// <summary>Whether stopping sends one black frame first (true): cleared by the owner when the same name goes on at once from
+    /// another sender (a new format or size), so its receivers see no black between the two.</summary>
+    public bool BlackOnStop { get; set; } = true;
 
     public abstract string FullName { get; }
 
@@ -171,7 +180,24 @@ public abstract class SendSink : ISendSink
             _held = null;
             held.Release();
         }
+        if (BlackOnStop && _last is { } last)
+            SendBlack(last);
         Close();
+    }
+
+    /// <summary>Worker thread, as the sender stops: one black frame of the last frame's shape, one period after it on the leader's
+    /// grid, sent and let go before the sender closes.</summary>
+    private void SendBlack((int Width, int Height, int Stride, SendFormat Format, long LeaderNs, int FpsN, int FpsD) last)
+    {
+        var period = last.FpsN > 0 && last.FpsD > 0 ? 1_000_000_000L * last.FpsD / last.FpsN : 0;
+        var black = BlackFrame.Make(last.Width, last.Height, last.Stride, last.Format, last.LeaderNs + period, last.FpsN, last.FpsD);
+        Send(black);
+        if (_held is { } kept)
+        {
+            FlushQuietly();
+            _held = null;
+            kept.Release();
+        }
     }
 
     private void Send(SendFrame frame)
@@ -203,6 +229,7 @@ public abstract class SendSink : ISendSink
         }
         else
             frame.Release();
+        _last = (frame.Width, frame.Height, frame.Stride, frame.Format, frame.LeaderNs, frame.FpsN, frame.FpsD);
         Interlocked.Increment(ref _sent);
         Interlocked.Add(ref _bytes, frame.Bytes);
         Interlocked.Add(ref _windowBytes, frame.Bytes);
@@ -276,5 +303,76 @@ public abstract class SendSink : ISendSink
     {
         Dispose(true);
         GC.SuppressFinalize(this);
+    }
+}
+
+/// <summary>A black wire frame (BT.709 limited range: Y 16, Cb and Cr 128; ×256 at 16 bits; alpha opaque; BGRA 0,0,0,255) in memory
+/// of its own, freed at <see cref="Release"/>: what the pack pass packs from its black picture, made once as a sender stops.</summary>
+internal sealed unsafe class BlackFrame : SendFrame
+{
+    private int _released;
+
+    private BlackFrame()
+    {
+    }
+
+    public static BlackFrame Make(int width, int height, int stride, SendFormat format, long leaderNs, int fpsN, int fpsD)
+    {
+        var layout = format switch
+        {
+            SendFormat.Uyvy => PixelLayout.Uyvy,
+            SendFormat.Uyva => PixelLayout.Uyva,
+            SendFormat.P216 => PixelLayout.P216,
+            SendFormat.Pa16 => PixelLayout.Pa16,
+            _ => PixelLayout.Bgra8,
+        };
+        var bytes = (int)(layout == PixelLayout.Bgra8 ? 4L * width * height : LivePlanes.FrameBytes(layout, width, height));
+        var data = (byte*)NativeMemory.Alloc((nuint)Math.Max(1, bytes));
+        var span = new Span<byte>(data, bytes);
+        var frame = new BlackFrame
+        {
+            Data = (nint)data,
+            Bytes = bytes,
+            Stride = stride,
+            Width = width,
+            Height = height,
+            Format = format,
+            LeaderNs = leaderNs,
+            FpsN = fpsN,
+            FpsD = fpsD,
+        };
+        if (layout == PixelLayout.Bgra8)
+        {
+            Fill(span, [0, 0, 0, 255]);
+            return frame;
+        }
+        var plane = 2 * width * height;
+        if (LivePlanes.IsDeep(layout))
+        {
+            // Y 16·256 and CbCr 128·256 as little-endian samples; alpha 65535.
+            Fill(span[..plane], [0x00, 0x10]);
+            Fill(span.Slice(plane, plane), [0x00, 0x80]);
+            if (LivePlanes.HasAlpha(layout))
+                span[(2 * plane)..].Fill(0xFF);
+            return frame;
+        }
+        Fill(span[..plane], [128, 16, 128, 16]);
+        if (LivePlanes.HasAlpha(layout))
+            span[plane..].Fill(255);
+        return frame;
+    }
+
+    private static void Fill(Span<byte> span, ReadOnlySpan<byte> pattern)
+    {
+        for (var i = 0; i + pattern.Length <= span.Length; i += pattern.Length)
+            pattern.CopyTo(span[i..]);
+    }
+
+    public bool IsReleased => Volatile.Read(ref _released) != 0;
+
+    public override void Release()
+    {
+        if (Interlocked.Exchange(ref _released, 1) == 0)
+            NativeMemory.Free((void*)Data);
     }
 }

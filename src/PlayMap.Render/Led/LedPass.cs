@@ -85,7 +85,8 @@ public sealed class LedPass : IFramePass
 
     public string Name => "led";
 
-    /// <summary>After every other pass's FrameEnd (sends tap the outputs too, and nothing here changes a picture).</summary>
+    /// <summary>After every pass that changes a picture, before the sends (1 000): neither the LED pass nor a send changes a picture, so
+    /// each reads the outputs as the frame drew them, whichever runs first.</summary>
     public int Order => 900;
 
     /// <summary>Where frames go (null: the passes do not run).</summary>

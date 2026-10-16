@@ -339,7 +339,9 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         Array.Fill(frames[^1].Bytes, (byte)0xEE);
         sink.Dispose();
         Assert.Equal(0, _fake.Stats().LifetimeViolations);
-        Assert.Equal(6, sink.Stats.Sent);
+        // The six, then the black frame a stopping sender sends before it closes (released at its synchronising send of nothing).
+        Assert.Equal(7, sink.Stats.Sent);
+        Assert.Equal(7, _fake.Stats().FramesSent);
     }
 
     [NdiFact]

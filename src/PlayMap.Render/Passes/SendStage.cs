@@ -120,7 +120,9 @@ public sealed class SendPlanEntry
 /// plan, finished read-backs are offered to its sender; a frame due on the leader-time grid is tapped (an output's final picture, a
 /// canvas, a source), scaled, packed and queued for read-back — unless nobody watches and the send packs only for watchers (counted,
 /// no GPU work), or every read-back slot is still with the sender (counted busy). An output tap that has no picture this frame (an
-/// output disabled, or not drawn) sends black (counted blank). A canvas or source tap that follows the air takes what the outputs do
+/// output disabled, or not drawn) sends black (counted blank), and so does one whose output shows a raw frame (a scan or an align
+/// run's measurement pattern, not the show: that output's LED fixtures go dark too, and a send's light must not spoil the camera's
+/// capture either). A canvas or source tap that follows the air takes what the outputs do
 /// to the show (<see cref="ReadAir"/>): black in blackout, the live show at the brightest gain of the outputs that show it, a hold
 /// when none does and one holds, the pattern or safe look when every output shows it, black for a mixed plan. A send too large for
 /// this GPU's textures is refused in words before anything is made for it. Render thread; never blocks; nothing is allocated per
@@ -141,11 +143,15 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 
     public string Name => "videoio.sends";
 
-    /// <summary>After every other pass: a send carries what the air shows.</summary>
+    /// <summary>After every pass that changes a picture (the overlay draws in its final call, before any FrameEnd): a send carries
+    /// what the air shows.</summary>
     public int Order => 1_000;
 
     /// <summary>The plan this frame runs (set by the render host each frame from the published plan; a struct copy).</summary>
     public System.Collections.Immutable.ImmutableArray<SendPlanEntry> Plan { get; set; } = [];
+
+    /// <summary>The outputs showing a raw frame this frame (scan and align runs); set by the render host before each frame.</summary>
+    public Engine.IRawOutputs? Raw { get; set; }
 
     /// <summary>Whether anything is still held for a send (a ring with frames out, or retiring).</summary>
     public bool Busy => _rings.Count > 0 || _retiring.Count > 0;
@@ -213,7 +219,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         }
     }
 
-    /// <summary>What the air does to the show this frame, decided per enabled output as the output decides it — a hold first (FREEZE
+    /// <summary>What the air does to the show this frame, decided per enabled output not on a raw frame as the output decides it — a
+    /// hold first (FREEZE
     /// or a FREEZE outcome: the output keeps its last picture), then a safe look, then the test pattern (on every output or on this
     /// one), else the live show — and then for the send: the live show at the brightest gain of the outputs that show it, while any
     /// does; else a hold, while any output holds; else the pattern while every output shows it, or the safe look while every output
@@ -238,7 +245,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         var anyPattern = false;
         foreach (var o in frame.Project.Outputs)
         {
-            if (!o.Enabled)
+            // An output on a raw frame shows a measurement, neither the show nor the air's look: it decides nothing for a send.
+            if (!o.Enabled || Raw?.For(o.Id) is { IsNone: false })
                 continue;
             any = true;
             if (frame.Held(o.Id))
@@ -298,10 +306,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         return true;
     }
 
-    /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster, so blackout, a test
-    /// pattern or a safe look on it, its gain and a hold reach the send exactly as they reach the output; a disabled output sends
-    /// black. A canvas or source tap that follows the air is black in blackout and shows the air's test pattern or safe look while it
-    /// covers every output.</summary>
+    /// <summary>The tap's picture this frame, or null for black. An output tap is the output's final raster (after its output stage:
+    /// warp, mask, blend, the measured correction, trim), so blackout, a test pattern or a safe look on it, its gain and a hold reach
+    /// the send exactly as they reach the output; a disabled output, and one on a raw frame, sends black. A canvas or source tap that
+    /// follows the air is black in blackout and shows the air's test pattern or safe look while it covers every output.</summary>
     private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
     {
         fit = entry.Fit;
@@ -318,7 +326,9 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         }
         return entry.Kind switch
         {
-            SendTapKind.Output => frame.Project.Outputs.Find(entry.Target) is { Enabled: true } ? renderer.OutputPicture(entry.Target) : null,
+            SendTapKind.Output => frame.Project.Outputs.Find(entry.Target) is { Enabled: true } && Raw?.For(entry.Target) is not { IsNone: false }
+                ? renderer.OutputPicture(entry.Target)
+                : null,
             SendTapKind.Canvas => renderer.CanvasPicture(entry.Target),
             _ => entry.Source is { } source ? renderer.SourcePicture(source, entry.Width, entry.Height) : null,
         };

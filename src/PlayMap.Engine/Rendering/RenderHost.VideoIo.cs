@@ -26,6 +26,7 @@ public sealed partial class RenderHost
         var hub = engine.VideoIoMade;
         var plan = hub is null || (snap.Project.Project.Sends.IsEmpty && !stage.Busy) ? [] : hub.Plan;
         stage.Plan = plan;
+        stage.Raw = inputs.Raw;
         var with = !plan.IsEmpty || stage.Busy;
         // The air's end is marked only while a live input is kept: a frame with none has nothing to tally.
         var air = hub?.HasInputs ?? false;

@@ -431,6 +431,77 @@ public sealed class PackUnpackTests(GlFixture gl)
         });
     }
 
+    /// <summary>Outputs shown raw this frame (a scan or an align run's pattern), by id.</summary>
+    private sealed class RawOn(params string[] outputs) : IRawOutputs
+    {
+        public SourceRef? For(string outputId) => outputs.Contains(outputId) ? SourceRef.Solid("#FFFFFF") : null;
+    }
+
+    [Fact]
+    public void AnOutputOnARawFrameSendsBlackAndDecidesNothingForASendThatFollowsTheAir()
+    {
+        const int w = 64, h = 36;
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            var card = new Canvas("cv_1", "Card", w, h, "#000000",
+                [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            var project = Scene.Project([], [Scene.SourceOutput("op_1", SourceRef.Solid("#202020"), w, h),
+                Scene.SourceOutput("op_3", SourceRef.Solid("#202020"), w, h)], [card]);
+            var outputSink = new TestSink(hold: false);
+            var canvasSink = new TestSink(hold: false);
+            SendPlanEntry Entry(string id, SendTapKind kind, string target, ISendSink to) => new()
+            {
+                Id = id, Name = id, Kind = kind, Target = target, Width = w, Height = h, Format = SendFormat.Bgra8, FpsN = 60, FpsD = 1,
+                Fit = SendFit.Fit, Sink = to, FollowAir = true,
+            };
+            var outputSend = Entry("sd_o", SendTapKind.Output, "op_1", outputSink);
+            var canvasSend = Entry("sd_c", SendTapKind.Canvas, "cv_1", canvasSink);
+            using var stage = new SendStage(engine) { Plan = [outputSend, canvasSend] };
+            var passes = ImmutableArray.Create<IFramePass>(stage);
+            var i = 0L;
+            var centre = ((h / 2) * w + w / 2) * 4;
+            // Two frames of the 60 Hz grid (the read-back of the first is offered on the second) with the raw outputs and levels given.
+            void Frames(IRawOutputs? raw, IAirLevels? levels = null)
+            {
+                stage.Raw = raw;
+                for (var k = 0; k < 2; k++)
+                {
+                    i++;
+                    engine.Render(Scene.Inputs(project) with { Passes = passes, Raw = raw, Levels = levels, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
+                    c.Device.Finish();
+                }
+            }
+            byte[] Centre(TestSink sink) => sink.Frames[^1][centre..(centre + 4)];
+            Frames(null);
+            Assert.Equal([0x20, 0x20, 0x20, 0xFF], Centre(outputSink));
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Centre(canvasSink));
+            // op_1 on a scan: the output itself shows the pattern, its send is black (counted blank), as its LED fixtures go dark.
+            var blank = outputSend.Blank;
+            Frames(new RawOn("op_1"));
+            var shown = new byte[w * h * 4];
+            Assert.True(engine.ReadOutput("op_1", shown));
+            Assert.Equal([0xFF, 0xFF, 0xFF, 0xFF], shown[centre..(centre + 4)]);
+            Assert.Equal([0, 0, 0, 0xFF], Centre(outputSink));
+            Assert.True(outputSend.Blank > blank);
+            // The canvas send plays on while an output is scanned (as the rest of the LED rig does).
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Centre(canvasSink));
+            // op_1 scanned and op_3 panicked to black: the scanned output shows no show, so no output shows it at any brightness and
+            // the send that follows the air is dark, never the show at the scanned output's full gain.
+            var op3Black = new FixedLevels(1f, per: new() { ["op_3"] = (0f, null) });
+            Frames(new RawOn("op_1"), op3Black);
+            Assert.Equal([0, 0, 0, 0xFF], Centre(canvasSink));
+            // Every output scanned: nothing on the air decides for the send, which shows the show.
+            Frames(new RawOn("op_1", "op_3"));
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Centre(canvasSink));
+            // The scan ends: the output's send shows its picture again.
+            Frames(null);
+            Assert.Equal([0x20, 0x20, 0x20, 0xFF], Centre(outputSink));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
     [Fact]
     public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
     {
