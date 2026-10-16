@@ -81,6 +81,20 @@ Nothing shipped: OSC, MIDI, Art-Net, LTC and MTC are PlayMap's own code, written
 
 ### wp2-companion-module
 
+The Companion module (`integrations/companion-module-playmap`) is the one piece of this repository with its own licence, the
+owner's decision for it alone: its source is MIT (`LICENSE`, as Bitfocus requires of a module's source) and its packaged form is
+GPL-3.0-only (`COPYING`, named in `companion/manifest.json`). The packaged bundle carries, all MIT:
+
+- `@companion-module/base` 2.2.1 (© Bitfocus AS) with `colord` 2.10.0 (© Vlad Shilov) and `zod` 4.6.7 (© Colin McDonnell) —
+  https://github.com/bitfocus/companion-module-base.
+- `ws` 8.22.0 (© Einar Otto Stangvik, Arnout Kazemier and contributors) — https://github.com/websockets/ws. Its optional native add-ons are not
+  installed; it runs in JavaScript.
+- `src/palette/palette.js`, vendored byte for byte from Patterns' Companion module (MIT, © jammin808).
+
+The package's `LICENSE` is written by `companion-module-build` from the licences of what it bundled. Development only (never
+packaged): `@companion-module/host` and `@companion-module/tools` (MIT, © Bitfocus AS), TypeScript (Apache-2.0, © Microsoft),
+ESLint, typescript-eslint and Prettier (MIT), `@types/node` and `@types/ws` (MIT).
+
 ### wp2-fx
 
 - The ISF format (Interactive Shader Format, VIDVOX, specification under MIT): PlayMap reads and translates ISF files with its

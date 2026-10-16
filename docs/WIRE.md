@@ -10,7 +10,7 @@ bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync grou
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line. Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
+is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
 (`OK @a1 …`). A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
@@ -232,7 +232,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
   keeps the line whole and an approval runs that (a proposal approved on the desk runs from the node's own record,
   never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
-  refused wherever it arrives.
+  refused wherever it arrives. A verb's secret words are counted from where its name ends, as its arguments are: a
+  two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does.
 - `SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [ON <projector>] [<name>]` of a suggested region (`ON`: what that projector lights of
   it); it answers the surface's id. `SCAN SUGGEST <scan>` queues a scan's measured regions as such lines on the node's own

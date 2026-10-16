@@ -1,0 +1,760 @@
+{
+  "v": 1,
+  "revision": 9,
+  "sig": "9f1c2ab07d3e4410",
+  "labels": "77aa0c1e93b2d5f0",
+  "playlists": [
+    {
+      "id": "pl00000001",
+      "name": "Show",
+      "loop": false,
+      "syncGroup": null,
+      "items": [
+        {
+          "id": "it00000009",
+          "label": "Intro",
+          "source": "generator:gn00000008",
+          "kind": "generator",
+          "lengthMs": null
+        },
+        {
+          "id": "it00000002",
+          "label": "Red",
+          "source": "color:#FF0000",
+          "kind": "color",
+          "lengthMs": null
+        },
+        {
+          "id": "it00000003",
+          "label": "Blue",
+          "source": "color:#0000FF",
+          "kind": "color",
+          "lengthMs": null
+        }
+      ]
+    },
+    {
+      "id": "pl00000004",
+      "name": "Loops",
+      "loop": false,
+      "syncGroup": null,
+      "items": [
+        {
+          "id": "it00000005",
+          "label": "Green",
+          "source": "color:#00FF00",
+          "kind": "color",
+          "lengthMs": null
+        }
+      ]
+    }
+  ],
+  "surfaces": [],
+  "projectors": [],
+  "outputs": [
+    {
+      "id": "op_1",
+      "name": "Output 1",
+      "kind": "display",
+      "projector": null,
+      "enabled": true
+    }
+  ],
+  "devices": [
+    {
+      "id": "dv00000007",
+      "name": "Left box",
+      "protocol": "pjlink",
+      "projector": null
+    }
+  ],
+  "generators": [
+    {
+      "id": "gn_testcard",
+      "name": "Test card",
+      "kind": "pattern.testcard",
+      "params": [
+        {
+          "name": "variant",
+          "kind": "choice",
+          "choices": [
+            "rig",
+            "pixel",
+            "levels"
+          ]
+        },
+        {
+          "name": "identity",
+          "kind": "bool"
+        },
+        {
+          "name": "mark",
+          "kind": "bool"
+        },
+        {
+          "name": "label",
+          "kind": "text"
+        }
+      ]
+    },
+    {
+      "id": "gn00000008",
+      "name": "White",
+      "kind": "pattern.flat",
+      "params": [
+        {
+          "name": "color",
+          "kind": "color"
+        },
+        {
+          "name": "level",
+          "kind": "number",
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "name": "border",
+          "kind": "bool"
+        }
+      ]
+    }
+  ],
+  "canvases": [
+    {
+      "id": "cv_main",
+      "name": "Main canvas",
+      "layers": [
+        {
+          "id": "ly_base",
+          "name": "Test card"
+        }
+      ]
+    }
+  ],
+  "media": {
+    "count": 0
+  },
+  "sections": [
+    {
+      "section": "align",
+      "hint": {
+        "title": "Align",
+        "rowKind": "align",
+        "keys": [
+          {
+            "label": "Align",
+            "line": "ALIGN RUN $(id)",
+            "feedback": "align.run",
+            "press": "double"
+          },
+          {
+            "label": "Accept",
+            "line": "ALIGN ACCEPT $(id)",
+            "feedback": "align.staged",
+            "press": "instant"
+          },
+          {
+            "label": "Revert",
+            "line": "ALIGN REVERT $(id)",
+            "feedback": "align.grade",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "calibration",
+      "hint": {
+        "title": "Calibration",
+        "rowKind": "projector",
+        "keys": [
+          {
+            "label": "Re-solve",
+            "line": "CALIBRATION RESOLVE $(id)",
+            "feedback": "calibration.grade",
+            "press": "instant"
+          },
+          {
+            "label": "Fallback",
+            "line": "CALIBRATION FALLBACK $(id)",
+            "feedback": "calibration.fallback",
+            "press": "hold"
+          },
+          {
+            "label": "History",
+            "line": "CALIBRATION HISTORY $(id)",
+            "feedback": null,
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "content",
+      "hint": {
+        "title": "Content",
+        "rowKind": "generator",
+        "keys": [
+          {
+            "label": "Retime",
+            "line": "GENERATOR RETIME $(id)",
+            "feedback": "content.state",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "gn_testcard",
+          "kind": "generator",
+          "label": "Test card \u00B7 Test card",
+          "parent": "",
+          "light": "grey",
+          "state": "idle"
+        },
+        {
+          "id": "gn00000008",
+          "kind": "generator",
+          "label": "White \u00B7 Flat field",
+          "parent": "",
+          "light": "grey",
+          "state": "idle"
+        }
+      ]
+    },
+    {
+      "section": "eye",
+      "hint": {
+        "title": "Eye",
+        "rowKind": "machine",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "FLEET NEXT",
+          "kind": "problem",
+          "label": "NEXT PROBLEM",
+          "parent": "eye",
+          "light": "grey",
+          "state": "0"
+        },
+        {
+          "id": "FLEET PREV",
+          "kind": "problem",
+          "label": "PREV PROBLEM",
+          "parent": "eye",
+          "light": "grey",
+          "state": "0"
+        },
+        {
+          "id": "FLEET LENS PROBLEMS",
+          "kind": "lens",
+          "label": "PROBLEMS",
+          "parent": "eye",
+          "light": "grey",
+          "state": "all"
+        },
+        {
+          "id": "FLEET LENS ALL",
+          "kind": "lens",
+          "label": "ALL",
+          "parent": "eye",
+          "light": "green",
+          "state": "all"
+        },
+        {
+          "id": "FLEET RESET",
+          "kind": "view",
+          "label": "RESET",
+          "parent": "eye",
+          "light": "grey",
+          "state": ""
+        },
+        {
+          "id": "FLEET FOCUS self",
+          "kind": "machine",
+          "label": "Test node",
+          "parent": "eye",
+          "light": "grey",
+          "state": "Test node \u00B7 nothing measured yet"
+        }
+      ]
+    },
+    {
+      "section": "fx",
+      "hint": {
+        "title": "Effects",
+        "rowKind": "fx",
+        "keys": [
+          {
+            "label": "Bypass",
+            "line": "FX BYPASS $(id) TOGGLE",
+            "feedback": "fx.bypass",
+            "press": "instant"
+          },
+          {
+            "label": "Mix \u002B",
+            "line": "FX SET $(id) mix BY 0.05",
+            "feedback": "fx.mix",
+            "press": "hold"
+          },
+          {
+            "label": "Mix \u2212",
+            "line": "FX SET $(id) mix BY -0.05",
+            "feedback": "fx.mix",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "led",
+      "hint": {
+        "title": "LED",
+        "rowKind": "lednode",
+        "keys": [
+          {
+            "label": "On",
+            "line": "LED OUTPUT ON $(id)",
+            "feedback": "led.node",
+            "press": "instant"
+          },
+          {
+            "label": "Off",
+            "line": "LED OUTPUT OFF $(id)",
+            "feedback": "led.node",
+            "press": "instant"
+          },
+          {
+            "label": "Test",
+            "line": "LED TEST CHASE ON $(id)",
+            "feedback": "led.test",
+            "press": "instant"
+          },
+          {
+            "label": "Level \u002B",
+            "line": "LED LEVEL BY 5",
+            "feedback": "led.level",
+            "press": "hold"
+          },
+          {
+            "label": "Level \u2212",
+            "line": "LED LEVEL BY -5",
+            "feedback": "led.level",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "present",
+      "hint": {
+        "title": "Outputs: present and lock",
+        "rowKind": "output",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "OUTPUT STATS $(id)",
+            "feedback": "outputs.$(id).present.light",
+            "press": "instant"
+          },
+          {
+            "label": "Rejoin",
+            "line": "SYNC REJOIN $(id)",
+            "feedback": "outputs.$(id).lock.state",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "op_1",
+          "kind": "output",
+          "label": "Output 1",
+          "parent": null,
+          "light": "grey",
+          "state": "free-unknown"
+        }
+      ]
+    },
+    {
+      "section": "scan",
+      "hint": {
+        "title": "Scan",
+        "rowKind": "phone",
+        "keys": [
+          {
+            "label": "Next picture",
+            "line": "SCAN NEXT",
+            "feedback": "scan.waiting",
+            "press": "instant"
+          },
+          {
+            "label": "Cancel scan",
+            "line": "SCAN CANCEL",
+            "feedback": "scan.running",
+            "press": "hold"
+          },
+          {
+            "label": "Phones",
+            "line": "PHONE LIST",
+            "feedback": "phone.connected",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "sends",
+      "hint": {
+        "title": "Video sends",
+        "rowKind": "send",
+        "keys": [
+          {
+            "label": "On",
+            "line": "SEND ENABLE $(id) ON",
+            "feedback": "videoio.sends.state",
+            "press": "hold"
+          },
+          {
+            "label": "Off",
+            "line": "SEND ENABLE $(id) OFF",
+            "feedback": "videoio.sends.state",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "show",
+      "hint": {
+        "title": "Show",
+        "rowKind": "show",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "SHOW ARM",
+          "kind": "show",
+          "label": "ARM",
+          "parent": "show",
+          "light": "grey",
+          "state": "rehearsal"
+        },
+        {
+          "id": "SHOW DISARM",
+          "kind": "show",
+          "label": "DISARM",
+          "parent": "show",
+          "light": "green",
+          "state": "rehearsal"
+        },
+        {
+          "id": "PANIC",
+          "kind": "panic",
+          "label": "PANIC",
+          "parent": "show",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "PANIC BLACK",
+          "kind": "panic",
+          "label": "PANIC BLACK",
+          "parent": "show",
+          "light": "grey",
+          "state": "black"
+        },
+        {
+          "id": "PANIC HARD",
+          "kind": "panic",
+          "label": "PANIC HARD",
+          "parent": "show",
+          "light": "grey",
+          "state": "hard"
+        },
+        {
+          "id": "PANIC CLEAR",
+          "kind": "panic",
+          "label": "CLEAR",
+          "parent": "show",
+          "light": "grey",
+          "state": "not in panic"
+        },
+        {
+          "id": "MASTER 0",
+          "kind": "master",
+          "label": "MASTER 0",
+          "parent": "show",
+          "light": "grey",
+          "state": "100"
+        },
+        {
+          "id": "MASTER 100",
+          "kind": "master",
+          "label": "MASTER 100",
+          "parent": "show",
+          "light": "green",
+          "state": "100"
+        },
+        {
+          "id": "MASTER",
+          "kind": "encoder",
+          "label": "MASTER",
+          "parent": "show",
+          "light": "green",
+          "state": "100"
+        },
+        {
+          "id": "BLIND COMMIT NEXT",
+          "kind": "blind",
+          "label": "COMMIT NEXT",
+          "parent": "show",
+          "light": "grey",
+          "state": "no draft"
+        },
+        {
+          "id": "BLIND DISCARD",
+          "kind": "blind",
+          "label": "DISCARD",
+          "parent": "show",
+          "light": "grey",
+          "state": "no draft"
+        }
+      ]
+    },
+    {
+      "section": "sting",
+      "hint": {
+        "title": "Stings",
+        "rowKind": "sting",
+        "keys": [
+          {
+            "label": "Fire",
+            "line": "STING $(id)",
+            "feedback": "content.sting",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "Explosion",
+          "kind": "sting",
+          "label": "Explosion",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Rush",
+          "kind": "sting",
+          "label": "Rush",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Flash",
+          "kind": "sting",
+          "label": "Flash",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Bloom",
+          "kind": "sting",
+          "label": "Bloom",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Shockwave",
+          "kind": "sting",
+          "label": "Shockwave",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Vortex",
+          "kind": "sting",
+          "label": "Vortex",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Strobe",
+          "kind": "sting",
+          "label": "Strobe",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Supernova",
+          "kind": "sting",
+          "label": "Supernova",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Freeze",
+          "kind": "sting",
+          "label": "Freeze",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Gust",
+          "kind": "sting",
+          "label": "Gust",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Rainbow",
+          "kind": "sting",
+          "label": "Rainbow",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        },
+        {
+          "id": "Quake",
+          "kind": "sting",
+          "label": "Quake",
+          "parent": "",
+          "light": "grey",
+          "state": "ready"
+        }
+      ]
+    },
+    {
+      "section": "tempo",
+      "hint": {
+        "title": "Tempo",
+        "rowKind": "tempo",
+        "keys": [
+          {
+            "label": "Tap",
+            "line": "TEMPO TAP",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "Resync",
+            "line": "TEMPO RESYNC BAR",
+            "feedback": "audio.beat",
+            "press": "instant"
+          },
+          {
+            "label": "Half",
+            "line": "TEMPO HALF",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "Double",
+            "line": "TEMPO DOUBLE",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "BPM \u002B",
+            "line": "TEMPO SET \u002B1",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          },
+          {
+            "label": "BPM \u2212",
+            "line": "TEMPO SET -1",
+            "feedback": "audio.tempo.bpm",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "tempo",
+          "kind": "tempo",
+          "label": "120 BPM",
+          "parent": "",
+          "light": "grey",
+          "state": "manual"
+        }
+      ]
+    },
+    {
+      "section": "timecode",
+      "hint": {
+        "title": "Timecode",
+        "rowKind": "chase",
+        "keys": [
+          {
+            "label": "Engage",
+            "line": "TIMECODE ENGAGE $(id) TOGGLE",
+            "feedback": "chase.engaged",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "video",
+      "hint": {
+        "title": "Video inputs",
+        "rowKind": "input",
+        "keys": [
+          {
+            "label": "Reconnect",
+            "line": "INPUT RECONNECT $(id)",
+            "feedback": "videoio.inputs.state",
+            "press": "hold"
+          },
+          {
+            "label": "Backup",
+            "line": "INPUT SWITCH $(id) BACKUP",
+            "feedback": "videoio.inputs.using",
+            "press": "hold"
+          },
+          {
+            "label": "Primary",
+            "line": "INPUT SWITCH $(id) PRIMARY",
+            "feedback": "videoio.inputs.using",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    }
+  ]
+}

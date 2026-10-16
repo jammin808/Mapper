@@ -1,0 +1,38 @@
+{
+	"name": "companion-module-jammin808-playmap",
+	"version": "1.0.0",
+	"description": "Bitfocus Companion module for PlayMap: the show's playlists, outputs, projectors and every package's keys, live",
+	"type": "module",
+	"main": "dist/main.js",
+	"license": "MIT",
+	"private": true,
+	"repository": "https://github.com/jammin808/Mapper",
+	"engines": {
+		"node": "^22.20"
+	},
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.json",
+		"lint": "eslint .",
+		"format": "prettier --write .",
+		"lines": "node tools/emit-lines.ts",
+		"check": "npm run build && companion-module-check",
+		"package": "npm run build && companion-module-build --output pkg",
+		"test": "npm run typecheck && npm run lint && node --test --test-concurrency=1 test/*.test.ts"
+	},
+	"dependencies": {
+		"@companion-module/base": "~2.2.1",
+		"ws": "^8.22.0"
+	},
+	"devDependencies": {
+		"@companion-module/host": "^1.2.1",
+		"@companion-module/tools": "^3.1.1",
+		"@types/node": "^22.20.5",
+		"@types/ws": "^8.18.2",
+		"eslint": "^10.12.0",
+		"prettier": "^3.9.10",
+		"typescript": "~6.0.3",
+		"typescript-eslint": "^8.71.2"
+	}
+}

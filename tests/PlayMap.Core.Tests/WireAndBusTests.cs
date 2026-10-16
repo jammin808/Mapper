@@ -34,6 +34,13 @@ public class WireAndBusTests
         Assert.Equal("CREDENTIAL SET pj1 \u2039secret\u203a", Shown("CREDENTIAL SET pj1 admin hunter2"));
         Assert.Equal("AUTH \u2039secret\u203a", Shown("AUTH abcdef"));
         Assert.DoesNotContain("hunter2", Shown("@r1 CREDENTIAL SET pj1 admin hunter2"), StringComparison.Ordinal);
+        // A two-word name quoted as one word is still the verb, its arguments start one word sooner, and so does its secret.
+        Assert.Equal("\"LINK PATTERNS\" 10.0.0.5 \u2039secret\u203a", Shown("\"LINK PATTERNS\" 10.0.0.5 s3cr3t-token"));
+        Assert.Equal("\"credential set\" pj1 \u2039secret\u203a", Shown("\"credential set\" pj1 admin hunter2"));
+        Assert.True(WireGrammar.TryParse("\"LINK PATTERNS\" 10.0.0.5 s3cr3t-token", out var quoted, out _));
+        Assert.True(VerbCatalog.HoldsSecret(quoted));
+        Assert.True(WireGrammar.TryParse("\"LINK PATTERNS\" 10.0.0.5", out var unkeyed, out _));
+        Assert.False(VerbCatalog.HoldsSecret(unkeyed));
         // A line without its secret, and every other verb, is written as it came.
         Assert.Equal("LINK PATTERNS 10.0.0.5", Shown("LINK PATTERNS 10.0.0.5"));
         Assert.Equal("BLACKOUT ON", Shown("BLACKOUT ON"));
@@ -64,6 +71,20 @@ public class WireAndBusTests
         Assert.Equal("{\"mode\":\"uv\", \"source\":{}}", json.Word(3));
         Assert.Equal("{\"mode\":\"uv\", \"source\":{}}", json.RestAfter(3));
         Assert.False(WireGrammar.TryParse("SAY \"unclosed", out _, out _));
+    }
+
+    [Fact]
+    public void AWordThatOpensLikeJsonIsQuotedAndStaysOneWordInTheMiddleOfALine()
+    {
+        // The grammar reads a bare "{" or "[" as JSON to the end of the line: such a word is quoted wherever it stands.
+        foreach (var word in new[] { "[L]", "{W}", "[", "{\"a\":1}", "[ left ]" })
+        {
+            var text = "DEVICE ADD " + WireGrammar.Quote(word) + " pjlink 10.0.0.20";
+            Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{text}: {error?.Reason}");
+            Assert.Equal(["DEVICE", "ADD", word, "pjlink", "10.0.0.20"], line.Words);
+        }
+        Assert.Equal("\"[L]\"", WireGrammar.Quote("[L]"));
+        Assert.Equal("L[1]", WireGrammar.Quote("L[1]"));
     }
 
     [Fact]
@@ -158,6 +179,19 @@ public class WireAndBusTests
         Assert.Matches("^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$", token);
         Assert.DoesNotContain('O', token);
         Assert.DoesNotContain('1', token);
+    }
+
+    [Fact]
+    public void ThePairingProofHasAKnownAnswer()
+    {
+        // The vector the Companion module pins too: HMAC-SHA256(key = "K7QM3XWDP9RA", message = nonce + name), lowercase hex.
+        Assert.Equal("b07c009ef4196cc819f65ae7b624f6f7eff03ea67f0d73b99a634e8579fa1d3d",
+            Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck"));
+        Assert.True(Pairing.Verify("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck",
+            "b07c009ef4196cc819f65ae7b624f6f7eff03ea67f0d73b99a634e8579fa1d3d"));
+        // The order is nonce then name: the other order is another proof.
+        Assert.NotEqual(Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck"),
+            Pairing.Proof("K7QM-3XWD-P9RA", "Companion:FOH deck", "00112233445566778899aabbccddeeff"));
     }
 
     [Fact]

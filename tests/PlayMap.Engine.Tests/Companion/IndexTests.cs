@@ -5,7 +5,8 @@ namespace PlayMap.Engine.Tests.Companion;
 
 /// <summary>INDEX is the show's structure for a deck: its fields, every package's section with its preset hint as data, a structure
 /// signature and a labels signature (a rename moves only the labels), STATE's project.index, and SUBSCRIBE INDEX pushed when a
-/// playlist is added — latest wins, asserted on the push.</summary>
+/// playlist is added — latest wins, asserted on the push — when a section row's light moves with the show, and when anything else it
+/// lists moves within its kind (an item's source, a playlist's loop).</summary>
 public sealed class IndexTests
 {
     private sealed class FakeSection : IIndexContributor
@@ -173,4 +174,63 @@ public sealed class IndexTests
         await rig.Ok("INDEX");
         Assert.DoesNotContain(sink.Lines, l => l.Contains("Fourth", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task ASectionRowsLightMovingWithTheShowPushesIndexAgainWithItsStructureAndLabelsKept()
+    {
+        await using var rig = new CompanionRig();
+        rig.Engine.Routes.Index(new FakeSection());
+        var list = await rig.Ok("PLAYLIST NEW Show");
+        var sink = new RecordingSink();
+        using var sub = rig.Open("INDEX", sink);
+        await sink.Heard("\"tr-" + list + "\"");
+        var opened = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("green", RowLight(opened, list));
+
+        // Blackout moves no structure and no label, only the row's light.
+        await rig.Ok("BLACKOUT ON", OpsRig.Desk);
+        await sink.Heard("\"amber\"");
+        var pushed = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("amber", RowLight(pushed, list));
+        Assert.Equal(opened.GetProperty("sig").GetString(), pushed.GetProperty("sig").GetString());
+        Assert.Equal(opened.GetProperty("labels").GetString(), pushed.GetProperty("labels").GetString());
+        Assert.Equal(2, sink.Lines.Count);
+
+        // STATE moving again with the row's light where it was pushes nothing new.
+        await rig.Ok("FREEZE ON", OpsRig.Desk);
+        await rig.Ok("PLAYLIST NEW Encore");
+        await sink.Heard("Encore");
+        Assert.Equal(3, sink.Lines.Count);
+    }
+
+    [Fact]
+    public async Task ASourceChangeWithinItsKindPushesIndexWithTheNewSourceAndItsSignaturesKept()
+    {
+        await using var rig = new CompanionRig();
+        var list = await rig.Ok("PLAYLIST NEW Show");
+        var item = await rig.Ok($"PLAYLIST ADD {list} color:#FF0000 Wash");
+        var sink = new RecordingSink();
+        using var sub = rig.Open("INDEX", sink);
+        await sink.Heard("color:#FF0000");
+        var opened = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+
+        // A colour for a colour: no id, kind or name moves, yet a key's picture does.
+        await rig.Ok($"SET {item} source {{\"kind\":\"color\",\"id\":\"#00FF00\"}}");
+        await sink.Heard("color:#00FF00");
+        var pushed = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("color:#00FF00", pushed.GetProperty("playlists")[0].GetProperty("items")[0].GetProperty("source").GetString());
+        Assert.Equal(opened.GetProperty("sig").GetString(), pushed.GetProperty("sig").GetString());
+        Assert.Equal(opened.GetProperty("labels").GetString(), pushed.GetProperty("labels").GetString());
+        Assert.Equal(2, sink.Lines.Count);
+
+        // A playlist's loop is listed too: it pushes as well.
+        await rig.Ok($"SET {list} loop true");
+        await sink.Heard("\"loop\":true");
+        Assert.True(CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]).GetProperty("playlists")[0].GetProperty("loop").GetBoolean());
+        Assert.Equal(3, sink.Lines.Count);
+    }
+
+    private static string? RowLight(JsonElement index, string list) =>
+        index.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "companion-test")
+            .GetProperty("rows").EnumerateArray().Single(r => r.GetProperty("id").GetString() == "tr-" + list).GetProperty("light").GetString();
 }

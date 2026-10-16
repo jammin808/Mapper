@@ -40,7 +40,7 @@ desk proves itself at once. A node that asks no token has no secret to prove, so
 
 | Push | Shape | Delivery |
 |---|---|---|
-| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves | latest wins |
+| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves, a section row's `light` or `state`, or any other value it lists (an item's or a surface's `source`, a projector's `output` or `device`, an output's `enabled`, `loop`, `lengthMs`) | latest wins |
 | `EVENT {…}` | `{"seq","at","leaderNs","kind",…fields}` | in order; a session that falls behind or is sent more than 64 in a second is closed with `EVENTS overflow — … EVENTS SINCE <seq> …` |
 | `THUMBS {…}` | `SUBSCRIBE THUMBS <ref>…` (≤ 128, paired only): `{"<ref>":"<etag>"\|null,…}` for the whole watched set, at once and when any moves | latest wins |
 
@@ -49,7 +49,8 @@ desk proves itself at once. A node that asks no token has no secret to prove, so
 "devices":[{"id","name","protocol","projector"}],"generators":[{"id","name","kind","params":[{"name","kind","min","max","step","choices"}]}],
 "canvases":[{"id","name","layers":[{"id","name"}]}],"media":{"count"},"sections":[{"section","hint":{"title","rowKind","keys":[{"label","line","feedback","press"}]},"rows":[…]}]}`.
 `sig` (16 hex) moves with the ids and kinds of every listed entity, each item's source kind, each generator's parameter names and every
-section's rows and hint; `labels` with the names and labels. A rename moves only `labels`. A library is never listed (only its count).
+section's rows and hint; `labels` with the names and labels. A rename moves only `labels`; a source changed for another of its kind
+moves neither, and is pushed all the same. A library is never listed (only its count).
 
 **THUMB.** ETags: `media-<hash16>-<w>x<h>-<j|p>` (the file's content hash), `generator-<hash16>-<w>x<h>-p` (its kind and parameters),
 `color-RRGGBB-<w>x<h>-p`; `playlist:<id>` answers its current item's picture and ETag. While the show is armed only a poster made
@@ -62,8 +63,16 @@ its package through `RaiseEvent`; the ring keeps them all.
 
 **VERBS and `/api/verbs`.** Each row gains `params` (its first form's typed parameters: `name`, `kind` — entity, enum, number,
 integer, text, json, time, ref, line, flag — and when they say something `optional`, `prefix`, `keyword`, `values`, `min`, `max`,
-`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for Panic, Air and Transport rows; otherwise `hold` for a
-high-risk row, `double` for a projector's power, `instant` for the rest).
+`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for `PLAYLIST GO`, `PLAYLIST NEXT`, `PLAYLIST PREV`,
+`VIDEO PLAY`, `VIDEO PAUSE`, `BLACKOUT`, `FREEZE` and `PANIC`; otherwise `double` for a projector's power, `PROJECT OPEN`,
+`PROJECT NEW`, `SCAN START` and `APPROVE`; `hold` for every other high-risk row — `PANIC CLEAR`, `VIDEO STOP`, `MASTER`, `LED OUTPUT`
+among them — and for `OUTPUT IDENTIFY` and `DEVICE IDENTIFY`; `instant` for the rest). A parameter is `line` or `json` only when its
+placeholder says the word whole (`<target line>`, `<json>`; `<cursor,outlines,…>` is text), and no parameter follows one, since it
+takes the rest of the line. A keyword and the choice it introduces (`[MODE FAST|ROBUST]`) are one enum with its
+`keyword`, never a flag and a choice a key could send apart. `alt` is another word the value may be (`ALL`, `#<n>`); on a text
+parameter whose only alternative carries marks of its own it is the shape the value is written in (`<w>x<h>`, `@<fps>`,
+`#<rrggbb>`). `repeats` is a value given several times, a word each (`<output>…`); a range or list inside one word (`<-1…1>`,
+`<host,…>`) is not one. The node's contract test fits every line the module can send to one of its row's forms, word for word.
 
 **MCP.** `run_command` asks the node's Show Mode first: a line it refuses is answered with its words and neither runs nor waits for a
 person; a line it holds for a person goes to the node, whose gate keeps it on the node's own list.
@@ -95,3 +104,32 @@ foreign `Origin`, and its close codes), the desk-identity rule, the three new SU
 VERBS' `params`/`formParams`/`press`, `GET /api/thumb`, and STATE's `clients`, `events`, `project.index`; ARCHITECTURE.md names
 `LineSessions` (one per door) and the mDNS responder in `PlayMap.Net/Discovery`; the trimmed rows (`RECORD`, `SELECT`,
 `COMPANION PRESS|VAR|BRIGHTNESS`) are next round.
+
+## wp2-companion-module: what the module says and reads
+
+The Companion module (`integrations/companion-module-playmap`, `docs/COMPANION.md` "The module") is a client of the lines above and
+adds nothing to the node's wire.
+
+- **Says**, every line with `@c<n>`: `HELLO Companion:<label> module=<version>`, `AUTH-PROOF <hex>` after a `NONCE`, `PING <t1>` every
+  2 s, `PRESENCE {"kind":"companion","module","live","page","thumbs"}`, `WHOAMI` (again when STATE's `show.armed` or `clients` move),
+  `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop (of a node whose STATE in this session has
+  `events`), `SUBSCRIBE THUMBS <ref>…` (the refs its keys show, at most 128), `THUMB <ref> <n>x<n> [IF <etag>]` (again when the show
+  disarms, for one refused while armed), `INDEX` (when `project.index` moved and no push came within 500 ms), and the lines its actions
+  write.
+  Every line it can send is in `test/lines.txt`, and every line a section key or Live slot sends for the INDEX fixture in
+  `test/section-lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends
+  exceeds 64 KiB.
+- **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
+  and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
+  `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
+  engine wrote. Unknown pushes are ignored.
+- **A line with no answer**: every line waits 5 s for its `OK`/`ERR`. A line that got none — the time ran out, or the link dropped
+  after it was written — left the module, so the node may have run it: the module reports it `unanswered` (red on its key, its error
+  saying to check STATE), never `not-sent`, which is kept for lines that never left (the fence, a guard, no link, past 64 KiB).
+- **The web port's rules hold**: it sends no `Origin`; a refused upgrade's JSON `error` is shown as the node wrote it; a node that asks for
+  a token is paired by proof, so the Host rule for tokenless admission does not apply to it.
+
+**Papers note** (for the integration docs pass): WIRE.md's controllers section names the module as the line channel's client and its
+`@c<n>` ids; ROADMAP marks R3.4 (the Companion module) built; README lists `integrations/companion-module-playmap` with `npm test`;
+SHOWBUS-NODE.md's Companion row points at the module. CI wants a job for the module's `npm ci && npm test` (Node 22) after the solution
+builds, since `e2e-engine.test.ts` runs `tools/PlayMap.Node`.

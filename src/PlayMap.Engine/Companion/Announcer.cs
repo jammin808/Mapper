@@ -81,7 +81,7 @@ internal sealed class Announcer : INodeFaults, IAsyncDisposable
         {
             ["id"] = Fit("id", settings.NodeId),
             ["name"] = Fit("name", settings.Name),
-            ["proto"] = "1",
+            ["proto"] = Net.Companion.Controllers.LineProtocol.ToString(CultureInfo.InvariantCulture),
             ["ws"] = "/ws",
             ["wire"] = wirePort.ToString(CultureInfo.InvariantCulture),
         };
