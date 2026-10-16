@@ -73,7 +73,8 @@ internal sealed class SitePreflight : IPreflightCheck
 }
 
 /// <summary>INDEX's site section: per stack, ALIGN and MATCH keys (from the newest scan of all its members), and the facade guide's
-/// next step. Rows from published state only.</summary>
+/// next step, lit by <see cref="Core.Site.SiteGuide.LightOf"/>: grey with the step's words until the facade work has begun, amber while a
+/// step is left, green through. Rows from published state only.</summary>
 internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "site";
@@ -99,7 +100,8 @@ internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
             Row(w, $"STACK MATCH {sk.Id} FROM {from}", "match", $"MATCH {sk.Name}", matched ? "green" : "grey", matched ? "matched" : "not matched");
         }
         var next = Core.Site.SiteGuide.Next(engine.GuideFor(project));
-        Row(w, "SITE GUIDE", "guide", "NEXT", next is null ? "green" : "amber", next is null ? "through" : $"{next.Step}: {next.Words}");
+        Row(w, "SITE GUIDE", "guide", "NEXT", ShowContext.LightWord(Core.Site.SiteGuide.LightOf(project, next)),
+            next is null ? "through" : $"{next.Step}: {next.Words}");
         w.WriteEndArray();
     }
 

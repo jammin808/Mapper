@@ -16,7 +16,8 @@ namespace PlayMap.Engine.Tests.Facade;
 /// points, their pixels where each projector's true optics put them → PROJECTOR PRIOR and PROJECTOR SOLVE (the zoom locked from the lens on
 /// the flat front) → STACK NEW, STACK ALIGN and STACK MATCH from the scan of both members (align's capture and decode; the members now at
 /// their own solved poses, so the master's picture reaches the member through the surveyed model) → BLEND SOLVE (the stack blends as one
-/// projector) → the score; the guide's next step follows along, and once through, STATE says so.
+/// projector) → the score; the guide's next step follows along, and once through, STATE says so. INDEX's NEXT key is grey before the
+/// work begins, amber while a step is left, green through.
 /// </summary>
 public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposable
 {
@@ -37,6 +38,7 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         var sim = StackKit.Sim();
         _scans.Remember(await StackKit.OutcomeAsync(sim));
         await using var rig = new SiteRig(null, s => s with { Scan = _scans });
+        Assert.Equal(("grey", "survey: Import the surveyed model or cloud (E57, LAS, OBJ, PLY, glTF)"), await SiteIndexTests.GuideKey(rig));
 
         // 1. The surveyed front: a 12 × 12 m wall facing grid south, in ETRS89 / UTM 32N, the simulator's screen at its middle.
         var obj = string.Create(CultureInfo.InvariantCulture,
@@ -49,6 +51,7 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         Assert.Equal([E0, N0, H0], site.GetProperty("origin").EnumerateArray().Select(v => v.GetDouble()));
         Assert.Equal("ready", Stage(rig).GetProperty("surveys")[0].GetProperty("state").GetString());
         Assert.Equal("controls", Next(rig));
+        Assert.Equal(("amber", "controls: Import the surveyed control points"), await SiteIndexTests.GuideKey(rig));
 
         // 2. Six control points on the front, where both projectors light it.
         var points = new StringBuilder("Point,Easting,Northing,Elevation,Code\n");
@@ -148,5 +151,6 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         Assert.Equal(JsonValueKind.Null, guide.GetProperty("next").ValueKind);
         Assert.Equal(JsonValueKind.Null, Stage(rig).GetProperty("site").GetProperty("next").ValueKind);
         Assert.Equal(guide.GetRawText(), SiteRig.Json(await rig.Ok("FACADE GUIDE")).GetRawText());
+        Assert.Equal(("green", "through"), await SiteIndexTests.GuideKey(rig));
     }
 }

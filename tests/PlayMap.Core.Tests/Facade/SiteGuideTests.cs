@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Site;
@@ -127,5 +128,69 @@ public sealed class SiteGuideTests
         var through = SiteGuide.Steps(p, solved with { ScoreOf = _ => QualityScore.None with { Grade = "A" } });
         Assert.All(through, s => Assert.True(s.Done, s.Step));
         Assert.Null(SiteGuide.Next(through));
+        Assert.Equal(Light.Green, SiteGuide.LightOf(p, SiteGuide.Next(through)));
+    }
+
+    /// <summary>The guide asks for attention only once the facade work has begun: a project holding none of the facade's own inputs —
+    /// a playback node's, or a rig of pinned projectors, an imported model, a scan and a stack, with or without solve priors (any rig's
+    /// weak solve asks for the lens's throw) — is grey with its next step named (the survey or the control points: nothing after them can
+    /// be next without three control points); each input alone (a site, a survey importing, imported or failed, a control point even
+    /// disabled) makes it amber while a step is left.</summary>
+    [Fact]
+    public void TheGuidesLightWaitsForTheFacadeWorkToBegin()
+    {
+        static (string Step, Light Light) Lit(Project p)
+        {
+            var next = SiteGuide.Next(SiteGuide.Steps(p, GuideFacts.None));
+            Assert.NotNull(next);
+            return (next.Step, SiteGuide.LightOf(p, next));
+        }
+
+        var plain = Project.CreateDefault("Playback");
+        Assert.False(SiteGuide.Begun(plain));
+        Assert.Equal(("survey", Light.Grey), Lit(plain));
+
+        // A rig that maps without a facade: projectors pinned and solved, an imported model on a surface, a scan and a stack.
+        var mesh = new MeshAsset("ms00000001", "Car", MeshOrigin.Imported, "meshes/car.obj", "", "", ParamSet.Empty, 8, 12);
+        var rig = plain with { Outputs = [OutputOf("op00000001", "pj00000001"), OutputOf("op00000002", "pj00000002")] };
+        rig = rig.WithStage(st => st with
+        {
+            Meshes = [mesh],
+            Surfaces = [new Surface("sf00000001", "Car", mesh.Id, Transform3.Identity, [], SurfaceContent.Empty, 1, [], true, false, "#FFFFFF", [])],
+            Projectors = [Pinned("pj00000001", 6) with { Uncertainty = new SolveUncertainty(0.8, 1, 0, 0.02, 0.01, 10, "") }, Pinned("pj00000002", 6)],
+            Scans = [new ScanRecord("sc00000001", "Night", ScanKind.StructuredLight, 0, null, ["pj00000001", "pj00000002"], "", null, 0, 0, "")],
+            Stacks = [new StackGroup("sk00000001", "S1", ["pj00000001", "pj00000002"], "pj00000001", StackFailover.Hold)],
+        });
+        Assert.False(SiteGuide.Begun(rig));
+        Assert.Equal(("controls", Light.Grey), Lit(rig));
+
+        // Solve priors serve every rig: the throw a weak solve asks for, a position measured on site.
+        var priors = new (string Why, Project P)[]
+        {
+            ("a throw prior", rig.WithStage(st => st with { Projectors = st.Projectors.Update("pj00000002", pj => pj with { Priors = SolvePriors.None with { ThrowRatio = 3.02 } }) })),
+            ("a position prior", rig.WithStage(st => st with { Projectors = st.Projectors.Update("pj00000002", pj => pj with { Priors = SolvePriors.None with { Position = new Vec3d(0, 10, 100) } }) })),
+            ("a plain node's throw prior", plain.WithStage(st => st with { Projectors = [Pinned("pj00000001", 0) with { Priors = SolvePriors.None with { ThrowRatio = 1.5 } }] })),
+        };
+        foreach (var (why, p) in priors)
+        {
+            Assert.False(SiteGuide.Begun(p), why);
+            Assert.Equal(Light.Grey, Lit(p).Light);
+        }
+
+        var survey = new SurveySource("sv00000001", "North front", SurveyFormat.E57, "/x.e57", "", "", 0, 0, null, "", 0, 0, SurveyState.Importing, 0, "");
+        var control = new ControlPoint("cp00000001", "CP1", new Vec3d(512_341, 5_401_230, 120), 0.01, "", false);
+        var begun = new (string Why, Project P)[]
+        {
+            ("a site", plain.WithStage(st => st with { Site = new SiteFrame("LOCAL", "", Vec3d.Zero, 0, 1, 0) })),
+            ("a survey importing", plain.WithStage(st => st with { Surveys = [survey] })),
+            ("a survey imported", plain.WithStage(st => st with { Surveys = [survey with { State = SurveyState.Ready }] })),
+            ("a survey failed", plain.WithStage(st => st with { Surveys = [survey with { State = SurveyState.Failed, Notes = "the file ended early" }] })),
+            ("a control point, disabled", rig.WithStage(st => st with { Controls = [control] })),
+        };
+        foreach (var (why, p) in begun)
+        {
+            Assert.True(SiteGuide.Begun(p), why);
+            Assert.Equal(Light.Amber, Lit(p).Light);
+        }
     }
 }

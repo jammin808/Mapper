@@ -580,7 +580,7 @@
           "kind": "guide",
           "label": "NEXT",
           "parent": "site",
-          "light": "amber",
+          "light": "grey",
           "state": "survey: Import the surveyed model or cloud (E57, LAS, OBJ, PLY, glTF)"
         }
       ]

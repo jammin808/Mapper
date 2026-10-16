@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 
 namespace PlayMap.Core.Site;
@@ -21,7 +22,7 @@ public sealed record GuideFacts(bool BlendCurrent, Func<string, QualityScore?> S
 /// The facade workflow as a step list (facade §3.5's recommended path): survey → control points → pins → priors and solve → stacks →
 /// blend → score. Each step's state is a pure function of the project (and the two facts the engine knows), so it follows every
 /// edit; each says the line that does it, so a desk, Companion or an assistant can drive the workflow with the verbs everyone uses.
-/// The next step is the first not done.
+/// The next step is the first not done; it asks for attention only once the facade work has begun (<see cref="LightOf"/>).
 /// </summary>
 public static class SiteGuide
 {
@@ -49,6 +50,25 @@ public static class SiteGuide
         ArgumentNullException.ThrowIfNull(steps);
         return steps.FirstOrDefault(s => !s.Done);
     }
+
+    /// <summary>
+    /// Whether the project holds facade work: a site frame, a survey (importing, imported or failed) or a control point — the facade's
+    /// own inputs, which only its verbs make (SITE ORIGIN, SURVEY IMPORT, SITE POINTS) or a generic edit of the same entities.
+    /// Projectors, pins, solve priors, imported models, scans, blends and stacks serve every rig and are no sign of it: any rig's weak
+    /// solve asks for the lens's throw prior, a position prior at a control point needs that control point (which has begun it), and a
+    /// stack's own keys light what it needs. The guide passes the control points only with three of them, so on a project the work has
+    /// not begun on the next step is always the survey or the control points.
+    /// </summary>
+    public static bool Begun(Project p)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        var stage = p.Stage;
+        return stage.Site.IsSet || !stage.Surveys.IsEmpty || !stage.Controls.IsEmpty;
+    }
+
+    /// <summary>The guide's light: green when through, amber while a step is left once the facade work has begun
+    /// (<see cref="Begun"/>), grey before — a node that does no facade work is asked for nothing.</summary>
+    public static Light LightOf(Project p, GuideStep? next) => next is null ? Light.Green : Begun(p) ? Light.Amber : Light.Grey;
 
     private static string Count(int n, string one) => n == 1 ? $"1 {one}" : string.Create(CultureInfo.InvariantCulture, $"{n} {one}s");
 
