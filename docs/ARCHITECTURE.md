@@ -17,8 +17,9 @@ PlayMap is two things in one portable exe:
    wall, a pixel quad from four clicks; on a flat screen, one camera measures each projector's warp, blend and white; and a
    calibrated camera finds the projector that moved and re-solves it alone.
 
-The UI hides the power: three workspaces (**Play**, **Map**, **Scan**) plus **Outputs** and **Network** drawers;
-right-click menus on everything, in step with the desk's buttons and the wire's verbs.
+The UI hides the power: three workspaces (**Play**, **Map**, **Scan**), a show strip, and **Outputs**, **Inputs**,
+**Health** and **Network** drawers; right-click menus on everything, in step with the desk's buttons and the wire's verbs.
+The desk as built is docs/DESK.md.
 
 ## 1. Processes — one exe, three roles
 
@@ -45,7 +46,11 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
-  pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees.
+  pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees. Before a press the desk asks the
+  same Core rules the engine's door decides by (the show policy for its role from `WHOAMI`, the locks in STATE.show), so a
+  control the node would refuse is greyed with the node's own words; the engine still decides. A package's STATE shows on
+  the desk through its card descriptor (`tests/fixtures/state/<pkg>.cards.json`, built into the desk), so a package adds data,
+  not desk code.
 
 ## 2. Modules
 
@@ -59,7 +64,7 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
 | `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, survey import (read, thinned and decimated on its own thread, applied on the lane as one edit), the site's verbs, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
-| `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk |
+| `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk: the workspaces, the show strip, the attention bar, the drawers, the generic STATE cards and the generated menu entries, composed of modules over one spine (docs/DESK.md); the engine link, the demo engine (`FakeEngineLink`) |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
 through Core's contracts (Render does not know FFmpeg; Media does not know GL). Only App references Avalonia.

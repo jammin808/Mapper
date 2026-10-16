@@ -296,15 +296,52 @@ public sealed partial class FakeEngineLink
             w.WriteString("path", "/shows/demo/" + project.Name + ".playmap");
             w.WriteBoolean("dirty", _store.Current.Revision != _savedRevision);
             w.WriteEndObject();
-            w.WriteStartObject("ai");
-            w.WriteBoolean("mcp", true);
-            w.WriteNumber("clients", 0);
-            w.WriteNumber("proposals", 0);
-            w.WriteEndObject();
+            WriteAi(w);
             w.WriteEndObject();
         }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        var json = Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return _sections.Count == 0 ? json : MergeSections(json);
     }
+
+    /// <summary>The fake's own STATE with the sections laid over it (a fixture's or a hook's), merged the way a node
+    /// grows STATE: objects merge key by key, an array of objects with ids merges element by element (by id, new ones
+    /// appended), anything else is replaced.</summary>
+    private string MergeSections(string json)
+    {
+        var root = (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(json)!;
+        foreach (var (key, node) in _sections)
+            root[key] = Merge(root[key], node);
+        return root.ToJsonString();
+    }
+
+    private static System.Text.Json.Nodes.JsonNode? Merge(System.Text.Json.Nodes.JsonNode? into, System.Text.Json.Nodes.JsonNode? over)
+    {
+        switch (into, over)
+        {
+            case (System.Text.Json.Nodes.JsonObject a, System.Text.Json.Nodes.JsonObject b):
+                var merged = (System.Text.Json.Nodes.JsonObject)a.DeepClone();
+                foreach (var (k, v) in b)
+                    merged[k] = Merge(merged[k], v);
+                return merged;
+            case (System.Text.Json.Nodes.JsonArray a, System.Text.Json.Nodes.JsonArray b) when b.All(IdOf) && a.All(IdOf):
+                var list = (System.Text.Json.Nodes.JsonArray)a.DeepClone();
+                foreach (var e in b)
+                {
+                    var id = e!["id"]!.GetValue<string>();
+                    var at = list.Select((x, i) => (x, i)).FirstOrDefault(t => t.x!["id"]!.GetValue<string>() == id, (null, -1)).Item2;
+                    if (at < 0)
+                        list.Add(e.DeepClone());
+                    else
+                        list[at] = Merge(list[at], e);
+                }
+                return list;
+            default:
+                return over?.DeepClone();
+        }
+    }
+
+    private static bool IdOf(System.Text.Json.Nodes.JsonNode? e) =>
+        e is System.Text.Json.Nodes.JsonObject o && o["id"] is System.Text.Json.Nodes.JsonValue v && v.GetValueKind() == JsonValueKind.String;
 
     private string Headline(Playlist? focused, PlaylistCursor? cursor, int outputsOpen, long now)
     {

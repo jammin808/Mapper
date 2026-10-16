@@ -3,21 +3,24 @@
         xmlns:vm="using:PlayMap.App.ViewModels"
         xmlns:link="using:PlayMap.App.Link"
         xmlns:views="using:PlayMap.App.Views"
+        xmlns:ui="using:PlayMap.App.Controls"
         x:Class="PlayMap.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="{Binding ProjectName, StringFormat='PlayMap · {0}'}"
         Width="1600" Height="960" MinWidth="1100" MinHeight="680">
-  <Grid RowDefinitions="Auto,*,Auto">
+  <Border BorderBrush="{Binding Frame, Converter={StaticResource LightBrush}}" BorderThickness="{Binding FrameThickness}" x:Name="ModeFrame">
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
 
-    <!-- The top bar: project, workspaces, the master transport, BLACKOUT, the pills. -->
+    <!-- The top bar: project, workspaces, the master transport, the show cluster, the drawers. One row from 1366 px when it
+         fits; two rows below (identity, workspaces and drawers; then transport and the show cluster). -->
     <Border Grid.Row="0" Background="{StaticResource DeskPanelBrush}" BorderBrush="{StaticResource DeskBorderBrush}"
-            BorderThickness="0,0,0,1" Padding="10,8">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            BorderThickness="0,0,0,1" Padding="10,8" x:Name="TopBar" SizeChanged="OnTopBarSized">
+      <ui:TopBarPanel x:Name="TopBarPanel">
+        <StackPanel ui:TopBarPanel.Slot="Left" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" x:Name="Identity">
           <Border Width="30" Height="30" CornerRadius="8" Background="{StaticResource DeskAccentSoftBrush}" Margin="0,0,4,0">
             <PathIcon Data="{StaticResource Icon.projector}" Foreground="{StaticResource DeskAccentBrush}" Width="16" Height="16" />
           </Border>
-          <StackPanel VerticalAlignment="Center" MinWidth="120" MaxWidth="220">
+          <StackPanel VerticalAlignment="Center" MinWidth="100" MaxWidth="200">
             <TextBlock Classes="h1" Text="{Binding ProjectName}" TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="faint" Text="{Binding SaveText}" Foreground="{StaticResource LightAmberBrush}" IsVisible="{Binding IsDirty}" />
             <TextBlock Classes="faint" Text="{Binding SaveText}" IsVisible="{Binding !IsDirty}" />
@@ -27,7 +30,7 @@
           <ContentControl Content="{Binding Redo}" ContentTemplate="{StaticResource ActionSmall}" />
         </StackPanel>
 
-        <Border Grid.Column="1" Classes="chip" Padding="3" Margin="18,0" VerticalAlignment="Center">
+        <Border ui:TopBarPanel.Slot="Left" Classes="chip" Padding="3" Margin="8,0,0,0" VerticalAlignment="Center" x:Name="Workspaces">
           <StackPanel Orientation="Horizontal" Spacing="2">
             <RadioButton GroupName="workspace" x:Name="PlayTab" Classes="seg" Content="PLAY" IsChecked="{Binding IsPlay}" ToolTip.Tip="Playlists, media, previews  (Ctrl+1)" />
             <RadioButton GroupName="workspace" x:Name="MapTab" Classes="seg" Content="MAP" IsChecked="{Binding IsMap}" ToolTip.Tip="Surfaces, projectors, pins, warps, masks  (Ctrl+2)" />
@@ -35,67 +38,115 @@
           </StackPanel>
         </Border>
 
-        <Border Grid.Column="2" Classes="chip" Padding="8,2" HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="MasterTransport">
+        <ToggleButton ui:TopBarPanel.Slot="Left" x:Name="ProToggle" Classes="tool" IsChecked="{Binding Prefs.IsPro}" VerticalAlignment="Center"
+                      IsVisible="{Binding ShowProToggle}" ToolTip.Tip="Simple ⇄ Pro: Pro shows every control; Simple hides some and disables none  (Ctrl+Shift+P)">
+          <TextBlock Text="Pro" FontWeight="SemiBold" />
+        </ToggleButton>
+
+        <Border ui:TopBarPanel.Slot="Centre" ui:TopBarPanel.Second="True" Classes="chip" Padding="8,2" VerticalAlignment="Center" x:Name="MasterTransport" ClipToBounds="True">
           <StackPanel Orientation="Horizontal" Spacing="10">
             <StackPanel VerticalAlignment="Center" MinWidth="90" MaxWidth="160">
               <TextBlock Classes="faint" Text="{Binding FocusedName}" TextTrimming="CharacterEllipsis" />
               <TextBlock Text="{Binding Master.ItemLabel}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
             </StackPanel>
             <ItemsControl x:Name="MasterButtons" ItemsSource="{Binding Master.Actions}" ItemTemplate="{StaticResource ActionIcon}" ItemsPanel="{StaticResource Row}" />
-            <StackPanel VerticalAlignment="Center" Width="96">
+            <StackPanel VerticalAlignment="Center" Width="96" IsVisible="{Binding ShowPositionColumn}">
               <TextBlock Classes="counter" Text="{Binding Master.PositionText}" HorizontalAlignment="Right" />
               <ProgressBar Value="{Binding Master.Progress}" Maximum="1" Height="3" MinHeight="3" Margin="0,2,0,0" />
             </StackPanel>
             <TextBlock Classes="counter" Text="{Binding Master.RemainingText}" VerticalAlignment="Center" Foreground="{StaticResource DeskTextDimBrush}" MinWidth="64" />
             <Border Classes="chip" Background="{StaticResource DeskAccentSoftBrush}" VerticalAlignment="Center" ToolTip.Tip="Patterns' VT chip: what Stagewatch's VT link shows"
-                    IsVisible="{Binding VtChip, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-              <TextBlock Text="{Binding VtChip}" FontWeight="SemiBold" FontFeatures="+tnum" />
+                    IsVisible="{Binding ShowPositionColumn}">
+              <TextBlock Text="{Binding VtChip}" FontWeight="SemiBold" FontFeatures="+tnum" IsVisible="{Binding VtChip, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </Border>
           </StackPanel>
         </Border>
 
-        <Button Grid.Column="3" x:Name="BlackoutButton" Classes="blackout" Classes.on="{Binding IsBlackout}" Margin="10,0"
-                Command="{Binding Blackout.Command}" ToolTip.Tip="{Binding Blackout.Tip}" VerticalAlignment="Center">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <PathIcon Data="{StaticResource Icon.blackout}" Width="16" Height="16" />
-            <TextBlock Text="{Binding Blackout.Label}" VerticalAlignment="Center" />
-          </StackPanel>
-        </Button>
+        <ContentControl ui:TopBarPanel.Slot="Centre" ui:TopBarPanel.Second="True" x:Name="TimecodeSlot" Content="{Binding TimecodeSlot}"
+                        IsVisible="{Binding TimecodeSlot, Converter={x:Static ObjectConverters.IsNotNull}}" VerticalAlignment="Center" />
+        <ContentControl ui:TopBarPanel.Slot="Centre" ui:TopBarPanel.Second="True" x:Name="TempoSlot" Content="{Binding TempoSlot}"
+                        IsVisible="{Binding TempoSlot, Converter={x:Static ObjectConverters.IsNotNull}}" VerticalAlignment="Center" />
 
-        <Button Grid.Column="4" x:Name="NetworkPill" Classes="pill" Command="{Binding ToggleNetwork}" ToolTip.Tip="{Binding NetworkTip}" Margin="4,0" VerticalAlignment="Center">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
-            <TextBlock Text="{Binding NetworkText}" VerticalAlignment="Center" />
-            <Border Width="1" Height="14" Background="{StaticResource DeskBorderStrongBrush}" />
-            <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Patterns link">
-              <Ellipse Width="6" Height="6" Fill="{Binding PatternsLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
-              <TextBlock Text="P" Classes="faint" VerticalAlignment="Center" />
+        <!-- The show cluster never shrinks: the show strip (Ready, ARM, PANIC), then Blackout. -->
+        <StackPanel ui:TopBarPanel.Slot="Right" ui:TopBarPanel.Second="True" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6" x:Name="ShowCluster">
+          <ContentControl x:Name="ShowSlot" Content="{Binding ShowSlot}" />
+          <Button x:Name="BlackoutButton" Classes="blackout" Classes.on="{Binding IsBlackout}"
+                  Command="{Binding Blackout.Command}" ToolTip.Tip="{Binding Blackout.Tip}" VerticalAlignment="Center"
+                  ui:DeskMenu.Actions="{Binding BlackoutMenu}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.blackout}" Width="16" Height="16" />
+              <TextBlock Text="{Binding Blackout.Label}" VerticalAlignment="Center" />
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Stagewatch link">
-              <Ellipse Width="6" Height="6" Fill="{Binding StagewatchLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
-              <TextBlock Text="S" Classes="faint" VerticalAlignment="Center" />
+          </Button>
+        </StackPanel>
+
+        <StackPanel ui:TopBarPanel.Slot="Right" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" x:Name="Pills">
+          <Button x:Name="NetworkPill" Classes="pill" Command="{Binding ToggleNetwork}" ToolTip.Tip="{Binding NetworkTip}" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
+              <TextBlock Text="{Binding NetworkText}" VerticalAlignment="Center" IsVisible="{Binding ShowPillWords}" MaxWidth="160" TextTrimming="CharacterEllipsis" />
+              <Border Width="1" Height="14" Background="{StaticResource DeskBorderStrongBrush}" />
+              <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Patterns link">
+                <Ellipse Width="6" Height="6" Fill="{Binding PatternsLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+                <TextBlock Text="P" Classes="faint" VerticalAlignment="Center" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Stagewatch link">
+                <Ellipse Width="6" Height="6" Fill="{Binding StagewatchLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+                <TextBlock Text="S" Classes="faint" VerticalAlignment="Center" />
+              </StackPanel>
+              <TextBlock Text="{Binding SyncText}" Classes="faint" VerticalAlignment="Center" FontFeatures="+tnum"
+                         IsVisible="{Binding SyncText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
-            <TextBlock Text="{Binding SyncText}" Classes="faint" VerticalAlignment="Center" FontFeatures="+tnum"
-                       IsVisible="{Binding SyncText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          </StackPanel>
-        </Button>
-        <Button Grid.Column="5" Classes="pill" Command="{Binding ToggleOutputs}" ToolTip.Tip="Outputs: the multi-screen plan  (Ctrl+Shift+O)" Margin="4,0" VerticalAlignment="Center">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <PathIcon Data="{StaticResource Icon.outputs}" Width="15" Height="15" />
-            <TextBlock Text="Outputs" VerticalAlignment="Center" />
-          </StackPanel>
-        </Button>
-        <Button Grid.Column="6" x:Name="AiPill" Classes="pill" Classes.attention="{Binding AiAttention}" Command="{Binding ToggleNetwork}" ToolTip.Tip="{Binding AiTip}" Margin="4,0" VerticalAlignment="Center">
-          <TextBlock Text="{Binding AiText}" FontWeight="SemiBold" VerticalAlignment="Center" />
-        </Button>
-        <Button Grid.Column="7" Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Shortcuts and help  (F1)" VerticalAlignment="Center">
-          <PathIcon Data="{StaticResource Icon.help}" />
-        </Button>
-      </Grid>
+          </Button>
+          <Button x:Name="OutputsPill" Classes="pill" Command="{Binding ToggleOutputs}" ToolTip.Tip="Outputs: the multi-screen plan  (Ctrl+Shift+O)" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.outputs}" Width="15" Height="15" />
+              <TextBlock Text="Outputs" VerticalAlignment="Center" IsVisible="{Binding ShowPillWords}" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="InputsPill" Classes="pill" Command="{Binding ToggleInputs}" ToolTip.Tip="Inputs: controllers, timecode, sound  (Ctrl+Shift+I)" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.audio}" Width="15" Height="15" />
+              <TextBlock Text="Inputs" VerticalAlignment="Center" IsVisible="{Binding ShowPillWords}" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="HealthPill" Classes="pill" Command="{Binding ToggleHealth}" ToolTip.Tip="Health: every part of the node, with its light and words  (Ctrl+Shift+H)" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.info}" Width="15" Height="15" />
+              <TextBlock Text="Health" VerticalAlignment="Center" IsVisible="{Binding ShowPillWords}" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="AiPill" Classes="pill" Classes.attention="{Binding AiAttention}" Command="{Binding ToggleHealth}" ToolTip.Tip="{Binding AiTip}" VerticalAlignment="Center">
+            <TextBlock Text="{Binding AiText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+          </Button>
+          <Button Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Shortcuts and help  (F1)" VerticalAlignment="Center" x:Name="HelpButton">
+            <PathIcon Data="{StaticResource Icon.help}" />
+          </Button>
+        </StackPanel>
+      </ui:TopBarPanel>
     </Border>
 
+    <!-- The attention bar: what needs a person now (rebuilt from STATE; empty most of the time). -->
+    <StackPanel Grid.Row="1" x:Name="AttentionPanel">
+    <ItemsControl x:Name="AttentionBar" ItemsSource="{Binding ShownBanners}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:Banner">
+          <Border Classes="toast" Classes.refused="{Binding IsRed}" Padding="12,4">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
+              <TextBlock Text="{Binding Words}" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <ItemsControl ItemsSource="{Binding Actions}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Row}" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Button Classes="tool small" HorizontalAlignment="Right" Margin="12,0" x:Name="MoreBanners" IsVisible="{Binding HasMoreBanners}"
+            Command="{Binding ToggleBanners}" Content="{Binding MoreBannersText}" />
+    </StackPanel>
+
     <!-- The workspaces, the drawers, the overlays. -->
-    <Panel Grid.Row="1">
+    <Panel Grid.Row="2">
       <Panel IsVisible="{Binding IsPlay}">
         <views:PlayView x:Name="PlayView" DataContext="{Binding Play}" />
       </Panel>
@@ -106,12 +157,7 @@
         <views:ScanView x:Name="ScanView" DataContext="{Binding Scan}" />
       </Panel>
 
-      <Border Classes="drawer" HorizontalAlignment="Right" Width="660" IsVisible="{Binding IsOutputsOpen}">
-        <views:OutputsDrawer x:Name="OutputsDrawer" DataContext="{Binding Outputs}" />
-      </Border>
-      <Border Classes="drawer" HorizontalAlignment="Right" Width="560" IsVisible="{Binding IsNetworkOpen}">
-        <views:NetworkDrawer x:Name="NetworkDrawer" DataContext="{Binding Network}" />
-      </Border>
+      <views:DrawerHost x:Name="DrawerHost" DataContext="{Binding Drawers}" IsVisible="{Binding IsOpen}" />
 
       <!-- Toasts: what happened, in plain words; refusals stay longer. -->
       <ItemsControl ItemsSource="{Binding Session.Toasts}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="16" Width="420">
@@ -138,7 +184,7 @@
     </Panel>
 
     <!-- The status strip: the last thing that happened, the link, the hint. -->
-    <Border Grid.Row="2" Background="{StaticResource DeskPanelBrush}" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,1,0,0" Padding="12,4">
+    <Border Grid.Row="3" Background="{StaticResource DeskPanelBrush}" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,1,0,0" Padding="12,4">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="8">
           <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
@@ -150,4 +196,5 @@
       </Grid>
     </Border>
   </Grid>
+  </Border>
 </Window>

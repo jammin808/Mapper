@@ -1,6 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:PlayMap.App.Controls"
+             xmlns:infra="using:PlayMap.App.Infrastructure"
              x:Class="PlayMap.App.DeskApp"
              RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -8,11 +9,16 @@
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://PlayMap/Theme/Tokens.axaml" />
         <ResourceInclude Source="avares://PlayMap/Theme/Templates.axaml" />
+        <ResourceInclude Source="avares://PlayMap/Theme/ParamTemplates.axaml" />
+        <ResourceInclude Source="avares://PlayMap/Theme/Status.axaml" />
       </ResourceDictionary.MergedDictionaries>
       <ui:IconConverter x:Key="Icon" />
       <ui:LightBrushConverter x:Key="LightBrush" />
     </ResourceDictionary>
   </Application.Resources>
+  <Application.DataTemplates>
+    <infra:ModuleViewLocator />
+  </Application.DataTemplates>
   <Application.Styles>
     <FluentTheme>
       <FluentTheme.Palettes>
@@ -22,5 +28,9 @@
       </FluentTheme.Palettes>
     </FluentTheme>
     <StyleInclude Source="avares://PlayMap/Theme/DeskStyles.axaml" />
+    <!-- One style file per desk package (Show & health, Content & media, Map & calibration), each owned by its package. -->
+    <StyleInclude Source="avares://PlayMap/Theme/Desk1.axaml" />
+    <StyleInclude Source="avares://PlayMap/Theme/Desk2.axaml" />
+    <StyleInclude Source="avares://PlayMap/Theme/Desk3.axaml" />
   </Application.Styles>
 </Application>

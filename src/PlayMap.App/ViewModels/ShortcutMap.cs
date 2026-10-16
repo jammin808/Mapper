@@ -24,7 +24,8 @@ public sealed class ShortcutMap
     /// <summary>A table of the given shortcuts (the desk builds its own with <see cref="Build"/>).</summary>
     public static ShortcutMap For(IReadOnlyList<Shortcut> entries) => new(entries);
 
-    public static ShortcutMap Build(MainViewModel vm)
+    /// <summary>The desk's table: its own rows, then the rows the modules append (F1 lists them all).</summary>
+    public static ShortcutMap Build(MainViewModel vm, IEnumerable<Shortcut>? modules = null)
     {
         ArgumentNullException.ThrowIfNull(vm);
         var map = vm.Map;
@@ -32,19 +33,16 @@ public sealed class ShortcutMap
         List<Shortcut> e =
         [
             new("F1", "Show or hide this help", "Desk", Key.F1, KeyModifiers.None, vm.ToggleHelp) { WhileTyping = true },
-            new("Esc", "Close the help and the drawers; cancel a pen path", "Desk", Key.Escape, KeyModifiers.None,
-                new Infrastructure.RelayCommand(() =>
-                {
-                    if (vm.Workspace == Workspace.Map && map.Pen.IsDrawing)
-                        map.Pen.Cancel();
-                    else
-                        vm.CloseOverlays.Execute(null);
-                })) { WhileTyping = true },
+            new("Esc", "The Esc ladder: cancel a pattern task, a learn or a draft; close the help and the drawers; PANIC in PLAY when the desk's preference says so", "Desk",
+                Key.Escape, KeyModifiers.None, vm.EscapeCommand) { WhileTyping = true },
             new("Ctrl+1", "PLAY workspace", "Desk", Key.D1, KeyModifiers.Control, vm.ShowPlay) { WhileTyping = true },
             new("Ctrl+2", "MAP workspace", "Desk", Key.D2, KeyModifiers.Control, vm.ShowMap) { WhileTyping = true },
             new("Ctrl+3", "SCAN workspace", "Desk", Key.D3, KeyModifiers.Control, vm.ShowScan) { WhileTyping = true },
             new("Ctrl+Shift+O", "Outputs drawer", "Desk", Key.O, KeyModifiers.Control | KeyModifiers.Shift, vm.ToggleOutputs) { WhileTyping = true },
             new("Ctrl+Shift+N", "Network drawer", "Desk", Key.N, KeyModifiers.Control | KeyModifiers.Shift, vm.ToggleNetwork) { WhileTyping = true },
+            new("Ctrl+Shift+I", "Inputs drawer", "Desk", Key.I, KeyModifiers.Control | KeyModifiers.Shift, vm.ToggleInputs) { WhileTyping = true },
+            new("Ctrl+Shift+H", "Health drawer", "Desk", Key.H, KeyModifiers.Control | KeyModifiers.Shift, vm.ToggleHealth) { WhileTyping = true },
+            new("Ctrl+Shift+P", "Simple ⇄ Pro (this desk only)", "Desk", Key.P, KeyModifiers.Control | KeyModifiers.Shift, vm.TogglePro) { WhileTyping = true },
             new("Ctrl+Z", "Undo (UNDO)", "Desk", Key.Z, KeyModifiers.Control, vm.Undo.Command),
             new("Ctrl+Y", "Redo (REDO)", "Desk", Key.Y, KeyModifiers.Control, vm.Redo.Command),
             new("Ctrl+Shift+Z", "Redo (REDO)", "Desk", Key.Z, KeyModifiers.Control | KeyModifiers.Shift, vm.Redo.Command),
@@ -63,6 +61,8 @@ public sealed class ShortcutMap
             new("Enter", "Close the pen path", "MAP", Key.Enter, KeyModifiers.None, map.Pen.CloseCommand, () => InMap() && map.Pen.IsDrawing),
             new("Delete", "Remove the selection (REMOVE)", "MAP", Key.Delete, KeyModifiers.None, map.RemoveSelection, InMap),
         ];
+        if (modules is not null)
+            e.AddRange(modules);
         return new ShortcutMap(e);
     }
 

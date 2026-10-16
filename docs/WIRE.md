@@ -4,7 +4,7 @@ One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the 
 wire over the web port's WebSocket (`/ws` with the subprotocol `playmap.lines.v1`), HTTP `POST /api/cmd` (9940), the screens'
 WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, OSC (`/playmap/line` on UDP 9943), the lines control
 bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync group's leader sends its members
-(docs/SYNC.md), and the desk.
+(docs/SYNC.md), and the desk, which adds no verb and sends only catalogue lines (docs/wire/desk.md).
 
 ## Lines
 
@@ -343,6 +343,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [phonescan](wire/phonescan.md) ·
   [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
   camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own) ·
+  [desk](wire/desk.md) (no rows: what the desk asks and the STATE it reads) ·
   [d3d11](wire/d3d11.md) (`PRESENT PATH AUTO|DXGI|GL` from the render host's next start, DXGI explicit and experimental, the
   present fuse that `PRESENT RESET` clears; Spout's lines through videoio's rows; each output's `latencyMs` and the node's air
   latency) · [zerocopy](wire/zerocopy.md) (`DECODE STATUS`, the `decode` object STATE carries with each source's path — the path its

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.State;
@@ -51,12 +52,63 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
-        // refusal repeated by a drag folds into one toast).
-        Throttle = new ThrottledSender((line, ct) => SendAsync(line, ct));
+        // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
+        Throttle = new ThrottledSender((line, ct) =>
+        {
+            if (GateWords(line) is { } why)
+            {
+                _post(() => Notify(ToastKind.Refused, why, line));
+                return Task.CompletedTask;
+            }
+            return SendAsync(line, ct);
+        });
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
+
+    private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
+    private Func<string, string?>? _gateHook;
+    private string _role = "operator";
+    private long _gateStamp;
+
+    /// <summary>What Show Mode takes this desk for on the node (WHOAMI's role: "operator" for the desk on this machine or a
+    /// listed desk address, "remote" otherwise); the gate decides with it, as the engine does.</summary>
+    public string Role => _role;
+
+    /// <summary>Moves whenever what the gate reads may have moved (a STATE push, the node's verbs or the desk's role), so an
+    /// action re-asks the gate only then.</summary>
+    public long GateStamp => Interlocked.Read(ref _gateStamp);
+
+    /// <summary>Marks the gate's facts as moved (a module whose facts change outside a push calls it).</summary>
+    public void GateMoved() => Interlocked.Increment(ref _gateStamp);
+
+    /// <summary>The verb names the node answered VERBS with at attach (empty until it answers: then every control
+    /// shows). A control whose verb the node lacks hides, so a node without a package shows none of its controls.</summary>
+    public IReadOnlySet<string> Verbs => _verbs;
+
+    /// <summary>Raised on the UI thread when the node's verb list arrived.</summary>
+    public event Action? VerbsUpdated;
+
+    /// <summary>True when the node runs the verb a line starts with (or the list is not known yet).</summary>
+    public bool Knows(string line)
+    {
+        if (_verbs.Count == 0 || string.IsNullOrWhiteSpace(line))
+            return true;
+        return WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && _verbs.Contains(m.Spec.Name);
+    }
+
+    /// <summary>The desk-wide refusal hook (the show's policy, the locks): the words why a line would be refused now,
+    /// or null. Every <see cref="ViewModels.DeskAction"/> asks it on refresh, so a control greys with the gate's words
+    /// before the press; the engine still decides.</summary>
+    public Func<string, string?>? Gate
+    {
+        get => _gateHook;
+        set => _gateHook = value;
+    }
+
+    /// <summary>Why the gate would refuse this line now, or null.</summary>
+    public string? GateWords(string line) => _gateHook is { } g && !string.IsNullOrWhiteSpace(line) ? g(line) : null;
 
     public IEngineLink? Link => _link;
 
@@ -112,6 +164,93 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         ApplyProject();
         ApplyState();
         StatusUpdated?.Invoke(_status);
+        _ = LoadVerbsAsync(link);
+    }
+
+    /// <summary>The node's verbs and the desk's role, asked at attach and again whenever the link comes back live.</summary>
+    private void Reload()
+    {
+        if (_link is { } link)
+            _ = LoadVerbsAsync(link);
+    }
+
+    /// <summary>Asks the node for its vocabulary (VERBS: a JSON list of rows, or names separated by spaces) and
+    /// keeps the names; a node that does not answer leaves every control showing.</summary>
+    private async Task LoadVerbsAsync(IEngineLink link)
+    {
+        var reply = await SendQuietAsync("VERBS");
+        var who = await SendQuietAsync("WHOAMI");
+        if (!ReferenceEquals(link, _link))
+            return;
+        var names = reply.Ok ? ParseVerbs(reply.Text) : FrozenSet<string>.Empty;
+        var role = who.Ok ? RoleIn(who.Text) : null;
+        _post(() =>
+        {
+            if (!ReferenceEquals(link, _link))
+                return;
+            if (reply.Ok)
+                _verbs = names;
+            if (role is not null)
+                _role = role;
+            GateMoved();
+            VerbsUpdated?.Invoke();
+        });
+    }
+
+    /// <summary>The role in a WHOAMI reply, or null when it names none.</summary>
+    private static string? RoleIn(string text)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object && doc.RootElement.TryGetProperty("role", out var r)
+                && r.ValueKind == System.Text.Json.JsonValueKind.String ? r.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The names in a VERBS reply that the node answers now (a row with "available": false is left out).</summary>
+    public static FrozenSet<string> ParseVerbs(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var t = text.Trim();
+        if (t.StartsWith('['))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(t);
+                var names = new List<string>();
+                foreach (var row in doc.RootElement.EnumerateArray())
+                {
+                    if (row.ValueKind == System.Text.Json.JsonValueKind.String)
+                        names.Add(row.GetString() ?? "");
+                    else if (row.ValueKind == System.Text.Json.JsonValueKind.Object && row.TryGetProperty("name", out var n)
+                        && !(row.TryGetProperty("available", out var av) && av.ValueKind == System.Text.Json.JsonValueKind.False))
+                        names.Add(n.GetString() ?? "");
+                }
+                return names.Where(n => n.Length > 0).ToFrozenSet(StringComparer.Ordinal);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return FrozenSet<string>.Empty;
+            }
+        }
+        // The names joined by spaces are ambiguous for two-word verbs: a name is any catalogue name whose words appear in order.
+        var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < words.Length; i++)
+        {
+            foreach (var spec in VerbCatalog.All)
+            {
+                var parts = spec.Name.Split(' ');
+                if (i + parts.Length <= words.Length && parts.AsSpan().SequenceEqual(words.AsSpan(i, parts.Length)))
+                    known.Add(spec.Name);
+            }
+        }
+        return known.ToFrozenSet(StringComparer.Ordinal);
     }
 
     public void Detach()
@@ -123,6 +262,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _link.ProjectChanged -= OnProject;
         _link = null;
         _status = LinkStatus.Down;
+        _verbs = FrozenSet<string>.Empty;
+        _role = "operator";
+        GateMoved();
         Raise(nameof(Link), nameof(Status), nameof(IsLive));
         StatusUpdated?.Invoke(_status);
     }
@@ -230,6 +372,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             _status = s;
             Raise(nameof(Status), nameof(IsLive));
             StatusUpdated?.Invoke(s);
+            if (s == LinkStatus.Live)
+                Reload();
         });
     }
 
@@ -281,6 +425,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             return;
         }
         _state = next;
+        GateMoved();
         Raise(nameof(State));
         StateUpdated?.Invoke(next);
     }

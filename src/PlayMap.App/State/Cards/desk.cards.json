@@ -1,0 +1,72 @@
+[
+  {
+    "title": "Solve",
+    "path": "solve",
+    "light": { "path": "solve.state", "red": ["failed"], "amber": ["running", "queued", "cancelled"], "green": ["done"] },
+    "words": "solve.words",
+    "fields": [
+      { "label": "Kind", "path": "kind" },
+      { "label": "State", "path": "state" },
+      { "label": "Progress", "path": "progress" },
+      { "label": "Outputs", "path": "outputs.length" },
+      { "label": "Problems", "path": "problems.length" },
+      { "label": "First output", "path": "outputs.0.words" }
+    ],
+    "actions": [
+      { "label": "Solve the blend again", "line": "BLEND SOLVE ALL" }
+    ]
+  },
+  {
+    "title": "Camera",
+    "path": "cameras[]",
+    "label": "name",
+    "light": { "path": "state", "red": ["failed"], "amber": ["opening", "scanning"], "green": ["live", "simulated"] },
+    "words": "{problem?{problem}:{state}} · {views} views",
+    "fields": [
+      { "label": "State", "path": "state" },
+      { "label": "Views", "path": "views" },
+      { "label": "Problem", "path": "problem" }
+    ],
+    "actions": [
+      { "label": "What it is", "line": "GET $(id)" },
+      { "label": "Scan status", "line": "SCAN STATUS" }
+    ]
+  },
+  {
+    "title": "Assistant",
+    "path": "ai.assistant",
+    "light": [ { "if": "enabled", "light": "green" }, { "light": "grey" } ],
+    "words": "{enabled?{provider} · {model} · effort {effort}:the assistant is off}",
+    "fields": [
+      { "label": "Provider", "path": "provider" },
+      { "label": "Model", "path": "model" },
+      { "label": "Effort", "path": "effort" },
+      { "label": "Endpoint", "path": "baseUrl" },
+      { "label": "Key set", "path": "keySet" },
+      { "label": "Low-risk lines run unasked", "path": "runLowWithoutAsking" }
+    ],
+    "actions": [
+      { "label": "Settings", "line": "ASSISTANT STATUS" },
+      { "label": "Turn on", "line": "ASSISTANT SET enabled on" },
+      { "label": "Turn off", "line": "ASSISTANT SET enabled off" },
+      { "label": "Effort low", "line": "ASSISTANT SET effort low" },
+      { "label": "Effort medium", "line": "ASSISTANT SET effort medium" },
+      { "label": "Effort high", "line": "ASSISTANT SET effort high" }
+    ]
+  },
+  {
+    "title": "Assistant door",
+    "path": "ai",
+    "light": [ { "if": "proposals", "light": "amber" }, { "if": "mcp", "light": "green" }, { "light": "grey" } ],
+    "words": "{mcp?MCP open · {clients} connected:MCP closed} · {proposals} waiting for a person",
+    "fields": [
+      { "label": "MCP", "path": "mcp" },
+      { "label": "Clients", "path": "clients" },
+      { "label": "Waiting", "path": "proposals" }
+    ],
+    "actions": [
+      { "label": "Proposals", "line": "PROPOSALS" },
+      { "label": "Every proposal", "line": "PROPOSALS ALL" }
+    ]
+  }
+]

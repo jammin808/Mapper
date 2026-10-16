@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:cards="using:PlayMap.App.ViewModels.Cards"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.Cards.CardView"
+             x:DataType="cards:CardViewModel">
+  <!-- A generic STATE card: light and title, the words, up to six fields, the actions (each a verb line; the right-click
+       menu is the same list). -->
+  <Border Classes="card" Padding="10,8" Margin="0,0,0,6" ui:DeskMenu.Actions="{Binding Actions}" x:Name="Card">
+    <StackPanel Spacing="4">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+        <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="CardLight" />
+        <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="2" Classes="faint" Text="{Binding Package}" />
+      </Grid>
+      <TextBlock Classes="dim" Text="{Binding Words}" TextWrapping="Wrap" IsVisible="{Binding HasWords}" x:Name="CardWords" />
+      <ItemsControl ItemsSource="{Binding Fields}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="cards:CardFieldViewModel">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Classes="faint" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+              <TextBlock Grid.Column="1" Text="{Binding Value}" FontFeatures="+tnum" TextTrimming="CharacterEllipsis" MaxWidth="260" />
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <ItemsControl ItemsSource="{Binding Actions}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" x:Name="CardActions" />
+    </StackPanel>
+  </Border>
+</UserControl>

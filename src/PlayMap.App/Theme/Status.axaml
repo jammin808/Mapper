@@ -1,0 +1,23 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:PlayMap.App.ViewModels"
+                    xmlns:ui="using:PlayMap.App.Controls">
+  <!-- A status row: light, title, value, the words, and Fix (the fix line, sent as a verb). -->
+  <DataTemplate x:Key="StatusRowTemplate" x:DataType="vm:StatusRow">
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" Margin="0,2">
+      <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" VerticalAlignment="Top" Margin="0,5,0,0" />
+      <StackPanel Grid.Column="1">
+        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        <TextBlock Classes="faint" Text="{Binding Words}" TextWrapping="Wrap" IsVisible="{Binding HasWords}" />
+      </StackPanel>
+      <TextBlock Grid.Column="2" Text="{Binding Value}" Classes="dim" VerticalAlignment="Top" FontFeatures="+tnum" />
+      <ContentControl Grid.Column="3" Content="{Binding Fix}" ContentTemplate="{StaticResource ActionText}" IsVisible="{Binding HasFix}" VerticalAlignment="Top" />
+    </Grid>
+  </DataTemplate>
+
+  <!-- An action as a labelled toolbar button; one with sub-actions opens them as a menu (the same entries its right-click
+       menu shows). -->
+  <DataTemplate x:Key="ActionMenu" x:DataType="vm:DeskAction">
+    <ui:ActionMenuButton Classes="secondary" Action="{Binding}" Margin="0,0,4,4" />
+  </DataTemplate>
+</ResourceDictionary>

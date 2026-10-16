@@ -1,0 +1,178 @@
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
+using PlayMap.App.Controls;
+using PlayMap.App.ViewModels;
+
+namespace PlayMap.App.Tests;
+
+/// <summary>The right-click entries generated from what the node can do (Add effect ▸, Modulate ▸, Bind ▸, Optimise ▸,
+/// Use input ▸): every one is the same action its object's inspector toolbar shows, each sends a catalogue line with the
+/// engine's meaning, and an entry whose verb the node does not run is not shown.</summary>
+public class GeneratedMenuTests
+{
+    /// <summary>The menu a row's right-click opens, with the modules' entries (built as DeskMenu builds it).</summary>
+    private static List<DeskAction> MenuOf(Window window, IMenuTarget target)
+    {
+        var row = window.GetVisualDescendants().OfType<Control>().First(c => ReferenceEquals(c.DataContext, target) && DeskMenu.GetActions(c) is not null);
+        var menu = new ContextMenu();
+        DeskMenu.Fill(menu.Items, DeskMenu.GetActions(row)!, DeskMenu.ExtrasOf(row));
+        return [.. Walk(menu.Items)];
+    }
+
+    private static IEnumerable<DeskAction> Flatten(DeskAction a) => a.Children.SelectMany(c => Flatten(c).Prepend(c));
+
+    private static IEnumerable<DeskAction> Walk(ItemCollection items)
+    {
+        foreach (var i in items.OfType<MenuItem>())
+        {
+            if (i.Tag is DeskAction a)
+                yield return a;
+            foreach (var c in Walk(i.Items))
+                yield return c;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task EveryGeneratedEntryIsTheSameActionAsItsObjectsInspectorToolbar()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.LoadAll(desk.Link);
+        desk.Link.SetSection("videoio", """{"inputs":[{"id":"in_arena","name":"Arena (NDI)"}]}""");
+        var window = MainWindowTests.Open(desk);
+        DeskHarness.Pump();
+        var checkedEntries = 0;
+
+        void Check(IMenuTarget target, InspectorHost host)
+        {
+            DeskHarness.Pump();
+            var extras = desk.Main.ExtrasFor(target);
+            Assert.NotEmpty(extras);
+            Assert.Equal(extras, host.Extras);
+            var menu = MenuOf(window, target);
+            // The buttons of the inspector that shows this object (not any panel's).
+            var inspector = window.GetVisualDescendants().OfType<Views.InspectorView>().Single(v => ReferenceEquals(v.DataContext, host) && v.IsEffectivelyVisible);
+            var extrasRow = inspector.GetVisualDescendants().OfType<ItemsControl>().Single(i => i.Name == "InspectorExtras");
+            var buttons = extrasRow.GetVisualDescendants().OfType<ActionMenuButton>().Select(b => b.Action).ToHashSet();
+            foreach (var e in extras.Where(e => e.HasChildren ? e.Children.Any(c => c.IsAvailable) : e.IsAvailable))
+            {
+                // In the menu, with its sub-entries, and on the inspector's toolbar: the same instances.
+                Assert.Contains(e, menu);
+                Assert.Contains(e, buttons);
+                foreach (var c in Flatten(e).Where(c => c.IsAvailable))
+                {
+                    Assert.Contains(c, menu);
+                    if (!c.HasChildren)
+                        Assert.Null(DeskVerbRuleTests.Fault(c.Verb));
+                }
+                checkedEntries++;
+            }
+        }
+
+        desk.Main.Workspace = Workspace.Map;
+        foreach (var node in desk.Main.Map.Outliner.SelectMany(g => g.Nodes).Where(n => n.Kind is "surface" or "output" or "projector").ToList())
+        {
+            desk.Main.Map.Select(node.Kind, node.Id);
+            Check(node, desk.Main.Map.Inspector);
+        }
+        desk.Main.Workspace = Workspace.Play;
+        foreach (var media in desk.Main.Play.Media.ToList())
+        {
+            desk.Main.Play.SelectedMedia = media;
+            Check(media, desk.Main.Play.Inspector);
+        }
+        desk.Main.Play.IsGeneratorsTab = true;
+        foreach (var gen in desk.Main.Play.Generators.ToList())
+        {
+            desk.Main.Play.SelectedGenerator = gen;
+            Check(gen, desk.Main.Play.Inspector);
+        }
+        Assert.True(checkedEntries > 10);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task EachGeneratedEntrySendsItsLineAndTheNodeShowsWhatItDid()
+    {
+        await using var desk = new DeskHarness();
+        desk.Link.SetSection("videoio", """{"inputs":[{"id":"in_arena","name":"Arena (NDI)"}]}""");
+        DeskHarness.Pump();
+        var project = desk.Link.CurrentProject;
+        var surface = project.Stage.Surfaces[0];
+        IMenuTarget sf = desk.Main.Map.Outliner.SelectMany(g => g.Nodes).First(n => n.Id == surface.Id);
+        var extras = desk.Main.ExtrasFor(sf);
+
+        // Add effect ▸ Invert: the slot appears in STATE.fx, and its card with it.
+        var invert = extras.Single(e => e.Id == "gen.fx").Children.Single(c => c.Verb == $"FX ADD {surface.Id} fx.invert");
+        await invert.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Equal($"FX ADD {surface.Id} fx.invert", desk.Verbs()[^1]);
+        Assert.True(desk.Session.LastToast is null || !desk.Session.LastToast.IsRefusal, desk.Session.LastToast?.Text);
+        Assert.Contains(desk.Main.Cards.Shown, c => c.Package == "fx" && c.Fields.Any(f => f.Value == "fx.invert"));
+
+        // Use input ▸ Arena.
+        var arena = extras.Single(e => e.Id == "gen.input").Children.Single();
+        Assert.Equal($"SURFACE SOURCE {surface.Id} live:in_arena", arena.Verb);
+
+        // Modulate ▸ a generator's number ▸ the beat: bound, and STATE.modulation counts it.
+        var gen = project.Generators.First(g => PlayMap.Core.Content.GeneratorCatalog.Find(g.Kind)?.Params
+            .Any(p => p.Type is PlayMap.Core.Content.ParamType.Number or PlayMap.Core.Content.ParamType.Integer) == true);
+        IMenuTarget gn = desk.Main.Play.Generators.First(g => g.Id == gen.Id);
+        var modulate = desk.Main.ExtrasFor(gn).Single(e => e.Id == "gen.mod");
+        var param = modulate.Children.First(p => p.HasChildren);
+        var beat = param.Children.FirstOrDefault(c => c.Verb.EndsWith(" beat", StringComparison.Ordinal));
+        Assert.True(beat is not null, string.Join(" | ", param.Children.Select(c => c.Label + " → " + c.Verb)));
+        await beat!.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.StartsWith($"MOD BIND {gen.Id} ", desk.Verbs()[^1], StringComparison.Ordinal);
+        Assert.Contains(desk.Main.Cards.Shown, c => c.Package == "audio" && c.Title == "Modulation" && c.Fields[0].Value == "1");
+
+        // Optimise ▸ HAP Q on a clip.
+        IMenuTarget md = desk.Main.Play.Media[0];
+        Assert.Contains(desk.Main.ExtrasFor(md).Single(e => e.Id == "gen.optimise").Children, c => c.Verb == $"MEDIA OPTIMISE {md.Id} TO hap-q");
+
+        // Bind ▸ an output's Identify: the node learns; Esc stops the learn first (before the overlays and PANIC).
+        IMenuTarget op = desk.Main.Map.Outliner.SelectMany(g => g.Nodes).First(n => n.Id == "op_1");
+        var bind = desk.Main.ExtrasFor(op).Single(e => e.Id == "gen.bind").Children.Single(c => c.Verb == "BIND LEARN OUTPUT IDENTIFY op_1");
+        await bind.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        desk.Main.IsHelpOpen = true;
+        Assert.Equal("ObjectMenusModule", desk.Main.Escape.Escape());
+        DeskHarness.Pump();
+        Assert.Equal("BIND LEARN OFF", desk.Verbs()[^1]);
+        Assert.True(desk.Main.IsHelpOpen);
+        Assert.Equal("overlays", desk.Main.Escape.Escape());
+    }
+
+    [AvaloniaFact]
+    public async Task AnEntryWhoseVerbTheNodeDoesNotRunIsNotShown()
+    {
+        await using var desk = new DeskHarness(link =>
+        {
+            link.WithoutVerbs.Add("FX ADD");
+            link.WithoutVerbs.Add("FX KINDS");
+            link.WithoutVerbs.Add("MEDIA OPTIMISE");
+            link.WithoutVerbs.Add("MEDIA ESTIMATE");
+            link.WithoutVerbs.Add("MEDIA VERSIONS");
+        });
+        var window = MainWindowTests.Open(desk);
+        DeskHarness.Pump();
+        Assert.DoesNotContain("FX ADD", desk.Session.Verbs);
+        desk.Main.Workspace = Workspace.Map;
+        var sf = desk.Main.Map.Outliner.SelectMany(g => g.Nodes).First(n => n.Kind == "surface");
+        desk.Main.Map.Select(sf.Kind, sf.Id);
+        DeskHarness.Pump();
+        var menu = MenuOf(window, sf);
+        Assert.DoesNotContain(menu, a => a.Verb.StartsWith("FX ADD", StringComparison.Ordinal));
+        Assert.Contains(menu, a => a.Verb.StartsWith("BIND LEARN", StringComparison.Ordinal));
+        desk.Main.Workspace = Workspace.Play;
+        var md = desk.Main.Play.Media[0];
+        desk.Main.Play.SelectedMedia = md;
+        DeskHarness.Pump();
+        Assert.DoesNotContain(MenuOf(window, md), a => a.Verb.StartsWith("MEDIA OPTIMISE", StringComparison.Ordinal));
+        var optimise = desk.Main.ExtrasFor(md).Single(e => e.Id == "gen.optimise");
+        var button = window.GetVisualDescendants().OfType<ActionMenuButton>().Single(b => b.Action == optimise);
+        Assert.False(button.IsVisible);
+        window.Close();
+    }
+}

@@ -4,7 +4,7 @@
 
 ## 1. Where we start from
 
-The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the Outputs and Network drawers, view models, a demo engine (`FakeEngineLink`) for offline use and drag tests through the real input path. It starts and watches this machine's engine, or attaches to a node on the network over the line wire. The round-two verbs (show safety, locks, effects, bindings and the rest) run over the wire, HTTP, MCP and bindings until the desk's controls for them land. Nothing in this paper has been tried on a real wall.
+The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the show strip, the attention bar, the Outputs, Inputs, Health and Network drawers, view models, a demo engine (`FakeEngineLink`) for offline use and drag tests through the real input path. It starts and watches this machine's engine, or attaches to a node on the network over the line wire. What is built of this paper's frame, show strip, Esc ladder and armed desk is in docs/DESK.md; every package's STATE shows on a generic card built from its descriptor (`tests/fixtures/state/README.md`). Nothing in this paper has been tried on a real wall.
 
 Three foundations are worth keeping:
 
@@ -72,7 +72,7 @@ Playlists show no mapping fields. The surface inspector shows a "Mapping is shar
 
 ### 3.4 The verb-first contract
 
-A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test is to fail if any button, menu item or shortcut maps to a verb that is not in the catalogue (ROADMAP R1.8; not written yet). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, playback volume, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
+A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test fails if any button, menu item, card action or generated entry the desk can reach sends a line the catalogue does not parse or one that carries a secret, or if a toolbar holds an action its menu lacks (`DeskVerbRuleTests`, ROADMAP R1.8). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, playback volume, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
 
 Typed parameters then generate, at no extra cost: the last-action panel, the palette entry, the "Bind…" target, the Companion action, the MCP tool and the integrator command sheet.
 

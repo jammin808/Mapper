@@ -113,6 +113,16 @@ public abstract class ParamEditor : ObservableObject
 
     public ParamSpec Spec { get; }
 
+    private object? _socket;
+
+    /// <summary>The slot beside the number where a module puts its socket (the modulation socket: what drives this
+    /// parameter); null shows nothing. Its view comes from the module view registry.</summary>
+    public object? Socket
+    {
+        get => _socket;
+        set => Set(ref _socket, value);
+    }
+
     /// <summary>"Cell size in pixels" — the catalogue's words.</summary>
     public string Hint => Spec.Words;
 

@@ -29,11 +29,19 @@ public partial class MainWindow : Window
         Closed += (_, _) => _tick.Stop();
     }
 
+    /// <summary>The bar's width drives its compact forms (the panel itself decides one row or two).</summary>
+    private void OnTopBarSized(object? sender, SizeChangedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+            vm.BarWidth = e.NewSize.Width;
+    }
+
     private void OnKeyDownTunnel(object? sender, KeyEventArgs e)
     {
         if (DataContext is not MainViewModel vm)
             return;
         var typing = FocusManager?.GetFocusedElement() is TextBox;
+        vm.IsTyping = typing;
         if (vm.Shortcuts.Handle(e.Key, e.KeyModifiers, typing))
             e.Handled = true;
     }
