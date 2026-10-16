@@ -70,6 +70,7 @@ jobs:
     runs-on: windows-latest
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
+      GALLIUM_DRIVER: llvmpipe
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -82,10 +83,30 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip" -OutFile ff.zip
           Expand-Archive ff.zip -DestinationPath ff
           Move-Item (Get-ChildItem ff -Directory | Select-Object -First 1).FullName .ffmpeg
+      - name: OpenGL 3.3 in software (Mesa llvmpipe)
+        shell: pwsh
+        run: |
+          # The runner has no GPU, and Windows' own opengl32 is GDI's OpenGL 1.1. Mesa 25.2.5 (MIT licence,
+          # https://docs.mesa3d.org/license.html), as built for Windows by mesa-dist-win (https://github.com/pal1000/mesa-dist-win),
+          # pinned by its hash; its opengl32.dll and the llvmpipe driver it loads go beside the test hosts after the build.
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/25.2.5/mesa3d-25.2.5-release-msvc.7z" -OutFile mesa.7z
+          $hash = (Get-FileHash mesa.7z -Algorithm SHA256).Hash
+          if ($hash -ne '24B082CD3B66115A7DDB355E69FA0332DD22C751A392AB61EA3F5C9F6C912B88') { throw "mesa.7z is not the pinned build ($hash)" }
+          7z e mesa.7z -omesa x64/opengl32.dll x64/libgallium_wgl.dll | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z could not extract Mesa ($LASTEXITCODE)" }
+          Get-ChildItem mesa
       - name: Restore
         run: dotnet restore
       - name: Build
         run: dotnet build -c Release --no-restore
+      - name: OpenGL beside the test hosts
+        shell: pwsh
+        run: |
+          # A test runs in testhost.exe beside its assembly or in dotnet.exe; Windows looks for opengl32.dll beside the exe first.
+          $ErrorActionPreference = 'Stop'
+          foreach ($dir in Get-ChildItem tests/*/bin/Release/net10.0 -Directory) { Copy-Item mesa/*.dll $dir.FullName }
+          Copy-Item mesa/*.dll (Split-Path (Get-Command dotnet).Source)
       - name: Test (every project to its end; one crash hides no other result)
         shell: pwsh
         run: |
@@ -99,6 +120,14 @@ jobs:
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             Write-Host "::endgroup::"
+          }
+          # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end.
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          foreach ($trx in Get-ChildItem tests/*/TestResults/*.trx) {
+            foreach ($hit in Select-Xml -Path $trx.FullName -XPath "//t:UnitTestResult[@outcome='Failed']" -Namespace $ns) {
+              $message = ($hit.Node.Output.ErrorInfo.Message -split "`n" | Select-Object -First 4) -join ' | '
+              Write-Host "FAILED $($trx.BaseName): $($hit.Node.testName) :: $message"
+            }
           }
           if ($failed.Count -gt 0) { Write-Host "::error::failed: $($failed -join ' ')"; exit 1 }
           exit 0
