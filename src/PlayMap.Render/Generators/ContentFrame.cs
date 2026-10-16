@@ -156,6 +156,16 @@ public sealed class GeneratorLive(string generatorId, ContentStats owner)
         Volatile.Write(ref _gpuP95Ns, _sorted[Math.Min(_ringCount - 1, (int)Math.Ceiling(_ringCount * 0.95) - 1)]);
     }
 
+    /// <summary>No draw of its own is timed any more (drawn only inside another pass, as a stage surface's effect is): its GPU time and
+    /// percentile read 0, never the last measurement of a renderer that no longer draws (render thread).</summary>
+    internal void Unmeasured()
+    {
+        _ringCount = 0;
+        _ringNext = 0;
+        Volatile.Write(ref _gpuNs, 0);
+        Volatile.Write(ref _gpuP95Ns, 0);
+    }
+
     /// <summary>The names the live values are for (set when its bindings change; render thread).</summary>
     internal void LiveNames(string[] names)
     {

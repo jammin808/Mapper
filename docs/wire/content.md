@@ -65,8 +65,8 @@ at twice the budget (p95), amber over the budget or settling, grey idle. `sting`
 reaches STATE in tenths; `drawn` is true once the renderer drew a generator with it in the last 30 frames (observed).
 
 A surface-aware effect a projector pass draws on a stage surface is drawn there: `ok` and on the air, `timeS` its own time (a
-`RETIME` moves it on the surface as anywhere else). Its light is part of the projector pass, so its `gpuMs` is 0 unless it is
-also drawn flat.
+`RETIME` moves it on the surface as anywhere else). Its light is part of the projector pass, which times no draw of its own: its
+`gpuMs`/`gpuMsP95` are its flat renderer's while one is kept (drawn flat within the last 120 frames), else 0.
 
 ## Context
 

@@ -223,7 +223,8 @@ internal sealed class GeneratorHost : IDisposable
     }
 
     /// <summary>Drops the renderers and the stage's effects no frame has used for a while (a generator with neither a renderer left
-    /// nor a stage draw lately is forgotten by the frame's stats).</summary>
+    /// nor a stage draw lately is forgotten by the frame's stats; one only the stage draws now times no draw of its own, so its GPU
+    /// time reads 0).</summary>
     public void EndFrame()
     {
         _stats?.SetFrame(_frame);
@@ -249,12 +250,17 @@ internal sealed class GeneratorHost : IDisposable
         _alive.Clear();
         foreach (var key in _instances.Keys)
             _alive.Add(key.GeneratorId);
-        foreach (var id in _staged.Keys)
-            _alive.Add(id);
-        if (_stats is not null)
-            foreach (var id in _stats.Ids())
-                if (!_alive.Contains(id))
-                    _stats.Forget(id);
+        if (_stats is null)
+            return;
+        foreach (var id in _stats.Ids())
+        {
+            if (_alive.Contains(id))
+                continue;
+            if (!_staged.ContainsKey(id))
+                _stats.Forget(id);
+            else if (_stats.TryGet(id, out var live))
+                live.Unmeasured();
+        }
     }
 
     private void Update(Instance inst, Generator generator, int width, int height, GeneratorContext context)

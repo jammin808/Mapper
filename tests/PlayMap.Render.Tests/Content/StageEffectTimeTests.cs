@@ -169,6 +169,35 @@ public class StageEffectTimeTests(GlFixture gl)
         });
     }
 
+    /// <summary>Drawn flat and on the stage, the sweep's GPU time is its flat renderer's; once that renderer is let go and only the
+    /// stage draws it, no draw of its own is timed (its light is inside the projector pass), so it reports none rather than the last
+    /// measurement of a renderer that no longer draws.</summary>
+    [Fact]
+    public void TheStagesSweepKeepsNoGpuTimeOfAFlatRendererLetGo()
+    {
+        var stage = Resources();
+        var content = new ContentFrame();
+        var sweep = Sweep(Days);
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            var n = 0;
+            for (; n < 5; n++)
+                engine.Render(At(Show(sweep), Tick(n), stage, content));
+            Assert.True(content.Stats.TryGet("gn_sweep", out var live));
+            // A measurement of the flat draw (as a context that times it would have).
+            live.Measured(3_000_000);
+            Assert.True(live.GpuMsP95 > 0);
+            var stageOnly = Show(sweep, flat: false);
+            for (var f = 0; f <= GeneratorHost.IdleFrames + 2; f++, n++)
+                engine.Render(At(stageOnly, Tick(n), stage, content));
+            Assert.True(content.Stats.TryGet("gn_sweep", out live), "the stage's sweep was forgotten");
+            Assert.Equal((GeneratorState.Ok, engine.Frame), (live.State, live.LastFrame));
+            Assert.Equal((0.0, 0.0), (live.GpuMs, live.GpuMsP95));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
     [Fact]
     public void AWarmFrameOfTheStagesSweepAllocatesNothing()
     {
