@@ -46,4 +46,9 @@
     <Compile Include="..\PlayMap.Media.Tests\Video\VmxBuild.cs" Link="VideoIo\VmxBuild.cs" />
   </ItemGroup>
 
+  <!-- Spout's fake kernel and GPU, shared with the media tests rather than copied. -->
+  <ItemGroup Label="wp2-d3d11">
+    <Compile Include="..\PlayMap.Media.Tests\Video\Spout\FakeSpout.cs" Link="VideoIo\FakeSpout.cs" />
+  </ItemGroup>
+
 </Project>
