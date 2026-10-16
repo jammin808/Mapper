@@ -48,7 +48,8 @@ export interface SessionHost {
 	link(state: LinkState): void
 	/** Paired (or the node asked no proof): subscriptions and questions may start. */
 	paired(): void
-	/** A push the node made: its word (STATE, INDEX, CONTEXT, EVENT, THUMBS …) and the rest of the line. */
+	/** A push the node made: its word (STATE, INDEX, CONTEXT, EVENT, THUMBS …) and the rest of the line. Only a paired link pushes:
+	 * what the node said between HELLO's answer and the pairing is given, the latest of each word, as it pairs (before link('live')). */
 	push(word: string, rest: string): void
 	/** The node's clock minus this machine's, from the PING exchange. */
 	offset(ms: number): void
@@ -97,6 +98,9 @@ export class NodeSession {
 	#state: LinkState = 'halted'
 	#helloDone = false
 	#paired = false
+	/** Pushes heard after HELLO's answer and before the pairing, the latest of each word: an unpaired link publishes nothing, and
+	 * what the node greeted with is taken when it pairs. */
+	readonly #early = new Map<string, string>()
 	#lastHeard = 0
 	#attempts = 0
 	#useTcp = false
@@ -191,6 +195,7 @@ export class NodeSession {
 		this.#nonce = null
 		this.#helloDone = false
 		this.#paired = false
+		this.#early.clear()
 		this.#dropWhy = null
 		this.#setState('connecting')
 		if (this.#attempts === 0) this.#host.status(InstanceStatus.Connecting, null)
@@ -245,6 +250,10 @@ export class NodeSession {
 			}
 			this.#paired = true
 			this.#attempts = 0
+			// What the node greeted with is taken before the link goes live, so the link's first publish carries it.
+			const early = [...this.#early]
+			this.#early.clear()
+			for (const [word, rest] of early) this.#host.push(word, rest)
 			this.#setState('live')
 			this.#host.status(InstanceStatus.Ok, null)
 			this.#startPinger()
@@ -296,7 +305,11 @@ export class NodeSession {
 			return
 		}
 		if (line.word === 'OK' || line.word === 'ERR') return
-		if (this.#helloDone || this.#paired) this.#host.push(line.word, line.rest)
+		if (this.#paired) this.#host.push(line.word, line.rest)
+		else if (this.#helloDone) {
+			this.#early.delete(line.word)
+			this.#early.set(line.word, line.rest)
+		}
 	}
 
 	#startWatchdog(): void {
@@ -366,7 +379,7 @@ export class NodeSession {
 		if (info.fallback && target.kind === 'wss') return this.#fail(InstanceStatus.BadConfig, Words.noLineChannelTls)
 		if (info.fallback && target.kind === 'ws') {
 			this.#useTcp = true
-			this.#setState('connecting')
+			this.#dropped()
 			this.#reconnect = setTimeout(() => this.#connect(), 0)
 			return
 		}
@@ -379,8 +392,15 @@ export class NodeSession {
 				InstanceStatus.ConnectionFailure,
 				this.#dropWhy ?? Words.unreachable(where, Math.round(delay / 1000)),
 			)
-		this.#setState('connecting')
+		this.#dropped()
 		this.#reconnect = setTimeout(() => this.#connect(), delay)
+	}
+
+	/** A channel ended and the link opens again: the host is told even when the link was connecting already, so every drop empties
+	 * what the node said and checks every feedback again. */
+	#dropped(): void {
+		this.#state = 'connecting'
+		this.#host.link('connecting')
 	}
 
 	/** 1 s, 2 s, 4 s, 8 s, then 15 s, each ±20 %, never past 15 s. */
@@ -398,6 +418,7 @@ export class NodeSession {
 		this.#channel = null
 		this.#paired = false
 		this.#helloDone = false
+		this.#early.clear()
 		this.#samples.length = 0
 		this.#offset = null
 		for (const [, p] of this.#pending) {

@@ -2,9 +2,9 @@
 // TCP fallback for a node without a line channel, the stop on a wrong token, and replies matched by their ids, not by order.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { InstanceStatus } from '@companion-module/base'
-import { FakeNode } from './fake-node.ts'
-import { boot, configFor } from './harness.ts'
+import { InstanceStatus, type JsonValue } from '@companion-module/base'
+import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
+import { boot, configFor, type Booted } from './harness.ts'
 import { fakeChannels, settle } from './fake-channel.ts'
 import { authProof } from '../src/link/pairing.ts'
 import { NodeSession, type SessionHost } from '../src/link/session.ts'
@@ -341,5 +341,76 @@ void test('a rename mid-handshake proves the name the HELLO said', async () => {
 		assert.equal(proof.split(' ')[2], authProof(TOKEN, nonce, 'Companion:FOH deck'))
 	} finally {
 		session.stop()
+	}
+})
+
+/** Whether the host was ever handed this value for this variable. */
+const published = (m: Booted, id: string, value: JsonValue): boolean =>
+	m.host.variableLog.some((v) => v.id === id && v.value === value)
+
+void test('an unpaired TCP link publishes nothing: a STATE before the proof is answered, then a drop, leaves no fact and every feedback checked again', async () => {
+	const { factory, opened } = fakeChannels()
+	const m = await boot({ host: '10.0.0.5', channel: 'tcp', wire_port: 9941 }, { token: TOKEN }, { factory })
+	try {
+		await m.place('onair', 'item_on_air', { item: SHOW.red })
+		await m.host.until(() => m.host.feedbackValues.has('onair'), 'the key placed')
+		const ch = opened[0]
+		assert.ok(ch)
+		assert.equal(ch.kind, 'tcp')
+		ch.events.open({})
+		ch.say('NONCE 00112233445566778899aabbccddeeff')
+		await settle()
+		ch.ok('HELLO')
+		// The TCP wire greets with STATE at once, before the proof is answered.
+		ch.say('STATE ' + JSON.stringify(fixture('state.json')))
+		await settle()
+		assert.ok(
+			ch.sent.some((l) => / AUTH-PROOF /u.test(l)),
+			'the proof is on its way',
+		)
+		assert.equal(m.instance.model.state, null, 'nothing the node said is taken before pairing')
+		m.host.feedbackValues.delete('onair')
+		// The link drops before the proof's answer; the link was connecting all along.
+		ch.close()
+		await m.host.until(() => m.host.feedbackValues.has('onair'), 'every feedback checked again on the drop')
+		await m.host.until(() => m.host.variables.get('last_error') !== '', 'the drop published')
+		assert.equal(m.instance.link(), 'connecting')
+		assert.equal(m.instance.model.state, null)
+		assert.equal(m.host.feedbackValues.get('onair'), false)
+		assert.ok(!published(m, 'node_name', 'Test node'), 'the STATE of an unpaired link never published its name')
+		assert.ok(!published(m, 'pl_1_state', 'playing'), 'nor its playlists')
+	} finally {
+		await m.stop()
+	}
+})
+
+void test('what the node pushed before pairing is taken when it pairs, the latest of each', async () => {
+	const { factory, opened } = fakeChannels()
+	const m = await boot({ host: '10.0.0.5', channel: 'tcp', wire_port: 9941 }, { token: TOKEN }, { factory })
+	try {
+		const ch = opened[0]
+		assert.ok(ch)
+		ch.events.open({})
+		ch.say('NONCE 00112233445566778899aabbccddeeff')
+		await settle()
+		ch.ok('HELLO')
+		const later = copy(fixture('state.json') as { name: string })
+		later.name = 'Later node'
+		ch.say('STATE ' + JSON.stringify(fixture('state.json')))
+		ch.say('INDEX ' + JSON.stringify(fixture('index.json')))
+		ch.say('STATE ' + JSON.stringify(later))
+		await settle()
+		assert.equal(m.instance.model.state, null)
+		assert.equal(m.instance.model.index, null)
+		ch.ok('AUTH-PROOF', 'paired')
+		await m.host.until(() => m.host.variables.get('node_name') === 'Later node', 'the latest STATE taken on pairing')
+		assert.ok(m.instance.model.index, 'the INDEX taken on pairing')
+		assert.equal(m.instance.link(), 'live')
+		assert.ok(
+			!published(m, 'node_name', 'Test node'),
+			'a STATE an unpaired link heard and a later one replaced is never published',
+		)
+	} finally {
+		await m.stop()
 	}
 })

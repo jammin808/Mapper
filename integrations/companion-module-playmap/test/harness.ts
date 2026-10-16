@@ -38,6 +38,8 @@ export class RecordingHost implements ModuleHostContext<PlayMapConfig, PlayMapSe
 	variableDefs = new Map<string, string>()
 	variables = new Map<string, JsonValue | undefined>()
 	variableCalls = 0
+	/** Every variable value handed over, in order: what was ever published, not only what is now. */
+	variableLog: HostVariableValue[] = []
 	feedbackValues = new Map<string, unknown>()
 	structure: unknown[] = []
 	presets: Record<string, unknown> = {}
@@ -93,6 +95,7 @@ export class RecordingHost implements ModuleHostContext<PlayMapConfig, PlayMapSe
 	}
 	setVariableDefinitions(definitions: { id: string; name: string }[], values: HostVariableValue[]): void {
 		this.variableDefs = new Map(definitions.map((d) => [d.id, d.name]))
+		this.variableLog.push(...values)
 		for (const v of values) this.variables.set(v.id, v.value)
 		this.#changed()
 	}
@@ -108,6 +111,7 @@ export class RecordingHost implements ModuleHostContext<PlayMapConfig, PlayMapSe
 	}
 	setVariableValues(values: HostVariableValue[]): void {
 		this.variableCalls++
+		this.variableLog.push(...values)
 		for (const v of values) this.variables.set(v.id, v.value)
 		this.#changed()
 	}

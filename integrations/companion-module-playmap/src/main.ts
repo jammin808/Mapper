@@ -442,7 +442,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		else this.#subscribe(Lines.subscribe('EVENTS'))
 		this.#pairedBefore = true
 		this.thumbs.relinked()
-		// A greeting STATE may have come before the pairing finished: the clocks start now if something plays.
+		// The greeting STATE, heard before the pairing finished, was taken as the link paired: the clocks run if something plays.
 		this.#runTicker()
 		this.#dirty()
 	}

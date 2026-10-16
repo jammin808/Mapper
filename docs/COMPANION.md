@@ -119,13 +119,14 @@ neither runs nor waits for a person; what it holds for a person goes to the node
 
 **The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
 link and refusing another — a refusal's status and words included — and never falling back to plain TCP), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
-is a Companion secret and never rides a line. A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
+is a Companion secret and never rides a line. Nothing the node says before the pairing is published: what it pushes then (the TCP
+wire's greeting `STATE`) is held, the latest of each, and taken when it pairs. A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
 upgrade is answered 400, 401 or 404) is reached on the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
 required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
 2 s is the watchdog and the clock (the round trip with the least delay of the last eight gives the node's offset). No line for 4 s is
 **stale**: the status says so and every key dims with a ⚠. 10 s (or the node closing) drops the link, the status saying in words
 that the node is not there and when the link tries again: what the node said is emptied, every feedback is checked
-again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token, a locked-out
+again (a dead key never stays green; a retry that fails is a drop too), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token, a locked-out
 address (in a line, by close 4401, or at the upgrade: HTTP 429), or a token changed on the node (its lines answered `not paired`)
 halts the link until the token, the address or the connection's label changes (the HELLO names the label, so a rename relinks
 under the new name) — an edit to anything else keeps the link and its halt — so a deck never spends the address's wrong tokens.
