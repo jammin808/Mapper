@@ -172,7 +172,7 @@ to mirror it"): two primaries of one show never come of two presses.
 The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** — only from a node
 that joined its mirror (proved by its token; the node keeps that list) and is heard over its pinned certificate, so no other
 machine's word can black it out (`FLEET FENCE`, node to node): its outputs are held black from the next frame (a gain of 0
-multiplied into the air), its clients' edits are refused, its clock follows the new primary, the role is kept across a restart, and
+multiplied into the air, composed over any other degrade gain — a stack's MATCH among them — so nothing lights a fenced node), its clients' edits are refused, its clock follows the new primary, the role is kept across a restart, and
 it never takes the show back by itself. `FLEET BACKUP <new primary>` there makes it the new primary's backup; `FAILBACK CONFIRM` on
 the new primary then hands the show back (the original takes it under the next epoch, its routes switch to its own input, and only
 while its own mirror is identical — else it refuses, journalled, and the new primary serves on) and the two swap roles: the node

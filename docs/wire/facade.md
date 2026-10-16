@@ -17,7 +17,7 @@ rotation, +Y up, +Z grid south).
 | `SURVEY IMPORT` | `SURVEY IMPORT <path> [CRS <code>\|LOCAL] [UNITS m\|cm\|mm\|ft\|usft] [UP Z\|Y] [VOXEL <m>] [DECIMATE <triangles>\|OFF] [NAME <name>]` | accepted at once: JSON `{stage:"accepted", survey:"sv…", effect}`. A worker reads OBJ, PLY, glTF/GLB, LAS 1.0–1.4, E57, XYZ/PTS/CSV; the result lands as one edit (one UNDO takes it back): a mesh asset (`meshes/<sv>-<name>.ply`) with a surface over all of it, the survey with its provenance, and — with no site set — the site the import picked. Defaults: UP Z (glTF: Y), VOXEL 0.01, DECIMATE 400000 with a 5 mm deviation limit (the notes say when the measured deviation passes it or the budget is not met). LAZ is refused with words. A failed import is shown failed with its words and its files removed. One import at a time; a stopping node starts none; refused at once, before the file is read, when a lock holds the stage (`LOCK AREA mapping`) and from a session that holds a blind draft (heavy work is never staged); the result lands on the live stage | review | yes |
 | `SURVEY LIST` | `SURVEY LIST` | JSON `{surveys:[{id, name, format, state, points, triangles, mesh, path, hash, crs, cloud, voxelM, decimationErrorM, importedAt, notes}]}` | low | no |
 | `PROJECTOR PRIOR` | `PROJECTOR PRIOR <projector> THROW <ratio> [±<pct>]`, `… AT <control> [±<m>]`, `… AT <x> <y> <z> [±<m>]`, `… CLEAR` | JSON `{priors:{throw, throwSigmaPct, position, controlId, positionSigmaM}, staged, words}`. Defaults ±2 % and ±5 cm. A throw keeps the position and a position keeps the throw | review | yes |
-| `PROJECTOR SOLVE` | unchanged grammar | adds `uncertainty:{wallPx, proudPx, focalPct, axisM, lateralM, condition, weak}` (with the priors' information), `locked:["focal"]` when the zoom was locked from the lens (asked again at the next solve without a LOCK word), and `priorsUsed:["throw","position"]` (the priors that shaped the solve: under an operator's `LOCK FOCAL` the lens prior has nothing to weigh and is not named); refused when a bound pin is not at its control point, with the `SET <pin> world …` line that puts it there | review | yes |
+| `PROJECTOR SOLVE` | unchanged grammar | adds `uncertainty:{wallPx, proudPx, focalPct, axisM, lateralM, condition, weak}` (with the priors' information), `locked:["focal"]` when the zoom was locked from the lens (the projector's `focalLock` is then `lens`: asked again at the next solve without a LOCK word), and `priorsUsed:["throw","position"]` (the priors that shaped the solve: under an operator's `LOCK FOCAL` the lens prior has nothing to weigh and is not named). A LOCK word makes the locks the operator's (`focalLock` `operator`), never asked again, wherever the focal sits. Solved and scored off the control lane from the projector as the session's store held it, its result landed in one edit; refused when a bound pin is not at its control point, with the `SET <pin> world …` line that puts it there, and when the projector changed while it was solved ("PROJECTOR SOLVE … again") | review | yes |
 
 `CALIBRATION RESOLVE` (docs/wire/resolve.md) solves with the same priors: from pins as `PROJECTOR SOLVE` does with no LOCK word
 (the zoom locked from the lens when the pins cannot carry it, the locks it answers kept with the result; a bound pin away from its
@@ -32,8 +32,7 @@ keep the live site until `BLIND COMMIT` lands it; that session's `SITE` and `SIT
 begin "in the blind draft:", and the `site` context item and preflight never take it). A sync group shares none of them: each node
 keeps its own site.
 
-`STACK ALIGN` stays in the catalogue unrouted (the calibration score's stack term names it); `SITE GUIDE`, `PLAN LIGHT` and the other
-`STACK` verbs are wp2-stacks'.
+`SITE GUIDE` and the `STACK` verbs are in `docs/wire/stacks.md`.
 
 **Refusals** leave the project unchanged: a value that would change nothing ("the site is at … already", "the mains are 50 Hz
 already", "all 14 points are in the project as they are", "P1's priors are that already"); a coordinate system that is neither
@@ -51,15 +50,24 @@ EPSG system to another; a pin bound to a control point that is not there or not 
 `stage` (after today's keys):
 
 ```json
-"site": null | {"crs": "EPSG:25832", "name": "", "origin": [512340, 5401230, 120], "rotationDeg": 0, "gridScale": 1, "mainsHz": 50},
+"site": null | {"crs": "EPSG:25832", "name": "ETRS89 / UTM zone 32N", "origin": [512340, 5401230, 120], "rotationDeg": 0, "gridScale": 1,
+         "mainsHz": 50, "next": {"step": "pins", "state": "waiting", "words": "…", "line": "ADD pin …"} | null},
 "controls": 14,
 "surveys": [{"id": "sv…", "name": "North front", "format": "ply", "state": "importing 42 %|ready|failed: …", "points": 1002001,
-             "triangles": 2000000, "mesh": "ms…"|null}]
+             "triangles": 2000000, "mesh": "ms…"|null}],
+"stacks": [ … ]   (docs/wire/stacks.md)
 ```
+
+`name` is the system's name as EPSG gives it ("ETRS89 / UTM zone 32N"; "" for LOCAL or a system PlayMap does not know); `next` is
+the facade guide's next step (docs/wire/stacks.md).
 
 `stage.projectors[]` (before the wall's keys): `"uncertainty": null | {"wallPx": 0.78, "axisM": 0.02, "focalPct": 0, "weak": ""}` (the
 calibration score's, which is the solve's: the pins' information with the projector's priors, a locked zoom held),
-`"priors": "TR 3.02 ±2 % · at CP7 ±5 cm" | ""`.
+`"priors": "TR 3.02 ±2 % · at CP7 ±5 cm" | ""`, `"stack": "sk…" | null`.
+
+The project file's projector carries `"focalLock": "operator" | "lens"` beside its `locks`: who put the focal lock there (a file
+without it holds the lock as the operator's); a `SET` of a projector's `locks` makes it the operator's, and the calibration ledger
+puts it back with a result.
 
 ## Context
 

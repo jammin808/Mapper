@@ -124,12 +124,15 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"MEDIA OPTIMISE {verb} [<job>|ALL]");
         var target = args.Count == 2 ? args[1] : "ALL";
         var all = target.Equals("ALL", StringComparison.OrdinalIgnoreCase);
-        var (done, key, past) = verb switch
+        var (steered, key, past) = verb switch
         {
             "CANCEL" => (service.Cancel(target), "cancelled", "cancelled"),
             "PAUSE" => (service.Hold(target, true), "paused", "paused"),
             _ => (service.Hold(target, false), "resumed", "resumed"),
         };
+        if (steered.Why.Length > 0)
+            return CommandReply.Fail(steered.Why);
+        var done = steered.Jobs;
         if (done.Count == 0)
         {
             return CommandReply.Fail(verb switch

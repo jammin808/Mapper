@@ -247,7 +247,7 @@ public sealed class PanicTests
     /// <summary>A stack's degrade gain: half on op_1.</summary>
     private sealed class HalfOnLeft : IOutputGains
     {
-        public float GainOf(string outputId) => outputId == "op_1" ? 0.5f : 1f;
+        public float GainOf(string outputId, long leaderNs) => outputId == "op_1" ? 0.5f : 1f;
     }
 
     [Fact]

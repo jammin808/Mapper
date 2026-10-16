@@ -4,16 +4,20 @@ using PlayMap.Core.Numerics;
 namespace PlayMap.Core.Mapping;
 
 /// <summary>An output's whole 2D warp compiled once: content point (u, v) in the pre-warp picture (0..1,
-/// y down) ↦ output point (normalised output units, y down), as three layers in order:
+/// y down) ↦ output point (normalised output units, y down), as layers in order:
 /// <list type="number">
+/// <item>the measured lattice (a stack member's residual, <see cref="MeasuredCorrection.Lattice"/>), first, so the
+/// operator's warp works on a picture that already lands where the stack's master puts it; it applies whether or not the
+/// operator's warp is enabled;</item>
 /// <item>the lattice (<see cref="LatticeSurface"/>), in the unit square's frame;</item>
 /// <item>the corner pin, the homography taking the unit square onto the pinned quad — so the lattice rides
 /// inside the pin and straight lines of a lattice at rest stay straight;</item>
 /// <item>the pin warp (<see cref="PinWarpField"/>), a residual in output space.</item>
 /// </list>
-/// A disabled warp, or one whose layers all rest, is the identity. Immutable and thread-safe.</summary>
+/// A field whose layers all rest (a disabled warp counts as resting; the measured layer does not depend on it) is the identity. Immutable and thread-safe.</summary>
 public sealed class WarpField
 {
+    private readonly LatticeSurface? _measured;
     private readonly LatticeSurface? _lattice;
     private readonly Mat3d _pin;
     private readonly bool _hasPin;
@@ -23,9 +27,11 @@ public sealed class WarpField
 
     public static readonly WarpField Identity = new(OutputWarp.None);
 
-    public WarpField(OutputWarp warp, PinWarp? pins = null)
+    public WarpField(OutputWarp warp, PinWarp? pins = null, WarpLattice? measured = null)
     {
         ArgumentNullException.ThrowIfNull(warp);
+        if (measured is { IsAtRest: false })
+            _measured = new LatticeSurface(measured);
         if (warp.Enabled)
         {
             if (warp.Lattice is { } l && !l.IsAtRest)
@@ -44,7 +50,10 @@ public sealed class WarpField
     }
 
     /// <summary>True when every layer rests: drawing through the warp changes nothing.</summary>
-    public bool IsIdentity => _lattice is null && !_hasPin && _pins is null;
+    public bool IsIdentity => _measured is null && _lattice is null && !_hasPin && _pins is null;
+
+    /// <summary>The measured layer, when it moves anything.</summary>
+    public LatticeSurface? Measured => _measured;
 
     /// <summary>False when the corner pin's quad is not convex (it folds or flips through infinity).</summary>
     public bool PinIsValid { get; } = true;
@@ -58,6 +67,8 @@ public sealed class WarpField
     /// <summary>The output point a content point lands on.</summary>
     public Vec2d Evaluate(double u, double v)
     {
+        if (_measured is not null)
+            (u, v) = _measured.Evaluate(u, v);
         var p = _lattice is null ? new Vec2d(u, v) : _lattice.Evaluate(u, v);
         if (_hasPin)
             p = QuadHomography.Apply(_pin, p);
@@ -86,7 +97,7 @@ public sealed class WarpField
         var target = new Vec2d(x, y);
         if (IsIdentity)
             return target;
-        if (_lattice is null && _pins is null)
+        if (_measured is null && _lattice is null && _pins is null)
             return _pin.TryInverse(out var inv) ? QuadHomography.Apply(inv, target) : null;
         var uv = Seed(target);
         var f = Evaluate(uv.X, uv.Y) - target;
@@ -125,15 +136,20 @@ public sealed class WarpField
     public (Vec2d Du, Vec2d Dv) Jacobian(Vec2d uv)
     {
         Vec2d p, du, dv;
+        Vec2d mu = new(1, 0), mv = new(0, 1);
+        if (_measured is not null)
+            (uv, mu, mv) = _measured.EvaluateWithDerivatives(uv.X, uv.Y);
         if (_lattice is null)
         {
             p = uv;
-            du = new Vec2d(1, 0);
-            dv = new Vec2d(0, 1);
+            du = mu;
+            dv = mv;
         }
         else
         {
-            (p, du, dv) = _lattice.EvaluateWithDerivatives(uv.X, uv.Y);
+            (p, var lu, var lv) = _lattice.EvaluateWithDerivatives(uv.X, uv.Y);
+            du = lu * mu.X + lv * mu.Y;
+            dv = lu * mv.X + lv * mv.Y;
         }
         if (_hasPin)
         {

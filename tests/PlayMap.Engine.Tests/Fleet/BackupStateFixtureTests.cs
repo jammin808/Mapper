@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
+using PlayMap.Devices.Tests.Simulators;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Engine.Tests.Spine;
 using PlayMap.Engine.Tests.Sync;
@@ -12,12 +14,14 @@ namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>STATE.fleet of a hot-backup pair as the desk reads it, written to tests/fixtures/state/backup.json from two real nodes: the
 /// backup mirroring (its mirror, the route it has by the mirror), the primary with its backup listed, the backup after FAILOVER (its
-/// last takeover) and the old primary fenced; and backup.cards.json, the cards the desk draws from those keys, each field and verb
-/// checked against the fixture. Each node's door is the words it refuses a client's edit with. What moves between runs (times, ids,
-/// milliseconds, the other machines' health) is set to fixed values.</summary>
+/// last takeover, its route switched on the Devices module's PJLink simulator and read back) and the old primary fenced; and
+/// backup.cards.json, the cards the desk draws from those keys, each field and verb checked against the fixture. Each node's door is
+/// the words it refuses a client's edit with. What moves between runs (times, ids, milliseconds, the other machines' health) is set to
+/// fixed values; the route's projector answers, so no word rides on how this platform refuses a connect.</summary>
 public sealed partial class BackupStateFixtureTests
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    /// <summary>The fixtures' own text (lines ended by "\n" on every platform), with the words' dashes and arrows written as they are.</summary>
+    private static readonly JsonSerializerOptions Indented = new(FixtureJson.Indented) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 
@@ -113,12 +117,13 @@ public sealed partial class BackupStateFixtureTests
     [Fact]
     public async Task TheBackupPairsStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
+        await using var projector = new PjLinkSimulator();
         var clock = new ManualClock(1_000 * SyncRig.Second);
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
         await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
         await SyncRig.OpenShowAsync(primary);
-        var dv = await primary.OkAsync("DEVICE ADD P1 pjlink 127.0.0.1:9");
+        var dv = await primary.OkAsync($"DEVICE ADD P1 pjlink 127.0.0.1:{projector.Port.ToString(CultureInfo.InvariantCulture)}");
         await primary.OkAsync($"FLEET ROUTE op_1 DEVICE {dv} 31 32");
         await primary.OkAsync("SYNC LEAD show");
         await BackupRig.MeetAsync(primary, backup);
@@ -135,6 +140,7 @@ public sealed partial class BackupStateFixtureTests
             ["primary"] = new JsonObject { ["fleet"] = Steady(BackupRig.Fleet(primary)) },
         };
         Assert.True((await backup.RunAsync("FAILOVER")).Ok);
+        Assert.Equal("32", projector.Input);
         Assert.Equal(JsonValueKind.Null, BackupRig.Fleet(backup).GetProperty("door").ValueKind);
         root["takenOver"] = new JsonObject { ["fleet"] = Steady(BackupRig.Fleet(backup)) };
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary).ToString());

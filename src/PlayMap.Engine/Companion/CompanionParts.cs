@@ -5,7 +5,8 @@ using PlayMap.Net;
 namespace PlayMap.Engine.Companion;
 
 /// <summary>The node's side of two-way control, held by the engine: the controllers it knows, the event ring, INDEX (cached per
-/// project revision, pushed to SUBSCRIBE INDEX sessions when its structure or labels move), the thumbnails and the THUMBS
+/// project revision, pushed to SUBSCRIBE INDEX sessions when its structure, labels, section rows' lights or anything else it lists
+/// moves), the thumbnails and the THUMBS
 /// watchers, and the fault diff that raises fault.raised and fault.cleared. Pushes are worked off the publishing thread, latest
 /// wins: a burst of edits is one INDEX.</summary>
 internal sealed class CompanionParts
@@ -72,6 +73,8 @@ internal sealed class CompanionParts
     public void OnStateMoved()
     {
         DiffFaults();
+        // A section row's light and state move with the show: INDEX is pushed again when they do.
+        QueueIndex();
         QueueThumbs();
     }
 
@@ -107,7 +110,8 @@ internal sealed class CompanionParts
         });
     }
 
-    /// <summary>SUBSCRIBE INDEX: INDEX at once, then again whenever its structure or labels move.</summary>
+    /// <summary>SUBSCRIBE INDEX: INDEX at once, then again whenever its structure, labels, section rows' lights or anything else it
+    /// lists moves (an item's source changed for another of its kind, a projector's output, an output's enabled).</summary>
     public PushOpen OpenIndex(IReadOnlyList<string> args, SessionInfo session, IPushSink sink)
     {
         if (args.Count > 0)
@@ -121,6 +125,8 @@ internal sealed class CompanionParts
             var doc = Index();
             watch.Sig = doc.Sig;
             watch.Labels = doc.Labels;
+            watch.Lights = doc.Lights;
+            watch.Data = doc.Data;
             sink.Latest("index", "INDEX " + doc.Json);
         }
         return PushOpen.Open(watch);
@@ -138,10 +144,12 @@ internal sealed class CompanionParts
             var doc = Index();
             foreach (var w in watches)
             {
-                if (w.Sig == doc.Sig && w.Labels == doc.Labels)
+                if (w.Sig == doc.Sig && w.Labels == doc.Labels && w.Lights == doc.Lights && w.Data == doc.Data)
                     continue;
                 w.Sig = doc.Sig;
                 w.Labels = doc.Labels;
+                w.Lights = doc.Lights;
+                w.Data = doc.Data;
                 w.Sink.Latest("index", "INDEX " + doc.Json);
             }
         }
@@ -252,6 +260,10 @@ internal sealed class CompanionParts
         public string Sig { get; set; } = "";
 
         public string Labels { get; set; } = "";
+
+        public string Lights { get; set; } = "";
+
+        public string Data { get; set; } = "";
 
         public void Dispose() => parts.Drop(this);
     }

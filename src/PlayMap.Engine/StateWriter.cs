@@ -352,6 +352,10 @@ public static class StateWriter
         w.WriteEndObject();
     }
 
+    /// <summary>STATE.scan from a scan backend other than the runner, in the runner's shape and key order (docs/WIRE.md; the
+    /// multi-view keys of docs/wire/multiscan.md): what the backend's summary says — its state (also the step it is at), patterns
+    /// shown of all, progress and quality 0–1, its words — and what it cannot say empty or null (no id, no projectors, regions, pairing
+    /// or views), so a reader finds one object whichever backend scans.</summary>
     public static void WriteScan(Utf8JsonWriter w, ScanProgress? scan)
     {
         ArgumentNullException.ThrowIfNull(w);
@@ -361,15 +365,31 @@ public static class StateWriter
             return;
         }
         w.WriteStartObject();
+        w.WriteNull("id");
         w.WriteString("state", scan.State);
+        w.WriteString("stage", scan.State);
+        w.WriteNumber("pattern", scan.Pattern);
+        w.WriteNumber("patterns", scan.Of);
+        w.WriteNumber("progress", scan.Of > 0 ? Math.Round(Math.Clamp((double)scan.Pattern / scan.Of, 0, 1), 3) : 0);
+        w.WriteNumber("quality", Math.Round(Math.Clamp(scan.Quality / 100, 0, 1), 3));
+        w.WriteString("qualityWords", "");
+        w.WriteString("message", scan.Words);
+        w.WriteStartArray("projectors");
+        w.WriteEndArray();
+        w.WriteStartArray("regions");
+        w.WriteEndArray();
         if (scan.ProjectorId is null)
             w.WriteNull("projector");
         else
             w.WriteString("projector", scan.ProjectorId);
-        w.WriteNumber("pattern", scan.Pattern);
-        w.WriteNumber("of", scan.Of);
-        w.WriteNumber("quality", Math.Round(scan.Quality, 1));
-        w.WriteString("words", scan.Words);
+        w.WriteNull("pairing");
+        w.WriteNull("view");
+        w.WriteStartArray("views");
+        w.WriteEndArray();
+        w.WriteStartArray("coverage");
+        w.WriteEndArray();
+        w.WriteStartArray("suggestions");
+        w.WriteEndArray();
         w.WriteEndObject();
     }
 

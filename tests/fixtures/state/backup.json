@@ -80,7 +80,7 @@
         "kind": "takeover",
         "id": "tk00000000",
         "at": 1760000000000,
-        "words": "takeover tk00000000 of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → show clock continuous (0 ms read across the change) → P1 32 unreached (P1: input 32 — the projector was not reached: no connection to 127.0.0.1:9 — connection refused (is network control on, and the port right?)) — switch it by hand → serving → complete in 0 ms"
+        "words": "takeover tk00000000 of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → show clock continuous (0 ms read across the change) → P1 32 observed → serving → complete in 0 ms"
       },
       "light": "green",
       "headline": "2 machines",

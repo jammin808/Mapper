@@ -23,7 +23,9 @@ node", the HDR words). The version is the fact: it lands on the item (`MEDIA VER
 **Refusals**, with words: the node is armed ("optimise runs in rehearsal, not on an armed node — disarm first"; the show's gate
 refuses it first as a Heavy line); no such media; `TO rechunk|strip|snappy|hap-r|hap-hdr|hap-alpha-only` ("… arrives next round");
 `QUALITY ARCHIVE`; nothing to do (every item's reason, joined); no service on the node. CANCEL, PAUSE and RESUME without a job mean
-ALL and refuse when nothing changes ("no job is queued or running", "no job is paused").
+ALL and refuse when nothing changes ("no job is queued or running", "no job is paused"). Once the node has begun to stop, CANCEL, PAUSE
+and RESUME are refused with "the node is stopping — its optimise queue takes no more changes", and a request gives every item
+that reason.
 
 **MEDIA USE** refuses an unchanged use ("Clip already uses source") and a word that is none of AUTO, SOURCE or a version of the item.
 Its `effect` says it takes effect at the item's next open, and how many open decoders keep playing what they opened. The generic

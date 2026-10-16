@@ -36,7 +36,9 @@ public sealed record SyncPicture(ImmutableArray<SyncOutputRow> Outputs, Immutabl
 /// <list type="bullet">
 /// <item>Entries are keyed by (node, output hash); a report older than or equal to the last of its key is refused, unless that
 /// key went unheard for 5 s (a member that restarted counts from one again). An entry unheard for 5 s reads "not heard".</item>
-/// <item>The reference output is the first local one offered (the leader's own), else the first heard.</item>
+/// <item>The rows read in one order whatever order the reports came in: the leader's own outputs first, then each member's by
+/// node id; a node's outputs in the order it named them (its project's), any it did not name after them by hash. The reference
+/// output is the first heard in that order: the leader's first output in its project, else the first member's.</item>
 /// <item>Phase of o against R: each one's vblank nearest the common instant, extrapolated along its own period; the difference
 /// wrapped into (−P_R/2, P_R/2].</item>
 /// <item>Relative rate δ = (P_o − P_R)/P_R moves the phase δ ns per ns: the next slip comes when it reaches ±P_R/2 — at
@@ -85,16 +87,32 @@ public sealed class SyncBoard
     /// <summary>Names an output the board hears by hash (the leader's own, a member's from its subscription).</summary>
     private readonly Dictionary<(uint Node, uint Hash), string> _names = [];
 
+    /// <summary>Each node's outputs (by hash) in the order it last named them: its project's.</summary>
+    private readonly Dictionary<uint, ImmutableArray<uint>> _order = [];
+
     /// <summary>Reports refused (older than the last of their key).</summary>
     public long Stale { get; private set; }
 
-    /// <summary>Gives an output its id for the board's rows (an unnamed one reads "#" and its hash in hex).</summary>
-    public void Name(string nodeId, string outputId)
+    /// <summary>Gives a node's outputs their ids for the board's rows (an unnamed one reads "#" and its hash in hex) and their order,
+    /// its project's: the node's rows read in this order, and the leader's first heard is the group's reference. A later call gives
+    /// the node's order afresh; an id given stays until the node is unnamed (a restart keeps it).</summary>
+    public void Name(string nodeId, params IReadOnlyList<string> outputIds)
     {
         ArgumentNullException.ThrowIfNull(nodeId);
-        ArgumentNullException.ThrowIfNull(outputId);
+        ArgumentNullException.ThrowIfNull(outputIds);
+        var node = VblankReport.NodeNumber(nodeId);
+        var order = ImmutableArray.CreateBuilder<uint>(outputIds.Count);
+        foreach (var id in outputIds)
+        {
+            ArgumentNullException.ThrowIfNull(id);
+            order.Add(VblankReport.HashId(id));
+        }
         lock (_gate)
-            _names[(VblankReport.NodeNumber(nodeId), VblankReport.HashId(outputId))] = outputId;
+        {
+            for (var i = 0; i < outputIds.Count; i++)
+                _names[(node, order[i])] = outputIds[i];
+            _order[node] = order.MoveToImmutable();
+        }
     }
 
     /// <summary>Takes a report heard at a local monotonic instant; its clock uncertainty is the sender's own (the report's), the
@@ -125,15 +143,10 @@ public sealed class SyncBoard
                 };
                 return true;
             }
-            var entry = new Entry(node, hash, report.NodeText, report, receivedMonoNs, Math.Max(0, clockUncertaintyNs), local)
+            _entries.Add(new Entry(node, hash, report.NodeText, report, receivedMonoNs, Math.Max(0, clockUncertaintyNs), local)
             {
                 JoiningSinceMonoNs = report.State == LockState.Joining ? receivedMonoNs : long.MinValue,
-            };
-            // The leader's own outputs come first, so the first of them is the reference.
-            if (local)
-                _entries.Insert(_entries.FindLastIndex(e => e.Local) + 1, entry);
-            else
-                _entries.Add(entry);
+            });
             return true;
         }
     }
@@ -147,17 +160,17 @@ public sealed class SyncBoard
         {
             foreach (var key in _names.Keys.Where(k => k.Node == node).ToList())
                 _names.Remove(key);
+            _order.Remove(node);
         }
     }
 
-    /// <summary>Forgets every entry and name (a node that stops leading).</summary>
-    public void Clear()
+    /// <summary>Starts the board again (a lead): every report heard is forgotten. The names and orders the nodes gave stay, each
+    /// node's until it is unnamed (a member's subscription ended), so a member subscribed across a lead keeps its outputs' ids and
+    /// places whenever the lead lands.</summary>
+    public void Restart()
     {
         lock (_gate)
-        {
             _entries.Clear();
-            _names.Clear();
-        }
     }
 
     /// <summary>The picture at a leader instant (phases are compared there) and a local monotonic instant (what is heard).
@@ -168,13 +181,15 @@ public sealed class SyncBoard
         Dictionary<(uint, uint), string> names;
         lock (_gate)
         {
-            entries = [.. _entries];
+            // One order whatever order the reports came in: the leader's own outputs first, then each member's by node id; a node's
+            // outputs in the order it named them, any it did not name after them by hash.
+            entries = [.. _entries.OrderBy(e => e.Local ? 0 : 1).ThenBy(e => e.Node).ThenBy(Rank).ThenBy(e => e.Hash)];
             names = new Dictionary<(uint, uint), string>(_names);
         }
         if (entries.Count == 0)
             return SyncPicture.Empty;
         var heard = entries.Where(e => nowMonoNs - e.ReceivedMonoNs <= HeardWithinNs).ToList();
-        var reference = heard.FirstOrDefault(e => e.Local) ?? heard.FirstOrDefault();
+        var reference = heard.FirstOrDefault();
         var rows = ImmutableArray.CreateBuilder<SyncOutputRow>(entries.Count);
         var pairs = ImmutableArray.CreateBuilder<SyncPairRow>();
         var mixed = false;
@@ -271,6 +286,9 @@ public sealed class SyncBoard
         }
         return new SyncPicture(rows.ToImmutable(), pairs.ToImmutable(), verdict, light, words, mixed, nodes, soonest is { } so ? Round(so, 3) : null, latency);
     }
+
+    /// <summary>Where an entry's output stands in its node's named order (after every named one when it was not named). Under the gate.</summary>
+    private int Rank(Entry e) => _order.TryGetValue(e.Node, out var order) && order.IndexOf(e.Hash) is >= 0 and var i ? i : int.MaxValue;
 
     /// <summary>The phase of b against a at a common leader instant, ns in (−P_a/2, P_a/2]: each one's vblank nearest the instant,
     /// along its own period.</summary>

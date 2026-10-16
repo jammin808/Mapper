@@ -46,6 +46,9 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
     private Process? _stopping;
     private Task _stop = Task.CompletedTask;
 
+    // Closed by the service's stop: no worker starts from then on.
+    private bool _closed;
+
     /// <summary>A protocol line from the worker, on its reader's thread.</summary>
     public event Action<WorkerEvent>? Event;
 
@@ -71,16 +74,18 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
 
     /// <summary>Starts the worker unless one runs that was not asked to end and whose end was not reported. A worker on its way out
     /// is killed and a fresh one started at once, so a job is never handed to a worker on its way out and never waits for one that
-    /// will not go; the old worker is left to its reader.</summary>
-    public void EnsureStarted()
+    /// will not go; the old worker is left to its reader. False once <see cref="Close"/>d: nothing is started or killed.</summary>
+    public bool EnsureStarted()
     {
         lock (_gate)
         {
+            if (_closed)
+                return false;
             if (_process is { } old)
             {
                 var live = !old.HasExited;
                 if (live && !_expected && !_reported)
-                    return;
+                    return true;
                 if (live)
                     KillTree(old);
                 if (_reported)
@@ -115,7 +120,16 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
             _reported = false;
             _ = Task.Run(() => ReadAsync(p), CancellationToken.None);
             _ = Task.Run(() => DrainAsync(p), CancellationToken.None);
+            return true;
         }
+    }
+
+    /// <summary>No worker starts from now (the service's stop has begun): <see cref="EnsureStarted"/> answers false. The worker there
+    /// is stays, for the stop to end.</summary>
+    public void Close()
+    {
+        lock (_gate)
+            _closed = true;
     }
 
     /// <summary>Writes a line to the worker; false when there is no worker to take it (gone, or on its way out).</summary>

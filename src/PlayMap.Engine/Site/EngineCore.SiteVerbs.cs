@@ -89,7 +89,7 @@ public sealed partial class EngineCore
         rotation = ((rotation % 360) + 360) % 360;
         if (before.IsSet && before.Crs.StartsWith("EPSG:", StringComparison.Ordinal) && crs.StartsWith("EPSG:", StringComparison.Ordinal) && crs != before.Crs)
             return CommandReply.Fail($"the site is in {before.Crs} and its control points and surveys are in its numbers — moving to {crs} is a reprojection, which is not done here");
-        var after = new SiteFrame(crs, crs == before.Crs ? before.CrsName : "", new Vec3d(e, n, h), rotation, before.GridScale, before.MainsHz);
+        var after = new SiteFrame(crs, crs == before.Crs && before.CrsName.Length > 0 ? before.CrsName : Core.Geometry.CrsInfo.NameOf(crs), new Vec3d(e, n, h), rotation, before.GridScale, before.MainsHz);
         if (before.IsSet && after == before)
             return CommandReply.Fail(string.Create(SiteInv, $"the site is at {e:0.###} {n:0.###} {h:0.###} ({crs}) already — this would change nothing"));
         var move = before.IsSet ? StageMove.Between(before, after) : StageMove.None;

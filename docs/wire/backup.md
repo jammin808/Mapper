@@ -94,8 +94,8 @@ FOH-A — it sends at FAILOVER"); on a fenced node both say `held` ("held black:
 FOH-B to mirror it"); on a primary that has just started with hot backups both say `standby` until it has heard them ("silent while
 FOH-A listens for its hot backup (FOH-B): one may have taken the show while it was away"). `show.sound.gain` is 0 on each of them.
 HEALTH adds `mirror` (the backup's state) and `sync.group`; a node is told at once when a peer's epoch, mirror or group moves. The fixture is
-`tests/fixtures/state/backup.json` (a backup, its primary, the backup after FAILOVER and the old primary fenced, each keyed by its
-scenario), its cards `backup.cards.json`.
+`tests/fixtures/state/backup.json` (a backup, its primary, the backup after FAILOVER with its route switched on the PJLink simulator
+and read back, and the old primary fenced, each keyed by its scenario), its cards `backup.cards.json`.
 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
 
@@ -111,7 +111,7 @@ with the first missing media file's line: `MEDIA FETCH <media> VERSION <version>
 that could not be pulled too, which no line fetches: the mirror asks for it again itself); on a primary, `backup:<node>` per backup;
 `route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else one grey row. INDEX section
 `fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`, `FLEET PROMOTE` (red while the leader is
-silent), and `FLEET FOCUS machine:<node>` per backup.
+silent), and `FLEET FOCUS machine:<node>` per backup; every node lists the section, a solo one with no rows.
 
 ## Papers note
 

@@ -204,11 +204,19 @@ public sealed partial class EngineCore
         return FromEdit(Edits.Apply($"set {located.Kind} {Label(located.Entity)} {path}", p =>
         {
             var current = Locate(p, id) ?? throw new EditRefusedException($"nothing has the id {id}");
-            var edited = SetPathTyped(current.Entity, current.Type, path, value);
+            var edited = OperatorsLocks(current.Entity, SetPathTyped(current.Entity, current.Type, path, value));
             Validate(p, edited);
             return current.Replace(p, edited);
         }, coalesceKey: $"set {id} {path}"));
     }
+
+    /// <summary>A projector's locks set by hand (the desk's lock buttons, SET) are the operator's: a focal lock they leave on is held as
+    /// the operator's and never let go by a solve, unless the same SET names who holds it.</summary>
+    private static object OperatorsLocks(object before, object after) =>
+        before is Projector was && after is Projector now && now.Locks != was.Locks && now.FocalLock == was.FocalLock
+            && (now.Locks & SolveLocks.Focal) != 0
+            ? now with { FocalLock = FocalLockSource.Operator }
+            : after;
 
     private static object SetPathTyped(object entity, Type type, string path, string value)
     {

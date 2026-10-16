@@ -159,13 +159,31 @@ public static class WireGrammar
         return true;
     }
 
-    /// <summary>Quotes a word for a line when it needs it.</summary>
+    /// <summary>Quotes a word for a line when it needs it: when it is empty, holds a space or a quote mark, or opens with "{" or "["
+    /// (which <see cref="TrySplit"/> reads bare as JSON to the end of the line), so it reads back as one word wherever it stands.</summary>
     public static string Quote(string word)
     {
         ArgumentNullException.ThrowIfNull(word);
-        if (word.Length > 0 && !word.Any(c => char.IsWhiteSpace(c) || c == '"'))
+        if (word.Length > 0 && word[0] is not ('{' or '[') && !word.Any(c => char.IsWhiteSpace(c) || c == '"'))
             return word;
         return "\"" + word.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+    }
+
+    /// <summary>Words as one line, each quoted as it needs (<see cref="Quote"/>) but the last when it opens with "{" or "[": that one
+    /// rides bare, as JSON does, so it reads back as the same word and a verb that takes JSON reads it from the raw text.</summary>
+    public static string Join(IReadOnlyList<string> words)
+    {
+        ArgumentNullException.ThrowIfNull(words);
+        var sb = new StringBuilder();
+        for (var i = 0; i < words.Count; i++)
+        {
+            var w = words[i];
+            if (i > 0)
+                sb.Append(' ');
+            var tail = i == words.Count - 1 && w.Length > 0 && w[0] is ('{' or '[') && !char.IsWhiteSpace(w[^1]) && !w.Contains('\n', StringComparison.Ordinal);
+            sb.Append(tail ? w : Quote(w));
+        }
+        return sb.ToString();
     }
 
     /// <summary>"OK", "OK @a1", "OK @a1 payload". A payload never contains a newline (JSON is compact).</summary>

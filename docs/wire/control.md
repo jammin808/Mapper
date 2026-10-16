@@ -119,7 +119,7 @@ takes over, each with `{playlist, source, state}`.
 ## INDEX
 
 Section `timecode`: one row per chased playlist (`{id, kind:"chase", label, parent, light, state}`), preset "Timecode" with an
-Engage key (`TIMECODE ENGAGE $(id) TOGGLE`, instant).
+Engage key (`TIMECODE ENGAGE $(id) TOGGLE`, held: a chase engaged or let go moves the air).
 
 ## Preflight
 

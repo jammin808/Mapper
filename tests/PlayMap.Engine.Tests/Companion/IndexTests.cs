@@ -1,11 +1,13 @@
 using System.Text.Json;
 using PlayMap.Core.Model;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine.Tests.Companion;
 
 /// <summary>INDEX is the show's structure for a deck: its fields, every package's section with its preset hint as data, a structure
 /// signature and a labels signature (a rename moves only the labels), STATE's project.index, and SUBSCRIBE INDEX pushed when a
-/// playlist is added — latest wins, asserted on the push.</summary>
+/// playlist is added — latest wins, asserted on the push — when a section row's light moves with the show, and when anything else it
+/// lists moves within its kind (an item's source, a playlist's loop).</summary>
 public sealed class IndexTests
 {
     private sealed class FakeSection : IIndexContributor
@@ -99,6 +101,47 @@ public sealed class IndexTests
     }
 
     [Fact]
+    public async Task EverySectionKeyIsPressedAtLeastAsHardAsTheLineItSends()
+    {
+        // Every package's section, the fleet's and the sync group's too, is listed on every node; a key whose line is its own (not a
+        // row's id) says a press no softer than that line's (design §3.7: held unless it is one of the eight instant presses, pressed
+        // twice where its row is), so a deck that follows the hint alone never fires a held line at once.
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var sections = engine.Routes.IndexSections.ToList();
+        Assert.Superset(new HashSet<string>(["fleet", "sync", "suggestions", "scan", "eye", "show", "led", "calibration", "timecode"], StringComparer.Ordinal),
+            sections.Select(s => s.Section).ToHashSet(StringComparer.Ordinal));
+        string[] order = [PressShapes.Instant, PressShapes.Hold, PressShapes.Double];
+        var soft = new List<string>();
+        foreach (var section in sections)
+        {
+            foreach (var key in section.Hint.Keys)
+            {
+                Assert.Contains(key.Press, order);
+                if (key.DownLine.Trim() == "$(id)")
+                    continue;
+                var text = key.DownLine.Replace("$(id)", "x0a1b2c3d", StringComparison.Ordinal);
+                Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{section.Section}: {text}: {error?.Reason}");
+                var press = PressOf(line);
+                if (Array.IndexOf(order, key.Press) < Array.IndexOf(order, press))
+                    soft.Add($"{section.Section} '{key.DownLine}' says {key.Press}, its line is pressed {press}");
+            }
+        }
+        Assert.True(soft.Count == 0, string.Join("\n", soft));
+    }
+
+    /// <summary>A line's press as a key sends it: its row's (the eight instant rows, a row pressed twice), else held when the line is
+    /// high-risk with its words (a row's per-argument risk) or a review row that puts a picture over the air.</summary>
+    private static string PressOf(WireLine line)
+    {
+        var spec = VerbCatalog.Match(line)?.Spec;
+        Assert.NotNull(spec);
+        var row = VerbParams.Press(spec);
+        if (row == PressShapes.Double || (row == PressShapes.Instant && spec.Risk == VerbRisk.High))
+            return row;
+        return VerbCatalog.RiskOf(line) == VerbRisk.High || (row == PressShapes.Hold && spec.Risk != VerbRisk.High) ? PressShapes.Hold : PressShapes.Instant;
+    }
+
+    [Fact]
     public async Task ASectionThatFaultsSaysSoAndNeverTakesIndexOrStateDown()
     {
         await using var rig = new CompanionRig();
@@ -173,4 +216,64 @@ public sealed class IndexTests
         await rig.Ok("INDEX");
         Assert.DoesNotContain(sink.Lines, l => l.Contains("Fourth", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task ASectionRowsLightMovingWithTheShowPushesIndexAgainWithItsStructureAndLabelsKept()
+    {
+        await using var rig = new CompanionRig();
+        rig.Engine.Routes.Index(new FakeSection());
+        var list = await rig.Ok("PLAYLIST NEW Show");
+        var sink = new RecordingSink();
+        using var sub = rig.Open("INDEX", sink);
+        await sink.Heard("\"tr-" + list + "\"");
+        var opened = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("green", RowLight(opened, list));
+
+        // Blackout moves no structure and no label, only the row's light. Every INDEX carries every section's rows, and another
+        // section's may be amber from the first: the wait is for this row lit amber.
+        await rig.Ok("BLACKOUT ON", OpsRig.Desk);
+        await sink.Heard(l => RowLight(CompanionRig.Json(l["INDEX ".Length..]), list) == "amber");
+        var pushed = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("amber", RowLight(pushed, list));
+        Assert.Equal(opened.GetProperty("sig").GetString(), pushed.GetProperty("sig").GetString());
+        Assert.Equal(opened.GetProperty("labels").GetString(), pushed.GetProperty("labels").GetString());
+        Assert.Equal(2, sink.Lines.Count);
+
+        // STATE moving again with the row's light where it was pushes nothing new.
+        await rig.Ok("FREEZE ON", OpsRig.Desk);
+        await rig.Ok("PLAYLIST NEW Encore");
+        await sink.Heard("Encore");
+        Assert.Equal(3, sink.Lines.Count);
+    }
+
+    [Fact]
+    public async Task ASourceChangeWithinItsKindPushesIndexWithTheNewSourceAndItsSignaturesKept()
+    {
+        await using var rig = new CompanionRig();
+        var list = await rig.Ok("PLAYLIST NEW Show");
+        var item = await rig.Ok($"PLAYLIST ADD {list} color:#FF0000 Wash");
+        var sink = new RecordingSink();
+        using var sub = rig.Open("INDEX", sink);
+        await sink.Heard("color:#FF0000");
+        var opened = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+
+        // A colour for a colour: no id, kind or name moves, yet a key's picture does.
+        await rig.Ok($"SET {item} source {{\"kind\":\"color\",\"id\":\"#00FF00\"}}");
+        await sink.Heard("color:#00FF00");
+        var pushed = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
+        Assert.Equal("color:#00FF00", pushed.GetProperty("playlists")[0].GetProperty("items")[0].GetProperty("source").GetString());
+        Assert.Equal(opened.GetProperty("sig").GetString(), pushed.GetProperty("sig").GetString());
+        Assert.Equal(opened.GetProperty("labels").GetString(), pushed.GetProperty("labels").GetString());
+        Assert.Equal(2, sink.Lines.Count);
+
+        // A playlist's loop is listed too: it pushes as well.
+        await rig.Ok($"SET {list} loop true");
+        await sink.Heard("\"loop\":true");
+        Assert.True(CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]).GetProperty("playlists")[0].GetProperty("loop").GetBoolean());
+        Assert.Equal(3, sink.Lines.Count);
+    }
+
+    private static string? RowLight(JsonElement index, string list) =>
+        index.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "companion-test")
+            .GetProperty("rows").EnumerateArray().Single(r => r.GetProperty("id").GetString() == "tr-" + list).GetProperty("light").GetString();
 }

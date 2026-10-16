@@ -68,6 +68,9 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 {
     private const int Cols = 1001, Rows = 1001; // 2 000 000 triangles
 
+    /// <summary>The longest the import may hold the control lane in one slice (ms).</summary>
+    internal const double LaneSliceBudgetMs = 10;
+
     internal static double ToSurvey(Vec3d stage, SiteFrame site, MeshData original, int cols, int rows)
     {
         // The stage point back on the survey's own grid (Z-up file coordinates are the grid's E, N, H here: LOCAL, scale 1).
@@ -122,7 +125,9 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         Assert.Equal("ready", job.State);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
-        Assert.True(job.LaneMaxMs <= 10, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
+        // The 10 ms slice is a budget on real work: here it is held to its 4× ceiling (the suite runs beside it); the Perf twin,
+        // run alone, holds it to 10 ms.
+        Assert.True(job.LaneMaxMs <= 4 * LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
         // One edit: the revision moved once.
         Assert.Equal(revision + 1, rig.Engine.Store.Current.Revision);
 
@@ -191,7 +196,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var survey = Assert.Single(p.Stage.Surveys);
         Assert.Equal(SurveyFormat.Las, survey.Format);
         Assert.Equal("EPSG:25832", survey.Crs);
-        Assert.Equal("EPSG:25832", p.Stage.Site.Crs);
+        Assert.Equal(("EPSG:25832", "ETRS89 / UTM zone 32N"), (p.Stage.Site.Crs, p.Stage.Site.CrsName));
+        Assert.Equal("ETRS89 / UTM zone 32N", rig.State().GetProperty("stage").GetProperty("site").GetProperty("name").GetString());
         Assert.Equal(new Vec3d(512_320, 5_401_200, 110), p.Stage.Site.Origin);
         Assert.Equal(60_000, survey.SourcePoints);
         Assert.Null(survey.MeshId);
@@ -204,6 +210,31 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 
         // A second file in another system is refused before anything starts.
         Assert.Contains("reproject", await rig.Refused($"SURVEY IMPORT {path} CRS EPSG:32632"), StringComparison.Ordinal);
+    }
+
+    /// <summary>A LAS with only a GeoKey directory (no WKT) names the site by its EPSG system too; SITE ORIGIN keeps the system and its
+    /// name when it moves the site, and refuses to call the site's numbers another EPSG system's — that is a reprojection — with
+    /// nothing changed.</summary>
+    [Fact]
+    public async Task AGeoKeyNamesTheSiteAndSiteOriginNeverRelabelsOneSystemAsAnother()
+    {
+        await using var rig = new SiteRig();
+        var rng = new Pcg32(9, 9);
+        var pts = Enumerable.Range(0, 4000).Select(_ => new Vec3d(512_300 + rng.Range(0.0, 40.0), 5_401_200 + rng.Range(0.0, 0.5), 100 + rng.Range(0.0, 20.0))).ToList();
+        var path = rig.File("keys.las");
+        await File.WriteAllBytesAsync(path, LasTestWriter.Write(pts, null, new Vec3d(0.001, 0.001, 0.001), new Vec3d(512_000, 5_401_000, 0), null, 32633));
+        Assert.Equal("ready", (await rig.Import($"{path} VOXEL 0.5")).State);
+        var site = rig.State().GetProperty("stage").GetProperty("site");
+        Assert.Equal(("EPSG:32633", "WGS 84 / UTM zone 33N"), (site.GetProperty("crs").GetString(), site.GetProperty("name").GetString()));
+
+        var revision = rig.Engine.Store.Current.Revision;
+        foreach (var other in new[] { "EPSG:25833", "EPSG:32632" })
+            Assert.Contains("is a reprojection", await rig.Refused($"SITE ORIGIN 512320 5401200 110 CRS {other}"), StringComparison.Ordinal);
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
+        Assert.Equal("EPSG:32633", rig.Engine.Store.Project.Stage.Site.Crs);
+
+        await rig.Ok("SITE ORIGIN 512330 5401210 111 CRS EPSG:32633");
+        Assert.Equal(("EPSG:32633", "WGS 84 / UTM zone 33N"), (rig.Engine.Store.Project.Stage.Site.Crs, rig.Engine.Store.Project.Stage.Site.CrsName));
     }
 
     [Fact]
@@ -380,6 +411,18 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         log.WriteLine(optimised ? "optimised build: the 15 s budget holds" : "Debug build: recorded against the 4× ceiling (60 s)");
         Assert.True(seconds <= (optimised ? 15 : 60), $"{seconds:0.0} s");
         Assert.True(worstPing <= 50, $"{worstPing:0.0} ms");
+    }
+
+    [Fact]
+    public async Task TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice()
+    {
+        await using var rig = new SiteRig();
+        var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
+        var (job, seconds) = await SurveyImportTests.ImportBig(rig, file);
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices"));
+        Assert.Equal("ready", job.State);
+        Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
+        Assert.True(job.LaneMaxMs <= SurveyImportTests.LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
     }
 }
 

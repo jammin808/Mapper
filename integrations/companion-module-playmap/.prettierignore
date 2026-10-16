@@ -1,0 +1,11 @@
+node_modules/
+dist/
+pkg/
+package-lock.json
+src/catalog/verbs.json
+src/palette/palette.js
+test/fixtures/
+test/lines.txt
+test/state-paths.txt
+COPYING
+LICENSE

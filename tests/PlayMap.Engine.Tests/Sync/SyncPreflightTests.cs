@@ -105,6 +105,37 @@ public sealed class SyncPreflightTests
         Assert.Equal(60, leader.Engine.Store.Project.FindOutput("op_2")!.RefreshHz);
     }
 
+    /// <summary>One output at each rate is a tie: the leader's first output in its project sets the group's rate and the other is
+    /// odd, whatever order the outputs' reports reach the board in (here the source lists them the other way round from the project).</summary>
+    [Theory]
+    [InlineData(false, "SET op_2 refreshHz 60")]
+    [InlineData(true, "SET op_1 refreshHz 50")]
+    public async Task ALeadersReferenceIsItsFirstOutputInItsProjectWhateverOrderItsReportsCome(bool rightFirst, string expected)
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var left = FakeVblanks.At("op_1", 60, clock.NowNs);
+        var right = FakeVblanks.At("op_2", 50, clock.NowNs);
+        // The reports are offered in the source's order, the opposite of the project's.
+        var leaderV = rightFirst ? new FakeVblanks(left, right) : new FakeVblanks(right, left);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(leaderV));
+        var show = SyncRig.Show();
+        var outputs = new[] { show.Outputs[0], show.Outputs[0] with { Id = "op_2", Name = "Right", RefreshHz = 50 } };
+        await SyncRig.OpenShowAsync(leader, show with { Outputs = rightFirst ? [outputs[1], outputs[0]] : [.. outputs] });
+        await leader.OkAsync("SYNC LEAD show");
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("verdict").GetString() == "mixed rate"));
+        var sync = SyncRig.Sync(leader);
+        Assert.Equal(rightFirst ? ["op_2", "op_1"] : ["op_1", "op_2"], sync.GetProperty("outputs").EnumerateArray().Select(o => o.GetProperty("output").GetString()));
+        var pair = sync.GetProperty("pairs").EnumerateArray().Single();
+        Assert.Equal(rightFirst ? ("op_2", "op_1") : ("op_1", "op_2"), (pair.GetProperty("a").GetString(), pair.GetProperty("b").GetString()));
+
+        var row = Row(await PreflightAsync(leader), "sync:rates");
+        Assert.Equal("red", row.GetProperty("light").GetString());
+        Assert.Equal(expected, row.GetProperty("fix").GetString());
+        await leader.OkAsync(expected);
+        var outs = leader.Engine.Store.Project.Outputs;
+        Assert.Equal(outs[0].RefreshHz, outs[1].RefreshHz);
+    }
+
     [Fact]
     public async Task AMembersOddRateIsFixedOnTheMemberWhenItsOutputHasTheLeadersId()
     {

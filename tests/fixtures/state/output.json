@@ -151,7 +151,8 @@
     "scans": 0,
     "site": null,
     "controls": 0,
-    "surveys": []
+    "surveys": [],
+    "stacks": []
   },
   "scan": null,
   "sync": {
@@ -217,7 +218,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "b9a5e754475cdfb3"
+    "index": "4781a564f175bc40"
   },
   "faults": [],
   "ai": {

@@ -8,7 +8,8 @@ using PlayMap.Engine.Host;
 namespace PlayMap.Engine.Align;
 
 /// <summary>Preflight's align rows: every output with a measured correction has its files where the project names them, unchanged,
-/// and read (red with the line that returns it to its fallback when not); an output whose group has a staged run waiting is amber
+/// and read (red with the line that returns it to its fallback when not; a stack member's lattice alone, drawn from the project, has
+/// nothing to read and is green with its residual); an output whose group has a staged run waiting is amber
 /// with the line that accepts it; a projector whose own geometry or blend fights a measured correction (the double-correction guard's
 /// last read) is amber with the line that turns it off. A node with no measured correction answers one green row.</summary>
 internal sealed class AlignPreflight : IPreflightCheck
@@ -42,7 +43,7 @@ internal sealed class AlignPreflight : IPreflightCheck
                     $"{string.Join(", ", bad)} missing or changed — {o.Name} runs without its measured correction", fix));
                 continue;
             }
-            if (set.Faults.TryGetValue(o.Id, out var fault) || !set.Loads.ContainsKey(o.Id))
+            if (set.Faults.TryGetValue(o.Id, out var fault) || (MeasuredLibrary.Reads(m) && !set.Loads.ContainsKey(o.Id)))
             {
                 rows.Add(new PreflightRow("align:" + o.Id, node, Section, o.Name, Light.Red, "not loaded", fault ?? $"{o.Name}'s measured correction is not loaded", fix));
                 continue;
@@ -52,8 +53,9 @@ internal sealed class AlignPreflight : IPreflightCheck
                 rows.Add(new PreflightRow("align:" + o.Id, node, Section, o.Name, Light.Amber, "staged", $"a run waits for a person: {v.Id}", $"ALIGN ACCEPT {v.Id}"));
                 continue;
             }
-            rows.Add(new PreflightRow("align:" + o.Id, node, Section, o.Name, Light.Green, "ok",
-                string.Create(CultureInfo.InvariantCulture, $"{m.RunId}: warp {m.ResidualPx:0.00} px, files present and loaded"), null));
+            rows.Add(new PreflightRow("align:" + o.Id, node, Section, o.Name, Light.Green, "ok", m.Warp is null && m.Lattice is not null
+                ? string.Create(CultureInfo.InvariantCulture, $"{StackName(p, m.StackId)}'s lattice, {m.ResidualPx:0.00} px from its master{(m.Color is null ? "" : "; gains loaded")}")
+                : string.Create(CultureInfo.InvariantCulture, $"{m.RunId}: warp {m.ResidualPx:0.00} px, files present and loaded"), null));
         }
         foreach (var (id, name, words, fix) in engine.NativeFights())
             rows.Add(new PreflightRow("align:native:" + id, node, Section, name, Light.Amber, "double correction", words, fix));
@@ -61,6 +63,8 @@ internal sealed class AlignPreflight : IPreflightCheck
             rows.Add(new PreflightRow("align", node, Section, "Alignment", Light.Green, "none", "no output has a measured correction", null));
         return rows;
     }
+
+    private static string StackName(Project p, string stackId) => p.FindStack(stackId)?.Name ?? (stackId.Length > 0 ? stackId : "a stack");
 
     /// <summary>The files a correction names that are missing, outside the project's folder or no longer what was measured.</summary>
     internal static List<string> Unreadable(string? folder, MeasuredCorrection m)

@@ -44,7 +44,8 @@ public sealed record StageResourceOptions
 /// last good maps stay up meanwhile; a solve BLEND SOLVE made for the same inputs is taken as it is.</summary>
 public sealed class StageResources : IStageResources, IAsyncDisposable
 {
-    private sealed record WarpEntry(OutputWarp Source, WarpMeshGeometry? Geometry);
+    /// <summary>An output's warp mesh and what it was built from: the operator's warp and the measured lattice under it.</summary>
+    private sealed record WarpEntry(OutputWarp Source, WarpLattice? Measured, WarpMeshGeometry? Geometry);
 
     private sealed record EdgeEntry(BlendSettings Settings, int Width, int Height, BlendMap? Map);
 
@@ -328,14 +329,15 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
 
     private WarpEntry WarpFor(Output output, Tables prev)
     {
-        if (prev.Warps.TryGetValue(output.Id, out var w) && ReferenceEquals(w.Source, output.Warp))
+        var measured = output.Measured?.Lattice;
+        if (prev.Warps.TryGetValue(output.Id, out var w) && ReferenceEquals(w.Source, output.Warp) && ReferenceEquals(w.Measured, measured))
             return w;
         var warp = output.Warp;
-        var resting = !warp.Enabled || (warp.Pin.IsNone && (warp.Lattice?.IsAtRest ?? true));
+        var resting = (!warp.Enabled || (warp.Pin.IsNone && (warp.Lattice?.IsAtRest ?? true))) && (measured?.IsAtRest ?? true);
         if (resting)
-            return new WarpEntry(warp, null);
+            return new WarpEntry(warp, measured, null);
         WarpBuilds++;
-        return new WarpEntry(warp, WarpMeshBuilder.Build(warp));
+        return new WarpEntry(warp, measured, WarpMeshBuilder.Build(warp, measured: measured));
     }
 
     private EdgeEntry? EdgeFor(Output output, Tables prev)

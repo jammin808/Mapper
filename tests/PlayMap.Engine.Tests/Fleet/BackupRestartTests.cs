@@ -91,7 +91,7 @@ public sealed class BackupRestartTests
             Assert.Equal(NetworkAir.Held, again.Engine.NetworkAir);
             Assert.DoesNotContain(ledA2.Calls, c => c.On);
             Assert.Empty(ndiA2.Sinks);
-            Assert.Equal(0f, again.Engine.Services.OutputGains!.GainOf("op_1"));
+            Assert.Equal(0f, again.Engine.Services.OutputGains!.GainOf("op_1", again.Engine.LeaderNowNs));
             Assert.True(ledB.Master);
             Assert.Equal("primary", BackupRig.Role(backup));
         }

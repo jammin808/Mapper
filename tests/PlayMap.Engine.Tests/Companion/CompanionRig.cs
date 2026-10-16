@@ -59,12 +59,14 @@ internal sealed class CompanionRig : IAsyncDisposable
     public ValueTask DisposeAsync() => Engine.DisposeAsync();
 }
 
-/// <summary>A session's sink as the tests hold it: every line in the order it was said, the newest per key, and a wait for the next
-/// line that matches (event driven, never a wall-clock window). In-order lines past <see cref="Bound"/> are refused.</summary>
+/// <summary>A session's sink as the tests hold it: every line in the order it was said, the newest per key, and a wait for a line
+/// that matches, met at once by one already said (event driven, never a wall-clock window): a wait for what a push says must name
+/// something no earlier line says. A wait whose test throws on a line fails with that error; the speaker and the other waits go on.
+/// In-order lines past <see cref="Bound"/> are refused.</summary>
 internal sealed class RecordingSink : IPushSink
 {
     private readonly Lock _gate = new();
-    private readonly List<(string Line, TaskCompletionSource Done)> _waits = [];
+    private readonly List<(Func<string, bool> Means, TaskCompletionSource Done)> _waits = [];
 
     public int Bound { get; init; } = int.MaxValue;
 
@@ -93,21 +95,36 @@ internal sealed class RecordingSink : IPushSink
         Lines.Enqueue(line);
         lock (_gate)
         {
-            foreach (var (prefix, done) in _waits.Where(w => line.Contains(w.Line, StringComparison.Ordinal)).ToList())
-                done.TrySetResult();
+            foreach (var (means, done) in _waits)
+            {
+                try
+                {
+                    if (means(line))
+                        done.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    // The test's code runs on the speaker's thread: its error ends its own wait and never the speaker's push.
+                    done.TrySetException(ex);
+                }
+            }
             _waits.RemoveAll(w => w.Done.Task.IsCompleted);
         }
     }
 
     /// <summary>Completes when a line containing <paramref name="text"/> is said (at once when it was already).</summary>
-    public Task Heard(string text, int timeoutMs = 10000)
+    public Task Heard(string text, int timeoutMs = 10000) => Heard(l => l.Contains(text, StringComparison.Ordinal), timeoutMs);
+
+    /// <summary>Completes when a line that <paramref name="means"/> holds for is said (at once when one was already): a wait for what
+    /// a line says, where its words alone may be in an earlier line too.</summary>
+    public Task Heard(Func<string, bool> means, int timeoutMs = 10000)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_gate)
         {
-            if (Lines.Any(l => l.Contains(text, StringComparison.Ordinal)))
+            if (Lines.Any(means))
                 return Task.CompletedTask;
-            _waits.Add((text, done));
+            _waits.Add((means, done));
         }
         return done.Task.WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
     }

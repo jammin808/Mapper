@@ -109,26 +109,25 @@ public sealed partial class EngineCore
         return CalibrationLedger.Record(p, snap, apply: true).Project;
     }
 
-    /// <summary>PROJECTOR SOLVE's result as one edit: the projector takes the solve's optics and pose, and the ledger records it
-    /// (scored) as current — the first result is the fallback too. Answers the snapshot's id and its score.</summary>
-    private (EditResult Result, string SnapshotId, QualityScore Score, int Dropped) RecordSolve(Projector pj, SolveLocks locks, PoseSolution solution, string who)
+    /// <summary>PROJECTOR SOLVE's result inside its edit: the projector takes the solve's optics, pose and locks (with who holds the
+    /// focal lock) and its uncertainty, and the ledger records it (scored) as current — the first result is the fallback too. Answers
+    /// the snapshot's id and what it says of the stacks the move left unaligned ("" for none).</summary>
+    private (Project Project, string SnapshotId, string Unaligned) ApplySolve(Project p, string projectorId, LongThrowResult solve, QualityScore score,
+        SolveUncertainty? uncertainty, string who)
     {
-        var solved = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = locks };
-        var (score, uncertainty) = CalibrationScoring.ForPins(solved, solution);
-        var id = "";
-        var dropped = 0;
-        var r = Edits.Apply($"solve {pj.Name}", p =>
+        var solution = solve.Solution;
+        var id = p.NewId(Ids.Calibration);
+        var current = p.FindProjector(projectorId) ?? throw new EditRefusedException($"no projector {projectorId}");
+        var withSolve = current with
         {
-            id = p.NewId(Ids.Calibration);
-            var current = p.FindProjector(pj.Id) ?? throw new EditRefusedException($"no projector {pj.Id}");
-            var withSolve = current with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = locks, Uncertainty = uncertainty };
-            var snap = CalibrationLedger.Of(withSolve, id, CalibrationLedger.NameFor(p, pj.Id, CalibrationSource.Pins), score, CalibrationSource.Pins, who,
-                Services.Wall.UnixMs);
-            var project = p.WithStage(st => st with { Projectors = st.Projectors.Update(pj.Id, _ => withSolve) });
-            (project, dropped) = CalibrationLedger.Record(project, snap, apply: true);
-            return project;
-        });
-        return (r, id, score, dropped);
+            Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = solve.LocksUsed, FocalLock = solve.FocalLockBy,
+            Uncertainty = uncertainty,
+        };
+        var snap = CalibrationLedger.Of(withSolve, id, CalibrationLedger.NameFor(p, projectorId, CalibrationSource.Pins), score, CalibrationSource.Pins, who,
+            Services.Wall.UnixMs);
+        var project = p.WithStage(st => st with { Projectors = st.Projectors.Update(projectorId, _ => withSolve) });
+        (project, _) = CalibrationLedger.Record(project, snap, apply: true);
+        return (project, id, StacksMovedWords(p, project));
     }
 
     // ---- STATUS, HISTORY -------------------------------------------------------------------------------------------------
@@ -697,8 +696,11 @@ public sealed partial class EngineCore
                     retestLock: true), cts.Token).ConfigureAwait(false);
                 cts.Token.ThrowIfCancellationRequested();
                 var solution = longThrow.Solution;
-                var after = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = longThrow.LocksUsed };
-                var (score, uncertainty) = CalibrationScoring.ForPins(after, solution, "resolve");
+                var after = pj with
+                {
+                    Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = longThrow.LocksUsed, FocalLock = longThrow.FocalLockBy,
+                };
+                var (score, uncertainty) = CalibrationScoring.ForPins(after, solution, "resolve", analysed: longThrow.Analysis);
                 solved.Add(new Resolved(pj, after, score, uncertainty, -1, -1, null)
                 {
                     PriorsUsed = PriorsUsed(longThrow),
@@ -765,10 +767,12 @@ public sealed partial class EngineCore
         Action<Utf8JsonWriter>? extra)
     {
         var ai = c.Session.Transport is "mcp" or "assistant";
+        var unaligned = "";
         var gate = Store.Project.Settings.CalibrationGate;
         var results = new List<(string Projector, string Snapshot, bool Applied, QualityScore Score, string Why)>();
         var r = await EditAsync(c.Session, $"re-solve {string.Join(", ", solved.Select(x => x.Before.Name))}", project =>
         {
+            var before = project;
             // On the lane, as CANCEL is: a cancel that came first refuses the whole edit; from here on the result is being applied
             // and a CANCEL is refused with the way back.
             lock (_calibrationGate)
@@ -795,9 +799,12 @@ public sealed partial class EngineCore
                     : "";
                 var apply = why.Length == 0;
                 var id = project.NewId(Ids.Calibration);
-                // The locks the solve answers (a focal the lens locked, or freed when the pins carry it again) go with its optics.
+                // The locks the solve answers (a focal the lens locked, or freed when the pins carry it again) go with its optics, and
+                // who holds the focal lock with them.
+                var answered = x.After.Locks != x.Before.Locks || x.After.FocalLock != x.Before.FocalLock;
                 var result = now with { Intrinsics = x.After.Intrinsics, Lens = x.After.Lens, Pose = x.After.Pose, Pins = x.After.Pins,
-                    Locks = x.After.Locks == x.Before.Locks ? now.Locks : x.After.Locks,
+                    Locks = answered ? x.After.Locks : now.Locks,
+                    FocalLock = answered ? x.After.FocalLock : now.FocalLock,
                     Uncertainty = apply ? x.Uncertainty : now.Uncertainty };
                 var snap = CalibrationLedger.Of(result, id, CalibrationLedger.NameFor(project, now.Id, CalibrationSource.Resolve), score,
                     CalibrationSource.Resolve, c.Session.ClientName, Services.Wall.UnixMs) with
@@ -815,6 +822,7 @@ public sealed partial class EngineCore
                 (project, _) = CalibrationLedger.Record(project, snap, apply);
                 results.Add((now.Id, id, apply, score, why));
             }
+            unaligned = StacksMovedWords(before, project);
             return project;
         }).ConfigureAwait(false);
         if (!r.Changed)
@@ -839,6 +847,7 @@ public sealed partial class EngineCore
             _calibrationMoved = [.. _calibrationMoved.Where(id => !results.Any(x => x.Applied && x.Projector == id))];
         var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
             $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{LongThrowNote(solved, x.Projector)}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
+        words += unaligned;
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         if (applied.Count > 0)

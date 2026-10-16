@@ -35,7 +35,7 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
 | **Stagewatch approvals (§11)** | PlayMap posts its context and collects approved proposals aimed at its id | An AI anywhere on the bus proposes a PlayMap verb; the show caller approves it on Stagewatch; PlayMap runs it through its own checks and reports the result. |
 | **Patterns** | Interactive area → a *Lines* device at PlayMap's host:9941 (add PlayMap's address to its trusted list, or leave the node open) | Every cue step, the wire's `DEVICE PlayMap …`, OSC and Companion can send PlayMap verbs; Patterns' fact lines (`BLACKOUT 1`, `LIVE 0`…) are taken in silently and **PlayMap follows Patterns' blackout** by default. |
 | **Patterns' AI / any AI** | `CONTEXT` on the wire, `GET /api/context`, or MCP at `/mcp` | Reads everything PlayMap is doing (lights, headline, playlists, outputs, projectors, links, recent journal) and proposes verbs with their risk. |
-| **Companion / any controller** | TCP 9941 lines or HTTP | The full vocabulary. |
+| **Companion / any controller** | Companion: the PlayMap module (`integrations/companion-module-playmap`) on the web port's line channel (`/ws`, `playmap.lines.v1`), paired by proof; any controller: TCP 9941 lines, that channel, or HTTP | The full vocabulary; the module builds its keys from `VERBS`, STATE and every section of `INDEX` (docs/COMPANION.md). |
 
 ## 3. Following others
 

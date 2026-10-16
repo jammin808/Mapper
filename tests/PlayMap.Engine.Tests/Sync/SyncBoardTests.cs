@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Net;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Net.Sync;
 
@@ -65,5 +67,55 @@ public sealed class SyncBoardTests
         Assert.True(stranger.Send(new VblankReport(LockState.FreeMeasured, 0, 1, 0x1a2b3c4d, VblankReport.HashId("op_9"), 1, 0, 16_666_666_667, 0, 0, 0, 0, 0, 0)));
         Assert.True(await Eventually.TrueAsync(() => leader.Engine.Services.GroupSync!.RefusedReports > refused));
         Assert.Equal(2, SyncRig.Sync(leader).GetProperty("outputs").GetArrayLength());
+    }
+
+    /// <summary>A member's outputs read by the ids and in the order its subscription named them — its latest, when it holds two —
+    /// across a lead (which forgets the reports and keeps the names) and the end of either subscription, whichever order they come
+    /// in; once it holds none they read by hash.</summary>
+    [Fact]
+    public async Task AMembersOutputsReadAsItsSubscriptionNamedThemAcrossALeadAndAnEnd()
+    {
+        const string Node = "1a2b3c4d";
+        var clock = new ManualClock(Base);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await leader.OkAsync("SYNC LEAD show");
+        var sync = leader.Engine.Services.GroupSync!;
+        uint seq = 0;
+        List<string> Rows()
+        {
+            seq++;
+            foreach (var output in new[] { "op_a", "op_b" })
+            {
+                Assert.True(sync.Board.Offer(new VblankReport(LockState.FreeMeasured, VblankReport.FlagSettled, VblankReport.PathGl, VblankReport.NodeNumber(Node),
+                    VblankReport.HashId(output), seq, 0, 16_666_666_667, leader.Engine.LeaderNowNs, 600, 0, 0, 16_000, 0), clock.NowNs));
+            }
+            return [.. sync.Board.Picture(leader.Engine.LeaderNowNs, clock.NowNs).Outputs.Where(o => o.Node == Node).Select(o => o.Output)];
+        }
+        var first = sync.OpenAnchors([Node, "op_b", "op_a"], new SessionInfo("s1", "wire", "10.0.0.21", false, "Stage", true), new NullSink());
+        var second = sync.OpenAnchors([Node, "op_a", "op_b"], new SessionInfo("s2", "wire", "10.0.0.22", false, "Stage", true), new NullSink());
+        Assert.Equal(["op_a", "op_b"], Rows());
+
+        // A lead starts the board again: the reports go, the names and order stay.
+        await leader.OkAsync("SYNC LEAD other");
+        Assert.DoesNotContain(sync.Board.Picture(leader.Engine.LeaderNowNs, clock.NowNs).Outputs, o => o.Node == Node);
+        Assert.Equal(["op_a", "op_b"], Rows());
+
+        // The latest subscription ends: the member's other one names its outputs again.
+        second.Sub!.Dispose();
+        Assert.Equal(["op_b", "op_a"], Rows());
+        first.Sub!.Dispose();
+        string[] hashed = [.. new[] { "op_a", "op_b" }.Select(VblankReport.HashId).Order().Select(h => "#" + h.ToString("x8", CultureInfo.InvariantCulture))];
+        Assert.Equal(hashed, Rows());
+    }
+
+    private sealed class NullSink : PlayMap.Net.IPushSink
+    {
+        public void Latest(string key, string line)
+        {
+            // A reader that keeps nothing.
+        }
+
+        public bool InOrder(string line) => true;
     }
 }

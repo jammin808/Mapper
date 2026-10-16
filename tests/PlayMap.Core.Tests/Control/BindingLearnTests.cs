@@ -59,6 +59,9 @@ public sealed class BindingLearnTests
     [InlineData("SET sf_a opacity * *", "a target line carries one value word ('*', '*%' or '#*'), not two")]
     [InlineData("SET sf_a rect.x [*]", "a value can ride only as a whole word, never inside JSON")]
     [InlineData("FROB 1", "'FROB' is no verb — HELP lists the vocabulary")]
+    [InlineData("\"AUTH s3cr3t-7f2a\"", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
+    [InlineData("\"LINK PATTERNS\tpatterns.local s3cr3t-7f2a\" 1", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
+    [InlineData("{\"target\":\"AUTH s3cr3t-7f2a\"}", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
     public void ATargetThatCannotBeBoundIsRefusedWithWords(string line, string why)
     {
         Assert.Null(TargetLine.Parse(line, out var reason));
@@ -78,6 +81,21 @@ public sealed class BindingLearnTests
         Assert.Equal((0.05, 20.0, true), (rate.Min, rate.Max, rate.Log));
         Assert.Equal((0.0, 100.0, true), (TargetRanges.Of(Target("MASTER *"), null).Min, TargetRanges.Of(Target("MASTER *"), null).Max, TargetRanges.Of(Target("MASTER *"), null).Integer));
         Assert.False(TargetRanges.Of(Target("SET sf_a frob *"), null).Known);
+    }
+
+    [Fact]
+    public void ARewrittenTargetKeepsABracketWordOneWordAndItsJsonTailBare()
+    {
+        // A word that opens with "[" inside the line stays one word in the forms a button sends.
+        var (on, off) = Target("SURFACE SHOW \"[L]\" ON").SwitchForms!.Value;
+        Assert.Equal(("SURFACE SHOW \"[L]\" ON", "SURFACE SHOW \"[L]\" OFF"), (on, off));
+        Assert.True(Core.Wire.WireGrammar.TryParse(off, out var line, out _));
+        Assert.Equal(["SURFACE", "SHOW", "[L]", "OFF"], line.Words);
+        // JSON as the last word rides bare to the end of the line, where the verb reads it from the raw text.
+        var json = Target("SET sf_a content {\"mode\":\"uv\"}").With(1, "sf_b");
+        Assert.Equal("SET sf_b content {\"mode\":\"uv\"}", json);
+        Assert.True(Core.Wire.WireGrammar.TryParse(json, out var set, out _));
+        Assert.Equal("{\"mode\":\"uv\"}", set.RestAfter(3));
     }
 
     [Fact]

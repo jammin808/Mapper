@@ -181,6 +181,14 @@ public enum SolveLocks
     Distortion = 4,
 }
 
+/// <summary>Who put the focal lock on a projector: the operator (a LOCK word, SET, the desk), or the long-throw solve, which locks
+/// the focal at the lens prior when the pins cannot carry it. Only a lock the lens put there is asked again at the next solve.</summary>
+public enum FocalLockSource
+{
+    Operator,
+    Lens,
+}
+
 /// <summary>A projector in the stage: optics and pose. Which output drives it is the output's to say.</summary>
 public sealed record Projector(
     string Id,
@@ -202,6 +210,10 @@ public sealed record Projector(
 
     /// <summary>The last solve's uncertainty on the wall and along the axis (wp2-facade); null before a solve.</summary>
     public SolveUncertainty? Uncertainty { get; init; }
+
+    /// <summary>Who put the focal lock in <see cref="Locks"/> (meaningful while it holds the focal). A file without it holds the lock
+    /// as the operator's: a lock is never let go on a guess.</summary>
+    public FocalLockSource FocalLock { get; init; } = FocalLockSource.Operator;
 
     /// <summary>The calibration ledger's current result for this projector (wp2-wall).</summary>
     public string? CalibrationId { get; init; }

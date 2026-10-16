@@ -97,7 +97,7 @@ public sealed class AirLevels : IAirLevels
         else if (_returns.TryGetValue(outputId, out var r))
             g *= r.At(leaderNs);
         if (_gains is not null)
-            g *= _gains.GainOf(outputId);
+            g *= _gains.GainOf(outputId, leaderNs);
         return Math.Clamp(g, 0f, 1f);
     }
 

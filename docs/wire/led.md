@@ -52,7 +52,8 @@ The air's moments (blackout, freeze, panic, a scan or align run, output off, the
 
 - Context: one item `led:<node>` (kind `led`): red unreachable or refused while this machine sends, amber late or a test or locate
   up, green sending, grey otherwise; `output:<id>` **feeds** `led:<node>` when a fixture on the node samples that output.
-- INDEX section `led`: a row per node; preset keys On, Off, Test (chase on the node), Level ± (`LED LEVEL BY ±5`).
+- INDEX section `led`: a row per node; preset keys On, Off, Test (chase on the node), Level ± (`LED LEVEL BY ±5`), each held (`LED OUTPUT`,
+  `LED TEST` and `LED LEVEL` are high-risk rows).
 - Preflight section `led`: every patched Art-Net node on this machine answered ArtPoll (red with `LED OUTPUT OFF <node>` when it
   did not); overlaps red with `LED AUTOPATCH ALL`; the guard's refusal red; output off with a patched rig amber with
   `LED OUTPUT ON`. sACN and DDP receivers do not answer: grey.

@@ -22,7 +22,9 @@ public sealed unsafe class LiveFramePoolTests
     {
         // The writer fills each frame with one byte value and stamps it; three readers, all running before the writer starts,
         // acquire, hold the lease while the writer publishes two more frames, and check every byte is still the one stamped and that
-        // stamps never go backwards. Fixed counts and a start barrier, no sleeps.
+        // stamps never go backwards. Fixed counts and a start barrier, no sleeps. The writer publishes at least its count of frames and
+        // goes on until the readers have held three leases across two frames each, so the property is exercised whatever the
+        // scheduler does with the readers' threads; a bound stops it, and the assertion says so, if they never run.
         // Eight slots: three readers each holding one and the newest still leave the writer free ones, so it never stalls.
         using var pool = new LiveFramePool(8);
         const int frames = 20_000;
@@ -63,7 +65,7 @@ public sealed unsafe class LiveFramePoolTests
         })).ToList();
         readers.ForEach(r => r.Start());
         ready.Wait();
-        for (var k = 1; k <= frames; k++)
+        for (var k = 1; k <= frames || (Volatile.Read(ref heldAcross) < 3 && k <= 50 * frames); k++)
         {
             if (!pool.TryBeginWrite(PixelLayout.Uyvy, 64, 8, out var planes))
                 continue;

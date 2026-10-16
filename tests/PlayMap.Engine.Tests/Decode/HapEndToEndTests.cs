@@ -46,6 +46,8 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             // The free part of the arena moves with the moment.
             if (platform["blocks"] is JsonObject b)
                 b["arenaFreeMb"] = 255;
+            // The fixture is written on Linux under X: this machine's own binding words read as GLX's.
+            HostRig.DecodeBindingAsFixture(platform);
         }
         if (node["platform"]?["hapLayers4k60"] is JsonObject layers)
         {

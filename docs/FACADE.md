@@ -1,6 +1,6 @@
 # Facades: sites, surveys, control points, long throws
 
-PlayMap takes a building from a survey to calibrated projectors at 50–150 m. The verbs are in `docs/wire/facade.md`; the design is
+PlayMap takes a building from a survey to calibrated projectors at 50–150 m. The verbs are in `docs/wire/facade.md` and `docs/wire/stacks.md`; the design is
 `docs/round2/design/facade.md`.
 
 ## The site frame
@@ -74,11 +74,14 @@ it always was.
 `PROJECTOR SOLVE` first solves from the pins (and any position prior). When the pins cannot carry the zoom — its σ from the solve's
 own information passes 10 % — the zoom is locked at the lens prior and the solve runs again; the words say "the pins cannot tell zoom
 from distance" when the weakest direction lies along zoom and the along-axis distance, else "the pins cannot carry zoom". With no lens
-prior the solve is kept and named weak, with the lines that fix it. Otherwise the lens prior joins the solve as a row. A lock the lens
-put there is asked again at every solve (more pins or depth free it); an operator's `LOCK FOCAL` keeps the projector's own focal. The
-reply carries the uncertainty from the solve's own information matrix with the priors' added: on the wall first (px), then along the
-axis and across it (m), and the zoom (%). STATE and the calibration score carry the same uncertainty: the pins' information with the
-projector's priors, a locked zoom held.
+prior the solve is kept and named weak, with the lines that fix it. Otherwise the lens prior joins the solve as a row. The projector
+keeps who put its focal lock there (`focalLock`: `operator` or `lens`, and the ledger puts it back with a result): a lock the lens put
+there is asked again at every solve (more pins or depth free it); an operator's lock — `LOCK FOCAL` on the line, or the locks set by
+hand — holds at every solve and re-solve, wherever its focal sits, the lens prior's value included. A file that does not say holds the
+lock as the operator's. The reply carries the uncertainty from the solve's own information matrix with the priors' added: on the wall
+first (px), then along the axis and across it (m), and the zoom (%). STATE and the calibration score carry that same analysis, made
+once per solve: the pins' information with the projector's priors, a locked zoom held. The solve and its score run off the control
+lane; the projector is read and its result lands on the lane, a result refused when the projector changed while it was solved.
 
 The recommended path at a facade: the lens prior from the datasheet → 8–15 pins on control points → solve, wall px read first.
 
@@ -102,7 +105,81 @@ XYZ, PTS) with the `SURVEY IMPORT` line that reads it.
 A scan with a calibrated camera bridges into the stage's model as it stands: every visible surface on an imported mesh, through its
 placement — never a mesh file's raw coordinates.
 
+## Coordinate systems
+
+A site's system is named as the EPSG dataset names it ("ETRS89 / UTM zone 32N"); a LAS file's WKT record gives its system from the root
+element's own EPSG authority (a compound system's horizontal part's; an authority nested in a unit, a datum or the base system names
+that, not the system) or, when it has none, from a UTM name ("WGS_1984_UTM_Zone_33N"). The geodesy beneath (`Geodesy.cs`) is
+from published specifications: geodetic ↔ ECEF ↔ local east-north-up, and the transverse Mercator by Krüger's series to sixth
+order, within a millimetre of Lantmäteriet's SWEREF 99 TM control points, the Ordnance Survey's worked example and EPSG's
+Luxembourg example, and within a micrometre forward and back over a UTM zone.
+
+## Stacks
+
+Two or more projectors lighting one picture are a stack: `STACK NEW` groups them with a master (the first named, or `MASTER`). A
+member must light at least 80 % of the master's picture (where the master's raster lands on the model, or on a wall at its throw
+without one) and may be in one stack only. The blend treats the stack as one projector whose light is its members' summed.
+
+`STACK ALIGN <stack> FROM <scan>` fits each member to the master's picture — as the master's output draws it, through its own corner
+pin or lattice — from a scan that saw every member through one camera.
+Its pairs compare camera pixels, so they come from one camera place: of a scan of many views, the view its last solve used that saw
+every member (the reply names it); a scan with no such view is refused with the line that adds one (`SCAN START … INTO`). A site
+moved between the scan and the alignment fits the same lattice. The master is the target and its output is left as it is. The fit is a residual lattice per member, taken through the member's own
+warp (so a corner pin or lattice on it keeps the registration), written to the member's output as its measured correction through the calibration ledger
+(source "stack", the correction it had kept as its fallback; one edit, one undo step), and drawn as the first layer of the output's
+warp. A fit that would fold a member's picture over itself (decodes that come back mirrored, from glass or a reflection) is refused
+with where, and so is one whose members, poses, optics, outputs or warps changed while it ran: nothing is applied. The reply gives each member's held-out residual before and after, in pixels; a member farther than 0.5 px from the master lights
+the stack amber. `STACK MATCH <stack> FROM <scan>` gives each member per-channel gains of at most one that bring its white to the
+master's, from the scan's colour white frames over the area every member lights, written beside the lattice — never beside a
+lattice another stack fitted (the stack aligns that member first). The white frames carry the
+ambient light as well, the same for every member: a dark scene matches best. The measured lattice is drawn on the air; the wall's
+overlay, the click mapping and MPCDI export follow the operator's warp alone; what a send or an LED map taps and what a delayed
+display presents carry it, being the output's finished picture. A projector's own geometry or blend left on beside a measured
+correction is named by align's double-correction guard, and a member that an alignment already draws through its measured warp grid
+is refused (a lattice on it would register it twice): `ALIGN CLEAR` takes that warp off, or `ALIGN RUN` registers the stack on its
+canvas.
+
+A lattice is the measured light less the modelled pictures, so it holds only while the member stands against its master as it was
+fitted (the member's pose in the master's frame and both projectors' optics are kept with it). Once either is solved again to
+another pose or other optics — a re-solve, a scan applied, a result recalled, a pose set by hand — the stack is no longer aligned:
+STATE, the context, preflight and the guide say so with the line that fits it again (a scan taken since, if it moved), and the solve's
+reply names the stack it left. A move of the whole site, or a result recorded as it stands, leaves it aligned.
+
+A scan keeps each view's decodes in its folder, so a stack aligns and matches from it after a restart, or on a hot backup that
+mirrors the show, as on the node that scanned.
+
+`STACK FAILOVER <stack> HOLD|MATCH` says what happens when a member fails — its projector in standby or cooling down, or reporting an
+error, or its display output not open (a closed shutter is no loss: shutters are closed on purpose). HOLD (the default) tells it: the stack is red
+in STATE, the context and preflight, and the journal names the cause. MATCH also dims the rest of the stack's blend group to the light
+that remains (Σ remaining lumens ÷ Σ lumens) — the stack's own members give that light already and stay as they are — so the
+building stays even: a runtime gain like BLACKOUT, never an edit, fading down in 0.5 s and back over 2 s on the leader's clock when the
+member returns (read at the instant each frame is drawn for, and moved with a step of that clock), multiplied with any degrade gain
+another part sets.
+A hot backup's fence is one: the node composes the fleet's fence over the stacks' gains, so a fenced node is black whatever its stacks
+say, and the stacks' gains hold once the fence lifts (docs/FLEET.md).
+
+## The light plan
+
+`PLAN LIGHT` predicts each surface's light from the projectors as placed: at every coverage sample, each projector's lumens spread
+over its raster, scaled by its pixel density there (so a grazing or far surface gets less), falling off to the raster's corners;
+stacked members add, separate projectors share an overlap. It answers lux at p5/p50/p95, nits (albedo 0.5 by default), contrast
+against an ambient, pixel pitch and the lumens short of a target. One 30 000 lm 4K projector at throw ratio 3 from 100 m, head-on,
+gives 48 lux and an 8.7 mm pixel; a double stack 96.
+
+## The facade guide
+
+`SITE GUIDE` (or `FACADE GUIDE`) lists the facade's steps — survey, control points, pins, the lens prior and the solve, stacks, blend,
+score — each with its state and the line that does it, and names the next. STATE's `stage.site.next` carries the next step, so the
+desk and Companion can drive the workflow with the verbs everyone uses.
+
+The guide asks for attention only once the facade work has begun: a site set, a survey (importing, imported or failed) or a control
+point. Projectors, pins, solve priors, an imported model, scans, blends and stacks serve every rig and do not begin it: any rig's
+weak solve asks for the lens's throw prior, a position prior at a control point needs the control point, and a stack's own keys light
+what it needs. INDEX's `NEXT` key is grey with the next step named until then — the survey or the control points, since every later
+step needs three control points — so a playback or mapping node's deck shows no standing amber; amber while a step is left; green
+through. STATE's `next` is there only with a site, which begins the work.
+
 ## Not here yet
 
-Geodesy (UTM, geographic coordinates, CRS conversion), the facade guide, stacks and the light plan are wp2-stacks'. LAZ, the night
-capture profile, measured photometry, glass masks, camera solves from photos and the desk's facade drawer are next round.
+Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, glass masks,
+camera solves from photos and the desk's facade drawer; geographic or other-zone surveys converted on import.

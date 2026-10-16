@@ -7,6 +7,6 @@ public sealed partial record EngineParts
 {
     static partial void AddFleetParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(setup => new FleetExtension(setup));
+        extensions.Add(FleetExtension.Factory);
     }
 }

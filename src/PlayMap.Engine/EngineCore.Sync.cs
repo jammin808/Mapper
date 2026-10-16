@@ -177,6 +177,8 @@ public sealed partial class EngineCore
         // Every engine takes its clock's steps on this lane, with the rebase, whether or not the sync part is in.
         Services.Clock.StepOn = TakeStepOnLane;
         Services.Clock.Stepped += RebaseOnStep;
+        // Every node lists the sync section, a node without the sync part (or in no group) with no rows.
+        routes.Index(new Sync.SyncIndex(this));
         if (Services.GroupSync is not { } sync)
             return;
         routes.OffLane("SYNC LEAD", c => sync.LeadAsync(c.Args, c.Ct));
@@ -184,7 +186,6 @@ public sealed partial class EngineCore
         routes.Lane("SYNC RECEIPT", c => sync.Receipt(c.Args, c.Session));
         routes.Lane("LINK PATTERNS", c => LinkPatternsKept(sync, c));
         routes.Topic("ANCHORS", sync.OpenAnchors);
-        routes.Index(new Sync.SyncIndex(this, sync));
         AnchorPublished += (playlistId, json) =>
         {
             if (Store.Project.FindPlaylist(playlistId)?.SyncGroup is { } group)
@@ -398,10 +399,9 @@ public sealed partial class EngineCore
     /// (when the clock now reads that leader's line). Every other instant the air holds moves with them in the same action: the
     /// identify deadline, the master's and the panic's fades and safe looks, the fades back from a panic, the panic's transport steps
     /// and lines still waiting for their instants, and a blind commit waiting for its instant — so nothing on the air jumps or fires
-    /// early or late.</summary>
+    /// early or late. STATE counts the step once all of this and its journal line are done.</summary>
     private void RebaseOnStep(long delta)
     {
-        Interlocked.Increment(ref _syncSteps);
         var p = Store.Project;
         var now = LeaderNowNs;
         var adopted = Services.Clock.IsFollowing ? Services.GroupSync?.Adopted ?? [] : [];
@@ -431,6 +431,8 @@ public sealed partial class EngineCore
         RebaseAir(delta);
         var who = Services.Clock.IsFollowing && Services.GroupSync is { Joining.Length: > 0 } s ? $"followed {s.Joining}: " : "";
         Journal.Add("sync", $"{who}show clock stepped {StepWords(delta)}; {kept} playlist{(kept == 1 ? "" : "s")} kept {(kept == 1 ? "its" : "their")} place");
+        // Counted last: a reader that sees the count sees the step taken in full — every anchor and instant moved, the line written.
+        Interlocked.Increment(ref _syncSteps);
         RaiseEvent("sync.stepped", now, w => w.WriteNumber("deltaNs", delta));
         FactsChanged();
     }
@@ -449,8 +451,8 @@ public sealed partial class EngineCore
         TouchShow();
     }
 
-    /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane), then the levels the render
-    /// thread reads rebuilt from them.</summary>
+    /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane, and the stacks' degrade fades),
+    /// then the levels the render thread reads rebuilt from them.</summary>
     private void RebaseAir(long delta)
     {
         static long At(long t, long d) => t is long.MinValue or long.MaxValue ? t : t + d;
@@ -475,6 +477,7 @@ public sealed partial class EngineCore
             _panicSteps[i] = _panicSteps[i] with { AtLeaderNs = At(_panicSteps[i].AtLeaderNs, delta) };
         for (var i = 0; i < _panicLinesDue.Count; i++)
             _panicLinesDue[i] = _panicLinesDue[i] with { AtLeaderNs = At(_panicLinesDue[i].AtLeaderNs, delta) };
+        Services.StackGains?.Rebase(delta);
         RebuildLevels();
     }
 

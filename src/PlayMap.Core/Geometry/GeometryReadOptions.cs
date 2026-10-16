@@ -77,7 +77,7 @@ public sealed record GeometryReadOptions(double UnitScale, bool ZUp, SiteFrame? 
             return null;
         var c = (min + max) / 2;
         var origin = new Vec3d(Round(c.X), Round(c.Y), Round(c.Z));
-        return new SiteFrame(Crs.Length > 0 ? Crs : "LOCAL", "", origin, 0, 1, 0);
+        return new SiteFrame(Crs.Length > 0 ? Crs : "LOCAL", CrsInfo.NameOf(Crs), origin, 0, 1, 0);
     }
 
     private static double Round(double v) => Math.Round(v / OriginRoundingM, MidpointRounding.AwayFromZero) * OriginRoundingM;

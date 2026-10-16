@@ -62,14 +62,24 @@ public sealed record LongThrowResult(PoseSolution Solution, bool FocalLocked, So
 
     /// <summary>True when the position prior's rows joined the solve.</summary>
     public bool CentrePriorUsed { get; init; }
+
+    /// <summary>Who holds the focal lock the solve answers (meaningful when <see cref="LocksUsed"/> holds the focal): the lens when
+    /// this solve locked it, the operator when the lock was the operator's or named on the line.</summary>
+    public FocalLockSource FocalLockBy { get; init; } = FocalLockSource.Operator;
+
+    /// <summary>The uncertainty analysis behind <see cref="Uncertainty"/> as the analysis made it (its own weak direction) with every
+    /// raster sample's predicted error: the calibration score reads it rather than analysing the same solve again. Null when the
+    /// solve has no uncertainty.</summary>
+    public (SolveUncertainty Uncertainty, double[] SamplesPx)? Analysis { get; init; }
 }
 
 /// <summary>Solves a far projector with what the pins cannot tell it. First the pins alone (the position prior as rows); if they
 /// cannot carry the focal — its σ from the solve's own information is above 10 % — the focal is locked at the lens prior when there is
 /// one, or the solve is kept and named weak when there is not; the words say "zoom↔distance" when the weakest direction of the
 /// normalised information matrix lies mostly along the focal and the along-axis centre (combined share above 0.7). Otherwise the
-/// focal prior joins as a row. An operator's focal lock keeps the projector's own focal; a lock the lens put there is asked again at
-/// the next solve. The uncertainty is the solve's own, with the priors' information added.</summary>
+/// focal prior joins as a row. An operator's focal lock keeps the projector's own focal; a lock the lens put there
+/// (<see cref="Projector.FocalLock"/>) is asked again at the next solve. The uncertainty is the solve's own, with the priors'
+/// information added.</summary>
 public static class LongThrowSolve
 {
     /// <summary>The share of the weakest direction on focal and along-axis centre above which zoom and distance are one direction.</summary>
@@ -91,15 +101,15 @@ public static class LongThrowSolve
 
     /// <summary>Solves a projector from its enabled pins with its locks and its own priors (<see cref="Projector.Priors"/>, the
     /// position already in stage coordinates). Residuals and flags follow the projector's pin order, as <see cref="PoseSolver"/>'s.</summary>
-    /// <param name="retestLock">The focal lock is the one an earlier solve put there from the lens (not the operator's): when the
-    /// projector's focal still sits at its lens prior, the pins are asked again whether they can carry it.</param>
+    /// <param name="retestLock">The projector's locks are its own, not named on the line: a focal lock the lens put there
+    /// (<see cref="FocalLockSource.Lens"/>) is let go and the pins are asked again whether they can carry the focal; an operator's
+    /// lock holds, wherever its focal sits. False when the caller named the locks: they are the operator's.</param>
     public static LongThrowResult Solve(Projector projector, PoseSolveOptions? options = null, bool retestLock = false)
     {
         ArgumentNullException.ThrowIfNull(projector);
         options ??= PoseSolveOptions.Default;
-        var throwPrior = projector.Priors.ThrowRatio * projector.Intrinsics.Width;
-        if (retestLock && (projector.Locks & SolveLocks.Focal) != 0 && throwPrior > 0
-            && Math.Abs(projector.Intrinsics.Fx - throwPrior) <= 1e-6 * throwPrior)
+        var held = retestLock ? projector.FocalLock : FocalLockSource.Operator;
+        if (retestLock && (projector.Locks & SolveLocks.Focal) != 0 && projector.FocalLock == FocalLockSource.Lens)
             projector = projector with { Locks = projector.Locks & ~SolveLocks.Focal };
         var pins = projector.Pins;
         var enabled = Enumerable.Range(0, pins.Length).Where(i => pins[i].Enabled).ToArray();
@@ -119,7 +129,11 @@ public static class LongThrowSolve
             residuals[i] = PoseSolver.ReprojectionError(new Correspondence(pins[i].World, pins[i].Pixel), s.Intrinsics, s.Lens, s.Pose);
         for (var k = 0; k < enabled.Length; k++)
             inliers[enabled[k]] = k < s.Inliers.Count && s.Inliers[k];
-        return r with { Solution = s with { ResidualsPx = residuals, Inliers = inliers } };
+        return r with
+        {
+            Solution = s with { ResidualsPx = residuals, Inliers = inliers },
+            FocalLockBy = r.FocalLocked ? FocalLockSource.Lens : (r.LocksUsed & SolveLocks.Focal) != 0 ? held : FocalLockSource.Operator,
+        };
     }
 
     public static LongThrowResult Solve(IReadOnlyList<Correspondence> pairs, Intrinsics prior, LensDistortion lens, PoseSolveOptions options, PosePriors priors)
@@ -162,7 +176,8 @@ public static class LongThrowSolve
         string weak, string words)
     {
         var inliers = Inliers(s, pairs);
-        var u = double.IsFinite(s.RmsPx) ? SolveUncertaintyAnalysis.Of(s.Intrinsics, s.Lens, s.Pose, inliers, locks, priors) : null;
+        var analysis = double.IsFinite(s.RmsPx) ? SolveUncertaintyAnalysis.Analyse(s.Intrinsics, s.Lens, s.Pose, inliers, locks, priors) : null;
+        var u = analysis?.Uncertainty;
         if (u is not null && weak.Length > 0)
             u = u with { Weak = weak };
         else if (u is not null && locked)
@@ -173,6 +188,7 @@ public static class LongThrowSolve
             Note = words,
             FocalPriorUsed = locked || priors.Focal is not null,
             CentrePriorUsed = priors.Centre is not null,
+            Analysis = analysis,
         };
     }
 

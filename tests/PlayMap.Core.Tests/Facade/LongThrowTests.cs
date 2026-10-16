@@ -108,16 +108,24 @@ public sealed class LongThrowTests
         Assert.Equal(measured.Fx, held.Solution.Intrinsics.Fx);
         Assert.False(held.FocalLocked);
 
-        // A projector locked at its lens prior by an earlier solve, now with pins on relief at 60 m oblique: asked again, it unlocks.
+        // A projector the lens locked at its prior in an earlier solve, now with pins on relief at 60 m oblique: asked again, it unlocks.
         var pins = pairs.Select((c, i) => new CalibrationPin("pn" + i.ToString("00000000", System.Globalization.CultureInfo.InvariantCulture), c.World, c.Pixel, true)).ToList();
         var pj = new Projector("pj_relock1", "P", k with { Fx = k.Fx * 1.02, Fy = k.Fy * 1.02 }, LensDistortion.None, truth, 0, "#FFFFFF", false, [.. pins],
-            Pinhole | SolveLocks.Focal, 1) { Priors = new SolvePriors(3 * 1.02, 2, null, "", 0, "") };
+            Pinhole | SolveLocks.Focal, 1) { Priors = new SolvePriors(3 * 1.02, 2, null, "", 0, ""), FocalLock = FocalLockSource.Lens };
         var retested = LongThrowSolve.Solve(pj, retestLock: true);
         Assert.Equal(SolveLocks.None, retested.LocksUsed & SolveLocks.Focal);
+        Assert.Equal(FocalLockSource.Operator, retested.FocalLockBy);
         Assert.NotEqual(pj.Intrinsics.Fx, retested.Solution.Intrinsics.Fx);
         var kept = LongThrowSolve.Solve(pj, retestLock: false);
         Assert.Equal(SolveLocks.Focal, kept.LocksUsed & SolveLocks.Focal);
+        Assert.Equal(FocalLockSource.Operator, kept.FocalLockBy);
         Assert.Equal(pj.Intrinsics.Fx, kept.Solution.Intrinsics.Fx);
+
+        // The same lock put there by the operator, its focal exactly at the lens prior: never asked again.
+        var operators = LongThrowSolve.Solve(pj with { FocalLock = FocalLockSource.Operator }, retestLock: true);
+        Assert.Equal(SolveLocks.Focal, operators.LocksUsed & SolveLocks.Focal);
+        Assert.Equal(FocalLockSource.Operator, operators.FocalLockBy);
+        Assert.Equal(pj.Intrinsics.Fx, operators.Solution.Intrinsics.Fx);
     }
 
     [Fact]

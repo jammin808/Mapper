@@ -1031,7 +1031,7 @@ public sealed partial class EngineCore
         public string Section => "timecode";
 
         public IndexPresetHint Hint { get; } = new("Timecode", "chase",
-            [new IndexKey("Engage", "TIMECODE ENGAGE $(id) TOGGLE", "chase.engaged", "instant")]);
+            [new IndexKey("Engage", "TIMECODE ENGAGE $(id) TOGGLE", "chase.engaged", "hold")]);
 
         public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
         {

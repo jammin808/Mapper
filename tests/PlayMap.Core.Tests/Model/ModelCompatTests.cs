@@ -20,7 +20,7 @@ public sealed class ModelCompatTests
         "$.generators[].originNs", "$.generators[].bindings", "$.generators[].morph", "$.generators[].inputs",
         "$.canvases[].fx", "$.canvases[].layers[].fx", "$.canvases[].layers[].bindings",
         "$.stage.surfaces[].fx", "$.stage.surfaces[].bindings", "$.stage.surfaces[].pixel",
-        "$.stage.projectors[].priors", "$.stage.projectors[].uncertainty", "$.stage.projectors[].calibrationId",
+        "$.stage.projectors[].priors", "$.stage.projectors[].uncertainty", "$.stage.projectors[].focalLock", "$.stage.projectors[].calibrationId",
         "$.stage.projectors[].fallbackId", "$.stage.projectors[].stagedId", "$.stage.projectors[].pins[].controlId",
         "$.stage.cameras[].phone", "$.stage.cameras[].folder",
         "$.stage.devices[].snapshot",
@@ -72,6 +72,7 @@ public sealed class ModelCompatTests
         Assert.Equal(resaved, ProjectJson.Serialize(p));
         Assert.Same(ShowPlan.Default, p.Show);
         Assert.Same(SolvePriors.None, p.Stage.Projectors[0].Priors);
+        Assert.Equal(FocalLockSource.Operator, p.Stage.Projectors[0].FocalLock);
         Assert.Same(ColorOverride.Auto, p.Media[0].Color);
         Assert.False(p.Sends.IsDefault);
         Assert.Null(p.Outputs[0].Measured);
@@ -156,6 +157,10 @@ public sealed class ModelCompatTests
         Assert.Equal("cp0a0b0c01", back.Stage.Projectors[0].Pins[0].ControlId);
         Assert.Equal("0", back.Stage.Devices[0].Snapshot!.Values["keystone"]);
         Assert.Equal(0.4, back.Outputs[0].Measured!.Warp!.ResidualPx);
+        Assert.Equal(RoundTwoSample.Measured().FittedTo, back.Outputs[0].Measured!.FittedTo);
+        Assert.Equal(FocalLockSource.Lens, back.Stage.Projectors[0].FocalLock);
+        Assert.Equal(FocalLockSource.Lens, back.FindCalibration("cs0a0b0c01")!.Projector!.FocalLock);
+        Assert.Contains("\"focalLock\": \"lens\"", json, StringComparison.Ordinal);
         Assert.Equal(new Vec2d(0, -0.1), back.Stage.Surfaces[0].Pixel!.Lattice!.Offsets[3]);
         Assert.Equal("iPhone", back.Stage.Cameras[0].Phone!.Model);
         Assert.Equal(EncodeQuality.Archive, back.Optimise.Rules[0].Quality);

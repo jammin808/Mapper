@@ -1,5 +1,6 @@
 using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
+using PlayMap.Core.Numerics;
 
 namespace PlayMap.Core.Tests.Fleet;
 
@@ -47,6 +48,24 @@ public sealed class ShowFilesTests
             files.Select(f => (f.Key, f.Path)).ToArray());
         Assert.Equal("", files[^1].Hash);
         Assert.Empty(ShowFiles.Of(Project.CreateDefault("Nothing beside it")));
+    }
+
+    /// <summary>A stack member's measured lattice and colour gains live in the show itself (the output's measured correction), so a
+    /// backup has them with the show it mirrors: no file beside it to pull.</summary>
+    [Fact]
+    public void AStackMembersLatticeAndGainsNameNoFileBesideTheShow()
+    {
+        var p = Project.CreateDefault("Stack");
+        var lattice = WarpLattice.AtRest(3, 3) with { Offsets = [.. Enumerable.Repeat(new Vec2d(0.001, -0.002), 9)] };
+        var show = p with
+        {
+            Outputs = [p.Outputs[0] with
+            {
+                Measured = new MeasuredCorrection(null, lattice, null, new MeasuredColor(0.97, 1, 0.99, 2.2, 1), 0.03, "sc00000001", "sk00000001", "", 1),
+            }],
+        };
+        Assert.Empty(ShowFiles.Of(show));
+        Assert.Equal(lattice.Offsets.ToArray(), ProjectJson.Deserialize(ProjectJson.Serialize(show)).Outputs[0].Measured!.Lattice!.Offsets.ToArray());
     }
 
     [Theory]

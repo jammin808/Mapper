@@ -6,8 +6,9 @@ namespace PlayMap.Render.Tests.Presentation;
 
 /// <summary>decode.glApi on a window system (Xvfb): "egl" makes the desktop context on EGL — its display imports dmabufs, so the
 /// render node's VAAPI frames can be sampled in place — and its output windows on EGL too (a shared context comes from one API);
-/// "glx" makes even an ES context on GLX; "auto" keeps a desktop context on GLX; a word it does not know is the platform's choice,
-/// with words. Each platform is made, read and disposed on a thread of its own.</summary>
+/// "glx" makes even an ES context on GLX; "auto" keeps a desktop context on the window system's own API (GLX under X, WGL on
+/// Windows); a word it does not know is the platform's choice, with words, on every platform. EGL's windowed contexts and GLX are
+/// Linux's: those tests run there only. Each platform is made, read and disposed on a thread of its own.</summary>
 public sealed class GlApiTests(ITestOutputHelper log)
 {
     private static readonly GlDeviceOptions Device = new(CheckErrors: true, DebugOutput: false);
@@ -32,7 +33,11 @@ public sealed class GlApiTests(ITestOutputHelper log)
             throw new InvalidOperationException("the GL API test failed on its thread", failure);
     }
 
-    [Fact]
+    /// <summary>The API a desktop context comes up on when nothing else is asked: the window system's own.</summary>
+    private static string NativeApi => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void EglMakesTheDesktopContextAndItsWindowsOnEglWhoseDisplayImportsDmabufs()
     {
         OnOwnThread(() =>
@@ -64,7 +69,8 @@ public sealed class GlApiTests(ITestOutputHelper log)
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void GlxMakesEvenAnEsContextOnGlx()
     {
         OnOwnThread(() =>
@@ -78,18 +84,20 @@ public sealed class GlApiTests(ITestOutputHelper log)
     }
 
     [Fact]
-    public void AutoKeepsADesktopContextOnGlxAndAnUnknownWordSaysSo()
+    public void AutoKeepsADesktopContextOnTheNativeApiAndAnUnknownWordSaysSo()
     {
         OnOwnThread(() =>
         {
             using (var platform = GpuPlatforms.Create(new PlatformRequest("gl"), Device))
             {
-                Assert.Equal("glx", platform.Api);
+                Assert.Equal(NativeApi, platform.Api);
+                Assert.Equal(GlDialect.Core330, platform.Context.Dialect);
+                Assert.False(platform.Context.EglWindows);
                 Assert.Equal("", platform.Words);
             }
             using (var platform = GpuPlatforms.Create(new PlatformRequest("gl") { GlApi = "wayland" }, Device))
             {
-                Assert.Equal("glx", platform.Api);
+                Assert.Equal(NativeApi, platform.Api);
                 Assert.Equal("decode.glApi 'wayland' is none of auto, egl, glx: the context is made the platform's way", platform.Words);
             }
         });
