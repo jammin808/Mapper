@@ -55,6 +55,46 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void ACarriedLinesSecretWordsNeverReachWhatIsWrittenDown()
+    {
+        string Shown(string text)
+        {
+            Assert.True(WireGrammar.TryParse(text, out var line, out var error), error?.Reason);
+            return VerbCatalog.Redacted(line);
+        }
+
+        // A binding's target after TO, BIND LEARN's own words, a JSON argument's target, a SET's quoted value: each line they carry is
+        // shown with its own secret words kept back, the carrying words as they came.
+        Assert.Equal("BIND ADD MIDI NOTE 60 TO LINK PATTERNS 10.0.0.5 \u2039secret\u203a", Shown("BIND ADD MIDI NOTE 60 TO LINK PATTERNS 10.0.0.5 s3cr3t-token"));
+        Assert.Equal("BIND LEARN FROM MIDI CREDENTIAL SET pj1 \u2039secret\u203a", Shown("BIND LEARN FROM MIDI CREDENTIAL SET pj1 admin hunter2"));
+        Assert.Equal("BIND LEARN AUTH \u2039secret\u203a", Shown("BIND LEARN AUTH abcdef"));
+        var json = Shown("BIND ADD {\"input\":\"midi:note:60\",\"target\":\"LINK STAGEWATCH 10.0.0.6 key-123\"}");
+        Assert.DoesNotContain("key-123", json, StringComparison.Ordinal);
+        Assert.True(WireGrammar.TryParse(json, out var shownJson, out _));
+        using (var shownArgument = System.Text.Json.JsonDocument.Parse(shownJson.Word(2)))
+        {
+            Assert.Equal("midi:note:60", shownArgument.RootElement.GetProperty("input").GetString());
+            Assert.Equal("LINK STAGEWATCH 10.0.0.6 \u2039secret\u203a", shownArgument.RootElement.GetProperty("target").GetString());
+        }
+        var set = Shown("SET bd00000001 target \"LINK PATTERNS 10.0.0.5 s3cr3t-token\"");
+        Assert.Equal("SET bd00000001 target \"LINK PATTERNS 10.0.0.5 \u2039secret\u203a\"", set);
+        Assert.True(WireGrammar.TryParse(set, out var shownSet, out _));
+        Assert.Equal(4, shownSet.Count);
+        // A line carried inside a carried line is kept back too; a request id stays where it was.
+        Assert.DoesNotContain("hunter2", Shown("@b1 BIND ADD OSC /x TO \"CREDENTIAL SET pj1 admin hunter2\""), StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cr3t", Shown("SET bd00000001 target {\"a\":[\"LINK PATTERNS h s3cr3t\"]}"), StringComparison.Ordinal);
+
+        // A hot backup is given its primary's token by CREDENTIAL SET node.<id>: the ref stays, the token does not, carried or not.
+        Assert.Equal("CREDENTIAL SET node.0badc0de \u2039secret\u203a", Shown("CREDENTIAL SET node.0badc0de K7QM-3XWD-P9RA"));
+        Assert.Equal("BIND ADD OSC /x TO CREDENTIAL SET node.0badc0de \u2039secret\u203a", Shown("BIND ADD OSC /x TO CREDENTIAL SET node.0badc0de K7QM-3XWD-P9RA"));
+
+        // A carried line holding no secret, and a carrying line with none, are written as they came.
+        Assert.Equal("BIND ADD MIDI NOTE 60 TO PLAYLIST GO pl00000001", Shown("BIND ADD MIDI NOTE 60 TO PLAYLIST GO pl00000001"));
+        Assert.Equal("SET pl00000001 name \"Show two\"", Shown("SET pl00000001 name \"Show two\""));
+        Assert.Equal("BIND ADD {\"input\":\"midi:note:60\",\"target\":\"BLACKOUT ON\"}", Shown("BIND ADD {\"input\":\"midi:note:60\",\"target\":\"BLACKOUT ON\"}"));
+    }
+
+    [Fact]
     public void AMalformedIdIsRefusedWithPatternsWords()
     {
         Assert.False(WireGrammar.TryParse("@bad!id VIDEO PLAY", out _, out var error));

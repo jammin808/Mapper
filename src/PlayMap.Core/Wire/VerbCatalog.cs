@@ -530,14 +530,122 @@ public static class VerbCatalog
 
     /// <summary>The line as it may be written down or shown: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
     /// are replaced by one marker, so a journal row, a log, a proposal on a desk or a reply never holds a token, a
-    /// key or a password. Only the line itself, kept where it runs, carries them.</summary>
+    /// key or a password; and so are the secret words of every line it carries — the line after a binding's TO (or after
+    /// BIND LEARN's words), a JSON argument's string, a quoted word that reads as a line (SET's value) — at any depth a line
+    /// may carry lines. Only the line itself, kept where it runs, carries them.</summary>
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        if (SecretAt(line) is not int from || line.Count <= from)
+        return Redacted(line, 0);
+    }
+
+    private static string Redacted(WireLine line, int depth)
+    {
+        if (SecretAt(line) is int from)
+            return line.Count <= from ? line.Raw : WireGrammar.Join([.. line.Words.Take(from)]) + " " + SecretMarker;
+        if (depth >= MaxEmbedding || Match(line) is not { } m || line.Count <= m.Words)
             return line.Raw;
-        var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
-        return string.Join(' ', kept) + " " + SecretMarker;
+        // A carried line that runs to the end of this one (after TO, or BIND LEARN's own words): the words before it as they are,
+        // the carried line as it may be shown.
+        if (m.Spec.EmbedsLine && !line.Word(m.Words).StartsWith('{'))
+        {
+            foreach (var at in CarriedStarts(m.Spec, line, m.Words))
+            {
+                if (Tail(line, at) is not { } carried)
+                    continue;
+                var shown = Redacted(carried, depth + 1);
+                if (!string.Equals(shown, carried.Raw, StringComparison.Ordinal))
+                    return WireGrammar.Join([.. line.Words.Take(at)]) + " " + shown;
+            }
+        }
+        // A word that carries a line: a JSON argument's strings, or a quoted phrase that reads as a line.
+        string[]? words = null;
+        for (var i = m.Words; i < line.Count; i++)
+        {
+            var word = line.Word(i);
+            var shown = word.StartsWith('{') || word.StartsWith('[') ? RedactedJson(word, depth)
+                : word.Contains(' ', StringComparison.Ordinal) ? RedactedText(word, depth) : null;
+            if (shown is null)
+                continue;
+            words ??= [.. line.Words];
+            words[i] = shown;
+        }
+        return words is null ? line.Raw : WireGrammar.Join(words);
+    }
+
+    /// <summary>Where each line a carrying verb's words could carry starts (as <see cref="CarriedReadings"/> reads them, unquoted).</summary>
+    private static IEnumerable<int> CarriedStarts(VerbSpec spec, WireLine line, int verbWords)
+    {
+        if (!BindsTo(spec))
+        {
+            yield return string.Equals(line.WordUpper(verbWords), "FROM", StringComparison.Ordinal) ? verbWords + 2 : verbWords;
+            yield break;
+        }
+        for (var i = verbWords; i < line.Count - 1; i++)
+            if (string.Equals(line.WordUpper(i), "TO", StringComparison.Ordinal))
+                yield return i + 1;
+    }
+
+    /// <summary>A text that reads as a line holding secret words, as it may be shown; null when it is no such line.</summary>
+    private static string? RedactedText(string text, int depth)
+    {
+        if (!WireGrammar.TryParse(text, out var inner, out _) || inner.RequestId is not null)
+            return null;
+        var shown = Redacted(inner, depth + 1);
+        return string.Equals(shown, inner.Raw, StringComparison.Ordinal) ? null : shown;
+    }
+
+    /// <summary>A JSON argument with every string in it that reads as a line holding secret words shown without them; null when it
+    /// holds none (or is not JSON a reader takes).</summary>
+    private static string? RedactedJson(string json, int depth)
+    {
+        System.Text.Json.Nodes.JsonNode? root;
+        try
+        {
+            root = System.Text.Json.Nodes.JsonNode.Parse(json, documentOptions: ReaderOptions);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+        return root is not null && RedactStrings(root, depth) ? root.ToJsonString() : null;
+    }
+
+    private static bool RedactStrings(System.Text.Json.Nodes.JsonNode node, int depth)
+    {
+        var changed = false;
+        switch (node)
+        {
+            case System.Text.Json.Nodes.JsonObject o:
+                foreach (var (key, value) in o.ToList())
+                {
+                    if (value is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var text) && RedactedText(text, depth) is { } shown)
+                    {
+                        o[key] = shown;
+                        changed = true;
+                    }
+                    else if (value is not null)
+                    {
+                        changed |= RedactStrings(value, depth);
+                    }
+                }
+                break;
+            case System.Text.Json.Nodes.JsonArray a:
+                for (var i = 0; i < a.Count; i++)
+                {
+                    if (a[i] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var text) && RedactedText(text, depth) is { } shown)
+                    {
+                        a[i] = shown;
+                        changed = true;
+                    }
+                    else if (a[i] is { } child)
+                    {
+                        changed |= RedactStrings(child, depth);
+                    }
+                }
+                break;
+        }
+        return changed;
     }
 
     /// <summary>A line's text as it may be shown (<see cref="Redacted(WireLine)"/>); a text that does not read as a

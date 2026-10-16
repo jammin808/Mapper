@@ -237,7 +237,10 @@ These are the keys every node writes; the packages' keys follow at the end of th
   never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
   refused wherever it arrives. A verb's secret words are counted from where its name ends, as its arguments are: a
-  two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does.
+  two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does. A line
+  carried inside another is shown the same way wherever the node writes the outer one down — a binding's target after `TO` or
+  in `BIND LEARN`'s words, a JSON argument's string, a quoted word that reads as a line (`SET bd… target "…"`) — so a refused
+  `BIND ADD … TO LINK PATTERNS 10.0.0.5 <token>` is journalled as `BIND ADD … TO LINK PATTERNS 10.0.0.5 ‹secret›`.
 - `SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [ON <projector>] [<name>]` of a suggested region (`ON`: what that projector lights of
   it); it answers the surface's id. `SCAN SUGGEST <scan>` queues a scan's measured regions as such lines on the node's own

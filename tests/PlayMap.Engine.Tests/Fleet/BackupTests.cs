@@ -4,6 +4,7 @@ using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Fleet;
+using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Engine.Tests.Sync;
 using PlayMap.Net.Fleet;
@@ -19,6 +20,16 @@ public sealed class BackupTests
     private const long Second = SyncRig.Second;
 
     private static string? Anchor(HostRig rig, string playlist) => rig.Engine.AnchorJson(playlist);
+
+    /// <summary>A file the node is still writing, as far as it is written ("" when there is none yet).</summary>
+    private static async Task<string> ReadShared(string path)
+    {
+        if (!File.Exists(path))
+            return "";
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(file);
+        return await reader.ReadToEndAsync();
+    }
 
     [Fact]
     public async Task ABackupMirrorsATokenProtectedPrimaryTakesOverAndHandsTheShowBack()
@@ -123,6 +134,17 @@ public sealed class BackupTests
         Assert.Equal(("backup", primary.Id), (BackupRig.Role(backup), BackupRig.Fleet(backup).GetProperty("of").GetString()));
         Assert.Equal("failback", BackupRig.Fleet(backup).GetProperty("last").GetProperty("kind").GetString());
         Assert.Equal(BackupRig.ShowJson(primary), BackupRig.ShowJson(backup));
+
+        // Each node was given the other's token (CREDENTIAL SET node.<id> <token>) and proved it for its mirror, its takeover, its fence
+        // and its hand-back: the token is in no journal row and no log line of either.
+        foreach (var rig in new[] { primary, backup })
+        {
+            Assert.All(rig.Engine.Journal.Recent(200), r => Assert.DoesNotContain(HostRig.Token, $"{r.Text}|{r.Line}|{r.Who}", StringComparison.Ordinal));
+            var journal = await ReadShared(rig.Home.JournalPath);
+            Assert.Contains("\"kind\":\"verb\"", journal, StringComparison.Ordinal);
+            Assert.DoesNotContain(HostRig.Token, journal, StringComparison.Ordinal);
+            Assert.DoesNotContain(HostRig.Token, await ReadShared(Path.Combine(rig.Home.Folder, NodeLogProvider.FileName)), StringComparison.Ordinal);
+        }
     }
 
     [Fact]

@@ -21,6 +21,34 @@ public sealed class BindingEngineTests
     };
 
     [Fact]
+    public async Task ARefusedLineCarryingASecretReachesTheJournalWithoutIt()
+    {
+        // A binding never carries a secret, so each of these is refused; journalled as any refusal is, the line it carried is shown with
+        // its secret words kept back, whichever way it rode (after TO, in BIND LEARN's words, in JSON, as SET's quoted value).
+        await using var rig = await ControlRig.StartAsync(Show());
+        const string Token = "s3cr3t-7f2a";
+        var made = await rig.Ok("BIND ADD OSC /go TO PLAYLIST GO pl_show");
+        var id = JsonDocument.Parse(made.Payload!).RootElement.GetProperty("id").GetString()!;
+        string[] lines =
+        [
+            $"BIND ADD OSC /x TO LINK PATTERNS 10.0.0.5 {Token}",
+            $"BIND ADD {{\"input\":\"OSC /x\",\"target\":\"LINK PATTERNS 10.0.0.5 {Token}\"}}",
+            $"BIND LEARN LINK STAGEWATCH 10.0.0.6 {Token}",
+            $"SET {id} target \"CREDENTIAL SET pj1 admin {Token}\"",
+        ];
+        foreach (var line in lines)
+            Assert.DoesNotContain(Token, await rig.Refused(line), StringComparison.Ordinal);
+        var rows = rig.Engine.Journal.Recent(200);
+        Assert.Equal(lines.Length, rows.Count(r => r.Kind == "refused"));
+        Assert.Contains(rows, r => r.Line == "BIND ADD OSC /x TO LINK PATTERNS 10.0.0.5 " + VerbCatalog.SecretMarker);
+        Assert.All(rows, r =>
+        {
+            Assert.DoesNotContain(Token, r.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain(Token, r.Line ?? "", StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public async Task ABindingIsMadeInWordsListedAndFiredThroughTheRouter()
     {
         await using var rig = await ControlRig.StartAsync(Show());
