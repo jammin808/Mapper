@@ -88,7 +88,7 @@ public sealed class FleetExtension : IEngineExtension
             Network = _monitor is null ? services.Network : new FleetNetworkView(services.Network, _monitor),
             Backup = _backup,
             OutputGains = Fence(services.OutputGains),
-            PreflightChecks = [.. services.PreflightChecks, new FleetPreflight(() => _pinPath)],
+            PreflightChecks = [.. services.PreflightChecks, new FleetPreflight(() => _pinPath), new BackupPreflight()],
         };
     }
 

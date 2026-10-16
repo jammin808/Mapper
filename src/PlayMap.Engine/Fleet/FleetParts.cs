@@ -19,6 +19,7 @@ internal sealed class FleetParts
     private readonly TimeProvider _time;
     private readonly TimeSpan _every;
     private readonly Lock _gate = new();
+    private readonly Lock _publishGate = new();
     private ITimer? _timer;
     private ITimer? _lights;
     private string _lastSignature = "";
@@ -73,15 +74,19 @@ internal sealed class FleetParts
     /// <summary>Builds the record now and hands it to the watchers when it is due or a light moved (nothing once stopped).</summary>
     public void Publish(bool due)
     {
-        var record = _engine.HealthNow();
-        var signature = Signature(record);
-        lock (_gate)
+        // One publish at a time, the record built inside: a record built before a later one can never be handed on after it.
+        lock (_publishGate)
         {
-            if (_stopped || (!due && signature == _lastSignature))
-                return;
-            _lastSignature = signature;
+            var record = _engine.HealthNow();
+            var signature = Signature(record);
+            lock (_gate)
+            {
+                if (_stopped || (!due && signature == _lastSignature))
+                    return;
+                _lastSignature = signature;
+            }
+            Hub.Publish(HealthJson.Write(record));
         }
-        Hub.Publish(HealthJson.Write(record));
     }
 
     /// <summary>What a watcher is told about at once when it moves: the machine's light, each category's, each output's, and its place in

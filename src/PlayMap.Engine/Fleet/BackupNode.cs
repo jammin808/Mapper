@@ -92,6 +92,7 @@ public sealed class BackupNode : IAsyncDisposable
     private volatile TakeoverRecord? _last;
     private volatile string _handingBackTo = "";
     private long _lastPublishedRev = long.MinValue;
+    private int _followTurns;
     private int _missingFiles;
     private int _disposed;
 
@@ -813,36 +814,73 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>MEDIA FETCH &lt;media&gt; VERSION &lt;version&gt; [FROM &lt;node&gt;]: one optimised version, by its hash, from a peer that holds it
-    /// (the primary this node backs up, or the node named), with that peer's proof over its pinned HTTPS.</summary>
+    /// (the node named; else the primary this node backs up, then every other PlayMap node heard), with that peer's proof over its pinned
+    /// HTTPS.</summary>
     public CommandReply FetchVersion(MediaItem item, MediaVersion version, string? from)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(version);
-        if (_engine is not { } engine || _setup.Media is not MediaBackend store)
-            return CommandReply.Fail("no media store on this node");
         if (!ContentHasher.IsValid(version.ContentHash))
             return CommandReply.Fail($"{version.Id} of {item.Name} has no content hash yet");
-        if (store.PathForHash(version.ContentHash) is not null)
+        if (_setup.Media.PathForHash(version.ContentHash) is not null)
             return CommandReply.Fail($"{version.Id} of {item.Name} is here already, verified");
-        var who = from ?? (_settings.Role == FleetRoles.Backup ? _settings.Of : null);
-        if (who is null)
-            return CommandReply.Fail($"MEDIA FETCH {item.Id} VERSION {version.Id} FROM <node> — name the node that holds it");
-        var peer = FindPeer(who);
-        if (peer is null || peer.Hello.Port("http") <= 0)
-            return CommandReply.Fail($"no PlayMap node '{who}' with a web port is heard on the show network — NODES lists the ones that are");
-        var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, peer.Hello.Port("http"), peer.Hello.TlsFingerprint ?? "", Credential(peer.Id)),
-            _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log);
-        var name = version.Id + "." + version.To;
+        return Fetch([new PulledFile(version.ContentHash, version.SizeBytes, version.Id + "." + version.To)], $"{version.Id} of {item.Name} ({version.To})", from);
+    }
+
+    /// <summary>MEDIA FETCH &lt;media&gt;|ALL [FROM &lt;node&gt;] on a node with the fleet's part: each missing file by its hash, from the node
+    /// named or else the first heard that holds it, with that peer's proof over its pinned HTTPS (never its token, never in clear).</summary>
+    public CommandReply FetchMedia(IReadOnlyList<MediaItem> items, string? from)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        var files = items.Where(m => ContentHasher.IsValid(m.ContentHash) && _setup.Media.PathForHash(m.ContentHash) is null)
+            .Select(m => new PulledFile(m.ContentHash, m.SizeBytes, m.Location.Length > 0 ? m.Location : m.Name)).ToList();
+        if (files.Count == 0)
+            return CommandReply.Fail("nothing to fetch: every file asked for is unhashed or here already");
+        return Fetch(files, files.Count == 1 ? Path.GetFileName(files[0].Name) : $"{files.Count} files", from);
+    }
+
+    private sealed record PulledFile(string Hash, long Size, string Name);
+
+    private CommandReply Fetch(IReadOnlyList<PulledFile> files, string what, string? from)
+    {
+        if (_engine is not { } engine || _setup.Media is not MediaBackend store)
+            return CommandReply.Fail("no media store on this node");
+        List<ShowBusPeer> peers;
+        if (from is not null)
+        {
+            if (FindPeer(from) is not { } named || named.Hello.Port("http") <= 0)
+                return CommandReply.Fail($"no PlayMap node '{from}' with a web port is heard on the show network — NODES lists the ones that are");
+            peers = [named];
+        }
+        else
+        {
+            peers = [.. (_setup.Network.Hello?.Peers.Snapshot() ?? [])
+                .Where(p => p.Kind == ShowBusConstants.KindPlayMap && p.Id != SelfId && p.Liveness == PeerLiveness.Live && p.Hello.Port("http") > 0)
+                .OrderBy(p => p.Id == _settings.Of ? 0 : 1)];
+            if (peers.Count == 0)
+                return CommandReply.Fail("no other PlayMap node is heard on the show network to fetch from");
+        }
         Background(Task.Run(async () =>
         {
-            using (puller)
+            foreach (var f in files)
             {
-                var (ok, words) = await PullOneAsync(puller, peer.Name, store, version.ContentHash, version.SizeBytes, name, _stop.Token).ConfigureAwait(false);
-                engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
+                var said = "";
+                foreach (var peer in peers)
+                {
+                    using var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, peer.Hello.Port("http"), peer.Hello.TlsFingerprint ?? "",
+                        Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log);
+                    var (ok, words) = await PullOneAsync(puller, peer.Name, store, f.Hash, f.Size, f.Name, _stop.Token).ConfigureAwait(false);
+                    said = words;
+                    if (ok)
+                        break;
+                }
+                var landed = store.PathForHash(f.Hash) is not null;
+                engine.Journal.Add(landed ? "media" : "refused", said, ok: landed);
                 engine.FactsChanged();
             }
         }, CancellationToken.None));
-        return CommandReply.Accepted($"fetching {version.Id} of {item.Name} ({version.To}) from {peer.Name} by its hash, with proof");
+        var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
+        return CommandReply.Accepted($"fetching {what} from {source} by hash, with proof");
     }
 
     /// <summary>An air line of the primary's, kept once by (feed, seq) and run at its leader instant by the lane's tick.</summary>
@@ -1012,6 +1050,7 @@ public sealed class BackupNode : IAsyncDisposable
                     continue;
                 PublishProject();
                 await LookAsync(engine).ConfigureAwait(false);
+                await KeepFollowingAsync(engine).ConfigureAwait(false);
                 var mirror = Mirror()?.State ?? "";
                 if (mirror != lastMirror)
                 {
@@ -1027,6 +1066,23 @@ public sealed class BackupNode : IAsyncDisposable
                 _log.LogWarning(ex, "The backup watch faulted.");
             }
         }
+    }
+
+    /// <summary>A backup whose show is here and whose mirror is live but whose sync part does not follow the primary's group (a follow
+    /// that found no clock port yet, a group that moved) follows it again, about once a second (the watch's own task alone counts its turns).</summary>
+    private async Task KeepFollowingAsync(EngineCore engine)
+    {
+        if (_settings.Role != FleetRoles.Backup || !_subscribed || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
+            || engine.Services.GroupSync is not { } sync)
+            return;
+        if (sync.Role == "follower" && sync.Settings.Leader == _primaryId && string.Equals(sync.Settings.Group, _group, StringComparison.Ordinal))
+            return;
+        // Paced in the watch's own turns (real time, whatever the show clock does): about once a second.
+        if (++_followTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(1) / _o.WatchEvery)))
+            return;
+        _followTurns = 0;
+        Interlocked.Exchange(ref _estimatesBefore, long.MaxValue);
+        await FollowGroupAsync(engine).ConfigureAwait(false);
     }
 
     /// <summary>A backup role kept from before a restart: the mirror is joined again once the primary is heard on the show network.</summary>
@@ -1079,8 +1135,10 @@ public sealed class BackupNode : IAsyncDisposable
             (state, words) = ("joining", _mirrorWords);
         else if (_pulling || behind > 0)
             (state, words) = ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {_primaryName}'s show (rev {announced})"));
-        else if (Volatile.Read(ref _missingFiles) > 0)
-            (state, words) = ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {Volatile.Read(ref _missingFiles)} file{(Volatile.Read(ref _missingFiles) == 1 ? "" : "s")} from {_primaryName}"));
+        else if (MissingHere() is var missing && missing > 0)
+            (state, words) = Volatile.Read(ref _missingFiles) > 0
+                ? ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {missing} file{(missing == 1 ? "" : "s")} from {_primaryName}"))
+                : ("different", string.Create(CultureInfo.InvariantCulture, $"{missing} file{(missing == 1 ? "" : "s")} the show names could not be pulled from {_primaryName} — PREFLIGHT names the line that fetches {(missing == 1 ? "it" : "them")}"));
         else if (!OnPrimaryLine())
             (state, words) = ("joining", $"waiting for this node's clock to read {_primaryName}'s time line");
         else if (_engine?.Services.GroupSync is not { FeedWord: "live" })
@@ -1088,6 +1146,25 @@ public sealed class BackupNode : IAsyncDisposable
         else
             (state, words) = ("identical", string.Create(CultureInfo.InvariantCulture, $"same show (rev {applied}), clock, transports and air as {_primaryName}"));
         return new MirrorView(_settings.Of, _primaryName, state, applied, behind, words);
+    }
+
+    /// <summary>The files and optimised versions the show names that this node does not hold (verified, by hash).</summary>
+    private int MissingHere()
+    {
+        if (_engine is not { } engine || engine.Services.Media is not { } store)
+            return 0;
+        var n = 0;
+        foreach (var m in engine.Store.Project.Media)
+        {
+            if (m.IsFile && ContentHasher.IsValid(m.ContentHash) && store.PathForHash(m.ContentHash) is null)
+                n++;
+            foreach (var v in m.Versions)
+            {
+                if (ContentHasher.IsValid(v.ContentHash) && store.PathForHash(v.ContentHash) is null)
+                    n++;
+            }
+        }
+        return n;
     }
 
     /// <summary>The words a client's line meets on a backup or a fenced node, or null when it may run (<see cref="BackupGate"/>).</summary>

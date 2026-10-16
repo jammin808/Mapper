@@ -179,7 +179,13 @@ public sealed class BackupTests
         await File.WriteAllBytesAsync(file, bytes);
         var hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
         a.Host.Media.AddVerified(hash, file, "version.mov");
-        var item = new MediaItem("md_clip", "Clip", MediaKind.Video, "/nowhere/clip.mp4", "sha256:" + new string('1', 64), 10, MediaInfo.Unknown, []);
+        // And the clip's own file.
+        var clipBytes = bytes[..1000].Reverse().ToArray();
+        var clipFile = Path.Combine(a.Dir.FullName, "clip.mp4");
+        await File.WriteAllBytesAsync(clipFile, clipBytes);
+        var clipHash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(clipBytes));
+        a.Host.Media.AddVerified(clipHash, clipFile, "clip.mp4");
+        var item = new MediaItem("md_clip", "Clip", MediaKind.Video, "/nowhere/clip.mp4", clipHash, clipBytes.Length, MediaInfo.Unknown, []);
         var version = new MediaVersion("mv_1", "hap-q", "{}", "ok:" + new string('0', 32), hash, bytes.Length, MediaInfo.Unknown,
             VersionQuality.None, "hapenc/1", BackupRig.PrimaryId, 1);
         var show = SyncRig.Show() with { Media = [item with { Versions = [version] }] };
@@ -204,6 +210,10 @@ public sealed class BackupTests
         Assert.True(Mirror(a).Proved > 0);
         Assert.Equal(Mirror(a).Proved, Mirror(a).OverHttps);
         Assert.Contains("is here already", (await b.RunAsync("MEDIA FETCH md_clip VERSION mv_1 FROM FOH-A")).Payload, StringComparison.Ordinal);
+        // The clip's own file the same way (MEDIA FETCH with the fleet's part pulls with the proof, from the first node that holds it).
+        Assert.True((await b.RunAsync("MEDIA FETCH md_clip")).Ok);
+        Assert.True(await Eventually.TrueAsync(() => b.Engine.Services.Media!.PathForHash(clipHash) is not null), b.Journal());
+        Assert.Contains("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", b.Journal(), StringComparison.Ordinal);
     }
 
     private static JsonElement Air(HostRig rig) => rig.State().GetProperty("air");

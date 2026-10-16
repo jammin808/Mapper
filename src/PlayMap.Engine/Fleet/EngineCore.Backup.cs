@@ -30,6 +30,7 @@ public sealed partial class EngineCore
         routes.OffLane("MIRROR", backup.MirrorAsync);
         routes.OffLane("FLEET ROUTE", FleetRouteAsync);
         routes.Topic("MIRROR", backup.OpenMirror);
+        routes.Index(new BackupIndex(this));
         StateChanged += _ => backup.PublishProject();
         var last = Playback.Snapshot;
         Playback.Changed += snap =>
@@ -99,27 +100,41 @@ public sealed partial class EngineCore
         }
     });
 
-    /// <summary>MEDIA FETCH … VERSION &lt;version&gt;: one optimised version by hash, through the fleet's pulls (with the peer's proof over
-    /// its pinned HTTPS); null for any other form, or on a node without the backup part (the first round's pull answers it).</summary>
+    /// <summary>MEDIA FETCH through the fleet's pulls, with the peer's proof over its pinned HTTPS (never its token, never in clear):
+    /// <c>&lt;media&gt; VERSION &lt;version&gt; [FROM &lt;node&gt;]</c> one optimised version by hash, <c>&lt;media&gt;|ALL [FROM &lt;node&gt;]</c> the missing
+    /// files. Null on a node without the fleet's part (the first round's pull answers it there).</summary>
     private CommandReply? FleetFetch(List<string> args)
     {
-        var vi = args.FindIndex(a => a.Equals("VERSION", StringComparison.OrdinalIgnoreCase));
-        if (vi < 0 || Services.Backup is not { } backup)
+        if (Services.Backup is not { } backup)
             return null;
-        if (vi != 1 || vi + 1 >= args.Count)
-            return CommandReply.Fail("MEDIA FETCH <media> VERSION <version> [FROM <node>]");
-        var rest = args.Skip(vi + 2).ToList();
+        const string Syntax = "MEDIA FETCH <media>|ALL [VERSION <version>] [FROM <node>]";
+        var words = args.ToList();
         string? from = null;
-        if (rest.Count == 2 && rest[0].Equals("FROM", StringComparison.OrdinalIgnoreCase))
-            from = rest[1];
-        else if (rest.Count != 0)
-            return CommandReply.Fail("MEDIA FETCH <media> VERSION <version> [FROM <node>]");
-        if (Store.Project.FindMedia(args[0]) is not { } item)
-            return CommandReply.Fail($"no media {args[0]}");
-        if (item.Versions.FirstOrDefault(v => v.Id.Equals(args[vi + 1], StringComparison.OrdinalIgnoreCase)) is not { } version)
-            return CommandReply.Fail($"{item.Name} has no version {args[vi + 1]} — MEDIA GET {item.Id} lists its versions");
-        // The answer is the pull's start: the pull itself reports to the journal when it lands.
-        return backup.FetchVersion(item, version, from);
+        var fi = words.FindIndex(a => a.Equals("FROM", StringComparison.OrdinalIgnoreCase));
+        if (fi >= 0)
+        {
+            if (fi + 2 != words.Count)
+                return CommandReply.Fail(Syntax);
+            from = words[fi + 1];
+            words.RemoveRange(fi, 2);
+        }
+        var p = Store.Project;
+        if (words.Count == 3 && words[1].Equals("VERSION", StringComparison.OrdinalIgnoreCase))
+        {
+            if (p.FindMedia(words[0]) is not { } item)
+                return CommandReply.Fail($"no media {words[0]}");
+            if (item.Versions.FirstOrDefault(v => v.Id.Equals(words[2], StringComparison.OrdinalIgnoreCase)) is not { } version)
+                return CommandReply.Fail($"{item.Name} has no version {words[2]} — MEDIA GET {item.Id} lists its versions");
+            // The answer is the pull's start: the pull itself reports to the journal when it lands.
+            return backup.FetchVersion(item, version, from);
+        }
+        if (words.Count != 1)
+            return CommandReply.Fail(Syntax);
+        var all = words[0].Equals("ALL", StringComparison.OrdinalIgnoreCase);
+        var wanted = all ? p.Media.Where(m => m.IsFile).ToList() : p.FindMedia(words[0]) is { } one ? [one] : [];
+        if (wanted.Count == 0)
+            return CommandReply.Fail(all ? "nothing is missing" : $"no media {words[0]}");
+        return backup.FetchMedia(wanted, from);
     }
 
     // ---- Routes -------------------------------------------------------------------------------------------------------------

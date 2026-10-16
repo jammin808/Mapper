@@ -1,26 +1,96 @@
 # wp2-backup on the wire
 
-*Generated from the catalogue by `tools/gen_stubs.py`; the package owns this file and keeps it to what it ships. A row is
-answered "not available on this node yet" until the package routes it, and `VERBS` marks it `"available"` once it is.*
+What the hot backup, the takeover, the routes and the promotion of a group's follower add to the wire. Every row below is routed (VERBS
+marks it `"available"`). The design is in [../FLEET.md](../FLEET.md) ("The hot backup").
 
 ## Verbs
 
 | Verb | Syntax | Words | Risk | Changes the show |
 |---|---|---|---|---|
-| `FLEET BACKUP` | `FLEET BACKUP <primary node> [HOT] [TIMEOUT <ms 0-60000>]` | This node becomes a hot backup of a primary: it mirrors the primary's project, air and transports on its own outputs; FAILOVER makes it the primary | high | yes |
+| `FLEET BACKUP` | `FLEET BACKUP <primary node> [HOT]` | This node becomes a hot backup of a primary: it mirrors the primary's project, air and transports on its own outputs; FAILOVER makes it the primary | high | yes |
 | `FLEET SOLO` | `FLEET SOLO` | This node stops backing up and plays on alone | high | yes |
-| `FLEET SUCCESSION` | `FLEET SUCCESSION <node> [<node>…] \| OFF` | Who leads the sync group, in order, when its leader goes quiet | review | yes |
 | `FLEET PROMOTE` | `FLEET PROMOTE [<group>]` | This node leads the group now, continuing the old leader's show clock without a step | high | yes |
-| `FAILOVER` | `FAILOVER [<primary node>] [HOLD]` | The backup takes the show from its primary and fences the old primary by epoch; HOLD cancels a pending takeover | high | yes |
+| `FAILOVER` | `FAILOVER [<primary node>]` | The backup takes the show from its primary and fences the old primary by epoch | high | yes |
 | `FAILBACK` | `FAILBACK CONFIRM` | Hands the show back to the original primary (a person's press only) | high | yes |
-| `FLEET FENCE` | `FLEET FENCE <epoch> <node>` | A peer that took the show tells this node: hold the outputs | high | yes |
-| `MIRROR` | `MIRROR PROJECT\|DELTA\|AIR\|ANCHOR\|FOCUS\|BEAT\|RESYNC <json>` | A primary's show, line by line, to its backup | high | yes |
+| `FLEET FENCE` | `FLEET FENCE <epoch> <node>` | A peer that took the show tells this node: hold the outputs (node to node only) | high | yes |
+| `MIRROR` | `MIRROR HELLO\|PROJECT\|AIR\|HANDBACK <json> \| MIRROR ANCHOR <playlist> <json>` | A primary's show, line by line, to its backup (node to node only) | high | yes |
 | `FLEET ROUTE` | `FLEET ROUTE <output> DEVICE <device> <input> <backup input> \| FLEET ROUTE <output> NONE \| FLEET ROUTE TEST` | What FAILOVER switches so the audience sees the backup: the projector's input, confirmed by its own answer; TEST reads reachability and the current input | review | yes |
+| `MEDIA FETCH` (VERSION) | `MEDIA FETCH <media> VERSION <version> [FROM <node>]` | One optimised version of a clip, by its hash, from a peer that holds it, with the peer's proof over its pinned HTTPS | low | yes |
+
+`SUBSCRIBE MIRROR <node>` opens the mirror feed on a primary: paired only (it carries the whole show's motion), refused on a node that
+leads no sync group ("FOH-A leads no sync group — SYNC LEAD <group> here first, so a backup can follow its clock") and on a backup or a
+fenced node. The feed pushes, latest of each key first to a new subscriber, then in order:
+
+- `MIRROR HELLO {"proto":1,"node","name","epoch","group","feed"}`;
+- `MIRROR PROJECT {"rev":<revision>}` on every revision (the backup pulls the show itself);
+- `MIRROR ANCHOR <playlist> <anchor json>` on every transport change of any playlist (the anchor JSON of `PLAYLIST ANCHOR`);
+- `MIRROR AIR {"feed","seq","line","leaderNs"}` for each of the primary's own air lines (PANIC, PANIC CLEAR, BLACKOUT, MASTER, FREEZE,
+  PATTERN) that the sync group's feed does not carry; the backup runs it pinned to that leader instant, once per (feed, seq);
+- `MIRROR HANDBACK {"from","epoch"}` to one backup, on FAILBACK.
+
+The backup hands each line to its own `MIRROR` verb with the session `fleet:<primary>` (transport "fleet"); `MIRROR` and `FLEET FENCE`
+from any other transport are refused "this line is node-to-node only".
+
+Refusals (each changes nothing): "no PlayMap node 'X' is heard on the show network — NODES lists the ones that are"; "already a hot
+backup of FOH-A (0badc0de)"; "FOH-A refused the mirror: it asks for its pairing token and this node holds none for it — CREDENTIAL SET
+node.0badc0de <FOH-A's pairing token> here first"; "FOH-B is solo already — it backs up no primary"; "FOH-B backs up no primary —
+FAILOVER runs on a hot backup (FLEET BACKUP <primary> first)"; "FOH-A does not mirror FOH-B — FLEET BACKUP FOH-B on FOH-A first, then
+FAILBACK"; "FOH-A is not identical to FOH-B yet (its mirror is resyncing) — FAILBACK waits for it"; "FOH-B leads show already";
+"Op 1's route is that already"; "the primary's input and the backup's are both 31: a takeover would switch nothing".
+
+On a backup a client's line that would change the show is refused "FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to
+make this node the show"; on a fenced node "fenced: FOH-B has the show (epoch 8) — FLEET BACKUP FOH-B to mirror it". Queries, panic,
+Show Mode, the node's administration (credentials, pairing) and the fleet's verbs stay; `FLEET ROUTE` (except TEST) is the show's plan,
+edited on the primary.
+
+## Replies
+
+- `FLEET BACKUP` — `accepted` "joining FOH-A (0badc0de) as a hot backup: its show, clock, transports and air mirrored here (paired by
+  proof; pulls over HTTPS, pinned)"; the journal says "FOH-B mirrors FOH-A: identical (rev 12)" when it is.
+- `FAILOVER` — `{"id":"tk…","epoch":8,"words":"takeover tk… of FOH-A by FOH-B (pressed) — epoch 8 committed → leading show on the same
+  time line → show clock continuous (0 ms read across the change) → P1 32 observed → serving → complete in 41 ms"}`.
+- `FLEET ROUTE … DEVICE` — `{"output","device","input","backupInput","primaryNode","removed"}`; `FLEET ROUTE TEST` —
+  `[{"output","device","words":"P1 on 31 (primary) · reachable"}]` (or "P1 · unreachable (…)").
+- `FLEET PROMOTE` — "leading show under epoch 3; the show clock continues the old leader's line (0 ms read across)".
+- `MEDIA FETCH … VERSION` — `accepted` "fetching mv_1 of Clip (hap-q) from FOH-A by its hash, with proof"; the journal says
+  "mv_1.hap-q pulled from FOH-A with proof over HTTPS and verified" or why not.
+
+## The web port
+
+`/mirror` is a web module admitted before the token gate on its own credential: `GET /mirror/project` (the show as compact JSON, its
+revision in `X-PlayMap-Rev`) and `GET /mirror/media/<sha256>` (a verified file, ranged). Each request carries `X-PlayMap-Nonce`
+(`<unix ms>-<32 hex>`) and `X-PlayMap-Proof` (lowercase hex HMAC-SHA256 of the node's normalised token over the nonce and
+`"GET /mirror/…"`, as AUTH-PROOF's scheme); the node takes a nonce once and only within a minute of its wall clock. A header token is not
+a proof. An address the node trusts, or a node that asks no token, needs none. From another machine only HTTPS is let in. Only GET and
+HEAD.
 
 ## STATE
 
-`sync.epoch` (with wp2-fleet's file).
+`fleet` (after `show`, keys in this order): `role` (solo|primary|backup|fenced), `epoch`, `state` (serving, fenced, or the mirror's
+state on a backup), `of` (the primary a backup mirrors, the node a primary took over from, the node that fenced this one), `backups`
+(`[{"node","name","state","light","words"}]`, a primary's backups with the state each reports in its HEALTH), `mirror` (null, or
+`{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`), `succession` (the show's plan; `[]`),
+`alarm` (null: automatic takeover is not built), `last` (null, or `{"kind":"takeover|failback|promote","id","at","words"}`), `nodes`,
+`light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`).
+`sync.epoch` is the node's epoch. HEALTH adds `mirror` (the backup's state) and `sync.group`. The fixture is
+`tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER), its cards `backup.cards.json`.
+
+Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
+
+The context: a backup or a fenced node adds `mirror:<primary>` (kind `mirror`; the machine **mirrors** it); a follower whose leader is
+silent adds `fleet:leader`, red, "leader gone — FLEET PROMOTE on the node that should lead".
+
+## Preflight and INDEX
+
+Preflight section `backup`: on a backup, `backup:mirror` (green identical; `FLEET BACKUP <primary>` when lost) and `backup:files` (amber
+with the first missing file's line: `MEDIA FETCH <media> VERSION <version> FROM <primary>`); on a primary, `backup:<node>` per backup;
+`route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else one grey row. INDEX section
+`fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`, `FLEET PROMOTE` (red while the leader is
+silent), and `FLEET FOCUS machine:<node>` per backup.
 
 ## Papers note
 
-(What shipped, for the integration docs pass.)
+For the integration docs pass: the hot backup (FLEET BACKUP, the mirror, pulls with proof over pinned HTTPS, FAILOVER by epoch with
+fencing, FAILBACK, routes with observed input switches, FLEET PROMOTE) ships; WIRE.md's round-2 section gains these rows and
+`SUBSCRIBE MIRROR`; ARCHITECTURE §4 gains the promoted clock and the fence; ROADMAP R4.1 moves to "built (manual takeover)"; automatic
+takeover on silence, `FLEET SUCCESSION`, HOLD, WARM/COLD backups, project deltas, frame keys and the router step stay next round.
