@@ -40,7 +40,7 @@ desk proves itself at once. A node that asks no token has no secret to prove, so
 
 | Push | Shape | Delivery |
 |---|---|---|
-| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves, or a section row's `light` or `state` | latest wins |
+| `INDEX {…}` | the INDEX document, at once and whenever its `sig` or `labels` moves, a section row's `light` or `state`, or any other value it lists (an item's or a surface's `source`, a projector's `output` or `device`, an output's `enabled`, `loop`, `lengthMs`) | latest wins |
 | `EVENT {…}` | `{"seq","at","leaderNs","kind",…fields}` | in order; a session that falls behind or is sent more than 64 in a second is closed with `EVENTS overflow — … EVENTS SINCE <seq> …` |
 | `THUMBS {…}` | `SUBSCRIBE THUMBS <ref>…` (≤ 128, paired only): `{"<ref>":"<etag>"\|null,…}` for the whole watched set, at once and when any moves | latest wins |
 
@@ -49,7 +49,8 @@ desk proves itself at once. A node that asks no token has no secret to prove, so
 "devices":[{"id","name","protocol","projector"}],"generators":[{"id","name","kind","params":[{"name","kind","min","max","step","choices"}]}],
 "canvases":[{"id","name","layers":[{"id","name"}]}],"media":{"count"},"sections":[{"section","hint":{"title","rowKind","keys":[{"label","line","feedback","press"}]},"rows":[…]}]}`.
 `sig` (16 hex) moves with the ids and kinds of every listed entity, each item's source kind, each generator's parameter names and every
-section's rows and hint; `labels` with the names and labels. A rename moves only `labels`. A library is never listed (only its count).
+section's rows and hint; `labels` with the names and labels. A rename moves only `labels`; a source changed for another of its kind
+moves neither, and is pushed all the same. A library is never listed (only its count).
 
 **THUMB.** ETags: `media-<hash16>-<w>x<h>-<j|p>` (the file's content hash), `generator-<hash16>-<w>x<h>-p` (its kind and parameters),
 `color-RRGGBB-<w>x<h>-p`; `playlist:<id>` answers its current item's picture and ETag. While the show is armed only a poster made

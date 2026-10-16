@@ -10,9 +10,11 @@ namespace PlayMap.Engine.Companion;
 
 /// <summary>INDEX as a controller reads it: the show's structure, its <see cref="Sig"/> (what a deck's layout depends on: the ids
 /// and kinds of every listed entity, each item's source kind, each generator's parameter names, each section's row ids and kinds
-/// and its preset hint), its <see cref="Labels"/> (the names and labels shown on keys) and its <see cref="Lights"/> (each section
-/// row's light and state, which move with the show, not the project). A rename moves only the labels.</summary>
-public sealed record IndexDocument(string Json, string Sig, string Labels, long Revision, string Lights);
+/// and its preset hint), its <see cref="Labels"/> (the names and labels shown on keys), its <see cref="Lights"/> (each section
+/// row's light and state, which move with the show, not the project) and its <see cref="Data"/> (everything the document lists,
+/// values and all: an item's or a surface's source, a projector's output and device, an output's enabled, a loop, a length). A
+/// rename moves only the labels; a source changed for another of its kind moves only the data.</summary>
+public sealed record IndexDocument(string Json, string Sig, string Labels, long Revision, string Lights, string Data);
 
 /// <summary>Writes INDEX from a project, the published snapshot and every package's section (<see cref="IIndexContributor"/>):
 /// playlists and their items, surfaces, projectors, outputs, devices, generators, canvases, the media count, then each section's
@@ -41,7 +43,7 @@ public static class IndexWriter
         var head = string.Create(CultureInfo.InvariantCulture, $"{{\"v\":{Version},\"revision\":{revision},\"sig\":\"{sigHex}\",\"labels\":\"{labelsHex}\"");
         var rest = Encoding.UTF8.GetString(body.WrittenSpan);
         var json = rest.Length > 2 ? head + "," + rest[1..] : head + "}";
-        return new IndexDocument(json, sigHex, labelsHex, revision, Hash(lights));
+        return new IndexDocument(json, sigHex, labelsHex, revision, Hash(lights), Convert.ToHexStringLower(SHA256.HashData(body.WrittenSpan))[..16]);
     }
 
     private static string Hash(StringBuilder text) =>

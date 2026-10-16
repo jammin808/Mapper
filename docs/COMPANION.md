@@ -54,8 +54,10 @@ that lights it, the press shape). The module builds a preset section per hint, s
 
 Two signatures keep a deck quiet: `sig` moves only when the structure does (ids and kinds, an item's source kind, a generator's
 parameter names, a section's rows and hint), `labels` only when names do. STATE carries `project.index` (the `sig`), so a controller
-that does not subscribe still knows when to ask. `SUBSCRIBE INDEX` pushes when either moves, or when a section row's light or state
-moves with the show (both signatures kept, so a deck relights its keys and rebuilds nothing), latest wins; a burst of edits is one push.
+that does not subscribe still knows when to ask. `SUBSCRIBE INDEX` pushes when either moves, when a section row's light or state
+moves with the show, or when anything else INDEX lists moves — an item's or a surface's source changed for another of its kind, a
+projector's output or device, an output's enabled, a loop, a length (both signatures kept, so a deck relights its keys or repaints
+their pictures and rebuilds nothing), latest wins; a burst of edits is one push.
 
 ## EVENTS
 
