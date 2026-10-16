@@ -176,7 +176,9 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`). On Ubuntu 24.04,
+libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`), on Linux and on Windows; a test whose
+subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows) carries
+that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words. On Ubuntu 24.04,
 `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack (PulseAudio with a
 virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints the
 variables to export.
