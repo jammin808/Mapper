@@ -30,6 +30,15 @@ public sealed record FleetDoor(string Role, string? Words)
         : None;
 }
 
+/// <summary>The stacks STATE.stage names as having lost a member, each with the node's own words for it (the rest held, or the
+/// building dimmed to the light the stack has left).</summary>
+public static class LostStacks
+{
+    public static ImmutableArray<(string Id, string Words)> Read(JsonElement? stage) => stage is { ValueKind: JsonValueKind.Object } s
+        ? [.. s.Arr("stacks").Where(k => k.Arr("degraded").Any()).Select(k => (k.Str("id"), k.Str("words", k.Str("name") + " has lost a member")))]
+        : [];
+}
+
 /// <summary>One output's part of a panic.</summary>
 public sealed record PanicOutputState(string Id, string Outcome, double Level);
 
@@ -321,6 +330,10 @@ public sealed class ShowStripModule : DeskModule
         // A hot backup's or a fenced node's show is another node's: its edits are refused with these words (FAILOVER is on its card).
         if (state.Section("fleet", FleetDoor.Read) is { Words: { } door } d)
             yield return new Banner("fleet", d.Role == FleetRoles.Fenced ? "red" : "amber", door, [], 20);
+        // A stack that has lost a member holds or dims the building on the air: red, in the node's words, until the member is back
+        // (its card holds its failover).
+        foreach (var (id, words) in state.Section("stage", LostStacks.Read))
+            yield return new Banner("stack:" + id, "red", words, [], 10);
     }
 
     public override IEnumerable<Shortcut> Shortcuts() =>

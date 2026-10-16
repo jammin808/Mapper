@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -335,6 +336,48 @@ public class ShowStripTests
             Assert.Contains(desk.Main.ExtrasFor(pl), a => a.Verb == "LOCK " + pl.Id);
             Assert.All(pl.Items, it => Assert.Contains(desk.Main.ExtrasFor(it), a => a.Verb == "LOCK " + it.Id));
         }
+        window.Close();
+    }
+
+    /// <summary>A stack that has lost a member holds or dims the building on the air: while STATE names the member, the attention bar
+    /// has a red banner in the node's words (the light the building is at) and the stack's card is red with its failover buttons; the
+    /// banner goes when the member is back.</summary>
+    [AvaloniaFact]
+    public async Task AStackThatHasLostAMemberIsARedBannerAndARedCardUntilTheMemberIsBack()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.Load(desk.Link, "facade");
+        var window = MainWindowTests.Open(desk);
+        DeskHarness.Pump();
+        var stage = JsonNode.Parse(StateFixtures.Read("facade"))!["stage"]!.AsObject();
+        var sk = stage["stacks"]![0]!.AsObject();
+        var id = sk["id"]!.GetValue<string>();
+        Assert.DoesNotContain(desk.Main.Banners, b => b.Id == "stack:" + id);
+        Assert.Equal("amber", desk.Main.Cards.Shown.Single(c => c.Instance.EntityId == id).Light);
+
+        var words = sk["name"]!.GetValue<string>() + " lost Far twin — matched: the building at 67 %";
+        sk["degraded"] = new JsonArray(sk["members"]![1]!.GetValue<string>());
+        sk["gain"] = 0.667;
+        sk["failover"] = "match";
+        sk["light"] = "red";
+        sk["words"] = words;
+        desk.Link.SetSection("stage", stage.ToJsonString());
+        DeskHarness.Pump();
+        var banner = Assert.Single(desk.Main.Banners, b => b.Id == "stack:" + id);
+        Assert.Equal(("red", words), (banner.Light, banner.Words));
+        var card = desk.Main.Cards.Shown.Single(c => c.Instance.EntityId == id);
+        Assert.Equal("red", card.Light);
+        var hold = card.Actions.Single(a => a.Verb == $"STACK FAILOVER {id} HOLD");
+        desk.Link.ClearSent();
+        await hold.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Equal($"STACK FAILOVER {id} HOLD", desk.Verbs()[^1]);
+
+        // The member is back: the node's STATE names no member lost, and the banner goes.
+        StateFixtures.Load(desk.Link, "facade");
+        DeskHarness.Pump();
+        Assert.DoesNotContain(desk.Main.Banners, b => b.Id == "stack:" + id);
+        Assert.Equal("amber", desk.Main.Cards.Shown.Single(c => c.Instance.EntityId == id).Light);
         window.Close();
     }
 }
