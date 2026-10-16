@@ -288,6 +288,10 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// to a blind draft. wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
     partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore);
 
+    /// <summary>The fleet's door before the show's: a hot backup or a fenced node refuses a client's line that would change the show it
+    /// mirrors, with the way out (wp2-backup). Same places as <see cref="GateLine"/>.</summary>
+    partial void GateFleet(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused);
+
     /// <summary>The blind draft a session's off-lane edits go to (null = the live store). wp2-blind (show's continuation) fills it in
     /// show's stub.</summary>
     private partial ProjectStore? BlindStoreFor(SessionInfo session);

@@ -1,0 +1,97 @@
+{
+  "backup": {
+    "fleet": {
+      "role": "backup",
+      "epoch": 0,
+      "state": "identical",
+      "of": "0badc0de",
+      "backups": [],
+      "mirror": {
+        "of": "0badc0de",
+        "name": "FOH-A",
+        "state": "identical",
+        "rev": 4,
+        "behindRev": 0,
+        "words": "same show (rev 4), clock, transports and air as FOH-A"
+      },
+      "succession": [],
+      "alarm": null,
+      "last": null,
+      "light": "green",
+      "headline": "2 machines",
+      "routes": [
+        {
+          "output": "op_1",
+          "device": "dv00000001",
+          "input": "31",
+          "backupInput": "32",
+          "primaryNode": "0badc0de"
+        }
+      ],
+      "routeTest": null
+    }
+  },
+  "primary": {
+    "fleet": {
+      "role": "primary",
+      "epoch": 0,
+      "state": "serving",
+      "of": null,
+      "backups": [
+        {
+          "node": "9f8e7d6c",
+          "name": "FOH-B",
+          "state": "identical",
+          "light": "green",
+          "words": "FOH-B mirrors this node: identical"
+        }
+      ],
+      "mirror": null,
+      "succession": [],
+      "alarm": null,
+      "last": null,
+      "light": "green",
+      "headline": "2 machines",
+      "routes": [
+        {
+          "output": "op_1",
+          "device": "dv00000001",
+          "input": "31",
+          "backupInput": "32",
+          "primaryNode": "0badc0de"
+        }
+      ],
+      "routeTest": null
+    }
+  },
+  "takenOver": {
+    "fleet": {
+      "role": "primary",
+      "epoch": 1,
+      "state": "serving",
+      "of": "0badc0de",
+      "backups": [],
+      "mirror": null,
+      "succession": [],
+      "alarm": null,
+      "last": {
+        "kind": "takeover",
+        "id": "tk00000000",
+        "at": 1760000000000,
+        "words": "takeover tk00000000 of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → show clock continuous (0 ms read across the change) → P1 32 unreached (P1: input 32 — the projector was not reached: no connection to 127.0.0.1:9 — connection refused (is network control on, and the port right?)) — switch it by hand → serving → complete in 0 ms"
+      },
+      "light": "green",
+      "headline": "2 machines",
+      "routes": [
+        {
+          "output": "op_1",
+          "device": "dv00000001",
+          "input": "31",
+          "backupInput": "32",
+          "primaryNode": "0badc0de"
+        }
+      ],
+      "routeTest": null
+    }
+  }
+}

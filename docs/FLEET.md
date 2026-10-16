@@ -1,9 +1,11 @@
-# The fleet: health, the board and PlayMap on Patterns' Eye
+# The fleet: health, the board, PlayMap on Patterns' Eye, and the hot backup
 
 Every PlayMap machine knows how it is (HEALTH), watches every other PlayMap machine it hears (the fleet monitor), and draws them all
 as one board in the shape of Patterns' God's Eye (FLEET / EYE). Its context is ordered so that Patterns' Eye, which draws twelve
-things of each app, draws the ones that matter. Lights are evidence: what was not measured is grey, never green. The wire's
-verbs, replies and STATE are in [wire/fleet.md](wire/fleet.md).
+things of each app, draws the ones that matter. Lights are evidence: what was not measured is grey, never green. A machine can stand
+by as a **hot backup** of another, rendering the same frames, and take the show over by epoch; a follower can take the lead of its
+sync group when its leader dies. The wire's verbs, replies and STATE are in [wire/fleet.md](wire/fleet.md) and
+[wire/backup.md](wire/backup.md).
 
 ## Health
 
@@ -89,13 +91,80 @@ whose hello offers the `context` cap is read (a PlayMap peer's over its line wir
 media sit on the Video band. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns' `ShowContext.Parse`
 and the show-app section of `EyeGraph.Build` and check its things are drawn lit with its own lights.
 
+## The hot backup
+
+A frame is a pure function of the show, its playlists' anchors, the air and the leader instant. A backup takes each of those from its
+primary, each with the leader instant it takes effect, and follows the primary's clock, so it draws the same frame for the same
+instant — to the byte (`BackupRenderTests`: two render hosts on llvmpipe, playing a clip's HAP Q version, under a blackout and through a
+panic fade). The output stage's dither is seeded by the show frame, so it does not break that.
+
+**Joining.** `FLEET BACKUP <primary> [HOT]` on the machine that stands by. The primary must lead a sync group (its clock is the
+backup's); the backup proves the primary's pairing token, kept in its credential store as `node.<primary id>` (`CREDENTIAL SET
+node.0badc0de <token>`), and subscribes to the primary's **mirror** (`SUBSCRIBE MIRROR <node>`, paired only):
+
+- the show: the primary announces each revision; the backup pulls the show from `/mirror/project` and applies it as one mirror edit
+  (past the implicit locks an armed show adds; the primary's own gate already decided the edit);
+- the files: every media file and every optimised version the show names that the backup does not hold, pulled from
+  `/mirror/media/<sha256>` by hash, in ranges, verified before they land — so the backup plays the version the primary plays;
+- the clock, the group's anchors and the group's air: the backup follows the primary's sync group (`SYNC FOLLOW`, wp2-sync's feed);
+- every other playlist's anchor, and the air lines the group's feed does not carry (`FREEZE`, `PATTERN`, a panic or blackout `ON`
+  outputs or `HERE`), through the backup's own `MIRROR` verb (session "fleet"), each at the primary's leader instant.
+
+Every pull carries the **pairing proof** — the HMAC of the token over a fresh nonce, the scheme and the request
+(`X-PlayMap-Nonce`, `X-PlayMap-Proof`) — never the token itself; the primary takes each nonce once, within a minute of its own clock, and a
+proof made for HTTPS is refused over plain HTTP. From another machine a pull goes over HTTPS only (the backup refuses to send one in clear,
+and refuses a hello that drops a certificate it has pinned), checked against the fingerprint the primary's hello advertises and pinned
+in the fleet's pin file after the first proved answer; a changed certificate is refused. `MEDIA FETCH <media> VERSION <version> [FROM <node>]` pulls one version the same way on any node.
+
+The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
+the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
+pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. A client's edit on a backup is refused with the way
+out ("FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to make this node the show"); queries, panic, Show Mode, the node's
+own administration, a fetch of a file by hash and the fleet's verbs stay. A pull that fails is asked again from the watch while the
+primary's revision is ahead.
+
+**Taking over.** `FAILOVER` on the backup:
+
+1. commits the next **epoch** (one past every epoch it holds or hears) and keeps it, with the role, in the node's settings before it
+   serves (`NetworkHost.PersistSettings`, the settings file's one writer);
+2. freezes its clock's mapping into its own time line (`NetworkClock.Promote`) and leads the group: show time continues with no step;
+3. switches every **route** (`FLEET ROUTE <output> DEVICE <device> <input> <backup input>`, kept in the show) through its own
+   `DEVICE INPUT`, each with the projector's receipt — observed when the projector reads its new input back; a projector that does not
+   answer within 2 s is said ("switch it by hand") and the takeover goes on;
+4. journals the trail ("takeover tk… of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → P1 32
+   observed → serving → complete in 40 ms"), raises `fleet.takeover`, and serves: editing goes on.
+
+The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** — only from a node that
+joined its mirror (proved by its token; the node keeps that list) and is heard over its pinned certificate, so no other machine's word
+can black it out (`FLEET FENCE`, node to
+node): its outputs are held black from the next frame (a gain of 0 multiplied into the air), its clients' edits are refused, its clock
+follows the new primary, the role is kept across a restart, and it never takes the show back by itself. `FLEET BACKUP <new primary>`
+there makes it the new primary's backup; `FAILBACK CONFIRM` on the new primary then hands the show back (the original takes it under
+the next epoch, its routes switch to its own input) and the two swap roles. `FLEET SOLO` ends a backup's or a fence's role.
+
+**Controller death.** A sync group's leader that dies leaves its followers free-wheeling on their last estimate: their playlists switch
+items at the instants they computed, and the context says "leader gone — FLEET PROMOTE on the node that should lead". `FLEET PROMOTE`
+on a follower commits the next epoch, promotes its clock and leads the group; a follower whose leader is silent hears the new leader's
+epoch and group in its HEALTH and follows it, its leader time never running backwards and continuous within 1 ms against the running
+clock (`PromoteTests`); a leader that comes back and hears a member of its group lead under a higher epoch steps down and follows it.
+Only a member of the group the node has known, heard over its pinned certificate, is followed this way. On a hot backup whose primary
+went silent the context says "primary gone — FAILOVER on this backup to take its show". Air lines of the primary still waiting for their
+instants when FAILOVER is pressed land as planned. Automatic takeover on silence and
+a succession list are not built: a takeover and a promotion are a person's press.
+
 ## Preflight and INDEX
 
 Preflight's `fleet` section: every expected machine heard (known before a restart, in the show's fleet plan, or heard now), every
-pin valid. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses, RESET, and a key per machine with its light.
+pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the line
+that fetches a missing one); on a primary, each backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE
+TEST`); a fenced node red with `FLEET BACKUP <new primary>`. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses,
+RESET, and a key per machine with its light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node
+that took a show over, FLEET PROMOTE on a follower (red while its leader is silent), and a key per backup of a primary.
 
 ## Threads
 
-The sampler, the light watch and the HEALTH clock run on timers of their own; the monitor's subscriptions on the thread pool; the board is built from
+The sampler, the light watch and the HEALTH clock run on timers of their own; the backup's watch (its fence, its group's new leader,
+its mirror's state) on a task of its own; the mirror's lines are taken one at a time beside the lane and run through the engine's own
+verbs; the primary's air lines wait for their instant in a queue the lane's tick runs; the monitor's subscriptions on the thread pool; the board is built from
 published state on whichever thread asks (FLEET, STATE, INDEX), never on the lane; the lane only stamps its tick (one lock, no
 allocation).

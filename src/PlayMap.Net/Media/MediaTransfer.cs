@@ -78,8 +78,16 @@ public sealed record MediaTransferOptions
     /// <summary>Tries per chunk before the pull gives up (its finished chunks stay for the resume).</summary>
     public int ChunkAttempts { get; init; } = 3;
 
-    /// <summary>The peer's pairing token, sent in X-PlayMap-Token ("" = none).</summary>
+    /// <summary>The peer's pairing token, sent in X-PlayMap-Token ("" = none). A pull that signs (<see cref="Sign"/>) sends none.</summary>
     public string Token { get; init; } = "";
+
+    /// <summary>Where the peer serves a file by its hash: <c>/api/media/</c> behind its token gate, or a backup's
+    /// <c>/mirror/media/</c>, which takes a proof instead.</summary>
+    public string MediaPath { get; init; } = "/api/media/";
+
+    /// <summary>Signs each request with the peer's pairing proof (fresh nonce, the request's method and path); null = unsigned. When
+    /// set, the token itself is never sent.</summary>
+    public Action<HttpRequestMessage>? Sign { get; init; }
 }
 
 /// <summary>One file a peer offers: <c>GET /api/media</c>'s rows.</summary>
@@ -166,7 +174,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
             if (RandomAccess.GetLength(handle) != size)
                 RandomAccess.SetLength(handle, size);
             var next = -1;
-            var url = new Uri(peer, "/api/media/" + hash);
+            var url = new Uri(peer, _o.MediaPath + hash);
             async Task WorkerAsync()
             {
                 while (true)
@@ -270,7 +278,9 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     private HttpRequestMessage Request(Uri url)
     {
         var r = new HttpRequestMessage(HttpMethod.Get, url);
-        if (_o.Token.Length > 0)
+        if (_o.Sign is { } sign)
+            sign(r);
+        else if (_o.Token.Length > 0)
             r.Headers.TryAddWithoutValidation("X-PlayMap-Token", _o.Token);
         return r;
     }

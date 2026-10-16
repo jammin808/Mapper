@@ -422,6 +422,9 @@ public sealed partial class EngineCore
 
     private CommandReply MediaFetch(List<string> args, CancellationToken ct)
     {
+        // With the fleet part, pulls go with the peer's proof over its pinned HTTPS; VERSION fetches one optimised version (wp2-backup).
+        if (FleetFetch(args) is { } fleet)
+            return fleet;
         if (args.Count < 1)
             return CommandReply.Fail("MEDIA FETCH <media>|ALL [FROM <node>]");
         string? from = null;

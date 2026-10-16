@@ -75,7 +75,7 @@ public sealed class AvailabilityTests
     {
         var unrouted = VerbCatalog.Find("PANIC")!;
         var provider = new ScriptedProvider()
-            .Then(ScriptedProvider.Call(ScriptedProvider.Propose("c1", "hold the outputs", "MIRROR BEAT {\"rev\":1}", unrouted.Name)))
+            .Then(ScriptedProvider.Call(ScriptedProvider.Propose("c1", "hold the outputs", "MIRROR AIR {\"rev\":1}", unrouted.Name)))
             .Then(ScriptedProvider.Say("Neither runs here."));
         var node = new RoutingNode(new FakeEndpoint(), "SHOW ARM");
         var queue = new ProposalQueue(node);
