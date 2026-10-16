@@ -370,6 +370,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		for (const t of this.#rechecks.values()) clearTimeout(t)
 		this.#rechecks.clear()
 		this.#emptied()
+		// A stopped connection keeps no timer, a receipt's among them.
+		this.receipts.clear()
 	}
 
 	#status(status: InstanceStatus, words: string | null): void {
@@ -393,7 +395,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	/** The link dropped: what the node said is no longer a fact, so it is emptied and every feedback checked again (a dead key never
-	 * stays green). INDEX's names are kept so keys still say what they are, dimmed. */
+	 * stays green). INDEX's names are kept so keys still say what they are, dimmed. A receipt is the deck's own fact about its press,
+	 * not the node's: it stays on its key for its time (red 2 s, amber at most 10 s) through a drop and every failed retry. */
 	#emptied(): void {
 		// Events held for a replay that never came are left in the node's ring: the next pairing asks for them again.
 		this.#held = null
@@ -403,7 +406,6 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.#armed = false
 		this.model.whoami = null
 		this.#whoamiKey = ''
-		this.receipts.clear()
 		this.confirms.clear()
 		this.goGuard.clear()
 		this.encoders.clear()
