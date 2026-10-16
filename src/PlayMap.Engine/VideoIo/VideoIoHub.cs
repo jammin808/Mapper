@@ -51,6 +51,7 @@ public sealed class VideoIoHub : IDisposable
     private readonly Dictionary<string, LiveInput> _inputs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SendSlot> _sends = new(StringComparer.Ordinal);
     private readonly AutoResetEvent _wake = new(false);
+    private readonly Lock _wakeGate = new();
     private readonly Func<long> _mono;
     private readonly VideoIoSettings _running;
     private SendPlanEntry[] _plan = [];
@@ -213,8 +214,12 @@ public sealed class VideoIoHub : IDisposable
 
     // ---- inputs ------------------------------------------------------------------------------------------------------------
 
+    /// <summary>Words for what a stopping node refuses to start.</summary>
+    internal const string StoppingWords = "the node is stopping — no receiver starts";
+
     /// <summary>A consumer's handle on a live input of the library (NDI, OMT, Spout, …), or null for a location FFmpeg reads (an RTSP
-    /// URL, a capture device). A cold input starts receiving here. Any thread; never blocks on the network.</summary>
+    /// URL, a capture device). A cold input starts receiving here. Once the node has begun to stop no receiver starts: a consumer
+    /// gets a handle only on an input already received, else null. Any thread; never blocks on the network.</summary>
     public IVideoSource? Open(MediaItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -224,10 +229,20 @@ public sealed class VideoIoHub : IDisposable
         {
             if (Volatile.Read(ref _disposed) != 0)
                 return null;
+            var stopping = _engine.Stopping;
             if (!_inputs.TryGetValue(item.Id, out var input))
             {
+                if (stopping)
+                    return null;
                 input = new LiveInput(item, protocol, address, byUrl);
                 _inputs[item.Id] = input;
+            }
+            else if (stopping)
+            {
+                if ((input.Primary is null && input.Backup is null) || (!input.InProject && Reopens(input.Item, item)))
+                    return null;
+                input.AddHandle();
+                return new LiveHandle(input, _mono);
             }
             else if (!input.InProject && Reopens(input.Item, item))
             {
@@ -266,12 +281,13 @@ public sealed class VideoIoHub : IDisposable
             return _inputs.GetValueOrDefault(id);
     }
 
-    /// <summary>Closes an input's receivers and opens them again (INPUT RECONNECT); false when the input left the hub meanwhile.</summary>
+    /// <summary>Closes an input's receivers and opens them again (INPUT RECONNECT); false when the input left the hub meanwhile, or
+    /// the node has begun to stop (no receiver starts; the old ones stay until the hub closes them).</summary>
     internal bool Reconnect(LiveInput input)
     {
         lock (_gate)
         {
-            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
+            if (_engine.Stopping || !_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
                 return false;
             CloseInput(input);
             OpenInput(input);
@@ -372,13 +388,14 @@ public sealed class VideoIoHub : IDisposable
     // ---- reconcile ---------------------------------------------------------------------------------------------------------
 
     /// <summary>Brings receivers and senders to what the project names and publishes the send plan. Any thread (the lane after an
-    /// edit, the hub's own tick); senders are made here, never on the render thread.</summary>
+    /// edit, the hub's own tick); senders are made here, never on the render thread. Once the node has begun to stop nothing is
+    /// reconciled: no receiver or sender starts, and what runs runs until the hub closes it.</summary>
     public void Reconcile(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
         lock (_gate)
         {
-            if (Volatile.Read(ref _disposed) != 0)
+            if (Volatile.Read(ref _disposed) != 0 || _engine.Stopping)
                 return;
             // The store's project as it stands under the lock: a tick that read an older one never undoes the lane's newer reconcile.
             if (_engine.Store.Project is { } latest && !ReferenceEquals(latest, project))
@@ -703,10 +720,15 @@ public sealed class VideoIoHub : IDisposable
         }
     }
 
+    /// <summary>Wakes the tick (any thread). Under the gate Dispose takes before it lets go of the event, so a wake that races the
+    /// dispose never sets a disposed event.</summary>
     internal void Wake()
     {
-        if (Volatile.Read(ref _disposed) == 0)
-            _wake.Set();
+        lock (_wakeGate)
+        {
+            if (Volatile.Read(ref _disposed) == 0)
+                _wake.Set();
+        }
     }
 
     private void Loop()
@@ -984,7 +1006,8 @@ public sealed class VideoIoHub : IDisposable
             _sends.Clear();
             Volatile.Write(ref _plan, []);
         }
-        _wake.Dispose();
+        lock (_wakeGate)
+            _wake.Dispose();
     }
 }
 

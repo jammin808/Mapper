@@ -41,6 +41,12 @@ public sealed partial class EngineCore
     /// <summary>The hub if it has been made, else null (the render thread asks this, so a frame never makes one).</summary>
     internal VideoIoHub? VideoIoMade => Volatile.Read(ref _videoIo);
 
+    /// <summary>True while this line's document edits go to a blind draft: the hub reads the live project only, so nothing the line
+    /// stages is received or sent until the draft lands, and its answer says so rather than what the live hub has.</summary>
+    private bool EditingBlind => !ReferenceEquals(Edits, Store);
+
+    private const string WhenLanded = "when the blind draft lands";
+
     partial void RouteVideoIo(VerbRoutes routes)
     {
         routes.Lane("INPUT LIST", _ => CommandReply.Success(JsonOut(w => WriteInputs(w, Store.Project))));
@@ -107,6 +113,18 @@ public sealed partial class EngineCore
         });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+        {
+            return CommandReply.Success(JsonOut(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("id", id);
+                w.WriteString("uri", location);
+                w.WriteString("proto", ProtoWord(protocol));
+                w.WriteString("state", "staged");
+                w.WriteEndObject();
+            }), $"staged {name} ({location}) in the blind draft — it is received {WhenLanded}");
+        }
         VideoIo.Reconcile(Store.Project);
         var input = VideoIo.InputOf(id);
         var state = protocol == LiveProtocol.Ffmpeg ? "read by FFmpeg when it plays"
@@ -205,6 +223,9 @@ public sealed partial class EngineCore
             if (!Open(one) && one.Handles <= 0)
                 return CommandReply.Fail($"{one.Item.Name} is cold and nothing shows it — it connects when something does");
         }
+        // A node that has begun to stop starts no receiver (its old ones run until the hub closes them).
+        if (Stopping)
+            return CommandReply.Fail(VideoIoHub.StoppingWords);
         // The old receivers go here, whatever the protocol then says: the journal says what came of it, refused or not.
         var asked = string.Join(", ", targets.Select(t => t.Item.Name));
         targets.RemoveAll(t => !VideoIo.Reconnect(t));
@@ -307,6 +328,8 @@ public sealed partial class EngineCore
         });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+            return CommandReply.Success(effect: $"{item.Name} on loss: {words} — {WhenLanded}");
         VideoIo.Reconcile(Store.Project);
         return CommandReply.Success(effect: $"{item.Name} on loss: {words}");
     }
@@ -348,6 +371,8 @@ public sealed partial class EngineCore
         });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+            return CommandReply.Success(effect: (backup.Length > 0 ? $"{item.Name}'s backup is {backup}" : $"{item.Name} has no backup") + $" — {WhenLanded}");
         VideoIo.Reconcile(Store.Project);
         // The backup it was on is gone: it reads its primary now, which may itself be lost (then the loss policy holds, and a new
         // backup takes over once it delivers).
@@ -496,6 +521,19 @@ public sealed partial class EngineCore
         });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+        {
+            return CommandReply.Success(JsonOut(jw =>
+            {
+                jw.WriteStartObject();
+                jw.WriteString("id", id);
+                jw.WriteString("fullName", "");
+                jw.WriteNumber("w", shape.Width);
+                jw.WriteNumber("h", shape.Height);
+                jw.WriteNumber("estMbps", Math.Round(est));
+                jw.WriteEndObject();
+            }), $"staged {name} from {tap} in the blind draft — it sends {WhenLanded}" + (shapeWords.Length > 0 ? $" ({shapeWords})" : ""));
+        }
         VideoIo.Reconcile(Store.Project);
         var slot = VideoIo.SendOf(id);
         var fullName = slot?.Sink?.FullName ?? "";
@@ -595,6 +633,8 @@ public sealed partial class EngineCore
         var r = Edits.Apply($"{(on ? "start" : "stop")} send {send.Name}", pp => pp with { Sends = pp.Sends.Update(send.Id, s => s with { Enabled = on }) });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+            return CommandReply.Success(effect: $"{send.Name} {(on ? "starts" : "stops")} {WhenLanded}");
         VideoIo.Reconcile(Store.Project);
         var slot = VideoIo.SendOf(send.Id);
         if (on)
@@ -617,6 +657,8 @@ public sealed partial class EngineCore
         var r = Edits.Apply($"remove send {send.Name}", pp => pp with { Sends = pp.Sends.RemoveId(send.Id) });
         if (!r.Changed)
             return FromEdit(r);
+        if (EditingBlind)
+            return CommandReply.Success(effect: $"{send.Name} is removed {WhenLanded}");
         VideoIo.Reconcile(Store.Project);
         return CommandReply.Success(effect: watchers > 0
             ? $"removed {send.Name} — {watchers} receiver{(watchers == 1 ? "" : "s")} lost this picture"

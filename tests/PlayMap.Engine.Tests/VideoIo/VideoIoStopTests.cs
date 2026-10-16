@@ -36,9 +36,11 @@ internal sealed class GreyFrame : SendFrame
     }
 }
 
-/// <summary>Sends as a send stops and as the node stops. A send that stops (SEND ENABLE OFF, SEND REMOVE, the node stopping) sends one
-/// black frame before its sender closes, as a stopped output and the LED rig go dark; one made again under its own name (a new size
-/// or format) hands over with no black between. A render host still drawing while the hub closes under it raises no fault.</summary>
+/// <summary>Sends and receivers as a send stops and as the node stops. A send that stops (SEND ENABLE OFF, SEND REMOVE, the node
+/// stopping) sends one black frame before its sender closes, as a stopped output and the LED rig go dark; one made again under its
+/// own name (a new size or format) hands over with no black between. Once the node has begun to stop no receiver or sender starts:
+/// a consumer gets a handle only on an input already received, the hub reconciles nothing, INPUT RECONNECT says why. A render host
+/// still drawing while the hub closes under it raises no fault.</summary>
 [Collection("render host")]
 public sealed class VideoIoStopTests
 {
@@ -91,6 +93,47 @@ public sealed class VideoIoStopTests
         await rig.Ok($"SEND REMOVE {id}");
         Assert.Equal(2, third.Frames.Count);
         Assert.True(IsUyvyBlack(third.Frames[1]));
+    }
+
+    [Fact]
+    public async Task AStoppingNodeStartsNoReceiverOrSenderAndAReconnectSaysWhy()
+    {
+        var warm = new MediaItem("md_warm", "Warm", MediaKind.Stream, "omt:STUDIO (Warm)", "", 0, MediaInfo.Unknown, []);
+        var cold = new MediaItem("md_cold", "Cold", MediaKind.Stream, "omt:STUDIO (Cold)", "", 0, MediaInfo.Unknown, [])
+        {
+            Live = LiveSettings.Default with { Warm = false },
+        };
+        await using var rig = new VideoIoRig(VideoIoRig.Show() with { Media = [warm, cold] });
+        var hub = rig.Engine.VideoIo;
+        hub.Reconcile(rig.Engine.Store.Project);
+        var received = rig.Omt.Opened.Single();
+        Assert.Equal("STUDIO (Warm)", received.Address);
+        rig.Engine.BeginStop();
+        // A cold input nothing receives yet: no receiver starts for a consumer that comes now.
+        Assert.Null(hub.Open(cold));
+        // A rig camera's feed the hub never had: none either.
+        Assert.Null(hub.Open(new MediaItem("md_rig", "Rig cam", MediaKind.Stream, "omt:STUDIO (Rig)", "", 0, MediaInfo.Unknown, [])));
+        // The warm input already received: a handle on it, and still one receiver.
+        using (var handle = hub.Open(warm))
+            Assert.NotNull(handle);
+        Assert.Single(rig.Omt.Opened);
+        // What a stopping node's project would start is not started: a send and a new warm input.
+        var send = new VideoSend("sd_late", "Late", SendProtocol.Omt, "output:op_1", 0, 0, 0, SendFormat.Auto, true);
+        var late = new MediaItem("md_late", "Late", MediaKind.Stream, "omt:STUDIO (Late)", "", 0, MediaInfo.Unknown, []);
+        Assert.True((await rig.Engine.Lane.RunAsync(() => rig.Engine.Store.Apply("late edits",
+            p => p with { Sends = p.Sends.Add(send), Media = p.Media.Add(late) }))).Changed);
+        hub.Reconcile(rig.Engine.Store.Project);
+        hub.Tick();
+        Assert.Empty(rig.Omt.Sinks);
+        Assert.Single(rig.Omt.Opened);
+        Assert.True(hub.Plan.IsEmpty);
+        // A reconnect that got past the door before the stop began closes nothing and opens nothing.
+        Assert.False(hub.Reconnect(hub.InputOf("md_warm")!));
+        Assert.False(received.Closed);
+        Assert.Single(rig.Omt.Opened);
+        // The node's lines are refused at the door with the node's words.
+        Assert.Equal(EngineCore.StoppingWords, await rig.Refused("INPUT RECONNECT md_warm"));
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "fault");
     }
 
     [Fact]
