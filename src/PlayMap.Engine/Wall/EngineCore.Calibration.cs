@@ -701,7 +701,7 @@ public sealed partial class EngineCore
                 var (score, uncertainty) = CalibrationScoring.ForPins(after, solution, "resolve");
                 solved.Add(new Resolved(pj, after, score, uncertainty, -1, -1, null)
                 {
-                    PriorsUsed = PriorsUsed(pj.Priors),
+                    PriorsUsed = PriorsUsed(longThrow),
                     FocalLocked = longThrow.FocalLocked,
                     LongThrowWords = longThrow.Note,
                 });

@@ -140,22 +140,26 @@ public sealed partial class EngineCore
         return null;
     }
 
-    /// <summary>The priors a solve used, as the replies name them ("throw", "position").</summary>
-    internal static List<string> PriorsUsed(SolvePriors priors, bool focal = true)
+    /// <summary>The priors a solve used, as the replies name them ("throw", "position"): those that shaped it, never those it had
+    /// nothing to weigh against (a lens prior under an operator's focal lock).</summary>
+    internal static List<string> PriorsUsed(bool throwUsed, bool positionUsed)
     {
         var used = new List<string>(2);
-        if (focal && priors.ThrowRatio > 0)
+        if (throwUsed)
             used.Add("throw");
-        if (priors.Position is not null)
+        if (positionUsed)
             used.Add("position");
         return used;
     }
+
+    /// <summary>The priors a long-throw solve used.</summary>
+    internal static List<string> PriorsUsed(LongThrowResult r) => PriorsUsed(r.FocalPriorUsed, r.CentrePriorUsed);
 
     /// <summary>How far a bound pin's world point may be from its control point's (metres).</summary>
     internal const double BoundPinToleranceM = 0.001;
 
     /// <summary>The long-throw part of PROJECTOR SOLVE's reply: the uncertainty, what was locked, which priors were used.</summary>
-    private static void WriteLongThrow(Utf8JsonWriter w, Projector pj, LongThrowResult r)
+    private static void WriteLongThrow(Utf8JsonWriter w, LongThrowResult r)
     {
         w.WritePropertyName("uncertainty");
         if (r.Uncertainty is { } u)
@@ -179,7 +183,7 @@ public sealed partial class EngineCore
             w.WriteStringValue("focal");
         w.WriteEndArray();
         w.WriteStartArray("priorsUsed");
-        foreach (var used in PriorsUsed(pj.Priors))
+        foreach (var used in PriorsUsed(r))
             w.WriteStringValue(used);
         w.WriteEndArray();
     }

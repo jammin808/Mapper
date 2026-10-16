@@ -55,6 +55,13 @@ public sealed record LongThrowResult(PoseSolution Solution, bool FocalLocked, So
 {
     /// <summary>What the long-throw rule says beyond the solve's own words (the lens lock, or the weak direction); "" when nothing.</summary>
     public string Note { get; init; } = "";
+
+    /// <summary>True when the lens prior shaped the solve: as a row, or as the focal the lens locked. An operator's focal lock keeps the
+    /// projector's own focal, so the lens prior has nothing to weigh then.</summary>
+    public bool FocalPriorUsed { get; init; }
+
+    /// <summary>True when the position prior's rows joined the solve.</summary>
+    public bool CentrePriorUsed { get; init; }
 }
 
 /// <summary>Solves a far projector with what the pins cannot tell it. First the pins alone (the position prior as rows); if they
@@ -161,7 +168,12 @@ public static class LongThrowSolve
         else if (u is not null && locked)
             u = u with { Weak = "" };
         var all = words.Length > 0 ? s.Words + "; " + words : s.Words;
-        return new LongThrowResult(s with { Words = all }, locked, u, u?.Weak ?? weak, all, locks) { Note = words };
+        return new LongThrowResult(s with { Words = all }, locked, u, u?.Weak ?? weak, all, locks)
+        {
+            Note = words,
+            FocalPriorUsed = locked || priors.Focal is not null,
+            CentrePriorUsed = priors.Centre is not null,
+        };
     }
 
     private static List<Correspondence> Inliers(PoseSolution s, IReadOnlyList<Correspondence> pairs) =>

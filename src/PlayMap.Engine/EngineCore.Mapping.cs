@@ -70,7 +70,7 @@ public sealed partial class EngineCore
                 w.WriteBooleanValue(i);
             w.WriteEndArray();
             w.WriteString("words", solution.Words);
-            WriteLongThrow(w, pj, longThrow);
+            WriteLongThrow(w, longThrow);
             w.WriteEndObject();
         }), $"{pj.Name}: {solution.Words}{LongThrowWords(longThrow)}{worse} — {score.Words} ({snapshot})");
     }

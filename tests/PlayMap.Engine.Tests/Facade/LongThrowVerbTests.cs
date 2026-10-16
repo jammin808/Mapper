@@ -75,6 +75,23 @@ public sealed class LongThrowVerbTests
     }
 
     [Fact]
+    public async Task AnOperatorsFocalLockUsesNoLensPriorAndTheRepliesSaySo()
+    {
+        await using var rig = new SiteRig(Facade(2));
+        await rig.Ok("PROJECTOR PRIOR pj_far1 THROW 3 ±2");
+        // The operator's lock keeps the projector's own focal: the lens prior has nothing to weigh, and the reply does not claim it.
+        var held = SiteRig.Json(await rig.Ok("PROJECTOR SOLVE pj_far1 LOCK FOCAL SHIFT DISTORTION"));
+        Assert.Equal(0, held.GetProperty("priorsUsed").GetArrayLength());
+        await rig.Ok("PROJECTOR PRIOR pj_far1 AT 0 10 100 ±0.05");
+        held = SiteRig.Json(await rig.Ok("PROJECTOR SOLVE pj_far1 LOCK FOCAL SHIFT DISTORTION"));
+        Assert.Equal(["position"], held.GetProperty("priorsUsed").EnumerateArray().Select(x => x.GetString()));
+        // A re-solve keeps the operator's lock as the solve does, and says the same.
+        var resolve = SiteRig.Json(await rig.Ok("CALIBRATION RESOLVE pj_far1"));
+        Assert.Equal(["position"], resolve.GetProperty("projectors")[0].GetProperty("priorsUsed").EnumerateArray().Select(x => x.GetString()));
+        Assert.NotEqual(3, rig.Engine.Store.Project.FindProjector("pj_far1")!.Intrinsics.ThrowRatio, 6);
+    }
+
+    [Fact]
     public async Task WithoutAPriorTheSolveIsNamedWeak()
     {
         await using var rig = new SiteRig(Facade(0));

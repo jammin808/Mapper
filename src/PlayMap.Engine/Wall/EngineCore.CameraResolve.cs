@@ -180,7 +180,7 @@ public sealed partial class EngineCore
                 solved.Add(new Resolved(pj, after, score, uncertainty, p50, p95, project => ReseatQuads(project, pj.Id, before, newView, world, fallbackDistance))
                 {
                     RunId = CameraRunPrefix + rig.Id,
-                    PriorsUsed = PriorsUsed(pj.Priors, focal: false),
+                    PriorsUsed = PriorsUsed(throwUsed: false, positionUsed: priors.Centre is not null),
                 });
             }
             var patternMs = frames * settings.ResolveFrameMs;
