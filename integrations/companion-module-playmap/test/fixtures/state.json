@@ -167,7 +167,8 @@
     "scans": 0,
     "site": null,
     "controls": 0,
-    "surveys": []
+    "surveys": [],
+    "stacks": []
   },
   "scan": {
     "id": null,

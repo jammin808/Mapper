@@ -561,6 +561,31 @@
       ]
     },
     {
+      "section": "site",
+      "hint": {
+        "title": "Site",
+        "rowKind": "stack",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "SITE GUIDE",
+          "kind": "guide",
+          "label": "NEXT",
+          "parent": "site",
+          "light": "amber",
+          "state": "survey: Import the surveyed model or cloud (E57, LAS, OBJ, PLY, glTF)"
+        }
+      ]
+    },
+    {
       "section": "sting",
       "hint": {
         "title": "Stings",

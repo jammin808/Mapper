@@ -12153,6 +12153,207 @@
     "press": "instant"
   },
   {
+    "name": "SITE GUIDE",
+    "syntax": "SITE GUIDE",
+    "words": "The facade workflow as steps (survey, control points, pins, priors and solve, stacks, blend, score), each with its state and the line that does it",
+    "category": "site",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [
+      "FACADE GUIDE"
+    ],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "SITE GUIDE"
+    ],
+    "available": false,
+    "params": [],
+    "formParams": [
+      []
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "PLAN LIGHT",
+    "syntax": "PLAN LIGHT [\u003Csurface\u003E|ALL] [AMBIENT \u003Clux\u003E] [ALBEDO \u003C0-1\u003E] [TARGET \u003Clux\u003E] [DERATE \u003C0-1\u003E]",
+    "words": "Predicted illuminance, luminance, contrast and pixel pitch per surface from the projectors as placed",
+    "category": "site",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "PLAN LIGHT [\u003Csurface\u003E|ALL] [AMBIENT \u003Clux\u003E] [ALBEDO \u003C0-1\u003E] [TARGET \u003Clux\u003E] [DERATE \u003C0-1\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "surface",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "sf",
+        "alt": "ALL"
+      },
+      {
+        "name": "ambient",
+        "kind": "number",
+        "optional": true,
+        "keyword": "AMBIENT"
+      },
+      {
+        "name": "albedo",
+        "kind": "number",
+        "optional": true,
+        "keyword": "ALBEDO",
+        "min": 0,
+        "max": 1
+      },
+      {
+        "name": "target",
+        "kind": "number",
+        "optional": true,
+        "keyword": "TARGET"
+      },
+      {
+        "name": "derate",
+        "kind": "number",
+        "optional": true,
+        "keyword": "DERATE",
+        "min": 0,
+        "max": 1
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "surface",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "sf",
+          "alt": "ALL"
+        },
+        {
+          "name": "ambient",
+          "kind": "number",
+          "optional": true,
+          "keyword": "AMBIENT"
+        },
+        {
+          "name": "albedo",
+          "kind": "number",
+          "optional": true,
+          "keyword": "ALBEDO",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "name": "target",
+          "kind": "number",
+          "optional": true,
+          "keyword": "TARGET"
+        },
+        {
+          "name": "derate",
+          "kind": "number",
+          "optional": true,
+          "keyword": "DERATE",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "STACK NEW",
+    "syntax": "STACK NEW \u003Cname\u003E \u003Cprojector\u003E \u003Cprojector\u003E [\u003Cprojector\u003E\u2026] [MASTER \u003Cprojector\u003E]",
+    "words": "Groups projectors lighting one picture (the blend treats them as one); answers its id",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "mapping",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "STACK NEW \u003Cname\u003E \u003Cprojector\u003E \u003Cprojector\u003E [\u003Cprojector\u003E\u2026] [MASTER \u003Cprojector\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "name",
+        "kind": "text"
+      },
+      {
+        "name": "projector",
+        "kind": "entity",
+        "prefix": "pj"
+      },
+      {
+        "name": "projector2",
+        "kind": "entity",
+        "prefix": "pj"
+      },
+      {
+        "name": "projector3",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "pj",
+        "repeats": true
+      },
+      {
+        "name": "master",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "pj",
+        "keyword": "MASTER"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "name",
+          "kind": "text"
+        },
+        {
+          "name": "projector",
+          "kind": "entity",
+          "prefix": "pj"
+        },
+        {
+          "name": "projector2",
+          "kind": "entity",
+          "prefix": "pj"
+        },
+        {
+          "name": "projector3",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "pj",
+          "repeats": true
+        },
+        {
+          "name": "master",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "pj",
+          "keyword": "MASTER"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
     "name": "STACK ALIGN",
     "syntax": "STACK ALIGN \u003Cstack\u003E FROM \u003Cscan\u003E [GRID \u003Cc\u003Ex\u003Cr\u003E]",
     "words": "Fits each member\u0027s measured residual to the master\u0027s picture from a shared scan",
@@ -12208,6 +12409,127 @@
           "keyword": "GRID"
         }
       ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "STACK MATCH",
+    "syntax": "STACK MATCH \u003Cstack\u003E FROM \u003Cscan\u003E",
+    "words": "Matches the members\u0027 colour gains from the scan\u0027s white frames",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "mapping",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "STACK MATCH \u003Cstack\u003E FROM \u003Cscan\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "stack",
+        "kind": "entity",
+        "prefix": "sk"
+      },
+      {
+        "name": "from",
+        "kind": "entity",
+        "prefix": "sc",
+        "keyword": "FROM"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "stack",
+          "kind": "entity",
+          "prefix": "sk"
+        },
+        {
+          "name": "from",
+          "kind": "entity",
+          "prefix": "sc",
+          "keyword": "FROM"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "STACK FAILOVER",
+    "syntax": "STACK FAILOVER \u003Cstack\u003E HOLD|MATCH",
+    "words": "What the stack does when a member fails: hold the rest, or dim its blend group to match",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "mapping",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "STACK FAILOVER \u003Cstack\u003E HOLD|MATCH"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "stack",
+        "kind": "entity",
+        "prefix": "sk"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "HOLD",
+          "MATCH"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "stack",
+          "kind": "entity",
+          "prefix": "sk"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "HOLD",
+            "MATCH"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "STACK LIST",
+    "syntax": "STACK LIST",
+    "words": "Stacks with members, residual, gains and degraded members",
+    "category": "mapping",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "STACK LIST"
+    ],
+    "available": false,
+    "params": [],
+    "formParams": [
+      []
     ],
     "press": "instant"
   },
