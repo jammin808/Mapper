@@ -37,7 +37,9 @@ public sealed partial class EngineCore
         var args = line.Words.Skip(used).ToList();
         CommandReply? refused = null;
         ProjectStore? lineStore = null;
-        GateLine(spec, line, session, ref refused, ref lineStore);
+        GateFleet(spec, line, session, ref refused);
+        if (refused is null)
+            GateLine(spec, line, session, ref refused, ref lineStore);
         if (refused is not null)
             return refused;
         _lineStore = lineStore ?? DraftForTests?.Invoke(session);

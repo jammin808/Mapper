@@ -26,6 +26,8 @@ public sealed record HealthFacts
     /// <summary>The primary this node backs up ("" when it backs up none).</summary>
     public string Of { get; init; } = "";
     public long Epoch { get; init; }
+    /// <summary>A backup's mirror of its primary: "joining", "resyncing", "identical", "lost" ("" on a node that mirrors none).</summary>
+    public string Mirror { get; init; } = "";
     public string Build { get; init; } = "";
     public long Rev { get; init; } = -1;
     public ImmutableArray<HealthOutput> Outputs { get; init; } = [];
@@ -46,6 +48,8 @@ public sealed record HealthFacts
     public string SyncRole { get; init; } = "solo";
     /// <summary>The node a follower takes its clock from ("" when it follows none).</summary>
     public string SyncLeader { get; init; } = "";
+    /// <summary>The sync group this node leads or follows ("" when none).</summary>
+    public string SyncGroup { get; init; } = "";
     public double SyncUncertaintyMs { get; init; } = -1;
     public double FreewheelS { get; init; }
     public int DevicesTotal { get; init; }
@@ -298,6 +302,7 @@ public static class HealthJson
         w.WriteString("role", f.Role);
         w.WriteString("of", f.Of);
         w.WriteNumber("epoch", f.Epoch);
+        w.WriteString("mirror", f.Mirror);
         w.WriteString("build", f.Build);
         w.WriteString("light", ShowContext.LightWord(record.Light));
         w.WriteString("headline", record.Headline);
@@ -344,6 +349,7 @@ public static class HealthJson
         w.WriteStartObject("sync");
         w.WriteString("role", f.SyncRole);
         w.WriteString("leader", f.SyncLeader);
+        w.WriteString("group", f.SyncGroup);
         w.WriteNumber("uncertaintyMs", Round(f.SyncUncertaintyMs, 3));
         w.WriteNumber("freewheelS", Round(f.FreewheelS, 1));
         w.WriteEndObject();
@@ -420,6 +426,7 @@ public static class HealthJson
                 Role = Str(r, "role", "solo"),
                 Of = Str(r, "of"),
                 Epoch = (long)Num(r, "epoch", 0),
+                Mirror = Str(r, "mirror"),
                 Build = Str(r, "build"),
                 Rev = (long)Num(r, "rev"),
                 Outputs = outputs.ToImmutable(),
@@ -437,6 +444,7 @@ public static class HealthJson
                 UptimeS = Num(r, "uptimeS"),
                 SyncRole = sync is { } sr ? Str(sr, "role", "solo") : "solo",
                 SyncLeader = sync is { } sl ? Str(sl, "leader") : "",
+                SyncGroup = sync is { } sg ? Str(sg, "group") : "",
                 SyncUncertaintyMs = sync is { } su ? Num(su, "uncertaintyMs") : -1,
                 FreewheelS = sync is { } sf ? Num(sf, "freewheelS", 0) : 0,
                 DevicesTotal = devices is { } dt ? (int)Num(dt, "total", 0) : 0,

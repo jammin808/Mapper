@@ -33,6 +33,7 @@ public sealed partial class EngineCore
         routes.OffLane("FLEET RESET", call => Task.FromResult(call.Args.Count == 0 ? parts.Reset() : CommandReply.Fail("FLEET RESET takes no words after it")));
         routes.Topic("HEALTH", parts.OpenHealth);
         routes.Index(new FleetIndex(this));
+        RouteBackup(routes);
         StateChanged += _ => parts.OnStateMoved();
         if (Services.FleetPeers is { } peers)
         {
@@ -44,30 +45,18 @@ public sealed partial class EngineCore
         }
     }
 
-    partial void TickFleet(long leaderNs) => _fleet?.LaneTick();
+    partial void TickFleet(long leaderNs)
+    {
+        _fleet?.LaneTick();
+        Services.Backup?.Tick(this, leaderNs);
+    }
 
     partial void StateFleet(Utf8JsonWriter w)
     {
         var parts = Fleet;
         var board = Board();
-        var settings = Services.Settings.Fleet;
         w.WriteStartObject("fleet");
-        w.WriteString("role", settings.Role);
-        w.WriteNumber("epoch", settings.Epoch);
-        w.WriteString("state", settings.Role switch { "fenced" => "fenced", "backup" => "mirroring", _ => "serving" });
-        if (settings.Of.Length == 0)
-            w.WriteNull("of");
-        else
-            w.WriteString("of", settings.Of);
-        w.WriteStartArray("backups");
-        w.WriteEndArray();
-        w.WriteNull("mirror");
-        w.WriteStartArray("succession");
-        foreach (var node in Store.Project.Fleet.Succession)
-            w.WriteStringValue(node);
-        w.WriteEndArray();
-        w.WriteNull("alarm");
-        w.WriteNull("last");
+        WriteBackupState(w);
         // The other machines this node hears (this node is STATE itself: its id, name and light are STATE's own).
         w.WriteStartArray("nodes");
         foreach (var m in board.Machines.Where(m => !m.Self))
@@ -87,16 +76,14 @@ public sealed partial class EngineCore
         w.WriteEndArray();
         w.WriteString("light", ShowContext.LightWord(HealthLights.Worst(board.Machines.Select(m => FleetGraph.MachineLight(m).Light))));
         w.WriteString("headline", board.Headline);
+        WriteRoutesState(w);
         w.WriteEndObject();
         var (focus, lens) = parts.View;
         w.WritePropertyName("eye");
         FleetJson.WriteEye(w, board, focus, lens);
     }
 
-    partial void SyncFleet(Utf8JsonWriter w)
-    {
-        // wp2-backup (the fleet's continuation) adds the epoch here.
-    }
+    partial void SyncFleet(Utf8JsonWriter w) => w.WriteNumber("epoch", FleetRole.Epoch);
 
     partial void ContextFleet(List<ContextItem> items, List<ContextLink> links)
     {
@@ -110,6 +97,7 @@ public sealed partial class EngineCore
             health.Light is Light.Red or Light.Amber ? health.Headline : null,
         }.Where(s => s is not null));
         items.Add(new ContextItem("machine", "machine", Services.Settings.Name, health.Light, words));
+        ContextBackup(items, links);
     }
 
     partial void ShapeContext(List<ContextItem> items, List<ContextLink> links) =>
@@ -178,9 +166,11 @@ public sealed partial class EngineCore
             Node = settings.NodeId,
             Name = settings.Name,
             AtUnixMs = s.Wall.UnixMs,
-            Role = settings.Fleet.Role,
-            Of = settings.Fleet.Of,
-            Epoch = settings.Fleet.Epoch,
+            Role = FleetRole.Role,
+            Of = FleetRole.Of,
+            Epoch = FleetRole.Epoch,
+            Mirror = s.Backup?.Mirror()?.State ?? "",
+            SyncGroup = s.GroupSync is { } group && group.Role != "solo" ? group.Settings.Group : "",
             Build = StateWriter.Version,
             Rev = snapshot.Revision,
             Outputs = outputs.ToImmutable(),

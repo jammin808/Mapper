@@ -419,6 +419,9 @@ public sealed partial class EngineCore
 
     private CommandReply MediaFetch(List<string> args, CancellationToken ct)
     {
+        // VERSION: one optimised version by hash, with the peer's proof (wp2-backup).
+        if (FleetFetch(args) is { } version)
+            return version;
         if (args.Count < 1)
             return CommandReply.Fail("MEDIA FETCH <media>|ALL [FROM <node>]");
         string? from = null;

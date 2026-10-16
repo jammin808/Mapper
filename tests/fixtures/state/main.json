@@ -150,7 +150,8 @@
       "rejoins": 0,
       "time": "clock",
       "refused": null
-    }
+    },
+    "epoch": 0
   },
   "links": {
     "patterns": {
@@ -273,7 +274,9 @@
     "last": null,
     "nodes": [],
     "light": "grey",
-    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet"
+    "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",
+    "routes": [],
+    "routeTest": null
   },
   "eye": {
     "headline": "1 machine \u00B7 0 outputs \u00B7 nothing measured yet",

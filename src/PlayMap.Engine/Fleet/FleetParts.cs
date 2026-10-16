@@ -84,10 +84,14 @@ internal sealed class FleetParts
         Hub.Publish(HealthJson.Write(record));
     }
 
-    /// <summary>The lights a watcher is told about at once when they move: the machine's, each category's, each output's.</summary>
+    /// <summary>What a watcher is told about at once when it moves: the machine's light, each category's, each output's, and its place in
+    /// the fleet (role, epoch, mirror, sync role and group — a peer fences itself or finds its new leader by them).</summary>
     internal static string Signature(HealthRecord r)
     {
         var sb = new StringBuilder();
+        var f = r.Facts;
+        sb.Append(f.Role).Append('|').Append(f.Of).Append('|').Append(f.Epoch.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Append('|').Append(f.Mirror).Append('|').Append(f.SyncRole).Append('|').Append(f.SyncGroup).Append('|');
         sb.Append(ShowContext.LightWord(r.Light));
         foreach (var c in r.Categories)
             sb.Append('|').Append(c.Name).Append('=').Append(ShowContext.LightWord(c.Light));

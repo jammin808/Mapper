@@ -307,14 +307,13 @@ public static class VerbCatalog
         V2("FLEET RESET", "FLEET RESET", "The board's view from before the focus", VerbCategory.Fleet, VerbRisk.Low, false, "EYE RESET") with { PairedOnly = true, Ephemeral = true },
 
         // Hot backup, failover, promotion, routes; the mirror between nodes (wp2-backup, fleet's continuation).
-        V2("FLEET BACKUP", "FLEET BACKUP <primary node> [HOT] [TIMEOUT <ms 0-60000>]", "This node becomes a hot backup of a primary: it mirrors the primary's project, air and transports on its own outputs; FAILOVER makes it the primary", VerbCategory.Fleet, VerbRisk.High, true),
+        V2("FLEET BACKUP", "FLEET BACKUP <primary node> [HOT]", "This node becomes a hot backup of a primary: it mirrors the primary's project, air and transports on its own outputs; FAILOVER makes it the primary", VerbCategory.Fleet, VerbRisk.High, true),
         V2("FLEET SOLO", "FLEET SOLO", "This node stops backing up and plays on alone", VerbCategory.Fleet, VerbRisk.High, true),
-        V2("FLEET SUCCESSION", "FLEET SUCCESSION <node> [<node>…] | OFF", "Who leads the sync group, in order, when its leader goes quiet", VerbCategory.Fleet, VerbRisk.Review, true),
         V2("FLEET PROMOTE", "FLEET PROMOTE [<group>]", "This node leads the group now, continuing the old leader's show clock without a step", VerbCategory.Fleet, VerbRisk.High, true) with { Show = ShowClass.Fleet },
-        V2("FAILOVER", "FAILOVER [<primary node>] [HOLD]", "The backup takes the show from its primary and fences the old primary by epoch; HOLD cancels a pending takeover", VerbCategory.Fleet, VerbRisk.High, true) with { Show = ShowClass.Fleet },
+        V2("FAILOVER", "FAILOVER [<primary node>]", "The backup takes the show from its primary and fences the old primary by epoch", VerbCategory.Fleet, VerbRisk.High, true) with { Show = ShowClass.Fleet },
         V2("FAILBACK", "FAILBACK CONFIRM", "Hands the show back to the original primary (a person's press only)", VerbCategory.Fleet, VerbRisk.High, true) with { Show = ShowClass.Fleet },
         V2("FLEET FENCE", "FLEET FENCE <epoch> <node>", "A peer that took the show tells this node: hold the outputs", VerbCategory.Fleet, VerbRisk.High, true) with { Internal = true, Show = ShowClass.Fleet },
-        V2("MIRROR", "MIRROR PROJECT|DELTA|AIR|ANCHOR|FOCUS|BEAT|RESYNC <json>", "A primary's show, line by line, to its backup", VerbCategory.Fleet, VerbRisk.High, true) with { Internal = true, Show = ShowClass.Fleet },
+        V2("MIRROR", "MIRROR HELLO|PROJECT|AIR|HANDBACK <json> | MIRROR ANCHOR <playlist> <json>", "A primary's show, line by line, to its backup", VerbCategory.Fleet, VerbRisk.High, true) with { Internal = true, Show = ShowClass.Fleet },
         V2("FLEET ROUTE", "FLEET ROUTE <output> DEVICE <device> <input> <backup input> | FLEET ROUTE <output> NONE | FLEET ROUTE TEST", "What FAILOVER switches so the audience sees the backup: the projector's input, confirmed by its own answer; TEST reads reachability and the current input", VerbCategory.Fleet, VerbRisk.Review, true),
 
         // Presentation and the frame-lock machine (wp2-output).

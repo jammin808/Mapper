@@ -522,6 +522,28 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         return $"a new pairing token is in this node's settings ({_o.Home.SettingsPath}) and its Network drawer — every paired peer pairs again with it";
     }
 
+    /// <summary>Keeps a change of the node's settings for the next start, as the one writer of its settings file: the edit is made
+    /// to the stored and the running settings under one lock and written, so a later link or token change writes it back with its
+    /// own. Answers "" or the words of a failure (the running settings hold the change either way).</summary>
+    public string PersistSettings(Func<NodeSettings, NodeSettings> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        lock (_settingsGate)
+        {
+            _running = edit(_running);
+            try
+            {
+                _stored = edit(Fresh());
+                _o.Home.SaveSettings(_stored);
+                return "";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return "the node's settings could not be written: " + ex.Message;
+            }
+        }
+    }
+
     public bool Mcp => _web?.ServesMcp ?? false;
 
     public int Clients => _web is { } web ? web.McpSessions + web.WebSockets : 0;
@@ -841,10 +863,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         lock (_settingsGate)
         {
-            _stored = edit(_stored);
             _running = edit(_running);
             try
             {
+                _stored = edit(Fresh());
                 _o.Home.SaveSettings(_stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -853,6 +875,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             }
         }
     }
+
+    /// <summary>The settings as the file holds them now (another part may have kept its own keys since this run began), or the stored
+    /// ones when the file is gone. Under the settings lock.</summary>
+    private NodeSettings Fresh() => File.Exists(_o.Home.SettingsPath) ? _o.Home.LoadSettings(_stored.Name) : _stored;
 
     private void Fault(string part, string words)
     {

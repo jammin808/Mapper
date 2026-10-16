@@ -25,6 +25,7 @@ public sealed class CatalogueTests
         "LED DISCOVER", // wp2-led: discovery is next round
         "MEDIA ESTIMATE", "MEDIA VERSION", // wp2-optimise: estimates and removing a version (with the lossless rewriter) are next round
         "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
+        "FLEET SUCCESSION", // wp2-backup: automatic takeover and succession are next round (FLEET PROMOTE is the press)
     ];
 
     /// <summary>Rows a package added inside its own block for what it ships (PLAN §2.2), beyond SPINE §4.3's.</summary>
