@@ -6460,6 +6460,45 @@
     "press": "instant"
   },
   {
+    "name": "SYNC LATENCY",
+    "syntax": "SYNC LATENCY AUTO|\u003Cms 0-500\u003E",
+    "words": "The group\u0027s air latency (AUTO: the largest output latency any member reports)",
+    "category": "network",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "layout",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "SYNC LATENCY AUTO|\u003Cms 0-500\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "ms",
+        "kind": "number",
+        "min": 0,
+        "max": 500,
+        "alt": "AUTO"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "ms",
+          "kind": "number",
+          "min": 0,
+          "max": 500,
+          "alt": "AUTO"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
     "name": "MEDIA INSPECT",
     "syntax": "MEDIA INSPECT \u003Cmedia\u003E",
     "words": "What a clip is to the decoder: codec and texture, chunks, second stage, MB per frame and per second, HDR reading, odd size, and the lines that fix what is slow",

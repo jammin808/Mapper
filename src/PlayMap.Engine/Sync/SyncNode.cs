@@ -93,6 +93,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private (string Verdict, Light Light, int Heard, bool Mixed) _lastPicture = ("", Light.Grey, -1, false);
     private (bool Slewing, bool Holding, long HoldingS) _lastClock;
     private string _lastLock = "";
+    private double _carriedLatencyMs = double.NaN;
+    private double _groupLatencyMs;
     private LockWish? _lockWish;
     private long _refused;
     private long _watches;
@@ -120,8 +122,19 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             $"{line} on {r.Name}: {r.Stage} at its instant{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage != "refused");
     }
 
+    /// <summary>The feed's key for the group's air latency (<c>ANCHOR &lt;group&gt; @latency {"ms":…}</c>), in place of a playlist id.</summary>
+    public const string LatencyKey = "@latency";
+
+    /// <summary>The largest group air latency a record may carry, ms (an output's input lag is 0–500 ms).</summary>
+    public const double MaxLatencyMs = 500;
+
     /// <summary>The leader's feed of anchors and air lines.</summary>
     public AnchorFeed Feed { get; } = new();
+
+    /// <summary>The group's air latency in force on this node, ms: on a leader the stated one (<c>SYNC LATENCY &lt;ms&gt;</c>) or, AUTO,
+    /// the largest output latency any output of the group reports to its board (its own included); on a follower its leader's, as
+    /// the feed carried it; 0 in no group. The node's air latency is raised to it through the output seam, never lowered.</summary>
+    public double GroupLatencyMs => Volatile.Read(ref _groupLatencyMs);
 
     /// <summary>The leader's board of vblank reports.</summary>
     public SyncBoard Board { get; } = new();
@@ -215,6 +228,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             // The group's latest lines start again: every synced playlist's anchor as it is now (a member that joins after a GO is
             // put on the playing item), no air or lock from before.
             Feed.Forget();
+            // The lock and the latency are carried again on the next watch, as the latest for members that join from now on.
+            _lastLock = "";
+            _carriedLatencyMs = double.NaN;
             _engine?.PublishAnchors(Feed);
             var kept = Persist(s => s with { Role = "lead", Group = group, Leader = "" });
             _words = $"leading {group}";
@@ -466,7 +482,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             if (!ReferenceEquals(_lines, lines))
                 return;
             // The air and the lock are the followed group's; any other '@' key is a line this node does not know.
-            if (key.StartsWith('@') && (!string.Equals(group, _settings.Group, StringComparison.Ordinal) || key is not (AnchorFeed.Air or LockRecord.Key)))
+            if (key.StartsWith('@') && (!string.Equals(group, _settings.Group, StringComparison.Ordinal) || key is not (AnchorFeed.Air or LockRecord.Key or LatencyKey)))
             {
                 _log.LogDebug("A feed line for {Group} {Key} is not this node's to take.", group, key);
                 continue;
@@ -477,6 +493,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                     await RunAirAsync(json, link).ConfigureAwait(false);
                 else if (key == LockRecord.Key)
                     await TakeLockAsync(json).ConfigureAwait(false);
+                else if (key == LatencyKey)
+                    TakeLatency(json);
                 else
                     await AdoptAsync(group, key, json).ConfigureAwait(false);
             }
@@ -485,6 +503,66 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 // One line that faults is that line's; the feed goes on with the next.
                 _log.LogWarning(ex, "A line from the leader's feed faulted: {Key}", key);
             }
+        }
+    }
+
+    /// <summary>The leader's group air latency, taken here: this node's outputs show each frame for that instant. A record that is not one
+    /// whole is not taken (fail closed).</summary>
+    private void TakeLatency(string json)
+    {
+        if (!TryReadLatency(json, out var ms))
+        {
+            _log.LogDebug("A latency record from the leader does not read: {Json}", json);
+            return;
+        }
+        if (ms != GroupLatencyMs)
+            _engine?.Journal.Add("sync", string.Create(CultureInfo.InvariantCulture,
+                $"the group's air latency is {ms:0.###} ms ({LeaderLabel}'s): this node's outputs show each frame for that instant"));
+        SetGroupLatency(ms);
+    }
+
+    /// <summary>The group's air latency in force here, written through to this node's outputs.</summary>
+    private void SetGroupLatency(double ms)
+    {
+        var was = Volatile.Read(ref _groupLatencyMs);
+        Volatile.Write(ref _groupLatencyMs, ms);
+        _engine?.SetGroupAirLatency(ms);
+        if (was != ms)
+            _engine?.FactsChanged();
+    }
+
+    /// <summary>The group's air latency a leader carries: the project's stated one (<c>SYNC LATENCY &lt;ms&gt;</c>), or AUTO (−1) the largest
+    /// output latency its board heard, its own outputs included.</summary>
+    public static double GroupLatencyOf(Project project, SyncPicture picture)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(picture);
+        var stated = project.Settings.SyncLatencyMs;
+        var ms = stated >= 0 ? stated : picture.GroupLatencyMs;
+        return double.IsFinite(ms) ? Math.Clamp(ms, 0, MaxLatencyMs) : 0;
+    }
+
+    /// <summary>A latency record: <c>{"ms":…}</c>, rounded to the microsecond.</summary>
+    public static string LatencyJson(double ms) =>
+        "{\"ms\":" + Math.Round(ms, 3).ToString("0.###", CultureInfo.InvariantCulture) + "}";
+
+    /// <summary>Reads a latency record; false for anything that is not one whole, or a latency outside 0–500 ms (fail closed).</summary>
+    public static bool TryReadLatency(string json, out double ms)
+    {
+        ms = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("ms", out var v) || v.ValueKind != JsonValueKind.Number
+                || !v.TryGetDouble(out var read) || !double.IsFinite(read) || read is < 0 or > MaxLatencyMs)
+                return false;
+            ms = read;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -722,6 +800,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                         Feed.Publish(_settings.Group, LockRecord.Key, lockJson);
                     }
                     var p = Picture(engine.IsAnimating);
+                    // The group's air latency to the members (and to each that joins, as the latest) and to this node's own outputs.
+                    if (_settings.Group.Length > 0)
+                        CarryLatency(engine, GroupLatencyOf(engine.Snapshot.Project.Project, p));
                     var shape = (p.Verdict, p.Light, p.Outputs.Count(o => o.Heard), p.MixedRate);
                     if (shape != _lastPicture)
                     {
@@ -738,6 +819,23 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 _log.LogWarning(ex, "The sync watch faulted.");
             }
         }
+    }
+
+    /// <summary>A leader's group air latency, carried when it moved: to every member on the feed, and to this node's own outputs.</summary>
+    private void CarryLatency(EngineCore engine, double ms)
+    {
+        ms = Math.Round(ms, 3);
+        if (ms == _carriedLatencyMs)
+            return;
+        var first = double.IsNaN(_carriedLatencyMs);
+        _carriedLatencyMs = ms;
+        // No latency is what a member has before any record: a lead carries 0 only when it moves there from a value it carried.
+        if (!first || ms != 0)
+            Feed.Publish(_settings.Group, LatencyKey, LatencyJson(ms));
+        if (!first || ms != GroupLatencyMs)
+            engine.Journal.Add("sync", string.Create(CultureInfo.InvariantCulture,
+                $"the group's air latency is {ms:0.###} ms ({(engine.Snapshot.Project.Project.Settings.SyncLatencyMs >= 0 ? "SYNC LATENCY" : "the largest output latency heard")}): every member's outputs show each frame for that instant"));
+        SetGroupLatency(ms);
     }
 
     /// <summary>Each output's report once a period and at once on a change of its lock state: to the leader's board here, or to the
@@ -893,6 +991,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         }
         Volatile.Write(ref _lockWish, null);
         _holdNoted = false;
+        // A leader's latency was its group's: this node's outputs no longer wait for it (a lead carries its own on its next watch).
+        SetGroupLatency(0);
     }
 
     /// <summary>The role kept in the settings, entered again at start: a lead binds at once; a follow waits until its leader is heard

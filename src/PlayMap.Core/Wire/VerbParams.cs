@@ -114,6 +114,7 @@ public static class VerbParams
                 ],
             ],
             ["BLACKOUT"] = [[new VerbParam("state", ParamKind.Enum) { Values = ["ON", "OFF", "TOGGLE"] }]],
+            ["SYNC LATENCY"] = [[new VerbParam("ms", ParamKind.Number) { Min = 0, Max = 500, Alt = "AUTO" }]],
             ["THUMB"] =
             [
                 [

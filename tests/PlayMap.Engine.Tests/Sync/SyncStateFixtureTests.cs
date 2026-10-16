@@ -29,8 +29,8 @@ public sealed class SyncStateFixtureTests
             ["light"] = new JsonArray(Rule("if", "freewheelS", "red"), new JsonObject { ["light"] = "grey" }),
             ["words"] = "{role} · {group} · {verdict} — {words}",
             ["fields"] = new JsonArray(Field("Role", "role"), Field("Group", "group"), Field("Leader", "leader"), Field("Feed", "feed"),
-                Field("Verdict", "verdict"), Field("Steps", "steps")),
-            ["actions"] = new JsonArray("SYNC STATUS", "SYNC LEAD show", "SYNC FOLLOW show 0badc0de"),
+                Field("Verdict", "verdict"), Field("Steps", "steps"), Field("Group air latency (ms)", "groupLatencyMs")),
+            ["actions"] = new JsonArray("SYNC STATUS", "SYNC LEAD show", "SYNC FOLLOW show 0badc0de", "SYNC LATENCY AUTO"),
         },
         new JsonObject
         {
@@ -101,7 +101,7 @@ public sealed class SyncStateFixtureTests
         Assert.Equal("free-running", sync["verdict"]!.GetValue<string>());
         // Today's keys, then only SPINE §9's sync keys in their order (wp2-sync's, then wp2-output's, then wp2-backup's epoch).
         Assert.Equal(["role", "leader", "offsetMs", "rttMs", "driftPpm", "groups", "group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs",
-            "verdict", "words", "latencyMs", "lock", "epoch"], sync.Select(kv => kv.Key));
+            "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch"], sync.Select(kv => kv.Key));
         var fixture = new JsonObject { ["sync"] = sync }.ToJsonString(Indented) + "\n";
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
