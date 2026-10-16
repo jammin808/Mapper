@@ -40,7 +40,7 @@ FAILBACK"; "FOH-A is not identical to FOH-B yet (its mirror is resyncing) — FA
 
 On a backup a client's line that would change the show is refused "FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to
 make this node the show"; on a fenced node "fenced: FOH-B has the show (epoch 8) — FLEET BACKUP FOH-B to mirror it". Queries, panic,
-Show Mode, the node's administration (credentials, pairing) and the fleet's verbs stay; `FLEET ROUTE` (except TEST) is the show's plan,
+Show Mode, the node's administration (credentials, pairing), `MEDIA FETCH` and the fleet's verbs stay; `FLEET ROUTE` (except TEST) is the show's plan,
 edited on the primary.
 
 ## Replies
@@ -60,8 +60,10 @@ edited on the primary.
 `/mirror` is a web module admitted before the token gate on its own credential: `GET /mirror/project` (the show as compact JSON, its
 revision in `X-PlayMap-Rev`) and `GET /mirror/media/<sha256>` (a verified file, ranged). Each request carries `X-PlayMap-Nonce`
 (`<unix ms>-<32 hex>`) and `X-PlayMap-Proof` (lowercase hex HMAC-SHA256 of the node's normalised token over the nonce and
-`"GET /mirror/…"`, as AUTH-PROOF's scheme); the node takes a nonce once and only within a minute of its wall clock. A header token is not
-a proof. An address the node trusts, or a node that asks no token, needs none. From another machine only HTTPS is let in. Only GET and
+`"GET https /mirror/…"` — the method, the scheme and the path — as AUTH-PROOF's scheme); the node takes a nonce once and only within a minute of its wall clock. A header token is not
+a proof. From an address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules).
+From another machine only HTTPS is let in; the backup sends no pull in clear to another machine and none to a node whose hello drops a
+pinned certificate. Every nonce is remembered for two minutes; a node that holds 8 192 of them refuses more pulls until some expire. Only GET and
 HEAD.
 
 ## STATE
@@ -78,7 +80,9 @@ state on a backup), `of` (the primary a backup mirrors, the node a primary took 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
 
 The context: a backup or a fenced node adds `mirror:<primary>` (kind `mirror`; the machine **mirrors** it); a follower whose leader is
-silent adds `fleet:leader`, red, "leader gone — FLEET PROMOTE on the node that should lead".
+silent adds `fleet:leader`, red, "leader gone — FLEET PROMOTE on the node that should lead" (on a hot backup: "primary gone — FAILOVER on
+this backup to take its show"). A fence is taken only from a node that joined this node's mirror (kept in `NodeSettings.Fleet.backups`)
+and is heard over its pinned certificate.
 
 ## Preflight and INDEX
 

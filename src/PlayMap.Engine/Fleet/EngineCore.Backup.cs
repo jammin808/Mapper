@@ -357,8 +357,10 @@ public sealed partial class EngineCore
     {
         if (Services.GroupSync is { Role: "follower" } sync && Services.Clock.IsHolding)
         {
+            // A hot backup takes its silent primary's show with FAILOVER; any other follower's group needs a new leader.
             items.Add(new ContextItem("fleet:leader", "fleet", "Leader " + sync.Settings.Group, Light.Red,
-                "leader gone — FLEET PROMOTE on the node that should lead"));
+                FleetRole.Role == FleetRoles.Backup ? $"primary gone — FAILOVER on this backup to take its show"
+                    : "leader gone — FLEET PROMOTE on the node that should lead"));
             if (items.Exists(i => i.Id == "machine"))
                 links.Add(new ContextLink("machine", "fleet:leader", ContextLinkKinds.Follows, Light.Red));
         }

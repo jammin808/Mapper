@@ -94,6 +94,9 @@ public sealed class BackupTests
         Assert.Equal(1, backup.State().GetProperty("sync").GetProperty("epoch").GetInt64());
         Assert.Equal("takeover", BackupRig.Fleet(backup).GetProperty("last").GetProperty("kind").GetString());
         Assert.Contains("epoch 1 committed", BackupRig.Fleet(backup).GetProperty("last").GetProperty("words").GetString(), StringComparison.Ordinal);
+        // The backup was in the primary's panic black: it stays black on the air it now serves.
+        Assert.Equal(JsonValueKind.Object, Air(backup).GetProperty("panic").ValueKind);
+        Assert.Equal(0f, backup.Engine.AirLevelsNow!.Gain("op_1", backup.Engine.LeaderNowNs + 3 * Second));
         Assert.True((await backup.RunAsync("SET op_1 name \"Taken\"")).Ok);   // editing goes on on the new primary
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary) + "\n" + primary.Journal());
         Assert.Equal(1, BackupRig.Fleet(primary).GetProperty("epoch").GetInt64());
@@ -137,20 +140,24 @@ public sealed class BackupTests
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await http.SendAsync(withToken)).StatusCode);
         // A proof of another token, and a proof replayed, are refused; a fresh proof of this node's token is let in.
         var nonce = PullProof.NewNonce(primary.Engine.Services.Wall.UnixMs);
-        using var wrong = Signed(nonce, PullProof.Sign("AAAA-BBBB-CCCC", nonce, "GET", MirrorWebModule.ProjectPath));
+        using var wrong = Signed(nonce, PullProof.Sign("AAAA-BBBB-CCCC", nonce, "GET", "http", MirrorWebModule.ProjectPath));
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await http.SendAsync(wrong)).StatusCode);
         var fresh = PullProof.NewNonce(primary.Engine.Services.Wall.UnixMs);
-        using var right = Signed(fresh, PullProof.Sign(HostRig.Token, fresh, "GET", MirrorWebModule.ProjectPath));
+        using var right = Signed(fresh, PullProof.Sign(HostRig.Token, fresh, "GET", "http", MirrorWebModule.ProjectPath));
         var ok = await http.SendAsync(right);
         Assert.True(ok.IsSuccessStatusCode, await ok.Content.ReadAsStringAsync());
         Assert.Equal(primary.Engine.Store.Current.Revision.ToString(CultureInfo.InvariantCulture), ok.Headers.GetValues("X-PlayMap-Rev").Single());
-        using var replay = Signed(fresh, PullProof.Sign(HostRig.Token, fresh, "GET", MirrorWebModule.ProjectPath));
+        using var replay = Signed(fresh, PullProof.Sign(HostRig.Token, fresh, "GET", "http", MirrorWebModule.ProjectPath));
         var replayed = await http.SendAsync(replay);
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, replayed.StatusCode);
         Assert.Contains("used already", await replayed.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        // A proof made for HTTPS is refused over plain HTTP (a request signed for one connection cannot be relayed to the other).
+        var other = PullProof.NewNonce(primary.Engine.Services.Wall.UnixMs);
+        using var relayed = Signed(other, PullProof.Sign(HostRig.Token, other, "GET", "https", MirrorWebModule.ProjectPath));
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await http.SendAsync(relayed)).StatusCode);
         // A nonce from another minute is refused.
         var old = PullProof.NewNonce(primary.Engine.Services.Wall.UnixMs - 5 * 60_000);
-        using var stale = Signed(old, PullProof.Sign(HostRig.Token, old, "GET", MirrorWebModule.ProjectPath));
+        using var stale = Signed(old, PullProof.Sign(HostRig.Token, old, "GET", "http", MirrorWebModule.ProjectPath));
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await http.SendAsync(stale)).StatusCode);
         Assert.Equal(1, Mirror(primary).Proved);
 

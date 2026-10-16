@@ -33,14 +33,18 @@ public sealed class BackupRulesTests
 
     [Theory]
     [InlineData("primary", 7, "primary", "0badc0de", 8, true)]    // the backup took this node's show under a higher epoch
-    [InlineData("solo", 0, "primary", "0badc0de", 1, true)]       // a primary restarted solo hears it too
+    [InlineData("solo", 0, "primary", "0badc0de", 1, false)]      // a solo node holds no show a backup mirrored
     [InlineData("primary", 8, "primary", "0badc0de", 8, false)]   // the same epoch is not higher
     [InlineData("primary", 7, "primary", "c0ffee00", 9, false)]   // it took another node's show
     [InlineData("primary", 7, "backup", "0badc0de", 9, false)]    // a backup holds no show
     [InlineData("fenced", 7, "primary", "0badc0de", 9, false)]    // fenced already
     [InlineData("backup", 7, "primary", "0badc0de", 9, false)]    // a backup is fenced by nothing
-    public void ANodeIsFencedOnlyByThePrimaryThatTookItsShowUnderAHigherEpoch(string role, long epoch, string peerRole, string peerOf, long peerEpoch, bool fenced) =>
-        Assert.Equal(fenced, Takeover.FencedBy("0badc0de", role, epoch, peerRole, peerOf, peerEpoch));
+    public void ANodeIsFencedOnlyByThePrimaryThatTookItsShowUnderAHigherEpoch(string role, long epoch, string peerRole, string peerOf, long peerEpoch, bool fenced)
+    {
+        Assert.Equal(fenced, Takeover.FencedBy("0badc0de", role, epoch, peerRole, peerOf, peerEpoch, peerKnown: true));
+        // A machine that never joined this node's mirror (or is not heard over its pinned certificate) fences nothing, whatever it says.
+        Assert.False(Takeover.FencedBy("0badc0de", role, epoch, peerRole, peerOf, peerEpoch, peerKnown: false));
+    }
 
     [Fact]
     public void AFollowerRetargetsOnlyToTheGroupsNewLeaderUnderAHigherEpoch()
@@ -67,6 +71,7 @@ public sealed class BackupRulesTests
             Assert.Null(Refused("STATE", "wire", role));
             Assert.Null(Refused("PANIC", "desk", role));
             Assert.Null(Refused("SHOW ARM", "desk", role));
+            Assert.Null(Refused("MEDIA FETCH md1 VERSION mv_1", "desk", role));   // the fix line its preflight names
             Assert.Null(Refused("FAILOVER", "desk", role));
             Assert.Null(Refused("FLEET SOLO", "desk", role));
             Assert.Null(Refused("FLEET BACKUP 0badc0de", "desk", role));
@@ -85,13 +90,14 @@ public sealed class BackupRulesTests
         var nonce = PullProof.NewNonce(1_760_000_000_000);
         Assert.True(PullProof.TryTime(nonce, out var at));
         Assert.Equal(1_760_000_000_000, at);
-        var proof = PullProof.Sign("K7QM-3XWD-P9RA", nonce, "GET", "/mirror/project");
+        var proof = PullProof.Sign("K7QM-3XWD-P9RA", nonce, "GET", "https", "/mirror/project");
         Assert.Equal(64, proof.Length);
         Assert.DoesNotContain("K7QM", proof, StringComparison.OrdinalIgnoreCase);
-        Assert.True(PullProof.Verify("K7QM3XWDP9RA", nonce, "get", "/mirror/project", proof));
-        Assert.False(PullProof.Verify("K7QM-3XWD-P9RB", nonce, "GET", "/mirror/project", proof));          // another token
-        Assert.False(PullProof.Verify("K7QM-3XWD-P9RA", nonce, "GET", "/mirror/media/ab", proof));        // another request
-        Assert.False(PullProof.Verify("K7QM-3XWD-P9RA", PullProof.NewNonce(1), "GET", "/mirror/project", proof)); // another nonce
+        Assert.True(PullProof.Verify("K7QM3XWDP9RA", nonce, "get", "HTTPS", "/mirror/project", proof));
+        Assert.False(PullProof.Verify("K7QM-3XWD-P9RA", nonce, "GET", "http", "/mirror/project", proof));            // relayed to another scheme
+        Assert.False(PullProof.Verify("K7QM-3XWD-P9RB", nonce, "GET", "https", "/mirror/project", proof));          // another token
+        Assert.False(PullProof.Verify("K7QM-3XWD-P9RA", nonce, "GET", "https", "/mirror/media/ab", proof));        // another request
+        Assert.False(PullProof.Verify("K7QM-3XWD-P9RA", PullProof.NewNonce(1), "GET", "https", "/mirror/project", proof)); // another nonce
         Assert.False(PullProof.TryTime("12-xyz", out _));
         Assert.False(PullProof.TryTime(null, out _));
         Assert.False(PullProof.TryTime("abc-" + new string('0', 32), out _));

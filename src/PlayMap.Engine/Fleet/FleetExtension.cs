@@ -117,7 +117,18 @@ public sealed class FleetExtension : IEngineExtension
 
     public async ValueTask DisposeAsync()
     {
-        await _backup.DisposeAsync();
+        try
+        {
+            await _backup.DisposeAsync();
+        }
+        finally
+        {
+            await CloseFleetAsync();
+        }
+    }
+
+    private async Task CloseFleetAsync()
+    {
         if (_engine is { } engine)
             await engine.Fleet.StopAsync();
         if (_monitor is not null)

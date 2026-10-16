@@ -66,10 +66,13 @@ internal sealed class BackupPreflight : IPreflightCheck
             }
             else
             {
-                foreach (var r in project.Fleet.Routes)
+                // Every projector asked at once (2 s each at most), within the section's budget.
+                var routes = project.Fleet.Routes;
+                var read = await Task.WhenAll(routes.Select(r => EngineCore.RouteReadAsync(devices, r, project.FindDevice(r.DeviceId)?.Name ?? r.DeviceId))).ConfigureAwait(false);
+                for (var i = 0; i < routes.Length; i++)
                 {
-                    var name = project.FindDevice(r.DeviceId)?.Name ?? r.DeviceId;
-                    var words = await EngineCore.RouteReadAsync(devices, r, name).ConfigureAwait(false);
+                    var r = routes[i];
+                    var words = read[i];
                     var reached = words.EndsWith("· reachable", StringComparison.Ordinal);
                     rows.Add(new PreflightRow("route:" + r.OutputId, node, Section, "Route " + (project.FindOutput(r.OutputId)?.Name ?? r.OutputId),
                         reached ? Light.Green : Light.Red, reached ? "reachable" : "unreachable", words, reached ? null : "FLEET ROUTE TEST"));

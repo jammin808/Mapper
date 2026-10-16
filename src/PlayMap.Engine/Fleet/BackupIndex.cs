@@ -27,11 +27,14 @@ internal sealed class BackupIndex(EngineCore engine) : IIndexContributor
             if (role.Role == FleetRoles.Backup)
             {
                 var state = backup.Mirror()?.State ?? "joining";
-                Row(w, "FAILOVER", "takeover", "FAILOVER", state switch { "identical" => "green", "lost" => "red", _ => "amber" }, state);
+                // A primary gone silent turns the key red with its words, whatever the mirror said last.
+                var gone = engine.Services.Clock.IsHolding;
+                Row(w, "FAILOVER", "takeover", "FAILOVER", gone ? "red" : state switch { "identical" => "green", "lost" => "red", _ => "amber" },
+                    gone ? "primary gone" : state);
             }
             if (role.Role == FleetRoles.Primary && role.Of.Length > 0)
                 Row(w, "FAILBACK CONFIRM", "takeover", "FAILBACK", backup.Feed.Members.Any(m => m.Node == role.Of) ? "green" : "grey", "to " + role.Of);
-            if (engine.Services.GroupSync is { Role: "follower" } sync)
+            if (engine.Services.GroupSync is { Role: "follower" } sync && role.Role != FleetRoles.Backup)
                 Row(w, "FLEET PROMOTE", "takeover", "PROMOTE", engine.Services.Clock.IsHolding ? "red" : "grey",
                     engine.Services.Clock.IsHolding ? "leader gone" : "following " + sync.Settings.Leader);
             foreach (var m in backup.Feed.Members)

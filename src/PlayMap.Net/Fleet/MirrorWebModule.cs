@@ -9,9 +9,9 @@ namespace PlayMap.Net.Fleet;
 
 /// <summary><c>/mirror</c>: what a hot backup pulls from its primary — <c>GET /mirror/project</c> (the show as compact JSON, its
 /// revision in <c>X-PlayMap-Rev</c>) and <c>GET /mirror/media/&lt;sha256&gt;</c> (a file this node holds verified, by its content hash,
-/// in ranges). Each request carries the pairing proof of <see cref="PullProof"/> (the token's HMAC over a fresh nonce and the request,
-/// never the token), checked here in fixed time with each nonce taken once within a minute of this node's clock; an address the
-/// node trusts, or a node that asks no token, needs none. From another machine a pull must come over HTTPS (the peer pins this
+/// in ranges). Each request carries the pairing proof of <see cref="PullProof"/> (the token's HMAC over a fresh nonce, the scheme and
+/// the request, never the token), checked here in fixed time with each nonce taken once within a minute of this node's clock; from an
+/// address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules included). From another machine a pull must come over HTTPS (the peer pins this
 /// node's certificate by the hello's fingerprint). Only GET and HEAD.</summary>
 public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<string, string?> fileForHash, Func<long> unixMs) : IWebModule
 {
@@ -51,8 +51,12 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
             return Refuse(out words, "the mirror's pulls are read-only: GET only");
         if (!request.IsHttps && !NetAddress.IsLoopback(from))
             return Refuse(out words, "a mirror pull from another machine comes over HTTPS (pinned by this node's hello fingerprint), never in clear");
+        // With no proof to check, the node's own gate decides (its Origin, host and token rules), as for any route.
         if (!NetAddress.TokenNeeded(settings) || NetAddress.IsTrusted(from, settings))
-            return Admitted(request, out words);
+        {
+            words = "";
+            return WebAdmission.Defer;
+        }
         var nonce = request.Headers[PullProof.NonceHeader].ToString();
         var proof = request.Headers[PullProof.ProofHeader].ToString();
         if (nonce.Length == 0 || proof.Length == 0)
@@ -60,10 +64,15 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
         if (!PullProof.TryTime(nonce, out var at) || Math.Abs(unixMs() - at) > PullProof.WindowMs)
             return Refuse(out words, "the pull's nonce is not from now (the two machines' clocks are more than a minute apart, or the nonce is not one)");
         var path = request.Path.Value ?? "";
-        if (!PullProof.Verify(settings.Token, nonce, request.Method, path, proof))
+        if (!PullProof.Verify(settings.Token, nonce, request.Method, request.IsHttps ? "https" : "http", path, proof))
             return Refuse(out words, "the pull's proof is not of this node's pairing token");
-        if (!TakeOnce(nonce, at))
-            return Refuse(out words, "that nonce was used already: each pull proves itself afresh");
+        switch (TakeOnce(nonce))
+        {
+            case false:
+                return Refuse(out words, "that nonce was used already: each pull proves itself afresh");
+            case null:
+                return Refuse(out words, "too many pulls within the minute: this node remembers each one's nonce, and it is full — pull again shortly");
+        }
         Interlocked.Increment(ref _proved);
         return Admitted(request, out words);
     }
@@ -83,17 +92,22 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
         return WebAdmission.Refuse;
     }
 
-    /// <summary>True the first time a nonce is seen (kept until it leaves the window, or the oldest of too many goes).</summary>
-    private bool TakeOnce(string nonce, long at)
+    /// <summary>True the first time a nonce is seen, false when it was seen, null when every remembered nonce is still inside the
+    /// window (a nonce is forgotten only once it is too old to be taken again, so a replay is never let in by forgetting).</summary>
+    private bool? TakeOnce(string nonce)
     {
         lock (_gate)
         {
             var now = unixMs();
-            while (_order.Count > 0 && (_order.Count >= NoncesKept || now - _order.Peek().AtMs > 2 * PullProof.WindowMs))
+            while (_order.Count > 0 && now - _order.Peek().AtMs > 2 * PullProof.WindowMs)
                 _seen.Remove(_order.Dequeue().Nonce);
-            if (!_seen.Add(nonce))
+            if (_seen.Contains(nonce))
                 return false;
-            _order.Enqueue((nonce, at));
+            if (_seen.Count >= NoncesKept)
+                return null;
+            _seen.Add(nonce);
+            // Kept by arrival, for twice the window: a nonce up to a minute ahead of this clock is still remembered when it expires.
+            _order.Enqueue((nonce, now));
             return true;
         }
     }

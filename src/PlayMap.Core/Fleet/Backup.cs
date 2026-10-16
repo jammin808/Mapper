@@ -31,11 +31,14 @@ public static class Takeover
         return max + 1;
     }
 
-    /// <summary>True when a node that holds the show (primary, or a solo node a backup mirrored) hears a peer that took the show from
+    /// <summary>True when a primary hears a peer that took the show from
     /// it under a higher epoch: the peer is a primary, names this node as the one it took over from, and its epoch is above this
     /// node's. Two nodes can then never both serve one show for longer than it takes the higher epoch to be heard.</summary>
-    public static bool FencedBy(string selfId, string selfRole, long selfEpoch, string peerRole, string peerOf, long peerEpoch) =>
-        selfRole is FleetRoles.Primary or FleetRoles.Solo
+    /// <param name="peerKnown">The peer joined this node's mirror as a backup (proved by its token) and is heard over its pinned
+    /// certificate: a word in HEALTH from any other machine fences nothing.</param>
+    public static bool FencedBy(string selfId, string selfRole, long selfEpoch, string peerRole, string peerOf, long peerEpoch, bool peerKnown) =>
+        peerKnown
+        && selfRole == FleetRoles.Primary
         && peerRole == FleetRoles.Primary
         && string.Equals(peerOf, selfId, StringComparison.Ordinal)
         && peerEpoch > selfEpoch;
@@ -71,14 +74,15 @@ public static class BackupGate
         // A route is part of the show's plan, edited where the show is; its TEST reads and switches nothing.
         if (spec.Name == "FLEET ROUTE")
             return line.Words.Skip(2).FirstOrDefault()?.Equals("TEST", StringComparison.OrdinalIgnoreCase) == true ? null : words;
-        if (spec.Category == VerbCategory.Fleet)
+        // The fleet's own verbs, and a fetch of a file by its hash (it edits no show: the mirror's missing file is fetched this way).
+        if (spec.Category == VerbCategory.Fleet || spec.Name == "MEDIA FETCH")
             return null;
         return Kept.Contains(ShowPolicy.ClassOf(spec, line)) ? null : words;
     }
 }
 
 /// <summary>The proof a peer's pull carries over HTTP(S) (fleet.md §3.3): the HMAC of the node's pairing token over a fresh nonce and
-/// the request ("GET /mirror/project"), in the same scheme as the wire's AUTH-PROOF, so the token itself never crosses the network.
+/// the request ("GET https /mirror/project"), in the same scheme as the wire's AUTH-PROOF, so the token itself never crosses the network.
 /// The nonce is "&lt;unix ms&gt;-&lt;32 hex&gt;": the server takes it once, within <see cref="WindowMs"/> of its own wall clock.</summary>
 public static class PullProof
 {
@@ -90,11 +94,13 @@ public static class PullProof
 
     public static string NewNonce(long unixMs) => unixMs.ToString(CultureInfo.InvariantCulture) + "-" + Pairing.NewNonce();
 
-    public static string Sign(string token, string nonce, string method, string path) =>
-        Pairing.Proof(token, nonce, Message(method, path));
+    /// <param name="scheme">"https" or "http": a proof made for one is refused on the other, so a request signed for a plain
+    /// connection (to whoever answered it) cannot be relayed to the node over HTTPS.</param>
+    public static string Sign(string token, string nonce, string method, string scheme, string path) =>
+        Pairing.Proof(token, nonce, Message(method, scheme, path));
 
-    public static bool Verify(string token, string nonce, string method, string path, string? proof) =>
-        Pairing.Verify(token, nonce, Message(method, path), proof);
+    public static bool Verify(string token, string nonce, string method, string scheme, string path, string? proof) =>
+        Pairing.Verify(token, nonce, Message(method, scheme, path), proof);
 
     /// <summary>The nonce's time, when it is a nonce of this form.</summary>
     public static bool TryTime(string? nonce, out long unixMs)
@@ -108,7 +114,8 @@ public static class PullProof
             && long.TryParse(nonce.AsSpan(0, dash), NumberStyles.None, CultureInfo.InvariantCulture, out unixMs);
     }
 
-    private static string Message(string method, string path) => method.ToUpperInvariant() + " " + path;
+    private static string Message(string method, string scheme, string path) =>
+        method.ToUpperInvariant() + " " + scheme.ToLowerInvariant() + " " + path;
 
     private static bool ContainsOnlyHexLower(this ReadOnlySpan<char> s)
     {

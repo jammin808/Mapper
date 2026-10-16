@@ -93,6 +93,11 @@ public sealed class BackupNode : IAsyncDisposable
     private volatile string _handingBackTo = "";
     private long _lastPublishedRev = long.MinValue;
     private int _followTurns;
+    private int _projectTurns;
+    private CancellationTokenSource? _joining;
+    private readonly SemaphoreSlim _pullGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, byte> _groupPeers = new(StringComparer.Ordinal);
+    private volatile string _groupOf = "";
     private int _missingFiles;
     private int _disposed;
 
@@ -172,9 +177,17 @@ public sealed class BackupNode : IAsyncDisposable
     {
         if (_engine is not { } engine)
             return;
-        // A node a backup joined is the show's primary, kept for the next start.
-        if (Feed.Members.Count > 0 && _settings.Role == FleetRoles.Solo)
-            Persist(s => s with { Role = FleetRoles.Primary, Of = "" });
+        // A node a backup joined is the show's primary, kept for the next start, with the backups it has had: only they may fence it.
+        var members = Feed.Members.Select(m => m.Node).ToList();
+        if (members.Count > 0 && (_settings.Role == FleetRoles.Solo || members.Any(n => !_settings.Backups.Contains(n))))
+        {
+            Persist(s => s with
+            {
+                Role = s.Role == FleetRoles.Solo ? FleetRoles.Primary : s.Role,
+                Of = s.Role == FleetRoles.Solo ? "" : s.Of,
+                Backups = [.. s.Backups.Union(members, StringComparer.Ordinal)],
+            });
+        }
         engine.FactsChanged();
     }
 
@@ -200,9 +213,8 @@ public sealed class BackupNode : IAsyncDisposable
         if (_engine is not { } engine)
             return;
         var rev = engine.Store.Current.Revision;
-        if (!force && Interlocked.Exchange(ref _lastPublishedRev, rev) == rev)
+        if (Interlocked.Exchange(ref _lastPublishedRev, rev) == rev && !force)
             return;
-        Interlocked.Exchange(ref _lastPublishedRev, rev);
         Feed.Publish("project", "MIRROR PROJECT " + string.Create(CultureInfo.InvariantCulture, $"{{\"rev\":{rev}}}"));
     }
 
@@ -312,6 +324,7 @@ public sealed class BackupNode : IAsyncDisposable
                 : $"{SelfName} backs up no primary — FAILOVER runs on a hot backup (FLEET BACKUP <primary> first)");
         if (args.Count == 1 && FindPeer(args[0])?.Id != _settings.Of && !args[0].Equals(_settings.Of, StringComparison.OrdinalIgnoreCase))
             return CommandReply.Fail($"{SelfName} backs up {Label(_settings.Of)}, not {args[0]}");
+        await CancelJoinAsync().ConfigureAwait(false);
         return await TakeOverAsync("pressed", ct).ConfigureAwait(false);
     }
 
@@ -447,8 +460,11 @@ public sealed class BackupNode : IAsyncDisposable
             var epoch = Takeover.NextEpoch(_settings.Epoch, [.. HeardEpochs(), Interlocked.Read(ref _primaryEpoch)]);
             var kept = Persist(s => s with { Role = FleetRoles.Primary, Of = from, Epoch = epoch });
             trail.Add(string.Create(CultureInfo.InvariantCulture, $"epoch {epoch} committed{kept}"));
+            if (kept.Length > 0)
+                engine.Journal.Add("fault", $"the takeover's epoch {epoch} is not kept for the next start{kept}: after a restart this node would not know it took the show", ok: false);
             var group = _group.Length > 0 ? _group : engine.Services.GroupSync?.Settings.Group ?? "";
-            await StopMirrorAsync().ConfigureAwait(false);
+            // The primary's air lines still waiting for their instants are the show's: they land on the lane's tick as planned.
+            await StopMirrorAsync(keepDue: true).ConfigureAwait(false);
             var before = Clock.NowNs;
             Clock.Promote();
             if (group.Length > 0)
@@ -523,6 +539,22 @@ public sealed class BackupNode : IAsyncDisposable
         return await Task.WhenAll(steps).ConfigureAwait(false);
     }
 
+    private async Task CancelJoinAsync()
+    {
+        if (Volatile.Read(ref _joining) is { } joining)
+        {
+            try
+            {
+                await joining.CancelAsync().ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                // The join ended on its own meanwhile.
+                _log.LogDebug(ex, "The join ended before it could be given up.");
+            }
+        }
+    }
+
     /// <summary>"observed" when the projector read its new input back, else "accepted".</summary>
     internal static string StageOf(CommandReply reply)
     {
@@ -585,23 +617,41 @@ public sealed class BackupNode : IAsyncDisposable
                 _subscribed = false;
             _engine?.FactsChanged();
         };
-        _puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
+        var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
             () => _setup.Wall.UnixMs, _setup.Mono, _log);
+        if (puller.Refusal.Length > 0)
+        {
+            puller.Dispose();
+            await link.DisposeAsync().ConfigureAwait(false);
+            return (false, puller.Refusal);
+        }
+        _puller = puller;
         _lines = lines;
         _link = link;
         Background(TakeLinesAsync(lines, _stop.Token));
         link.Start();
         string refused;
+        // A pressed FAILOVER does not wait behind a join: it cancels it.
+        using var joining = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        Volatile.Write(ref _joining, joining);
         try
         {
-            refused = await answer.Task.WaitAsync(_o.JoinWait, ct).ConfigureAwait(false);
+            refused = await answer.Task.WaitAsync(_o.JoinWait, joining.Token).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             refused = $"{peer.Name} did not answer the mirror's subscription within {_o.JoinWait.TotalSeconds:0} s";
         }
+        catch (OperationCanceledException)
+        {
+            refused = "the join was given up (a takeover was pressed, or the node stops)";
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _joining, null, joining);
+        }
         if (refused.Length == 0)
-            return (true, token.Length > 0 ? " (paired by proof; pulls over " + (_puller.Tls ? "HTTPS, pinned" : "plain HTTP: its hello offers no certificate") + ")" : "");
+            return (true, token.Length > 0 ? " (paired by proof; pulls over " + (puller.Tls ? "HTTPS, pinned" : "plain HTTP on this machine") + ")" : "");
         await StopMirrorAsync().ConfigureAwait(false);
         var hint = link.Pairing is PairState.NeedsToken && token.Length == 0
             ? $" — CREDENTIAL SET node.{peer.Id} <{peer.Name}'s pairing token> here first"
@@ -754,11 +804,12 @@ public sealed class BackupNode : IAsyncDisposable
                 return CommandReply.Fail($"{_primaryName}'s show (rev {servedRev}) could not be applied here: {result.Effect}");
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
-            Background(PullFilesAsync(engine, project, _stop.Token));
+            Background(PullFilesAsync(engine, _stop.Token));
             return CommandReply.Success(effect: label);
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OutOfMemoryException && !(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
+            // A pull that fails is retried from the watch while the primary's revision is ahead of this node's.
             var why = puller.PinWords.Length > 0 ? puller.PinWords : ex.Message;
             _mirrorWords = $"could not pull {_primaryName}'s show: {why}";
             return CommandReply.Fail(_mirrorWords);
@@ -772,24 +823,35 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>Every file the show names (media and their optimised versions, by hash) that this node does not hold, pulled from the
     /// primary one at a time and verified before it lands.</summary>
-    private async Task PullFilesAsync(EngineCore engine, Project project, CancellationToken ct)
+    private async Task PullFilesAsync(EngineCore engine, CancellationToken ct)
     {
-        if (_puller is not { } puller || _setup.Media is not MediaBackend store)
-            return;
-        var wanted = project.Media.Where(m => m.IsFile && ContentHasher.IsValid(m.ContentHash))
-            .Select(m => (Hash: m.ContentHash, Size: m.SizeBytes, Name: m.Location.Length > 0 ? m.Location : m.Name))
-            .Concat(project.Media.SelectMany(m => m.Versions).Where(v => ContentHasher.IsValid(v.ContentHash))
-                .Select(v => (Hash: v.ContentHash, Size: v.SizeBytes, Name: v.Id + "." + v.To)))
-            .Where(f => store.PathForHash(f.Hash) is null)
-            .DistinctBy(f => f.Hash)
-            .ToList();
-        Interlocked.Exchange(ref _missingFiles, wanted.Count);
-        foreach (var f in wanted)
+        // One pull run at a time, each from the show as it is when it starts: two revisions never pull one file into one place at once.
+        await _pullGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            var (ok, words) = await PullOneAsync(puller, _primaryName, store, f.Hash, f.Size, f.Name, ct).ConfigureAwait(false);
-            engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
-            Interlocked.Decrement(ref _missingFiles);
-            engine.FactsChanged();
+            if (_puller is not { } puller || _setup.Media is not MediaBackend store)
+                return;
+            var project = engine.Store.Project;
+            var wanted = project.Media.Where(m => m.IsFile && ContentHasher.IsValid(m.ContentHash))
+                .Select(m => (Hash: m.ContentHash, Size: m.SizeBytes, Name: m.Location.Length > 0 ? m.Location : m.Name))
+                .Concat(project.Media.SelectMany(m => m.Versions).Where(v => ContentHasher.IsValid(v.ContentHash))
+                    .Select(v => (Hash: v.ContentHash, Size: v.SizeBytes, Name: v.Id + "." + v.To)))
+                .Where(f => store.PathForHash(f.Hash) is null)
+                .DistinctBy(f => f.Hash)
+                .ToList();
+            Interlocked.Exchange(ref _missingFiles, wanted.Count);
+            foreach (var f in wanted)
+            {
+                var (ok, words) = await PullOneAsync(puller, _primaryName, store, f.Hash, f.Size, f.Name, ct).ConfigureAwait(false);
+                engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
+                Interlocked.Decrement(ref _missingFiles);
+                engine.FactsChanged();
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _missingFiles, 0);
+            _pullGate.Release();
         }
     }
 
@@ -807,7 +869,7 @@ public sealed class BackupNode : IAsyncDisposable
             }
             return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {result.Words}");
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {(puller.PinWords.Length > 0 ? puller.PinWords : ex.Message)}");
         }
@@ -869,10 +931,18 @@ public sealed class BackupNode : IAsyncDisposable
                 {
                     using var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, peer.Hello.Port("http"), peer.Hello.TlsFingerprint ?? "",
                         Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log);
-                    var (ok, words) = await PullOneAsync(puller, peer.Name, store, f.Hash, f.Size, f.Name, _stop.Token).ConfigureAwait(false);
-                    said = words;
-                    if (ok)
-                        break;
+                    try
+                    {
+                        var (ok, words) = await PullOneAsync(puller, peer.Name, store, f.Hash, f.Size, f.Name, _stop.Token).ConfigureAwait(false);
+                        said = words;
+                        if (ok)
+                            break;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                    {
+                        // A pull that faults is that peer's: the next one is asked, and the journal says what happened.
+                        said = $"{Path.GetFileName(f.Name)} could not be pulled from {peer.Name}: {ex.Message}";
+                    }
                 }
                 var landed = store.PathForHash(f.Hash) is not null;
                 engine.Journal.Add(landed ? "media" : "refused", said, ok: landed);
@@ -971,15 +1041,26 @@ public sealed class BackupNode : IAsyncDisposable
         {
             if (peer.Heard != FleetHeard.Live || peer.Health?.Facts is not { } f || peer.Id == SelfId)
                 continue;
-            if (Takeover.FencedBy(SelfId, _settings.Role, _settings.Epoch, f.Role, f.Of, f.Epoch) && Once("fence:" + peer.Id, f.Epoch))
+            // Only a node that joined this one's mirror (proved by its token), heard over its pinned certificate, can fence it.
+            if (Takeover.FencedBy(SelfId, _settings.Role, _settings.Epoch, f.Role, f.Of, f.Epoch, _settings.Backups.Contains(peer.Id) && peer.Pin == "pinned")
+                && Once("fence:" + peer.Id, f.Epoch))
             {
                 if (_handingBackTo == peer.Id)
                 {
                     _handingBackTo = "";
-                    // The epoch it took the show under is this node's to know before it mirrors it.
-                    Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
                     var joined = await RunAsync(engine, $"FLEET BACKUP {peer.Id}", _stop.Token).ConfigureAwait(false);
-                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again" : $"{peer.Name} took the show back, but {SelfName} could not mirror it: {joined.Payload}";
+                    if (joined.Ok)
+                    {
+                        // The epoch it took the show under is this node's to know as its backup.
+                        Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
+                    }
+                    else
+                    {
+                        // A node that handed its show back and cannot mirror it does not keep serving beside it: it is fenced.
+                        await RunAsync(engine, string.Create(CultureInfo.InvariantCulture, $"FLEET FENCE {f.Epoch} {peer.Id}"), _stop.Token).ConfigureAwait(false);
+                    }
+                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again"
+                        : $"{peer.Name} took the show back, but {SelfName} could not mirror it ({joined.Payload}): fenced, its outputs held";
                     _last = new TakeoverRecord("failback", NewId(), _setup.Wall.UnixMs, words);
                     engine.Journal.Add("fleet", words, ok: joined.Ok);
                 }
@@ -996,13 +1077,15 @@ public sealed class BackupNode : IAsyncDisposable
     /// than any this node knows.</summary>
     private async Task RetargetAsync(EngineCore engine)
     {
+        NoteGroup(engine);
+        await StepDownAsync(engine).ConfigureAwait(false);
         if (engine.Services.GroupSync is not { } sync || sync.Role != "follower" || !Clock.IsHolding || _settings.Role == FleetRoles.Backup)
             return;
         var group = sync.Settings.Group;
         var leader = sync.Settings.Leader;
         var known = Math.Max(_settings.Epoch, (engine.Services.FleetPeers?.Peers() ?? []).FirstOrDefault(p => p.Id == leader)?.Health?.Facts.Epoch ?? 0);
         var next = (engine.Services.FleetPeers?.Peers() ?? [])
-            .Where(p => p.Heard == FleetHeard.Live && p.Health?.Facts is { } f && Takeover.Retargets(group, leader, known, p.Id, f.SyncRole, f.SyncGroup, f.Epoch))
+            .Where(p => p.Heard == FleetHeard.Live && Trusted(p) && p.Health?.Facts is { } f && Takeover.Retargets(group, leader, known, p.Id, f.SyncRole, f.SyncGroup, f.Epoch))
             .OrderByDescending(p => p.Health!.Facts.Epoch)
             .FirstOrDefault();
         if (next?.Health?.Facts.Epoch is not { } nextEpoch || !(FindPeer(next.Id)?.Hello.Port("sync") > 0) || !Once("retarget:" + next.Id, nextEpoch))
@@ -1016,6 +1099,64 @@ public sealed class BackupNode : IAsyncDisposable
         else
         {
             _acted.TryRemove("retarget:" + next.Id, out _);
+        }
+    }
+
+    /// <summary>The group's members this node has known while its group was whole: its leader, the leader's other followers (their
+    /// HEALTH names the same leader and group), and a leader's own members. Only they may take the lead of it from this node's view.</summary>
+    private void NoteGroup(EngineCore engine)
+    {
+        if (engine.Services.GroupSync is not { } sync || sync.Settings.Group.Length == 0)
+            return;
+        var group = sync.Settings.Group;
+        if (!string.Equals(_groupOf, group, StringComparison.Ordinal))
+        {
+            _groupPeers.Clear();
+            _groupOf = group;
+        }
+        if (sync.Role == "leader")
+        {
+            foreach (var m in sync.Members)
+                _groupPeers.TryAdd(m, 0);
+            return;
+        }
+        if (sync.Role != "follower" || Clock.IsHolding)
+            return;
+        var leader = sync.Settings.Leader;
+        _groupPeers.TryAdd(leader, 0);
+        foreach (var p in engine.Services.FleetPeers?.Peers() ?? [])
+        {
+            if (p.Heard == FleetHeard.Live && p.Health?.Facts is { } f && f.SyncLeader == leader && string.Equals(f.SyncGroup, group, StringComparison.Ordinal))
+                _groupPeers.TryAdd(p.Id, 0);
+        }
+    }
+
+    /// <summary>A peer this node may take its group's clock from: a member of its group it has known, heard over its pinned certificate.</summary>
+    private bool Trusted(FleetPeer peer) => _groupPeers.ContainsKey(peer.Id) && peer.Pin == "pinned";
+
+    /// <summary>A leader that hears a member of its group lead it under a higher epoch (a promotion or a takeover while this node was
+    /// away or cut off) steps down and follows it: a group has one clock.</summary>
+    private async Task StepDownAsync(EngineCore engine)
+    {
+        if (engine.Services.GroupSync is not { Role: "leader" } sync || _settings.Role is FleetRoles.Backup or FleetRoles.Fenced)
+            return;
+        var group = sync.Settings.Group;
+        var next = (engine.Services.FleetPeers?.Peers() ?? [])
+            .Where(p => p.Heard == FleetHeard.Live && p.Id != _handingBackTo && Trusted(p) && p.Health?.Facts is { SyncRole: "leader" } f
+                && string.Equals(f.SyncGroup, group, StringComparison.Ordinal) && f.Epoch > _settings.Epoch)
+            .OrderByDescending(p => p.Health!.Facts.Epoch)
+            .FirstOrDefault();
+        if (next?.Health?.Facts.Epoch is not { } epoch || !(FindPeer(next.Id)?.Hello.Port("sync") > 0) || !Once("stepdown:" + next.Id, epoch))
+            return;
+        var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
+        if (reply.Ok)
+        {
+            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+            engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it");
+        }
+        else
+        {
+            _acted.TryRemove("stepdown:" + next.Id, out _);
         }
     }
 
@@ -1048,9 +1189,9 @@ public sealed class BackupNode : IAsyncDisposable
             {
                 if (_engine is not { } engine)
                     continue;
-                PublishProject();
                 await LookAsync(engine).ConfigureAwait(false);
                 await KeepFollowingAsync(engine).ConfigureAwait(false);
+                await RepullAsync(engine).ConfigureAwait(false);
                 var mirror = Mirror()?.State ?? "";
                 if (mirror != lastMirror)
                 {
@@ -1058,6 +1199,8 @@ public sealed class BackupNode : IAsyncDisposable
                         engine.Journal.Add("fleet", $"{SelfName} mirrors {_primaryName}: identical (rev {Interlocked.Read(ref _appliedRev)})");
                     lastMirror = mirror;
                     engine.FactsChanged();
+                    // The primary reads its backup's state in the backup's HEALTH: told at once.
+                    engine.Fleet.Publish(due: true);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
@@ -1083,6 +1226,24 @@ public sealed class BackupNode : IAsyncDisposable
         _followTurns = 0;
         Interlocked.Exchange(ref _estimatesBefore, long.MaxValue);
         await FollowGroupAsync(engine).ConfigureAwait(false);
+    }
+
+    /// <summary>A pull of the primary's show that failed (or a revision announced while one ran) is asked again about every two seconds
+    /// while the primary's revision is ahead of this node's; the lines waiting behind it then go on.</summary>
+    private async Task RepullAsync(EngineCore engine)
+    {
+        var announced = Interlocked.Read(ref _announcedRev);
+        if (_link is null || !_subscribed || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
+        {
+            _projectTurns = 0;
+            return;
+        }
+        if (++_projectTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(2) / _o.WatchEvery)))
+            return;
+        _projectTurns = 0;
+        var text = "MIRROR PROJECT " + string.Create(CultureInfo.InvariantCulture, $"{{\"rev\":{announced}}}");
+        if (WireGrammar.TryParse(text, out var line, out _))
+            await engine.HandleAsync(line, FleetSession, _stop.Token).ConfigureAwait(false);
     }
 
     /// <summary>A backup role kept from before a restart: the mirror is joined again once the primary is heard on the show network.</summary>
@@ -1240,7 +1401,7 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    private async Task StopMirrorAsync()
+    private async Task StopMirrorAsync(bool keepDue = false)
     {
         Interlocked.Exchange(ref _lines, null)?.Writer.TryComplete();
         var link = Interlocked.Exchange(ref _link, null);
@@ -1248,12 +1409,17 @@ public sealed class BackupNode : IAsyncDisposable
             await link.DisposeAsync().ConfigureAwait(false);
         Interlocked.Exchange(ref _puller, null)?.Dispose();
         _subscribed = false;
+        if (keepDue)
+            return;
         lock (_dueGate)
             _due.Clear();
     }
 
     private void Background(Task task)
     {
+        // A part that has begun to stop takes no new work (its own close waits only for what it already holds).
+        if (Volatile.Read(ref _disposed) != 0)
+            return;
         _ = task.ContinueWith(t => _log.LogWarning(t.Exception, "A backup task faulted."),
             CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         lock (_work)
@@ -1281,9 +1447,22 @@ public sealed class BackupNode : IAsyncDisposable
         Task[] work;
         lock (_work)
             work = [.. _work.Select(t => t.ContinueWith(static _ => { }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default))];
-        await Task.WhenAll(work).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await Task.WhenAll(work).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            // Work that does not end within five seconds is left to the process: the node's close goes on.
+            _log.LogWarning(ex, "The backup's work did not end within five seconds of its close.");
+        }
+        // A verb still holding the changes releases them itself; they are let go only when this close held them.
+        if (held)
+        {
+            _changes.Dispose();
+            _pullGate.Dispose();
+        }
         _stop.Dispose();
-        _changes.Dispose();
     }
 }
 

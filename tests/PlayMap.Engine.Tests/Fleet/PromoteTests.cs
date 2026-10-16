@@ -65,32 +65,35 @@ public sealed class PromoteTests
             Assert.Equal(go + 10 * Second, JsonDocument.Parse(one.Engine.AnchorJson("pl_show")!).RootElement.GetProperty("leaderNs").GetInt64());
 
             // Follower 2's leader time, sampled all through the promotion and the change of leader.
-            var samples = new ConcurrentQueue<long>();
+            // Follower 2's leader time against the machines' own clock, sampled all through the promotion and the change of leader while
+            // that clock runs on (1 µs a sample, so the exchange's own measurement stays exact).
+            var samples = new ConcurrentQueue<(long Local, long Leader)>();
             using var stop = new CancellationTokenSource();
             var sampling = Task.Run(async () =>
             {
                 while (!stop.IsCancellationRequested)
                 {
-                    samples.Enqueue(two.Engine.LeaderNowNs);
+                    clock.Advance(1_000);
+                    samples.Enqueue((clock.NowNs, two.Engine.LeaderNowNs));
                     await Task.Yield();
                 }
             });
-            var before = two.Engine.LeaderNowNs;
             var promoted = await one.RunAsync("FLEET PROMOTE");
             Assert.True(promoted.Ok, promoted.Payload);
             Assert.Equal("leader", Sync(one).GetProperty("role").GetString());
             Assert.Equal(1, Sync(one).GetProperty("epoch").GetInt64());
-            Assert.Equal(before, one.Engine.LeaderNowNs);
             Assert.True(await Eventually.TrueAsync(() => Sync(two).GetProperty("leader").GetString() == one.Id && Sync(two).GetProperty("feed").GetString() == "live"
                 && !two.Engine.Services.Clock.IsHolding, 15000), Sync(two) + "\n" + two.Journal());
-            Assert.True(await Eventually.TrueAsync(() => two.Engine.LeaderNowNs == one.Engine.LeaderNowNs));
             await stop.CancelAsync();
             await sampling;
+            Assert.InRange(Math.Abs(two.Engine.LeaderNowNs - one.Engine.LeaderNowNs), 0, 1_000_000);
             var seen = samples.ToArray();
-            Assert.NotEmpty(seen);
+            Assert.True(seen.Length > 10, $"{seen.Length} samples");
             for (var i = 1; i < seen.Length; i++)
-                Assert.True(seen[i] >= seen[i - 1], $"leader time ran backwards on Stage 2: {seen[i - 1]} then {seen[i]}");
-            Assert.InRange(seen.Max() - seen.Min(), 0, 1_000_000);
+                Assert.True(seen[i].Leader >= seen[i - 1].Leader, $"leader time ran backwards on Stage 2: {seen[i - 1].Leader} then {seen[i].Leader}");
+            // Continuous: the leader time it reads keeps its place against the running clock within 1 ms across the change of leader.
+            var offsets = seen.Select(x => x.Leader - x.Local).ToArray();
+            Assert.InRange(offsets.Max() - offsets.Min(), 0, 1_000_000);
             Assert.Equal(1, Sync(two).GetProperty("epoch").GetInt64());
             Assert.Null(Item(two, "fleet:leader"));
             Assert.Contains("leads show now (epoch 1)", two.Journal(), StringComparison.Ordinal);

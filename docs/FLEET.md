@@ -110,16 +110,18 @@ node.0badc0de <token>`), and subscribes to the primary's **mirror** (`SUBSCRIBE 
 - every other playlist's anchor, and the air lines the group's feed does not carry (`FREEZE`, `PATTERN`, a panic or blackout `ON`
   outputs or `HERE`), through the backup's own `MIRROR` verb (session "fleet"), each at the primary's leader instant.
 
-Every pull carries the **pairing proof** — the HMAC of the token over a fresh nonce and the request (`X-PlayMap-Nonce`,
-`X-PlayMap-Proof`) — never the token itself; the primary takes each nonce once, within a minute of its own clock. From another machine
-a pull comes over HTTPS, pinned by the fingerprint the primary's hello advertises (the fleet's pin file keeps it; a changed certificate
-is refused). `MEDIA FETCH <media> VERSION <version> [FROM <node>]` pulls one version the same way on any node.
+Every pull carries the **pairing proof** — the HMAC of the token over a fresh nonce, the scheme and the request
+(`X-PlayMap-Nonce`, `X-PlayMap-Proof`) — never the token itself; the primary takes each nonce once, within a minute of its own clock, and a
+proof made for HTTPS is refused over plain HTTP. From another machine a pull goes over HTTPS only (the backup refuses to send one in clear,
+and refuses a hello that drops a certificate it has pinned), checked against the fingerprint the primary's hello advertises and pinned
+in the fleet's pin file after the first proved answer; a changed certificate is refused. `MEDIA FETCH <media> VERSION <version> [FROM <node>]` pulls one version the same way on any node.
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
 pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. A client's edit on a backup is refused with the way
 out ("FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to make this node the show"); queries, panic, Show Mode, the node's
-own administration and the fleet's verbs stay.
+own administration, a fetch of a file by hash and the fleet's verbs stay. A pull that fails is asked again from the watch while the
+primary's revision is ahead.
 
 **Taking over.** `FAILOVER` on the backup:
 
@@ -132,7 +134,9 @@ own administration and the fleet's verbs stay.
 4. journals the trail ("takeover tk… of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → P1 32
    observed → serving → complete in 40 ms"), raises `fleet.takeover`, and serves: editing goes on.
 
-The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** (`FLEET FENCE`, node to
+The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** — only from a node that
+joined its mirror (proved by its token; the node keeps that list) and is heard over its pinned certificate, so no other machine's word
+can black it out (`FLEET FENCE`, node to
 node): its outputs are held black from the next frame (a gain of 0 multiplied into the air), its clients' edits are refused, its clock
 follows the new primary, the role is kept across a restart, and it never takes the show back by itself. `FLEET BACKUP <new primary>`
 there makes it the new primary's backup; `FAILBACK CONFIRM` on the new primary then hands the show back (the original takes it under
@@ -141,7 +145,11 @@ the next epoch, its routes switch to its own input) and the two swap roles. `FLE
 **Controller death.** A sync group's leader that dies leaves its followers free-wheeling on their last estimate: their playlists switch
 items at the instants they computed, and the context says "leader gone — FLEET PROMOTE on the node that should lead". `FLEET PROMOTE`
 on a follower commits the next epoch, promotes its clock and leads the group; a follower whose leader is silent hears the new leader's
-epoch and group in its HEALTH and follows it, its leader time never running backwards (`PromoteTests`). Automatic takeover on silence and
+epoch and group in its HEALTH and follows it, its leader time never running backwards and continuous within 1 ms against the running
+clock (`PromoteTests`); a leader that comes back and hears a member of its group lead under a higher epoch steps down and follows it.
+Only a member of the group the node has known, heard over its pinned certificate, is followed this way. On a hot backup whose primary
+went silent the context says "primary gone — FAILOVER on this backup to take its show". Air lines of the primary still waiting for their
+instants when FAILOVER is pressed land as planned. Automatic takeover on silence and
 a succession list are not built: a takeover and a promotion are a person's press.
 
 ## Preflight and INDEX
