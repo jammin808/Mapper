@@ -7,7 +7,8 @@ namespace PlayMap.Core.Tests.Wire;
 
 /// <summary>Typed parameters for the whole catalogue: every row and every alternative has its list; the list agrees with the syntax
 /// HELP prints (each token up to the first optional part is a required parameter — a keyword and its value, a literal choice with
-/// the same words, or a placeholder); no override names a row the catalogue lacks; every Panic, Air and Transport row fires at once.</summary>
+/// the same words, or a placeholder); no override names a row the catalogue lacks; every Panic, Air and Transport row fires at once;
+/// a keyword is never parted from the choice it introduces, and a range inside a placeholder is not a repeat.</summary>
 public sealed class VerbParamTests
 {
     [Fact]
@@ -104,6 +105,39 @@ public sealed class VerbParamTests
         Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.Review && v.Name is not ("OUTPUT IDENTIFY" or "DEVICE IDENTIFY")
                 && v.Show is not ShowClass.DevicePower),
             v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
+    }
+
+    [Fact]
+    public void AKeywordIsNeverPartedFromItsChoiceAndARangeIsNotARepeat()
+    {
+        foreach (var spec in VerbCatalog.All)
+        {
+            foreach (var form in VerbParams.Forms(spec))
+            {
+                for (var i = 0; i + 1 < form.Count; i++)
+                {
+                    Assert.False(form[i] is { Kind: ParamKind.Flag } && form[i + 1] is { Kind: ParamKind.Enum, Optional: true, Keyword: null },
+                        $"{spec.Name}: the flag {form[i].Name} stands before the choice {form[i + 1].Name}, either of which a key could send alone");
+                }
+            }
+        }
+        var mode = VerbParams.For("SCAN START").Single(p => p.Name == "mode");
+        Assert.Equal((ParamKind.Enum, "MODE", true), (mode.Kind, mode.Keyword, mode.Optional));
+        Assert.Equal(["FAST", "ROBUST", "DIFFICULT"], mode.Values);
+        Assert.Equal(["hap", "hap-alpha", "hap-q", "hap-q-alpha", "rechunk"], VerbParams.For("MEDIA OPTIMISE").Single(p => p.Keyword == "TO").Values);
+
+        Assert.False(Assert.Single(VerbParams.For("AUDIO GAIN")).Repeats);
+        Assert.False(VerbParams.For("MOD BIND").Single(p => p.Name == "amount").Repeats);
+        Assert.False(VerbParams.For("MEDIA HAS").Single().Repeats);
+        Assert.True(VerbParams.For("ALIGN NEW").Single(p => p.Name == "output").Repeats);
+        Assert.Equal((ParamKind.Time, "AT"), VerbParams.For("VIDEO RESTART").Single(p => p.Name == "at") is var at ? (at.Kind, at.Keyword) : default);
+
+        var send = VerbParams.For("SEND ADD");
+        Assert.Equal(("<w>x<h>", "@<fps>"), (send.Single(p => p.Name == "size").Alt, send.Single(p => p.Name == "fps").Alt));
+        Assert.Equal(("QUALITY", ParamKind.Enum), send.Single(p => p.Name == "quality") is var q ? (q.Keyword, q.Kind) : default);
+        var color = VerbParams.For("CURSOR").Single(p => p.Name == "color");
+        Assert.Equal((ParamKind.Text, "COLOR", "#<rrggbb>"), (color.Kind, color.Keyword, color.Alt));
+        Assert.True(VerbParams.For("HELLO")[0].Repeats);
     }
 
     [Fact]

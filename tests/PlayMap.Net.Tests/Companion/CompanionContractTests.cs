@@ -49,17 +49,21 @@ public sealed partial class CompanionContractTests
         var lines = Read(Module("test", "lines.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.True(lines.Length > 200, $"the module writes a line for every action it generates ({lines.Length})");
         var rows = new HashSet<string>(StringComparer.Ordinal);
+        var refused = new List<string>();
         foreach (var text in lines)
         {
             Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{text}: {error?.Reason}");
             Assert.Null(line.RequestId);
             var match = VerbCatalog.Match(line);
             Assert.True(match is not null, $"no row of the catalogue names '{text}'");
-            Assert.True(VerbSyntax.Fits(match!.Value.Spec, line, match.Value.Words, out var why), $"'{text}': {why}");
+            // Every word after the verb fills a parameter of one of the row's typed forms, the forms VERBS hands a controller.
+            if (!FormMatcher.Fits(match!.Value.Spec, line, match.Value.Words, out var why))
+                refused.Add($"'{text}': {why}");
             Assert.False(match.Value.Spec.Internal, $"'{text}' is a node-to-node verb");
             Assert.False(VerbCatalog.HoldsSecret(line), $"'{text}' carries a secret");
             rows.Add(match.Value.Spec.Name);
         }
+        Assert.True(refused.Count == 0, "lines that fill no typed form of their row:\n" + string.Join("\n", refused));
         // Every catalogue row the module generates an action for is exercised (session words and secret rows are the module's own or
         // never generated).
         using var verbs = JsonDocument.Parse(Read(Module("src", "catalog", "verbs.json")));

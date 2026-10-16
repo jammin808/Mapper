@@ -25,10 +25,20 @@ function isFixedWord(p: VerbParam): boolean {
 /** Entity dropdown choices by id prefix, from INDEX. */
 export type EntityChoices = (prefix: string | undefined) => DropdownChoice[]
 
+/** The one shape a text value is written in ("<w>x<h>", "@<fps>", "#<rrggbb>"): an alt with marks of its own outside its
+ * placeholders and no other alternative. Any other alt is a word beside the value ("ALL", "#<n>"). */
+export function shapeOf(p: VerbParam): string | undefined {
+	if (p.kind !== 'text' || !p.alt?.includes('<')) return undefined
+	const marks = p.alt.replace(/<[^>]*>/gu, '')
+	return marks !== '' && !marks.includes('|') ? p.alt : undefined
+}
+
 function label(p: VerbParam): string {
 	let text = p.keyword ? `${p.keyword} ${p.name}` : p.name
 	if (p.min !== undefined && p.max !== undefined) text += ` (${p.min}–${p.max})`
-	if (p.alt) text += ` (or ${p.alt})`
+	const shape = shapeOf(p)
+	if (shape) text += ` (as ${shape})`
+	else if (p.alt) text += ` (or ${p.alt})`
 	if (p.repeats) text += ' (several, space-separated)'
 	if (p.optional) text += ' — optional'
 	return text.charAt(0).toUpperCase() + text.slice(1)
@@ -53,7 +63,8 @@ export function optionsOf(row: VerbRow, choices: EntityChoices): SomeCompanionAc
 		for (const p of params) {
 			if (isFixedWord(p)) continue
 			const id = optionIdOf(p, k)
-			const tooltip = p.alt ? `Also takes ${p.alt}` : undefined
+			const shape = shapeOf(p)
+			const tooltip = shape ? `Written as ${shape}` : p.alt ? `Also takes ${p.alt}` : undefined
 			const common = { id, label: label(p), ...visible, ...(tooltip ? { tooltip } : {}) }
 			if (p.kind === 'flag') fields.push({ ...common, type: 'checkbox', default: false })
 			else if (p.kind === 'enum')
@@ -117,7 +128,17 @@ export function lineOf(row: VerbRow, options: CompanionOptionValues): { line: st
 	return { line: words.join(' ') }
 }
 
-/** A value every parameter kind accepts, for the lines the module emits for the node's parser (test/lines.txt). */
+/** Sample words for a shape's placeholders; any other placeholder is "1". */
+const SHAPE_SAMPLES: Readonly<Record<string, string>> = {
+	rrggbb: 'FF0000',
+	w: '1920',
+	h: '1080',
+	fps: '50',
+	version: '1.0.0',
+}
+
+/** A value every parameter kind accepts, for the lines the module emits for the node's parser (test/lines.txt): a shaped value in
+ * its shape, a source of a kind the parameter names, a repeated number as a pair. */
 export function sampleOf(p: VerbParam): JsonValue {
 	switch (p.kind) {
 		case 'entity':
@@ -127,17 +148,23 @@ export function sampleOf(p: VerbParam): JsonValue {
 		case 'flag':
 			return true
 		case 'number':
-		case 'integer':
-			return String(p.min ?? 1)
+		case 'integer': {
+			const v = String(p.min ?? 1)
+			return p.repeats ? `${v} ${v}` : v
+		}
 		case 'time':
 			return p.keyword === 'AT' ? '+500' : '83'
-		case 'ref':
-			return 'color:#FF0000'
+		case 'ref': {
+			const kind = p.values?.[0]
+			return kind === undefined || p.values?.includes('color:#') ? 'color:#FF0000' : `${kind}0a1b2c3d`
+		}
 		case 'json':
 			return '{"label":"Front wall"}'
 		case 'line':
 			return 'PLAYLIST NEXT pl0a1b2c3d'
-		default:
-			return 'Front wall'
+		default: {
+			const shape = shapeOf(p)
+			return shape ? shape.replace(/<([^>]*)>/gu, (_m, name: string) => SHAPE_SAMPLES[name] ?? '1') : 'Front wall'
+		}
 	}
 }

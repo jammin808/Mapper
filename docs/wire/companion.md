@@ -62,8 +62,13 @@ its package through `RaiseEvent`; the ring keeps them all.
 
 **VERBS and `/api/verbs`.** Each row gains `params` (its first form's typed parameters: `name`, `kind` — entity, enum, number,
 integer, text, json, time, ref, line, flag — and when they say something `optional`, `prefix`, `keyword`, `values`, `min`, `max`,
-`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for Panic, Air and Transport rows; otherwise `hold` for a
-high-risk row, `double` for a projector's power, `instant` for the rest).
+`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for Panic, Air and Transport rows; otherwise `double` for a
+projector's power, `PROJECT OPEN`, `PROJECT NEW`, `SCAN START` and `APPROVE`; `hold` for a high-risk row and for `OUTPUT IDENTIFY`
+and `DEVICE IDENTIFY`; `instant` for the rest). A keyword and the choice it introduces (`[MODE FAST|ROBUST]`) are one enum with its
+`keyword`, never a flag and a choice a key could send apart. `alt` is another word the value may be (`ALL`, `#<n>`); on a text
+parameter whose only alternative carries marks of its own it is the shape the value is written in (`<w>x<h>`, `@<fps>`,
+`#<rrggbb>`). `repeats` is a value given several times, a word each (`<output>…`); a range or list inside one word (`<-1…1>`,
+`<host,…>`) is not one. The node's contract test fits every line the module can send to one of its row's forms, word for word.
 
 **MCP.** `run_command` asks the node's Show Mode first: a line it refuses is answered with its words and neither runs nor waits for a
 person; a line it holds for a person goes to the node, whose gate keeps it on the node's own list.

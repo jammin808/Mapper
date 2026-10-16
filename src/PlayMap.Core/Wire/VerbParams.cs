@@ -116,6 +116,49 @@ public static class VerbParams
                 ],
             ],
             ["EVENTS"] = [[new VerbParam("since", ParamKind.Integer, Optional: true) { Keyword = "SINCE", Min = 0 }]],
+            // "AT …" is VIDEO PLAY's: a lead ("+500") or a unix ms.
+            ["VIDEO RESTART"] =
+            [
+                [
+                    new VerbParam("on", ParamKind.Entity, Optional: true) { Keyword = "ON", Prefix = "pl" },
+                    new VerbParam("at", ParamKind.Time, Optional: true) { Keyword = "AT", Alt = "<unix ms>" },
+                    new VerbParam("expect", ParamKind.Entity, Optional: true) { Keyword = "EXPECT", Prefix = "it", Alt = "#<n>" },
+                ],
+            ],
+            // A cursor's trail is pairs of numbers on the wall; its colour is one word, "#" and six hex digits.
+            ["CURSOR"] =
+            [
+                [
+                    new VerbParam("output", ParamKind.Entity) { Prefix = "op" },
+                    new VerbParam("x", ParamKind.Number) { Min = -0.5, Max = 1.5 },
+                    new VerbParam("y", ParamKind.Number) { Min = -0.5, Max = 1.5 },
+                    new VerbParam("trail", ParamKind.Number, Optional: true) { Keyword = "TRAIL", Min = -0.5, Max = 1.5, Repeats = true },
+                    new VerbParam("color", ParamKind.Text, Optional: true) { Keyword = "COLOR", Alt = "#<rrggbb>" },
+                ],
+                [new VerbParam("off", ParamKind.Enum) { Values = ["OFF"] }],
+            ],
+            // A send's size and rate are each one word in its shape ("1920x1080", "@50"); its tap is a picture source.
+            ["SEND ADD"] =
+            [
+                [
+                    new VerbParam("kind", ParamKind.Enum) { Values = ["NDI", "OMT", "SPOUT"] },
+                    new VerbParam("name", ParamKind.Text),
+                    new VerbParam("tap", ParamKind.Ref) { Values = ["output:", "prewarp:", "canvas:", "source:"] },
+                    new VerbParam("size", ParamKind.Text, Optional: true) { Alt = "<w>x<h>" },
+                    new VerbParam("fps", ParamKind.Text, Optional: true) { Alt = "@<fps>" },
+                    new VerbParam("format", ParamKind.Enum, Optional: true) { Values = ["UYVY", "UYVA", "P216", "PA16", "BGRA8", "RGBA8", "RGBA16F"] },
+                    new VerbParam("quality", ParamKind.Enum, Optional: true) { Keyword = "QUALITY", Values = ["LOW", "MEDIUM", "HIGH"] },
+                    new VerbParam("always", ParamKind.Flag, Optional: true) { Values = ["ALWAYS"] },
+                ],
+            ],
+            // A HELLO's name is the rest of the line before " module=" (Pairing.HelloName), spaces and all.
+            ["HELLO"] =
+            [
+                [
+                    new VerbParam("name", ParamKind.Text) { Repeats = true },
+                    new VerbParam("module", ParamKind.Text, Optional: true) { Alt = "module=<version>" },
+                ],
+            ],
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>The rows that have an override.</summary>
@@ -167,6 +210,16 @@ public static class VerbParams
                 continue;
             }
             var placeholder = VerbSyntax.IsPlaceholder(t);
+            if (optional && !placeholder && !t.Contains('|', StringComparison.Ordinal) && IsWord(t) && i + 1 < tokens.Count && IsChoice(tokens[i + 1]))
+            {
+                // "[MODE FAST|ROBUST]" is one choice its keyword introduces: neither word is sent without the other.
+                into.Add(new VerbParam(t.ToLowerInvariant(), ParamKind.Enum, Optional: true)
+                {
+                    Keyword = t,
+                    Values = tokens[++i].Split('|', StringSplitOptions.RemoveEmptyEntries),
+                });
+                continue;
+            }
             if (!placeholder && !t.Contains('|', StringComparison.Ordinal) && IsWord(t) && i + 1 < tokens.Count
                 && VerbSyntax.IsPlaceholder(tokens[i + 1]) && tokens[i + 1][0] != '[')
             {
@@ -188,6 +241,11 @@ public static class VerbParams
 
     private static bool IsWord(string t) => t.Length > 0 && t.All(c => char.IsAsciiLetterUpper(c) || c == '-' || char.IsAsciiDigit(c));
 
+    /// <summary>"FAST|ROBUST", "1|1+2|3-4", "hap|hap-q": two or more literal words.</summary>
+    private static bool IsChoice(string t) =>
+        t.Contains('|', StringComparison.Ordinal) && !VerbSyntax.IsPlaceholder(t) && t[0] != '['
+        && t.Split('|').All(w => w.Length > 0 && w.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '+' or ',' or '.' or '_'));
+
     private static string ChoiceName(string[] words) =>
         words.Length == 1 ? words[0].ToLowerInvariant()
         : words.Contains("ON") && words.Contains("OFF") ? "state"
@@ -199,13 +257,39 @@ public static class VerbParams
         var alternatives = SplitTop(token, '|');
         var first = alternatives[0];
         var alt = alternatives.Count > 1 ? string.Join("|", alternatives.Skip(1)) : null;
-        var repeats = token.Contains('…', StringComparison.Ordinal);
+        var repeats = Repeating(first);
         var open = first.IndexOf('<', StringComparison.Ordinal);
         var inner = open >= 0 ? Inside(first, open) : first.Trim('…', '[', ']');
         var p = Typed(inner, optional);
         if (first.StartsWith('+'))
             p = p with { Kind = ParamKind.Time };
         return p with { Alt = alt ?? p.Alt, Repeats = repeats };
+    }
+
+    /// <summary>"&lt;output&gt;…": the value repeats, a word each. A "…" inside a placeholder ("&lt;-1…1&gt;", "&lt;host,…&gt;") or
+    /// inside a part of its own word ("&lt;source&gt;[,&lt;backup&gt;…]") is one word's range or list; a bare "…" repeats nothing.</summary>
+    private static bool Repeating(string first)
+    {
+        var angle = 0;
+        var square = 0;
+        var placeholder = false;
+        foreach (var c in first)
+        {
+            if (c == '<')
+            {
+                angle++;
+                placeholder = true;
+            }
+            else if (c == '>' && angle > 0)
+                angle--;
+            else if (angle == 0 && c == '[')
+                square++;
+            else if (angle == 0 && c == ']' && square > 0)
+                square--;
+            else if (c == '…' && angle == 0 && square == 0 && placeholder)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>The text inside the angle brackets that open at <paramref name="open"/> (nested brackets kept).</summary>

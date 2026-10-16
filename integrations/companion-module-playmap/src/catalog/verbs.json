@@ -19,14 +19,28 @@
     "params": [
       {
         "name": "name",
-        "kind": "text"
+        "kind": "text",
+        "repeats": true
+      },
+      {
+        "name": "module",
+        "kind": "text",
+        "optional": true,
+        "alt": "module=\u003Cversion\u003E"
       }
     ],
     "formParams": [
       [
         {
           "name": "name",
-          "kind": "text"
+          "kind": "text",
+          "repeats": true
+        },
+        {
+          "name": "module",
+          "kind": "text",
+          "optional": true,
+          "alt": "module=\u003Cversion\u003E"
         }
       ]
     ],
@@ -514,10 +528,10 @@
       },
       {
         "name": "at",
-        "kind": "number",
+        "kind": "time",
         "optional": true,
         "keyword": "AT",
-        "repeats": true
+        "alt": "\u003Cunix ms\u003E"
       },
       {
         "name": "expect",
@@ -539,10 +553,10 @@
         },
         {
           "name": "at",
-          "kind": "number",
+          "kind": "time",
           "optional": true,
           "keyword": "AT",
-          "repeats": true
+          "alt": "\u003Cunix ms\u003E"
         },
         {
           "name": "expect",
@@ -1555,16 +1569,14 @@
     "params": [
       {
         "name": "sha256",
-        "kind": "text",
-        "repeats": true
+        "kind": "text"
       }
     ],
     "formParams": [
       [
         {
           "name": "sha256",
-          "kind": "text",
-          "repeats": true
+          "kind": "text"
         }
       ]
     ],
@@ -2344,16 +2356,9 @@
       },
       {
         "name": "lock",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "LOCK"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "LOCK",
         "values": [
           "SHIFT",
           "FOCAL",
@@ -2370,16 +2375,9 @@
         },
         {
           "name": "lock",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "LOCK"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "LOCK",
           "values": [
             "SHIFT",
             "FOCAL",
@@ -2563,16 +2561,9 @@
       },
       {
         "name": "mode",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "MODE"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "MODE",
         "values": [
           "FAST",
           "ROBUST",
@@ -2603,16 +2594,9 @@
         },
         {
           "name": "mode",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "MODE"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "MODE",
           "values": [
             "FAST",
             "ROBUST",
@@ -6746,16 +6730,9 @@
       },
       {
         "name": "to",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "TO"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "TO",
         "values": [
           "hap",
           "hap-alpha",
@@ -6766,16 +6743,9 @@
       },
       {
         "name": "quality",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "QUALITY"
-        ]
-      },
-      {
-        "name": "choice2",
         "kind": "enum",
         "optional": true,
+        "keyword": "QUALITY",
         "values": [
           "FAST",
           "SHOW"
@@ -6793,16 +6763,9 @@
         },
         {
           "name": "to",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "TO"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "TO",
           "values": [
             "hap",
             "hap-alpha",
@@ -6813,16 +6776,9 @@
         },
         {
           "name": "quality",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "QUALITY"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "QUALITY",
           "values": [
             "FAST",
             "SHOW"
@@ -6905,16 +6861,9 @@
       },
       {
         "name": "quality",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "QUALITY"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "QUALITY",
         "values": [
           "FAST",
           "SHOW"
@@ -6938,16 +6887,9 @@
         },
         {
           "name": "quality",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "QUALITY"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "QUALITY",
           "values": [
             "FAST",
             "SHOW"
@@ -7560,7 +7502,7 @@
     "available": false,
     "params": [
       {
-        "name": "choice",
+        "name": "kind",
         "kind": "enum",
         "values": [
           "NDI",
@@ -7574,20 +7516,28 @@
       },
       {
         "name": "tap",
-        "kind": "text"
+        "kind": "ref",
+        "values": [
+          "output:",
+          "prewarp:",
+          "canvas:",
+          "source:"
+        ]
       },
       {
-        "name": "w",
+        "name": "size",
         "kind": "text",
-        "optional": true
+        "optional": true,
+        "alt": "\u003Cw\u003Ex\u003Ch\u003E"
       },
       {
         "name": "fps",
-        "kind": "number",
-        "optional": true
+        "kind": "text",
+        "optional": true,
+        "alt": "@\u003Cfps\u003E"
       },
       {
-        "name": "choice2",
+        "name": "format",
         "kind": "enum",
         "optional": true,
         "values": [
@@ -7602,16 +7552,9 @@
       },
       {
         "name": "quality",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "QUALITY"
-        ]
-      },
-      {
-        "name": "choice3",
         "kind": "enum",
         "optional": true,
+        "keyword": "QUALITY",
         "values": [
           "LOW",
           "MEDIUM",
@@ -7630,7 +7573,7 @@
     "formParams": [
       [
         {
-          "name": "choice",
+          "name": "kind",
           "kind": "enum",
           "values": [
             "NDI",
@@ -7644,20 +7587,28 @@
         },
         {
           "name": "tap",
-          "kind": "text"
+          "kind": "ref",
+          "values": [
+            "output:",
+            "prewarp:",
+            "canvas:",
+            "source:"
+          ]
         },
         {
-          "name": "w",
+          "name": "size",
           "kind": "text",
-          "optional": true
+          "optional": true,
+          "alt": "\u003Cw\u003Ex\u003Ch\u003E"
         },
         {
           "name": "fps",
-          "kind": "number",
-          "optional": true
+          "kind": "text",
+          "optional": true,
+          "alt": "@\u003Cfps\u003E"
         },
         {
-          "name": "choice2",
+          "name": "format",
           "kind": "enum",
           "optional": true,
           "values": [
@@ -7672,16 +7623,9 @@
         },
         {
           "name": "quality",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "QUALITY"
-          ]
-        },
-        {
-          "name": "choice3",
           "kind": "enum",
           "optional": true,
+          "keyword": "QUALITY",
           "values": [
             "LOW",
             "MEDIUM",
@@ -7908,8 +7852,7 @@
           "name": "ndi-discovery",
           "kind": "text",
           "keyword": "NDI-DISCOVERY",
-          "alt": "OFF",
-          "repeats": true
+          "alt": "OFF"
         }
       ],
       [
@@ -8944,8 +8887,7 @@
       {
         "name": "source",
         "kind": "ref",
-        "alt": "OFF",
-        "repeats": true
+        "alt": "OFF"
       }
     ],
     "formParams": [
@@ -8958,8 +8900,7 @@
         {
           "name": "source",
           "kind": "ref",
-          "alt": "OFF",
-          "repeats": true
+          "alt": "OFF"
         }
       ]
     ],
@@ -9968,16 +9909,9 @@
       },
       {
         "name": "channels",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "CHANNELS"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "CHANNELS",
         "values": [
           "1",
           "1\u002B2",
@@ -10010,16 +9944,9 @@
         },
         {
           "name": "channels",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "CHANNELS"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "CHANNELS",
           "values": [
             "1",
             "1\u002B2",
@@ -10063,16 +9990,9 @@
         },
         {
           "name": "channels",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "CHANNELS"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "CHANNELS",
           "values": [
             "1",
             "1\u002B2",
@@ -10122,8 +10042,7 @@
         "kind": "number",
         "min": -24,
         "max": 24,
-        "alt": "AUTO|FIXED",
-        "repeats": true
+        "alt": "AUTO|FIXED"
       }
     ],
     "formParams": [
@@ -10133,8 +10052,7 @@
           "kind": "number",
           "min": -24,
           "max": 24,
-          "alt": "AUTO|FIXED",
-          "repeats": true
+          "alt": "AUTO|FIXED"
         }
       ]
     ],
@@ -10580,8 +10498,7 @@
         "optional": true,
         "keyword": "AMOUNT",
         "min": -1,
-        "max": 1,
-        "repeats": true
+        "max": 1
       },
       {
         "name": "offset",
@@ -10591,16 +10508,9 @@
       },
       {
         "name": "mode",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "MODE"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "MODE",
         "values": [
           "ADD",
           "SCALE",
@@ -10609,16 +10519,9 @@
       },
       {
         "name": "curve",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "CURVE"
-        ]
-      },
-      {
-        "name": "choice2",
         "kind": "enum",
         "optional": true,
+        "keyword": "CURVE",
         "values": [
           "LINEAR",
           "EASE",
@@ -10680,8 +10583,7 @@
           "optional": true,
           "keyword": "AMOUNT",
           "min": -1,
-          "max": 1,
-          "repeats": true
+          "max": 1
         },
         {
           "name": "offset",
@@ -10691,16 +10593,9 @@
         },
         {
           "name": "mode",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "MODE"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "MODE",
           "values": [
             "ADD",
             "SCALE",
@@ -10709,16 +10604,9 @@
         },
         {
           "name": "curve",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "CURVE"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "CURVE",
           "values": [
             "LINEAR",
             "EASE",
@@ -11207,16 +11095,9 @@
       },
       {
         "name": "curve",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "CURVE"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "CURVE",
         "values": [
           "LINEAR",
           "EASE"
@@ -11249,16 +11130,9 @@
         },
         {
           "name": "curve",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "CURVE"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "CURVE",
           "values": [
             "LINEAR",
             "EASE"
@@ -11740,16 +11614,9 @@
       },
       {
         "name": "align",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "ALIGN"
-        ]
-      },
-      {
-        "name": "state",
         "kind": "enum",
         "optional": true,
+        "keyword": "ALIGN",
         "values": [
           "ON",
           "OFF"
@@ -11757,16 +11624,9 @@
       },
       {
         "name": "each",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "EACH"
-        ]
-      },
-      {
-        "name": "state2",
         "kind": "enum",
         "optional": true,
+        "keyword": "EACH",
         "values": [
           "ON",
           "OFF"
@@ -11797,16 +11657,9 @@
         },
         {
           "name": "align",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "ALIGN"
-          ]
-        },
-        {
-          "name": "state",
           "kind": "enum",
           "optional": true,
+          "keyword": "ALIGN",
           "values": [
             "ON",
             "OFF"
@@ -11814,16 +11667,9 @@
         },
         {
           "name": "each",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "EACH"
-          ]
-        },
-        {
-          "name": "state2",
           "kind": "enum",
           "optional": true,
+          "keyword": "EACH",
           "values": [
             "ON",
             "OFF"
@@ -12332,16 +12178,9 @@
       },
       {
         "name": "order",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "ORDER"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "ORDER",
         "values": [
           "PENZD",
           "PNEZD",
@@ -12357,16 +12196,9 @@
       },
       {
         "name": "units",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "UNITS"
-        ]
-      },
-      {
-        "name": "choice2",
         "kind": "enum",
         "optional": true,
+        "keyword": "UNITS",
         "values": [
           "m",
           "cm",
@@ -12384,16 +12216,9 @@
         },
         {
           "name": "order",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "ORDER"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "ORDER",
           "values": [
             "PENZD",
             "PNEZD",
@@ -12409,16 +12234,9 @@
         },
         {
           "name": "units",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "UNITS"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "UNITS",
           "values": [
             "m",
             "cm",
@@ -12501,16 +12319,9 @@
       },
       {
         "name": "units",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "UNITS"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "UNITS",
         "values": [
           "m",
           "cm",
@@ -12521,16 +12332,9 @@
       },
       {
         "name": "up",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "UP"
-        ]
-      },
-      {
-        "name": "choice2",
         "kind": "enum",
         "optional": true,
+        "keyword": "UP",
         "values": [
           "Z",
           "Y"
@@ -12571,16 +12375,9 @@
         },
         {
           "name": "units",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "UNITS"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "UNITS",
           "values": [
             "m",
             "cm",
@@ -12591,16 +12388,9 @@
         },
         {
           "name": "up",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "UP"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "UP",
           "values": [
             "Z",
             "Y"
@@ -13192,16 +12982,9 @@
       },
       {
         "name": "shape",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "SHAPE"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "SHAPE",
         "values": [
           "AUTO",
           "FLAT"
@@ -13236,16 +13019,9 @@
         },
         {
           "name": "shape",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "SHAPE"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "SHAPE",
           "values": [
             "AUTO",
             "FLAT"
@@ -13279,16 +13055,9 @@
       },
       {
         "name": "steps",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "STEPS"
-        ]
-      },
-      {
-        "name": "choice",
         "kind": "enum",
         "optional": true,
+        "keyword": "STEPS",
         "values": [
           "SCAN,SOLVE",
           "ALL"
@@ -13296,16 +13065,9 @@
       },
       {
         "name": "fit",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "FIT"
-        ]
-      },
-      {
-        "name": "choice2",
         "kind": "enum",
         "optional": true,
+        "keyword": "FIT",
         "values": [
           "INSIDE",
           "CORNERS"
@@ -13320,16 +13082,9 @@
         },
         {
           "name": "steps",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "STEPS"
-          ]
-        },
-        {
-          "name": "choice",
           "kind": "enum",
           "optional": true,
+          "keyword": "STEPS",
           "values": [
             "SCAN,SOLVE",
             "ALL"
@@ -13337,16 +13092,9 @@
         },
         {
           "name": "fit",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "FIT"
-          ]
-        },
-        {
-          "name": "choice2",
           "kind": "enum",
           "optional": true,
+          "keyword": "FIT",
           "values": [
             "INSIDE",
             "CORNERS"
@@ -14672,39 +14420,31 @@
       },
       {
         "name": "x",
-        "kind": "number"
+        "kind": "number",
+        "min": -0.5,
+        "max": 1.5
       },
       {
         "name": "y",
-        "kind": "number"
+        "kind": "number",
+        "min": -0.5,
+        "max": 1.5
       },
       {
         "name": "trail",
         "kind": "number",
         "optional": true,
-        "keyword": "TRAIL"
-      },
-      {
-        "name": "y2",
-        "kind": "number",
-        "optional": true,
+        "keyword": "TRAIL",
+        "min": -0.5,
+        "max": 1.5,
         "repeats": true
       },
       {
         "name": "color",
-        "kind": "flag",
+        "kind": "text",
         "optional": true,
-        "values": [
-          "COLOR"
-        ]
-      },
-      {
-        "name": "#rrggbb",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "#rrggbb"
-        ]
+        "keyword": "COLOR",
+        "alt": "#\u003Crrggbb\u003E"
       }
     ],
     "formParams": [
@@ -14716,39 +14456,31 @@
         },
         {
           "name": "x",
-          "kind": "number"
+          "kind": "number",
+          "min": -0.5,
+          "max": 1.5
         },
         {
           "name": "y",
-          "kind": "number"
+          "kind": "number",
+          "min": -0.5,
+          "max": 1.5
         },
         {
           "name": "trail",
           "kind": "number",
           "optional": true,
-          "keyword": "TRAIL"
-        },
-        {
-          "name": "y2",
-          "kind": "number",
-          "optional": true,
+          "keyword": "TRAIL",
+          "min": -0.5,
+          "max": 1.5,
           "repeats": true
         },
         {
           "name": "color",
-          "kind": "flag",
+          "kind": "text",
           "optional": true,
-          "values": [
-            "COLOR"
-          ]
-        },
-        {
-          "name": "#rrggbb",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "#rrggbb"
-          ]
+          "keyword": "COLOR",
+          "alt": "#\u003Crrggbb\u003E"
         }
       ],
       [

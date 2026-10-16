@@ -14,7 +14,7 @@ import { boot, configFor, type Booted } from './harness.ts'
 import { allLines, statePaths } from './emitted.ts'
 import { PANIC_OUTCOMES, actionDefinitions, rowOfLine } from '../src/actions.ts'
 import { BUNDLED_VERBS, EXCLUDED, actionIdOf, generatedRows, pressOfLine, type VerbRow } from '../src/catalog/verbs.ts'
-import { lineOf, optionIdOf, sampleOf } from '../src/catalog/write.ts'
+import { lineOf, optionIdOf, optionsOf, sampleOf } from '../src/catalog/write.ts'
 import type { PlayMapConfig } from '../src/config.ts'
 import { stepsFor } from '../src/presets.ts'
 
@@ -511,6 +511,58 @@ void test('a generated action writes the node’s grammar: phrases quoted, keywo
 		await m.stop()
 		await node.stop()
 	}
+})
+
+void test('a keyword and its choice are one field; a shaped value is labelled and written in its shape; a trail is pairs', () => {
+	const row = (name: string): VerbRow => {
+		const found = BUNDLED_VERBS.find((r) => r.name === name)
+		assert.ok(found, name)
+		return found
+	}
+	const scan = row('SCAN START')
+	const mode = optionsOf(scan, () => []).find((f) => f.id === 'mode')
+	assert.equal(mode?.type, 'dropdown')
+	assert.equal(mode?.label, 'MODE mode — optional')
+	assert.equal(
+		optionsOf(scan, () => []).filter((f) => f.id.startsWith('choice')).length,
+		0,
+		'no choice parted from its keyword',
+	)
+	assert.deepEqual(lineOf(scan, { camera: 'cm_1', projector: '', mode: 'ROBUST', into: '' }), {
+		line: 'SCAN START cm_1 MODE ROBUST',
+	})
+	assert.deepEqual(lineOf(scan, { camera: 'cm_1', projector: '', mode: '', into: '' }), { line: 'SCAN START cm_1' })
+
+	const send = row('SEND ADD')
+	const fps = optionsOf(send, () => []).find((f) => f.id === 'fps')
+	assert.equal(fps?.label, 'Fps (as @<fps>) — optional')
+	assert.equal(fps?.tooltip, 'Written as @<fps>')
+	const fpsParam = send.formParams[0]?.find((p) => p.name === 'fps')
+	assert.ok(fpsParam)
+	assert.equal(sampleOf(fpsParam), '@50')
+	assert.deepEqual(
+		lineOf(send, {
+			kind: 'NDI',
+			name: 'Stage left',
+			tap: 'output:op_1',
+			size: '1920x1080',
+			fps: '@50',
+			format: '',
+			quality: 'HIGH',
+			always: false,
+		}),
+		{ line: 'SEND ADD NDI "Stage left" output:op_1 1920x1080 @50 QUALITY HIGH' },
+	)
+
+	const cursor = row('CURSOR')
+	const trail = cursor.formParams[0]?.find((p) => p.name === 'trail')
+	assert.ok(trail)
+	assert.equal(sampleOf(trail), '-0.5 -0.5', 'a repeated number samples as a pair')
+	assert.deepEqual(lineOf(cursor, { output: 'op_1', x: '0.5', y: '0.5', trail: '0.1 0.2 0.3 0.4', color: '#00FF00' }), {
+		line: 'CURSOR op_1 0.5 0.5 TRAIL 0.1 0.2 0.3 0.4 COLOR #00FF00',
+	})
+	assert.equal(row('AUDIO GAIN').formParams[0]?.[0]?.repeats, undefined, 'a range inside a placeholder is not a repeat')
+	assert.deepEqual(lineOf(row('MEDIA HAS'), { sha256: 'sha256:ab cd' }), { line: 'MEDIA HAS "sha256:ab cd"' })
 })
 
 void test('raw refuses session and secret words, ask_node refuses anything that changes the show; neither sends them', async () => {
