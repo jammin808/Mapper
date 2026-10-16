@@ -18,6 +18,7 @@
       },
       "grid": false,
       "cursors": 1,
+      "cursorP95Ms": -1,
       "armed": false
     }
   },

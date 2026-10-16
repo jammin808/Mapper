@@ -193,8 +193,7 @@ public sealed partial class RenderHost : IViewRenderer
         slot.Built = request.Kind switch
         {
             ViewKind.Output => new PreviewRequest(slot.ViewId, slot.Ring, w, h, OutputId: request.TargetId),
-            ViewKind.Projector => new PreviewRequest(slot.ViewId, slot.Ring, w, h,
-                Editor: new EditorCamera(((Projector)from).Intrinsics, ((Projector)from).Pose, ShowContent: true, ShowFrusta: false, ShowFloor: false)),
+            ViewKind.Projector => new PreviewRequest(slot.ViewId, slot.Ring, w, h, ProjectorId: request.TargetId),
             _ => new PreviewRequest(slot.ViewId, slot.Ring, w, h, Editor: (EditorCamera)from),
         };
         slot.BuiltRequest = request;

@@ -47,6 +47,8 @@ public sealed partial class EngineCore
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));
         routes.Lane("ALIGN STATUS", _ => CommandReply.Success(JsonOut(w => WriteAlignRun(w, AlignBackend.View))));
+        routes.OffLane("ALIGN SCORE", c => Task.Run(() => AlignScore(c), c.Ct));
+        routes.OffLane("DEVICE NATIVE", DeviceNativeAsync);
         routes.Lane("ALIGN CANCEL", AlignCancel);
         routes.OffLane("ALIGN ACCEPT", c => AlignGate(c) is { } refused ? Task.FromResult(refused) : AlignAcceptAsync(c));
         routes.Lane("ALIGN REVERT", AlignGuarded(AlignRevert));
@@ -204,17 +206,40 @@ public sealed partial class EngineCore
 
     private CommandReply AlignRun(VerbCall c)
     {
-        const string syntax = "ALIGN RUN <group> [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]";
+        const string syntax = "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]";
         var args = c.Args.ToList();
         var steps = TakeOption(args, "STEPS");
         var fitWord = TakeOption(args, "FIT");
-        if (args.Count != 1 || steps == "" || fitWord == "")
-            return CommandReply.Fail(syntax);
-        if (steps is not null && !steps.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+        var colourWord = TakeOption(args, "COLOR");
+        var onlyAt = args.FindIndex(a => a.Equals("ONLY", StringComparison.OrdinalIgnoreCase));
+        List<string>? onlyWords = null;
+        if (onlyAt >= 0)
         {
-            var set = steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToUpperInvariant()).ToHashSet(StringComparer.Ordinal);
-            if (!set.SetEquals(["SCAN", "SOLVE"]))
-                return CommandReply.Fail($"STEPS {steps.ToUpperInvariant()}: this round a run scans and solves together (STEPS SCAN,SOLVE or ALL); colour, verify and the projectors' own settings are next round");
+            onlyWords = args.Skip(onlyAt + 1).ToList();
+            args.RemoveRange(onlyAt, args.Count - onlyAt);
+            if (onlyWords.Count == 0)
+                return CommandReply.Fail("ONLY takes the outputs to scan again — " + syntax);
+        }
+        if (args.Count != 1 || steps == "" || fitWord == "" || colourWord == "")
+            return CommandReply.Fail(syntax);
+        var colour = false;
+        if (steps is not null)
+        {
+            var set = steps.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+                ? ["SCAN", "SOLVE", "COLOR"]
+                : steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToUpperInvariant()).ToHashSet(StringComparer.Ordinal);
+            if (!set.Contains("SCAN") || !set.Contains("SOLVE") || set.Any(x => x is not ("SCAN" or "SOLVE" or "COLOR")))
+                return CommandReply.Fail($"STEPS {steps.ToUpperInvariant()}: a run scans and solves (STEPS SCAN,SOLVE), and may match colour (,COLOR) — or ALL; a step on its own and the projectors' own settings are next round");
+            colour = set.Contains("COLOR");
+        }
+        if (colourWord is not null)
+        {
+            if (colourWord.Equals("WHITE", StringComparison.OrdinalIgnoreCase))
+                colour = true;
+            else if (colourWord.Equals("OFF", StringComparison.OrdinalIgnoreCase))
+                colour = false;
+            else
+                return CommandReply.Fail($"COLOR {colourWord.ToUpperInvariant()}: WHITE or OFF (FULL is next round)");
         }
         var p = Edits.Project;
         if (AlignNamed(p, args[0]) is not { } group)
@@ -236,6 +261,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"{runner.View!.Id} is running — ALIGN CANCEL first");
         if (Services.Scan.Current is { State: "starting" or "running" })
             return CommandReply.Fail("a scan is running — one camera and one display at a time");
+        if (_calibrationTask is { IsRunning: true } calibrating)
+            return CommandReply.Fail($"a calibration task is looking through a camera ({calibrating.Id}) — one camera and one display at a time");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project is not saved yet — an alignment keeps its files beside it: PROJECT SAVE <path> first");
         CameraRig? rig = null;
@@ -254,6 +281,29 @@ public sealed partial class EngineCore
         }
         if (outputs.Count == 0)
             return CommandReply.Fail($"{group.Name} has no output");
+        var only = ImmutableArray<int>.Empty;
+        var reference = "";
+        if (onlyWords is not null)
+        {
+            if (colour)
+                return CommandReply.Fail("colour matches the whole group — ALIGN RUN " + group.Id + " COLOR WHITE without ONLY");
+            var picked = new List<int>();
+            foreach (var word in onlyWords)
+            {
+                var j = outputs.FindIndex(o => o.Id.Equals(word, StringComparison.OrdinalIgnoreCase) || o.Name.Equals(word, StringComparison.OrdinalIgnoreCase));
+                if (j < 0)
+                    return CommandReply.Fail($"{word} is not one of {group.Name}'s outputs");
+                if (!picked.Contains(j))
+                    picked.Add(j);
+            }
+            var runs = outputs.Select(o => o.Measured?.RunId ?? "").Distinct(StringComparer.Ordinal).ToList();
+            if (runs.Count != 1 || runs[0].Length == 0)
+                return CommandReply.Fail($"ONLY keeps the others' measurements from the run they came from — {group.Name}'s outputs do not all stand on one accepted run (ALIGN RUN {group.Id} first)");
+            if (picked.Count == outputs.Count)
+                return CommandReply.Fail($"ONLY names every output of {group.Name} — ALIGN RUN {group.Id} scans them all");
+            only = [.. picked.Order()];
+            reference = runs[0];
+        }
         var aspect = group.Target.Aspect > 0 ? group.Target.Aspect
             : p.FindCanvas(group.CanvasId) is { Width: > 0, Height: > 0 } cv ? (double)cv.Width / cv.Height
             : 16.0 / 9;
@@ -264,14 +314,15 @@ public sealed partial class EngineCore
         var projectors = outputs.Select(o => o.ProjectorId is { } pid ? p.FindProjector(pid) : null).ToList();
         try
         {
-            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder));
+            runner.Start(new AlignRunSetup(runId, group, outputs, projectors, rig, fit, aspect, folder) { Colour = colour, Only = only, ReferenceRunId = reference });
         }
         catch (InvalidOperationException ex)
         {
             return CommandReply.Fail(ex.Message);
         }
-        var shots = Core.Align.AlignSequence.Shots([.. outputs.Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name, o.Width, o.Height,
-            Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]);
+        var shots = Core.Align.AlignSequence.Shots([.. outputs.Where((_, j) => only.IsEmpty || only.Contains(j)).Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name,
+            o.Width, o.Height, Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0)
+            + Core.Align.AlignVerify.Shots(only.IsEmpty ? outputs.Count : only.Length);
         var words = string.Create(CultureInfo.InvariantCulture,
             $"{runId} measures {group.Name} through {group.CameraId} ({shots} pictures, FIT {fit.ToString().ToUpperInvariant()}); nothing changes on the air until ALIGN ACCEPT {runId}");
         return new CommandReply(true, JsonOut(w =>
@@ -284,6 +335,67 @@ public sealed partial class EngineCore
             w.WriteString("words", words);
             w.WriteEndObject();
         }), words, Applied: false);
+    }
+
+    /// <summary>ALIGN SCORE &lt;run&gt;|&lt;group&gt;: a run's score and every term with its words, value, light and fix — a run by id, or a group's
+    /// staged run, else the run its outputs stand on.</summary>
+    private CommandReply AlignScore(VerbCall c)
+    {
+        if (c.Args.Count != 1)
+            return CommandReply.Fail("ALIGN SCORE <run>|<group>");
+        // Off the lane (a run may be read from its folder): the project is the store's snapshot.
+        var p = Store.Project;
+        var word = c.Args[0];
+        string runId;
+        if (AlignArchive.IsRunId(word))
+        {
+            runId = word;
+        }
+        else if (AlignNamed(p, word) is { } group)
+        {
+            var standing = group.OutputIds.Select(id => p.FindOutput(id)?.Measured?.RunId ?? "").Distinct(StringComparer.Ordinal).ToList();
+            runId = AlignBackend.View is { State: "staged" } v && v.GroupId == group.Id ? v.Id
+                : standing.Count == 1 && standing[0].Length > 0 ? standing[0]
+                : "";
+            if (runId.Length == 0)
+                return CommandReply.Fail($"{group.Name} has no run to score — ALIGN RUN {group.Id}");
+        }
+        else
+        {
+            return CommandReply.Fail($"no run or alignment group {word}");
+        }
+        if ((AlignBackend.Finished(runId) ?? AlignArchive.Load(ProjectFolderForFiles, runId)) is not { } record)
+            return CommandReply.Fail($"{runId} is neither held by this node nor beside the project");
+        var score = record.Score;
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("run", record.Id);
+            w.WriteString("group", record.GroupId);
+            w.WriteString("state", record.State);
+            w.WriteNumber("score", score.Value);
+            w.WriteString("unit", score.Unit);
+            w.WriteString("grade", score.Grade);
+            w.WriteNumber("seamPx", Math.Round(record.SeamPx, 3));
+            w.WriteNumber("coverage", Math.Round(record.CoverageShare, 4));
+            w.WriteStartArray("terms");
+            foreach (var t in score.Terms)
+            {
+                w.WriteStartObject();
+                w.WriteString("code", t.Code);
+                w.WriteString("words", t.Words);
+                w.WriteNumber("value", Math.Round(t.Value, 4));
+                w.WriteString("unit", t.Unit);
+                w.WriteNumber("penalty", Math.Round(t.Penalty, 3));
+                w.WriteString("light", t.Light);
+                w.WriteString("fix", t.Fix);
+                w.WriteString("hint", t.Hint);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteString("words", score.Words);
+            w.WriteEndObject();
+        }), score.Words);
     }
 
     private CommandReply AlignCancel(VerbCall c)
@@ -339,6 +451,7 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         runner.MarkAccepted(runId);
+        NativeDueNow();
         RaiseEvent("align.accepted", LeaderNowNs, w =>
         {
             w.WriteString("group", record.GroupId);
@@ -400,21 +513,15 @@ public sealed partial class EngineCore
                 continue;
             (p, var previous) = KeepAsItStands(p, o, who, now);
             var id = p.NewId(Ids.Calibration);
+            var gamma = Math.Clamp(ro.Gamma, 1.0, BlendMath.MaxGamma);
             var snap = new CalibrationSnapshot(id, CalibrationLedger.NameFor(p, o.Id, CalibrationSource.Align), CalibrationTarget.Output, o.Id, now,
                 CalibrationSource.Align, null, previous, record.Score, who, false)
             {
                 Output = ro.Measured,
+                BlendGamma = double.IsFinite(gamma) ? Math.Round(gamma, 3) : 0,
             };
             (p, _) = CalibrationLedger.Record(p, snap, apply: true);
-            var gamma = Math.Clamp(ro.Gamma, 1.0, BlendMath.MaxGamma);
-            p = p with
-            {
-                Outputs = p.Outputs.Update(o.Id, x => x with
-                {
-                    FallbackId = previous,
-                    Blend = double.IsFinite(gamma) ? x.Blend with { Gamma = Math.Round(gamma, 3) } : x.Blend,
-                }),
-            };
+            p = p with { Outputs = p.Outputs.Update(o.Id, x => x with { FallbackId = previous }) };
             applied.Add((o.Id, id, previous));
         }
         if (applied.Count == 0)
@@ -429,13 +536,15 @@ public sealed partial class EngineCore
     /// result, applied) — so whatever ACCEPT, CLEAR or REVERT replaces can be returned to.</summary>
     private static (Project Project, string Id) KeepAsItStands(Project p, Output o, string who, long now)
     {
-        if (o.CalibrationId is { } cid && p.FindCalibration(cid) is { } cur && Equals(cur.Output, o.Measured))
+        if (o.CalibrationId is { } cid && p.FindCalibration(cid) is { } cur && Equals(cur.Output, o.Measured)
+            && (cur.BlendGamma <= 0 || cur.BlendGamma == o.Blend.Gamma))
             return (p, cid);
         var id = p.NewId(Ids.Calibration);
         var snap = new CalibrationSnapshot(id, o.Measured is null ? "No measured correction" : "As it stood", CalibrationTarget.Output, o.Id, now,
             CalibrationSource.Manual, null, o.CalibrationId, AsItStandsScore, who, false)
         {
             Output = o.Measured,
+            BlendGamma = o.Blend.Gamma,
         };
         return (CalibrationLedger.Record(p, snap, apply: true).Project, id);
     }
@@ -727,6 +836,7 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }
         w.WriteEndArray();
+        WriteNative(w);
         w.WriteEndObject();
     }
 

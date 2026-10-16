@@ -76,9 +76,32 @@ public sealed class OverlayPass : IFramePass
     /// <summary>Builds of an output's overlay geometry so far (an unchanged overlay is built once).</summary>
     public int Builds { get; private set; }
 
+    private const int MaxDrawnOutputs = 16;
+    private readonly string?[] _drawnOutputs = new string?[MaxDrawnOutputs];
+    private int _drawnCount;
+    private ImmutableArray<WallCursor> _drawnCursors;
+
+    /// <summary>The cursors the last frame drew (the board as it was then), and on which outputs: a cursor was drawn when it is in
+    /// that board and its output is one of those (render thread, between frames).</summary>
+    public bool Drew(WallCursor cursor)
+    {
+        ArgumentNullException.ThrowIfNull(cursor);
+        var found = false;
+        foreach (var c in _drawnCursors.IsDefault ? [] : _drawnCursors)
+            found |= ReferenceEquals(c, cursor);
+        if (!found)
+            return false;
+        for (var i = 0; i < _drawnCount; i++)
+            if (string.Equals(_drawnOutputs[i], cursor.OutputId, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
     /// <summary>Takes the frame's overlay and whether the show is armed (render thread, before the frame).</summary>
     public void Prepare(in FrameInputs inputs)
     {
+        _drawnCount = 0;
+        _drawnCursors = default;
         _state = inputs.Overlay;
         _cursors = inputs.Cursors;
         _armed = inputs.Armed;
@@ -149,7 +172,12 @@ public sealed class OverlayPass : IFramePass
         if (e.Count > 0)
             _device.Draw(p, e.Vao, PrimitiveKind.Triangles, e.Count);
         if (e.CursorCount > 0)
+        {
             _device.Draw(p, e.CursorVao, PrimitiveKind.Triangles, e.CursorCount);
+            _drawnCursors = e.Cursors;
+            if (_drawnCount < MaxDrawnOutputs)
+                _drawnOutputs[_drawnCount++] = output.Id;
+        }
         final.Color.Version++;
     }
 

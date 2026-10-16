@@ -37,4 +37,8 @@
     <ProjectReference Include="..\..\tools\PlayMap.Node\PlayMap.Node.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-resolve">
+    <Compile Include="..\PlayMap.Devices.Tests\Simulators\PanasonicSimulator.cs" Link="Simulators\PanasonicSimulator.cs" />
+  </ItemGroup>
+
 </Project>

@@ -14,7 +14,11 @@ public sealed partial class EngineCore
         RouteCalibration(routes);
     }
 
-    partial void TickWall(long leaderNs) => TickQuads();
+    partial void TickWall(long leaderNs)
+    {
+        TickQuads();
+        TickNative();
+    }
 
     partial void StateWall(Utf8JsonWriter w)
     {

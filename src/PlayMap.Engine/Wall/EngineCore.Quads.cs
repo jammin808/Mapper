@@ -51,7 +51,8 @@ public sealed partial class EngineCore
         routes.Lane("HANDLE PREV", Guarded(c => HandleStep(c, -1)));
         routes.Lane("HANDLE NUDGE", Guarded(HandleNudge));
         routes.Lane("OVERLAY", Guarded(Overlay));
-        routes.Lane("CURSOR", Guarded(Cursor));
+        // Off the lane: a cursor line goes on the board as it arrives (stamped then), never queued behind edits.
+        routes.OffLane("CURSOR", c => Task.FromResult(WallGate(c) ?? Cursor(c)));
     }
 
     // ---- parsing ---------------------------------------------------------------------------------------------------------
@@ -822,11 +823,26 @@ public sealed partial class EngineCore
     /// <summary>Every session's cursor on the wall now (any thread; the render host draws them).</summary>
     internal System.Collections.Immutable.ImmutableArray<WallCursor> WallCursors => _cursors.Cursors;
 
+    /// <summary>The cursors with when each line arrived (the render host measures how late each is drawn).</summary>
+    internal CursorBoard.Board WallCursorBoard => _cursors.Current;
+
+    private double _cursorP95Ms = -1;
+
+    /// <summary>The render host's measure of how late a cursor is drawn: the p95 over the last moves, in ms (frames × the output's
+    /// frame period); STATE moves with it (render thread → the facts signal).</summary>
+    internal double CursorP95Ms
+    {
+        get => Volatile.Read(ref _cursorP95Ms);
+        set => Volatile.Write(ref _cursorP95Ms, value);
+    }
+
     /// <summary>CURSOR &lt;output&gt; &lt;x&gt; &lt;y&gt; [TRAIL &lt;x&gt; &lt;y&gt;…] [COLOR #rrggbb] | CURSOR OFF: this session's cursor on the wall, 0–1
     /// across and down the output, with the clicks so far; its lease lapses after the node's CursorLeaseMs unless sent again. No
     /// journal, no undo, no answer but OK; STATE moves only when the number of cursors does.</summary>
     private CommandReply Cursor(VerbCall c)
     {
+        // The render clock's instant the line arrived: the frame that first draws the move counts from it.
+        var arrived = Core.Time.MonoClock.Instance.NowNs;
         const string Syntax = "CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb] | CURSOR OFF";
         if (c.Args.Count == 1 && c.Args[0].Equals("OFF", StringComparison.OrdinalIgnoreCase))
         {
@@ -866,7 +882,7 @@ public sealed partial class EngineCore
         var now = Services.Mono.NowNs;
         var cursor = new WallCursor(c.Session.SessionId, c.Session.ClientName, output.Id, new Vec2d(x, y), trail.ToImmutable(), color, now,
             now + Services.Settings.Wall.CursorLeaseMs * 1_000_000L);
-        if (_cursors.Put(cursor, Services.Settings.Wall.MaxCursors))
+        if (_cursors.Put(cursor, Services.Settings.Wall.MaxCursors, arrived))
             FactsChanged();
         return CommandReply.NoReply();
     }
@@ -880,15 +896,29 @@ public sealed partial class EngineCore
             SetAir(a => a with { Overlay = a.Overlay with { On = false, LeaseUntilMonoNs = 0 } });
         if (_cursors.Prune(Services.Mono.NowNs))
             FactsChanged();
-        if (_quadAtUnixMs != 0 && _contentAtUnixMs == 0 && QuadShowsContent(Store.Project))
+        if (_quadAtUnixMs != 0 && _contentAtUnixMs == 0 && (_renderWitness ? _contentWitnessed : QuadContent(Store.Project) is not null))
         {
             _contentAtUnixMs = Services.Wall.UnixMs;
             FactsChanged();
         }
     }
 
-    /// <summary>A visible pixel quad shows media or a playlist on a projector an enabled output puts on the wall.</summary>
-    private static bool QuadShowsContent(Project p)
+    private volatile bool _renderWitness;
+    private volatile bool _contentWitnessed;
+
+    /// <summary>A quad is drawn and no content has been seen on one yet (any thread: the render host asks each frame).</summary>
+    internal bool AwaitingFirstContent => Volatile.Read(ref _quadAtUnixMs) != 0 && Volatile.Read(ref _contentAtUnixMs) == 0;
+
+    /// <summary>The render host draws this node's frames: the first content is stamped when it says a frame drew some, not when the
+    /// project first names it (render thread; once).</summary>
+    internal void RenderWitnessesContent() => _renderWitness = true;
+
+    /// <summary>The render host drew a frame of a quad's content (render thread); the lane stamps it on its next tick.</summary>
+    internal void FirstContentDrawn() => _contentWitnessed = true;
+
+    /// <summary>What the first visible pixel quad showing media or a playlist on a projector an enabled output puts on the wall shows,
+    /// or null.</summary>
+    internal static SourceRef? QuadContent(Project p)
     {
         foreach (var s in p.Stage.Surfaces)
         {
@@ -896,9 +926,9 @@ public sealed partial class EngineCore
                 continue;
             foreach (var o in p.Outputs)
                 if (o.Enabled && o.Mode == OutputMode.Projector && string.Equals(o.ProjectorId, q.ProjectorId, StringComparison.Ordinal))
-                    return true;
+                    return s.Content.Source;
         }
-        return false;
+        return null;
     }
 
     /// <summary>air.overlay: on, the outputs and layers, the selected handle, the grid flash and the lease left.</summary>
@@ -919,6 +949,8 @@ public sealed partial class EngineCore
         WriteHandle(w, o.Handle);
         w.WriteBoolean("grid", false);
         w.WriteNumber("cursors", _cursors.Cursors.Length);
+        var p95 = CursorP95Ms;
+        w.WriteNumber("cursorP95Ms", p95 < 0 ? -1 : Math.Round(p95, 1));
         w.WriteBoolean("armed", Services.ShowGate.Armed);
         w.WriteEndObject();
     }

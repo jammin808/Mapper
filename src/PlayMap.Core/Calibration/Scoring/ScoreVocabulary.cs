@@ -50,7 +50,7 @@ public static class ScoreVocabulary
         new(ScoreTermCodes.StackConvergence, "stack", "the stack's members disagree by {0:0.0} px", "px",
             "STACK ALIGN {stack} FROM {scan}", "check every member of the stack lit the scan"),
         new(ScoreTermCodes.Uniformity, "uniformity", "brightness varies {0:0} % across the picture", "%",
-            "ALIGN RUN {group} STEPS COLOR", "match the projectors' lamp modes and ages"),
+            "ALIGN RUN {group} COLOR WHITE", "match the projectors' lamp modes and ages"),
         new(ScoreTermCodes.ColourMatch, "colour", "colours differ by ΔE {0:0.0} between outputs", "ΔE",
             "ALIGN RUN {group} COLOR WHITE", "set every projector to the same colour mode"),
     }.ToFrozenDictionary(e => e.Code, StringComparer.Ordinal);

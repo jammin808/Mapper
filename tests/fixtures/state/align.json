@@ -8,7 +8,7 @@
       "step": "stage",
       "progress": 1,
       "etaS": 0,
-      "words": "staged A 100: flat: the outputs fit one plane to 0.05 px (95 % within 0.06 px); the camera\u0027s lens k1 0.037, k2 -0.000; the canvas is the screen\u0027s corners as clicked; the outputs cover 99.8 % of it; blended in light; white p5/p95 0.99 after uniformity 0.6; black lifted to the overlaps\u0027 floor over 89 % of the canvas; seams agree to 0.15 px (95 %) \u2014 ALIGN ACCEPT ar_fixture1 applies it",
+      "words": "staged A 100: flat: the outputs fit one plane to 0.05 px (95 % within 0.06 px); the camera\u0027s lens k1 0.037, k2 -0.000; the canvas is the screen\u0027s corners as clicked; the outputs cover 99.8 % of it; blended in light; white p5/p95 0.99 after uniformity 0.6; black lifted to the overlaps\u0027 floor over 89 % of the canvas; seams agree to 0.15 px (95 %); 75 pictures, 15 s of patterns; verified: the seams agree to 0.09 px on the screen (95 %, 4 dots) \u2014 ALIGN ACCEPT ar_fixture1 applies it",
       "outputs": [
         {
           "id": "op1",
@@ -53,7 +53,8 @@
         "light": "amber",
         "words": "a run waits: ALIGN ACCEPT ar_fixture1 (A 100)"
       }
-    ]
+    ],
+    "devices": []
   },
   "outputs": [
     {

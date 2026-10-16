@@ -128,5 +128,24 @@
     "actions": [
       "ALIGN STATUS"
     ]
+  },
+  {
+    "title": "Projectors\u0027 own processing",
+    "path": "align",
+    "light": [
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "the double-correction guard: {devices}",
+    "fields": [
+      {
+        "label": "Guarded devices",
+        "path": "devices"
+      }
+    ],
+    "actions": [
+      "DEVICE NATIVE $(id)"
+    ]
   }
 ]

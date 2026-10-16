@@ -50,11 +50,12 @@ internal sealed class AlignRig : IAsyncDisposable
     public readonly DirectoryInfo Folder;
     private readonly AlignRunner _runner;
 
-    public AlignRig(Project project, AlignRunnerOptions? options = null, IScanDisplay? display = null)
+    public AlignRig(Project project, AlignRunnerOptions? options = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? configure = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-align-");
         _runner = new AlignRunner(display, (options ?? new AlignRunnerOptions()) with { UnixMs = () => 1_760_000_000_000 });
         var services = EngineServices.ForTests(Clock) with { ProjectFolder = Folder.FullName, ShowGate = Gate, Align = _runner };
+        services = configure?.Invoke(services) ?? services;
         Engine = new EngineCore(services, project);
     }
 
