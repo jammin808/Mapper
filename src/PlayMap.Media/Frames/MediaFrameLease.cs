@@ -23,10 +23,18 @@ public sealed class MediaFrameLease : VideoFrameLease, IHapPicture
 
     private FrameSlot Slot => Volatile.Read(ref _slot) ?? throw new ObjectDisposedException(nameof(MediaFrameLease));
 
-    public override PixelLayout Layout => Slot.Layout!.Layout;
-    public override int Width => Slot.Layout!.Width;
-    public override int Height => Slot.Layout!.Height;
+    public override PixelLayout Layout => Shape.Layout;
+    public override int Width => Shape.Width;
+    public override int Height => Shape.Height;
     public override IReadOnlyList<FramePlane> Planes => Slot.Planes;
+
+    /// <summary>The decoder's own surface for a GPU picture (no planes then); null for a picture in memory.</summary>
+    public override GpuSurface? Surface => Slot is { IsGpu: true } s ? s.Surface : null;
+
+    /// <summary>The upload-arena block the planes were written into (empty when they are in the source's own buffer).</summary>
+    public override UploadBlock Staged => Slot.Staged;
+
+    private FrameLayout Shape => Slot is { IsGpu: true } s ? s.GpuLayout! : Slot.Layout!;
     public override long PtsNs => Slot.PtsNs;
     public override long DurationNs => Slot.DurationNs;
     public override long Generation => Slot.Generation;
