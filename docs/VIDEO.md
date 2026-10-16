@@ -1,8 +1,9 @@
 # Video I/O: NDI and OMT in and out
 
-A PlayMap node receives network video as live inputs and sends any point of its pipeline as a network source. Two protocols this
-round: **OMT** (Open Media Transport — libomtnet and its VMX codec, vendored, so it works on every node out of the box) and **NDI**
-(through the NDI 6 runtime the user installs; PlayMap ships none of it). Spout registers its provider beside them from wp2-d3d11.
+A PlayMap node receives network video as live inputs and sends any point of its pipeline as a network source. Two protocols:
+**OMT** (Open Media Transport — libomtnet and its VMX codec, vendored, so it works on every node out of the box) and **NDI**
+(through the NDI 6 runtime the user installs; PlayMap ships none of it). Spout's provider registers beside them with the
+Direct3D 11 work, which is in flight.
 The verbs, STATE, the context, events, INDEX and preflight are in `docs/wire/videoio.md`; the design is
 `docs/round2/design/netvideo.md`.
 
@@ -10,7 +11,10 @@ The verbs, STATE, the context, events, INDEX and preflight are in `docs/wire/vid
 
 A live input is a library item: `MediaItem { Kind = Stream, Location = "omt:STUDIO (Cam 1)" }` with optional `LiveSettings`
 (`Proxy`, `Depth`, `Warm`, `Backup`, `OnLoss`, `Fallback`, `StaleMs`, `LostMs`, `RecoverMs`, `Tally`, `Quality`). Anything that shows a
-media item shows it: a surface, an output in source mode, a playlist item, a preview, a scan camera.
+media item shows it: a surface, an output in source mode, a playlist item, a preview, a scan camera. A live input is pictures
+only: no sound is received (NDI's and OMT's audio frames are not asked for), so it never sounds on the air, and it is a stream,
+never a clip optimise makes a version of; its fallback file, and a file a send taps, are media the show uses (preflight checks
+them, optimise counts them).
 
 - **One receiver per input.** `MediaBackend.Open` routes NDI and OMT locations to the engine's `VideoIoHub`, which keeps one
   receiver per input and lends every consumer a non-owning `LiveHandle`; three surfaces and a thumbnail are still one network
