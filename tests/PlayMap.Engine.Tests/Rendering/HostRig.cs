@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json.Nodes;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
@@ -27,6 +28,39 @@ internal sealed class HostRig : IAsyncDisposable
 
     /// <summary>The binding GL answers for such a context (STATE's machine.gl): WGL on Windows, CGL on macOS, GLX elsewhere.</summary>
     public static string NativeBinding => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cgl" : "glx";
+
+    /// <summary>The binding the committed fixtures were written through: Linux under X.</summary>
+    public const string FixtureBinding = "glx";
+
+    /// <summary>Why a context through the fixtures' binding imports nothing, as the fixtures read it.</summary>
+    private const string FixtureWhy = "the render context is GLX: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)";
+
+    /// <summary>Why a context through this machine's own binding imports nothing: on Windows zero-copy is the Direct3D 11 output
+    /// path's, and no other platform has a decoder that shares its frames with GL.</summary>
+    private static string NativeWhy =>
+        OperatingSystem.IsWindows() ? "the render context is WGL: zero-copy on Windows needs the Direct3D 11 output path (PRESENT PATH DXGI)"
+        : OperatingSystem.IsMacOS() ? "the render context is CGL: no decoder on this platform shares its frames with GL"
+        : FixtureWhy;
+
+    /// <summary>STATE.decode.platform as the committed fixtures read it. When the context came through this machine's own binding,
+    /// the words that name it — <c>gl</c>, the share's <c>describe</c> — are first asserted to name exactly that binding and the
+    /// <c>why</c> to be this platform's whole reason, then read as the fixtures' (GLX's); an EGL context's words, and every other
+    /// word, are left to the comparison.</summary>
+    public static void DecodeBindingAsFixture(JsonObject platform)
+    {
+        ArgumentNullException.ThrowIfNull(platform);
+        if ((string?)platform["gl"] != NativeBinding)
+            return;
+        var own = $"OpenGL through {NativeBinding.ToUpperInvariant()}:";
+        var describe = (string?)platform["describe"];
+        Assert.True(describe is not null && describe.StartsWith(own, StringComparison.Ordinal),
+            $"decode.platform.describe names this machine's binding ({own}): '{describe}'");
+        Assert.Equal(NativeWhy, (string?)platform["why"]);
+        platform["gl"] = FixtureBinding;
+        platform["describe"] = $"OpenGL through {FixtureBinding.ToUpperInvariant()}:" + describe[own.Length..];
+        platform["why"] = FixtureWhy;
+    }
+
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
 
     private HostRig(ManualClock clock, EngineCore engine, RenderHost host)

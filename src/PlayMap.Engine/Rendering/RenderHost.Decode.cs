@@ -57,12 +57,27 @@ public sealed partial class RenderHost
         }
         else
         {
-            var words = _decodeBinding == "egl" ? "the EGL display does not import dmabufs: frames come back to system memory"
-                : $"the render context is {(_decodeBinding.Length > 0 ? _decodeBinding.ToUpperInvariant() : "not EGL")}: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)";
+            var words = NoImportWords(_decodeBinding);
             facts = platform is null ? new ZeroCopyPlatform(GpuApi.None, false, false, words) : DecodeLadder.Platform(platform, false, words);
         }
         var arena = GlUploadArena.Create(device, arenaMb, out var arenaWords);
         return new DecodeContext(share, facts, _decodeBinding, arena, arenaWords);
+    }
+
+    /// <summary>Why a GL context through <paramref name="binding"/> takes no decoder's surfaces, in this platform's own terms: on
+    /// Linux the way in is an EGL display that imports dmabufs; on Windows zero-copy is the Direct3D 11 output path's (a GL context
+    /// there imports nothing); elsewhere no decoder shares its frames with GL.</summary>
+    internal static string NoImportWords(string binding)
+    {
+        var named = binding.Length > 0 ? binding.ToUpperInvariant() : null;
+        if (OperatingSystem.IsLinux())
+        {
+            return binding == "egl" ? "the EGL display does not import dmabufs: frames come back to system memory"
+                : $"the render context is {named ?? "not EGL"}: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)";
+        }
+        if (OperatingSystem.IsWindows())
+            return $"the render context is {named ?? "OpenGL"}: zero-copy on Windows needs the Direct3D 11 output path (PRESENT PATH DXGI)";
+        return $"the render context is {named ?? "OpenGL"}: no decoder on this platform shares its frames with GL";
     }
 
     partial void OnContextDecode(RenderEngine renderer)

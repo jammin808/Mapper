@@ -74,18 +74,22 @@ public sealed class BackupTests
         Assert.True(await Eventually.TrueAsync(() => Anchor(backup, "pl_show") == Anchor(primary, "pl_show")), backup.Journal());
         Assert.True(await Eventually.TrueAsync(() => Anchor(backup, "pl_local") == Anchor(primary, "pl_local")), backup.Journal());
 
-        // The air: a blackout (the group's feed), a freeze (the mirror's own air), a panic fade at the primary's instant.
+        // The air: a blackout (the group's feed), a freeze (the mirror's own air), a panic fade at the primary's instant. The group's
+        // feed and the mirror are two links, each in order but with no order between them: the backup's air is read once both
+        // lines have landed, each a fact of its own.
         await primary.OkAsync("BLACKOUT ON");
         await primary.OkAsync("FREEZE ON");
         Assert.True(await Eventually.TrueAsync(() => Air(backup).GetProperty("blackout").GetBoolean() && Air(backup).GetProperty("frozen").GetBoolean()), Air(backup).ToString());
         await primary.OkAsync("FREEZE OFF");
         await primary.OkAsync("PANIC FADE 1000");
-        Assert.True(await Eventually.TrueAsync(() => Air(backup).GetProperty("panic").ValueKind == JsonValueKind.Object), Air(backup).ToString());
-        Assert.False(Air(backup).GetProperty("frozen").GetBoolean());
-        // The fade is a pure function of the leader instant, the same on both at every instant of it.
+        Assert.True(await Eventually.TrueAsync(() => Air(backup).GetProperty("panic").ValueKind == JsonValueKind.Object && !Air(backup).GetProperty("frozen").GetBoolean()),
+            Air(backup).ToString());
+        // The fade is a pure function of the leader instant, the same on both at every instant of it. The render thread's levels are
+        // built on the backup's lane after its air took the panic, so they are read as a fact of their own too.
         var now = primary.Engine.LeaderNowNs;
-        foreach (var t in new[] { now, now + Second / 5, now + Second / 2, now + 4 * Second / 5, now + 2 * Second })
-            Assert.Equal(primary.Engine.AirLevelsNow!.Gain("op_1", t), backup.Engine.AirLevelsNow!.Gain("op_1", t));
+        long[] instants = [now, now + Second / 5, now + Second / 2, now + 4 * Second / 5, now + 2 * Second];
+        Assert.True(await Eventually.TrueAsync(() => instants.All(t => primary.Engine.AirLevelsNow!.Gain("op_1", t) == backup.Engine.AirLevelsNow!.Gain("op_1", t))),
+            string.Join(", ", instants.Select(t => $"{primary.Engine.AirLevelsNow!.Gain("op_1", t)} / {backup.Engine.AirLevelsNow!.Gain("op_1", t)}")));
         Assert.Equal(0f, backup.Engine.AirLevelsNow!.Gain("op_1", now + 3 * Second));
 
         // A client's edit on the backup is refused with the way out; its queries and panic stay.
@@ -116,7 +120,9 @@ public sealed class BackupTests
         var fencedEdit = await primary.RunAsync("SET op_1 name Again");
         Assert.False(fencedEdit.Ok);
         Assert.Contains("fenced: FOH-B has the show (epoch 1)", fencedEdit.Payload, StringComparison.Ordinal);
-        // The role and the epoch are kept for the next start.
+        // The role and the epoch are kept for the next start. The fenced node's STATE names the role before its settings file holds
+        // it; the fence's journal row, which says whether it was kept, follows the file.
+        Assert.True(await Eventually.TrueAsync(() => primary.Journal().Contains("fleet: fenced: FOH-B has the show since", StringComparison.Ordinal)), primary.Journal());
         Assert.Equal(("fenced", 1L), (primary.Home.LoadSettings("x").Fleet.Role, primary.Home.LoadSettings("x").Fleet.Epoch));
         Assert.Equal(("primary", 1L), (backup.Home.LoadSettings("x").Fleet.Role, backup.Home.LoadSettings("x").Fleet.Epoch));
 
@@ -132,7 +138,10 @@ public sealed class BackupTests
             + $"\nA answers on {primary.Network.SyncPort}, B on {backup.Network.SyncPort}; B hears A's clock on {backup.Network.Hello!.Peers.Find(primary.Id)?.Hello.Port("sync")} from {backup.Network.Hello!.Peers.Find(primary.Id)?.Hello.Name} ({backup.Network.Hello!.Peers.Find(primary.Id)?.Liveness}); hello ports A {primary.Network.HelloPort} B {backup.Network.HelloPort}\n" + backup.Journal() + "\n---\n" + primary.Journal());
         Assert.Equal(2, BackupRig.Fleet(primary).GetProperty("epoch").GetInt64());
         Assert.Equal(("backup", primary.Id), (BackupRig.Role(backup), BackupRig.Fleet(backup).GetProperty("of").GetString()));
-        Assert.Equal("failback", BackupRig.Fleet(backup).GetProperty("last").GetProperty("kind").GetString());
+        // The hand-back's record is written by the node that handed the show back once its join returns, beside its mirror coming
+        // up: a fact of its own.
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(backup).GetProperty("last").GetProperty("kind").GetString() == "failback"),
+            BackupRig.Fleet(backup).ToString());
         Assert.Equal(BackupRig.ShowJson(primary), BackupRig.ShowJson(backup));
 
         // Each node was given the other's token (CREDENTIAL SET node.<id> <token>) and proved it for its mirror, its takeover, its fence

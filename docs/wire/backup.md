@@ -92,7 +92,8 @@ FOH-A — it sends at FAILOVER"); on a fenced node both say `held` ("held black:
 FOH-B to mirror it"); on a primary that has just started with hot backups both say `standby` until it has heard them ("silent while
 FOH-A listens for its hot backup (FOH-B): one may have taken the show while it was away"). `show.sound.gain` is 0 on each of them.
 HEALTH adds `mirror` (the backup's state) and `sync.group`; a node is told at once when a peer's epoch, mirror or group moves. The fixture is
-`tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER), its cards `backup.cards.json`.
+`tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER, its route switched on the PJLink simulator
+and read back), its cards `backup.cards.json`.
 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
 

@@ -168,18 +168,12 @@ public sealed class GpuSlotTests
         Assert.Equal("copy", source.Health.Hap!.Staging);
     }
 
-    // An mpeg4 clip (an LGPL-compatible encoder), made once: two seconds of FFmpeg's synthetic pattern at 25 fps.
+    // An mpeg4 clip (an LGPL-compatible encoder), made once by the tests' ffmpeg tool: two seconds of FFmpeg's synthetic pattern at 25 fps.
     private static readonly Lazy<string> Mpeg4 = new(() =>
     {
         var path = Path.Combine(TestMedia.Dir, "zerocopy-mpeg4.mp4");
-        var tool = Path.GetFullPath(Path.Combine(Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!, "..", "bin", "ffmpeg"));
-        var psi = new System.Diagnostics.ProcessStartInfo(File.Exists(tool) ? tool : "/opt/ffmpeg9/bin/ffmpeg") { RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=25:d=2", "-c:v", "mpeg4", "-q:v", "4", path })
-            psi.ArgumentList.Add(a);
-        using var p = System.Diagnostics.Process.Start(psi)!;
-        var err = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+        TestMedia.Run("-f", "lavfi", "-i", "testsrc2=s=320x240:r=25:d=2", "-c:v", "mpeg4", "-q:v", "4", path);
+        Assert.True(File.Exists(path), "ffmpeg made no " + path);
         return path;
     });
 
@@ -189,7 +183,10 @@ public sealed class GpuSlotTests
         return Mpeg4.Value;
     }
 
-    [Fact]
+    // VA-API is reached through libva and a DRM render node, and its frames shared as dmabufs: Linux's only (the guard that asks
+    // for libva is not asked elsewhere).
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public async Task AClipForARendererWhoseVaapiCannotBeUsedSaysThePathItsFramesComeBy()
     {
         TestMedia.Ensure();

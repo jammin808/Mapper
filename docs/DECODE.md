@@ -58,8 +58,9 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
 
 - **At open.** VAAPI surfaces are sampled in place or not at all (no one-copy rung): `gpu-copy` on Linux means copy-back. D3D11
   takes one GPU copy until direct sampling is proven on the driver (the proof harness is next round) or `DECODE POLICY DIRECT
-  FORCE`. A renderer whose device imports nothing (GLX, or a software GL) opens every clip on copy-back with the renderer's words
-  ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context").
+  FORCE`. A renderer whose device imports nothing (GLX, WGL, or a software GL) opens every clip on copy-back with the renderer's
+  words ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context",
+  "the render context is WGL: zero-copy on Windows needs the Direct3D 11 output path (PRESENT PATH DXGI)").
 - **At run time** (`SurfaceLadder`, one per decoder) a source steps down — keeping its queue, while the renderer holds the last
   picture — when the renderer could not import a frame (it reports the failure to the share against the source's key; the decode
   thread reads it before its next map), when the renderer's device changes under it (its context was rebuilt: it steps to
@@ -147,11 +148,12 @@ and timed beside.
   convert to the CPU upload's picture bit for bit; holds, the two-surface limit, a failed import that keeps the last picture.
   `EGL_MESA_image_dma_buf_export` is absent on this display, so the export round trip says so and runs where Mesa offers it.
 - Padded surfaces (a 1920×1088 frame with a magenta padding band), the upload arena (uploads, fences, epochs, allocation-free).
-- The device lock (`GpuDeviceLockTests`; `DeviceLockHostTests` runs the render host on a GL platform wearing a shared device):
+- The device lock (`GpuDeviceLockTests`; `DeviceLockHostTests` runs the render host on a GL platform wearing a shared device, on
+  the machine's own context: surfaceless EGL on Linux, WGL on Windows):
   recursion, exclusion, the bounded take, letting go for a wait and taking every hold back, no allocation once warm; the loop
   drawing inside the lock, never waiting past its bound while a sharer holds it, and a sharer taking it bracket by bracket.
 - `decode.glApi egl` on Xvfb: the desktop context and its output windows on EGL, the display's dmabuf share, `decode.platform.gl`
-  reading `egl` (`GlApiTests`, `DecodeGlApiTests`).
+  reading `egl` (`GlApiTests`, `DecodeGlApiTests`; Linux only, as the dmabuf import tests are).
 - **Compile-only**: VAAPI decode and its DRM mapping (no VA driver, no `/dev/dri`), D3D11VA and the ANGLE importer (a
   `Category=Windows` test opens the D3D11VA device on a WARP device on CI, or says why — WARP has no video decoder and the runner
   has no FFmpeg). Fallback for both: copy-back or software, with the words why. **Lab**: Intel/AMD VAAPI, NVIDIA/Intel D3D11VA.
