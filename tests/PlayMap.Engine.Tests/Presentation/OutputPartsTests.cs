@@ -173,7 +173,9 @@ public sealed class OutputFixtureTests
         root["machine"]!["renderer"] = "OpenGL 4.5 llvmpipe";
         // The fixture is written on Linux: another platform's own window-system words read as GLX's (EGL stays EGL).
         if ((string?)root["machine"]!["gl"] == HostRig.NativeBinding)
-            root["machine"]!["gl"] = "glx";
+            root["machine"]!["gl"] = HostRig.FixtureBinding;
+        if (root["decode"]?["platform"] is JsonObject decode)
+            HostRig.DecodeBindingAsFixture(decode);
         if (root["machine"]!["present"] is JsonObject machine)
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";

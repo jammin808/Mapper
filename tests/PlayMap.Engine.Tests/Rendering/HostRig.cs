@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json.Nodes;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
@@ -27,6 +28,31 @@ internal sealed class HostRig : IAsyncDisposable
 
     /// <summary>The binding GL answers for such a context (STATE's machine.gl): WGL on Windows, CGL on macOS, GLX elsewhere.</summary>
     public static string NativeBinding => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cgl" : "glx";
+
+    /// <summary>The binding the committed fixtures were written through: Linux under X.</summary>
+    public const string FixtureBinding = "glx";
+
+    /// <summary>STATE.decode.platform as the committed fixtures read it. When the context came through this machine's own binding,
+    /// the words that name it — <c>gl</c>, the share's <c>describe</c>, the <c>why</c> — are first asserted to name exactly that
+    /// binding, then read as the fixtures' (GLX's); an EGL context's words, and every other word, are left to the comparison.</summary>
+    public static void DecodeBindingAsFixture(JsonObject platform)
+    {
+        ArgumentNullException.ThrowIfNull(platform);
+        if ((string?)platform["gl"] != NativeBinding)
+            return;
+        var own = NativeBinding.ToUpperInvariant();
+        var fixture = FixtureBinding.ToUpperInvariant();
+        platform["gl"] = FixtureBinding;
+        platform["describe"] = Renamed(platform, "describe", $"OpenGL through {own}:", $"OpenGL through {fixture}:");
+        platform["why"] = Renamed(platform, "why", $"the render context is {own}:", $"the render context is {fixture}:");
+    }
+
+    private static string Renamed(JsonObject platform, string key, string own, string fixture)
+    {
+        var words = (string?)platform[key];
+        Assert.True(words is not null && words.StartsWith(own, StringComparison.Ordinal), $"decode.platform.{key} names this machine's binding ({own}): '{words}'");
+        return fixture + words[own.Length..];
+    }
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
 
     private HostRig(ManualClock clock, EngineCore engine, RenderHost host)
