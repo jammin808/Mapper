@@ -10,7 +10,8 @@ using Xunit.Abstractions;
 namespace PlayMap.Engine.Tests.Facade;
 
 /// <summary>
-/// A facade end to end on the simulator, every step a line through the wire on one engine and its STATE asserted: SURVEY IMPORT of a
+/// A facade end to end on the simulator, every step a line through the wire on one engine (the scan's record aside: only a camera's
+/// SCAN START makes one) and its STATE asserted: SURVEY IMPORT of a
 /// georeferenced front (the site set from it, named by its EPSG system) → SITE POINTS (six control points) → pins bound to the control
 /// points, their pixels where each projector's true optics put them → PROJECTOR PRIOR and PROJECTOR SOLVE (the zoom locked from the lens on
 /// the flat front) → STACK NEW, STACK ALIGN and STACK MATCH from the scan of both members (align's capture and decode; the members now at
@@ -64,18 +65,19 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         Assert.Equal(6, Stage(rig).GetProperty("controls").GetInt32());
         Assert.Equal("pins", Next(rig));
 
-        // 3. Two projectors placed by hand where the first really is, each on an output; pins on the control points.
+        // 3. Two projectors placed by hand where the first really is, each on an output in place of the default one (ADD and REMOVE
+        // lines); pins on the control points. The scan of both is the one record no line makes without a camera: SCAN START keeps it
+        // as the node's scan runner keeps the simulator's outcome here.
         var k = sim.Projectors[0].Intrinsics;
         Projector Model(string id, string name) => new(id, name, k, LensDistortion.None, sim.Projectors[0].Pose, 10_000, "#FFFFFF", false, [],
             SolveLocks.Shift | SolveLocks.Distortion, 0);
-        Assert.True((await rig.Engine.EditAsync(SiteRig.Desk, "the stack's projectors", p => p.WithStage(st => st with
-        {
-            Projectors = [Model(StackKit.P1, "P1"), Model(StackKit.P2, "P2")],
-            Scans = StackKit.Project(sim).Stage.Scans,
-        }) with
-        {
-            Outputs = [StackKit.OutputFor("op00000001", StackKit.P1, k.Width, k.Height), StackKit.OutputFor("op00000002", StackKit.P2, k.Width, k.Height)],
-        })).Changed);
+        foreach (var pj in new[] { Model(StackKit.P1, "P1"), Model(StackKit.P2, "P2") })
+            Assert.Equal(pj.Id, await rig.Ok($"ADD projector {JsonSerializer.Serialize(pj, ProjectJson.Compact)}"));
+        foreach (var o in new[] { StackKit.OutputFor("op00000001", StackKit.P1, k.Width, k.Height), StackKit.OutputFor("op00000002", StackKit.P2, k.Width, k.Height) })
+            Assert.Equal(o.Id, await rig.Ok($"ADD output {JsonSerializer.Serialize(o, ProjectJson.Compact)}"));
+        await rig.Ok("REMOVE op_1");
+        Assert.Equal(["op00000001", "op00000002"], rig.State().GetProperty("outputs").EnumerateArray().Select(o => o.GetProperty("id").GetString()));
+        Assert.True((await rig.Engine.EditAsync(SiteRig.Desk, "the stack's scan", p => p.WithStage(st => st with { Scans = StackKit.Project(sim).Stage.Scans }))).Changed);
         var controls = rig.Engine.Store.Project.Stage.Controls;
         for (var j = 0; j < 2; j++)
         {
