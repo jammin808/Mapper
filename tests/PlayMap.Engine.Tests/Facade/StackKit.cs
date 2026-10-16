@@ -55,10 +55,22 @@ internal static class StackKit
     /// <summary>The scan of both members: each decode with its colour white frame (the member's full white, camera-encoded).</summary>
     public static async Task<ScanOutcome> OutcomeAsync(MultiProjectorSim sim, bool colour = true)
     {
-        var shooter = new SimShooter(sim);
-        var (_, captures) = await AlignSequence.CaptureAsync(shooter, Specs(sim), null, CancellationToken.None);
+        var maps = await MapsAsync(sim, colour);
         var views = new List<(string, ProjectorView)>();
         string[] ids = [P1, P2];
+        for (var j = 0; j < maps.Count; j++)
+            views.Add((ids[j], ProjectorView.Build(maps[j])));
+        var camera = new ScanCameraView("sim", "Simulator", sim.Camera.Intrinsics, sim.Camera.Lens, sim.Camera.Pose, true);
+        var solution = new ScanSolution(camera, [], null, null, 0, [], 1, true, "stack", "the stack scanned through one camera");
+        return new ScanOutcome(Scan, "Stack scan", "sim", true, "stack", solution, views, []);
+    }
+
+    /// <summary>Each member's decode through the simulator's camera (P1's, then P2's), with its colour white frame when asked.</summary>
+    public static async Task<IReadOnlyList<CorrespondenceMap>> MapsAsync(MultiProjectorSim sim, bool colour = true)
+    {
+        var shooter = new SimShooter(sim);
+        var (_, captures) = await AlignSequence.CaptureAsync(shooter, Specs(sim), null, CancellationToken.None);
+        var maps = new List<CorrespondenceMap>();
         for (var j = 0; j < captures.Count; j++)
         {
             var map = captures[j].Map;
@@ -73,12 +85,26 @@ internal static class StackKit
                     white[i] = (rgb[i * 3] << 16) | (rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2];
                 map = WithColour(map, white);
             }
-            views.Add((ids[j], ProjectorView.Build(map)));
+            maps.Add(map);
         }
-        var camera = new ScanCameraView("sim", "Simulator", sim.Camera.Intrinsics, sim.Camera.Lens, sim.Camera.Pose, true);
-        var solution = new ScanSolution(camera, [], null, null, 0, [], 1, true, "stack", "the stack scanned through one camera");
-        return new ScanOutcome(Scan, "Stack scan", "sim", true, "stack", solution, views, []);
+        return maps;
     }
+
+    /// <summary>The same stack seen by the camera carried <paramref name="by"/> and turned back onto the point it looked at 10 m out.</summary>
+    public static MultiProjectorSim Moved(MultiProjectorSim sim, Vec3d by)
+    {
+        var pose = sim.Camera.Pose;
+        var target = pose.Position + pose.Forward * 10;
+        return new MultiProjectorSim(sim.Screen, sim.Camera with { Pose = Pose.LookAt(pose.Position + by, target, Vec3d.UnitY) }, sim.Projectors);
+    }
+
+    /// <summary>One place a multi-view scan's camera stood: its decodes by member.</summary>
+    public static ScanViewData View(string id, MultiProjectorSim sim, IReadOnlyDictionary<string, CorrespondenceMap> maps, string state = "done") =>
+        new(id, "sim", "Simulator", sim.Camera.Intrinsics, sim.Camera.Lens, true, [.. maps.Keys], "flash", "", 1_760_000_000_000)
+        {
+            Maps = maps.ToImmutableDictionary(StringComparer.Ordinal),
+            State = state,
+        };
 
     private static CorrespondenceMap WithColour(CorrespondenceMap map, int[] white)
     {

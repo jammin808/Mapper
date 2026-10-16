@@ -52,7 +52,17 @@ public sealed record MeasuredColor(double GainR, double GainG, double GainB, dou
 /// <summary>A camera-measured correction of one output, drawn under the operator's warp: a measured warp grid (align), a small
 /// residual lattice and gains (a stack member, facade), a measured blend and colour. One record, whoever measured it.</summary>
 public sealed record MeasuredCorrection(MeasuredWarp? Warp, WarpLattice? Lattice, MeasuredBlend? Blend, MeasuredColor? Color,
-    double ResidualPx, string ScanId, string StackId, string RunId, long MeasuredUnixMs);
+    double ResidualPx, string ScanId, string StackId, string RunId, long MeasuredUnixMs)
+{
+    /// <summary>The poses and optics a stack member's lattice was fitted against (null when no stack fitted one, or it was fitted before
+    /// they were kept). A lattice whose projectors no longer stand so was fitted to poses that are gone
+    /// (<see cref="PlayMap.Core.Stacks.StackPoses"/>).</summary>
+    public FittedPoses? FittedTo { get; init; }
+}
+
+/// <summary>A stack member against its master as a lattice was fitted to them: the member's pose in the master's own frame (so a move
+/// of the whole site leaves it as it is), and each one's optics.</summary>
+public sealed record FittedPoses(Pose Relative, Intrinsics Master, LensDistortion MasterLens, Intrinsics Member, LensDistortion MemberLens);
 
 /// <summary>A projector's own processing as read before PlayMap reset it.</summary>
 public sealed record NativeSnapshot(long ReadUnixMs, ImmutableSortedDictionary<string, string> Values, ImmutableArray<string> Unsupported,

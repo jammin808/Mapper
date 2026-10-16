@@ -126,6 +126,39 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
         }
     }
 
+    /// <summary>The measured lattice is drawn in the warp, before the output's finished picture: what a send or an LED map taps
+    /// (<see cref="RenderEngine.OutputPicture"/>) and what a delayed display presents from its delay ring both carry it.</summary>
+    [Fact]
+    public void WhatASendTapsAndWhatADelayedDisplayPresentsCarryTheMeasuredLattice()
+    {
+        var at = new Vec2d(52.3, 30.7);
+        var picture = Blobs(at);
+        var plain = Centroid(Render(picture, null), at);
+        var stage = new TestStage();
+        stage.Warps["op1"] = WarpMeshBuilder.Build(OutputWarp.None, measured: Lattice(9, 6, (_, _) => new Vec2d(2.3, -1.4)));
+        var output = Scene.SourceOutput("op1", Media, W, H);
+        var (tapped, presented) = gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.SetDelay("op1", 2, 0);
+            var sources = Still(picture);
+            for (var frame = 1; frame <= 4; frame++)
+                engine.Render(Scene.Inputs(Scene.Project([], [output]), frame, sources, stage));
+            var finished = new byte[W * H * 4];
+            var shown = new byte[W * H * 4];
+            Assert.True(engine.ReadOutput("op1", finished));
+            Assert.True(engine.ReadPresented("op1", shown));
+            Assert.Empty(c.Device.TakeErrors());
+            return (finished, shown);
+        });
+        foreach (var (name, px) in new[] { ("tapped", tapped), ("presented", presented) })
+        {
+            var shift = Centroid(px, at + new Vec2d(2.3, -1.4)) - plain;
+            log.WriteLine($"{name}: shift {shift}");
+            Assert.True((shift - new Vec2d(2.3, -1.4)).Length <= 0.5, $"{name}: shift {shift}");
+        }
+    }
+
     [Fact]
     public void UnderACornerPinTheMeasuredLayerGoesFirst()
     {

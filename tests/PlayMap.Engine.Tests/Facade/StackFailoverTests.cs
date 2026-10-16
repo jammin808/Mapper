@@ -149,6 +149,67 @@ public sealed class StackFailoverTests
         Assert.Contains("would change nothing", again.Payload, StringComparison.Ordinal);
     }
 
+    /// <summary>The hot backup's fence and a stack's MATCH gain through the one degrade gain the air reads, with the backup's own
+    /// <see cref="PlayMap.Engine.Fleet.FenceGains"/>, composed both ways round (the node composes the fleet's part before the site's; a fence composed after
+    /// takes what came before as its inner gain): a fenced node (FENCE, or the primary a FAILOVER took the show from) is black on every
+    /// output whatever its stack's gain, and the stack is still measured and told; lifting the fence (FAILBACK, the show handed back)
+    /// leaves every output at the stack's gain; a member back fades the group up again while the node holds the show.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AFencedNodeIsBlackWhateverItsStackSaysAndTheStacksGainHoldsOnceTheFenceLifts(bool fleetFirst)
+    {
+        var clock = new ManualClock(5_000_000_000);
+        var outputs = new HealthTests.Outputs { Now = [.. new[] { 1, 2, 3, 4 }.Select(i => new OutputHealth($"op0000000{i}", true, 60, 0, 4, $"DP-{i}"))] };
+        var fence = new PlayMap.Engine.Fleet.FenceGains(null);
+        var basis = EngineServices.ForTests(clock) with { Outputs = outputs };
+        EngineServices services;
+        if (fleetFirst)
+        {
+            // The node's order (EngineParts): the fleet's part sets its fence with nothing before it, the site's composes after it.
+            services = new SiteExtension().Configure(basis with { OutputGains = fence });
+            var composed = Assert.IsType<ComposedGains>(services.OutputGains);
+            Assert.Same(fence, composed.First);
+            Assert.Same(services.StackGains, composed.Second);
+        }
+        else
+        {
+            var site = new SiteExtension().Configure(basis);
+            fence.Inner = site.OutputGains;
+            services = site with { OutputGains = fence };
+        }
+        await using var engine = new EngineCore(services, ThreeStack());
+        float Air(string output) => engine.AirGain(output, engine.LeaderNowNs);
+
+        // Fenced, with a member lost: every output black, the stack measured, dimmed underneath and told.
+        fence.Held = true;
+        outputs.Now = [.. outputs.Now.Select(h => h.OutputId == "op00000003" ? h with { Open = false } : h)];
+        await engine.Lane.RunAsync(engine.WatchStacks);
+        clock.AdvanceMs(500);
+        Assert.All(new[] { "op00000001", "op00000002", "op00000003", "op00000004" }, o => Assert.Equal(0f, Air(o)));
+        Assert.Equal([P3], Stack(engine).GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
+        Assert.Equal(0.667, Stack(engine).GetProperty("gain").GetDouble());
+        Assert.Equal(2f / 3, services.StackGains!.GainOf("op00000002"), 4);
+
+        // The fence lifted (the show handed back): the group at the light that remains, the rest at full.
+        fence.Held = false;
+        Assert.Equal(2f / 3, Air("op00000001"), 4);
+        Assert.Equal(2f / 3, Air("op00000002"), 4);
+        Assert.Equal(1f, Air("op00000004"));
+
+        // Fenced again (a FAILOVER took the show) as the member comes back: black throughout, the group fading up underneath.
+        fence.Held = true;
+        outputs.Now = [.. outputs.Now.Select(h => h with { Open = true })];
+        await engine.Lane.RunAsync(engine.WatchStacks);
+        clock.AdvanceMs(1000);
+        Assert.Equal(0f, Air("op00000002"));
+        Assert.Equal(5f / 6, services.StackGains.GainOf("op00000002"), 3);
+        fence.Held = false;
+        clock.AdvanceMs(1000);
+        Assert.Equal(1f, Air("op00000002"));
+        Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
+    }
+
     private static WireLine Parse(string text)
     {
         Assert.True(WireGrammar.TryParse(text, out var line, out _));

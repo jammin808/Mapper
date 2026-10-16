@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddSiteParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(_ => new Site.SiteExtension());
+        extensions.Add(Site.SiteExtension.Factory);
     }
 }

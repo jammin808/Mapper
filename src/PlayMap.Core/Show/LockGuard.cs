@@ -221,6 +221,7 @@ public static class ShowEntities
         Ids.Device => p.FindDevice(id),
         Ids.ControlPoint => p.Stage.Controls.Find(id),
         Ids.Survey => p.Stage.Surveys.Find(id),
+        Ids.Stack => p.FindStack(id),
         _ => null,
     };
 
@@ -265,6 +266,7 @@ public static class ShowEntities
         DeviceLink d => (d.Name, "device"),
         ControlPoint c => (c.Name, "control point"),
         SurveySource v => (v.Name, "survey"),
+        StackGroup k => (k.Name, "stack"),
         IEntity e => (e.Id, "entity"),
         _ => ("?", "entity"),
     };

@@ -202,6 +202,129 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.Contains("stopping", await rig.Refused($"STACK ALIGN {id} FROM {StackKit.Scan}"), StringComparison.Ordinal);
     }
 
+    /// <summary>A scan of many views (multiscan): its smart scans come each from where it decoded most — here P1's from a second camera
+    /// place that saw only P1 — so STACK ALIGN takes its pairs from the one view the last solve used that saw every member; a scan whose
+    /// only such view was dropped is refused with the line that adds one.</summary>
+    [Fact]
+    public async Task AScanOfManyViewsAlignsFromTheOneViewThatSawEveryMember()
+    {
+        var sim = StackKit.Sim();
+        var elsewhere = StackKit.Moved(sim, new Core.Numerics.Vec3d(0.3, 0.05, 0));
+        var here = await StackKit.MapsAsync(sim);
+        var there = await StackKit.MapsAsync(elsewhere);
+        var outcome = await StackKit.OutcomeAsync(sim);
+        outcome = outcome with
+        {
+            Views = [(StackKit.P1, Core.Scan.ProjectorView.Build(there[0])), (StackKit.P2, Core.Scan.ProjectorView.Build(here[1]))],
+            Captured =
+            [
+                StackKit.View("v1", elsewhere, new Dictionary<string, Core.Scan.CorrespondenceMap> { [StackKit.P1] = there[0] }),
+                StackKit.View("v2", sim, new Dictionary<string, Core.Scan.CorrespondenceMap> { [StackKit.P1] = here[0], [StackKit.P2] = here[1] }),
+            ],
+        };
+        _scans.Remember(outcome);
+        _scans.Remember(outcome with { Id = "sc00000002", Captured = [outcome.Captured[0], outcome.Captured[1] with { State = "dropped" }] });
+        var project = StackKit.Project(sim);
+        project = project.WithStage(st => st with { Scans = st.Scans.Add(st.Scans[0] with { Id = "sc00000002", Name = "Dropped scan" }) });
+        await using var rig = new ShowRig(project, s => s with { Scan = _scans });
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+
+        var reply = Json(await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}"));
+        log.WriteLine(reply.GetProperty("words").GetString());
+        Assert.Equal("v2", reply.GetProperty("view").GetString());
+        var lattice = rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.Lattice;
+        var after = StackKit.MisregistrationP95(sim, null, lattice);
+        log.WriteLine($"misregistration p95 {after:0.000} px");
+        Assert.True(after <= 0.2, $"after {after}");
+
+        var refused = await rig.Refused($"STACK ALIGN {id} FROM sc00000002");
+        Assert.Contains("no view of Dropped scan saw every member of S1", refused, StringComparison.Ordinal);
+        Assert.Contains($"SCAN START sim {StackKit.P1} {StackKit.P2} INTO sc00000002", refused, StringComparison.Ordinal);
+    }
+
+    /// <summary>The pairs are camera pixels against camera pixels: a move of the whole site between the scan and STACK ALIGN fits the
+    /// same lattice, and the stack stays aligned through another move after it.</summary>
+    [Fact]
+    public async Task ASiteMoveBetweenTheScanAndTheAlignmentFitsTheSameLattice()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        await using var still = Rig(sim);
+        var a = Json(await still.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        await still.Ok($"STACK ALIGN {a} FROM {StackKit.Scan}");
+        var unmoved = still.Engine.Store.Project.FindOutput("op00000002")!.Measured!.Lattice!;
+
+        await using var rig = Rig(sim);
+        await rig.Ok("SITE ORIGIN 512340 5401230 110 CRS EPSG:25832");
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        Assert.Contains("the stage moved", Json(await rig.Ok("SITE ORIGIN 512352.5 5401218 111 ROTATE 23")).GetProperty("words").GetString(), StringComparison.Ordinal);
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        var moved = rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.Lattice!;
+        Assert.Equal(unmoved.Offsets.ToArray(), moved.Offsets.ToArray());
+
+        await rig.Ok("SITE ORIGIN 512300 5401200 109 ROTATE 140");
+        Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+        Assert.Equal(Core.Bus.Light.Green, ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "stack:" + id).Light);
+    }
+
+    /// <summary>The lattice is the measured light less the modelled pictures: once a member moves against its master (solved again, or
+    /// set by hand) STATE, the context, preflight and the guide say the stack is no longer aligned, with the line that fits it again; a
+    /// result recorded as it stands moves nothing, and nor does the master moving with it (the stack moved as one).</summary>
+    [Fact]
+    public async Task AMemberThatMovesSinceItWasAlignedUnalignsItsStackUntilItIsFittedAgain()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+
+        // A result recorded as P2 stands moves nothing.
+        await rig.Ok($"CALIBRATION SAVE {StackKit.P2}");
+        Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+
+        // P2 moved 4 cm against the master.
+        var pose = rig.Engine.Store.Project.FindProjector(StackKit.P2)!.Pose;
+        await rig.Ok($"SET {StackKit.P2} pose {ProjectJson.SerializeEntity(pose with { Position = pose.Position + new Core.Numerics.Vec3d(0.04, 0, 0) })}");
+        Assert.False(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+        var item = ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "stack:" + id);
+        Assert.Equal(Core.Bus.Light.Amber, item.Light);
+        Assert.Contains("P2 or P1 moved since S1 was aligned", item.State, StringComparison.Ordinal);
+        var row = Assert.Single(await new Site.SitePreflight().RunAsync(new PreflightContext(rig.Engine, Core.Preflight.PreflightDepth.Quick, false),
+            CancellationToken.None), r => r.Id == "stack:" + id);
+        Assert.Equal((Core.Bus.Light.Amber, $"STACK ALIGN {id} FROM {StackKit.Scan}"), (row.Light, row.Fix));
+        var step = Core.Site.SiteGuide.Steps(rig.Engine.Store.Project, rig.Engine.GuideFactsFor(rig.Engine.Store.Project)).Single(s => s.Step == "stacks");
+        Assert.Equal(("waiting", $"STACK ALIGN {id} FROM {StackKit.Scan}"), (step.State, step.Line));
+
+        // The master moves with it: the member stands against its master as its lattice was fitted.
+        var master = rig.Engine.Store.Project.FindProjector(StackKit.P1)!.Pose;
+        await rig.Ok($"SET {StackKit.P1} pose {ProjectJson.SerializeEntity(master with { Position = master.Position + new Core.Numerics.Vec3d(0.04, 0, 0) })}");
+        Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+    }
+
+    /// <summary>An output an alignment draws through its measured warp grid shows the canvas it was registered to: a stack lattice on it
+    /// would register it twice, so STACK ALIGN refuses it with the line that takes the warp off. A lock on the stack names it.</summary>
+    [Fact]
+    public async Task AMemberAnAlignmentDrawsThroughItsMeasuredWarpIsRefusedAndALockedStackIsNamed()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        var project = StackKit.Project(sim);
+        var aligned = new MeasuredCorrection(new MeasuredWarp(33, 19, "align/al00000001/warp-op00000002.pfm", "0123456789abcdef", 0.3), null, null, null,
+            0.3, "", "", "al00000001", 1_760_000_000_000);
+        project = project with { Outputs = project.Outputs.Update("op00000002", o => o with { Measured = aligned }) };
+        await using var rig = new ShowRig(project, s => s with { Scan = _scans });
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        var refused = await rig.Refused($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        Assert.Contains("measured warp", refused, StringComparison.Ordinal);
+        Assert.Contains("ALIGN CLEAR op00000002", refused, StringComparison.Ordinal);
+        Assert.Same(aligned, rig.Engine.Store.Project.FindOutput("op00000002")!.Measured);
+
+        await rig.Ok($"LOCK {id} the stack is set");
+        Assert.Contains("S1 (stack) is locked", await rig.Refused($"STACK FAILOVER {id} MATCH"), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FromABlindDraftTheStackAndItsAlignmentAreStaged()
     {

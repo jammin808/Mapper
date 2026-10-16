@@ -168,8 +168,9 @@ public sealed partial class EngineCore
 
     // ---- STACK ALIGN, STACK MATCH --------------------------------------------------------------------------------------------
 
-    /// <summary>A stack, a scan that saw its members, and each member's view and output, as read on the lane; or the words why not.</summary>
-    private sealed record StackSource(Project Project, bool Staged, StackGroup Stack, ScanRecord Scan, ScanOutcome Outcome,
+    /// <summary>A stack, a scan that saw its members, the view of the scan their pairs come from ("" for a scan that keeps no views),
+    /// and each member's view and output, as read on the lane; or the words why not.</summary>
+    private sealed record StackSource(Project Project, bool Staged, StackGroup Stack, ScanRecord Scan, ScanOutcome Outcome, string ViewId,
         IReadOnlyList<(Projector Projector, Output Output, ProjectorView View)> Members, int Master);
 
     private async Task<(StackSource? Source, string? Why)> StackSourceAsync(VerbCall c, string usage)
@@ -191,13 +192,17 @@ public sealed partial class EngineCore
             return (null, $"no scan {from} — SCAN START <camera> {string.Join(" ", stack.Members)} scans every member through one camera");
         if (OutcomeOf(scan) is not { } outcome)
             return (null, NoData(scan));
+        if (stack.Members.FirstOrDefault(id => p.FindProjector(id) is null) is { } gone)
+            return (null, $"{stack.Name}'s member {gone} is gone — REMOVE {stack.Id} and STACK NEW again");
+        var (views, viewId, unseen) = StackViews(outcome, stack, scan, p);
+        if (unseen is not null)
+            return (null, unseen);
         var members = new List<(Projector, Output, ProjectorView)>();
         var master = -1;
         foreach (var id in stack.Members)
         {
-            if (p.FindProjector(id) is not { } pj)
-                return (null, $"{stack.Name}'s member {id} is gone — REMOVE {stack.Id} and STACK NEW again");
-            var view = outcome.Views.FirstOrDefault(v => v.ProjectorId == id).View;
+            var pj = p.FindProjector(id)!;
+            var view = views.GetValueOrDefault(id);
             if (view is null)
                 return (null, outcome.Views.Count == 0
                     ? $"{scan.Name} keeps no projector views on this node (they are held in memory until the node stops) — scan the stack again: SCAN START {outcome.CameraId} {string.Join(" ", stack.Members)}"
@@ -210,7 +215,57 @@ public sealed partial class EngineCore
         }
         if (master < 0)
             return (null, $"{stack.Name}'s master {stack.MasterId} is not one of its members");
-        return (new StackSource(p, staged, stack, scan, outcome, members, master), null);
+        return (new StackSource(p, staged, stack, scan, outcome, viewId, members, master), null);
+    }
+
+    /// <summary>The members' projector views from one place. Pairs compare the camera pixels each member's decode saw, so every
+    /// member's view must come from one camera standing in one place: of a scan of many views, the view the last solve used that saw
+    /// every member (the one whose least-decoded member decoded most; dropped and unreadable views never), its decodes built into
+    /// projector views; of a scan of one view, its smart scans. Null words when they are found; the words and the line that adds such
+    /// a view when no view saw them all.</summary>
+    private static (Dictionary<string, ProjectorView> Views, string ViewId, string? Why) StackViews(ScanOutcome outcome, StackGroup stack,
+        ScanRecord scan, Project p)
+    {
+        if (outcome.Captured.IsDefaultOrEmpty || outcome.Captured.Length == 1)
+        {
+            var smart = new Dictionary<string, ProjectorView>(StringComparer.Ordinal);
+            foreach (var (id, view) in outcome.Views)
+                if (stack.Members.Contains(id, StringComparer.Ordinal))
+                    smart.TryAdd(id, view);
+            return (smart, outcome.Captured.IsDefaultOrEmpty ? "" : outcome.Captured[0].Id, null);
+        }
+        ScanViewData? best = null;
+        var bestLeast = 0;
+        foreach (var v in outcome.Captured)
+        {
+            if (v.State != "done")
+                continue;
+            var least = int.MaxValue;
+            foreach (var id in stack.Members)
+                least = Math.Min(least, v.Maps.TryGetValue(id, out var map) && map.Axes == ScanAxes.Both ? Decoded(map) : 0);
+            if (least > bestLeast)
+                (best, bestLeast) = (v, least);
+        }
+        if (best is null)
+        {
+            var names = string.Join(", ", stack.Members.Select(id => p.FindProjector(id)?.Name ?? id));
+            return ([], "", $"no view of {scan.Name} saw every member of {stack.Name} ({names}) from one place — its views each saw some of them, and "
+                + $"pairs need one camera place: SCAN START {outcome.CameraId} {string.Join(" ", stack.Members)} INTO {scan.Id} adds such a view");
+        }
+        var views = new Dictionary<string, ProjectorView>(StringComparer.Ordinal);
+        foreach (var id in stack.Members)
+            views[id] = ProjectorView.Build(best.Maps[id]);
+        return (views, best.Id, null);
+    }
+
+    /// <summary>The camera pixels a decode read.</summary>
+    private static int Decoded(CorrespondenceMap map)
+    {
+        var n = 0;
+        foreach (var f in map.Flags)
+            if ((f & Core.Scan.DecodeStatus.Valid) != 0)
+                n++;
+        return n;
     }
 
     /// <summary>Master raster → where the member's render puts the same picture point: a scale between rasters when both share one
@@ -261,6 +316,9 @@ public sealed partial class EngineCore
         var (source, why) = await StackSourceAsync(c, Usage).ConfigureAwait(false);
         if (source is null)
             return CommandReply.Fail(why!);
+        foreach (var (pj, output, _) in source.Members)
+            if (AlignWarped(output, pj) is { } twice)
+                return CommandReply.Fail(twice);
         var fits = await Task.Run(() => FitStack(source, options, c.Ct), c.Ct).ConfigureAwait(false);
         if (fits.Why is { } refused)
             return CommandReply.Fail(refused);
@@ -276,6 +334,9 @@ public sealed partial class EngineCore
             applied.Clear();
             if (p.FindStack(stack.Id) is null)
                 throw new EditRefusedException($"the stack {stack.Name} is gone");
+            foreach (var (member, _) in fits.Members)
+                if (OutputOf(p, member.Projector.Id) is { } drawn && AlignWarped(drawn, member.Projector) is { } twice)
+                    throw new EditRefusedException(twice);
             foreach (var (member, fit) in fits.Members)
             {
                 // The master is the target: its correction stays as it is.
@@ -289,6 +350,7 @@ public sealed partial class EngineCore
                     ScanId = source.Scan.Id,
                     StackId = stack.Id,
                     MeasuredUnixMs = now,
+                    FittedTo = StackPoses.Of(p, stack.MasterId, member.Projector.Id),
                 };
                 p = RecordStackResult(p, o, measured, StackScore(stack, source.Scan, member.Projector, fit), source.Scan.Id, who, now, applied);
             }
@@ -310,6 +372,7 @@ public sealed partial class EngineCore
             w.WriteStartObject();
             w.WriteString("stack", stack.Id);
             w.WriteString("scan", source.Scan.Id);
+            w.WriteString("view", source.ViewId);
             w.WriteString("master", masterId);
             w.WriteStartArray("members");
             foreach (var (member, fit) in fits.Members)
@@ -335,6 +398,13 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }), words);
     }
+
+    /// <summary>The refusal for a member whose output an alignment draws through its measured warp grid (ALIGN ACCEPT), or null. That
+    /// output shows the canvas it was registered to, not its render, so a lattice fitted to the render's pairs would register it twice;
+    /// its align group registers the stack (ALIGN RUN), or ALIGN CLEAR takes the measured warp off first.</summary>
+    private static string? AlignWarped(Output output, Projector pj) => output.Measured?.Warp is null ? null
+        : $"{output.Name} ({pj.Name}) is drawn through an alignment's measured warp — a stack lattice on it would register it twice: "
+          + $"ALIGN CLEAR {output.Id} takes that off first (or ALIGN RUN registers the stack on its canvas)";
 
     private sealed record StackFits(IReadOnlyList<((Projector Projector, Output Output, ProjectorView View) Member, StackFit? Fit)> Members, string? Why);
 
@@ -409,7 +479,7 @@ public sealed partial class EngineCore
               && a.Lattice.Offsets.SequenceEqual(b.Lattice.Offsets) && a.Lattice.HandlesU.SequenceEqual(b.Lattice.HandlesU)
               && a.Lattice.HandlesV.SequenceEqual(b.Lattice.HandlesV);
         return lattices && Equals(a.Warp, b.Warp) && Equals(a.Blend, b.Blend) && Equals(a.Color, b.Color) && a.ResidualPx == b.ResidualPx
-            && a.ScanId == b.ScanId && a.StackId == b.StackId && a.RunId == b.RunId;
+            && a.ScanId == b.ScanId && a.StackId == b.StackId && a.RunId == b.RunId && Equals(a.FittedTo, b.FittedTo);
     }
 
     /// <summary>A member's alignment score: the held-out residual against the master as the stack term.</summary>
@@ -480,6 +550,7 @@ public sealed partial class EngineCore
             w.WriteStartObject();
             w.WriteString("stack", stack.Id);
             w.WriteString("scan", source.Scan.Id);
+            w.WriteString("view", source.ViewId);
             w.WriteStartArray("members");
             for (var j = 0; j < source.Members.Count; j++)
             {
@@ -543,16 +614,18 @@ public sealed partial class EngineCore
 
     // ---- STATE, context ------------------------------------------------------------------------------------------------------
 
-    /// <summary>A stack as STATE and STACK LIST tell it: aligned when every member but the master carries this stack's lattice, its
-    /// worst member's held-out residual, the members' gains, and which members are degraded.</summary>
-    internal static (bool Aligned, double ResidualPx, bool Matched) StackFacts(Project p, StackGroup sk)
+    /// <summary>A stack as STATE and STACK LIST tell it: aligned when every member but the master carries this stack's lattice, fitted
+    /// to the poses its projectors stand at (<see cref="StackPoses"/>); its worst member's held-out residual; the members' gains; and
+    /// the member whose lattice was fitted to poses that are gone (it or the master solved again since), when one was (null otherwise).</summary>
+    internal static (bool Aligned, double ResidualPx, bool Matched, string? Moved) StackFacts(Project p, StackGroup sk)
     {
         // A stack of fewer than two (made by a generic ADD) stacks nothing: never counted aligned.
         if (sk.ProjectorIds.IsDefault || sk.Members.Length < 2)
-            return (false, 0, false);
+            return (false, 0, false, null);
         var aligned = true;
         var matched = true;
         var worst = 0.0;
+        string? moved = null;
         foreach (var id in sk.Members)
         {
             var m = OutputOf(p, id)?.Measured;
@@ -562,9 +635,27 @@ public sealed partial class EngineCore
             if (!(mine && m!.Color is not null))
                 matched = false;
             if (mine && id != sk.MasterId)
+            {
                 worst = Math.Max(worst, m!.ResidualPx);
+                if (moved is null && StackPoses.MovedSince(p, sk, id, m))
+                    moved = id;
+            }
         }
-        return (aligned, worst, matched);
+        return (aligned && moved is null, worst, matched, aligned ? moved : null);
+    }
+
+    /// <summary>What a solve that moved projectors says of the stacks it unaligned ("" when none): each stack aligned before the edit
+    /// whose lattice the edit left fitted to poses that are gone.</summary>
+    internal static string StacksMovedWords(Project before, Project after)
+    {
+        var words = new List<string>();
+        foreach (var sk in after.Stage.Stacks)
+        {
+            if (before.FindStack(sk.Id) is not { } was || !StackFacts(before, was).Aligned || StackFacts(after, sk).Moved is not { } moved)
+                continue;
+            words.Add($"{sk.Name} was aligned with {NameOfProjector(after, moved)} where it stood — STACK ALIGN {sk.Id} FROM <scan> fits it again (a scan taken since, if it moved)");
+        }
+        return words.Count == 0 ? "" : "; " + string.Join("; ", words);
     }
 
     private void WriteStacks(Utf8JsonWriter w, Project p, bool list)
@@ -577,7 +668,7 @@ public sealed partial class EngineCore
         w.WriteStartArray();
         foreach (var sk in p.Stage.Stacks)
         {
-            var (aligned, residual, matched) = StackFacts(p, sk);
+            var (aligned, residual, matched, _) = StackFacts(p, sk);
             w.WriteStartObject();
             w.WriteString("id", sk.Id);
             w.WriteString("name", sk.Name);
@@ -621,11 +712,12 @@ public sealed partial class EngineCore
     {
         foreach (var sk in p.Stage.Stacks)
         {
-            var (aligned, residual, _) = StackFacts(p, sk);
+            var (aligned, residual, _, moved) = StackFacts(p, sk);
             var lost = StackDegradations.GetValueOrDefault(sk.Id);
             var (light, state) = lost is not null
                 ? (Light.Red, $"{sk.Name} lost {string.Join(", ", lost.Members.Keys.Select(id => p.FindProjector(id)?.Name ?? id))} — "
                     + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $"matched: the building at {lost.Gain * 100:0} %") : "held"))
+                : moved is not null ? (Light.Amber, $"{NameOfProjector(p, moved)} or {NameOfProjector(p, sk.MasterId)} moved since {sk.Name} was aligned — STACK ALIGN {sk.Id} FROM <scan>")
                 : !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
                 : residual > StackResidualMaxPx ? (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: a member lands {residual:0.00} px from the master"))
                 : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.Members.Length} projectors within {residual:0.00} px"));

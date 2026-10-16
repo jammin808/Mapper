@@ -32,6 +32,10 @@ public sealed class FleetExtension : IEngineExtension
     /// <summary>The fleet's pins, beside the node's own in its keys folder (fingerprints are public).</summary>
     public const string PinFileName = "fleet-pins.json";
 
+    /// <summary>The part as the exe composes it. It comes before the site's part: its fence is the degrade gain the site's stack gains
+    /// compose with, so a fenced node is black whatever a stack's gain says.</summary>
+    public static readonly EngineExtensionFactory Factory = setup => new FleetExtension(setup);
+
     private readonly FleetOptions _options;
     private readonly HealthHub _hub = new();
     private readonly MachineSampler _sampler;

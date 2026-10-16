@@ -132,6 +132,12 @@ public static class SiteGuide
             var outputs = sk.Members.Select(id => p.Outputs.Where(o => o.Mode == OutputMode.Projector && o.ProjectorId == id).OrderByDescending(o => o.Enabled)
                 .FirstOrDefault()).ToList();
             var aligned = sk.Members.Zip(outputs).All(x => x.First == sk.MasterId || x.Second?.Measured is { Lattice: not null } m && m.StackId == sk.Id);
+            // A lattice fitted to poses that are gone (the member or the master solved again since) aligns nothing any more.
+            var moved = !aligned ? null : sk.Members.Zip(outputs).Where(x => x.First != sk.MasterId && x.Second?.Measured is { } m
+                && Core.Stacks.StackPoses.MovedSince(p, sk, x.First, m)).Select(x => x.First).FirstOrDefault();
+            if (moved is not null)
+                return new("stacks", WaitingState, $"{p.FindProjector(moved)?.Name ?? moved} or {p.FindProjector(sk.MasterId)?.Name ?? sk.MasterId} moved since {sk.Name} was aligned — align it again"
+                    + (scan is null ? "" : " (scan again first if it moved)"), scan is null ? $"SCAN START <camera> {string.Join(' ', sk.Members)}" : $"STACK ALIGN {sk.Id} FROM {from}");
             if (!aligned)
                 return new("stacks", WaitingState, scan is null
                     ? $"Scan {sk.Name}'s members through one camera, then align them"

@@ -765,10 +765,12 @@ public sealed partial class EngineCore
         Action<Utf8JsonWriter>? extra)
     {
         var ai = c.Session.Transport is "mcp" or "assistant";
+        var unaligned = "";
         var gate = Store.Project.Settings.CalibrationGate;
         var results = new List<(string Projector, string Snapshot, bool Applied, QualityScore Score, string Why)>();
         var r = await EditAsync(c.Session, $"re-solve {string.Join(", ", solved.Select(x => x.Before.Name))}", project =>
         {
+            var before = project;
             // On the lane, as CANCEL is: a cancel that came first refuses the whole edit; from here on the result is being applied
             // and a CANCEL is refused with the way back.
             lock (_calibrationGate)
@@ -815,6 +817,7 @@ public sealed partial class EngineCore
                 (project, _) = CalibrationLedger.Record(project, snap, apply);
                 results.Add((now.Id, id, apply, score, why));
             }
+            unaligned = StacksMovedWords(before, project);
             return project;
         }).ConfigureAwait(false);
         if (!r.Changed)
@@ -839,6 +842,7 @@ public sealed partial class EngineCore
             _calibrationMoved = [.. _calibrationMoved.Where(id => !results.Any(x => x.Applied && x.Projector == id))];
         var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
             $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{LongThrowNote(solved, x.Projector)}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
+        words += unaligned;
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         if (applied.Count > 0)

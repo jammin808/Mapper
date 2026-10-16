@@ -57,14 +57,16 @@ internal sealed class SitePreflight : IPreflightCheck
                     sk.Failover == StackFailover.Hold ? $"STACK FAILOVER {sk.Id} MATCH" : null));
                 continue;
             }
-            var (aligned, residual, _) = EngineCore.StackFacts(p, sk);
+            var (aligned, residual, _, moved) = EngineCore.StackFacts(p, sk);
             var scan = p.Stage.Scans.LastOrDefault(s => sk.Members.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
             var fix = scan is null ? $"SCAN START <camera> {string.Join(' ', sk.Members)}" : $"STACK ALIGN {sk.Id} FROM {scan.Id}";
             var ok = aligned && residual <= EngineCore.StackResidualMaxPx;
-            var words = !aligned ? $"{sk.Name}'s members are not aligned to {p.FindProjector(sk.MasterId)?.Name ?? sk.MasterId}"
+            var words = moved is not null
+                ? $"{p.FindProjector(moved)?.Name ?? moved} or {p.FindProjector(sk.MasterId)?.Name ?? sk.MasterId} moved since {sk.Name} was aligned: its lattice was fitted to poses that are gone (scan again first if it moved)"
+                : !aligned ? $"{sk.Name}'s members are not aligned to {p.FindProjector(sk.MasterId)?.Name ?? sk.MasterId}"
                 : string.Create(CultureInfo.InvariantCulture, $"{sk.Name}'s worst member lands {residual:0.00} px from the master (within {EngineCore.StackResidualMaxPx:0.0} px is ready)");
             rows.Add(new PreflightRow("stack:" + sk.Id, node, "site", sk.Name, ok ? Light.Green : Light.Amber,
-                !aligned ? "not aligned" : string.Create(CultureInfo.InvariantCulture, $"{residual:0.00} px"), words, ok ? null : fix));
+                moved is not null ? "moved since aligned" : !aligned ? "not aligned" : string.Create(CultureInfo.InvariantCulture, $"{residual:0.00} px"), words, ok ? null : fix));
         }
         return rows;
     }
@@ -88,12 +90,12 @@ internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
         w.WriteStartArray();
         foreach (var sk in project.Stage.Stacks)
         {
-            var (aligned, residual, matched) = EngineCore.StackFacts(project, sk);
+            var (aligned, residual, matched, moved) = EngineCore.StackFacts(project, sk);
             var scan = project.Stage.Scans.LastOrDefault(s => sk.Members.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
             var from = scan?.Id ?? "<scan>";
             var alignLight = !aligned ? "amber" : residual > EngineCore.StackResidualMaxPx ? "amber" : "green";
             Row(w, $"STACK ALIGN {sk.Id} FROM {from}", "align", $"ALIGN {sk.Name}", alignLight,
-                aligned ? string.Create(CultureInfo.InvariantCulture, $"{residual:0.00} px") : "not aligned");
+                aligned ? string.Create(CultureInfo.InvariantCulture, $"{residual:0.00} px") : moved is not null ? "moved since aligned" : "not aligned");
             Row(w, $"STACK MATCH {sk.Id} FROM {from}", "match", $"MATCH {sk.Name}", matched ? "green" : "grey", matched ? "matched" : "not matched");
         }
         var next = Core.Site.SiteGuide.Next(engine.GuideFor(project));
@@ -118,6 +120,9 @@ internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
 /// set before), and the watch that reads the stack members' faults on the lane ten times a second while the node runs.</summary>
 internal sealed class SiteExtension : IEngineExtension
 {
+    /// <summary>The part as the exe composes it, after the fleet's (whose fence its stack gains compose with).</summary>
+    public static readonly EngineExtensionFactory Factory = _ => new SiteExtension();
+
     private readonly CancellationTokenSource _stop = new();
     private Task _watch = Task.CompletedTask;
 
