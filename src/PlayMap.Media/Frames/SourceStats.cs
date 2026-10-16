@@ -15,6 +15,8 @@ internal sealed class SourceStats
     private long _dropped;
     private long _late;
 
+    internal Lock Gate => _gate;
+
     public long Decoded => Interlocked.Read(ref _decoded);
     public long Dropped => Interlocked.Read(ref _dropped);
     public long Late => Interlocked.Read(ref _late);
@@ -54,6 +56,6 @@ internal sealed class SourceStats
         return used[Math.Clamp(index, 0, n - 1)];
     }
 
-    public SourceHealth Health(bool ready, string status, string decoder, bool hardware) =>
-        new(ready, status, Decoded, Dropped, Late, Math.Round(DecodeMsP95(), 3), decoder, hardware);
+    public SourceHealth Health(bool ready, string status, string decoder, bool hardware, string why = "") =>
+        new(ready, status, Decoded, Dropped, Late, Math.Round(DecodeMsP95(), 3), decoder, hardware) { Why = why };
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -22,9 +23,13 @@ internal sealed class SceneCamera(Func<RenderHost?> render, string outputId, Sim
     private const double Ambient = 0.03;
     private const double Gain = 0.8;
     private static readonly double[] Lut = Enumerable.Range(0, 256).Select(i => Math.Pow(i / 255.0, 2.2)).ToArray();
+    private readonly ConcurrentQueue<(long ArrivalNs, byte Green)> _seen = new();
     private long _generation;
 
     public int Pictures => (int)Interlocked.Read(ref _generation);
+
+    /// <summary>Each picture's arrival and the output's grey at its first pixel (a raw scan frame: 255 white, 0 black).</summary>
+    public IReadOnlyList<(long ArrivalNs, byte Green)> Seen => [.. _seen];
 
     public string Problem => render() is null ? "no render host" : "";
 
@@ -46,6 +51,7 @@ internal sealed class SceneCamera(Func<RenderHost?> render, string outputId, Sim
         if (shown is null)
             return null;
         var arrival = MonoClock.Instance.NowNs;
+        _seen.Enqueue((arrival, shown[1]));
         return new CameraFrame(Light(shown), scene.Width, scene.Height, arrival, Interlocked.Increment(ref _generation));
     }
 
@@ -85,6 +91,23 @@ internal sealed class SceneCamera(Func<RenderHost?> render, string outputId, Sim
     }
 }
 
+/// <summary>The render host's scan display with every present it answered kept, in order.</summary>
+internal sealed class PresentLog(IScanDisplay inner) : IScanDisplay
+{
+    private readonly ConcurrentQueue<long> _at = new();
+
+    public IReadOnlyList<long> Presents => [.. _at];
+
+    public async Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct)
+    {
+        var at = await inner.ShowAsync(outputId, gray8, width, height, ct).ConfigureAwait(false);
+        _at.Enqueue(at);
+        return at;
+    }
+
+    public void Release() => inner.Release();
+}
+
 /// <summary>A real node with both the render host and the operations parts: a scan's patterns go out raw on the
 /// projector's output through the render host's scan display, each present stamped, and a camera watching the output
 /// light a simulated scene — so the scan finds the projector's aim and lens to within a stated tolerance of the truth
@@ -113,13 +136,22 @@ public sealed class OpsRenderScanTests(ITestOutputHelper output)
         var scene = truthRig.Simulator(0, ScanPlan.Create(256, 160, new ScanPlanOptions { Mode = ScanMode.Fast })).Geometry;
         RenderHost? render = null;
         SceneCamera? camera = null;
+        PresentLog? presents = null;
         var options = OpsHostTests.Quick(new ScanRunnerOptions
         {
             OpenCamera = _ => camera = new SceneCamera(() => render, "op00000001", scene),
             FlashHold = TimeSpan.FromMilliseconds(150),
             LatencyFlashes = 2,
         });
-        await using var node = await NodeRig.StartAsync("Render scan node", parts: OpsParts.With(EngineParts.Bare with { RenderHost = RenderHost.ForNode }, options));
+        var parts = OpsParts.With(EngineParts.Bare with { RenderHost = RenderHost.ForNode }, options) with
+        {
+            ScanBackend = r =>
+            {
+                presents = new PresentLog(r.Display);
+                return new ScanRunner(presents, options.Scan);
+            },
+        };
+        await using var node = await NodeRig.StartAsync("Render scan node", parts: parts);
         render = Assert.IsType<RenderHost>(node.Host.Render);
 
         // The projector hangs where the plan says (its distance from the camera sets the scale); its aim and its lens
@@ -146,9 +178,15 @@ public sealed class OpsRenderScanTests(ITestOutputHelper output)
         Assert.True(runner.View!.State == "done", runner.View.Message);
         var record = Assert.Single(node.Engine.Store.Project.Stage.Scans);
         output.WriteLine(record.Notes);
-        // Each frame is stamped at its present and read back after it: the latency is never made out below zero,
-        // and the guard against it never fired.
-        Assert.Contains("Camera latency 0 ms", record.Notes, StringComparison.Ordinal);
+        // Each frame is stamped at its present and read back after it: the latency is made out from the flashes, between their
+        // present and the first picture that showed each of them (how far above zero is the camera's delivery delay after the
+        // present, which the machine's load sets), never below zero, and the guard against it never fired.
+        var (_, latency) = Assert.Single(runner.Find(record.Id)!.Latencies);
+        Assert.True(latency.Transitions > 0, latency.Words);
+        var flashes = presents!.Presents.Skip(1).Take(4).ToArray();   // black first, then white, black, white, black
+        var seen = camera!.Seen;
+        var bracketMs = flashes.Select((p, k) => (seen.First(s => s.ArrivalNs > p && s.Green == (k % 2 == 0 ? 255 : 0)).ArrivalNs - p) / 1e6).Max();
+        Assert.InRange(latency.LatencyMs, 0, bracketMs);
         Assert.DoesNotContain(node.Engine.Journal.Recent(200), r => r.Text.Contains("below zero", StringComparison.Ordinal));
         var solved = Assert.Single(runner.Find(record.Id)!.Solution.Projectors);
         Assert.True(solved.Solved, solved.Words);

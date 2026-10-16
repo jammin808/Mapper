@@ -60,8 +60,9 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 | `framelocked` / `house-locked` | Locked (on house sync) |
 | `fell-out` | Was locked or joining; the lock broke; presenting free. The reason is kept |
 
-- **Falls out** on a present that waited more than three periods (the never-stall watchdog: the output leaves the barrier and
-  presents free from its next present), a count that stood still for three periods, a board unsynced for three periods (locked
+- **Falls out** when the barrier's own wait timed out after three refreshes (the driver's fact; the never-stall watchdog: the
+  output leaves the barrier and presents free from its next present; how long a present call took is never taken for a stalled
+  barrier, since it holds the node's own work), a count that stood still for three periods, a board unsynced for three periods (locked
   only: shorter losses are debounced), a busy device, a changed display, or a driver that refused the join.
 - **Never rejoins on its own while armed.** Disarmed, with `frameLock` auto, an output rejoins by itself once the board has been
   synced for the 10 s since the fall and the show is at a boundary (blacked out, or nothing playing). Otherwise `SYNC REJOIN`

@@ -8,10 +8,17 @@ namespace PlayMap.Render.Timing;
 /// <item>Two windows: the period <c>b</c> from the long one (default 3 600 samples, 60 s at 60 Hz); the phase <c>a</c> from the
 /// short one (240 samples) with <c>b</c> fixed, so a slow drift of the phase is followed within seconds.</item>
 /// <item>Each fit is two-pass on values centred in the window (no running sums, so no precision lost over days of uptime), then
-/// refitted without the samples whose residual exceeds a quarter period (<see cref="Outliers"/> counts them once each).</item>
+/// refitted without the samples whose residual lies more than a quarter period from the median residual (<see cref="Outliers"/>
+/// counts them once each). The median, not the fit, is the centre: a minority of stamps late by a thread that waited for the CPU
+/// cannot move it, so they never bend the period they are judged against.</item>
+/// <item>Until it has settled the clock fits no slope, which a few late stamps would bend: the period is the nominal one (or, from
+/// five samples, the median gap per refresh when that differs from the nominal by more than a tenth and the gaps agree with it:
+/// a display that is not the rate it reports) and the phase is the median residual.</item>
 /// <item>Samples come either from the display (<see cref="Add"/>: a refresh count, strictly newer each time) or from a vsync'd
-/// swap's return (<see cref="AddSwapReturn"/>: the index is counted from the gap to the previous return, and a gap of n periods
-/// counts n − 1 missed vblanks, once). A swap's return is near, not at, the vblank, so on that path the phase is approximate.</item>
+/// swap's return (<see cref="AddSwapReturn"/>: a gap of n periods counts n − 1 missed vblanks, once). A return lands at or after
+/// the vblank it waited for — late by however long its thread then waited — so its refresh is counted from the fitted instant
+/// of the previous one, never from the previous return (a late return would shorten the next gap and shift every index after
+/// it). On that path the phase is approximate.</item>
 /// <item>Settled after 30 samples; <see cref="Disjoint"/> (a mode change, a display change) starts the fit again.</item>
 /// </list>
 /// Pure arithmetic on the samples it is given: a test feeds it a sequence. Allocation-free after construction. One thread.</summary>
@@ -25,6 +32,8 @@ public sealed class VblankClock
     private readonly ulong[] _k;
     private readonly long[] _t;
     private readonly bool[] _outlier;
+    private readonly bool[] _counted;
+    private readonly double[] _residuals;
     private int _count;
     private int _next;
     private double _periodNs;
@@ -46,6 +55,8 @@ public sealed class VblankClock
         _k = new ulong[longWindow];
         _t = new long[longWindow];
         _outlier = new bool[longWindow];
+        _counted = new bool[longWindow];
+        _residuals = new double[longWindow];
     }
 
     public double NominalHz { get; }
@@ -73,7 +84,7 @@ public sealed class VblankClock
     /// <summary>Samples taken since construction (or the last <see cref="Disjoint"/>).</summary>
     public long Samples { get; private set; }
 
-    /// <summary>Samples left out of a fit for a residual over a quarter period, each counted once.</summary>
+    /// <summary>Samples left out of a fit for a residual more than a quarter period from the median, each counted once.</summary>
     public long Outliers { get; private set; }
 
     /// <summary>Vblanks a swap's return skipped (a gap of n periods is n − 1 of them), each counted once.</summary>
@@ -99,9 +110,11 @@ public sealed class VblankClock
         return true;
     }
 
-    /// <summary>Adds the instant a vsync'd swap returned (just after the vblank it waited for). Answers how many refreshes it
+    /// <summary>Adds the instant a vsync'd swap returned (at or after the vblank it waited for). Answers how many refreshes it
     /// moved on: 1 normally, n &gt; 1 when n − 1 vblanks passed with no swap (added to <see cref="Missed"/>), 0 when it came within
-    /// half a period of the previous return (the same vblank; ignored).</summary>
+    /// half a period of the previous return (the same vblank; ignored). The count runs from the fitted instant of the previous
+    /// refresh with a quarter period's allowance for the fit's phase, so a return late by up to three quarters of a period names
+    /// its own refresh, and one later than that names at most itself wrongly.</summary>
     public int AddSwapReturn(long tNs)
     {
         if (_lastReturnNs < 0)
@@ -110,10 +123,9 @@ public sealed class VblankClock
             Push(0, tNs);
             return 1;
         }
-        var dt = tNs - _lastReturnNs;
-        var step = (long)Math.Round(dt / _periodNs);
-        if (step < 1)
+        if (tNs - _lastReturnNs < 0.5 * _periodNs)
             return 0;
+        var step = Math.Max(1L, (long)Math.Floor((tNs - TimeOf(_lastK)) / _periodNs + 0.25));
         _lastReturnNs = tNs;
         Missed += step - 1;
         Push(_lastK + (ulong)step, tNs);
@@ -194,29 +206,20 @@ public sealed class VblankClock
 
     private void Push(ulong k, long tNs)
     {
-        var predicted = _hasBase && _count >= 2 ? TimeOf(k) : tNs;
         _k[_next] = k;
         _t[_next] = tNs;
         _outlier[_next] = false;
-        var newest = _next;
+        _counted[_next] = false;
         _next = (_next + 1) % _k.Length;
         if (_count < _k.Length)
             _count++;
         _lastK = k;
         Samples++;
         Fit();
-        // The newest sample is counted as an outlier once, when it arrives (a later window that keeps leaving it out does not
-        // count it again).
-        if (_count >= SettleSamples && !FixedPeriod && Math.Abs(tNs - predicted) > 0.25 * _periodNs)
-        {
-            _outlier[newest] = true;
-            Outliers++;
-            Fit();
-        }
     }
 
-    /// <summary>The period from the long window, then the phase from the short window with the period fixed; both on values
-    /// centred on the newest sample.</summary>
+    /// <summary>The period from the long window — a least-squares fit, then again without the samples far from the median
+    /// residual — then the phase from the short window with the period fixed; all on values centred on the newest sample.</summary>
     private void Fit()
     {
         var newest = (_next - 1 + _k.Length) % _k.Length;
@@ -224,11 +227,30 @@ public sealed class VblankClock
         var t0 = _t[newest];
         if (_count >= 2 && !FixedPeriod)
         {
-            var b = Slope(_count, k0, t0, ignoreOutliers: true);
-            if (b > 0.25 * NominalPeriodNs && b < 4 * NominalPeriodNs)
-                _periodNs = b;
+            for (var i = 0; i < _count; i++)
+                _outlier[(newest - i + _k.Length) % _k.Length] = false;
+            double b;
+            if (Settled)
+            {
+                b = Slope(_count, k0, t0, ignoreOutliers: false);
+                if (!Plausible(b))
+                    b = _periodNs;
+            }
+            else
+            {
+                b = EarlyPeriod(newest);
+            }
+            if (_count >= 3)
+            {
+                Trim(newest, k0, t0, b);
+                var trimmed = Settled ? Slope(_count, k0, t0, ignoreOutliers: true) : b;
+                if (Plausible(trimmed))
+                    b = trimmed;
+            }
+            _periodNs = b;
         }
-        // The phase: the mean of t − b·k over the short window, as the fitted time of the newest sample's refresh.
+        // The phase: the mean of t − b·k over the short window (its median until settled), as the fitted time of the newest
+        // sample's refresh.
         var n = Math.Min(_count, _shortWindow);
         double sum = 0;
         var used = 0;
@@ -237,13 +259,103 @@ public sealed class VblankClock
             var j = (newest - i + _k.Length) % _k.Length;
             if (_outlier[j])
                 continue;
-            sum += (_t[j] - t0) - _periodNs * (double)(long)(_k[j] - k0);
+            var r = (_t[j] - t0) - _periodNs * (double)(long)(_k[j] - k0);
+            _residuals[used] = r;
+            sum += r;
             used++;
         }
         _baseK = k0;
         _baseT = t0;
-        _baseOffsetNs = used > 0 ? sum / used : 0;
+        _baseOffsetNs = used == 0 ? 0 : Settled || FixedPeriod ? sum / used : Select(_residuals.AsSpan(0, used), used / 2);
         _hasBase = true;
+    }
+
+    private bool Plausible(double periodNs) => periodNs > 0.25 * NominalPeriodNs && periodNs < 4 * NominalPeriodNs;
+
+    /// <summary>The period before the fit has settled: the nominal one, unless (from five samples) the median gap per refresh
+    /// between consecutive samples differs from it by more than a tenth and two gaps in three agree with that median within a
+    /// twentieth. A late stamp lengthens one gap and shortens the next; a display not at the rate it reports repeats its gap.</summary>
+    private double EarlyPeriod(int newest)
+    {
+        if (_count < 5)
+            return NominalPeriodNs;
+        var gaps = _count - 1;
+        for (var i = 0; i < gaps; i++)
+        {
+            var a = (newest - i + _k.Length) % _k.Length;
+            var b = (newest - i - 1 + _k.Length) % _k.Length;
+            _residuals[i] = (_t[a] - _t[b]) / (double)(long)(_k[a] - _k[b]);
+        }
+        var median = Select(_residuals.AsSpan(0, gaps), (gaps - 1) / 2);
+        if (Math.Abs(median / NominalPeriodNs - 1) <= 0.1 || !Plausible(median))
+            return NominalPeriodNs;
+        // Late stamps scatter the gaps; a display at another rate than it reports gives the same gap again and again.
+        var agree = 0;
+        for (var i = 0; i < gaps; i++)
+        {
+            if (Math.Abs(_residuals[i] / median - 1) <= 0.05)
+                agree++;
+        }
+        return 3 * agree >= 2 * gaps ? median : NominalPeriodNs;
+    }
+
+    /// <summary>Leaves out of the fit the samples whose residual against period <paramref name="b"/> lies more than a quarter of the
+    /// nominal period from the median residual, counting each the first time.</summary>
+    private void Trim(int newest, ulong k0, long t0, double b)
+    {
+        var n = _count;
+        for (var i = 0; i < n; i++)
+        {
+            var j = (newest - i + _k.Length) % _k.Length;
+            _residuals[i] = (_t[j] - t0) - b * (double)(long)(_k[j] - k0);
+        }
+        var median = Select(_residuals.AsSpan(0, n), n / 2);
+        var limit = 0.25 * NominalPeriodNs;
+        for (var i = 0; i < n; i++)
+        {
+            var j = (newest - i + _k.Length) % _k.Length;
+            var r = (_t[j] - t0) - b * (double)(long)(_k[j] - k0);
+            if (Math.Abs(r - median) <= limit)
+                continue;
+            _outlier[j] = true;
+            if (_counted[j])
+                continue;
+            _counted[j] = true;
+            Outliers++;
+        }
+    }
+
+    /// <summary>The value that would stand at <paramref name="rank"/> were <paramref name="values"/> sorted (Hoare's selection,
+    /// in place, no allocation).</summary>
+    private static double Select(Span<double> values, int rank)
+    {
+        var lo = 0;
+        var hi = values.Length - 1;
+        while (lo < hi)
+        {
+            var pivot = values[lo + (hi - lo) / 2];
+            var i = lo;
+            var j = hi;
+            while (i <= j)
+            {
+                while (values[i] < pivot)
+                    i++;
+                while (values[j] > pivot)
+                    j--;
+                if (i > j)
+                    break;
+                (values[i], values[j]) = (values[j], values[i]);
+                i++;
+                j--;
+            }
+            if (rank <= j)
+                hi = j;
+            else if (rank >= i)
+                lo = i;
+            else
+                return values[rank];
+        }
+        return values[rank];
     }
 
     /// <summary>The least-squares slope over the newest <paramref name="n"/> samples, centred (two passes).</summary>

@@ -67,8 +67,8 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
 
 - `Project` is an immutable record tree (`System.Collections.Immutable`). An edit is `Func<Project, Project>`
   applied by `ProjectStore` — **one writer**, in the engine. The new root shares every untouched branch; undo is a
-  list of roots; drags coalesce into one undo step. Readers (render thread, network, state writer) take the
-  current root through a volatile reference and never lock.
+  list of roots; drags coalesce into one undo step (edits of one field within 750 ms on the node's clock). Readers
+  (render thread, network, state writer) take the current root through a volatile reference and never lock.
 - Runtime state (transports, links, outputs' health, availability) is not in the document: each lane publishes
   its own immutable snapshot; STATE composes them.
 - Generic edits (`GET/SET/ADD/REMOVE/MOVE` by id and dotted field path) are how the desk edits anything and why an
@@ -127,6 +127,9 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   by at most ±0.5 % to stay within 10 ms, resynced hard on a jump. Its gain is the air's sound gain (master × the darkest
   panic, from the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Sound
   comes in: one capture per input feeds the analyser and the LTC reader.
+- `Media/Audio/AudioOut` plays through the OpenAL Soft that ships beside PlayMap, found in the app's own native folders before
+  the system's (`OpenAlLibrary`); where no OpenAL loads, its device output is the null one and `AudioOut.Status` says why,
+  which STATE carries as `show.sound.status`.
 
 ## 5. Rendering
 

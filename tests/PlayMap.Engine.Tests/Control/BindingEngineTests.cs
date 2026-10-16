@@ -130,6 +130,19 @@ public sealed class BindingEngineTests
     }
 
     [Fact]
+    public async Task TheUndoWindowCountsOnTheNodesClockNotTheWall()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(Show(), clock: clock);
+        await rig.Ok("SET sf_lobby opacity 0.2");
+        clock.AdvanceMs(1000);
+        await rig.Ok("SET sf_lobby opacity 0.6");
+        // A second apart on the node's clock, however close on the wall: two undo steps.
+        await rig.Ok("UNDO");
+        Assert.Equal(0.2, rig.Engine.Store.Project.FindSurface("sf_lobby")!.Opacity, 9);
+    }
+
+    [Fact]
     public async Task AFaderOnARefusedTargetIsOneRefusedRowNotOnePerMove()
     {
         var clock = new ManualClock(1_000_000_000);

@@ -51,6 +51,7 @@ public sealed unsafe class CaptureSource : IVideoSource
     private volatile string _status = "opening";
     private volatile string _decoderName = "";
     private volatile bool _hardware;
+    private volatile string _why = "";
     private volatile bool _live;
     private volatile bool _stop;
     private long _generation;
@@ -73,7 +74,7 @@ public sealed unsafe class CaptureSource : IVideoSource
     /// reason in <see cref="Health"/>.Status).</summary>
     public Task<bool> Opened => _opened.Task;
 
-    public SourceHealth Health => _stats.Health(_live, _status, _decoderName, _hardware);
+    public SourceHealth Health => _stats.Health(_live, _status, _decoderName, _hardware, _why);
 
     /// <summary>How old the newest frame is now (monotonic ns since its arrival), or −1 before the first.</summary>
     public long NewestAgeNs
@@ -183,6 +184,7 @@ public sealed unsafe class CaptureSource : IVideoSource
             decoder = StreamDecoder.Open(input.Stream(stream), new DecoderOptions { AllowHardware = _options.AllowHardware, LowDelay = true });
             _decoderName = decoder.Name;
             _hardware = decoder.Hardware;
+            _why = decoder.Why;
             writer = new FrameWriter(PlanMode.Video);
             _status = "live";
             _live = true;

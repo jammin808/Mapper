@@ -191,10 +191,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
-        CancellationTokenSource cts;
         Track track;
         Task<Task<string>> start;
-        Task<string> run;
+        Task<string> finished;
         lock (_gate)
         {
             if (_stopped)
@@ -214,14 +213,16 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 return Task.FromException<string>(ex);
             }
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
-            cts = new CancellationTokenSource();
+            var cts = new CancellationTokenSource();
             _running = cts;
             var token = cts.Token;
             track = new Track(this, setup);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
+            // The task a stop waits for is the one that publishes the scan's last words, not the run inside it: a second await
+            // of one task is resumed off the thread that runs the first, so a stop waiting on the run could return before them.
             start = new Task<Task<string>>(() => RunAsync(engine, setup, track, token));
-            run = start.Unwrap();
-            _task = run;
+            finished = Finish(start.Unwrap(), track, cts);
+            _task = finished;
         }
         try
         {
@@ -231,7 +232,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         {
             start.Start(TaskScheduler.Default);
         }
-        return Finish(run, track, cts);
+        return finished;
     }
 
     public bool Cancel()
@@ -434,6 +435,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     {
         var views = new List<(string, ProjectorView)>();
         var notes = new List<string>();
+        var latencies = new List<(string, LatencyEstimate)>();
         List<ProjectorCapture> captures;
         SimulatedRig? rig = null;
         Func<Core.Numerics.Vec2d, Core.Numerics.Vec2d, double?>? known = null;
@@ -456,7 +458,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         }
         else
         {
-            captures = await CaptureRealAsync(engine, setup, track, views, notes, ct).ConfigureAwait(false);
+            captures = await CaptureRealAsync(engine, setup, track, views, notes, latencies, ct).ConfigureAwait(false);
         }
 
         track.Step("running", "calibrating", $"solving {setup.Names}", overall: 0.88);
@@ -472,7 +474,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var outcome = new ScanOutcome(setup.Id, name, setup.Rig?.Id ?? SimulatedRig.CameraId, setup.Simulated, rig?.SceneName ?? "", solution, views, truthDevices);
         var geometry = ScanArchive.GeometryOf(outcome, ScanSurfaces.CameraImage(captures[0].Map));
         var regions = geometry is null ? [] : await Task.Run(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
-        outcome = outcome with { Geometry = geometry, Regions = regions };
+        outcome = outcome with { Geometry = geometry, Regions = regions, Latencies = latencies };
         track.Regions(regions);
         if (rig is not null)
             notes.Add(TruthWords(outcome));
@@ -664,7 +666,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     }
 
     private async Task<List<ProjectorCapture>> CaptureRealAsync(EngineCore engine, Setup setup, Track track, List<(string, ProjectorView)> views,
-        List<string> notes, CancellationToken ct)
+        List<string> notes, List<(string, LatencyEstimate)> latencies, CancellationToken ct)
     {
         var display = _display ?? throw new InvalidOperationException("this node has no outputs to show the patterns on");
         var rig = setup.Rig!;
@@ -698,6 +700,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 track.Step("running", "latency", $"{part.Projector.Name}: measuring the camera's latency with white flashes", j, "latency");
                 var latency = await MeasureLatencyAsync(display, camera, setup.CameraId, part.Output!, ct).ConfigureAwait(false);
                 notes.Add($"{part.Projector.Name}: {latency.Words}.");
+                latencies.Add((part.Projector.Id, latency));
                 var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, setup.CameraId, j, part, latency.LatencyMs, track, ct).ConfigureAwait(false);
                 if (unsettled > 0)
                     notes.Add(string.Create(CultureInfo.InvariantCulture, $"{part.Projector.Name}: {unsettled} of {part.Plan.Count} patterns were taken without the camera settling."));

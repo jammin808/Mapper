@@ -30,6 +30,9 @@ public sealed record ScanOutcome(
     /// <summary>The surfaces the scan suggests, placed on the smart scan.</summary>
     public IReadOnlyList<ScanRegion> Regions { get; init; } = [];
 
+    /// <summary>Each projector's camera latency as the flashes measured it (empty for a simulated scan, which has no camera).</summary>
+    public IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> Latencies { get; init; } = [];
+
     /// <summary>The worst solved projector's reprojection RMS (pixels), 0 when none solved.</summary>
     public double WorstResidualPx => Solution.Projectors.Where(p => p.Solved).Select(p => p.RmsPx).DefaultIfEmpty(0).Max();
 
