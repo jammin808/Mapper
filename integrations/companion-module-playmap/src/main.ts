@@ -194,8 +194,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 
 	async destroy(): Promise<void> {
 		this.#destroyed = true
-		this.#stop()
+		// The pictures go first, so letting go of the air's as the link stops rechecks no key of a stopped connection.
 		this.thumbs.clear()
+		this.#stop()
 	}
 
 	getConfigFields(): SomeCompanionConfigField[] {
