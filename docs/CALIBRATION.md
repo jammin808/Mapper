@@ -41,7 +41,25 @@ overlay does not name, or when it is off, nothing is drawn — the output is byt
 (`OverlayTests`). The overlay holds a lease its session renews (`OVERLAY KEEP`); an armed show turns it off.
 
 Cursors (`CURSOR`) live on a board the control lane writes and the render thread reads lock-free; they never touch the project
-or the journal, and lapse three seconds after their last line.
+or the journal, and lapse three seconds after their last line. The board keeps when each cursor's line arrived (the node's
+monotonic clock); the render host counts the frames from that arrival to the frame that first draws the move — one when it
+arrived after the last frame began — times the output's frame period, and publishes the p95 over the last 300 moves as
+`air.overlay.cursorP95Ms` through its facts signal. Nothing on the frame path allocates for it (`CursorTests`: two cursors moving
+300 times are drawn within two frames at p95, with no byte allocated).
+
+### The first map
+
+`STATE.onboarding` stamps the first light (`LIGHT WALL`), the first quad and the first content on a quad. The last is the render
+host's word: the frame it finds a picture of a quad's source ready to draw (a node without a render host stamps it when the
+project first puts content on a quad an output shows). `FirstMapTests` runs the scripted first map on a real headless node — LIGHT
+WALL, SURFACE QUAD, eight nudges, MEDIA IMPORT of a 2 s clip, SURFACE SOURCE — and reads the clip inside the quad and black around
+it; the machine time is recorded (about a second here; a Perf twin holds the 5 s bar).
+
+### The projector's view
+
+`VIEW … SHOW projector:<id>` shows what the projector puts on the wall: the stage as it lights it, through the lens lookup of the
+first enabled output that drives it, before that output's warp, mask, blend and trim — equal to the output's picture before its
+trim within one code, and black wherever the projector lights nothing (`ProjectorViewTests`).
 
 ## The score (`Core/Calibration/Scoring`)
 
@@ -80,15 +98,50 @@ project's `CalibrationKeep` (20) newest loose results besides its current, fallb
 
 ## Re-solving the projector that moved
 
-`CALIBRATION RESOLVE <projector>…` re-solves only the named projectors from their pins as they stand — the operator drags them
-onto the wall's features — scores each result and applies it in one edit when its score is within
-`max(calibrationGate, 1.25 × the fallback's)` and not F. Otherwise, with `STAGE`, or when an assistant asked, the result is
-**staged**: recorded with the projector untouched and `calibration.staged` raised, until `CALIBRATION ACCEPT` applies it. A
-projector with no fallback keeps its calibration from before as one. No other projector, result or surface moves
-(`ResolveTests`: a projector knocked 2 cm comes back within half a pixel RMS on the wall).
+`CALIBRATION RESOLVE <projector>…` re-solves only the named projectors and scores each result; it applies it in one edit when its
+score is within `max(calibrationGate, 1.25 × the fallback's)` and not F. Otherwise, with `STAGE`, or when an assistant asked, the
+result is **staged**: recorded with the projector untouched and `calibration.staged` raised, until `CALIBRATION ACCEPT` applies
+it. A projector with no fallback keeps its calibration from before as one. No other projector, result or surface moves.
+
+**From the pins** (no `CAMERA`): the pins as they stand — the operator dragged them onto the wall's features (`ResolveTests`: a
+projector knocked 2 cm comes back within half a pixel RMS on the wall).
+
+**From a camera** (`CAMERA <camera>`, calibops M5–M8 at their QUICK rung): a calibrated camera of the stage takes a fresh look at
+only the named projectors (`ALL`: every projector).
+
+1. *Dots* (`Core/Scan/DotCheck.cs`): every projector black, then each named projector alone showing a grid of dots 64 projector px
+   apart, each moved by a seeded jitter of a quarter of the spacing so the pattern never passes for itself shifted, drawn as
+   Gaussian spots. The camera's picture less the black one gives the spots: connected pixels over a quarter of the brightest
+   difference, each centred by its levels in a window sized to it, twice.
+2. *Matching*: the project says where each dot lands — its stored pose's ray onto the stage (every visible 3D surface, placed),
+   then into the camera, which must see that very point. Every expected dot votes for the shift to each spot within four
+   spacings; the most voted shift starts the matching (so a move of more than half a spacing is found), then an affine fit and
+   each dot's neighbours' residual refine it; a spot is one dot's at most.
+3. *Who moved* (`Core/Calibration/MotionAttribution.cs`): a projector with fewer than 60 matched dots is *unseen*; one whose
+   matched dots land a median of more than 0.6 camera px from where the project says has *moved*; every seen projector moved
+   together means the camera moved, and nothing is re-solved ("place the camera again"). Nothing moved, the camera, or nothing
+   seen is refused with these words.
+4. *Solve*: each mover's pose alone (its optics kept) from its dots — the camera's ray through each spot onto the stage, paired
+   with the dot's projector pixel — through `PoseSolver`, robust.
+5. *Verify*: the mover's dots looked at once more, matched through the new pose; the wall error of the new pose against them
+   (p50, p95) is the result's `verifiedP95`.
+6. *Score*: the dot fit scored as a pin solve (each dot a pin), a fix that would name a dot being the re-solve again.
+7. *Apply*: in the one edit, the projector's pins keep their world points and take the new pose's pixels, and its pixel quads are
+   re-seated (`Core/Calibration/Reseat2D.cs`): each corner and lattice node out along the old pose's ray onto the stage and back in
+   through the new pose, so it lights the wall spot it lit before. Masks, 3D surfaces and output warps are not touched. A
+   projector that blends automatically has its blend solved again off the lane (BLEND SOLVE's receipt is the reply's `blend`).
+
+The task's state moves through `capturing`, `matching`, `solving`, `verifying` to `done`; `CALIBRATION CANCEL` stops it before it
+applies. A simulated camera (a rig of kind Simulated) is its own display: `StageSimulator` traces the stage from the camera and
+lights it from each projector where `SimulatedStage` says it truly stands (knocked or as the project says). A real camera shows
+the dots on the projectors' outputs through the align display shooter (latency measured first, each picture taken once settled).
+The pattern time is the frames times `wall.resolveFrameMs` (100 ms). `ResolveCameraTests`: of three projectors, P2 knocked 0.8°
+and 2 cm is found moved and the others unmoved, P2 alone is re-solved to 0.004 px p95 on the wall against the truth, in five
+frames (0.5 s of patterns); `ReseatTests`: a quad on a projector knocked 16 px lights its old wall spots again within 0.001 px.
 
 ## Not yet
 
-The camera re-solve ladder (QUICK, LENS, CODED, DENSE), the dot check and the drift monitor, re-seating pixel quads by the measured
-displacement after a re-solve, lens read-back triggers, before/after on the wall, the seam term, the report, `OVERLAY GRID`,
-overlay names and pins, `HIGHLIGHT`, `PICK PIXEL`, snapping, quads on the 3D view and warp handles on the wall.
+The LENS, CODED and DENSE rungs of the ladder (a mover whose pose alone does not fit), re-solving the camera when it moved, a
+stored reference look (the project's prediction stands in for it), the drift monitor, lens read-back triggers, before/after on
+the wall, the seam term from the check, the report, `OVERLAY GRID`, overlay names and pins, `HIGHLIGHT`, `PICK PIXEL`, snapping,
+quads on the 3D view and warp handles on the wall.
