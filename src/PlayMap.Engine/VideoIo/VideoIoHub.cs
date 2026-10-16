@@ -1018,6 +1018,16 @@ internal static class Fallbacks
 {
     private const int MaxDepth = 8;
 
+    /// <summary>The fallback a live input shows when its feed is lost (its loss policy is a fallback that parses), else null.</summary>
+    public static SourceRef? Of(MediaItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return item.Kind == MediaKind.Stream && item.Live is { OnLoss: LiveLoss.Fallback } live && SourceRef.TryParse(live.Fallback, out var fallback)
+            && !fallback.IsNone
+            ? fallback
+            : null;
+    }
+
     /// <summary>Why a source cannot be a fallback in this project, or null.</summary>
     public static string? Fits(Project project, SourceRef source)
     {

@@ -165,6 +165,8 @@ Section `videoio`: one green "not used" row when the show has no live input and 
 `videoio.omt.runtime` for each protocol the show uses (red "missing" with the runtime's words and the fix `VIDEOIO SET NDI ON`,
 `VIDEOIO SET OMT ON` or `VIDEOIO STATUS`), `videoio.input.<id>` per input (green delivering; amber stale or not delivering, red
 when on air; fix `INPUT RECONNECT <id>`), `videoio.send.<id>` per enabled send (red failed with the fix `SEND ENABLE <id> OFF`).
+The file an enabled send taps (`source:media:md…`) and the fallback a live input the show uses shows on loss are media the show uses:
+the `media` section checks them as it checks an output's source, and the `optimise` section counts them among what the show plays.
 
 ## Papers note
 

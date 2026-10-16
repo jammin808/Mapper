@@ -50,8 +50,9 @@ public sealed class OptimisePreflight : IPreflightCheck
 }
 
 /// <summary>The library items the show plays: what outputs and surfaces show, every item of a playlist they show, every visible
-/// layer of a canvas they show, every input a generator they show reads (GENERATOR INPUT), and what an enabled LED fixture samples
-/// (a source, or a canvas's sources); nested eight deep.</summary>
+/// layer of a canvas they show, every input a generator they show reads (GENERATOR INPUT), what an enabled LED fixture samples
+/// (a source, or a canvas's sources), what an enabled send taps (a canvas or a source), and the fallback a live input it plays shows
+/// on loss; nested eight deep.</summary>
 public static class ShowMedia
 {
     public static IReadOnlySet<string> Of(Project project)
@@ -96,6 +97,22 @@ public static class ShowMedia
                 Add(SourceRef.Canvas(f.SpaceId), 0);
             else if (f.Space == LedSpace.Source && SourceRef.TryParse(f.SpaceId, out var sampled))
                 Add(sampled, 0);
+        }
+        // A send of an output reads what the output shows (above); a canvas or a source is the send's own.
+        foreach (var send in project.Sends)
+        {
+            if (!send.Enabled || !VideoIo.SendShape.TryTap(send.Tap, out var kind, out var target, out var tapped, out _))
+                continue;
+            if (kind == PlayMap.Render.Passes.SendTapKind.Canvas)
+                Add(SourceRef.Canvas(target), 0);
+            else if (kind == PlayMap.Render.Passes.SendTapKind.Source && tapped is not null)
+                Add(tapped, 0);
+        }
+        // A live input's fallback is played when its feed is lost (a fallback is never itself live, so this goes one step).
+        foreach (var m in project.Media)
+        {
+            if (items.Contains(m.Id) && VideoIo.Fallbacks.Of(m) is { } fallback)
+                Add(fallback, 0);
         }
         return items;
     }
