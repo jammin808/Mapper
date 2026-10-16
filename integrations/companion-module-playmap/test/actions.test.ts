@@ -3,7 +3,7 @@
 // key of a generated row presses as the row's press field says; the lines the node's contract test parses are the ones the module
 // writes now; two presses confirm within 3 s and only then; the double-GO guard holds a second GO of a playlist within min_go_ms;
 // raw and ask_node never put a session word, a secret or (for ask_node) a change on the wire; learn fills from the focused
-// playlist; every press answers ok, stage, effect and error.
+// playlist; every press answers ok, stage, effect and error. An older node's untyped VERBS keeps the bundled rows' forms and presses.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -583,6 +583,60 @@ void test('a generated action writes the node’s grammar: phrases quoted, keywo
 		assert.equal(fence.stage, 'applied')
 		assert.equal(lastOf(node, 'PLAYLIST LIST'), 'PLAYLIST LIST')
 		assert.equal(lastOf(node, 'PLAYLIST LOOP'), undefined, 'the unwritable line never reached the node')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('an older node’s VERBS, with no typed forms or press, keeps the bundled rows and takes only what the node answers', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	// A node from before typed forms: its rows say no params, formParams, press or riskWhen. It does not answer SCAN START, and it
+	// has a row this module does not know.
+	const older = (
+		JSON.parse(readFileSync(new URL('../src/catalog/verbs.json', import.meta.url), 'utf8')) as Fields[]
+	).map((row) => {
+		const { params: _p, formParams: _f, press: _r, riskWhen: _w, ...rest } = row
+		return rest.name === 'SCAN START' ? { ...rest, available: false } : rest
+	})
+	older.push({
+		name: 'OLD THING',
+		syntax: 'OLD THING <id>',
+		words: 'a row since retired',
+		risk: 'high',
+		available: true,
+	})
+	node.handlers.set('VERBS', () => `OK ${JSON.stringify(older)}`)
+	const m = await boot(configOf(node), SECRETS)
+	try {
+		await ready(m)
+		await m.host.until(
+			() => m.host.actions.get(actionIdOf('SCAN START'))?.description?.includes('does not answer') === true,
+			'the node’s VERBS taken',
+		)
+		const optionIds = (id: string): string[] => (m.host.actions.get(id)?.options ?? []).map((o) => o.id)
+		assert.deepEqual(
+			optionIds('v_playlist_go').filter((o) => o !== 'confirm'),
+			['playlist', 'item', 'at', 'expect'],
+			'the action keeps its typed options',
+		)
+		assert.deepEqual(
+			optionIds('v_device_power').filter((o) => o !== 'confirm'),
+			['device', 'state', 'p_confirm'],
+		)
+		assert.equal(m.instance.pressOf('OUTPUT IDENTIFY op_1'), 'hold', 'an identify is still held')
+		assert.equal(m.instance.pressOf('DEVICE POWER dv1 OFF'), 'double', "a projector's power is still pressed twice")
+		assert.equal(m.instance.pressOf('DECODE POLICY SOFTWARE FORCE'), 'hold', 'a risk a word names is still the row’s')
+		assert.equal(
+			m.instance.verbs.find((r) => r.name === 'SCAN START')?.available,
+			false,
+			'what the node answers is its own',
+		)
+		assert.equal(m.host.actions.has('v_old_thing'), false, 'a row the module cannot type is left out, never guessed')
+
+		const result = fields(await m.press('v_playlist_go', { playlist: SHOW.playlist, item: SHOW.blue }, 'key-older'))
+		assert.equal(result.stage, 'applied')
+		assert.equal(lastOf(node, 'PLAYLIST GO'), `PLAYLIST GO ${SHOW.playlist} ${SHOW.blue}`)
 	} finally {
 		await m.stop()
 		await node.stop()

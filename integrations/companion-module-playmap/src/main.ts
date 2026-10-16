@@ -421,7 +421,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.ask(Lines.verbs)
 			.then((reply) => {
 				if (!reply.ok) return
-				const rows = readVerbs(parseNode(reply.payload))
+				const rows = readVerbs(parseNode(reply.payload), BUNDLED_VERBS)
 				if (rows.length === 0) return
 				const key = (r: readonly VerbRow[]): string =>
 					r.map((v) => `${v.name}|${v.available}|${v.press}|${v.syntax}`).join('\n')

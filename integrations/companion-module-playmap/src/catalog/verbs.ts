@@ -127,14 +127,23 @@ export function pressOfLine(row: VerbRow, line: string): VerbRow['press'] {
 	return row.risk === 'high' ? 'instant' : row.press
 }
 
-/** Reads VERBS' JSON (the bundled copy, or the node's own answer). A row the module cannot read is left out, never guessed. */
-export function readVerbs(json: unknown): VerbRow[] {
+/** Reads VERBS' JSON (the bundled copy, or the node's own answer). A row the module cannot read is left out, never guessed. Read
+ * against `bundled` (a node's answer), a row that carries no typed forms or no press — a node from before them — is the bundled row
+ * of its name with only `available` the node's, and one the bundle does not know is left out. */
+export function readVerbs(json: unknown, bundled?: readonly VerbRow[]): VerbRow[] {
 	if (!Array.isArray(json)) return []
+	const known = bundled ? new Map(bundled.map((r) => [r.name, r])) : null
 	const rows: VerbRow[] = []
 	for (const r of json) {
 		if (!r || typeof r !== 'object') continue
 		const o = r as Record<string, unknown>
 		if (typeof o.name !== 'string' || typeof o.syntax !== 'string') continue
+		const typed = (Array.isArray(o.formParams) || Array.isArray(o.params)) && typeof o.press === 'string'
+		if (known && !typed) {
+			const row = known.get(o.name)
+			if (row) rows.push({ ...row, available: o.available !== false })
+			continue
+		}
 		const formParams = Array.isArray(o.formParams)
 			? o.formParams.map((f) => (Array.isArray(f) ? f.map(readParam).filter((x): x is VerbParam => x !== null) : []))
 			: [Array.isArray(o.params) ? o.params.map(readParam).filter((x): x is VerbParam => x !== null) : []]

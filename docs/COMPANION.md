@@ -133,7 +133,9 @@ under the new name) — an edit to anything else keeps the link and its halt —
 Any other refusal of the greeting is the node's passing fault and is tried again. An address is read as typed (`host`, `host:port`, `[v6]:port`, a scheme
 left off); one no link could open says so in words. Lines the module sends are held to the
 node's 64 KiB; what the node sends is not (VERBS and INDEX are long), but JSON nested past 64 levels is dropped, every VERBS field is
-type-checked (a vocabulary that builds no actions is not taken), and nothing a push holds can throw into Companion's process.
+type-checked (a vocabulary that builds no actions is not taken; a row with no typed forms or no press, from a node older than them,
+keeps the bundled row of its name and takes only whether the node answers it, and one the bundle does not know is left out), and
+nothing a push holds can throw into Companion's process.
 
 **Once paired** it says `PRESENCE` (its version, its Live source and page, how many pictures it holds), asks `WHOAMI` (again when Show
 Mode or the controllers move) and `VERBS`, subscribes to `INDEX` and `EVENTS`, asks `EVENTS SINCE <seq>` for what a drop missed, and
