@@ -69,6 +69,20 @@ public sealed class LockFeedTests
     }
 
     [Fact]
+    public async Task AMemberThatHasBegunToStopTakesNothingOfTheLeadersLock()
+    {
+        var outputs = new ScriptedOutputs().WithFreeLocks("op_a");
+        await using var rig = PresentRig.Start(PresentRig.With(PresentRig.Screen("op_a")), outputs, new RoleNetwork("follower", "0badc0de"));
+
+        // The leader's record is a line from outside this node: once it stops it neither offers the counter nor joins.
+        rig.Engine.BeginStop();
+        var (taken, words) = await rig.Engine.AdoptLeaderLockAsync(new LockRecord(true, 1, 1, Counter), () => true);
+        Assert.True(taken);   // never asked again: the node is going
+        Assert.Equal(EngineCore.StoppingWords, words);
+        Assert.Empty(outputs.Calls);
+    }
+
+    [Fact]
     public async Task AMemberWhoseFrameLockIsOffNeverJoinsAndTheLeadersRecordIsItsWish()
     {
         var outputs = new ScriptedOutputs().WithFreeLocks("op_a");

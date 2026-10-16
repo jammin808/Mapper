@@ -81,9 +81,9 @@ in order:
   `silent` (one deadline for the whole group).
 - **`ANCHOR <group> @lock {"apply","swapGroup","barrier","counter":{…}|null}`**: the group's frame lock. A member offers the
   leader's counter anchor to its outputs (`IFrameLockBackend.OfferAnchor`, so counts map to the same show time), joins when the
-  leader applied the lock and leaves when it released it — never with its own frame lock off, and not while it is armed and on
-  air (it joins or leaves at the next blackout or once disarmed, as `SYNC APPLY` and `SYNC LEAVE` would). The record is taken on the
-  member's lane, and a held one retried by the watch never acts after a newer record.
+  leader applied the lock and leaves when it released it — never with its own frame lock off or once it has begun to stop, and not
+  while it is armed and on air (it joins or leaves at the next blackout or once disarmed, as `SYNC APPLY` and `SYNC LEAVE` would).
+  The record is taken on the member's lane, and a held one retried by the watch never acts after a newer record.
 
 A member takes the feed's lines one at a time, in the order they came (a leader numbers and pushes each air line under one lock,
 in the order its lines ran), and none before its clock reads the leader's time line; a feed that comes faster than it takes it is

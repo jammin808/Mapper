@@ -322,9 +322,11 @@ public sealed partial class EngineCore
     /// <summary>A member takes its leader's lock record: the counter anchor always (so its counts map to the same show time), and the
     /// leader's wish — joining when the leader applied the lock, leaving when it released it — unless this node's frame lock is off,
     /// or the show is armed and not blacked out, which waits (<c>Taken</c> false) for a boundary as SYNC APPLY and SYNC LEAVE would.
-    /// On the lane.</summary>
+    /// A node that has begun to stop takes nothing of it (the leader's record is a line from outside the node). On the lane.</summary>
     internal (bool Taken, string Words) AdoptLeaderLock(Sync.LockRecord record)
     {
+        if (Stopping)
+            return (true, StoppingWords);
         if (LockBackend is not { } backend)
             return (true, "no render host: the leader's frame lock is not taken here");
         // Each of the leader's anchors once (the counter takes it at its own count, so an offered one may not be active yet).
