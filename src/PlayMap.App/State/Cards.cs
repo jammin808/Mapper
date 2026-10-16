@@ -23,6 +23,10 @@ public sealed record CardDescriptor(string Package, int Index, string Title, str
     /// <summary>The fields on a card's face; the rest are under its "more".</summary>
     public const int MaxFields = 6;
 
+    /// <summary>A light given as a path with a value list per light (<c>{"path": "x", "red": ["bad"]}</c>): each light's values in
+    /// their JSON text, read once from the descriptor.</summary>
+    public ImmutableArray<(string Light, System.Collections.Frozen.FrozenSet<string> Values)> LightLists { get; private init; } = [];
+
     public static ImmutableArray<CardDescriptor> ParseFile(string package, string json)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -67,8 +71,14 @@ public sealed record CardDescriptor(string Package, int Index, string Title, str
             }
         }
         var light = e.TryGetProperty("light", out var lv) ? lv.Clone() : default;
+        var lists = light.ValueKind == JsonValueKind.Object
+            ? new[] { "red", "amber", "green", "grey" }
+                .Where(l => light.TryGetProperty(l, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                .Select(l => (l, System.Collections.Frozen.FrozenSet.ToFrozenSet(light.GetProperty(l).EnumerateArray().Select(x => x.GetRawText()), StringComparer.Ordinal)))
+                .ToImmutableArray()
+            : [];
         return new CardDescriptor(package, index, Text(e, "title") ?? package, path, Text(e, "label"), Text(e, "key"), light,
-            Text(e, "words") ?? "", fields.ToImmutable(), actions.ToImmutable());
+            Text(e, "words") ?? "", fields.ToImmutable(), actions.ToImmutable()) { LightLists = lists };
     }
 
     /// <summary>A line's own label when the descriptor gives none: its words up to the first placeholder, in sentence case.</summary>
@@ -144,7 +154,7 @@ public static partial class CardReader
                 .Select(f => (f.Label, Value: Text(Resolve(f.Path, scope)) is var v && v != "—" && f.Unit.Length > 0 ? v + " " + f.Unit : Text(Resolve(f.Path, scope))))
                 .ToImmutableArray();
             var actions = d.Actions.Select(a => ResolveLine(a, scope, d)).ToImmutableArray();
-            yield return new CardInstance(d, key, title, LightOf(d.Light, scope), WordsOf(d.Words, scope), fields, actions, EntityOf(scope, d));
+            yield return new CardInstance(d, key, title, LightOf(d.Light, d.LightLists, scope), WordsOf(d.Words, scope), fields, actions, EntityOf(scope, d));
         }
     }
 
@@ -190,6 +200,9 @@ public static partial class CardReader
         }
     }
 
+    /// <summary>A list's length as a value, made once per length.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, JsonElement> Lengths = new();
+
     /// <summary>One step down: a property, an array index, or an array's length.</summary>
     private static JsonElement? Step(JsonElement node, string name)
     {
@@ -200,7 +213,7 @@ public static partial class CardReader
             if (int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index))
                 return index < node.GetArrayLength() ? node[index] : null;
             if (name == "length")
-                return JsonSerializer.SerializeToElement(node.GetArrayLength());
+                return Lengths.GetOrAdd(node.GetArrayLength(), n => JsonSerializer.SerializeToElement(n));
         }
         return null;
     }
@@ -330,7 +343,7 @@ public static partial class CardReader
         return null;
     }
 
-    private static string LightOf(JsonElement spec, Scope s)
+    private static string LightOf(JsonElement spec, ImmutableArray<(string Light, System.Collections.Frozen.FrozenSet<string> Values)> lightLists, Scope s)
     {
         switch (spec.ValueKind)
         {
@@ -338,11 +351,8 @@ public static partial class CardReader
                 return Worst(Resolve(spec.GetString() ?? "", s).Select(v => LightWord(Text(v))));
             case JsonValueKind.Object when spec.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String:
                 var values = Resolve(p.GetString() ?? "", s);
-                var lists = new[] { "red", "amber", "green", "grey" }
-                    .Where(l => spec.TryGetProperty(l, out var arr) && arr.ValueKind == JsonValueKind.Array)
-                    .Select(l => (Light: l, Values: spec.GetProperty(l).EnumerateArray().Select(x => x.GetRawText()).ToHashSet(StringComparer.Ordinal)))
-                    .ToList();
-                if (lists.Count == 0)
+                var lists = lightLists;
+                if (lists.IsEmpty)
                     return Worst(values.Select(v => LightWord(Text(v))));
                 return Worst(values.Select(v => lists.FirstOrDefault(l => l.Values.Contains(v.GetRawText())).Light ?? "grey"));
             case JsonValueKind.Array:

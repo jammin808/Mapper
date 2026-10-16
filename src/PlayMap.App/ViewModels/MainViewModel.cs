@@ -596,14 +596,17 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private void OnProject(Project project)
     {
+        // The modules take the project first; the gate's facts then move, and every action asks the new gate.
         foreach (var m in Modules)
             m.OnProject(project);
         Session.GateMoved();
+        foreach (var m in Modules)
+            m.RefreshActions();
         Play.OnProject(project);
         Map.OnProject(project);
         Scan.OnProject(project);
         Outputs.OnProject(project);
-        BadgesChanged?.Invoke();
+        RefreshEverything();
     }
 
     /// <summary>The gate every action asks: the modules' words for a line (the first that refuses), or null.</summary>
@@ -714,12 +717,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private void OnState(StateSnapshot s)
     {
-        // The modules (the gate's facts among them) take the push first, so every action below asks the new gate.
+        // Two passes: every module takes the push (the gate's facts among them), the gate's facts move, then every module re-reads
+        // its actions, so none asks the gate before a later module has taken its facts from this push.
         foreach (var m in Modules)
             m.OnState(s);
         Session.GateMoved();
-        if (Set(ref _isBlackout, s.Air.Blackout, nameof(IsBlackout)))
-            Blackout.Refresh();
+        foreach (var m in Modules)
+            m.RefreshActions();
+        Set(ref _isBlackout, s.Air.Blackout, nameof(IsBlackout));
         Blackout.Refresh();
         ProjectName = s.Project.Name.Length > 0 ? s.Project.Name : Session.Project?.Name ?? "—";
         IsDirty = s.Project.Dirty;

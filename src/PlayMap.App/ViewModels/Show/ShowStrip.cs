@@ -79,6 +79,17 @@ public sealed record ShowSection(bool Present, bool Armed, string By, long Since
             BlindState.Read(s.TryGetProperty("blind", out var blind) ? blind : null));
     }
 
+    /// <summary>Equal when every field and every list item is (a push that moves nothing of the show repaints nothing of it).</summary>
+    public bool Equals(ShowSection? other) =>
+        other is not null && (Present, Armed, By, SinceUnixMs, PanicOutcome, PanicBy, PanicSinceUnixMs, PanicHard, RemoteViewOnly, DisarmFrom,
+            ExpectArmed, RefusedLastMinute, RefusedLast, ReadyLight, Ready, FirstOpen, PreflightRunning, Blind)
+        == (other.Present, other.Armed, other.By, other.SinceUnixMs, other.PanicOutcome, other.PanicBy, other.PanicSinceUnixMs, other.PanicHard,
+            other.RemoteViewOnly, other.DisarmFrom, other.ExpectArmed, other.RefusedLastMinute, other.RefusedLast, other.ReadyLight, other.Ready,
+            other.FirstOpen, other.PreflightRunning, other.Blind)
+        && PanicOutputs.AsSpan().SequenceEqual(other.PanicOutputs.AsSpan()) && Locks.AsSpan().SequenceEqual(other.Locks.AsSpan());
+
+    public override int GetHashCode() => HashCode.Combine(Armed, By, SinceUnixMs, PanicOutcome, Locks.Length, PanicOutputs.Length, Ready, Blind);
+
     /// <summary>The lock on an entity or area, or null.</summary>
     public ShowLockState? LockOn(string target) => Locks.FirstOrDefault(l => string.Equals(l.Target, target, StringComparison.Ordinal));
 
@@ -194,9 +205,21 @@ public sealed class ShowStripViewModel : ObservableObject
     {
         if (Set(ref _show, show, nameof(Show)))
             Raise(nameof(IsPresent), nameof(IsArmed), nameof(IsPanic), nameof(ReadyText), nameof(ReadyLight), nameof(ReadyTip), nameof(ArmTip), nameof(PanicTip));
+    }
+
+    private (string Arm, string Panic) _tips = ("", "");
+
+    /// <summary>Re-reads the strip's actions (after the gate's facts moved); ARM's and PANIC's tooltips carry their tips.</summary>
+    public void RefreshActions()
+    {
         ArmMenu.RefreshAll();
         PanicMenu.RefreshAll();
         ReadyMenu.RefreshAll();
+        var tips = (ArmTip, PanicTip);
+        if (tips == _tips)
+            return;
+        _tips = tips;
+        Raise(nameof(ArmTip), nameof(PanicTip));
     }
 }
 
@@ -256,6 +279,11 @@ public sealed class ShowStripModule : DeskModule
         _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
         Strip.Update(_show);
+    }
+
+    public override void RefreshActions()
+    {
+        Strip.RefreshActions();
         foreach (var a in _locks.Values)
             a.Refresh();
     }

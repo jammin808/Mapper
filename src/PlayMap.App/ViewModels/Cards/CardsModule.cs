@@ -45,7 +45,8 @@ public sealed class CardViewModel : ObservableObject
         {
             var at = i;
             actions.Add(DeskAction.Send(session, Key + "#" + at.ToString(System.Globalization.CultureInfo.InvariantCulture), instance.Actions[at].Label,
-                () => _instance.Actions[at].Line, isEnabled: () => session.IsLive && _instance.Actions[at].Line is not null));
+                () => _instance.Actions[at].Line, isEnabled: () => session.IsLive && _instance.Actions[at].Line is not null,
+                whyNot: () => _instance.Actions[at].Missing));
         }
         Actions = actions;
         Update(instance);
@@ -117,7 +118,6 @@ public sealed class CardViewModel : ObservableObject
         Words = instance.Words;
         for (var i = 0; i < _all.Count && i < instance.Fields.Length; i++)
             _all[i].Value = instance.Fields[i].Value;
-        Actions.RefreshAll();
     }
 }
 
@@ -133,15 +133,17 @@ public sealed class CardsPanelViewModel(string title, Func<string, bool> takes) 
     /// <summary>"No package on this node publishes …" while empty.</summary>
     public string EmptyWords => "Nothing here publishes STATE on this node yet.";
 
+    /// <summary>Brings the tab in line with the cards shown: a card that stays keeps its view (an open "more" stays open), one
+    /// that comes is inserted at its place, one that goes is removed.</summary>
     internal void Sync(IReadOnlyList<CardViewModel> all)
     {
         var want = all.Where(c => takes(c.Package)).ToList();
         if (want.SequenceEqual(Cards))
             return;
-        Cards.Clear();
-        foreach (var c in want)
-            Cards.Add(c);
-        Raise(nameof(IsEmpty));
+        var wasEmpty = Cards.Count == 0;
+        Cards.SyncById(want, c => c.Key, c => c.Key, c => c, (_, _) => { });
+        if (wasEmpty != (Cards.Count == 0))
+            Raise(nameof(IsEmpty));
     }
 }
 
@@ -206,6 +208,12 @@ public sealed class CardsModule : DeskModule
         }
         Health.Sync(shown);
         Inputs.Sync(shown);
+    }
+
+    public override void RefreshActions()
+    {
+        foreach (var card in _shown)
+            card.Actions.RefreshAll();
     }
 
     public override IEnumerable<object> InspectorSections(IMenuTarget target)

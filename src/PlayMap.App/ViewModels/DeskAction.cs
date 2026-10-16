@@ -14,6 +14,7 @@ public sealed class DeskAction : ObservableObject
     private readonly Func<string>? _label;
     private readonly Func<bool>? _isChecked;
     private readonly Func<bool>? _isEnabled;
+    private Func<string?>? _whyNot;
     private string _labelText;
     private DeskSession? _session;
 
@@ -29,9 +30,10 @@ public sealed class DeskAction : ObservableObject
         _isEnabled = isEnabled;
     }
 
-    /// <summary>An action that sends the line <paramref name="verb"/> returns (null = nothing to send now).</summary>
+    /// <summary>An action that sends the line <paramref name="verb"/> returns (null = nothing to send now). <paramref name="whyNot"/>
+    /// says why its own condition (<paramref name="isEnabled"/>) holds it greyed, in its tooltip.</summary>
     public static DeskAction Send(DeskSession session, string id, string label, Func<string?> verb, Func<string>? dynamicLabel = null,
-        Func<bool>? isChecked = null, Func<bool>? isEnabled = null)
+        Func<bool>? isChecked = null, Func<bool>? isEnabled = null, Func<string?>? whyNot = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         DeskAction? self = null;
@@ -41,7 +43,7 @@ public sealed class DeskAction : ObservableObject
             if (line is not null)
                 await session.SendAsync(line, ct);
         }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message));
-        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session };
+        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session, _whyNot = whyNot };
         return self;
     }
 
@@ -137,7 +139,8 @@ public sealed class DeskAction : ObservableObject
     /// <summary>The line this action sends now, or "" for a desk-only action.</summary>
     public string Verb => _verb() ?? "";
 
-    /// <summary>What the tooltip says: the label, the shortcut and the verb.</summary>
+    /// <summary>What the tooltip says: the label, the shortcut and the verb, and why it is greyed (the gate's words, or its own
+    /// condition's).</summary>
     public string Tip
     {
         get
@@ -145,7 +148,8 @@ public sealed class DeskAction : ObservableObject
             var head = Gesture is null ? Label : $"{Label}  ({Gesture})";
             var verb = Verb;
             var tip = verb.Length == 0 ? head : head + "\n" + verb;
-            return Refusal is { } why ? tip + "\n" + why : tip;
+            var why = Refusal ?? (_whyNot is { } w && _isEnabled?.Invoke() == false ? w() : null);
+            return why is not null ? tip + "\n" + why : tip;
         }
     }
 
@@ -159,14 +163,54 @@ public sealed class DeskAction : ObservableObject
     public void SetLabel(string label)
     {
         if (Set(ref _labelText, label, nameof(Label)))
-            Raise(nameof(Tip));
+            Raise(nameof(Tip), nameof(MenuLabel));
     }
 
-    /// <summary>Re-reads the label, the verb, the checked and enabled state (after a STATE push).</summary>
+    private (string Label, string Verb, string Tip, bool IsChecked, bool IsEnabled, string? Refusal, string MenuLabel, bool IsAvailable)? _shown;
+
+    /// <summary>Re-reads the label, the verb, the checked and enabled state (after a STATE push) and raises what moved: a push
+    /// that moves nothing of this action repaints nothing of it, and an action nothing shows reads nothing (whatever binds it
+    /// later reads it then).</summary>
     public void Refresh()
     {
-        Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable));
-        Command.RaiseCanExecuteChanged();
+        if (!HasListeners)
+        {
+            _shown = null;
+            Command.RaiseCanExecuteChanged();
+            return;
+        }
+        var now = (Label, Verb, Tip, IsChecked, IsEnabled, Refusal, MenuLabel, IsAvailable);
+        var was = _shown;
+        _shown = now;
+        if (was is not { } w)
+        {
+            Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable));
+            Command.RaiseCanExecuteChanged();
+            return;
+        }
+        if (w == now)
+            return;
+        Span<string> moved = new string[8];
+        var n = 0;
+        if (!string.Equals(w.Label, now.Label, StringComparison.Ordinal))
+            moved[n++] = nameof(Label);
+        if (!string.Equals(w.Verb, now.Verb, StringComparison.Ordinal))
+            moved[n++] = nameof(Verb);
+        if (!string.Equals(w.Tip, now.Tip, StringComparison.Ordinal))
+            moved[n++] = nameof(Tip);
+        if (w.IsChecked != now.IsChecked)
+            moved[n++] = nameof(IsChecked);
+        if (w.IsEnabled != now.IsEnabled)
+            moved[n++] = nameof(IsEnabled);
+        if (!string.Equals(w.Refusal, now.Refusal, StringComparison.Ordinal))
+            moved[n++] = nameof(Refusal);
+        if (!string.Equals(w.MenuLabel, now.MenuLabel, StringComparison.Ordinal))
+            moved[n++] = nameof(MenuLabel);
+        if (w.IsAvailable != now.IsAvailable)
+            moved[n++] = nameof(IsAvailable);
+        Raise(moved[..n]);
+        if (w.IsEnabled != now.IsEnabled)
+            Command.RaiseCanExecuteChanged();
     }
 
     public override string ToString() => $"{Label} → {Verb}";

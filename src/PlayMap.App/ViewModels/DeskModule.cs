@@ -81,6 +81,12 @@ public abstract class DeskModule
     {
     }
 
+    /// <summary>After every module took a push (or a project) and the gate's facts moved: the module re-reads its actions (their
+    /// lines, labels and the gate's words), so none keeps the gate's answer from before the push.</summary>
+    public virtual void RefreshActions()
+    {
+    }
+
     /// <summary>The view model for a named top-bar slot ("show", "timecode", "tempo"), or null.</summary>
     public virtual object? Slot(string name) => null;
 
