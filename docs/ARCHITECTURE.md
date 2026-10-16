@@ -14,7 +14,8 @@ PlayMap is two things in one portable exe:
    the scan simulator) and/or put a LiDAR or photogrammetry model on the stage; get projector poses, a mesh and surfaces
    in minutes; click an object to make it a surface; play media through the warped 3D mesh with automatic blends;
    fine-tune with pins, Bézier pen masks and warp lattices that stay attached to surfaces when you rescan. On a plain
-   wall, a pixel quad from four clicks; on a flat screen, one camera measures each projector's warp and blend.
+   wall, a pixel quad from four clicks; on a flat screen, one camera measures each projector's warp, blend and white; and a
+   calibrated camera finds the projector that moved and re-solves it alone.
 
 The UI hides the power: three workspaces (**Play**, **Map**, **Scan**) plus **Outputs** and **Network** drawers;
 right-click menus on everything, in step with the desk's buttons and the wire's verbs.
@@ -49,14 +50,14 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 
 | Module | References | Holds |
 |---|---|---|
-| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, the calibration score, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
+| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, colour match and verify pass, the calibration score, the camera re-solve's dot check, motion attribution and re-seating, the stage simulator, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
 | `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
 | `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), sound out (`AudioOut`: OpenAL Soft, slaved to a timeline), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back) |
 | `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and its follower, the sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
-| `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), the machine's MIDI ports (ALSA sequencer, WinMM) |
+| `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), a read of a projector's own geometry and edge blend (`Native`), the machine's MIDI ports (ALSA sequencer, WinMM) |
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
-| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, output windows, preview shared memory, scan runner, align runs, the calibration ledger, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
+| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, output windows, preview shared memory, scan runner, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
 | `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
@@ -208,11 +209,23 @@ Windows; asked for today (`dxgi`), the node runs GL and says so (docs/ROADMAP.md
 - **Score and ledger**: every calibration result carries one explainable score (terms, grade, fix line). Results are
   immutable snapshots recorded in the same edit as the change; the first applied is the fallback. `CALIBRATION RECALL`
   puts a kept one back exactly, `FALLBACK` the fallback, `ACCEPT` applies a staged one; `CALIBRATION RESOLVE` re-solves
-  only the named projectors from their pins, applying within the gate or staging the result (docs/CALIBRATION.md).
+  only the named projectors, applying within the gate or staging the result (docs/CALIBRATION.md).
+- **Re-solving the projector that moved**: from its pins as they stand, or from a calibrated camera (`CAMERA`). The camera
+  looks at every projector black, then at each named one's jittered dots alone (`DotCheck`), matched against where the
+  project says they land on the stage; `MotionAttribution` judges each projector unmoved, moved or unseen, and when every one
+  seen moved together, the camera moved and nothing is re-solved. Each mover's pose alone is solved again from its dots (`PoseSolver`, its optics kept) and its
+  dots looked at once more for its wall error. In the one edit that applies it, its pins take the new pose's pixels and its
+  pixel quads are re-seated (`Reseat2D`: out along the old pose's ray onto the stage, back in through the new one); an
+  automatic blend is then solved again off the lane. A simulated camera is its own display (`StageSimulator`); a real one
+  shows the dots through align's display shooter, every other projector output held black.
 - **Camera auto-align of flat screens** (`ALIGN`): off the lane, against the simulator or a real display and camera —
   footprints, photometry and structured light per output, a joint lens-plus-homography fit that refuses a screen that is
-  not flat, a measured warp grid and blend per output; `ALIGN ACCEPT` applies them as one edit through the ledger
-  (docs/ALIGN.md).
+  not flat, a measured warp grid and blend per output, and with `COLOR WHITE` each output's white and level matched
+  (`ColourMatch`); every run ends with a verify pass (`AlignVerify`) whose seams its score reads, and keeps what the camera
+  saw (`AlignCaptureFile`), so `ONLY` scans one output again onto the canvas the others show. `ALIGN ACCEPT` applies a run as
+  one edit through the ledger. A projector whose own geometry or edge blend is on while its output carries a measured
+  correction is read live (`Devices/Native`, Panasonic) and named in the context and preflight with the line that turns it
+  off (docs/ALIGN.md).
 - **Many views**: Core solves many camera views of many projectors together, anchored on the projectors' pixels, into a
   dense depth map per projector and a merged mesh; no verb drives it yet (docs/SCAN-MULTIVIEW.md).
 

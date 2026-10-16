@@ -8,11 +8,11 @@ capture devices, test patterns, fractals, particle fields and sound-reactive sce
 runs any number of independent playlists, and a playlist can chase timecode. PlayMap nodes in a sync group follow one
 leader's show clock, its transports and its air, so each draws the frame for the same show instant, and the leader measures
 how close their vblanks are. It maps all of that onto walls, objects, rooms and buildings: a corner-pinned quad in four
-clicks, structured-light scans with a camera, click an object to make it a surface, automatic blends across projectors, and a
-camera that measures the warp and blend of projectors on a flat screen. LED fixtures sample the same pictures. Show Mode,
-locks, blind edits, a panic and a grand master keep a running show safe. Patterns, Stagewatch, Companion and an AI (via MCP)
-can see everything it is doing and drive everything it can do; OSC, MIDI, Art-Net and sACN controllers drive it through
-bindings.
+clicks, structured-light scans with a camera, click an object to make it a surface, automatic blends across projectors, a
+camera that measures the warp, blend and white of projectors on a flat screen, and a camera that finds the projector that was
+knocked and re-solves it alone. LED fixtures sample the same pictures. Show Mode, locks, blind edits, a panic and a grand
+master keep a running show safe. Patterns, Stagewatch, Companion and an AI (via MCP) can see everything it is doing and drive
+everything it can do; OSC, MIDI, Art-Net and sACN controllers drive it through bindings.
 
 ```
 PlayMap                     the desk: Play · Map · Scan, plus Outputs and Network drawers
@@ -37,10 +37,15 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   ten built in. A number on a layer, a surface, an effect or a generator can move with the sound, the beat clock or an LFO.
 - **Maps.** `LIGHT WALL` and a pixel quad from four clicks on the wall, with the edit overlay drawn through the output's warp;
   structured-light scans with a capture camera, a phone (the node serves the camera page itself, joined by a one-time invite)
-  or the simulator; click-to-surface, pins, masks, lattices and 3D blends;
-  camera auto-align of projectors on a flat screen, with a white match between projectors and `ALIGN SCORE`; a projector that
-  moved is re-solved from a camera's view of dots, its pins, quads and blend re-seated; one explainable score for every
-  calibration, kept in a ledger with a fallback, and a guard against a projector's own processing correcting twice. Core also solves many camera views of many projectors together into depth maps and a merged mesh.
+  or the simulator; click-to-surface, pins, masks, lattices and 3D blends; one explainable score for every calibration, kept
+  in a ledger with a fallback. A projector that moved is re-solved alone: from its pins, or from a calibrated camera's look at
+  its dots, which tells a moved projector from a moved camera, checks the new pose on the wall and re-seats its pins and pixel
+  quads so each quad lights the spots it lit; an automatic blend is solved again, and no other projector moves. Camera
+  auto-align of projectors on a flat screen matches every output's white and level (`COLOR WHITE`), rescans only the outputs
+  it is given onto the canvas the others show (`ALIGN RUN … ONLY`), checks every run with a verify pass and scores it
+  (`ALIGN SCORE`); a projector whose own geometry or edge blend would correct the picture twice (read live on Panasonic) is
+  named, with the line that turns it off. Core also solves many camera views of many projectors together into depth maps
+  and a merged mesh.
 - **Drives LEDs.** Fixtures laid on a canvas, an output, a surface or a source sample its picture in linear light every frame
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
   patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,
@@ -81,7 +86,7 @@ blind edit, the sync board, effects and the rest, which today run over the wire.
 | `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload; the edit overlay; LED sampling; previews; the GPU HAP encoder |
 | `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; HAP's own parser with its Snappy stage on a worker pool; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and the leader's sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
-| `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, and resetting internal geometry before scans. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
+| `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
 | `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; simple workspaces, right-click menus on everything, edits only through the verbs every peer uses |
@@ -116,8 +121,9 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/AUDIO.md` — listening, the beat clock and the modulation bus
 - `docs/CONTENT.md` — particles, fractals, reactive scenes, stings and looks
 - `docs/LED.md` — LED pixel mapping: fixtures, sampling, patching and sending
-- `docs/CALIBRATION.md` — the quad on the wall, the edit overlay, the score and the calibration ledger
-- `docs/ALIGN.md` — camera auto-align of flat screens
+- `docs/CALIBRATION.md` — the quad on the wall, the edit overlay, the score, the calibration ledger and re-solving the
+  projector that moved
+- `docs/ALIGN.md` — camera auto-align of flat screens: warp, blend, white, rescanning one output, the verify pass and the score
 - `docs/PHONESCAN.md` — the phone as a scan camera, fully local
 - `docs/SCAN-MULTIVIEW.md` — many views of many projectors, solved together
 - `docs/FLEET.md` — machine health, the fleet board and PlayMap on Patterns' Eye
