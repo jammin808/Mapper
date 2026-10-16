@@ -105,7 +105,15 @@ penalty that leaves shifts and zooms free, conjugate gradients on the banded nor
 measures the residual. The lattice is the member's measured correction (`MeasuredCorrection.Lattice`), drawn as the first layer
 of its output's warp (`WarpField`, `WarpMeshBuilder`): before the operator's lattice and corner pin, with no shader of its own.
 `STACK MATCH` brings each member's white to the master's with per-channel gains of at most one, from the same scan's colour white
-frames, through align's colour arithmetic (`StackColour`); level is left alone, because stacked light adds.
+frames, through align's colour arithmetic (`StackColour`); level is left alone, because stacked light adds. A stack that loses a
+member holds, or (`STACK FAILOVER … MATCH`) dims its blend group to the light that remains through a runtime degrade gain
+(`StackGains`, an `IOutputGains` composed with any other).
+
+## The light plan
+
+`LightPlan` turns the coverage analysis into light: at each sample E = derate·Φ·density²/(W·H)·U per projector (density in projector
+pixels per metre on the surface, U the fall-off to the raster's corners), stacked members adding and separate projectors sharing an
+overlap evenly; luminance, contrast against an ambient, pixel pitch and the lumens short of a target follow per surface.
 
 ## Coordinates on the earth
 
@@ -123,5 +131,5 @@ score. Each step has a state (done, waiting, running, failed), words and the lin
 
 ## Not here yet
 
-The light plan; LAZ, the night capture profile, measured photometry and glass masks; a camera solved from its own pins; geographic
+LAZ, the night capture profile, measured photometry and glass masks; a camera solved from its own pins; geographic
 and other-zone surveys converted on import (the conversions exist; the import still refuses another system than the site's).

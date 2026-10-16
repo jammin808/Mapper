@@ -126,6 +126,20 @@ measured correction is named by align's double-correction guard.
 
 A scan's projector views are held in memory by the node that scanned; after a restart, scan the stack again.
 
+`STACK FAILOVER <stack> HOLD|MATCH` says what happens when a member fails — its projector in standby or cooling down, reporting an
+error, or its shutter closed while PlayMap closed none, or its display output not open. HOLD (the default) tells it: the stack is red
+in STATE, the context and preflight, and the journal names the cause. MATCH also dims every other output of the stack's blend group to
+the light that remains (Σ remaining lumens ÷ Σ lumens), so the building stays even: a runtime gain like BLACKOUT, never an edit,
+fading down in 0.5 s and back over 2 s when the member returns, multiplied with any degrade gain another part sets.
+
+## The light plan
+
+`PLAN LIGHT` predicts each surface's light from the projectors as placed: at every coverage sample, each projector's lumens spread
+over its raster, scaled by its pixel density there (so a grazing or far surface gets less), falling off to the raster's corners;
+stacked members add, separate projectors share an overlap. It answers lux at p5/p50/p95, nits (albedo 0.5 by default), contrast
+against an ambient, pixel pitch and the lumens short of a target. One 30 000 lm 4K projector at throw ratio 3 from 100 m, head-on,
+gives 48 lux and an 8.7 mm pixel; a double stack 96.
+
 ## The facade guide
 
 `SITE GUIDE` (or `FACADE GUIDE`) lists the facade's steps — survey, control points, pins, the lens prior and the solve, stacks, blend,
@@ -134,5 +148,5 @@ desk and Companion can drive the workflow with the verbs everyone uses.
 
 ## Not here yet
 
-The light plan and stack failover; LAZ, the night capture profile, measured photometry, glass masks, camera solves from photos and
+Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, measured photometry, glass masks, camera solves from photos and
 the desk's facade drawer; geographic or other-zone surveys converted on import.

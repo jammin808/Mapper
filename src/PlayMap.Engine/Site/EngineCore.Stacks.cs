@@ -38,6 +38,8 @@ public sealed partial class EngineCore
         routes.Lane("STACK LIST", _ => CommandReply.Success(JsonOut(w => WriteStacks(w, Store.Project, list: true))));
         routes.OffLane("STACK ALIGN", StackAlignAsync);
         routes.OffLane("STACK MATCH", StackMatchAsync);
+        routes.Lane("STACK FAILOVER", c => StackFailoverVerb(c.Args));
+        routes.OffLane("PLAN LIGHT", PlanLightAsync);
         routes.Index(new Site.SiteIndex(this));
     }
 
@@ -565,9 +567,12 @@ public sealed partial class EngineCore
             w.WriteBoolean("matched", matched);
             w.WriteNumber("residualPx", Math.Round(residual, 3));
             w.WriteString("failover", sk.Failover == StackFailover.Match ? "match" : "hold");
+            var lost = StackDegradations.GetValueOrDefault(sk.Id);
             w.WriteStartArray("degraded");
+            foreach (var id in lost?.Members.Keys ?? Enumerable.Empty<string>())
+                w.WriteStringValue(id);
             w.WriteEndArray();
-            w.WriteNumber("gain", 1.0);
+            w.WriteNumber("gain", Math.Round(lost?.Gain ?? 1, 3));
             if (list)
             {
                 w.WriteStartArray("gains");
@@ -589,12 +594,16 @@ public sealed partial class EngineCore
             w.WriteEndObject();
     }
 
-    private static void ContextStacks(Project p, List<ContextItem> items)
+    private void ContextStacks(Project p, List<ContextItem> items)
     {
         foreach (var sk in p.Stage.Stacks)
         {
             var (aligned, residual, _) = StackFacts(p, sk);
-            var (light, state) = !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
+            var lost = StackDegradations.GetValueOrDefault(sk.Id);
+            var (light, state) = lost is not null
+                ? (Light.Red, $"{sk.Name} lost {string.Join(", ", lost.Members.Keys.Select(id => p.FindProjector(id)?.Name ?? id))} — "
+                    + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $"matched: the building at {lost.Gain * 100:0} %") : "held"))
+                : !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
                 : residual > StackResidualMaxPx ? (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: a member lands {residual:0.00} px from the master"))
                 : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.ProjectorIds.Length} projectors within {residual:0.00} px"));
             items.Add(new ContextItem("stack:" + sk.Id, "stack", sk.Name, light, state));

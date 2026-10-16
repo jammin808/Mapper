@@ -25,7 +25,7 @@ internal sealed class SitePreflight : IPreflightCheck
         var engine = context.Engine;
         var p = engine.Store.Project;
         var node = engine.Services.Settings.NodeId;
-        var stacks = StackRows(p, node);
+        var stacks = StackRows(p, node, engine.StackDegradations);
         if (p.Stage.Controls.Length == 0)
             return Task.FromResult<IReadOnlyList<PreflightRow>>(
                 [new PreflightRow("site", node, Section, "Site", Light.Green, "no control points", "nothing to measure the model against", null), .. stacks]);
@@ -44,11 +44,19 @@ internal sealed class SitePreflight : IPreflightCheck
 
     /// <summary>One row per stack: green when every member is aligned to the master within 0.5 px; amber when a member is not aligned or
     /// lands farther, with the line that aligns it from the newest scan of all its members.</summary>
-    internal static List<PreflightRow> StackRows(Project p, string node)
+    internal static List<PreflightRow> StackRows(Project p, string node, IReadOnlyDictionary<string, EngineCore.StackDegradation>? degraded = null)
     {
         var rows = new List<PreflightRow>();
         foreach (var sk in p.Stage.Stacks)
         {
+            if (degraded is not null && degraded.TryGetValue(sk.Id, out var lost))
+            {
+                var who = string.Join("; ", lost.Members.Select(m => $"{p.FindProjector(m.Key)?.Name ?? m.Key}: {m.Value}"));
+                rows.Add(new PreflightRow("stack:" + sk.Id, node, "site", sk.Name, Light.Red, "degraded",
+                    $"{sk.Name} has lost {who}" + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $" — its blend group is dimmed to {lost.Gain * 100:0} %") : " — held"),
+                    sk.Failover == StackFailover.Hold ? $"STACK FAILOVER {sk.Id} MATCH" : null));
+                continue;
+            }
             var (aligned, residual, _) = EngineCore.StackFacts(p, sk);
             var scan = p.Stage.Scans.LastOrDefault(s => sk.ProjectorIds.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
             var fix = scan is null ? $"SCAN START <camera> {string.Join(' ', sk.ProjectorIds)}" : $"STACK ALIGN {sk.Id} FROM {scan.Id}";
@@ -106,18 +114,53 @@ internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
     }
 }
 
-/// <summary>wp2-facade's part of the node: its preflight check in the services; nothing to start.</summary>
+/// <summary>wp2-facade's part of the node: its preflight check and the stacks' degrade gains in the services (composed with any gain
+/// set before), and the watch that reads the stack members' faults on the lane ten times a second while the node runs.</summary>
 internal sealed class SiteExtension : IEngineExtension
 {
+    private readonly CancellationTokenSource _stop = new();
+    private Task _watch = Task.CompletedTask;
+
     public string Name => "site";
 
     public EngineServices Configure(EngineServices services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services with { PreflightChecks = [.. services.PreflightChecks, new SitePreflight()] };
+        var gains = new StackGains(services.Mono);
+        return services with
+        {
+            PreflightChecks = [.. services.PreflightChecks, new SitePreflight()],
+            StackGains = gains,
+            OutputGains = services.OutputGains is { } before ? new ComposedGains(before, gains) : gains,
+        };
     }
 
-    public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
+    public Task StartAsync(EngineCore engine, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        _watch = Task.Run(async () =>
+        {
+            using var linked = stop;
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(linked.Token).ConfigureAwait(false) && !engine.Stopping)
+                    engine.Lane.Post(engine.WatchStacks);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+            {
+                // The node is stopping (its lane may be gone already): the watch ends with it.
+                return;
+            }
+        }, CancellationToken.None);
+        return Task.CompletedTask;
+    }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync().ConfigureAwait(false);
+        await _watch.ConfigureAwait(false);
+        _stop.Dispose();
+    }
 }

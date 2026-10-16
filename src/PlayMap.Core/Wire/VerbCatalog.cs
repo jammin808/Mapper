@@ -463,9 +463,11 @@ public static class VerbCatalog
         V2("SURVEY LIST", "SURVEY LIST", "Imported surveys with provenance and state", VerbCategory.Site, VerbRisk.Low, false),
         V2("PROJECTOR PRIOR", "PROJECTOR PRIOR <projector> THROW <ratio> [±<pct>] | PROJECTOR PRIOR <projector> AT <control> [±<m>] | PROJECTOR PRIOR <projector> AT <x> <y> <z> [±<m>] | PROJECTOR PRIOR <projector> CLEAR", "What a solve may assume about a projector's lens and position", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("SITE GUIDE", "SITE GUIDE", "The facade workflow as steps (survey, control points, pins, priors and solve, stacks, blend, score), each with its state and the line that does it", VerbCategory.Site, VerbRisk.Low, false, "FACADE GUIDE"),
+        V2("PLAN LIGHT", "PLAN LIGHT [<surface>|ALL] [AMBIENT <lux>] [ALBEDO <0-1>] [TARGET <lux>] [DERATE <0-1>]", "Predicted illuminance, luminance, contrast and pixel pitch per surface from the projectors as placed", VerbCategory.Site, VerbRisk.Low, false),
         V2("STACK NEW", "STACK NEW <name> <projector> <projector> [<projector>…] [MASTER <projector>]", "Groups projectors lighting one picture (the blend treats them as one); answers its id", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK ALIGN", "STACK ALIGN <stack> FROM <scan> [GRID <c>x<r>]", "Fits each member's measured residual to the master's picture from a shared scan", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK MATCH", "STACK MATCH <stack> FROM <scan>", "Matches the members' colour gains from the scan's white frames", VerbCategory.Mapping, VerbRisk.Review, true),
+        V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
         // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass, ALIGN SCORE and DEVICE NATIVE).
