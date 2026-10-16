@@ -51,7 +51,8 @@ public sealed partial class FacadeStateFixtureTest
             ["words"] = "on the wall ±{wallPx} px · distance ±{axisM} m · zoom ±{focalPct} % {weak}",
             ["fields"] = new JsonArray(Field("On the wall (px)", "wallPx"), Field("Along the axis (m)", "axisM"), Field("Zoom (%)", "focalPct"),
                 Field("Weak", "weak")),
-            ["actions"] = new JsonArray("PROJECTOR SOLVE $(id)", "PROJECTOR PRIOR $(id) THROW 3 ±2", "PROJECTOR PRIOR $(id) CLEAR"),
+            // A throw prior is the operator's measurement, never a value written here; clearing the priors needs none.
+            ["actions"] = new JsonArray("PROJECTOR SOLVE $(id)", "PROJECTOR PRIOR $(id) CLEAR"),
         },
     ];
 

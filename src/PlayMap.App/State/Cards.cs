@@ -81,11 +81,11 @@ public sealed record CardDescriptor(string Package, int Index, string Title, str
             Text(e, "words") ?? "", fields.ToImmutable(), actions.ToImmutable()) { LightLists = lists };
     }
 
-    /// <summary>A line's own label when the descriptor gives none: its words up to the first placeholder, in sentence case.</summary>
+    /// <summary>A line's own label when the descriptor gives none: its words without the placeholders, in sentence case, so two
+    /// lines that differ after a placeholder ("PROJECTOR PRIOR $(id) CLEAR") read differently.</summary>
     private static string Label(string line)
     {
-        var cut = line.IndexOfAny(['$', '{', '#']);
-        var words = (cut < 0 ? line : line[..cut]).Trim().ToLowerInvariant();
+        var words = string.Join(' ', CardReader.WithoutPlaceholders(line).Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
         return words.Length == 0 ? line : char.ToUpperInvariant(words[0]) + words[1..];
     }
 
@@ -468,6 +468,13 @@ public static partial class CardReader
 
     [GeneratedRegex(@"\$\(([A-Za-z0-9_.]+)\)|\{([A-Za-z0-9_.]+)\}")]
     private static partial Regex Placeholder();
+
+    /// <summary>An action line with its placeholders (<c>$(field)</c>, <c>{field}</c>) taken out.</summary>
+    public static string WithoutPlaceholders(string line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return Placeholder().Replace(line, " ");
+    }
 
     private static CardAction ResolveLine(CardActionSpec a, Scope s, CardDescriptor d)
     {

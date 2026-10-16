@@ -119,6 +119,63 @@ public class CardTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>The fields whose values name a thing on one node (an id, a node, a leader, a group, a session): a word an action line
+    /// carries that only a fixture holds is one of these.</summary>
+    private static readonly HashSet<string> IdentityKeys = new(StringComparer.Ordinal) { "id", "node", "leader", "group", "groups", "session", "of", "name" };
+
+    private static void IdentityValues(JsonNode? node, string? key, HashSet<string> into)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var (k, v) in o)
+                    IdentityValues(v, k, into);
+                break;
+            case JsonArray a:
+                foreach (var v in a)
+                    IdentityValues(v, key, into);
+                break;
+            case JsonValue v when key is not null && IdentityKeys.Contains(key) && v.TryGetValue<string>(out var text) && text.Length > 0:
+                into.Add(text);
+                break;
+        }
+    }
+
+    /// <summary>The literal words of a row's grammar (its keywords and alternatives, not the names of its slots).</summary>
+    private static HashSet<string> Keywords(PlayMap.Core.Wire.VerbSpec spec) =>
+        [.. System.Text.RegularExpressions.Regex.Replace(spec.Syntax, "<[^>]*>", " ")
+            .Split([' ', '|', '[', ']', '(', ')', ','], StringSplitOptions.RemoveEmptyEntries)];
+
+    /// <summary>A card's actions read apart (two lines that differ after a placeholder — set and clear — never share a label), and
+    /// no action line carries a value only its package's fixture holds: a group, a node, a leader or an id comes from the card's
+    /// STATE through a placeholder, so a button on a real node never acts on the fixture's.</summary>
+    [Fact]
+    public void ACardsActionsReadApartAndTakeTheirValuesFromStateNotFromAFixture()
+    {
+        var problems = new List<string>();
+        foreach (var d in CardDescriptor.BuiltIn)
+        {
+            var labels = d.Actions.Select(a => a.Label).ToList();
+            foreach (var twice in labels.GroupBy(l => l, StringComparer.Ordinal).Where(g => g.Count() > 1))
+                problems.Add($"{d.Package} '{d.Title}': two actions read '{twice.Key}'");
+            var values = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (_, sections) in StateFixtures.Scenarios(d.Package == "desk" ? "main" : d.Package))
+                IdentityValues(sections, null, values);
+            foreach (var a in d.Actions)
+            {
+                var bare = CardReader.WithoutPlaceholders(a.Line);
+                Assert.True(PlayMap.Core.Wire.WireGrammar.TryParse(a.Line.Replace("$(", "x", StringComparison.Ordinal).Replace(")", "", StringComparison.Ordinal)
+                    .Replace("{", "x", StringComparison.Ordinal).Replace("}", "", StringComparison.Ordinal), out var line, out _), a.Line);
+                var spec = PlayMap.Core.Wire.VerbCatalog.Match(line!)?.Spec;
+                Assert.True(spec is not null, a.Line);
+                var keywords = Keywords(spec);
+                foreach (var word in bare.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => values.Contains(w) && !keywords.Contains(w)))
+                    problems.Add($"{d.Package} '{d.Title}': '{a.Line}' carries '{word}', a value of its fixture");
+            }
+        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
     [Fact]
     public void TheCardsReadTheirLightsAndWordsAsTheDescriptorsSay()
     {

@@ -30,7 +30,9 @@ public sealed class SyncStateFixtureTests
             ["words"] = "{role} · {group} · {verdict} — {words}",
             ["fields"] = new JsonArray(Field("Role", "role"), Field("Group", "group"), Field("Leader", "leader"), Field("Feed", "feed"),
                 Field("Verdict", "verdict"), Field("Steps", "steps")),
-            ["actions"] = new JsonArray("SYNC STATUS", "SYNC LEAD show", "SYNC FOLLOW show 0badc0de"),
+            // A card's line takes its values from the card's STATE: this node takes the lead of the group it is in. Which leader to
+            // follow is the operator's choice, not a value of this block.
+            ["actions"] = new JsonArray("SYNC STATUS", "SYNC LEAD $(group)"),
         },
         new JsonObject
         {
@@ -122,7 +124,7 @@ public sealed class SyncStateFixtureTests
                     $"{card["title"]}: {field!["path"]}");
             foreach (var action in card["actions"]!.AsArray())
             {
-                Assert.True(WireGrammar.TryParse(action!.GetValue<string>(), out var line, out _));
+                Assert.True(WireGrammar.TryParse(action!.GetValue<string>().Replace("$(group)", "show", StringComparison.Ordinal), out var line, out _));
                 Assert.NotNull(VerbCatalog.Match(line!));
             }
         }

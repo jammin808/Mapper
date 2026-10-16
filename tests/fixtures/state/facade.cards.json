@@ -122,7 +122,6 @@
     ],
     "actions": [
       "PROJECTOR SOLVE $(id)",
-      "PROJECTOR PRIOR $(id) THROW 3 \u00B12",
       "PROJECTOR PRIOR $(id) CLEAR"
     ]
   }
