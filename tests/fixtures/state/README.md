@@ -14,9 +14,10 @@ A card descriptor:
 | `each` | `true`: one card per element of the array at `path` |
 | `label` | The element field added to the title of a per-element card |
 | `key` | The element field that names the entity the card is about (for the inspector), when not `id` |
-| `light` | A path to a light word; `{ "path", "red": [...], "amber": [...], "green": [...] }`; or rules `[{ "if": <path>, "light" }, { "from": <path> }, { "light" }]` |
+| `light` | A path to a light word; `{ "path", "red": [...], "amber": [...], "green": [...] }`; or rules `[{ "if": <path>, "light" }, { "from": <path> }, { "from": <path>, "green": <word or [...]>, "red": … }, { "fixed": <light> }, { "light" }]` |
 | `words` | A path to words, or a template: `{field}`, `{field?then:else}` (either side may hold `{field}`), `{count}` |
-| `fields` | Up to six `{ "label", "path", "unit"? }` (more are not shown) |
-| `actions` | Verb lines, or `{ "label", "line" }`; `$(field)` and `{field}` are the element's (or its owner's) field |
+| `fields` | `{ "label", "path", "unit"? }`: the first six on the card's face, the rest under its "more" |
+| `actions` | Verb lines, or `{ "label", "line" }`; `$(field)` and `{field}` are the element's (or an owner's) field, or the id of the owner reached by that key (`$(scan)` in `scan.regions.0`) |
 
-Paths are tried relative to the card's block first, then from the STATE root; a path starting `/` is from the root.
+Paths are tried relative to the card's block first, then from the STATE root; a path starting `/` is from the root. A fixture of
+several nodes (`backup.json`) is keyed by scenario, each a set of STATE sections; the desk's tests read each scenario.

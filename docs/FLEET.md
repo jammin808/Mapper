@@ -134,8 +134,9 @@ the primary's time line and the group's feed is live; `joining`, `resyncing` (a 
 pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. The backup keeps the highest epoch its primary is
 heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup restarted, its primary silent by
 then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B mirrors FOH-A — send it to FOH-A
-(10.0.0.21), or FAILOVER to make this node the show"); queries, panic, Show Mode, the node's own administration, a fetch of a file
-by hash and the fleet's verbs stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node holds
+(10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the desk greys what the node would
+refuse before the press); queries, panic, Show Mode, the node's own administration, a fetch of a file by hash and the fleet's verbs
+stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node holds
 one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
 follower whose clock asks a port its leader no longer answers on (the leader's hello names another since it led again) follows
 afresh. A node that has begun to stop starts no pull, no join and no takeover step, and its mirror and pulls end with it.

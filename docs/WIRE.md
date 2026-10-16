@@ -303,7 +303,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
 - **The door.** A verb that changes something, or a paired-only query (`PRESENCE`, `THUMB`, the board's focus and lens),
   needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and the
   node's own: `ERR <VERB>: this line is node-to-node only`. Then the fleet's door (a hot backup or a fenced node refuses a
-  client's line that would change the show it mirrors, with the way out — docs/wire/backup.md), then the show's gate (Show Mode
+  client's line that would change the show it mirrors, with the way out, the words `fleet.door` carries in STATE — docs/wire/backup.md), then the show's gate (Show Mode
   and the GO fence, docs/SHOW.md), then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
   gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
   the wall's cursor board as it arrives, stamped then, never queued behind edits.
