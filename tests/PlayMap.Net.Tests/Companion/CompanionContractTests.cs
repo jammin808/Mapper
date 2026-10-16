@@ -38,7 +38,7 @@ public sealed partial class CompanionContractTests
     public async Task TheModulesVerbsAreTheCatalogue()
     {
         var path = Module("src", "catalog", "verbs.json");
-        var written = JsonNode.Parse(VerbJson.All)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var written = JsonNode.Parse(VerbJson.All)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             await File.WriteAllTextAsync(path, written);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(VerbJson.All), JsonNode.Parse(Read(path))),

@@ -96,7 +96,7 @@ public sealed partial class CompanionModuleFixtureTests
             machine["memMb"] = 0;
             machine["gcPauseMsTotal"] = 0;
         }
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     private sealed class OneFault : INodeFaults
