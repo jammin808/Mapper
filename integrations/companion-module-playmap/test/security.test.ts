@@ -1,14 +1,17 @@
 // A node's data is data, never instructions, and a key never carries what the deck keeps to itself: a STATE nested past what a node
 // writes is dropped (no stack runs out in Companion's process); a VERBS answer whose parameters are of the wrong type keeps the deck
 // working; a line a section key, a Live slot, raw or a generated action would send passes one fence — no session word, secret or
-// pairing verb, at its head or carried inside it (a run of its words, a quoted word, a string of its JSON, a field SET to a line),
-// ever reaches the node — and a refusal names only the outer verb, never the operator's words (a token typed as a line stays out
-// of every variable); a press answered after destroy touches nothing of the host.
+// pairing verb at its head, and no secret or pairing carried inside it (a run of its words, a quoted word, a string of its JSON, a
+// field SET to a line), ever reaches the node, while any other word inside is the operator's own — and a refusal names only the
+// outer verb, never the operator's words (a token typed as a line stays out of every variable); a press answered after destroy
+// touches nothing of the host.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CompanionOptionValues } from '@companion-module/base'
 import { FakeNode, copy, fixture } from './fake-node.ts'
 import { boot, configFor, type Booted } from './harness.ts'
+import { fence } from '../src/actions.ts'
+import { BUNDLED_VERBS, EXCLUDED, SECRET, type VerbRow } from '../src/catalog/verbs.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -188,7 +191,6 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 				'BIND ADD',
 			],
 			['raw', { line: `BIND LEARN "x \\"AUTH ${TOKEN}\\""` }, 'BIND LEARN'],
-			['raw', { line: 'BIND ADD MIDI 1 TO STATUS' }, 'BIND ADD'],
 			// JSON a strict reader refuses (a comment, a trailing comma) is read for its strings all the same.
 			['raw', { line: `BIND ADD {"input":"MIDI 1", /* a note */ "target":"AUTH ${TOKEN}",}` }, 'BIND ADD'],
 			['raw', { line: `BIND ADD {"input":"MIDI 1","target":"AUTH ${TOKEN}` }, 'BIND ADD'],
@@ -209,6 +211,8 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 			['raw', { line: 'BIND LEARN FROM MIDI PLAYLIST GO pl00000001' }],
 			['raw', { line: 'SET bd0a1b2c3d target "PLAYLIST GO pl00000001"' }],
 			['raw', { line: 'SET sf00000009 label {"label": "Front wall"}' }],
+			// A session word inside a line carries no secret: the node's own reading refuses it as a target if it must.
+			['raw', { line: 'BIND ADD MIDI 3 TO STATUS' }],
 		]
 		for (const [actionId, options] of passed) {
 			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string }
@@ -216,15 +220,85 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 		}
 		await m.instance.ask('WHOAMI')
 		const heard = node.sent().join('\n')
-		for (const word of [TOKEN, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns', 'STATUS'])
+		for (const word of [TOKEN, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns'])
 			assert.ok(!heard.includes(word), `the node never heard ${word}`)
 		assert.ok(heard.includes('BIND ADD MIDI 1 TO PLAYLIST GO pl00000001'))
 		assert.ok(heard.includes('BLACKOUT TOGGLE'))
+		assert.ok(heard.includes('BIND ADD MIDI 3 TO STATUS'))
 		assert.ok(!allValues(m).includes(TOKEN), 'no variable holds the token')
 	} finally {
 		await m.stop()
 		await node.stop()
 	}
+})
+
+void test('inside a line the fence refuses only a row that carries a secret or pairs; its head keeps the whole fence', () => {
+	const state = BUNDLED_VERBS.find((r) => r.name === 'STATE')
+	assert.ok(state)
+	// A node whose VERBS lists RECORD (a row the module keeps to itself) as well.
+	const rows: VerbRow[] = [...BUNDLED_VERBS, { ...state, name: 'RECORD', syntax: 'RECORD ON|OFF', aliases: [] }]
+	assert.deepEqual([...SECRET].sort(), [
+		'AUTH',
+		'AUTH-PROOF',
+		'CREDENTIAL SET',
+		'LINK PATTERNS',
+		'LINK STAGEWATCH',
+		'PAIRING NEW',
+	])
+	for (const name of SECRET) assert.ok(EXCLUDED.has(name), `${name} is never a key's either`)
+
+	// A word inside a line that names a row the module keeps to itself but that carries no secret is the operator's own.
+	for (const line of [
+		'ADD item pl1 {"label":"Record"}',
+		'ADD item pl1 {"label":"Index"}',
+		'SET it1 index 3',
+		'DEVICE RAW dv1 STATUS',
+		'BIND ADD MIDI 1 TO STATUS',
+		'BIND LEARN FROM MIDI "SUBSCRIBE" INDEX',
+		'SET bd0a1b2c3d target "CREDENTIAL LIST"',
+		'BIND ADD {"input":"MIDI 1","target":"VERBS"}',
+	])
+		assert.deepEqual(fence(rows, line), { ok: true }, line)
+
+	// Every line that would carry a secret or a pairing, wherever the node reads a line, is refused naming only its verb.
+	const link = `LINK PATTERNS 10.0.0.5 ${TOKEN}`
+	for (const [line, verb] of [
+		[`BIND ADD ${JSON.stringify({ input: 'MIDI 1', target: link })}`, 'BIND ADD'],
+		[
+			`BIND ADD ${JSON.stringify({ bindings: [{ input: 'MIDI 1', target: 'CREDENTIAL SET dv1 admin hunter2' }] })}`,
+			'BIND ADD',
+		],
+		[`BIND ADD MIDI 1 TO "LINK" PATTERNS 10.0.0.5 ${TOKEN}`, 'BIND ADD'],
+		['BIND LEARN "CREDENTIAL" SET dv1 admin hunter2', 'BIND LEARN'],
+		[`BIND FORGET "AUTH" ${TOKEN}`, 'BIND FORGET'],
+		[`SET bd0a1b2c3d target "${link}"`, 'SET'],
+		['BIND ADD MIDI 1 TO AUTH-PROOF 0a1b2c', 'BIND ADD'],
+		['BIND ADD MIDI 1 TO PAIRING NEW', 'BIND ADD'],
+		['DEVICE RAW dv1 "LINK STAGEWATCH 10.0.0.6 key"', 'DEVICE RAW'],
+		['ADD binding {"input":"MIDI 1","target":"link patterns 10.0.0.5 x"}', 'ADD'],
+	] as const)
+		assert.deepEqual(
+			fence(rows, line),
+			{ ok: false, verb, error: `${verb} would carry a line that is never sent from a key` },
+			line,
+		)
+
+	// At the head of a line every row the module keeps to itself is refused: the session's words, a picture, a secret, a pairing.
+	for (const [line, verb] of [
+		['STATUS', 'STATE'],
+		['INDEX', 'INDEX'],
+		['RECORD ON', 'RECORD'],
+		['SUBSCRIBE INDEX', 'SUBSCRIBE'],
+		['CURSOR 0.5 0.5', 'CURSOR'],
+		['CREDENTIAL LIST', 'CREDENTIAL LIST'],
+		[`AUTH ${TOKEN}`, 'AUTH'],
+		['PAIRING NEW', 'PAIRING NEW'],
+	] as const)
+		assert.deepEqual(
+			fence(rows, line),
+			{ ok: false, verb, error: `${verb} is the module's own, never sent from a key` },
+			line,
+		)
 })
 
 void test('a press answered after destroy touches nothing of the host', async () => {

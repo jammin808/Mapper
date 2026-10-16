@@ -174,10 +174,12 @@ most 10 s — red for 2 s on `ERR` with the words in `last_refusal`, and red for
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
 answer as the result; a line that is no question, or that the fence refuses, is refused naming only its verb). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
 node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it
-must start with a verb of the node, never the session's words, a secret's or pairing's, nor carry one where the node may read a line:
-for a row with a line or JSON parameter, and `SET`, every run of its words to the end, every word and every string of its JSON is read
-as a line too (`BIND ADD … TO AUTH …`, a binding's JSON `target`, `SET <binding> target "LINK …"`); a refusal names only the outer
-verb, never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
+must start with a verb of the node, never the session's words, a picture's, a secret's or pairing's, nor carry a secret's or pairing's
+(`AUTH`, `AUTH-PROOF`, `PAIRING NEW`, `CREDENTIAL SET`, `LINK PATTERNS`, `LINK STAGEWATCH`) where the node may read a line: for a row
+with a line or JSON parameter, and `SET`, every run of its words to the end, every word and every string of its JSON is read as a line
+too (`BIND ADD … TO AUTH …`, a binding's JSON `target`, `SET <binding> target "LINK …"`), while a word inside that names any other row
+is the operator's own (a label `"Record"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`); a refusal names only the outer verb,
+never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
 value plus the steps sent and not yet confirmed, clamped to the range; a seek's target is its playlist's and item's, and since a
 playhead moves by itself it steers only until the first STATE written after it) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a
 surface's opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local

@@ -71,6 +71,18 @@ export const EXCLUDED: ReadonlySet<string> = new Set([
 	'CURSOR',
 ])
 
+/** The rows that carry a secret (the node's SecretFrom: a token, a key, a password) or pair a session (a token, its proof, a new
+ * token): never a key's (each is one of the rows above), and never carried inside a line either, wherever the node reads one (a
+ * binding's target, a raw device line). The node's contract test finds every SecretFrom row here. */
+export const SECRET: ReadonlySet<string> = new Set([
+	'AUTH',
+	'AUTH-PROOF',
+	'PAIRING NEW',
+	'CREDENTIAL SET',
+	'LINK PATTERNS',
+	'LINK STAGEWATCH',
+])
+
 const KINDS = new Set(['entity', 'enum', 'number', 'integer', 'text', 'json', 'time', 'ref', 'line', 'flag'])
 
 const isText = (v: unknown): boolean => v === undefined || v === null || typeof v === 'string'

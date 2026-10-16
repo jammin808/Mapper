@@ -6,7 +6,7 @@ import type {
 	JsonValue,
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
-import { EXCLUDED, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
+import { EXCLUDED, SECRET, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
 import { splitLine } from './link/grammar.ts'
 import { lineOf, optionIdOf, optionsOf } from './catalog/write.ts'
 import type { Ctx } from './context.ts'
@@ -209,12 +209,13 @@ function stringsOf(json: string): string[] {
 	return out
 }
 
-/** Whether a line the node may read inside these words starts with a row the module keeps to itself (by name or alias): every
- * suffix of the words, every word read as a line, every string of a JSON word read as a line — and each of those read so in turn. */
-function carriesKept(rows: readonly VerbRow[], words: readonly string[]): boolean {
+/** Whether a line the node may read inside these words starts with a row that carries a secret or pairs (by name or alias): every
+ * suffix of the words, every word read as a line, every string of a JSON word read as a line — and each of those read so in turn.
+ * Any other word is the operator's own (a label "Record", a field "index", a device's STATUS). */
+function carriesSecret(rows: readonly VerbRow[], words: readonly string[]): boolean {
 	const kept = (ws: readonly string[], from: number): boolean => {
 		const m = matchRow(rows, ws, from)
-		return m !== undefined && EXCLUDED.has(m.row.name)
+		return m !== undefined && SECRET.has(m.row.name)
 	}
 	const read = new Set<string>()
 	const lines: (readonly string[])[] = [words]
@@ -239,8 +240,8 @@ function carriesKept(rows: readonly VerbRow[], words: readonly string[]): boolea
 
 /** The one fence every key's line passes before it is sent, whoever wrote it (a generated action, raw, a section key or Live slot
  * from INDEX): read as the node reads it, a line must start with a verb of the node, never one the module keeps to itself (the
- * session's words, secrets, pairing, a row the node answers with no line), nor carry one inside it where the node may read a line.
- * What it refuses names only the outer verb, never the operator's words (a token typed as a line). */
+ * session's words, secrets, pairing, a row the node answers with no line), nor carry a secret or a pairing inside it where the node
+ * may read a line. What it refuses names only the outer verb, never the operator's words (a token typed as a line). */
 export function fence(
 	rows: readonly VerbRow[],
 	line: string,
@@ -248,9 +249,9 @@ export function fence(
 	const split = splitLine(line)
 	const row = split.ok ? matchRow(rows, split.words)?.row : undefined
 	if (!row) return { ok: false, verb: 'line', error: 'no verb of the node starts this line' }
-	if (EXCLUDED.has(row.name))
+	if (EXCLUDED.has(row.name) || SECRET.has(row.name))
 		return { ok: false, verb: row.name, error: `${row.name} is the module's own, never sent from a key` }
-	if (carriesLines(row) && carriesKept(rows, split.words))
+	if (carriesLines(row) && carriesSecret(rows, split.words))
 		return { ok: false, verb: row.name, error: `${row.name} would carry a line that is never sent from a key` }
 	return { ok: true }
 }
