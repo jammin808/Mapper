@@ -118,6 +118,10 @@ public sealed record AlignRunnerOptions
 
     public TimeSpan FrameTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>A picture's hold on the wall as a run is planned and timed: its present, the camera's latency and one settled picture.
+    /// A run's pattern time is its pictures times this.</summary>
+    public TimeSpan PatternHold { get; init; } = TimeSpan.FromMilliseconds(200);
+
     public int MaxUnsettledFrames { get; init; } = 12;
 
     public SettleOptions Settle { get; init; } = new();
@@ -166,6 +170,10 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
     public const string StoppingWords = "the node is stopping — no alignment run starts";
 
     private volatile IReadOnlyList<int>? _lastShown;
+    private volatile int _lastPictures;
+
+    /// <summary>How many pictures the last run that reached its solve took (black, patterns, colour and verify alike).</summary>
+    public int LastPictures => _lastPictures;
 
     /// <summary>How many frames each output was shown by the last simulated run (black counts for none; tests count what reached each
     /// output).</summary>
@@ -249,7 +257,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 var rasters = outputs.Select(o => (o.Width, o.Height)).ToList();
                 var (cw, ch) = setup.Rig is { Intrinsics: { Width: > 0, Height: > 0 } k } ? (k.Width, k.Height) : (_options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
                 var sim = await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch), ct).ConfigureAwait(false);
-                shooter = new SimShooter(sim);
+                shooter = new CountingShooter(new SimShooter(sim));
             }
             else
             {
@@ -259,7 +267,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                     throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
                 showing = true;
-                shooter = new DisplayShooter(_display!, camera, outputs, _options);
+                shooter = new CountingShooter(new DisplayShooter(_display!, camera, outputs, _options));
             }
             var specs = outputs.Select((o, j) => new AlignOutputSpec(o.Id, o.Name, o.Width, o.Height, PriorFor(o, setup.Projectors[j]))).ToList();
             IReadOnlyList<AlignCapture>? reference = null;
@@ -298,7 +306,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 colour = await AlignSequence.ColourAsync(shooter, specs, captures, p => Step(setup, p.Step, p.Output, 0.9, -1, p.Words, colourShots), ct)
                     .ConfigureAwait(false);
             }
-            if (shooter is SimShooter simShooter)
+            if (shooter is CountingShooter { Inner: SimShooter simShooter })
                 _lastShown = simShooter.Shown;
             Step(setup, "solve", -1, 0.9, -1, "fitting the screen, the canvas, each output's warp and blend", total);
             var group = setup.Group;
@@ -315,16 +323,17 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             {
                 // The verify pass: the canvas's dots through the new warps, seen by the camera (a simulated projector that drifts after
                 // the scan is seen where it drifted to).
-                var verifier = shooter;
+                IAlignShooter verifier = shooter;
                 if (IsSimulated(setup.Rig) && MultiProjectorSim.Drifts(setup.Rig?.Source))
                 {
                     var rasters = outputs.Select(o => (o.Width, o.Height)).ToList();
                     var (cw, ch) = setup.Rig is { Intrinsics: { Width: > 0, Height: > 0 } k } ? (k.Width, k.Height) : (_options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
-                    verifier = new SimShooter(await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch, drifted: true), ct).ConfigureAwait(false));
+                    verifier = new CountingShooter(new SimShooter(await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch, drifted: true), ct).ConfigureAwait(false)), (CountingShooter)shooter);
                 }
                 verify = await AlignVerify.RunAsync(verifier, specs, result, black, captures,
                     p => Step(setup, p.Step, p.Output, 0.95, -1, p.Words, outputs.Count), ct, only?.ToHashSet()).ConfigureAwait(false);
             }
+            _lastPictures = ((CountingShooter)shooter).Pictures;
             Finish(setup, started, result, captures, colour, black, verify);
         }
         catch (OperationCanceledException)
@@ -440,6 +449,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         }
         files.Add(("black.bin", AlignCaptureFile.WriteBlack(black)));
         var words = string.Create(CultureInfo.InvariantCulture, $"staged {score.Grade} {score.Value:0}: ") + result.Words
+            + string.Create(CultureInfo.InvariantCulture, $"; {_lastPictures} pictures, {_lastPictures * _options.PatternHold.TotalSeconds:0} s of patterns")
             + (verify is null ? "" : "; " + verify.Words)
             + (colour is null ? "" : "; colour: " + colour.Words)
             + string.Create(CultureInfo.InvariantCulture, $" — ALIGN ACCEPT {setup.RunId} applies it");
@@ -517,5 +527,35 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         if (task is not null)
             await task.ConfigureAwait(false);
         cts?.Dispose();
+    }
+}
+
+/// <summary>A shooter that counts the pictures taken through it (and through a second shooter that shares its count).</summary>
+internal sealed class CountingShooter(IAlignShooter inner, CountingShooter? shared = null) : IAlignShooter
+{
+    private int _pictures;
+
+    public IAlignShooter Inner => inner;
+
+    public int Pictures => Volatile.Read(ref _pictures);
+
+    private void Count()
+    {
+        if (shared is not null)
+            shared.Count();
+        else
+            Interlocked.Increment(ref _pictures);
+    }
+
+    public Task<CameraShot> ShootAsync(int output, byte[]? frame, CancellationToken ct)
+    {
+        Count();
+        return inner.ShootAsync(output, frame, ct);
+    }
+
+    public Task<CameraShotRgb?> ShootRgbAsync(IReadOnlyList<byte[]?> frames, CancellationToken ct)
+    {
+        Count();
+        return inner.ShootRgbAsync(frames, ct);
     }
 }
