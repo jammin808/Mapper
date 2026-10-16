@@ -102,8 +102,8 @@ public abstract class DeskModule
 
     public virtual IEnumerable<DrawerTab> DrawerTabs() => [];
 
-    /// <summary>Why the desk should not send this line now (the gate's words), or null to leave it live.</summary>
-    public virtual string? Gate(PlayMap.Core.Wire.WireLine line, PlayMap.Core.Wire.VerbSpec spec) => null;
+    /// <summary>Why the desk should not send this line now (the node's words and the menu's tag), or null to leave it live.</summary>
+    public virtual Link.GateRefusal? Gate(PlayMap.Core.Wire.WireLine line, PlayMap.Core.Wire.VerbSpec spec) => null;
 
     /// <summary>Esc reached this module (in the ladder's order); true when it used the key.</summary>
     public virtual bool TryEscape() => false;

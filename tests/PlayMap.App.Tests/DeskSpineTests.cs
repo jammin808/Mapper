@@ -34,8 +34,8 @@ public class DeskSpineTests(ITestOutputHelper output)
 
         public override IEnumerable<object> InspectorSections(IMenuTarget t) => t.Id == target ? [new ProbeSection(target)] : [];
 
-        public override string? Gate(PlayMap.Core.Wire.WireLine line, PlayMap.Core.Wire.VerbSpec spec) =>
-            spec.Name == "WARP RESET" ? "Not while probed: WARP RESET is held by the probe." : null;
+        public override Link.GateRefusal? Gate(PlayMap.Core.Wire.WireLine line, PlayMap.Core.Wire.VerbSpec spec) =>
+            spec.Name == "WARP RESET" ? new Link.GateRefusal("Not while probed: WARP RESET is held by the probe.", "probed") : null;
     }
 
     [AvaloniaFact]
@@ -104,6 +104,8 @@ public class DeskSpineTests(ITestOutputHelper output)
     {
         await using var desk = new DeskHarness();
         desk.Main.Modules.Add(new ProbeModule("op_1"));
+        // A module that joins the gate moves its facts.
+        desk.Session.GateMoved();
         desk.Main.Map.Select("output", "op_1");
         desk.Link.SetSection("probe", "{}");
         DeskHarness.Pump();
@@ -112,7 +114,7 @@ public class DeskSpineTests(ITestOutputHelper output)
         Assert.False(reset.IsEnabled);
         Assert.Equal("Not while probed: WARP RESET is held by the probe.", reset.Refusal);
         Assert.Contains("Not while probed", reset.Tip, StringComparison.Ordinal);
-        Assert.EndsWith(" · locked", reset.MenuLabel, StringComparison.Ordinal);
+        Assert.EndsWith(" · probed", reset.MenuLabel, StringComparison.Ordinal);
         var menu = new ContextMenu();
         DeskMenu.Fill(menu.Items, node.Actions);
         var item = menu.Items.OfType<MenuItem>().First(i => i.Tag == reset);

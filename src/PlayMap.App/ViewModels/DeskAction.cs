@@ -104,19 +104,20 @@ public sealed class DeskAction : ObservableObject
 
     public bool IsChecked => _isChecked?.Invoke() ?? false;
 
-    /// <summary>Live: its own condition holds and the gate (the show's policy, the locks) would not refuse its line.</summary>
+    /// <summary>Live: its own condition holds and the gate (the node's doors: pairing, the fleet, the show's policy, the locks)
+    /// would not refuse its line.</summary>
     public bool IsEnabled => (_isEnabled?.Invoke() ?? true) && Refusal is null;
 
-    private (string Verb, long Stamp, string? Refusal, bool Available)? _asked;
+    private (string Verb, long Stamp, GateRefusal? Refusal, bool Available)? _asked;
 
     /// <summary>The gate's words when the line this action sends would be refused now ("Not while armed: …"), or null.</summary>
-    public string? Refusal => Ask().Refusal;
+    public string? Refusal => Ask().Refusal?.Words;
 
     /// <summary>False when the node does not run this action's verb (its package is absent there): the control hides.</summary>
     public bool IsAvailable => Ask().Available;
 
     /// <summary>The gate and the verb list asked once per line and per move of their facts (every binding reads them).</summary>
-    private (string Verb, long Stamp, string? Refusal, bool Available) Ask()
+    private (string Verb, long Stamp, GateRefusal? Refusal, bool Available) Ask()
     {
         if (_session is not { } s)
             return ("", 0, null, true);
@@ -124,15 +125,14 @@ public sealed class DeskAction : ObservableObject
         var stamp = s.GateStamp;
         if (_asked is { } a && a.Stamp == stamp && string.Equals(a.Verb, verb, StringComparison.Ordinal))
             return a;
-        var fresh = (verb, stamp, s.GateWords(verb), s.Knows(verb));
+        var fresh = (verb, stamp, s.GateRefusalOf(verb), s.Knows(verb));
         _asked = fresh;
         return fresh;
     }
 
-    /// <summary>The menu's words: the label, and "· armed" or "· locked" while the gate refuses it.</summary>
-    public string MenuLabel => Refusal is { } why
-        ? Label + (why.StartsWith("Not while armed", StringComparison.Ordinal) ? " · armed" : " · locked")
-        : Label;
+    /// <summary>The menu's words: the label, and the gate's tag while it refuses ("· armed", "· locked", "· mirror", "· fenced",
+    /// "· not paired", "· blind draft").</summary>
+    public string MenuLabel => Ask().Refusal is { } why ? Label + " · " + why.Tag : Label;
 
     /// <summary>The line this action sends now, or "" for a desk-only action.</summary>
     public string Verb => _verb() ?? "";

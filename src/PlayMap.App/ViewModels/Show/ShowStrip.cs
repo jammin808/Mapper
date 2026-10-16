@@ -33,13 +33,23 @@ public sealed record FleetDoor(string Role, string? Words)
 /// <summary>One output's part of a panic.</summary>
 public sealed record PanicOutputState(string Id, string Outcome, double Level);
 
+/// <summary>STATE.show.blind as the desk reads it: whose draft is open (its owner's name, session and transport as WHOAMI says
+/// them), how many changes it holds, and, while its commit waits for its boundary, the boundary in the node's words.</summary>
+public sealed record BlindState(string Owner, string Session, string Transport, int Changes, string? CommitWhen)
+{
+    public static BlindState? Read(JsonElement? e) => e is { ValueKind: JsonValueKind.Object } b && b.Bool("on")
+        ? new BlindState(b.Str("owner"), b.Str("session"), b.Str("transport"), (int)b.Long("changes"),
+            b.Obj("commit") is { } c ? c.Str("when", "at its boundary") : null)
+        : null;
+}
+
 /// <summary>STATE.show as the desk reads it (absent: the node has no Show Mode, and the strip hides).</summary>
 public sealed record ShowSection(bool Present, bool Armed, string By, long SinceUnixMs, string? PanicOutcome, string PanicBy,
     long PanicSinceUnixMs, bool PanicHard, ImmutableArray<PanicOutputState> PanicOutputs, ImmutableArray<ShowLockState> Locks,
     bool RemoteViewOnly, string DisarmFrom, bool ExpectArmed, int RefusedLastMinute, string RefusedLast, string ReadyLight,
-    string Ready, string FirstOpen, bool PreflightRunning)
+    string Ready, string FirstOpen, bool PreflightRunning, BlindState? Blind)
 {
-    public static readonly ShowSection Absent = new(false, false, "", 0, null, "", 0, false, [], [], false, "paired", false, 0, "", "grey", "", "", false);
+    public static readonly ShowSection Absent = new(false, false, "", 0, null, "", 0, false, [], [], false, "paired", false, 0, "", "grey", "", "", false, null);
 
     public static ShowSection Read(JsonElement? e)
     {
@@ -65,11 +75,16 @@ public sealed record ShowSection(bool Present, bool Armed, string By, long Since
             [.. s.Arr("locks").Select(l => new ShowLockState(l.Str("target"), l.Str("kind"), l.Str("by"), l.Str("words"), l.Bool("implicit"), l.Long("at")))],
             rules?.Bool("remoteViewOnly") ?? false, rules?.Str("disarmFrom", "paired") ?? "paired", rules?.Bool("expectArmed") ?? false,
             (int)(refused?.Long("last60s") ?? 0), refused?.Str("last") ?? "",
-            preflight?.Str("light", "grey") ?? "grey", preflight?.Str("ready") ?? "", preflight?.Str("firstOpen") ?? "", preflight?.Bool("running") ?? false);
+            preflight?.Str("light", "grey") ?? "grey", preflight?.Str("ready") ?? "", preflight?.Str("firstOpen") ?? "", preflight?.Bool("running") ?? false,
+            BlindState.Read(s.TryGetProperty("blind", out var blind) ? blind : null));
     }
 
     /// <summary>The lock on an entity or area, or null.</summary>
     public ShowLockState? LockOn(string target) => Locks.FirstOrDefault(l => string.Equals(l.Target, target, StringComparison.Ordinal));
+
+    /// <summary>The show's own locks (LOCK, LOCK AREA) as Core's LockGuard holds them in the document; an armed show's implicit
+    /// locks are not among them (they lift with SHOW DISARM, and a blind draft's edits pass them).</summary>
+    public ImmutableArray<ShowLock> ExplicitLocks => [.. Locks.Where(l => !l.Implicit).Select(l => l.AsCore())];
 }
 
 /// <summary>The top bar's show strip: the Ready light, ARM (no password), PANIC (never a dialog), each following
@@ -282,43 +297,86 @@ public sealed class ShowStripModule : DeskModule
         new("Ctrl+Shift+A", "Arm or disarm the show (SHOW ARM / SHOW DISARM)", "Show", Key.A, KeyModifiers.Control | KeyModifiers.Shift, Strip.Arm.Command) { WhileTyping = true },
     ];
 
-    /// <summary>The engine's doors in the engine's order. The fleet's: on a hot backup or a fenced node (STATE.fleet.door) a line
-    /// that would change the show is refused with the node's own words, while queries, panic, Show Mode, the node's administration
-    /// and the fleet's verbs (FAILOVER among them) stay. Then the show policy's decision for this desk's role (WHOAMI) with the facts
-    /// in STATE.show. Then the locks as the engine's LockGuard holds them: an edit of the document in a locked area, of a locked
-    /// entity (the one the line names first), or of a surface or projector whose own Locked flag is set is refused with LockGuard's
-    /// words. Playback, the air, panic, commands to devices and reading are never held by a lock.</summary>
-    public override string? Gate(WireLine line, VerbSpec spec)
+    /// <summary>The engine's doors in the engine's order, each with the node's own words. The router's: an unpaired session's line
+    /// that would change something is refused (WHOAMI's paired). The fleet's: on a hot backup or a fenced node (STATE.fleet.door) a
+    /// line that would change the show is refused, while queries, panic, Show Mode, the node's administration and the fleet's verbs
+    /// (FAILOVER among them) stay. The show's: while a blind draft is open another show is not opened; then the show policy's
+    /// decision for this desk's role (WHOAMI) with the facts in STATE.show, the draft's owner among them (STATE.show.blind names its
+    /// session: this desk's document edits then go to its draft, armed or not, refused only while its commit waits); a network line
+    /// meets the network area's lock. Then the locks as the engine's LockGuard holds them: a generic edit (SET, ADD, REMOVE, MOVE)
+    /// is put on the mirrored project and LockGuard decides by what it changes, the armed show's implicit areas left out for a
+    /// draft's edit as the draft's guard leaves them; any other line by the area its class edits and the entity it names first.
+    /// Playback, the air, panic, commands to devices and reading are never held by a lock.</summary>
+    public override GateRefusal? Gate(WireLine line, VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(spec);
+        if (!_session.Paired && (spec.Mutates || spec.PairedOnly))
+            return new GateRefusal(PlayMap.Net.Commands.WireWords.NotPaired, "not paired");
         if (_door.Words is { } door && BackupGate.Refused(spec, line, DeskTransport, _door.Role, door) is { } mirrored)
-            return mirrored;
+            return new GateRefusal(mirrored, _door.Role == FleetRoles.Fenced ? "fenced" : "mirror");
+        var draft = false;
         if (_show.Present)
         {
+            if (_show.Blind is { } open && BlindWords.OpensAnotherShow(spec))
+                return new GateRefusal(BlindWords.DraftOpen(open.Owner, open.Changes), "blind draft");
             var role = Enum.TryParse<ShowRole>(_session.Role, ignoreCase: true, out var r) ? r : ShowRole.Remote;
-            var facts = new ShowFacts(_show.Armed, false, _airDark, _show.RemoteViewOnly, _show.DisarmFrom);
+            var facts = new ShowFacts(_show.Armed, OwnsDraft, _airDark, _show.RemoteViewOnly, _show.DisarmFrom);
             var decision = ShowPolicy.Decide(spec, line, role, facts);
-            if (decision.Verdict == ShowVerdict.Refuse)
-                return decision.Words;
+            switch (decision.Verdict)
+            {
+                case ShowVerdict.Refuse:
+                    return new GateRefusal(decision.Words ?? "refused by Show Mode", _show.Armed ? "armed" : "show");
+                case ShowVerdict.BlindOnly when _show.Blind is { CommitWhen: { } when }:
+                    return new GateRefusal(BlindWords.Landing(when), "blind draft");
+                case ShowVerdict.BlindOnly:
+                    draft = true;
+                    break;
+                case ShowVerdict.Allow when ShowPolicy.ClassOf(spec, line) == ShowClass.Network
+                    && _show.ExplicitLocks.FirstOrDefault(l => l.Kind == LockKind.Area && l.Target == LockAreas.Network) is { } held:
+                    return new GateRefusal(LockGuard.AreaWords(held), "locked");
+            }
         }
-        if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK" || AreaOf(ShowPolicy.ClassOf(spec, line)) is not { } area)
+        return LockWords(line, spec, draft) is { } words ? new GateRefusal(words, "locked") : null;
+    }
+
+    /// <summary>True when STATE.show.blind names this desk's own session as the draft's owner.</summary>
+    private bool OwnsDraft => _show.Blind is { } b && _session.SessionId.Length > 0
+        && string.Equals(b.Session, _session.SessionId, StringComparison.Ordinal) && string.Equals(b.Transport, _session.Transport, StringComparison.Ordinal);
+
+    /// <summary>LockGuard's words for a line's edit, or null. A draft's edit meets the show's own locks only (its guard is not armed).</summary>
+    private string? LockWords(WireLine line, VerbSpec spec, bool draft)
+    {
+        if (!spec.Mutates || spec.Name is "LOCK" or "UNLOCK")
             return null;
-        if (_show.LockOn(area) is { Kind: "area" } al)
-            return LockGuard.AreaWords(al.AsCore());
+        var locks = _show.ExplicitLocks;
+        var armed = _show.Armed && !draft;
+        // Nothing to hold an edit: no lock, not armed, no surface or projector with its own Locked flag.
+        if (locks.IsEmpty && !armed && _project is { } open && !open.Stage.Surfaces.Any(s => s.Locked) && !open.Stage.Projectors.Any(j => j.Locked))
+            return null;
+        if (_project is { } p)
+        {
+            var before = p.Show.Locks.SequenceEqual(locks) ? p : p with { Show = p.Show with { Locks = locks } };
+            if (Edited(before, spec, line) is { } after)
+                return LockGuard.Check(before, after, armed);
+        }
+        if (AreaOf(ShowPolicy.ClassOf(spec, line)) is not { } area)
+            return null;
+        if (locks.FirstOrDefault(l => l.Kind == LockKind.Area && l.Target == area) is { } al)
+            return LockGuard.AreaWords(al);
+        if (armed && LockGuard.ArmedAreas.Contains(area))
+            return LockGuard.ArmedWords(area);
         var words = spec.Name.Split(' ').Length;
         if (line.Count <= words)
             return null;
         var target = line.Word(words);
-        if (_show.LockOn(target) is { Kind: "entity" } el && _project is { } p && ShowEntities.Find(p, target) is { } entity)
-            return LockGuard.EntityWords(el.AsCore(), entity);
-        // A surface's or projector's own Locked flag (the gizmo lock): only that flag may change.
-        var flagOnly = spec.Name == "SET" && line.Count > 2 && line.Word(2) == "locked";
-        if (!flagOnly && _project is { } q)
+        if (locks.FirstOrDefault(l => l.Kind == LockKind.Entity && l.Target == target) is { } el && _project is { } q && ShowEntities.Find(q, target) is { } entity)
+            return LockGuard.EntityWords(el, entity);
+        if (_project is { } f)
         {
-            if (q.Stage.Surfaces.Find(target) is { Locked: true } sf)
+            if (f.Stage.Surfaces.Find(target) is { Locked: true } sf)
                 return LockGuard.FlagWords(sf);
-            if (q.Stage.Projectors.Find(target) is { Locked: true } pj)
+            if (f.Stage.Projectors.Find(target) is { Locked: true } pj)
                 return LockGuard.FlagWords(pj);
         }
         return null;
@@ -361,6 +419,29 @@ public sealed class ShowStripModule : DeskModule
             ? LockGuard.EntityWords(l.AsCore(), entity)
             : $"{l.Target} is locked by {l.By} — UNLOCK {l.Target} first";
         return [new ObjectBadge("lock", "lock", "", "amber", words)];
+    }
+
+    /// <summary>The project a generic edit would leave (the engine's edit as the desk's demo engine applies it), or null when the
+    /// line is not one, or the desk cannot apply it (the node then says why).</summary>
+    private static Project? Edited(Project p, VerbSpec spec, WireLine line)
+    {
+        try
+        {
+            return spec.Name switch
+            {
+                "SET" when line.Count >= 4 => ProjectEdits.SetField(p, line.Word(1), line.Word(2), line.RestAfter(3)),
+                "REMOVE" when line.Count == 2 => ProjectEdits.Remove(p, line.Word(1)),
+                "MOVE" when line.Count == 3 && int.TryParse(line.Word(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index) =>
+                    ProjectEdits.Move(p, line.Word(1), index),
+                "ADD" when line.Count >= 3 && line.RestAfter(2).StartsWith('{') => ProjectEdits.Add(p, line.Word(1), line.RestAfter(2), out _),
+                _ => null,
+            };
+        }
+        catch (Exception ex) when (ex is EditRefusedException or ArgumentException or InvalidOperationException or FormatException or JsonException)
+        {
+            // An edit the desk cannot put on its mirror is decided by the class's area below; the node says what it makes of it.
+            return null;
+        }
     }
 
     /// <summary>Esc's PANIC rung: in PLAY, with the desk's preference on, on a node with Show Mode.</summary>

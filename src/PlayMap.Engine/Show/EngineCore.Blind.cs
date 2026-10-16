@@ -462,9 +462,10 @@ public sealed partial class EngineCore
         snapshot = snapshot with { Draft = b.Store.Current, Pending = pending };
     }
 
-    private static string Changes(BlindDraft b) => b.Patch.Changes.Count == 1 ? "1 change" : $"{b.Patch.Changes.Count} changes";
+    private static string Changes(BlindDraft b) => BlindWords.Changes(b.Patch.Changes.Count);
 
-    /// <summary>STATE.show.blind and BLIND's reply: null when no draft is open.</summary>
+    /// <summary>STATE.show.blind and BLIND's reply: null when no draft is open. The owner's session and transport are WHOAMI's, so a
+    /// client knows the draft is its own (its document edits go there) without asking.</summary>
     internal void WriteBlind(Utf8JsonWriter w)
     {
         if (_blind is not { } b)
@@ -472,9 +473,12 @@ public sealed partial class EngineCore
             w.WriteNullValue();
             return;
         }
+        var owner = b.Owner;
         w.WriteStartObject();
         w.WriteBoolean("on", true);
         w.WriteString("owner", b.OwnerName);
+        w.WriteString("session", owner.SessionId);
+        w.WriteString("transport", owner.Transport);
         w.WriteNumber("since", b.SinceUnixMs);
         w.WriteNumber("base", b.Base.Revision);
         w.WriteNumber("changes", b.Patch.Changes.Count);
@@ -486,9 +490,11 @@ public sealed partial class EngineCore
         w.WriteEndObject();
     }
 
-    private static void WriteCommit(Utf8JsonWriter w, BlindCommit commit)
+    private void WriteCommit(Utf8JsonWriter w, BlindCommit commit)
     {
         w.WriteStartObject();
+        // The boundary in the words the owner's refused edits are given (BlindWords.Landing).
+        w.WriteString("when", When(commit));
         w.WriteString("boundary", commit.BoundaryWord);
         if (commit.PlaylistId is { } pl)
             w.WriteString("playlist", pl);

@@ -5,7 +5,8 @@ namespace PlayMap.Core.Tests.Show;
 
 /// <summary>The lock guard's areas: mapping holds everything an output or a surface carries that is not its name, layout or
 /// picture — the measured correction and the calibration it uses included, and any field no area names (the cautious side);
-/// layout holds the raster, display and latency; content holds what is shown. Each refusal names the area's lock.</summary>
+/// layout holds the raster, display and latency; content holds what is shown. Each refusal names the area's lock. An edit made
+/// the way the wire's SET makes it (through JSON, which gives every list of the entity anew) is judged by what it changed.</summary>
 public sealed class LockGuardTests
 {
     private static Project Locked(params string[] areas)
@@ -75,5 +76,42 @@ public sealed class LockGuardTests
             LockGuard.Check(open, Output(open, o => o with { CalibrationId = "cs00000001" }), armed: true));
         Assert.Equal("layout is locked while the show is armed — SHOW DISARM first",
             LockGuard.Check(open, Output(open, o => o with { Width = 1280 }), armed: true));
+    }
+
+    [Fact]
+    public void ASetThroughJsonIsJudgedByWhatItChangedNotByItsNewLists()
+    {
+        var mask = new Mask("mk00000001", "Door", BezierPath.Rectangle(0.7, 0.3, 0.1, 0.6), MaskMode.Subtract, 0.01, false, true);
+        var fx = new FxChain([new FxSlot("fx00000001", "fx.blur", "Blur", ParamSet.Empty.With("radius", 4), false, 1, FxBlend.Normal, 1, 0)]);
+        var binding = new ParamBinding("opacity", "lfo:sine/4b/0", 0.5, 0, BindingCurve.Linear, 0);
+        Project With(params string[] areas)
+        {
+            var p = Locked(areas);
+            return Surface(p, s => s with { Masks = [mask], Tags = ["wall"], Fx = fx, Bindings = [binding] })
+                with { Outputs = p.Outputs.SetItem(0, p.Outputs[0] with { Masks = [mask], Fx = fx }) };
+        }
+        Project Set(Project p, string field, string json) => field.StartsWith("out:", StringComparison.Ordinal)
+            ? Output(p, o => ProjectJson.SetPath(o, field[4..], json))
+            : Surface(p, s => ProjectJson.SetPath(s, field, json));
+
+        // Under a mapping lock a masked surface's name, colour, picture and own flag, and an output's name, are not the mapping.
+        var mapping = With(LockAreas.Mapping);
+        foreach (var (field, json) in new[] { ("name", "\"Lobby\""), ("opacity", "0.5"), ("locked", "true"), ("color", "\"#FF0000\""), ("out:name", "\"Left\"") })
+            Assert.Null(LockGuard.Check(mapping, Set(mapping, field, json), armed: false));
+        // Its geometry and its masks are.
+        Assert.StartsWith("mapping is locked by Desk", LockGuard.Check(mapping, Set(mapping, "transform.position", "{\"x\":1,\"y\":0,\"z\":0}"), armed: false),
+            StringComparison.Ordinal);
+        Assert.StartsWith("mapping is locked by Desk", LockGuard.Check(mapping, Set(mapping, "masks.0.feather", "0.2"), armed: false), StringComparison.Ordinal);
+
+        // Under a content lock a surface with an effect and a binding is renamed; its opacity is content.
+        var content = With(LockAreas.Content);
+        Assert.Null(LockGuard.Check(content, Set(content, "name", "\"Lobby\""), armed: false));
+        Assert.Null(LockGuard.Check(content, Set(content, "out:name", "\"Left\""), armed: false));
+        Assert.StartsWith("content is locked by Desk", LockGuard.Check(content, Set(content, "opacity", "0.5"), armed: false), StringComparison.Ordinal);
+
+        // A masked surface whose own Locked flag is set is unlocked by SET <id> locked false, and nothing else of it moves.
+        var flagged = Surface(With(), s => s with { Locked = true });
+        Assert.Null(LockGuard.Check(flagged, Set(flagged, "locked", "false"), armed: false));
+        Assert.Equal(LockGuard.FlagWords(flagged.Stage.Surfaces[0]), LockGuard.Check(flagged, Set(flagged, "name", "\"Lobby\""), armed: false));
     }
 }

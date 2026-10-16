@@ -40,10 +40,13 @@
     "blind": {
       "on": true,
       "owner": "Desk",
+      "session": "d1",
+      "transport": "desk",
       "since": 1760000000000,
       "base": 4,
       "changes": 1,
       "commit": {
+        "when": "with the next GO on Show",
         "boundary": "on go",
         "playlist": "pl_show",
         "effectiveLeaderNs": null,

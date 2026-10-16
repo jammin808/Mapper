@@ -607,7 +607,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     }
 
     /// <summary>The gate every action asks: the modules' words for a line (the first that refuses), or null.</summary>
-    private string? GateLine(string text)
+    private GateRefusal? GateLine(string text)
     {
         if (!WireGrammar.TryParse(text, out var line, out _) || VerbCatalog.Match(line) is not { } match)
             return null;

@@ -9,9 +9,11 @@ namespace PlayMap.App.Link;
 
 /// <summary>Show Mode in the demo, with the engine's meaning and STATE shapes (tests/fixtures/state/show.json): SHOW
 /// ARM/DISARM (no password), PANIC and PANIC CLEAR (a second PANIC within the fade is HARD), LOCK/UNLOCK of an entity or
-/// an area, LOCKS, MASTER, SHOW SET. On a hot backup or a fenced node (STATE.fleet.door, from the backup fixture) a line that
-/// would change the show is refused with the door's words, and while armed a line the show's policy refuses the desk is refused
-/// with the same words, as the engine's doors do, in their order. A verb that would change nothing is refused with the reason.</summary>
+/// an area, LOCKS, MASTER, SHOW SET, and the desk's own blind draft (BLIND ON, DISCARD, COMMIT). Its doors are the engine's, in
+/// the engine's order and with its words: an unpaired session's line that would change something; on a hot backup or a fenced
+/// node (STATE.fleet.door, from the backup fixture) a line that would change the show; another show opened under a draft; a line
+/// the show's policy refuses the desk (its draft's edits go to the draft); the network area's lock; then LockGuard on the
+/// document. A verb that would change nothing is refused with the reason.</summary>
 public sealed partial class FakeEngineLink
 {
     private long _panicFadeUntilMs;
@@ -32,23 +34,71 @@ public sealed partial class FakeEngineLink
         return BackupGate.Refused(m.Spec, line, "desk", role, door.GetValue<string>());
     }
 
-    /// <summary>The engine's gate for the desk (its role) while armed: the policy's words, or null.</summary>
-    private string? ArmedRefusal(WireLine line)
+    /// <summary>The router's admission, as the engine's: an unpaired session's line that changes something is refused.</summary>
+    private string? PairingRefusal(WireLine line) =>
+        !Paired && VerbCatalog.Match(line) is { } m && (m.Spec.Mutates || m.Spec.PairedOnly) ? PlayMap.Net.Commands.WireWords.NotPaired : null;
+
+    /// <summary>The show's gate for the desk (its role), as the engine's: another show is not opened while a draft is open; the
+    /// policy's words for a refused line; a document edit of the draft's owner goes to its draft (refused while its commit
+    /// waits); a network line meets the network area's lock.</summary>
+    private string? ShowRefusal(WireLine line)
     {
-        if (!Armed || VerbCatalog.Match(line) is not { } m)
+        if (VerbCatalog.Match(line) is not { } m || !_sections.ContainsKey("show"))
             return null;
+        var blind = Section("show")["blind"] as JsonObject;
+        if (blind is not null && BlindWords.OpensAnotherShow(m.Spec))
+            return BlindWords.DraftOpen(blind["owner"]?.GetValue<string>() ?? "", blind["changes"]?.GetValue<int>() ?? 0);
+        var owner = blind is not null && blind["session"]?.GetValue<string>() == SessionId && blind["transport"]?.GetValue<string>() == Transport;
         var rules = Section("show")["rules"] as JsonObject;
-        var facts = new ShowFacts(true, false, _blackout, rules?["remoteViewOnly"]?.GetValue<bool>() ?? false, rules?["disarmFrom"]?.GetValue<string>() ?? "paired");
+        var facts = new ShowFacts(Armed, owner, _blackout, rules?["remoteViewOnly"]?.GetValue<bool>() ?? false, rules?["disarmFrom"]?.GetValue<string>() ?? "paired");
         var role = Enum.TryParse<ShowRole>(Role, ignoreCase: true, out var r) ? r : ShowRole.Remote;
         var decision = ShowPolicy.Decide(m.Spec, line, role, facts);
-        return decision.Verdict == ShowVerdict.Refuse ? decision.Words : null;
+        switch (decision.Verdict)
+        {
+            case ShowVerdict.Refuse:
+                return decision.Words;
+            case ShowVerdict.BlindOnly when (blind?["commit"] is JsonObject commit):
+                return BlindWords.Landing(commit["when"]?.GetValue<string>() ?? "at its boundary");
+            case ShowVerdict.BlindOnly:
+                _lineStore = _draft?.Store;
+                return _lineStore is null ? "this session holds no blind draft — BLIND ON first" : null;
+            case ShowVerdict.Allow when ShowPolicy.ClassOf(m.Spec, line) == ShowClass.Network
+                && ExplicitLocks().FirstOrDefault(l => l.Kind == PlayMap.Core.Model.LockKind.Area && l.Target == PlayMap.Core.Model.LockAreas.Network) is { } held:
+                return LockGuard.AreaWords(held);
+            default:
+                return null;
+        }
     }
+
+    /// <summary>The show's own locks (STATE.show.locks without the armed show's implicit ones), as LockGuard holds them.</summary>
+    private List<PlayMap.Core.Model.ShowLock> ExplicitLocks()
+    {
+        var list = new List<PlayMap.Core.Model.ShowLock>();
+        if (!_sections.TryGetValue("show", out var s) || s is not JsonObject show || show["locks"] is not JsonArray locks)
+            return list;
+        foreach (var l in locks.OfType<JsonObject>())
+        {
+            if (l["implicit"]?.GetValue<bool>() == true)
+                continue;
+            list.Add(new PlayMap.Core.Model.ShowLock(l["target"]?.GetValue<string>() ?? "", l["kind"]?.GetValue<string>() == "area" ? PlayMap.Core.Model.LockKind.Area : PlayMap.Core.Model.LockKind.Entity,
+                l["by"]?.GetValue<string>() ?? "", l["at"]?.GetValue<long>() ?? 0, l["words"]?.GetValue<string>() ?? ""));
+        }
+        return list;
+    }
+
+    /// <summary>A project with the show's own locks in it (the demo keeps them in STATE), for LockGuard.</summary>
+    private PlayMap.Core.Model.Project WithLocks(PlayMap.Core.Model.Project p) => p with { Show = p.Show with { Locks = [.. ExplicitLocks()] } };
 
     partial void TryShowVerbs(WireLine line, ref WireReply? reply)
     {
-        if ((DoorRefusal(line) ?? ArmedRefusal(line)) is { } why)
+        if ((PairingRefusal(line) ?? DoorRefusal(line) ?? ShowRefusal(line)) is { } why)
         {
             reply = Err(why);
+            return;
+        }
+        if (line.Verb == "BLIND")
+        {
+            reply = Blind(line);
             return;
         }
         if (line.Verb is not ("SHOW" or "PANIC" or "LOCK" or "UNLOCK" or "LOCKS" or "MASTER"))
@@ -69,6 +119,81 @@ public sealed partial class FakeEngineLink
             ("MASTER", _) => Master(line),
             _ => Err("SHOW ARM|DISARM|SET · PANIC [<outcome>|CLEAR] · LOCK · UNLOCK · LOCKS · MASTER"),
         };
+    }
+
+    /// <summary>The demo's blind draft: its owner's name, a store seeded with the live root, how many entities it changed.</summary>
+    private sealed record FakeDraft(string Owner, PlayMap.Core.Model.ProjectStore Store, PlayMap.Core.Model.Project Base)
+    {
+        public int Changes => ProjectDiff.Between(Base, Store.Project, 0).Changes.Count;
+    }
+
+    private FakeDraft? _draft;
+    private bool _promoting;
+
+    /// <summary>The store a line's document edits go to (the draft for its owner's draftable line), or null for the live one.</summary>
+    private PlayMap.Core.Model.ProjectStore? _lineStore;
+
+    /// <summary>BLIND ON, BLIND DISCARD and BLIND COMMIT [NOW] as the engine means them, for the desk's own session: STATE.show.blind
+    /// names the owner's session as WHOAMI does; the draft's edits stay off the live project until BLIND COMMIT lands them.</summary>
+    private WireReply Blind(WireLine line)
+    {
+        var word = line.WordUpper(1);
+        switch (word)
+        {
+            case "ON":
+                if (_draft is not null)
+                    return Err("already blind — " + BlindWords.Changes(_draft.Changes) + " staged");
+                if (Section("show")["blind"] is JsonObject held)
+                    return Err($"{held["owner"]?.GetValue<string>()} holds the blind draft ({BlindWords.Changes(held["changes"]?.GetValue<int>() ?? 0)} staged) — one draft per node: it commits or discards it first");
+                var store = new PlayMap.Core.Model.ProjectStore(_store.Project, () => _clock.NowNs / 1_000_000)
+                {
+                    Guard = (before, after) => LockGuard.Check(WithLocks(before), WithLocks(after), armed: false),
+                };
+                _draft = new FakeDraft(ClientName, store, _store.Project);
+                DraftMoved();
+                return Ok("blind editing by " + ClientName + ": changes stay off the air until BLIND COMMIT");
+            case "DISCARD":
+                if (_draft is not { } d)
+                    return Err("not blind — nothing to discard");
+                _draft = null;
+                DraftMoved();
+                return Ok("blind draft discarded (" + BlindWords.Changes(d.Changes) + ")");
+            case "COMMIT":
+                if (_draft is not { } c)
+                    return Err("not blind — BLIND ON starts a draft");
+                // A commit lands past the armed show's own locks (the show's explicit locks still hold it), as the engine's does.
+                _promoting = true;
+                WireReply landed;
+                try
+                {
+                    landed = Edit("blind commit", _ => c.Store.Project);
+                }
+                finally
+                {
+                    _promoting = false;
+                }
+                if (landed.Ok)
+                {
+                    _draft = null;
+                    DraftMoved();
+                }
+                return landed;
+            default:
+                return Err("the demo engine runs BLIND ON, BLIND DISCARD and BLIND COMMIT — a real engine runs the rest");
+        }
+    }
+
+    /// <summary>STATE.show.blind follows the draft.</summary>
+    private void DraftMoved()
+    {
+        Section("show")["blind"] = _draft is { } d
+            ? new JsonObject
+            {
+                ["on"] = true, ["owner"] = d.Owner, ["session"] = SessionId, ["transport"] = Transport, ["since"] = UnixMs,
+                ["base"] = 0, ["changes"] = d.Changes, ["commit"] = null,
+            }
+            : null;
+        Moved();
     }
 
     private JsonArray Locks()

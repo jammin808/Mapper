@@ -26,6 +26,10 @@ public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id, lo
     public bool HasVerb => Verb.Length > 0;
 }
 
+/// <summary>Why the gate would refuse a line now: the node's own words, and the short tag a menu item carries after its label
+/// ("armed", "locked", "mirror", "fenced", "not paired", "blind draft").</summary>
+public sealed record GateRefusal(string Words, string Tag);
+
 /// <summary>The desk's side of one engine: the link, the mirrored project and STATE (latest wins, rebuilt on
 /// the UI thread at most once per dispatcher turn however fast the engine pushes), and the one door every
 /// view model sends verbs through. A refusal comes back as ERR with the reason; the session turns it into a
@@ -68,16 +72,30 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     public ThrottledSender Throttle { get; }
 
     private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
-    private Func<string, string?>? _gateHook;
+    private Func<string, GateRefusal?>? _gateHook;
     private string _role = "operator";
+    private string _sessionId = "";
+    private string _transport = "";
+    private bool _paired = true;
     private long _gateStamp;
 
     /// <summary>What Show Mode takes this desk for on the node (WHOAMI's role: "operator" for the desk on this machine or a
     /// listed desk address, "remote" otherwise); the gate decides with it, as the engine does.</summary>
     public string Role => _role;
 
-    /// <summary>Moves whenever what the gate reads may have moved (a STATE push, the node's verbs or the desk's role), so an
-    /// action re-asks the gate only then.</summary>
+    /// <summary>This desk's session on the node as WHOAMI names it ("" until it answers): STATE.show.blind names its draft's owner
+    /// the same way.</summary>
+    public string SessionId => _sessionId;
+
+    /// <summary>The transport the node took this desk's session on (WHOAMI's), with <see cref="SessionId"/> the session's identity.</summary>
+    public string Transport => _transport;
+
+    /// <summary>Whether the node holds this desk's session as paired (WHOAMI's; true until it answers). An unpaired session's line
+    /// that would change something is refused at the node's door.</summary>
+    public bool Paired => _paired;
+
+    /// <summary>Moves whenever what the gate reads moved (the facts a module's gate reads from STATE, the project, the node's verbs,
+    /// the desk's identity on the node), so an action re-asks the gate only then: a push that moves only a playhead re-asks nothing.</summary>
     public long GateStamp => Interlocked.Read(ref _gateStamp);
 
     /// <summary>Marks the gate's facts as moved (a module whose facts change outside a push calls it).</summary>
@@ -98,17 +116,20 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         return WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && _verbs.Contains(m.Spec.Name);
     }
 
-    /// <summary>The desk-wide refusal hook (the show's policy, the locks): the words why a line would be refused now,
-    /// or null. Every <see cref="ViewModels.DeskAction"/> asks it on refresh, so a control greys with the gate's words
-    /// before the press; the engine still decides.</summary>
-    public Func<string, string?>? Gate
+    /// <summary>The desk-wide refusal hook (the node's doors in its order: pairing, the fleet, the show's policy, the locks): why a
+    /// line would be refused now, or null. Every <see cref="ViewModels.DeskAction"/> asks it on refresh, so a control greys with the
+    /// gate's words before the press; the engine still decides.</summary>
+    public Func<string, GateRefusal?>? Gate
     {
         get => _gateHook;
         set => _gateHook = value;
     }
 
-    /// <summary>Why the gate would refuse this line now, or null.</summary>
-    public string? GateWords(string line) => _gateHook is { } g && !string.IsNullOrWhiteSpace(line) ? g(line) : null;
+    /// <summary>Why the gate would refuse this line now (its words and its tag), or null.</summary>
+    public GateRefusal? GateRefusalOf(string line) => _gateHook is { } g && !string.IsNullOrWhiteSpace(line) ? g(line) : null;
+
+    /// <summary>The words why the gate would refuse this line now, or null.</summary>
+    public string? GateWords(string line) => GateRefusalOf(line)?.Words;
 
     public IEngineLink? Link => _link;
 
@@ -183,32 +204,44 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         if (!ReferenceEquals(link, _link))
             return;
         var names = reply.Ok ? ParseVerbs(reply.Text) : FrozenSet<string>.Empty;
-        var role = who.Ok ? RoleIn(who.Text) : null;
+        var me = who.Ok ? WhoAmI.Read(who.Text) : null;
         _post(() =>
         {
             if (!ReferenceEquals(link, _link))
                 return;
             if (reply.Ok)
                 _verbs = names;
-            if (role is not null)
-                _role = role;
+            if (me is not null)
+            {
+                _role = me.Role ?? _role;
+                _sessionId = me.Session;
+                _transport = me.Transport;
+                _paired = me.Paired;
+            }
             GateMoved();
             VerbsUpdated?.Invoke();
         });
     }
 
-    /// <summary>The role in a WHOAMI reply, or null when it names none.</summary>
-    private static string? RoleIn(string text)
+    /// <summary>A WHOAMI reply as the gate reads it: the role (null when it names none), the session, its transport, paired.</summary>
+    private sealed record WhoAmI(string? Role, string Session, string Transport, bool Paired)
     {
-        try
+        public static WhoAmI? Read(string text)
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(text);
-            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object && doc.RootElement.TryGetProperty("role", out var r)
-                && r.ValueKind == System.Text.Json.JsonValueKind.String ? r.GetString() : null;
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(text);
+                var r = doc.RootElement;
+                if (r.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return null;
+                string? Str(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+                var paired = !r.TryGetProperty("paired", out var p) || p.ValueKind != System.Text.Json.JsonValueKind.False;
+                return new WhoAmI(Str("role"), Str("session") ?? "", Str("transport") ?? "", paired);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
         }
     }
 
@@ -264,6 +297,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _status = LinkStatus.Down;
         _verbs = FrozenSet<string>.Empty;
         _role = "operator";
+        _sessionId = "";
+        _transport = "";
+        _paired = true;
         GateMoved();
         Raise(nameof(Link), nameof(Status), nameof(IsLive));
         StatusUpdated?.Invoke(_status);

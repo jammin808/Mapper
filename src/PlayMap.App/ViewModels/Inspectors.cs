@@ -142,8 +142,10 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
     /// <summary>The actions the inspector's bar shows (the menu holds them all).</summary>
     public IReadOnlyList<DeskAction> Toolbar => _actions.Toolbar();
 
-    /// <summary>Why the gate would refuse an edit of this object now (armed and it is mapping or layout, or a lock holds
-    /// it): the fields grey and show these words; null while its fields are live. Asked with the line a field sends.</summary>
+    /// <summary>Why the gate would refuse an edit of this object now (armed and it is mapping or layout, a lock holds it, the node
+    /// mirrors another's show): the fields grey and show these words; null while its fields are live. Asked with the line its name
+    /// field sends; a field whose own line the gate refuses (a geometry field under a mapping lock) says the gate's words when it
+    /// is changed and sends nothing.</summary>
     public string? EditRefusal => Session.GateWords(VerbText.Set(Id, "name", "\"\""));
 
     public bool IsEditable => EditRefusal is null;
@@ -187,7 +189,13 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
         _edited[path] = Stopwatch.GetTimestamp();
         var line = VerbText.Set(id, path, json);
         if (throttle)
+        {
             Session.Throttle.Post(id + " " + path, line);
+            return;
+        }
+        // A field's line the gate refuses is not sent: its words are said (the throttle does the same for a drag's steps).
+        if (Session.GateWords(line) is { } why)
+            Session.Notify(ToastKind.Refused, why, line);
         else
             Session.Fire(line);
     }

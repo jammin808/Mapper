@@ -3,6 +3,7 @@ using System.Globalization;
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Show;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 
@@ -96,6 +97,8 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         _clock = clock ?? MonoClock.Instance;
         _store = new ProjectStore(project ?? DemoProject.Create(), () => _clock.NowNs / 1_000_000);
+        // The engine's guard: an edit of a locked entity or area, or (armed) of the mapping or the layout, is refused with LockGuard's words.
+        _store.Guard = (before, after) => LockGuard.Check(WithLocks(before), WithLocks(after), Armed && !_promoting);
         _savedRevision = _store.Current.Revision;
         _focused = _store.Project.Playlists.IsDefaultOrEmpty ? null : _store.Project.Playlists[0].Id;
         lock (_gate)
@@ -144,6 +147,19 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// <summary>What Show Mode takes the desk for (WHOAMI's role): "operator" for the desk on this machine, "remote" for a
     /// desk the node does not know as its own (tests set it before the desk attaches).</summary>
     public string Role { get; set; } = "operator";
+
+    /// <summary>Whether this demo node holds the desk's session as paired (WHOAMI's paired): an unpaired session's line that would
+    /// change something is refused at the door with the node's words. Tests set it before the desk attaches.</summary>
+    public bool Paired { get; set; } = true;
+
+    /// <summary>The desk's session on this demo node, as WHOAMI and STATE.show.blind name it.</summary>
+    public string SessionId => "demo";
+
+    /// <summary>The transport the desk's session arrives on: the desk's own, or the wire for a desk the node does not know as its own.</summary>
+    public string Transport => Role == "operator" ? "desk" : "wire";
+
+    /// <summary>The name the desk's session gives (a draft's owner's name).</summary>
+    public const string ClientName = "PlayMapDesk";
 
     /// <summary>Verbs this demo node marks unavailable in its VERBS answer (a node without a package), for tests.</summary>
     public HashSet<string> WithoutVerbs { get; } = new(StringComparer.Ordinal);
@@ -201,7 +217,14 @@ public sealed partial class FakeEngineLink : IEngineLink
             var before = _store.Current.Revision;
             var beforeAir = (_blackout, _frozen, _pattern);
             _extraMoved = false;
-            reply = Handle(line);
+            try
+            {
+                reply = Handle(line);
+            }
+            finally
+            {
+                _lineStore = null;
+            }
             var projectMoved = _store.Current.Revision != before;
             var mutated = reply.Ok && (projectMoved || IsMutating(line) || _extraMoved || beforeAir != (_blackout, _frozen, _pattern));
             if (!mutated)
@@ -303,7 +326,10 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     private WireReply Edit(string label, Func<Project, Project> edit, string? coalesceKey = null, string okText = "")
     {
-        var r = _store.Apply(label, edit, coalesceKey);
+        var store = _lineStore ?? _store;
+        var r = store.Apply(label, edit, coalesceKey);
+        if (r.Changed && !ReferenceEquals(store, _store))
+            DraftMoved();
         return r.Changed ? Ok(okText) : Err(r.Effect);
     }
 
@@ -349,7 +375,7 @@ public sealed partial class FakeEngineLink : IEngineLink
                     .Select(v => new Dictionary<string, object> { ["name"] = v.Name, ["available"] = !WithoutVerbs.Contains(v.Name) }))),
                 "WHOAMI" => Ok(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
                 {
-                    ["session"] = "demo", ["transport"] = Role == "operator" ? "desk" : "wire", ["client"] = "PlayMapDesk", ["paired"] = true,
+                    ["session"] = SessionId, ["transport"] = Transport, ["client"] = ClientName, ["paired"] = Paired,
                     ["role"] = Role, ["armed"] = Armed, ["proto"] = 1,
                 })),
                 "SET" => Set(line),
