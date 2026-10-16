@@ -149,7 +149,8 @@ together (`docs/SCAN-MULTIVIEW.md`, `docs/wire/multiscan.md`). Scans keep their 
 person's `APPROVE` runs (an assistant, asked with `ASSISTANT`, sees text descriptors only and may only name and rank them).
 
 The **Folder camera** (a camera rig of kind Folder) is a tethered camera or a person shooting into a folder: in tether mode each new
-image after a pattern goes up is that pattern's picture; in manual mode `SCAN NEXT` takes the newest. Photos carry the tags too: a
+image after a pattern goes up is that pattern's picture once it has bytes and its size stands still (a file the tool has made but not
+yet filled is waited for); in manual mode `SCAN NEXT` takes the newest. Photos carry the tags too: a
 photo of another pattern is refused ("photo 17 shows pattern 16: re-shoot") and the scan waits. JPEG, PNG and TIFF (16-bit as
 gray16) are read through the user's FFmpeg; RAW is refused with what to do. Verified with a fake tether writing the simulator's
 pictures (the projector within 1 cm, 0.25°, 0.6 % of throw), a wrong photo refused, a manual run through `SCAN NEXT`, a 16-bit TIFF.

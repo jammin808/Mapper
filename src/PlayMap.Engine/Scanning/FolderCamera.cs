@@ -27,7 +27,7 @@ public sealed record FolderCameraOptions
 /// <summary>
 /// A folder as the scan's camera (a camera rig of kind Folder): a tethered camera or a person shooting into it. With
 /// <see cref="FolderAdvance.NewFile"/> each image file that appears after a pattern goes up — a name the folder did not hold at the
-/// cue, the first by name, its size unchanged for the settle time — is that pattern's picture; with <see cref="FolderAdvance.Manual"/> the node waits for
+/// cue, the first by name that has bytes, its size unchanged for the settle time — is that pattern's picture; with <see cref="FolderAdvance.Manual"/> the node waits for
 /// SCAN NEXT and takes the newest file since the cue. The tags apply to photos as to a phone's pictures: a photo whose tag reads
 /// another pattern is refused with words ("photo 17 shows pattern 16: re-shoot") and the scan waits for the next. A 16-bit file
 /// arrives as gray16 (its top 8 bits for the decode). The camera keeps the exposure it was set to: it runs the lock profile.
@@ -249,7 +249,8 @@ public sealed class FolderCamera : ICuedScanCamera
     private CameraFrame Frame(StillImage still) =>
         new(still.Gray8, still.Width, still.Height, Core.Time.MonoClock.Instance.NowNs, Interlocked.Increment(ref _generation)) { Gray16 = still.Gray16 };
 
-    /// <summary>The next file the folder did not hold, once its size has stood still for the settle time.</summary>
+    /// <summary>The next file the folder did not hold (the first by name of those with bytes), once its size has stood still for the
+    /// settle time: a file a tethering tool has made but not yet filled is waited for, never taken as an empty picture.</summary>
     private async Task<(string Path, long Size)> NewFileAsync(CancellationToken ct)
     {
         while (true)
@@ -257,12 +258,11 @@ public sealed class FolderCamera : ICuedScanCamera
             HashSet<string> seen;
             lock (_gate)
                 seen = _seen;
-            var fresh = Files().Where(f => !seen.Contains(f)).Order(StringComparer.Ordinal).FirstOrDefault();
+            var (fresh, size) = Files().Where(f => !seen.Contains(f)).Order(StringComparer.Ordinal).Select(f => (f, Size(f))).FirstOrDefault(x => x.Item2 > 0);
             if (fresh is not null)
             {
-                var size = Size(fresh);
                 await Task.Delay(_settle, ct).ConfigureAwait(false);
-                if (size >= 0 && Size(fresh) == size)
+                if (Size(fresh) == size)
                 {
                     lock (_gate)
                         _seen.Add(fresh);
