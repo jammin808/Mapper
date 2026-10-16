@@ -192,3 +192,27 @@ virtual output whose monitor the audio tests capture from), starts the display a
 variables to export.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
+
+## Versions
+
+The product version is SemVer, `MAJOR.MINOR.PATCH`, written once, in `Version.props` (0.2.0). Every build carries a build
+number and its commit: CI passes its run number and commit (`-p:PlayMapBuild=<n> -p:PlayMapCommit=<sha>`); a build given
+neither is a local build, numbered 0 and marked `-dev`, with the commit its checkout is at (none outside a git checkout,
+which does not fail the build). Every PlayMap assembly carries the same stamp — here CI's run 17 of commit abc1234, and a
+local build:
+
+| | CI build | Local build |
+|---|---|---|
+| AssemblyVersion | `0.2.0.0` | `0.2.0.0` |
+| FileVersion (Windows' four parts) | `0.2.0.17` | `0.2.0.0` |
+| InformationalVersion (Windows' ProductVersion) | `0.2.0+17.abc1234` | `0.2.0-dev+abc1234` |
+| In words | PlayMap 0.2.0 (build 17, abc1234) | PlayMap 0.2.0-dev (local build, abc1234) |
+
+The assembly version moves only with MAJOR.MINOR, so binding does not churn between builds. A part of a Windows file version
+holds at most 65535: a build number past it fails the build with words (wrapped, it would read to an installer as an older
+build; clamped, as the same one), and the numbering starts again under a raised version. Where to read a build: the exe's
+file properties (File version, Product version); the desk's title and the About line of its help (F1); the engine's log,
+whose first line and every crash line name it, and the journal's start line; HEALTH's `build`, which the context's machine
+item and the fleet's board carry (docs/wire/fleet.md); the web port's MCP server info; CI's job summary and the Windows
+artifact's name (`PlayMap-0.2.0.17-win-x64`). STATE's `version` is the product version alone, the same for every build of a
+release, so the committed STATE fixtures hold on any machine.

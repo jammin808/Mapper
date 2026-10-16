@@ -90,7 +90,7 @@ Compact JSON, top-level keys in this order (new keys are added at the end of the
 as raw substrings):
 
 ```json
-{"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.1.0","at":1760101234567,
+{"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.2.0","at":1760101234567,
  "light":"green","headline":"Show · Intro 0:42 left · 3 outputs green · synced to FOH (0.2 ms)",
  "air":{"blackout":false,"frozen":false,"pattern":null,"identify":false,"patternsBlackout":false,
    "followPatternsBlackout":true},
@@ -143,6 +143,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
   that budget), what lights the output amber; the totals are in `outputs[].present` (docs/OUTPUT.md). `fps` and
   `frameMsP95` are measured against the output's own target: a windowed output's display refresh, a headless output's
   configured `refreshHz` (the headless loop runs at the fastest enabled output's refresh, not the show's frame rate).
+- `version` is the product version, SemVer `MAJOR.MINOR.PATCH` (README, "Versions"): the same from every build of a release,
+  so a STATE written by CI's build and by a local one differ in nothing. The build itself — its number and its commit — is
+  HEALTH's `build` (docs/wire/fleet.md), which the context's machine item carries too.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
