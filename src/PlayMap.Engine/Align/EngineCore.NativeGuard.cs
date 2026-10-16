@@ -200,6 +200,16 @@ public sealed partial class EngineCore
         w.WriteEndArray();
     }
 
+    /// <summary>Every device whose own processing fights a measured correction, as last read: its id, name, the words and the fix line.</summary>
+    internal List<(string Id, string Name, string Words, string Fix)> NativeFights()
+    {
+        var list = new List<(string, string, string, string)>();
+        foreach (var link in Store.Project.Stage.Devices)
+            if (_native.TryGetValue(link.Id, out var view) && Fight(link, view) is { } fight)
+                list.Add((link.Id, link.Name, fight.Words, fight.Fix));
+        return list;
+    }
+
     /// <summary>A device whose own processing fights a measured correction: its context item amber (never lowered from red) with the
     /// guard's words and fix.</summary>
     private void NativeContext(List<ContextItem> items)

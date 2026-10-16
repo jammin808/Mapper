@@ -9,7 +9,8 @@ namespace PlayMap.Engine.Align;
 
 /// <summary>Preflight's align rows: every output with a measured correction has its files where the project names them, unchanged,
 /// and read (red with the line that returns it to its fallback when not); an output whose group has a staged run waiting is amber
-/// with the line that accepts it. A node with no measured correction answers one green row.</summary>
+/// with the line that accepts it; a projector whose own geometry or blend fights a measured correction (the double-correction guard's
+/// last read) is amber with the line that turns it off. A node with no measured correction answers one green row.</summary>
 internal sealed class AlignPreflight : IPreflightCheck
 {
     public string Section => "align";
@@ -54,6 +55,8 @@ internal sealed class AlignPreflight : IPreflightCheck
             rows.Add(new PreflightRow("align:" + o.Id, node, Section, o.Name, Light.Green, "ok",
                 string.Create(CultureInfo.InvariantCulture, $"{m.RunId}: warp {m.ResidualPx:0.00} px, files present and loaded"), null));
         }
+        foreach (var (id, name, words, fix) in engine.NativeFights())
+            rows.Add(new PreflightRow("align:native:" + id, node, Section, name, Light.Amber, "double correction", words, fix));
         if (rows.Count == 0)
             rows.Add(new PreflightRow("align", node, Section, "Alignment", Light.Green, "none", "no output has a measured correction", null));
         return rows;

@@ -1,8 +1,11 @@
 using System.Text.Json;
+using PlayMap.Core.Bus;
+using PlayMap.Core.Preflight;
 using PlayMap.Core.Time;
 using PlayMap.Devices.Drivers;
 using PlayMap.Devices.Manager;
 using PlayMap.Devices.Tests.Simulators;
+using PlayMap.Engine.Align;
 using PlayMap.Engine.Devices;
 using Xunit.Abstractions;
 
@@ -56,6 +59,11 @@ public sealed class DoubleCorrectionTests(ITestOutputHelper log)
         Assert.True(row.GetProperty("geometry").GetBoolean());
         Assert.Equal("amber", row.GetProperty("light").GetString());
         Assert.Equal("op2", row.GetProperty("outputs")[0].GetString());
+
+        // Preflight says it too, amber with the line that turns it off.
+        var rows = await new AlignPreflight().RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+        var preflight = Assert.Single(rows, r => r.Id == "align:native:" + id);
+        Assert.Equal((Light.Amber, $"DEVICE RAW {id} VXX:GMMI0=+00000"), (preflight.Light, preflight.Fix));
 
         native = AlignRig.Json(await rig.Ok($"DEVICE NATIVE {id}"));
         Assert.Equal($"DEVICE RAW {id} VXX:GMMI0=+00000", native.GetProperty("fix").GetString());
