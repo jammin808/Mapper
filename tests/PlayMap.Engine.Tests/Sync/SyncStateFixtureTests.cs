@@ -16,7 +16,7 @@ public sealed class SyncStateFixtureTests
 {
     private const long Second = SyncRig.Second;
     private const long Ahead = 7_300_000_000;
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Indented = FixtureJson.Indented;
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 

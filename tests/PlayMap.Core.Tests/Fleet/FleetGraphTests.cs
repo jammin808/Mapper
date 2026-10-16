@@ -46,7 +46,7 @@ public sealed class FleetGraphTests
         throw new InvalidOperationException("the repository root (PlayMap.sln) is not above the test's folder");
     }
 
-    private static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true, NewLine = "\n" };
 
     private static string Indented(string json)
     {

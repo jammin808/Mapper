@@ -227,7 +227,7 @@ public sealed class LedImportTests
             await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), p);
             await LedVerbTests.Ok(engine, """ADD lednode {"name":"PixLite","host":"10.0.0.21","enabled":true}""");
             var revision = engine.Store.Current.Revision;
-            var json = JsonDocument.Parse(await LedVerbTests.Ok(engine, $"LED IMPORT \"{path}\" AS CSV NODE PixLite SCALE 2")).RootElement;
+            var json = JsonDocument.Parse(await LedVerbTests.Ok(engine, $"LED IMPORT {WireGrammar.Quote(path)} AS CSV NODE PixLite SCALE 2")).RootElement;
             Assert.Equal((2, 3), (json.GetProperty("fixtures").GetInt32(), json.GetProperty("pixels").GetInt32()));
             Assert.Equal(revision + 1, engine.Store.Current.Revision);
             var fixtures = engine.Store.Project.Leds.Fixtures;

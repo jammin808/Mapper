@@ -227,7 +227,7 @@ public sealed class LedHostTests
             Assert.Equal(1, led.GetProperty("conflicts").GetArrayLength());
             Assert.Contains("world sampling is next round", led.GetProperty("warnings")[0].GetString(), StringComparison.Ordinal);
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "led.json");
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "led.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
@@ -293,7 +293,7 @@ public sealed class LedHostTests
             n!["fps"] = 0;
             n["host"] = "127.0.0." + n["host"]!.GetValue<string>().Split('.')[^1];
         }
-        return new JsonObject { ["led"] = led }.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return new JsonObject { ["led"] = led }.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>The values at a dotted path ("led.nodes[].state", "led.conflicts.length").</summary>

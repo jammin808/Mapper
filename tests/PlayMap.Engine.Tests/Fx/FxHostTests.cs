@@ -302,7 +302,7 @@ public sealed class FxHostTests
             outputs.Add(new JsonObject { ["id"] = o["id"]!.GetValue<string>(), ["fx"] = ofx });
         }
         var fixture = new JsonObject { ["fx"] = fx, ["outputs"] = outputs };
-        return fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return fixture.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]
@@ -323,7 +323,7 @@ public sealed class FxHostTests
             Assert.Equal(FxBoard.HistoryWords, slots["fx00000003"].GetProperty("words").GetString());
             Assert.Equal("amber", doc.RootElement.GetProperty("outputs")[0].GetProperty("fx").GetProperty("light").GetString());
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "fx.json");
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "fx.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")

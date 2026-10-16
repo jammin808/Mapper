@@ -61,7 +61,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
                 hap["stageMsP95"] = 0;
         }
         var root = new JsonObject { ["decode"] = node };
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>What the desk's generic card template renders for STATE.decode: title, STATE path, light, words, fields, verb lines.</summary>
@@ -186,7 +186,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             var fixture = Normalise(decode);
             var path = FixturePath("decode.json");
             var cardsPath = FixturePath("decode.cards.json");
-            var cards = JsonNode.Parse(Cards)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+            var cards = JsonNode.Parse(Cards)!.ToJsonString(FixtureJson.Indented) + "\n";
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             {
                 await File.WriteAllTextAsync(path, fixture);

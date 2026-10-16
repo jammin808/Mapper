@@ -126,14 +126,14 @@ internal static class Clips
 {
     private static readonly Lazy<string> Folder = new(() => Directory.CreateTempSubdirectory("playmap-stage-tests-").FullName);
 
+    /// <summary>The ffmpeg tool beside the libraries the tests load (the platform's own file name), as <see cref="Host.FfmpegFactAttribute"/>
+    /// finds it.</summary>
     public static string Ffmpeg()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)))
-            Environment.SetEnvironmentVariable(FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Host.FfmpegFactAttribute.UseDefaultLibraries();
         FfmpegLoader.EnsureLoaded();
-        var libs = Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!;
-        var tool = Path.GetFullPath(Path.Combine(libs, "..", "bin", "ffmpeg"));
-        return File.Exists(tool) ? tool : "/opt/ffmpeg9/bin/ffmpeg";
+        return Host.FfmpegFactAttribute.Tool()
+            ?? throw new InvalidOperationException("the ffmpeg tool was not found beside " + Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable));
     }
 
     /// <summary>A 64 × 48 H.264 clip at 25 fps, <paramref name="seconds"/> long, every frame its index painted.</summary>

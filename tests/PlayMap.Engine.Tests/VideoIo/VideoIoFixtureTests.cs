@@ -138,7 +138,7 @@ public sealed class VideoIoFixtureTests
         foreach (var (id, stable) in ids)
             text = text.Replace(id, stable, StringComparison.Ordinal);
         var fixture = new JsonObject { ["videoio"] = JsonNode.Parse(text) };
-        return fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return fixture.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public sealed class VideoIoFixtureTests
             Assert.Equal("input_1", v.GetProperty("discovered")[1].GetProperty("added").GetString());
             Assert.Equal(700, v.GetProperty("bandwidth").GetProperty("limitMbps").GetDouble());
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "videoio.json");
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "videoio.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
