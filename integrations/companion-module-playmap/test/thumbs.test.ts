@@ -4,7 +4,8 @@
 // The refs placed keys show are told to the node with one SUBSCRIBE THUMBS a debounce after they change: a key that leaves drops
 // its ref, and the last one leaving tells the node to watch none. A THUMBS push whose ETag moved for a placed ref fetches it again
 // with IF <the ETag held>, after a relink too; a refused THUMB leaves the key without a picture and the module running. A key on an
-// item shows its source as INDEX has it now; a picture of the air goes with the link, a colour's stays.
+// item shows its source as INDEX has it now; a picture of the air goes with the link, a colour's stays; one refused while the show
+// was armed is asked again when it disarms.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeepStrictEqual } from 'node:util'
@@ -553,5 +554,42 @@ void test("a picture of the air (a playlist's current item) goes with the link; 
 	} finally {
 		await m.stop()
 		if (!stopped) await node.stop()
+	}
+})
+
+void test('a picture the node refused while the show was armed is asked again once the show disarms', async () => {
+	const { node, m } = await linked()
+	try {
+		const { red } = items()
+		await m.place('red', 'thumb', { ref: red.id, size: 96 })
+		await values(m, { red: pictureOf(red.source) }, "Red's picture in rehearsal")
+		await node.heard(sentLine(`SUBSCRIBE THUMBS ${red.source}`))
+
+		// Armed, the node serves only posters made before, and Red's picture moved: asked again, it is refused.
+		let armed = true
+		node.handlers.set('THUMB', () =>
+			armed ? 'ERR no picture of it yet — posters are made in rehearsal or on import' : undefined,
+		)
+		const state = copy(fixture('state.json')) as { show: { armed: boolean } }
+		state.show.armed = true
+		node.pushState(state)
+		await m.host.until(() => m.host.variables.get('show_mode') === 'ARMED', 'armed')
+		node.push('THUMBS ' + JSON.stringify({ [red.source]: `etag-${red.source}-2` }))
+		await node.heard(sentLine(`THUMB ${red.source} 96x96 IF etag-${red.source}-1`))
+		await values(m, { red: '' }, 'refused while armed: the key shows none')
+
+		// Disarmed: the node makes pictures again, and the key's is asked again and shown.
+		armed = false
+		state.show.armed = false
+		node.pushState(state)
+		await values(m, { red: pictureOf(red.source) }, 'asked again once disarmed, and shown')
+		assert.deepEqual(thumbLines(node, red.source), [
+			`THUMB ${red.source} 96x96`,
+			`THUMB ${red.source} 96x96 IF etag-${red.source}-1`,
+			`THUMB ${red.source} 96x96`,
+		])
+	} finally {
+		await m.stop()
+		await node.stop()
 	}
 })

@@ -30,7 +30,8 @@ export class Thumbs {
 	readonly #inflight = new Set<string>()
 	readonly #placed = new Map<string, { ref: string; size: number }>()
 	readonly #pushed = new Map<string, string | null>()
-	/** Ref and size the node refused (no picture of it now): not asked again until a push says its picture moved, or a relink. */
+	/** Ref and size the node refused (no picture of it now): not asked again until a push says its picture moved, the show disarms,
+	 * or a relink. */
 	readonly #refused = new Set<string>()
 	readonly #ask: (line: string) => Promise<Reply>
 	readonly #recheck: (feedbackIds: string[]) => void
@@ -114,6 +115,15 @@ export class Thumbs {
 			[...this.#cache.keys()].map((key) => key.slice(0, key.lastIndexOf('|'))).filter((r) => AIR_REF.test(r)),
 		)
 		for (const ref of air) this.#drop(ref, null)
+	}
+
+	/** The show disarmed: the node makes pictures again (armed, it serves only posters made before), so every placed picture not held
+	 * — refused while armed — is asked again. */
+	disarmed(): void {
+		this.#refused.clear()
+		for (const p of this.#placed.values())
+			if (!this.#cache.has(`${p.ref}|${p.size}`) && this.#pushed.get(p.ref) !== null)
+				this.#fetch(p.ref, p.size, undefined)
 	}
 
 	/** The link is paired again: the watched set is told again and every placed picture not held is fetched. */

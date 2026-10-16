@@ -25,7 +25,7 @@ import { LineError, NodeSession, type LinkState, type Reply, type SessionOptions
 import { LivePage } from './live.ts'
 import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets, withPresets } from './presets.ts'
 import { NodeModel } from './state/model.ts'
-import { P, at, field, list, num as numOf, str } from './state/paths.ts'
+import { P, at, bool, field, list, num as numOf, str } from './state/paths.ts'
 import { changedValues, scanRunning, variableDefinitions, variablesOf } from './state/variables.ts'
 import { Thumbs } from './thumbs.ts'
 import { KNOWN_LINE_PROTOCOL, MODULE_VERSION } from './version.ts'
@@ -157,6 +157,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#held: unknown[] | null = null
 	#replayTimer: ReturnType<typeof setTimeout> | null = null
 	#pairedBefore = false
+	/** STATE's show.armed as last heard (false once the link drops: a relink asks every picture again anyway). */
+	#armed = false
 	/** What the instance last handed Companion's presets (the test reads it to compare with what the host kept). */
 	lastPresets: { structure: unknown; presets: unknown } | null = null
 
@@ -397,6 +399,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		if (this.#replayTimer) clearTimeout(this.#replayTimer)
 		this.#replayTimer = null
 		this.model.state = null
+		this.#armed = false
 		this.model.whoami = null
 		this.#whoamiKey = ''
 		this.receipts.clear()
@@ -589,6 +592,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		if (this.events.baseline === 0 && this.events.lastSeq === 0) this.events.baseline = numOf(at(s, P.eventsSeq))
 		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
 		this.encoders.stateMoved()
+		const armed = bool(at(s, P.showArmed))
+		if (this.#armed && !armed) this.thumbs.disarmed()
+		this.#armed = armed
 		// A node whose INDEX moved says so in STATE; if no INDEX push follows (a node without SUBSCRIBE INDEX), it is asked.
 		const sig = str(at(s, P.projectIndex))
 		if (sig && sig !== this.#lastSig && !this.#indexTimer)

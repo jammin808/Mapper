@@ -201,9 +201,10 @@ one template group of 32 slots whose source is the page variable `pm_live`; the 
 the show is armed, keeps each slot on its entity (lights and labels still move; a gone one reads REMOVED) until RE-LAY or disarming.
 
 **Pictures** are asked with `THUMB <ref> <size>x<size>` only for keys that show them, kept by ref and size (256 at most), and asked again
-with `IF <etag>` when a `THUMBS` push says one moved. A key on an item shows its source as INDEX has it now. A picture of the air
-(`playlist:`, `output:`, `projector:`) goes when the link drops, as every fact the node said does; a poster of media, a colour or a
-generator stays.
+with `IF <etag>` when a `THUMBS` push says one moved; one the node refused while the show was armed (only posters made before are
+served then) is asked again when STATE's `show.armed` goes false. A key on an item shows its source as INDEX has it now. A picture of
+the air (`playlist:`, `output:`, `projector:`) goes when the link drops, as every fact the node said does; a poster of media, a colour
+or a generator stays.
 
 **Tests.** `npm test` (Node 22) type-checks, lints and runs the module through `@companion-module/host`'s `InstanceWrapper` — Companion's own
 host layer — against a fake node in Node, and against `tools/PlayMap.Node engine --headless` itself (`e2e-engine.test.ts`). The node holds

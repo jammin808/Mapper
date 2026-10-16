@@ -109,9 +109,9 @@ adds nothing to the node's wire.
 - **Says**, every line with `@c<n>`: `HELLO Companion:<label> module=<version>`, `AUTH-PROOF <hex>` after a `NONCE`, `PING <t1>` every
   2 s, `PRESENCE {"kind":"companion","module","live","page","thumbs"}`, `WHOAMI` (again when STATE's `show.armed` or `clients` move),
   `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop, `SUBSCRIBE THUMBS <ref>…` (the refs its keys show,
-  at most 128), `THUMB <ref> <n>x<n> [IF <etag>]`, `INDEX` (when `project.index` moved and no push came within 500 ms), and the lines its
-  actions write. Every line it can send is in `test/lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to
-  its row; no line it sends exceeds 64 KiB.
+  at most 128), `THUMB <ref> <n>x<n> [IF <etag>]` (again when the show disarms, for one refused while armed), `INDEX` (when
+  `project.index` moved and no push came within 500 ms), and the lines its actions write. Every line it can send is in
+  `test/lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends exceeds 64 KiB.
 - **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
   and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
   `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
