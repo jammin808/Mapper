@@ -1,6 +1,7 @@
-# Decode: the HAP family on the GPU
+# Decode: the HAP family on the GPU, the decode-path ladder, hardware imports
 
-HAP clips play block-compressed: the CPU only undoes the second stage (Snappy, or a copy) chunk by chunk, and the GPU samples
+Every clip decoder says the path its frames actually come by — and why not a better one — in STATE, DECODE STATUS, the context
+and preflight. HAP clips play block-compressed: the CPU only undoes the second stage (Snappy, or a copy) chunk by chunk, and the GPU samples
 the blocks. All seven codecs play, including the two FFmpeg has no decoder for.
 
 | FourCC | Codec (`MediaInfo.VideoCodec`) | Texture | Planes | `hap` pass |
@@ -40,6 +41,66 @@ the blocks. All seven codecs play, including the two FFmpeg has no decoder for.
   would draw black. MEDIA INSPECT, STATE.decode, the context's `decode` item and the preflight check
   are in `docs/wire/decode.md`.
 
+## The decode-path ladder
+
+A clip FFmpeg decodes opens on the highest rung the policy (`decode.policy`, `DECODE POLICY`), the renderer's device and the proof
+allow, and only ever steps down while it is open (`DecodeLadder`, Core, pure):
+
+| Rank | `path` | Frames reach the renderer as | Where |
+|---|---|---|---|
+| 1 | `hw-direct` | the decoder's own surface, sampled in place | Linux: VAAPI on the renderer's render node, imported as dmabuf EGLImages; Windows: D3D11VA once direct sampling is proven or forced |
+| 2 | `hw-gpu-copy` | one copy on the GPU | Windows: D3D11VA, the default until proven |
+| 3 | `hw-copy-back` | a hardware frame copied to memory and uploaded | any hardware device that is not the renderer's |
+| 4 | `software` | a CPU frame uploaded | no device, or `decode.policy software` |
+
+`hap-gpu` (HAP) and `gpu-share` (texture-sharing inputs) are set by their own producers. A live input (NDI, OMT, Spout) is not on
+the ladder: its frames come from its receiver, which no FFmpeg decoder of this node makes.
+
+- **At open.** VAAPI surfaces are sampled in place or not at all (no one-copy rung): `gpu-copy` on Linux means copy-back. D3D11
+  takes one GPU copy until direct sampling is proven on the driver (the proof harness is next round) or `DECODE POLICY DIRECT
+  FORCE`. A renderer whose device imports nothing (GLX, or a software GL) opens every clip on copy-back with the renderer's words
+  ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context").
+- **At run time** a source steps down — keeping its queue, while the renderer holds the last picture — when the renderer could
+  not import a frame (it reports the failure to the share against the source's key; the decode thread reads it before its next
+  map), when the first frame's planes are not a (fourcc, modifier) the display imports, when the decoder waits more than three
+  frame periods for a free surface three times in ten seconds (`StarvationWatch`), or when the device hands the stream back to
+  software. Each step is one journal row (`decode`, "Intro: hw-direct → hw-copy-back — …") and moves STATE. A source steps back up
+  only when it is opened again (its import failure is forgotten then).
+- **The path a source reports is its latest frame's**: the path it published by (a copied-back frame says `hw-copy-back`, a
+  frame the device handed back says `software`), never only the rung it opened on.
+
+## Hardware imports
+
+- **Linux, VAAPI → GL by dmabuf.** `DmaBufShare` (Render) is the renderer's device on an EGL context that imports dmabufs: the render
+  node from `EGL_EXT_device_query`/`EGL_EXT_device_drm_render_node`, the importable (fourcc, modifier) pairs from
+  `eglQueryDmaBufFormatsEXT`/`eglQueryDmaBufModifiersEXT`. `StreamDecoder` makes the VAAPI device on that node (the libva guard
+  holds: a machine whose libva lacks what this FFmpeg calls skips it with words), with `extra_hw_frames` = the queue + 3. The decode
+  thread maps each frame to DRM PRIME (`av_hwframe_map`, read access) into the slot's own AVFrame; `DrmFrames` reads the
+  hand-declared descriptor (its layout pinned by `DrmLayoutTests`) into NV12 (R8 + GR88) or P010 (R16 + GR32) planes. The slot holds
+  the mapping (and so the VA surface) until every hold on its `GpuSurface` is released. `DmaBufImporter` makes one EGLImage per plane,
+  binds it as the storage of a texture it owns and the `yuv` pass samples it; the surface is held behind a fence and let go once the
+  GPU passed it — two slots, so the renderer never holds more than two surfaces, and when both are in flight the last picture holds
+  rather than the render thread waiting.
+- **Windows, D3D11VA on the renderer's device.** `HwDecode.D3d11vaOnShare` makes FFmpeg's D3D11VA device on the share's
+  `ID3D11Device` (AddRef'd for FFmpeg, BindFlags DECODER | SHADER_RESOURCE, lock callbacks into the share's recursive lock).
+  `AngleImporter` copies the decoder's array slice into one of three pooled NV12/P010 textures (`CopySubresourceRegion`) whose plane
+  images (`EGL_ANGLE_image_d3d11_texture` with the plane and array-slice attributes) are made once, or, proven, imports the slice
+  itself; one device and one immediate context, so a frame is released as soon as its read is recorded.
+- **Padded surfaces.** The `yuv` program crops: `uCrop` is visible ÷ coded size and `uMaxUv` the last visible chroma texel's
+  centre, so a 1920×1088 coded frame shows no padding row and chroma never filters into it. Dmabuf planes import at their visible
+  size (no crop); D3D11 plane images cover the coded size.
+
+## The upload arena
+
+Each render context has one: a persistently mapped, coherent pixel-unpack buffer (`decode.uploadArenaMb`, 256 MB; buffer storage
+from desktop 4.4, `ARB_buffer_storage` or ES `EXT_buffer_storage`, else none and the words say so). A HAP source's decode thread
+rents a block (`ArenaAllocator`: aligned first-fit ranges, coalesced, at most 64 out, allocation-free) and writes the frame's
+second stage straight into it; the renderer uploads its blocks from the buffer at the block's offset, with no copy of its own. A
+returned block is free again only after a fence the GPU has passed (`GlUploadArena.EndFrame`, once a frame). When the context goes,
+sources are told first and return once none is writing into the arena; their queued frames in it are let go and made again; the
+arena's epoch moves, so a late block is ignored and a frame in a gone arena is never read. STATE says `staging: persistent` and the
+arena's size and free megabytes.
+
 ## HAP HDR
 
 The specification carries no colour metadata, so the reading is explicit and STATE says which rule applied: the item's override
@@ -69,22 +130,34 @@ and timed beside.
 - HAP, HAP Alpha and HAP Q against FFmpeg 9's own encoder and its CPU decoder; HAP Q Alpha, Alpha-Only, HAP R and HAP HDR against
   frames assembled here (`HapFrameWriter`, blocks from BCnEncoder.NET, muxed with the codec's fourcc), on Mesa's S3TC, RGTC and BPTC.
 - Interop with HAP R and HAP HDR files from other encoders is lab work: no such files or encoders exist here.
+- The ladder's rules, every demotion with its words, and the path in STATE equal to the path the frames came by.
+- The dmabuf import half on llvmpipe: memfd-backed NV12 and P010 planes (odd sizes, offsets, 256-byte pitches) imported per plane
+  convert to the CPU upload's picture bit for bit; holds, the two-surface limit, a failed import that keeps the last picture.
+  `EGL_MESA_image_dma_buf_export` is absent on this display, so the export round trip says so and runs where Mesa offers it.
+- Padded surfaces (a 1920×1088 frame with a magenta padding band), the upload arena (uploads, fences, epochs, allocation-free).
+- **Compile-only**: VAAPI decode and its DRM mapping (no VA driver, no `/dev/dri`), D3D11VA and the ANGLE importer (a
+  `Category=Windows` test opens the D3D11VA device on a WARP device on CI, or says why — WARP has no video decoder and the runner
+  has no FFmpeg). Fallback for both: copy-back or software, with the words why. **Lab**: Intel/AMD VAAPI, NVIDIA/Intel D3D11VA.
 
 ## Next round
 
-- The persistently mapped upload arena (`UploadArena`, `LeaseRetention`): this round's stretch item, not started (wp2-zerocopy's
-  item 4 picks it up); `decode.uploadArenaMb` is read by nothing yet and STATE says `staging: copy`.
+- The direct-sampling proof (`DECODE PROBE`, `NodeHome/decode-proof.json`), the EGLImage cache per VA surface, the per-item decode
+  override, raw HAP straight from disk into the arena, CUDA → GL; `decode.glApi` (an EGL desktop context on X11) needs the render
+  context's API choice in `RenderContext` (wp2-d3d11's file): today a desktop context on X11 is GLX and imports no dmabufs.
 - `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens without a loop of its own, so a
   clip that ends holds its last frame and a looping item (a library item shown directly, a looping playlist clip) wraps through a
   seek — the frame before the loop point holds for the seek's few milliseconds instead of the loop being gapless — and a HAP
   source that could not open is not retried. Needs a spine amendment (below).
-- Interop fixtures of HAP R/HDR from other encoders (lab), direct sampling of BC textures with no `hap` pass, raw HAP straight from
-  disk into the arena, sRGB block formats, the desk's codec chips.
+- Interop fixtures of HAP R/HDR from other encoders (lab), direct sampling of BC textures with no `hap` pass, sRGB block formats,
+  the desk's codec and decode-path chips.
 - MEDIA INSPECT's results kept in `NodeHome/inspect/` across restarts (kept in memory this round) and `ON <node>`.
 - A faster second stage on element-dense frames (a table-driven tag decode, as Snappier's): it trails Snappier by up to a
   fifth there.
 
 ## Spine amendments asked for
+
+- `GpuSurface` carries `SourceKey`, `Owner` (`IGpuSurfaceOwner`) and `Retain`/`Release`: a renderer holds a decoder surface past
+  the lease that carried it until its read completed (made here, in `GpuSurfaces.cs`).
 
 - `VideoFrameLease` gains `virtual double WhiteNits` (or an HDR scale): the HAP HDR white level rides `IHapPicture` (Core, this
   package) until then.

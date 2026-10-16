@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Media;
@@ -10,6 +11,7 @@ using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Hap;
 using PlayMap.Media.Sources;
 using PlayMap.Net;
+using PlayMap.Render.Gpu;
 
 using LibraryImport = PlayMap.Media.MediaImport;
 
@@ -65,6 +67,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     private volatile bool _rendererSaid;
     private readonly Lock _openGate = new();
     private readonly List<OpenDecoder> _open = [];
+    private volatile IGpuShare? _platformShare;
+    private volatile ZeroCopyState _zeroCopy = ZeroCopyState.None;
+    private volatile IUploadArena? _arena;
 
     public MediaBackend(NodeHome home, ILogger log)
     {
@@ -158,8 +163,19 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             var why = "";
             if (item.Kind == MediaKind.Video && HapRoute(item, out why) is { } hap)
                 return Track(item, new HapVideoSource(path, hap, item.Id), "");
-            var source = MediaSources.Open(located, null, MediaSourceOptions.Default);
-            return source is FfmpegVideoSource clip ? Track(item, clip, why) : source;
+            var options = MediaSourceOptions.Default;
+            var choice = default(LadderChoice);
+            if (item.Kind == MediaKind.Video)
+            {
+                (options, choice) = ClipOptions(item.Id);
+            }
+            var source = MediaSources.Open(located, null, options);
+            if (source is FfmpegVideoSource clip)
+            {
+                clip.PathChanged += step => OnPathStep(item, step);
+                return Track(item, clip, why, choice.Why);
+            }
+            return source;
         }
         catch (Exception ex) when (ex is NotSupportedException or FfmpegUnavailableException or IOException or ArgumentException)
         {
@@ -168,13 +184,84 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         }
     }
 
-    /// <summary>The renderer's block families and upload arena (null when its context goes: then the families every desktop GL
-    /// has are assumed until it says again). Readiness of HAP items is looked at again.</summary>
+    /// <summary>The renderer's device as wp2-output's platform shares it (the render host's start); the decode share of the context
+    /// (<see cref="UseZeroCopy"/>) is preferred once the context has made one.</summary>
+    public void UseGpu(IGpuShare? share) => _platformShare = share;
+
+    /// <summary>What the render context offers decoders opened from now on: its share and whether zero-copy is ready, with the
+    /// words why not (null when the context went). Open decoders keep their path.</summary>
+    public void UseZeroCopy(IGpuShare? share, ZeroCopyPlatform? platform)
+    {
+        _zeroCopy = platform is { } p ? new ZeroCopyState(share, p) : ZeroCopyState.None;
+        Changed?.Invoke();
+    }
+
+    /// <summary>The share and zero-copy facts decoders open with now.</summary>
+    public (IGpuShare? Share, ZeroCopyPlatform Platform) ZeroCopy
+    {
+        get
+        {
+            var z = _zeroCopy;
+            if (z.Share is not null)
+                return (z.Share, z.Platform);
+            var platform = _platformShare;
+            return platform is null ? (null, ZeroCopyPlatform.None)
+                : (platform, DecodeLadder.Platform(platform, platform.Api == GpuApi.D3D11, z.Platform.Words.Length > 0 ? z.Platform.Words : "the render context has not said what it imports yet"));
+        }
+    }
+
+    /// <summary>The rung a clip opens on now, and its options: the policy (DECODE POLICY), the renderer's share and the proof.</summary>
+    private (MediaSourceOptions Options, LadderChoice Choice) ClipOptions(string key)
+    {
+        var settings = _engine?.Services.Settings.Decode ?? DecodeSettings.Default;
+        var (policy, forced) = _engine?.DecodeFacts.Policy ?? (DecodeLadder.TryParse(settings.Policy, out var p) ? p : DecodePolicy.Auto, false);
+        var (share, platform) = ZeroCopy;
+        var choice = DecodeLadder.Choose(policy, platform, forced);
+        var zero = DecodeLadder.Rank(choice.Ceiling) is 1 or 2;
+        if (zero && share is DmaBufShare dmabuf)
+            dmabuf.Forget(key);   // opened again: it starts from the top of the ladder
+        var queueHw = Math.Clamp(settings.QueueFramesHw, 2, 32);
+        var decoder = DecoderOptions.Default with
+        {
+            AllowHardware = choice.Ceiling != DecodePath.Software,
+            HardwareDevice = settings.Device.Length > 0 ? settings.Device : null,
+            Gpu = zero ? share : null,
+            Ceiling = choice.Ceiling,
+            QueueFramesHw = queueHw,
+        };
+        var video = VideoSourceOptions.Default with
+        {
+            Decoder = decoder,
+            Queue = zero ? PlayMap.Media.Frames.QueueSettings.Default with { QueueFrames = queueHw } : PlayMap.Media.Frames.QueueSettings.Default,
+        };
+        return (MediaSourceOptions.Default with { Video = video }, choice);
+    }
+
+    /// <summary>A clip stepped down the ladder: one journal row, and STATE moves.</summary>
+    internal void OnPathStep(MediaItem item, PathStep step)
+    {
+        var words = $"{item.Name}: {DecodeLadder.Word(step.From)} → {DecodeLadder.Word(step.To)} — {step.Why}";
+        _log.LogWarning("{Words}", words);
+        if (_engine is { } engine)
+            engine.Journal.Add("decode", words, ok: false);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The renderer's upload arena now (null when there is none).</summary>
+    public IUploadArena? Arena => _arena;
+
+    /// <summary>The renderer's block families and upload arena (None and null when its context goes: then the families every
+    /// desktop GL has are assumed until it says again). HAP sources move to the arena (or off it: they return once none is writing
+    /// into the old one). Readiness of HAP items is looked at again.</summary>
     public void UseRenderer(BlockFormats formats, IUploadArena? arena)
     {
         var known = formats != BlockFormats.None;
         _formats = (int)(known ? formats : BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
         _rendererSaid = known;
+        _arena = arena;
+        foreach (var d in OpenDecoders())
+            if (d.Source is HapVideoSource staged)
+                staged.UseArena(arena);
         if (known)
         {
             // A clip opened before the renderer said (or for a context that went) stops with the words why when its blocks
@@ -205,12 +292,12 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         }
     }
 
-    private IVideoSource Track(MediaItem item, IVideoSource source, string why)
+    private IVideoSource Track(MediaItem item, IVideoSource source, string why, string ladder = "")
     {
         lock (_openGate)
         {
             _open.RemoveAll(d => d.Source is FfmpegVideoSource { IsDisposed: true } or HapVideoSource { IsDisposed: true });
-            _open.Add(new OpenDecoder(item.Id, item.Name, item.Info.VideoCodec, source, why));
+            _open.Add(new OpenDecoder(item.Id, item.Name, item.Info.VideoCodec, source, why) { Ladder = ladder });
         }
         return source;
     }
@@ -241,6 +328,7 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             Workers = Math.Max(0, settings.HapWorkers),
             // No loop of its own: a clip that ends holds its last frame, and a consumer that wraps its time seeks back.
             Color = item.Color,
+            Arena = _arena,
         };
     }
 
@@ -581,9 +669,18 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     private readonly record struct FileStat(long Length, DateTime WrittenUtc);
 
     /// <summary>A clip decoder this backend opened: the item it plays, its codec, the source, and why it is not on a better path.</summary>
-    public sealed record OpenDecoder(string ItemId, string Name, string Codec, IVideoSource Source, string Why);
+    public sealed record OpenDecoder(string ItemId, string Name, string Codec, IVideoSource Source, string Why)
+    {
+        /// <summary>Why the clip opened below the ladder's top (DecodeLadder.Choose's words: the policy, the renderer's share).</summary>
+        public string Ladder { get; init; } = "";
+    }
 
     private sealed record Check(string Key, MediaReadiness Readiness, string? Path, FileStat? Stat, bool Pending);
+
+    private sealed record ZeroCopyState(IGpuShare? Share, ZeroCopyPlatform Platform)
+    {
+        public static readonly ZeroCopyState None = new(null, ZeroCopyPlatform.None);
+    }
 
     private sealed record Indexed(string Path, FileStat Stat, string Name);
 

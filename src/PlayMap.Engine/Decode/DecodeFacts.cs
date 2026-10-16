@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Media.Hap;
@@ -23,6 +24,8 @@ public sealed class DecodeFacts
     private string _binding = "";
     private volatile HapLayersMeasured? _layers;
     private Task<HapLayersMeasured>? _measuring;
+    private volatile ZeroCopyFacts _zeroCopy = ZeroCopyFacts.None;
+    private volatile PolicyState _policy = new(DecodePolicy.Auto, false);
 
     /// <summary>Called when a fact here moves (the engine's FactsChanged).</summary>
     public event Action? Changed;
@@ -45,6 +48,40 @@ public sealed class DecodeFacts
         if (Interlocked.Exchange(ref _formats, value) != value || moved)
             Changed?.Invoke();
     }
+
+    /// <summary>What the render context offers decoders: zero-copy ready or not and why, what its share is, and its upload arena
+    /// (None while no context exists).</summary>
+    public ZeroCopyFacts ZeroCopy => _zeroCopy;
+
+    /// <summary>The render context's zero-copy facts and arena came (or went: <see cref="ZeroCopyFacts.None"/>).</summary>
+    public void UseZeroCopy(ZeroCopyFacts facts)
+    {
+        _zeroCopy = facts ?? ZeroCopyFacts.None;
+        Changed?.Invoke();
+    }
+
+    /// <summary>The policy decoders opened from now on follow, and whether DIRECT was forced without a proof.</summary>
+    public (DecodePolicy Policy, bool Forced) Policy
+    {
+        get
+        {
+            var p = _policy;
+            return (p.Policy, p.Forced);
+        }
+    }
+
+    /// <summary>Sets the policy (the node's settings at start, DECODE POLICY after).</summary>
+    public void SetPolicy(DecodePolicy policy, bool forced)
+    {
+        _policy = new PolicyState(policy, forced && policy == DecodePolicy.Direct);
+        Changed?.Invoke();
+    }
+
+    private sealed record PolicyState(DecodePolicy Policy, bool Forced);
+
+    /// <summary>Writes the policy into the node's settings file (the decode part sets it; null in tests: the policy lives in memory).
+    /// Answers the words when the file could not be written, else null.</summary>
+    public Func<DecodePolicy, string?>? Persist { get; set; }
 
     /// <summary>Records a measurement (the measuring worker; a test that sets what this node sustains).</summary>
     public void Record(HapLayersMeasured measured)
@@ -163,4 +200,22 @@ public readonly record struct HapDemand(double Layers4K60, int Items, string Hea
         var fps = Core.Time.FrameRate.TryParse(item.Info.FrameRate, out var rate) && rate.IsValid ? rate.Numerator / (double)rate.Denominator : 60;
         return HapCodecs.FrameBytes(codec, item.Info.Width, item.Info.Height) * fps / OneLayer;
     }
+}
+
+/// <summary>What one render context offers decoding, as STATE says it: the share's API word and description, the binding, whether
+/// zero-copy is ready (and why not), whether direct sampling is proven, and the upload arena (or why there is none).</summary>
+public sealed record ZeroCopyFacts(string Api, string Describe, bool Ready, bool DirectProven, string Words, IUploadArena? Arena, string ArenaWords)
+{
+    public static readonly ZeroCopyFacts None = new("none", "", false, false, "no render context", null, "no render context");
+
+    /// <summary>"dmabuf", "d3d11", "opengl", "none".</summary>
+    public static string ApiWord(GpuApi api) => api switch
+    {
+        GpuApi.DmaBuf => "dmabuf",
+        GpuApi.D3D11 => "d3d11",
+        GpuApi.OpenGl => "opengl",
+        GpuApi.IoSurface => "iosurface",
+        GpuApi.Cuda => "cuda",
+        _ => "none",
+    };
 }

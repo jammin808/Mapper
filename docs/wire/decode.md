@@ -42,17 +42,19 @@ Top level `decode` (after `cameras`), and `machine.gl` (`glx|egl|wgl|cgl`, prese
 the context came through, as that binding's own library answered on the render thread; `unknown` when none did).
 
 ```json
-"decode":{"platform":{"blocks":{"bc1":true,"bc3":true,"bc4":true,"bc7":true,"bc6h":true,"staging":"copy","arenaMb":0,"arenaFreeMb":0},
+"decode":{"platform":{"blocks":{"bc1":true,"bc3":true,"bc4":true,"bc7":true,"bc6h":true,"staging":"persistent|copy|none","arenaMb":256,"arenaFreeMb":240,"arenaWords":""},
                       "hapLayers4k60":null|{"value":9,"limit":"cores","measuredAt":1760101234567,"decodeMs":7.4,"cores":4,"words":"…"},
                       "light":"green|amber|red","words":"1 decoder · 1 HAP on the GPU"},
-          "sources":[{"key":"md…","media":"md…","name":"Intro","codec":"hap_q","path":"hap-gpu|hw-copy-back|software","zeroCopy":true,
+          "sources":[{"key":"md…","media":"md…","name":"Intro","codec":"hap_q","path":"hap-gpu|hw-direct|hw-gpu-copy|hw-copy-back|software","zeroCopy":true,
                       "decodeMsP95":2.1,"busMbPerFrame":8.294,"dropped":0,"late":0,"status":"ready","why":"","light":"green",
                       "hap":null|{"texture":"ycocg-bc3","chunks":16,"rawShare":0,"secondStage":"snappy|none|mixed","stageMsP95":2.1,
-                                  "uploadMb":8.294,"staging":"copy","corrupt":0,"lastRefusal":"","hdr":null}}]}
+                                  "uploadMb":8.294,"staging":"persistent|copy","corrupt":0,"lastRefusal":"","hdr":null}}]}
 ```
 
 - `blocks` are the families the render context samples (all false and `staging` `none` with no render context). `staging` is
-  `copy` this round (the persistently mapped arena is next round's); `arenaMb` and `arenaFreeMb` are 0.
+  `persistent` when the context has an upload arena (HAP frames are written into it and uploaded from it), else `copy`; `arenaMb`
+  and `arenaFreeMb` are its size and what is free. The zero-copy keys (`api`, `zeroCopy`, `why`, `policy`, a source's `device`,
+  `surfaces`, …) are in `docs/wire/zerocopy.md`.
 - `hapLayers4k60` is null until measured (the preflight check measures it once, on a worker: the second stage of a synthetic 4K
   HAP Q frame on one core; upload excluded).
 - `sources` lists every clip decoder open on the node (HAP and FFmpeg), with why it is not on a better path (`why`: "this GPU's
@@ -63,7 +65,7 @@ the context came through, as that binding's own library answered on the render t
   process-aborting stubs (VA-API, QSV on Linux) is asked for only when that library loads and has the newest symbol FFmpeg
   calls from it; VA-API is opened on a DRM render node only, never through an X display.
 - `light`: red when a decoder failed, or a HAP R / HAP HDR item is in the show on a GPU without BPTC; amber when a HAP source has
-  refused frames; green otherwise.
+  refused frames or a clip of 4K or more decodes on the CPU; green otherwise.
 
 Fixture: `tests/fixtures/state/decode.json`; cards: `tests/fixtures/state/decode.cards.json`.
 

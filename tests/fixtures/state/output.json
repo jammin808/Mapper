@@ -282,15 +282,24 @@
         "bc4": true,
         "bc7": true,
         "bc6h": true,
-        "staging": "copy",
-        "arenaMb": 0,
-        "arenaFreeMb": 0
+        "staging": "persistent",
+        "arenaMb": 256,
+        "arenaFreeMb": 256,
+        "arenaWords": ""
       },
       "hapLayers4k60": null,
       "light": "green",
-      "words": "no decoders open"
+      "words": "no decoders open",
+      "api": "opengl",
+      "describe": "OpenGL through GLX: no zero-copy imports",
+      "gl": "glx",
+      "zeroCopy": "unavailable",
+      "direct": "n/a",
+      "why": "the render context is GLX: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)"
     },
-    "sources": []
+    "sources": [],
+    "policy": "auto",
+    "forced": false
   },
   "videoio": {
     "ndi": {
