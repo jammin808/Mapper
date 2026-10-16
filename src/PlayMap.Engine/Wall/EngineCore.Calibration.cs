@@ -529,8 +529,9 @@ public sealed partial class EngineCore
         var words = r.Changed
             ? string.Join("; ", fallbacks.Select(f => $"{NameOf(Store.Project, f.Target)} falls back to {f.Snapshot}")) + (refused.Count > 0 ? "; " + string.Join("; ", refused) : "")
             : r.Effect;
-        if (r.Changed && reseated.Count > 0)
-            words += "; " + BlendAfter(reseated);
+        var blend = r.Changed && reseated.Count > 0 ? BlendAfter(Edits, reseated) : "";
+        if (blend.Length > 0)
+            words += "; " + blend;
         return (r, words, fallbacks);
     }
 
@@ -820,7 +821,7 @@ public sealed partial class EngineCore
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         if (applied.Count > 0)
-            blend = await _lane.RunAsync(() => BlendAfter(applied)).ConfigureAwait(false);
+            blend = await _lane.RunAsync(() => BlendAfter(EditsFor(c.Session), applied)).ConfigureAwait(false);
         if (blend.Length > 0)
             words += "; " + blend;
         SetTask(task with { State = "done", Progress = 1, Words = words });
@@ -870,16 +871,22 @@ public sealed partial class EngineCore
     /// <summary>A camera re-solve's result says so in its RunId ("camera:&lt;camera&gt;"): accepting it later re-seats the quads.</summary>
     private const string CameraRunPrefix = "camera:";
 
-    /// <summary>On the lane, after re-solved projectors were applied: the automatic blend solved again when one of them blends
-    /// automatically — its receipt, or why it was not ("" when none blends).</summary>
-    private string BlendAfter(IReadOnlyCollection<string> projectors)
+    /// <summary>On the lane, after re-solved projectors were applied to <paramref name="edits"/>: when one of them blends automatically,
+    /// the live blend solved again — its receipt, or why it was not — or, applied to a blind draft, the words that the blend follows
+    /// when the draft lands (the render host's automatic blend solves the stage on the air); "" when none blends.</summary>
+    private string BlendAfter(ProjectStore edits, IReadOnlyCollection<string> projectors)
     {
-        var inputs = BlendInputs.Of(Store.Project);
-        if (!inputs.Outputs.Any(o => o.ProjectorId is { } id && projectors.Contains(id)))
+        if (!Blends(edits.Project, projectors))
             return "";
+        if (!ReferenceEquals(edits, Store))
+            return "the blend is solved for the new pose when the draft lands (the automatic blend follows the stage on the air)";
         var solve = SolveBlend([]);
         return solve.Ok ? solve.Effect : "the blend was not solved again: " + solve.Payload;
     }
+
+    /// <summary>Whether one of the projectors blends automatically in the project.</summary>
+    private static bool Blends(Project p, IReadOnlyCollection<string> projectors) =>
+        BlendInputs.Of(p).Outputs.Any(o => o.ProjectorId is { } id && projectors.Contains(id));
 
     /// <summary>CALIBRATION CANCEL: stops the running calibration task before it applies anything.</summary>
     private CommandReply CalibrationCancel(VerbCall c)

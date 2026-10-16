@@ -8,7 +8,7 @@ blocks and their pages (`docs/wire/wall.md`, `docs/wire/align.md`); this page sa
 
 | Verb | What it adds |
 |---|---|
-| `CALIBRATION RESOLVE <projector>…\|ALL [CAMERA <camera>] [STAGE]` | `CAMERA`: a fresh look at only the named projectors through a calibrated camera — attribution per projector, only the movers re-solved from their dots and checked on the wall; pins follow the pose and pixel quads are re-seated; a projector that blends automatically has its blend solved again off the lane (`docs/wire/wall.md`) |
+| `CALIBRATION RESOLVE <projector>…\|ALL [CAMERA <camera>] [STAGE]` | `CAMERA`: a fresh look at only the named projectors through a calibrated camera — attribution per projector, only the movers re-solved from their dots and checked on the wall; pins follow the pose and pixel quads are re-seated; a projector that blends automatically has its blend solved again off the lane, or in a blind draft when the draft lands (`docs/wire/wall.md`); a phone rig is looked through via the phone hub |
 | `ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR\|ALL] [FIT INSIDE\|CORNERS] [COLOR OFF\|WHITE]` | `ONLY`, the `COLOR` step and `COLOR WHITE`; every run ends with the verify pass and says its pictures and pattern time |
 | `ALIGN SCORE <run>\|<group>` | a run's score with every term's words, value, light and fix |
 | `DEVICE NATIVE <device>` | a projector's own geometry and edge blend read live (Panasonic), queries only, with the `DEVICE RAW` line that turns off what fights a measured correction |
