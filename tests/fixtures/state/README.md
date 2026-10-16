@@ -17,7 +17,7 @@ A card descriptor:
 | `light` | A path to a light word; `{ "path", "red": [...], "amber": [...], "green": [...] }`; or rules `[{ "if": <path>, "light" }, { "from": <path> }, { "from": <path>, "green": <word or [...]>, "red": … }, { "fixed": <light> }, { "light" }]` |
 | `words` | A path to words, or a template: `{field}`, `{field?then:else}` (either side may hold `{field}`), `{count}` |
 | `fields` | `{ "label", "path", "unit"? }`: the first six on the card's face, the rest under its "more" |
-| `actions` | Verb lines, or `{ "label", "line" }`; `$(field)` and `{field}` are the element's (or an owner's) field, or the id of the owner reached by that key (`$(scan)` in `scan.regions.0`). A line takes every value from STATE: it carries no value only the fixture holds, and no slot of its row's syntax (`<scan>`) — a line that needs the operator's value is typed, not a button |
+| `actions` | Verb lines, or `{ "label", "line" }`; `$(field)` and `{field}` are the element's (or an owner's) field, or the id of the owner reached by that key (`$(scan)` in `scan.regions.0`). A line takes every value from STATE: it carries no value only the fixture holds, and no slot of its row's syntax (`<scan>`) — a line that needs the operator's value is no button, and goes over the wire, MCP, Companion or a binding |
 
 Paths are tried relative to the card's block first, then from the STATE root; a path starting `/` is from the root. A fixture of
 several nodes (`backup.json`) is keyed by scenario, each a set of STATE sections; the desk's tests read each scenario.

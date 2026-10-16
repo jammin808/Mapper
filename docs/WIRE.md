@@ -346,7 +346,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
   without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
   device's last read of its projector's own geometry and blend, with its light, words and fix (docs/wire/resolve.md).
-  `stage.stacks` is each stack with its alignment, colour match and failover (what it lost and the light it has left),
+  `stage.stacks` is each stack with its alignment, colour match and failover (what it lost and the light it has left) and its context
+  row's light and words,
   `stage.site.next` the facade guide's next step on the live stage (null once through), `stage.projectors[].stack` the stack a
   projector is in, and a stack member's correction is its output's `measured` (docs/wire/stacks.md).
   `null` means the node has none; an unknown number is `-1` and grey, never `0`. `tests/fixtures/state/main.json` is the
