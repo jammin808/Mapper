@@ -8,6 +8,7 @@ using PlayMap.Core.Playback;
 using PlayMap.Core.Tc;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Audio;
+using PlayMap.Engine.Playback;
 using PlayMap.Engine.Tests.Control;
 using PlayMap.Media.Audio;
 
@@ -237,15 +238,22 @@ public sealed class LtcThroughCaptureHubTests
             using var runtime = audio!;
             await rig.Ok($"TIMECODE SOURCE ADD FOH LTC \"file:{path}:2\"");
             await rig.Ok("TIMECODE CHASE Show FOH");
-            static JsonElement Chase(ControlRig r) => r.State().GetProperty("timecode").GetProperty("chases")[0];
-            await ControlRig.Until(() => Chase(rig).GetProperty("state").GetString() == "locked", "the chase locked to the file's code");
-            var source = rig.State().GetProperty("timecode").GetProperty("sources")[0];
-            Assert.Equal(("rolling", "25"), (source.GetProperty("state").GetString(), source.GetProperty("detected").GetString()));
-            Assert.Equal("it_a", Chase(rig).GetProperty("item").GetString());
+            // The chase and its source are read from one STATE, and the lane at that instant: a source's state is judged when STATE
+            // is read (no code for 2.5 frames is a dropout), and the file's blocks arrive on a timer a loaded machine runs late.
+            JsonElement timecode = default;
+            PlaylistPlayback? lane = null;
+            await ControlRig.Until(() =>
+            {
+                timecode = rig.State().GetProperty("timecode");
+                lane = rig.Engine.Playback.Lane("pl_show");
+                return timecode.GetProperty("chases")[0].GetProperty("state").GetString() == "locked"
+                    && timecode.GetProperty("sources")[0].GetProperty("state").GetString() == "rolling";
+            }, "the chase locked to the file's code, rolling");
+            Assert.Equal("25", timecode.GetProperty("sources")[0].GetProperty("detected").GetString());
+            Assert.Equal("it_a", timecode.GetProperty("chases")[0].GetProperty("item").GetString());
             Assert.Equal(1, runtime.Hub.OpenDevices()["file:" + path]);
             Assert.Equal([($"file:{path}@2", 1)], seen!.Opened.ToArray());
-            var lane = rig.Engine.Playback.Lane("pl_show")!;
-            Assert.Equal(("it_a", TransportState.Playing), (lane.ItemId, lane.Clip.State));
+            Assert.Equal(("it_a", TransportState.Playing), (lane!.ItemId, lane.Clip.State));
             Assert.InRange(lane.Clip.Anchor.Rate, 0.99, 1.01);
         }
         finally
