@@ -372,13 +372,22 @@
         "bc6h": false,
         "staging": "none",
         "arenaMb": 0,
-        "arenaFreeMb": 0
+        "arenaFreeMb": 0,
+        "arenaWords": "no render context"
       },
       "hapLayers4k60": null,
       "light": "green",
-      "words": "no decoders open; no renderer yet"
+      "words": "no decoders open; no renderer yet",
+      "api": "none",
+      "describe": "",
+      "gl": "none",
+      "zeroCopy": "unavailable",
+      "direct": "n/a",
+      "why": "no render context"
     },
-    "sources": []
+    "sources": [],
+    "policy": "auto",
+    "forced": false
   },
   "videoio": {
     "ndi": {

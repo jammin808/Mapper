@@ -6520,7 +6520,7 @@
   {
     "name": "DECODE POLICY",
     "syntax": "DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]",
-    "words": "The best path decoders opened from now on may take (open ones keep theirs); DIRECT needs a proof unless FORCE",
+    "words": "The best path decoders opened from now on may take (open ones keep theirs); DIRECT on a D3D11 renderer needs a proof unless FORCE",
     "category": "media",
     "risk": "review",
     "mutates": true,
@@ -6580,61 +6580,6 @@
           "optional": true,
           "values": [
             "FORCE"
-          ]
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "DECODE PROBE",
-    "syntax": "DECODE PROBE [\u003Cmedia\u003E|ALL] [DIRECT]",
-    "words": "Decodes clips by every path and compares the pictures; DIRECT writes the direct-sampling proof for this driver",
-    "category": "media",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "heavy",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "DECODE PROBE [\u003Cmedia\u003E|ALL] [DIRECT]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "media",
-        "kind": "entity",
-        "optional": true,
-        "prefix": "md",
-        "alt": "ALL"
-      },
-      {
-        "name": "direct",
-        "kind": "flag",
-        "optional": true,
-        "values": [
-          "DIRECT"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "media",
-          "kind": "entity",
-          "optional": true,
-          "prefix": "md",
-          "alt": "ALL"
-        },
-        {
-          "name": "direct",
-          "kind": "flag",
-          "optional": true,
-          "values": [
-            "DIRECT"
           ]
         }
       ]
