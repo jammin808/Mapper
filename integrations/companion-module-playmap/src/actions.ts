@@ -467,8 +467,9 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			const line = text(action.options.line)
 			const row = rowOfLine(ctx.verbs, line)
 			const refused = (error: string): JsonValue => ({ ok: false, error })
-			if (!row || row.mutates || EXCLUDED.has(row.name))
-				return refused(`${line.split(' ')[0] ?? ''} is not a question this action asks`)
+			// A refusal names only the row, never the words typed as the line (a token pasted there).
+			if (!row) return refused('no verb of the node starts this line')
+			if (row.mutates || !fence(ctx.verbs, line).ok) return refused(`${row.name} is not a question this action asks`)
 			try {
 				const reply = await ctx.ask(line)
 				let value: JsonValue = reply.payload

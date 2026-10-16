@@ -156,7 +156,7 @@ line written by the node's grammar. Every press returns its receipt as the actio
 first reply, and lights a corner dot on its key: amber while sent or accepted — an accepted line until STATE's entries for the ids it
 names move (or, naming none, until STATE moves past it), at most 10 s — red for 2 s on `ERR` with the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
-answer as the result). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
+answer as the result; a line that is no question, or that the fence refuses, is refused naming only its verb). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
 node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it
 must start with a verb of the node, never the session's words, a secret's or pairing's, nor carry one where the node may read a line:
 for a row with a line or JSON parameter, and `SET`, every run of its words to the end, every word and every string of its JSON is read

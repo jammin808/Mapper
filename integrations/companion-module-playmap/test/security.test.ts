@@ -120,11 +120,21 @@ void test('no key sends a session, secret or pairing verb, at the head of its li
 			['raw', { line: `BIND LEARN AUTH ${TOKEN}` }],
 			['v_bind_add', { input: 'MIDI 1', to: `AUTH ${TOKEN}`, confirm: 'none' }],
 		]
+		const results: unknown[] = []
 		for (const [actionId, options] of presses) {
 			const r = (await m.press(actionId, options, `key-${actionId}`)) as { ok: boolean; stage: string }
 			assert.equal(r.ok, false, `${actionId} ${JSON.stringify(options)}`)
 			assert.equal(r.stage, 'not-sent', `${actionId} ${JSON.stringify(options)}`)
+			results.push(r)
 		}
+		// A question is refused naming only its row, or none: never the words typed as the line.
+		for (const line of [TOKEN, `${TOKEN} PLAYLIST LIST`, `AUTH ${TOKEN}`, `BIND ADD MIDI 1 TO AUTH ${TOKEN}`]) {
+			const r = (await m.press('ask_node', { line }, 'key-ask')) as { ok: boolean; error: string }
+			assert.equal(r.ok, false, line)
+			results.push(r)
+		}
+		assert.ok(!JSON.stringify(results).includes(TOKEN), 'no result holds the token')
+		assert.ok(!JSON.stringify(results).includes('hunter2'), 'no result holds a secret')
 		await m.instance.ask('WHOAMI')
 		const heard = node.sent().join('\n')
 		for (const word of ['PAIRING NEW', TOKEN, 'hunter2', 'CREDENTIAL', 'BIND'])
