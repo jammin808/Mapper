@@ -69,6 +69,30 @@ public sealed class SpoutProviderUnitTests
         Assert.Equal("Arena", active.Receiver!.Name);
     }
 
+    /// <summary>A GPU slower than the receive step (each copy reads back one step late) while the sender draws a new frame every step:
+    /// a copy still in flight is read back before another is made over it, so frames keep arriving, and every copy made is delivered
+    /// (or still in flight) — none is lost unsaid.</summary>
+    [Fact]
+    public void ACopyStillInFlightIsReadBackBeforeAnotherIsMadeOverIt()
+    {
+        var kernel = new FakeSpoutKernel();
+        var gpu = new FakeSpoutGpu { PendingReads = 1 };
+        using var provider = Fake(kernel, gpu);
+        using var sender = new SpoutSender(kernel, gpu, "Arena", SpoutFormats.Bgra8);
+        sender.Register(4, 2);
+        using var source = (SpoutSource)provider.Open("Arena", false, LiveSettings.Default, "md_arena");
+        var frame = new byte[4 * 2 * 4];
+        for (var step = 0; step < 12; step++)
+        {
+            Array.Fill(frame, (byte)(10 + step));
+            Assert.True(sender.Publish(frame, 16));
+            source.Poll();
+        }
+        Assert.True(source.Received >= 3, $"{source.Received} frames arrived in 12 steps with every copy one step late");
+        var pending = source.Receiver!.HasPending ? 1 : 0;
+        Assert.Equal(source.Receiver.Copies, source.Received + pending);
+    }
+
     [Fact]
     public async Task ASendPublishesTheSendStagesFramesAndBlackWhenItStops()
     {

@@ -192,8 +192,9 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
 }
 
 /// <summary>A Spout input: a receive thread steps a <see cref="SpoutReceiver"/> every few milliseconds (never blocking: a busy sender
-/// is tried again at the next step), reads each copied frame back one step later without waiting for the GPU, and publishes it into
-/// the frame pool as BGRA or RGBA. <c>spout:*</c> follows the active sender. Spout has no tally.</summary>
+/// is tried again at the next step), reads each copied frame back one step later without waiting for the GPU — a copy the GPU has not
+/// finished is read at a later step before another copy is made — and publishes it into the frame pool as BGRA or RGBA.
+/// <c>spout:*</c> follows the active sender. Spout has no tally.</summary>
 public sealed class SpoutSource : LiveSource
 {
     private readonly string _address;
@@ -252,7 +253,12 @@ public sealed class SpoutSource : LiveSource
             _receiver ??= new SpoutReceiver(_kernel, _gpu, Resolve());
             var r = _receiver;
             if (r.HasPending)
+            {
                 Publish(r);
+                // The copy is still in flight: it is read back at the next step, never copied over (the newest frame is copied then).
+                if (r.HasPending)
+                    return false;
+            }
             switch (r.Step())
             {
                 case ReceiveStep.Absent:
