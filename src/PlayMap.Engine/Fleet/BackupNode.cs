@@ -115,6 +115,9 @@ public sealed class BackupNode : IAsyncDisposable
     /// <summary>What a stopping node says to a pull asked of it.</summary>
     internal const string StoppingWords = "the node is stopping — no pull starts";
 
+    /// <summary>What a stopping node says to a takeover or a join asked of it (by its own line too: a hand-back runs the takeover so).</summary>
+    internal const string StoppingTakesNothing = "the node is stopping — it takes no show over and joins no mirror";
+
     /// <summary>Air lines remembered by (feed, seq) so a line handed again on a new subscription is not run twice.</summary>
     private const int AirRemembered = 1024;
 
@@ -311,6 +314,8 @@ public sealed class BackupNode : IAsyncDisposable
                 return CommandReply.Fail($"{peer.Name} has gone quiet on the show network — it can be backed up once it is heard again");
             if (_engine?.BlindOwnerName is { } owner)
                 return CommandReply.Fail($"{owner} holds a blind draft here: it would land over {peer.Name}'s show — BLIND DISCARD (or BLIND COMMIT) first");
+            if (_engine?.Stopping == true)
+                return CommandReply.Fail(StoppingTakesNothing);
             // The primary's show may land here before the answer does: from the first line on, this node's LED data and sends are silent.
             _joiningAir = true;
             MoveAir(_settings, joining: true);
@@ -511,6 +516,9 @@ public sealed class BackupNode : IAsyncDisposable
         {
             if (_settings.Role != FleetRoles.Backup)
                 return CommandReply.Fail($"{SelfName} is not a backup any more ({_settings.Role})");
+            // A node that stops would take the show, switch the projectors to itself and go: none would serve it.
+            if (engine.Stopping)
+                return CommandReply.Fail(StoppingTakesNothing);
             var started = Clock.Local.NowNs;
             var id = NewId();
             var from = _settings.Of;
