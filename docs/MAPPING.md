@@ -89,6 +89,12 @@ imported mesh, through its transform (`BridgeModel`), never a mesh file's raw co
 model give thousands of 2D↔3D pairs per projector for `PoseSolver`. With no such model, or an uncalibrated camera, the scan
 self-calibrates in the camera's frame and is carried into the stage by the camera rig's pose.
 
+A scan's data lives in its folder, not in the project, so a site move does not reach it: a scan taken before `SITE ORIGIN` moved the
+stage keeps the old frame's points. Each view of a scan keeps the site frame its place was solved in, and the scan's next view `INTO`
+it, `SCAN SOLVE` or `SCAN DROP` carries its views by the move since (`StageMove.Between` the two frames) before the solve keeps the
+frame by its anchor view, so the scan lands in the stage's frame now. A view placed before the site had an origin is taken as placed
+in the site's frame now (the first origin moves nothing).
+
 ## Not here yet
 
 Geodesy (UTM and geographic coordinates, CRS conversion), the facade guide, projector stacks and the light plan; LAZ, the night

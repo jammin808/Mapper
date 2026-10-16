@@ -363,7 +363,8 @@ public sealed partial class EngineCore
         {
             string surfaceId = "";
             var paths = 0;
-            var r = EditsFor(session).Apply($"surface {name} from {scan.Name}", p =>
+            var store = EditsFor(session);
+            var r = store.Apply($"surface {name} from {scan.Name}", p =>
             {
                 var current = p.Stage.Scans.Find(scan.Id) ?? throw new EditRefusedException($"no scan {scan.Id}");
                 var asset = ScanMesh(p, current) ?? written ?? throw new EditRefusedException($"{scan.Name}'s mesh is not on the stage");
@@ -389,8 +390,8 @@ public sealed partial class EngineCore
                 });
             });
             return r.Changed
-                ? CommandReply.Success(surfaceId, string.Create(CultureInfo.InvariantCulture,
-                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}"))
+                ? CommandReply.Success(surfaceId, StagedSurface(store, string.Create(CultureInfo.InvariantCulture,
+                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}")))
                 : FromEdit(r);
         }).ConfigureAwait(false);
     }

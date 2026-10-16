@@ -26,6 +26,23 @@ public sealed partial class EngineCore
 
     private ScanRunner? Runner => Services.Scan as ScanRunner;
 
+    /// <summary>The words a lock, the armed show or a waiting blind commit would refuse an edit of the live stage with — asked before heavy
+    /// work whose result lands as that edit — or null when it would pass.</summary>
+    internal string? WouldRefuse(Func<Project, Project> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        var live = Store.Project;
+        return Store.Guard?.Invoke(live, edit(live));
+    }
+
+    /// <summary>True for a line from the session that holds the blind draft (or a test's stand-in for one): heavy scan work from it is
+    /// refused — never staged — since its result lands on the live stage behind the draft's back.</summary>
+    private bool FromDraft(SessionInfo session) => OwnsDraft(session) || DraftForTests?.Invoke(session) is not null;
+
+    /// <summary>A heavy scan verb from the blind draft's session: refused with the words why and the way on.</summary>
+    internal static CommandReply NotStaged(string verb, string lands) =>
+        CommandReply.Fail($"{verb} is heavy work and is not staged in a blind draft: {lands} — BLIND COMMIT or BLIND DISCARD first");
+
     /// <summary>SCAN SOLVE &lt;scan&gt; [HOLD &lt;projector&gt;…]: every view of the scan solved together again; HOLD keeps those projectors at
     /// their stage poses (re-solve only the projector that moved). Answers once the solve is kept and recorded.</summary>
     private async Task<CommandReply> ScanSolveAsync(VerbCall call)
@@ -36,6 +53,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail(Syntax);
         if (Runner is not { } runner)
             return CommandReply.Fail("this node's scans are not the scan runner's: SCAN SOLVE needs it");
+        if (FromDraft(call.Session))
+            return NotStaged("SCAN SOLVE", "the scan is solved and recorded on the live stage");
         var hold = new List<string>();
         foreach (var word in args.Skip(2))
         {
@@ -63,6 +82,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail("SCAN DROP <scan> <view>");
         if (Runner is not { } runner)
             return CommandReply.Fail("this node's scans are not the scan runner's: SCAN DROP needs it");
+        if (FromDraft(call.Session))
+            return NotStaged("SCAN DROP", "the scan is solved again and recorded on the live stage");
         var before = runner.Find(call.Args[0])?.Multi?.Result.RmsPx;
         try
         {
@@ -142,6 +163,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail("this node's scans are not the scan runner's: SCAN SUGGEST needs it");
         if (Services.Assistant is not { } assistant)
             return CommandReply.Fail("this node keeps no approval list (it has no assistant service): suggestions wait for a person there");
+        // A suggestion's lines are approved as an approval's (never into a draft): from the draft's session they would land on the live
+        // stage behind it. A surface made by hand from the scan is staged.
+        if (FromDraft(call.Session))
+            return CommandReply.Fail("SCAN SUGGEST's lines are approved onto the live stage, never into a blind draft — BLIND COMMIT or BLIND DISCARD first, or make the surface here: SCAN SURFACE <scan> REGION <region> is staged in the draft");
         // An assistant's own line never asks the assistant, nor replaces suggestions a person has not decided yet.
         if (ask && IsAssistantTransport(call.Session))
             return CommandReply.Fail("an assistant's line cannot ask the assistant: SCAN SUGGEST without ASSISTANT ranks the regions itself");
@@ -149,25 +174,34 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no scan {args[0]}");
         if (IsAssistantTransport(call.Session) && runner.SuggestionsFor(record.Id).Any(x => runner.StateOf(x) == "pending"))
             return CommandReply.Fail($"{record.Name}'s suggestions wait for a person: a person decides them, or asks for new ones");
-        if (!runner.BeginSuggest(record.Id))
-            return CommandReply.Fail($"{record.Name}'s suggestions are being made already, or the node is stopping");
+        using var work = runner.BeginSuggest(record.Id, call.Ct);
+        if (work is null)
+            return CommandReply.Fail(runner.IsStopping ? ScanRunner.StoppingWords : $"{record.Name}'s suggestions are being made already");
+        var queued = new List<string>();
         try
         {
-            return await SuggestAsync(call, runner, assistant, record, ask).ConfigureAwait(false);
+            return await SuggestAsync(call, runner, assistant, record, ask, queued, work.Token).ConfigureAwait(false);
         }
-        finally
+        catch (OperationCanceledException) when (work.Token.IsCancellationRequested && !call.Ct.IsCancellationRequested)
         {
-            runner.EndSuggest(record.Id);
+            // The runner's stop ended it: what it queued so far is taken back, and nothing more is queued.
+            foreach (var id in queued)
+            {
+                if (assistant.Queue.Find(id) is { State: ProposalState.Pending })
+                    assistant.Queue.Reject(id, "scan suggestions", "the node stopped before the suggestions were made");
+            }
+            return CommandReply.Fail(ScanRunner.StoppingWords + " — no suggestion was queued");
         }
     }
 
-    private async Task<CommandReply> SuggestAsync(VerbCall call, ScanRunner runner, AssistantService assistant, ScanRecord record, bool ask)
+    private async Task<CommandReply> SuggestAsync(VerbCall call, ScanRunner runner, AssistantService assistant, ScanRecord record, bool ask,
+        List<string> queued, CancellationToken ct)
     {
-        var outcome = await Task.Run(() => OutcomeOf(record), call.Ct).ConfigureAwait(false);
+        var outcome = await Task.Run(() => OutcomeOf(record), ct).ConfigureAwait(false);
         if (outcome is null)
             return CommandReply.Fail(NoData(record));
         var project = Store.Project;
-        var candidates = await Task.Run(() => ScanSuggestions.Candidates(outcome, project), call.Ct).ConfigureAwait(false);
+        var candidates = await Task.Run(() => ScanSuggestions.Candidates(outcome, project), ct).ConfigureAwait(false);
         if (candidates.Count == 0)
             return CommandReply.Fail($"{record.Name} measured no region worth a surface — add a view (SCAN START <camera> INTO {record.Id}) or click on its smart scan (SCAN SURFACE)");
 
@@ -186,7 +220,7 @@ public sealed partial class EngineCore
             AssistantReply reply;
             try
             {
-                reply = await model.CompleteAsync(ScanSuggestions.Request([.. candidates.Select(c => c.Descriptor)]), null, call.Ct).ConfigureAwait(false);
+                reply = await model.CompleteAsync(ScanSuggestions.Request([.. candidates.Select(c => c.Descriptor)]), null, ct).ConfigureAwait(false);
             }
             catch (AssistantProviderException ex)
             {
@@ -221,8 +255,10 @@ public sealed partial class EngineCore
                 if (lineSpec is null)
                     continue;
                 // One batch per line: a person approves any of them in any order, and each alone.
+                ct.ThrowIfCancellationRequested();
                 var p = await assistant.Queue.EnqueueAsync(new ProposalDraft(lines[k], lineSpec, string.Join("; ", reasons), from, call.Session.SessionId,
-                    $"suggest/{record.Id}/{stamp}/{id}/{k}", 0), call.Ct).ConfigureAwait(false);
+                    $"suggest/{record.Id}/{stamp}/{id}/{k}", 0), ct).ConfigureAwait(false);
+                queued.Add(p.Id);
                 proposals.Add(p.Id);
             }
             list.Add(new ScanSuggestion(id, c.Descriptor.Id, name, c.Descriptor.Kind, c.Confidence, reasons, true, c.ProjectorIds, proposals.ToImmutable()));
@@ -400,7 +436,8 @@ public sealed partial class EngineCore
         {
             string surfaceId = "";
             var paths = 0;
-            var r = EditsFor(call.Session).Apply($"surface {name} from {record.Name}", p =>
+            var store = EditsFor(call.Session);
+            var r = store.Apply($"surface {name} from {record.Name}", p =>
             {
                 var current = p.Stage.Scans.Find(record.Id) ?? throw new EditRefusedException($"no scan {record.Id}");
                 var asset = ScanMesh(p, current) ?? written ?? throw new EditRefusedException($"{record.Name}'s mesh is not on the stage");
@@ -426,11 +463,15 @@ public sealed partial class EngineCore
                 });
             });
             return r.Changed
-                ? CommandReply.Success(surfaceId, string.Create(CultureInfo.InvariantCulture,
-                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {record.Name}{(paths > 0 ? $", outlined by {paths} mask path{(paths == 1 ? "" : "s")}" : "")}"))
+                ? CommandReply.Success(surfaceId, StagedSurface(store, string.Create(CultureInfo.InvariantCulture,
+                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {record.Name}{(paths > 0 ? $", outlined by {paths} mask path{(paths == 1 ? "" : "s")}" : "")}")))
                 : FromEdit(r);
         }).ConfigureAwait(false);
     }
+
+    /// <summary>A scan surface's words as its reply says them: made in a blind draft, staged — the stage takes it when the draft lands.</summary>
+    private string StagedSurface(ProjectStore store, string words) =>
+        ReferenceEquals(store, Store) ? words : $"staged in the blind draft: {words} — on the stage when the blind draft lands";
 
     private string NameOfProjector(string id) => Store.Project.FindProjector(id)?.Name ?? id;
 

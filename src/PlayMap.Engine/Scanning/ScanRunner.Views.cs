@@ -54,19 +54,22 @@ public sealed partial class ScanRunner
     internal ScanRunnerOptions Options => _options;
 
     /// <summary>A run's pictures as a view of its scan: the camera and its optics as they were, each projector's decode, how the
-    /// pictures were paired.</summary>
-    private static ScanViewData NewView(Setup setup, List<ProjectorCapture> captures, ScanPairing? pairing, long nowUnixMs)
+    /// pictures were paired, and the camera latency its flashes measured for each projector (none for a cued camera or the simulator).</summary>
+    private static ScanViewData NewView(Setup setup, List<ProjectorCapture> captures, ScanPairing? pairing, long nowUnixMs,
+        IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> latencies)
     {
         var c = setup.Camera;
         return new ScanViewData(setup.ViewId, c.Id, c.Name, c.Intrinsics, c.Lens, c.Calibrated, [.. captures.Select(x => x.Projector.Id)],
             pairing?.Mode ?? (setup.Simulated ? "simulated" : "stream"), pairing?.Exposure ?? (setup.Simulated ? "simulated" : "auto"), nowUnixMs)
         {
             Maps = captures.ToImmutableDictionary(x => x.Projector.Id, x => x.Map, StringComparer.Ordinal),
+            Latencies = [.. latencies.Select(l => new ViewLatency(l.ProjectorId, l.Latency))],
         };
     }
 
-    /// <summary>A single view placed by its scan's own solve: the camera's pose and its mean distance to the projectors solved.</summary>
-    private static ScanViewData Placed(ScanViewData view, ScanSolution solution)
+    /// <summary>A single view placed by its scan's own solve: the camera's pose (in the site frame the stage had then) and its mean
+    /// distance to the projectors solved.</summary>
+    private static ScanViewData Placed(ScanViewData view, ScanSolution solution, SiteFrame site)
     {
         var solved = solution.Projectors.Where(p => p.Solved).ToList();
         var baseline = solved.Count > 0 ? solved.Average(p => (p.Pose.Position - solution.Camera.Pose.Position).Length) : 0;
@@ -76,6 +79,7 @@ public sealed partial class ScanRunner
             Baseline = baseline,
             RmsPx = Math.Round(solved.Select(p => p.RmsPx).DefaultIfEmpty(0).Max(), 4),
             Tracks = solved.Sum(p => p.Inliers),
+            Site = site,
         };
     }
 
@@ -131,6 +135,8 @@ public sealed partial class ScanRunner
         var active = views.Count(v => v.State != "dropped");
         track.Step("running", "calibrating", string.Create(CultureInfo.InvariantCulture, $"solving {active} views of {into.Name} together"), overall: 0.88);
         var project = engine.Store.Project;
+        if (MultiViewScan.FrameMoved(views, project))
+            notes.Add(MultiViewScan.CarriedWords + ".");
         var (multi, placed) = await Task.Run(() => MultiViewScan.Solve(views, project, [], into.Solution.Metric, null, ct), ct).ConfigureAwait(false);
         var outcome = Combined(into, multi, placed, project, into.Solution.Metric || multi.Result.Metric);
         track.Regions(outcome.Regions);
@@ -162,6 +168,7 @@ public sealed partial class ScanRunner
             Captured = views,
             Multi = multi,
             Regions = MultiViewScan.Regions(multi),
+            Latencies = MultiViewScan.Latencies(views),
         };
     }
 
@@ -169,6 +176,9 @@ public sealed partial class ScanRunner
     /// takes the record off the stage's old mesh: SCAN APPLY puts the new one on).</summary>
     private async Task CommitAsync(EngineCore engine, ScanOutcome outcome, List<string> notes, CancellationToken ct)
     {
+        // A lock taken on the scan (or the stage) while it was solved refuses its record's edit: said before the folder is written.
+        if (engine.WouldRefuse(ScanRecordTouched(outcome.Id)) is { } locked)
+            throw new InvalidOperationException(locked + " — the solve was not kept");
         var folder = engine.ProjectFolderForFiles;
         var dataPath = "";
         if (folder is not null)
@@ -192,7 +202,8 @@ public sealed partial class ScanRunner
         var words = string.Join(" ", new[] { solution.Words }.Concat(notes.Where(n => n.Length > 0)));
         // Suggestions name regions and corners of the solve they were made from: once it is solved again they no longer hold.
         WithdrawSuggestions(engine, outcome.Id, "the scan was solved again — SCAN SUGGEST again");
-        await engine.EditAsync(EngineCore.SystemSession, $"scan {outcome.Name}", p => p.WithStage(s =>
+        var label = $"scan {outcome.Name}";
+        var recorded = await engine.EditAsync(EngineCore.SystemSession, label, p => p.WithStage(s =>
         {
             // A scan removed meanwhile stays removed.
             if (s.Scans.Find(outcome.Id) is not { } current)
@@ -211,7 +222,15 @@ public sealed partial class ScanRunner
             };
             return s with { Scans = s.Scans.Update(outcome.Id, _ => record) };
         })).ConfigureAwait(false);
+        // Attempts are not facts: a record the store refused (a lock taken in the last instant) is said, not taken as written.
+        if (!recorded.Changed && engine.Store.Project.Stage.Scans.Find(outcome.Id) is not null && recorded.Effect != label + ": nothing to change")
+            throw new InvalidOperationException($"{recorded.Effect} — the solve is in the scan's folder, but its record on the stage was not changed");
     }
+
+    /// <summary>The edit a scan's record takes when it is recorded again: what a lock on the scan, on the mapping area or the armed
+    /// show would refuse.</summary>
+    internal static Func<Project, Project> ScanRecordTouched(string scanId) =>
+        p => p.WithStage(s => s with { Scans = s.Scans.Update(scanId, sc => sc with { Notes = sc.Notes + " " }) });
 
     /// <summary>A scan this node holds in memory, else read back from its folder (and held).</summary>
     private ScanOutcome? Load(EngineCore engine, ScanRecord record)
@@ -233,12 +252,16 @@ public sealed partial class ScanRunner
         return RunWorkAsync(scanId, async (engine, scan, token) =>
         {
             var active = scan.Captured.Where(v => v.State != "dropped").Select(v => v.Id).ToList();
+            // A scan whose views were placed in a site frame the stage has moved from since changes when solved again: it is carried.
+            var moved = MultiViewScan.FrameMoved(scan.Captured, engine.Store.Project);
             if (hold.Count == 0)
             {
-                if (scan.Multi is { } m && m.Held.IsDefaultOrEmpty && m.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
+                if (!moved && scan.Multi is { } m && m.Held.IsDefaultOrEmpty && m.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
                     throw new InvalidOperationException($"nothing would change: every view of {scan.Name} was solved together already — HOLD <projector> re-solves holding one at its stage pose");
                 if (scan.Multi is null && active.Count == 1)
-                    throw new InvalidOperationException($"nothing would change: {scan.Name} has one view, solved when it was scanned — SCAN START <camera> INTO {scan.Id} adds another");
+                    throw new InvalidOperationException(moved
+                        ? $"{scan.Name} has one view, placed before SITE ORIGIN moved the stage — SCAN START <camera> INTO {scan.Id} adds another and carries both into the new frame"
+                        : $"nothing would change: {scan.Name} has one view, solved when it was scanned — SCAN START <camera> INTO {scan.Id} adds another");
             }
             else if (scan.Multi is { } held && held.Held.ToHashSet(StringComparer.Ordinal).SetEquals(hold)
                 && held.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
@@ -301,11 +324,17 @@ public sealed partial class ScanRunner
         try
         {
             var record = engine.Store.Project.Stage.Scans.Find(scanId) ?? throw new InvalidOperationException($"no scan {scanId}");
+            // A lock that would refuse the scan's record is said before any work (and asked again before the record is written).
+            if (engine.WouldRefuse(ScanRecordTouched(scanId)) is { } locked)
+                throw new InvalidOperationException(locked);
             var scan = Load(engine, record) ?? throw new InvalidOperationException($"{record.Name}'s data is not on this node");
             if (scan.Captured.IsDefaultOrEmpty)
                 throw new InvalidOperationException($"{record.Name} keeps no views (it was made before scans kept them) — scan again");
+            var carried = MultiViewScan.FrameMoved(scan.Captured, engine.Store.Project);
             var outcome = await work(engine, scan, cts.Token).ConfigureAwait(false);
             var notes = new List<string>();
+            if (carried)
+                notes.Add(MultiViewScan.CarriedWords + ".");
             if (outcome.Simulated)
                 notes.Add(TruthWords(outcome));
             await CommitAsync(engine, outcome, notes, cts.Token).ConfigureAwait(false);
@@ -348,6 +377,12 @@ public sealed partial class ScanRunner
     internal void Show(ScanOutcome outcome, string message)
     {
         ArgumentNullException.ThrowIfNull(outcome);
+        // A scan that runs owns STATE.scan from the moment it is claimed (before its first step is published).
+        lock (_gate)
+        {
+            if (_running is not null)
+                return;
+        }
         if (_view is { IsRunning: true })
             return;
         var solved = outcome.Solution.Projectors;
@@ -386,17 +421,65 @@ public sealed partial class ScanRunner
     /// <summary>Scans whose suggestions are being made now (under the gate): one SCAN SUGGEST of a scan at a time.</summary>
     private readonly HashSet<string> _suggesting = new(StringComparer.Ordinal);
 
-    /// <summary>Claims a scan for one SCAN SUGGEST; false while another is making its suggestions or the runner is stopping.</summary>
-    internal bool BeginSuggest(string scanId)
+    /// <summary>One SCAN SUGGEST under way: the token it runs on (cancelled when the runner stops, which waits for it to end), released
+    /// once its suggestions are made.</summary>
+    internal sealed class SuggestWork : IDisposable
     {
-        lock (_gate)
-            return !_stopped && _suggesting.Add(scanId);
+        private readonly ScanRunner _runner;
+        private readonly string _scanId;
+        private readonly CancellationTokenSource _cts;
+        private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal SuggestWork(ScanRunner runner, string scanId, CancellationToken ct)
+        {
+            _runner = runner;
+            _scanId = scanId;
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        }
+
+        public CancellationToken Token => _cts.Token;
+
+        /// <summary>True once the runner's stop cancelled it.</summary>
+        public bool Stopped { get; set; }
+
+        internal Task Done => _done.Task;
+
+        internal CancellationTokenSource Cancellation => _cts;
+
+        public void Dispose()
+        {
+            lock (_runner._gate)
+            {
+                _runner._suggesting.Remove(_scanId);
+                _runner._work.Remove(_done.Task);
+            }
+            _done.TrySetResult();
+            _cts.Dispose();
+        }
     }
 
-    internal void EndSuggest(string scanId)
+    /// <summary>Claims a scan for one SCAN SUGGEST; null while another is making its suggestions or the runner is stopping. The stop
+    /// cancels it and waits for it, so no proposal is queued once the runner has stopped.</summary>
+    internal SuggestWork? BeginSuggest(string scanId, CancellationToken ct)
     {
         lock (_gate)
-            _suggesting.Remove(scanId);
+        {
+            if (_stopped || !_suggesting.Add(scanId))
+                return null;
+            var work = new SuggestWork(this, scanId, ct);
+            _work[work.Done] = work.Cancellation;
+            return work;
+        }
+    }
+
+    /// <summary>True once the runner has begun to stop.</summary>
+    internal bool IsStopping
+    {
+        get
+        {
+            lock (_gate)
+                return _stopped;
+        }
     }
 
     /// <summary>The suggestions SCAN SUGGEST made for a scan, replacing any it made before.</summary>
@@ -486,6 +569,17 @@ public sealed partial class ScanRunner
         w.WriteNumber("tracks", x.Tracks);
         w.WriteString("pairing", x.Pairing);
         w.WriteString("exposure", x.Exposure);
+        w.WriteStartArray("latencies");
+        foreach (var l in x.Latencies)
+        {
+            w.WriteStartObject();
+            w.WriteString("projector", l.ProjectorId);
+            w.WriteNumber("ms", Math.Round(l.Latency.LatencyMs, 1));
+            // A latency no flash could measure is the runner's fallback.
+            w.WriteBoolean("measured", l.Latency.Transitions > 0);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
         w.WriteString("words", x.Words);
         w.WriteEndObject();
     }

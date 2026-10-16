@@ -101,7 +101,7 @@ public sealed partial class EngineCore
         var scans = Edits.Project.Stage.Scans.Length;
         var words = before.IsSet
             ? string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage moved by {moved.X:0.###} {moved.Y:0.###} {moved.Z:0.###} m so every grid position is kept")
-              + (scans > 0 && !move.IsNone ? string.Create(SiteInv, $"; the {scans} scan{(scans == 1 ? "" : "s")} taken before keep{(scans == 1 ? "s" : "")} the old frame's points — scan again before using them") : "")
+              + (scans > 0 && !move.IsNone ? string.Create(SiteInv, $"; the {scans} scan{(scans == 1 ? "" : "s")} taken before keep{(scans == 1 ? "s" : "")} the old frame's points — scan again before using them (a view INTO a scan, or SCAN SOLVE of one with many views, carries its views into the new frame)") : "")
             : string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage's coordinates are now relative to it (nothing moved)");
         words = Staged(staged, words);
         return CommandReply.Success(JsonOut(w =>

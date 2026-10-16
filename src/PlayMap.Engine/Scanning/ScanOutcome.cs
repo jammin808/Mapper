@@ -31,7 +31,9 @@ public sealed record ScanOutcome(
     /// <summary>The surfaces the scan suggests, placed on the smart scan.</summary>
     public IReadOnlyList<ScanRegion> Regions { get; init; } = [];
 
-    /// <summary>Each projector's camera latency as the flashes measured it (empty for a simulated scan, which has no camera).</summary>
+    /// <summary>Each projector's camera latency as the flashes measured it — of a scan of many views, from the newest view that measured
+    /// it (each view keeps its own in <see cref="ScanViewData.Latencies"/>); empty for a simulated scan, which has no camera, and for a
+    /// camera that pairs its pictures by what they show (a phone, a folder).</summary>
     public IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> Latencies { get; init; } = [];
 
     /// <summary>Where the camera stood for this scan, each place a view with its decodes (wp2-multiscan); empty for a scan made

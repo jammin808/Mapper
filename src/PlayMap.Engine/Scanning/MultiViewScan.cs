@@ -7,6 +7,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Scan.MultiView;
+using PlayMap.Core.Site;
 using PlayMap.Core.Vision;
 using PlayMap.Vision.Surfaces;
 
@@ -17,7 +18,8 @@ namespace PlayMap.Engine.Scanning;
 /// projectors it decoded (their decodes, kept in memory and in the scan's folder), how its pictures were paired ("tag",
 /// "timing", or "stream" for a camera that streams frames) and the exposure path. <see cref="Pose"/> and <see cref="Baseline"/>
 /// are where the last solve put the camera in the stage's frame and its mean distance to the projectors it solved there — the
-/// anchor a later solve that holds no projector keeps the scan's frame and scale by.
+/// anchor a later solve that holds no projector keeps the scan's frame and scale by; <see cref="Site"/> is the site frame that stage
+/// frame was. <see cref="Latencies"/> are what the view's own flashes measured of its camera.
 /// </summary>
 public sealed record ScanViewData(
     string Id,
@@ -50,7 +52,18 @@ public sealed record ScanViewData(
     public string State { get; init; } = "done";
 
     public string Words { get; init; } = "";
+
+    /// <summary>The site frame the stage was in when the solve that placed this view ran: <see cref="Pose"/> is in it (null for a view
+    /// not placed yet, or placed before views kept their frame — taken as the stage's now).</summary>
+    public SiteFrame? Site { get; init; }
+
+    /// <summary>Each projector's camera latency as this view's white flashes measured it, in the order they ran; empty for a camera that
+    /// pairs its pictures by what they show (a phone, a folder) and for the simulator, which measure none.</summary>
+    public ImmutableArray<ViewLatency> Latencies { get; init; } = [];
 }
+
+/// <summary>One projector's camera latency as a view's flashes measured it.</summary>
+public sealed record ViewLatency(string ProjectorId, LatencyEstimate Latency);
 
 /// <summary>A multi-view solve and everything made from it, in the stage's frame: the solve, the projectors held, each
 /// projector's dense depth and coverage, the merged stage mesh, the regions across projectors and each view's influence.</summary>
@@ -106,15 +119,19 @@ public static class MultiViewScan
         if (input.Projectors.IsDefaultOrEmpty)
             throw new InvalidOperationException("none of the scan's projectors is in the project any more");
         MultiViewResult result;
+        var site = project.Stage.Site;
         if (drop is { } d)
         {
-            // The warm drop keeps the previous frame and its scale (the root view stays where it was).
+            // The warm drop keeps the previous frame and its scale (the root view stays where it was); a previous frame the site has
+            // moved from since is carried by that move, as the stage was.
             result = MultiViewCalibration.DropView(input, d.Previous.Result, d.ViewId, null, ct);
+            if (result.Solved && hold.Count == 0 && MoveSince(active.FirstOrDefault(v => v.Site is not null)?.Site, site) is { } move)
+                result = result.Transformed(new Similarity3(move.R, move.T, 1), result.Metric);
         }
         else
         {
             result = MultiViewCalibration.Solve(input, null, ct);
-            if (result.Solved && hold.Count == 0 && Anchor(active, result) is { } toStage)
+            if (result.Solved && hold.Count == 0 && Anchor(active, result, site) is { } toStage)
                 result = result.Transformed(toStage, anchorMetric);
         }
         if (!result.Solved)
@@ -137,7 +154,48 @@ public static class MultiViewScan
         var merged = ScanMerge.Merge(depth);
         var regions = ProjectorRegions.Build(depth);
         var outcome = new MultiViewOutcome(result, [.. hold.Order(StringComparer.Ordinal)], depth, coverage, merged, regions, influence);
-        return (outcome, WriteBack(views, result, drop?.ViewId));
+        return (outcome, WriteBack(views, result, drop?.ViewId, site));
+    }
+
+    /// <summary>The stage move from the site frame a view was placed in to the stage's now; null when there is none to make (either
+    /// frame unset — the first origin moves nothing — or the same frame).</summary>
+    public static StageMove? MoveSince(SiteFrame? then, SiteFrame now)
+    {
+        ArgumentNullException.ThrowIfNull(now);
+        if (then is not { IsSet: true } || !now.IsSet
+            || (then.Origin == now.Origin && then.RotationDeg.Equals(now.RotationDeg) && then.GridScale.Equals(now.GridScale)))
+            return null;
+        return StageMove.Between(then, now);
+    }
+
+    /// <summary>True when a view the scan solves from was placed in a site frame the stage has moved from since (SITE ORIGIN): solving
+    /// again carries the scan into the stage's frame now.</summary>
+    public static bool FrameMoved(IReadOnlyList<ScanViewData> views, Project project)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+        ArgumentNullException.ThrowIfNull(project);
+        return views.Any(v => v.State != "dropped" && MoveSince(v.Site, project.Stage.Site) is not null);
+    }
+
+    /// <summary>What a re-solve that carried its views into the stage's frame now says.</summary>
+    public const string CarriedWords = "its views were carried into the site frame SITE ORIGIN set since they were taken";
+
+    /// <summary>The scan's camera latencies: each projector's from the newest view still in the scan that measured it.</summary>
+    public static IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> Latencies(IReadOnlyList<ScanViewData> views)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+        var newest = new Dictionary<string, LatencyEstimate>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (var v in views.Where(v => v.State != "dropped"))
+        {
+            foreach (var l in v.Latencies)
+            {
+                if (!newest.ContainsKey(l.ProjectorId))
+                    order.Add(l.ProjectorId);
+                newest[l.ProjectorId] = l.Latency;
+            }
+        }
+        return [.. order.Select(id => (id, newest[id]))];
     }
 
     /// <summary>The solve's input from a scan's views: the projectors every view decoded that the project still has (prior optics at
@@ -196,15 +254,17 @@ public static class MultiViewScan
 
     /// <summary>The similarity that carries a fresh solve onto the stage: the first view of the scan the solve used that has a place
     /// from the scan's last solve keeps that place (its camera's orientation and centre) and its baseline (the mean distance to the
-    /// projectors it solved). Null when no view has one.</summary>
-    public static Similarity3? Anchor(IReadOnlyList<ScanViewData> views, MultiViewResult result)
+    /// projectors it solved). A place taken in a site frame the stage has moved from since (<paramref name="site"/> is the stage's now)
+    /// is carried by that move first, as everything placed on the stage was. Null when no view has one.</summary>
+    public static Similarity3? Anchor(IReadOnlyList<ScanViewData> views, MultiViewResult result, SiteFrame? site = null)
     {
         ArgumentNullException.ThrowIfNull(views);
         ArgumentNullException.ThrowIfNull(result);
         foreach (var v in views)
         {
-            if (v.Pose is not { } stage || !(v.Baseline > 0) || result.Views.FirstOrDefault(x => x.Id == v.Id) is not { } solved)
+            if (v.Pose is not { } placed || !(v.Baseline > 0) || result.Views.FirstOrDefault(x => x.Id == v.Id) is not { } solved)
                 continue;
+            var stage = site is not null && MoveSince(v.Site, site) is { } move ? move.Apply(placed) : placed;
             var near = result.Projectors.Where(p => v.ProjectorIds.Contains(p.Id, StringComparer.Ordinal)).ToList();
             if (near.Count == 0)
                 continue;
@@ -219,9 +279,9 @@ public static class MultiViewScan
         return null;
     }
 
-    /// <summary>The views with what the solve says of each written back: its place and baseline, residual and tracks, or "left out"
-    /// and why; a dropped view is "dropped".</summary>
-    private static ImmutableArray<ScanViewData> WriteBack(IReadOnlyList<ScanViewData> views, MultiViewResult result, string? dropped)
+    /// <summary>The views with what the solve says of each written back: its place (in the stage's site frame now) and baseline,
+    /// residual and tracks, or "left out" and why; a dropped view is "dropped".</summary>
+    private static ImmutableArray<ScanViewData> WriteBack(IReadOnlyList<ScanViewData> views, MultiViewResult result, string? dropped, SiteFrame site)
     {
         var list = ImmutableArray.CreateBuilder<ScanViewData>();
         foreach (var v in views)
@@ -235,7 +295,7 @@ public static class MultiViewScan
             {
                 var near = result.Projectors.Where(p => v.ProjectorIds.Contains(p.Id, StringComparer.Ordinal)).ToList();
                 var baseline = near.Count > 0 ? near.Average(p => (p.Pose.Position - s.Pose.Position).Length) : 0;
-                list.Add(v with { Pose = s.Pose, Baseline = baseline, RmsPx = Math.Round(s.RmsPx, 4), Tracks = s.Observations, State = "done", Words = "" });
+                list.Add(v with { Pose = s.Pose, Baseline = baseline, RmsPx = Math.Round(s.RmsPx, 4), Tracks = s.Observations, State = "done", Words = "", Site = site });
                 continue;
             }
             var why = result.LeftOut.FirstOrDefault(l => l.ViewId == v.Id)?.Words ?? "the solve did not use it";

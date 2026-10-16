@@ -151,6 +151,18 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     /// <summary>The id of the scan running now (null when none is).</summary>
     public string? RunningId => _view is { IsRunning: true } v ? v.Id : null;
 
+    /// <summary>True from the moment a scan is claimed until its last words are published: the outputs and the camera are the scan's.
+    /// A camera re-solve asks this after claiming its own look, and a scan asks the engine's look after claiming its run, so the two
+    /// never both start.</summary>
+    public bool Busy
+    {
+        get
+        {
+            lock (_gate)
+                return _running is not null;
+        }
+    }
+
     /// <summary>The segmenter click-to-surface uses.</summary>
     public ISegmenter Segmenter => _segmenter;
 
@@ -222,10 +234,23 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             {
                 return Task.FromException<string>(ex);
             }
+            // The record the scan lands as must pass the locks: a lock that would refuse it is said before anything lights up.
+            if (engine.WouldRefuse(setup.IntoRecord is { } joined ? ScanRecordTouched(joined.Id) : NewRecord(setup.Id)) is { } locked)
+                return Task.FromException<string>(new InvalidOperationException(locked));
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
             var cts = new CancellationTokenSource();
             _running = cts;
             _runningScanId = setup.Id;
+            // Claimed first, then the camera re-solve's look asked (it claims its look, then asks this runner): never both.
+            Interlocked.MemoryBarrier();
+            if (engine.CameraLookThrough is { } looking)
+            {
+                _running = null;
+                _runningScanId = null;
+                cts.Dispose();
+                return Task.FromException<string>(new InvalidOperationException(
+                    $"a camera re-solve is looking through {looking} — the scan waits for it (CALIBRATION CANCEL stops it)"));
+            }
             var token = cts.Token;
             track = new Track(this, setup);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
@@ -523,7 +548,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             captures = await CaptureRealAsync(engine, setup, track, views, notes, latencies, ct).ConfigureAwait(false);
         }
 
-        var view = NewView(setup, captures, track.PairingNow, engine.Services.Wall.UnixMs);
+        var view = NewView(setup, captures, track.PairingNow, engine.Services.Wall.UnixMs, latencies);
         if (setup.Into is { } into)
             return await AddViewAsync(engine, setup, track, into, view, notes, ct).ConfigureAwait(false);
 
@@ -541,7 +566,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var geometry = ScanArchive.GeometryOf(outcome, ScanSurfaces.CameraImage(captures[0].Map));
         var regions = geometry is null ? [] : await Task.Run(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
         regions = ScanSurfaces.LitBy(regions, geometry, solution);
-        outcome = outcome with { Geometry = geometry, Regions = regions, Latencies = latencies, Captured = [Placed(view, solution)] };
+        outcome = outcome with { Geometry = geometry, Regions = regions, Latencies = latencies, Captured = [Placed(view, solution, setup.Project.Stage.Site)] };
         track.Regions(regions);
         if (rig is not null)
             notes.Add(TruthWords(outcome));
@@ -567,7 +592,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var record = new ScanRecord(setup.Id, name, ScanKind.StructuredLight, engine.Services.Wall.UnixMs, setup.Rig?.Id ?? SimulatedRig.CameraId,
             [.. setup.Parts.Select(p => p.Projector.Id)], dataPath, null, outcome.WorstResidualPx, solution.Points,
             string.Join(" ", new[] { solution.Words }.Concat(notes)));
-        await engine.EditAsync(EngineCore.SystemSession, $"scan {name}", p => p.WithStage(s => s with { Scans = s.Scans.Upsert(record) })).ConfigureAwait(false);
+        var added = await engine.EditAsync(EngineCore.SystemSession, $"scan {name}", p => p.WithStage(s => s with { Scans = s.Scans.Upsert(record) })).ConfigureAwait(false);
+        // Attempts are not facts: a record a lock refused (one taken while the scan ran) is said, never reported as ready.
+        if (!added.Changed)
+            throw new InvalidOperationException($"{added.Effect} — {setup.Id} is in its folder, but it was not recorded on the stage");
         var worst = captures.MinBy(c => c.Quality.Score)!.Quality;
         track.Quality(worst.Score / 100.0, string.Create(CultureInfo.InvariantCulture,
             $"{worst.Grade} — {worst.DecodedFraction * 100:0} % of the lit picture decoded, {regions.Count} region{(regions.Count == 1 ? "" : "s")} found"));
@@ -622,6 +650,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var setup = new Setup(p.NewId(Ids.Scan), rig, camera, parts, p, engine.ProjectFolderForFiles, simulated);
         return into is null ? setup : IntoSetup(engine, setup, into);
     }
+
+    /// <summary>The edit a new scan's record makes, as the locks are asked before the scan runs.</summary>
+    private static Func<Project, Project> NewRecord(string scanId) =>
+        p => p.WithStage(s => s with { Scans = s.Scans.Add(new ScanRecord(scanId, scanId, ScanKind.StructuredLight, 0, null, [], "", null, 0, 0, "")) });
 
     /// <summary>The stage's model as placed (its surfaces on imported meshes, through their transforms), for a bridged registration.</summary>
     private static MeshRaycaster? StageModel(Setup setup) =>

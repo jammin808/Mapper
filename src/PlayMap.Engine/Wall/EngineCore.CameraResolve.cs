@@ -34,6 +34,13 @@ public sealed partial class EngineCore
     /// <summary>The projectors the last camera look found moved and that still stand where they were found (STATE.calibration.moved).</summary>
     private volatile string[] _calibrationMoved = [];
 
+    /// <summary>The camera a camera re-solve is looking through now (null when none is): it shows dots on the outputs and opens the
+    /// camera as a scan does, so the two never run together.</summary>
+    private string? _cameraLook;
+
+    /// <summary>The camera a camera re-solve is looking through now, or null: a scan claims its run, then asks this.</summary>
+    internal string? CameraLookThrough => Volatile.Read(ref _cameraLook);
+
     private async Task<CommandReply> ResolveFromCameraAsync(VerbCall c, string cameraWord, List<Projector> requested, bool stage)
     {
         var p = Store.Project;
@@ -51,6 +58,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no camera {cameraWord} — the camera must be one of the stage's, placed and calibrated");
         if (!rig.Calibrated)
             return CommandReply.Fail($"{rig.Name} is not calibrated — a re-solve measures from where the camera stands (place it with a scan first: SCAN START {rig.Id})");
+        // A folder camera's pictures come one per pattern, shot by hand or by a tether on a scan's cue: the dots' look reads a camera
+        // that keeps sending pictures.
+        if (rig.SourceKind == CameraSourceKind.Folder)
+            return CommandReply.Fail($"{rig.Name} is a folder camera: its pictures come one per pattern, shot by hand or by a tether — a camera re-solve looks through a camera that streams (a capture device, a stream or a phone)");
         var simulated = rig.SourceKind == CameraSourceKind.Simulated;
         var outputs = new List<Output>();
         foreach (var pj in named)
@@ -69,10 +80,34 @@ public sealed partial class EngineCore
         var shown = new List<Output>(outputs);
         if (!simulated)
             shown.AddRange(p.Outputs.Where(o => o.Enabled && o.Mode == OutputMode.Projector && !outputs.Any(x => x.Id == o.Id)));
-        if (Services.Scan.Current is { State: "starting" or "running" })
-            return CommandReply.Fail("a scan is running — a re-solve waits for it (SCAN CANCEL)");
+        if (ScanRunning)
+            return CommandReply.Fail(ScanRunningWords);
         if (AlignBackend.IsRunning)
             return CommandReply.Fail("an alignment run is showing patterns — a re-solve waits for it (ALIGN CANCEL)");
+        // The look is claimed, then the scan runner asked again (a scan claims its run, then asks this look): never both at once.
+        if (Interlocked.CompareExchange(ref _cameraLook, rig.Name, null) is { } other)
+            return CommandReply.Fail($"a camera re-solve is looking through {other} already — CALIBRATION CANCEL stops it");
+        try
+        {
+            if (ScanRunning)
+                return CommandReply.Fail(ScanRunningWords);
+            return await LookAsync(c, p, requested, named, rig, simulated, outputs, shown, stage).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _cameraLook, null);
+        }
+    }
+
+    private const string ScanRunningWords = "a scan is running — a re-solve waits for it (SCAN CANCEL)";
+
+    /// <summary>True while a scan holds the outputs and its camera (claimed or running).</summary>
+    private bool ScanRunning => Services.Scan is ScanRunner { Busy: true } || Services.Scan.Current is { State: "starting" or "running" };
+
+    /// <summary>The look itself, once claimed: the dots shown, seen and matched, the movers solved, verified, scored and applied.</summary>
+    private async Task<CommandReply> LookAsync(VerbCall c, Project p, List<Projector> requested, List<Projector> named, CameraRig rig, bool simulated,
+        List<Output> outputs, List<Output> shown, bool stage)
+    {
         var world = await Task.Run(() => StageWorld.Of(p, Meshes), c.Ct).ConfigureAwait(false);
         if (world is null)
             return CommandReply.Fail("the stage has no surface the dots could land on — a camera re-solve measures against the stage's surfaces");

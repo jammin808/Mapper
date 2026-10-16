@@ -213,7 +213,7 @@ public static class VerbCatalog
         V("SCAN CANCEL", "SCAN CANCEL", "Stops a scan and gives the outputs back", VerbCategory.Scan, VerbRisk.Low, true),
         V("SCAN APPLY", "SCAN APPLY <scan>", "Turns a scan into mesh, projectors and surfaces", VerbCategory.Scan, VerbRisk.Review, true),
         // SCAN SURFACE: ON names the projector whose region it is (wp2-multiscan).
-        V("SCAN SURFACE", "SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>] | SCAN SURFACE <scan> REGION <id> [ON <projector>] [<name>]", "Makes a surface of what is at x, y (0–1 across and down the scan's smart-scan picture), or of a suggested region: its mesh faces and a mask outlining it; ON takes that projector's smart scan; answers its id", VerbCategory.Scan, VerbRisk.Review, true),
+        V("SCAN SURFACE", "SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>] | SCAN SURFACE <scan> REGION <id> [ON <projector>] [<name>]", "Makes a surface of what is at x, y (0–1 across and down the scan's smart-scan picture), or of a suggested region: its mesh faces and a mask outlining it; ON takes that projector's smart scan; answers its id", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Mapping },
         V("LATENCY MEASURE", "LATENCY MEASURE <camera> [<output>]", "Flashes white and times the camera's view of it", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Heavy },
 
         // Generic project edits — what the desk itself uses, so nothing the desk can do is closed to Patterns or an AI.

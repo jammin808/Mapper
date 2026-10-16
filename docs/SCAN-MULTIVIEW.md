@@ -172,7 +172,11 @@ registered to the world on its track points (as registering a scan to a surveyed
 - **The frame.** With nothing held, the joint solve is carried onto the scan's own frame by its first view: that camera keeps the
   place the scan's last solve gave it, and its mean distance to its projectors (so the scale is the first solve's — metric when it
   was). Adding a view therefore moves nothing already placed beyond what the new view corrects. `SCAN SOLVE <scan> HOLD <projector>…`
-  holds those projectors at their stage poses instead: the solve is then in the stage's frame (metric with two held).
+  holds those projectors at their stage poses instead: the solve is then in the stage's frame (metric with two held). Each view
+  keeps the site frame its place is in: after `SITE ORIGIN` moved the stage, the anchor's place (or a warm drop's frame) is carried
+  by that move first, so the next view, solve or drop lands in the stage's frame now (`docs/MAPPING.md`).
+- **Latency.** A view through a streaming camera keeps the latency its own white flashes measured for each projector (`SCAN VIEWS`,
+  STATE); the scan's latency for a projector is its newest view's.
 - **A bad view.** Every joint solve measures each view's influence; the view whose removal halves the residual (when it is at least
   0.1 px) is named in `SCAN VIEWS` (`disagreeing`), in the solve's words, and in `SCAN APPLY`'s score: the dense fit's fix is
   `SCAN DROP <scan> <view>`. `SCAN DROP` solves the rest warm from the last solve; the view stays in the folder, marked dropped.

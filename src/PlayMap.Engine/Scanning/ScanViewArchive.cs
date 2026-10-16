@@ -12,7 +12,7 @@ namespace PlayMap.Engine.Scanning;
 
 /// <summary>
 /// A scan's views and its multi-view solve in its folder, beside scan.json: views/&lt;view&gt;/view.json (the view without its
-/// decodes) and one &lt;projector&gt;.pmcm per decode (<see cref="CorrespondenceArchive"/>), multiview.json (the solve, the projectors
+/// decodes, with its place, the site frame that place is in and the camera latencies its flashes measured) and one &lt;projector&gt;.pmcm per decode (<see cref="CorrespondenceArchive"/>), multiview.json (the solve, the projectors
 /// held, each view's influence) and depth/&lt;projector&gt;.bin (each projector's dense depth with its cloud). A decode is written
 /// once — it never changes after its view — so adding a view writes only that view's files. Read back, the coverage, the merged
 /// mesh and the regions are made again from the depth maps and the decodes (each deterministic), so INTO, SOLVE, DROP, SURFACE,
@@ -79,7 +79,8 @@ public static class ScanViewArchive
         }
         if (views.Count == 0)
             return outcome;
-        var loaded = outcome with { Captured = [.. views] };
+        // The camera latencies each view measured are kept in its view.json: the scan's are its newest views'.
+        var loaded = outcome with { Captured = [.. views], Latencies = MultiViewScan.Latencies(views) };
         var multiPath = Path.Combine(scanFolder, "multiview.json");
         if (!File.Exists(multiPath))
             return loaded;

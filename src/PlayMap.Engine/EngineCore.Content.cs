@@ -310,10 +310,13 @@ public sealed partial class EngineCore
 
     private CommandReply BlendSolve(List<string> args) => SolveBlend(args);
 
-    private CommandReply ScanStart(List<string> args, CancellationToken ct)
+    private CommandReply ScanStart(List<string> args, SessionInfo session, CancellationToken ct)
     {
         if (args.Count < 1)
             return CommandReply.Fail("SCAN START <camera>|phone:<phone> [<projector>…] [MODE FAST|ROBUST|DIFFICULT] [INTO <scan>]");
+        // A scan lights the outputs and lands its record on the live stage: from the blind draft's session it is refused, never staged.
+        if (FromDraft(session))
+            return NotStaged("SCAN START", "a scan lights the outputs and is recorded on the live stage");
         // wp2-multiscan: INTO adds a view to a scan; phone:<id> names a phone's camera rig.
         string? into = null;
         var ii = args.FindIndex(a => a.Equals("INTO", StringComparison.OrdinalIgnoreCase));
