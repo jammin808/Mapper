@@ -122,4 +122,37 @@ public sealed class LatencyRingTests(GlFixture gl)
             Assert.Empty(c.Device.TakeErrors());
         });
     }
+
+    /// <summary>A delayed output that skipped frames (switched off, then on again) never presents a picture from before the gap: the
+    /// ring starts again with what it writes, and the delay builds from there.</summary>
+    [Fact]
+    public void ADelayedOutputBackAfterAGapNeverPresentsAPictureFromBeforeIt()
+    {
+        static Project Show(string color, bool enabled) => Scene.Project([],
+        [
+            Scene.SourceOutput("op_fast", SourceRef.Solid(color), 16, 8) with { Enabled = enabled },
+            Scene.SourceOutput("op_slow", SourceRef.Solid(color), 16, 8),
+        ]);
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false, Dither: false));
+            engine.SetDelay("op_fast", 2, 0);
+            var bgra = new byte[16 * 8 * 4];
+            // Red for a while: the ring holds red.
+            for (var f = 0; f < 4; f++)
+                engine.Render(Scene.Inputs(Show("#FF0000", true), 1 + f / 60.0));
+            Assert.True(engine.ReadPresented("op_fast", bgra));
+            Assert.Equal((0, 255), (bgra[0], bgra[2]));
+            // Off for a few frames while the show turns blue, then on again.
+            for (var f = 4; f < 8; f++)
+                engine.Render(Scene.Inputs(Show("#0000FF", false), 1 + f / 60.0));
+            for (var f = 8; f < 12; f++)
+            {
+                engine.Render(Scene.Inputs(Show("#0000FF", true), 1 + f / 60.0));
+                Assert.True(engine.ReadPresented("op_fast", bgra));
+                Assert.True((bgra[0], bgra[2]) == (255, 0), $"frame {f}: the delayed output presented a picture from before it was switched off");
+            }
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
 }

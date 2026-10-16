@@ -69,6 +69,8 @@ public sealed class RenderEngine : IDisposable
         public double ResidualMs;
         /// <summary>The pictures the delay holds (d + 1 of the output's size; none at 0).</summary>
         public readonly DelayRing<RenderTarget> Ring = new();
+        /// <summary>The renderer's frame the ring was last written in (a frame between that and this one breaks its sequence).</summary>
+        public long RingFrame = -1;
         /// <summary>The picture presented this frame (the ring's tail, or the finished picture with no delay).</summary>
         public GpuTexture? Shown;
         public RenderTarget? ShownTarget;
@@ -680,6 +682,10 @@ public sealed class RenderEngine : IDisposable
         var final = st.Final!;
         st.Clock.DelayFrames = st.DelayFrames;
         st.Clock.LatencyResidualMs = st.ResidualMs;
+        // Frames the output skipped (switched off, or not drawn) break the sequence: what the ring held from before them is never
+        // shown after them.
+        var unbroken = st.RingFrame == Frame - 1;
+        st.RingFrame = Frame;
         if (st.DelayFrames == 0 || st.Raw)
         {
             if (st.DelayFrames == 0 && st.Ring.Delay > 0)
@@ -694,6 +700,8 @@ public sealed class RenderEngine : IDisposable
             var (w, h) = (final.Width, final.Height);
             st.Ring.Configure(st.DelayFrames, () => Device.CreateRenderTarget(w, h, TextureFormat.Rgba8), remake: true);
         }
+        if (!unbroken)
+            st.Ring.Restart();
         var head = st.Ring.Next();
         var d = Device;
         d.BindTarget(head);
