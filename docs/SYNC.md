@@ -30,9 +30,10 @@ read lock-free by the lane and the render thread.
 - **Step.** A larger jump (following a leader for the first time, a leader that restarted, going back to this node's own clock)
   steps. The step is taken **on the engine's control lane** and announces Δ = new − old leader time; in the same lane action the
   engine moves every playlist's anchor (and so every scheduled `AT` start), the identify deadline, the master's and the panic's
-  fades and safe looks, the fades back from a panic and the panic's steps and lines still due, by +Δ: media positions and levels
-  are continuous. A group playlist that already took its leader's anchor is on the leader's time line and stays (when the step
-  brings the clock onto that line). The render thread reads the snapshot and the clock separately, so a frame drawn in the
+  fades and safe looks, the fades back from a panic, the panic's steps and lines still due, and a blind commit waiting for its
+  instant, by +Δ: media positions and levels are continuous and nothing lands early or late. A group playlist that already took
+  its leader's anchor is on the leader's time line and stays (when the step brings the clock onto that line), and so does a blind
+  commit pinned to it. The render thread reads the snapshot and the clock separately, so a frame drawn in the
   microseconds between the clock's swap and the rebased snapshot can show one step; a step happens when a node starts following
   or its leader's clock jumps, not in a running show (an epoch in the snapshot would close it: a spine amendment). The journal says
   "followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place"; the event `sync.stepped` carries Δ.

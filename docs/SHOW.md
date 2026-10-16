@@ -182,9 +182,10 @@ that also changed live since `BLIND ON`.
 | `ON GO [<pl>]` | the next accepted GO, NEXT, PREV, VIDEO PLAY or RESTART (on that playlist): its own start instant |
 
 The commit is published as (root, leader instant) in the engine's snapshot, so the render thread draws the new root **from the
-boundary's frame on** — the same frame on every node holding it — and the lane promotes it on the tick that reaches it. Exact to
-the frame means the project's own fields (content, generators, canvases, outputs); the stage's tables (meshes, warps, masks,
-blends, lenses) are built for the live root and follow when the lane makes the commit the document, a few ticks later. A live
+boundary's frame on** — the same frame on every node holding it — and the lane promotes it on the tick that reaches it. A step of
+the show clock (SYNC.md) moves a waiting commit's instant with the air, so it lands neither early nor late. Exact to the frame
+means the project's own fields (content, generators, canvases, outputs); the stage's tables (meshes, warps, masks, blends, lenses)
+are built for the live root and follow when the lane makes the commit the document, a few ticks later. A live
 change to an entity the draft also changed refuses the commit, naming it ("changed on the air since BLIND ON: Main canvas (canvas,
 cv_main) — … FORCE lands the draft's version"); `FORCE` lands the draft's whole version of each such entity. While a commit waits,
 the draft takes no more edits, a live edit to an entity it lands is refused ("a blind commit lands Main canvas (canvas) at

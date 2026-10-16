@@ -64,6 +64,43 @@ public sealed class ClockSlewTests
     }
 
     [Fact]
+    public async Task AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new MovableClock(clock, Ahead));
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await node.OkAsync("BLIND ON");
+        await node.OkAsync("SET cv_main background \"#FF0000\"");
+        var lands = node.Engine.LeaderNowNs + 5 * Second;
+        await node.OkAsync("BLIND COMMIT AT +5000");
+        Assert.Equal(lands, node.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+
+        // Following a leader 3 h 12 min ahead steps the clock: the commit's instant moves with it, as every instant on the air does,
+        // so the render draws it, and the lane lands it, five seconds after it was asked for — not at once.
+        await SyncRig.GroupAsync(leader, node);
+        Assert.Equal(1, SyncRig.Sync(node).GetProperty("steps").GetInt64());
+        Assert.Equal(lands + Ahead, node.Engine.Snapshot.Pending!.EffectiveLeaderNs);
+        Assert.Equal(lands + Ahead, node.State().GetProperty("show").GetProperty("blind").GetProperty("commit").GetProperty("effectiveLeaderNs").GetInt64());
+        clock.AdvanceMs(4_999);
+        await Ticked(node);
+        Assert.Equal("#000000", Background(node));
+        clock.AdvanceMs(1);
+        Assert.True(await Eventually.TrueAsync(() => Background(node) == "#FF0000"), node.Journal());
+        Assert.Contains("blind commit: 1 change landed (at) by Desk", node.Journal(), StringComparison.Ordinal);
+    }
+
+    private static string Background(HostRig rig) =>
+        System.Text.Json.JsonDocument.Parse(rig.Engine.ProjectJson().Json).RootElement.GetProperty("canvases")[0].GetProperty("background").GetString()!;
+
+    private static async Task Ticked(HostRig rig)
+    {
+        var now = rig.Engine.LeaderNowNs;
+        Assert.True(await Eventually.TrueAsync(() => rig.Engine.ShowTickedNs >= now), "the lane did not tick");
+    }
+
+    [Fact]
     public async Task AStepAfterAdoptionLeavesTheLeadersAnchorAndMovesTheRest()
     {
         var clock = new ManualClock(1_000 * Second);

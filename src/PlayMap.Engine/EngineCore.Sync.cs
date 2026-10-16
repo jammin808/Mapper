@@ -372,14 +372,16 @@ public sealed partial class EngineCore
     /// <summary>The leader clock stepped by Δ (on the lane): every playing or cued playlist's anchor moves by +Δ, so its media
     /// position is where it was; a group playlist that took its leader's anchor is on the leader's time line already and stays
     /// (when the clock now reads that leader's line). Every other instant the air holds moves with them in the same action: the
-    /// identify deadline, the master's and the panic's fades and safe looks, the fades back from a panic, and the panic's
-    /// transport steps and lines still waiting for their instants — so nothing on the air jumps or fires early or late.</summary>
+    /// identify deadline, the master's and the panic's fades and safe looks, the fades back from a panic, the panic's transport steps
+    /// and lines still waiting for their instants, and a blind commit waiting for its instant — so nothing on the air jumps or fires
+    /// early or late.</summary>
     private void RebaseOnStep(long delta)
     {
         Interlocked.Increment(ref _syncSteps);
         var p = Store.Project;
         var now = LeaderNowNs;
         var adopted = Services.Clock.IsFollowing ? Services.GroupSync?.Adopted ?? [] : [];
+        RebaseBlind(delta, p, adopted);
         var kept = 0;
         foreach (var (id, lane) in Playback.Snapshot.Playlists)
         {
@@ -407,6 +409,20 @@ public sealed partial class EngineCore
         Journal.Add("sync", $"{who}show clock stepped {StepWords(delta)}; {kept} playlist{(kept == 1 ? "" : "s")} kept {(kept == 1 ? "its" : "their")} place");
         RaiseEvent("sync.stepped", now, w => w.WriteNumber("deltaNs", delta));
         FactsChanged();
+    }
+
+    /// <summary>A waiting blind commit's instant by +Δ, published at once (the render draws its root from that instant on): first, so
+    /// no snapshot of the step pairs the moved clock with the old instant. One for a group playlist that took its leader's anchor is
+    /// on the leader's time line already and stays, as that playlist does; one with no instant yet (waiting for a GO) has none to
+    /// move.</summary>
+    private void RebaseBlind(long delta, Project p, IReadOnlyCollection<string> adopted)
+    {
+        if (_blind is not { Commit: { } commit } b || commit.EffectiveLeaderNs is long.MinValue or long.MaxValue)
+            return;
+        if (commit.PlaylistId is { } id && p.FindPlaylist(id)?.SyncGroup is not null && adopted.Contains(id))
+            return;
+        b.Commit = commit with { EffectiveLeaderNs = commit.EffectiveLeaderNs + delta };
+        TouchShow();
     }
 
     /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane), then the levels the render
