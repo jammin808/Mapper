@@ -87,6 +87,39 @@ public sealed class FanoutTests
     }
 
     [Fact]
+    public async Task ArmAllWaitingForTheLaneWhenTheStopBeginsIsRefusedAndSendsTheGroupNothing()
+    {
+        await using var b = Member("FOH-B");
+        var group = new Group(("nb", "FOH-B", b.Engine));
+        await using var lead = new ShowRig(services: s => s with { Settings = s.Settings with { Name = "FOH-A" }, Fanout = group });
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // The lane is busy with work taken before the stop; the group's ARM passed the door and waits for this node's half.
+        var busy = lead.Engine.Lane.RunAsync(() =>
+        {
+            entered.SetResult();
+            release.Wait();
+        });
+        await entered.Task;
+        var waiting = lead.Run("SHOW ARM ALL doors");
+        Assert.False(waiting.IsCompleted);
+
+        lead.Engine.BeginStop();
+        release.Set();
+        await busy;
+        var reply = await waiting;
+
+        // Refused with the stopping words when its turn comes: this node stays in rehearsal and no member is sent the line.
+        Assert.False(reply.Ok);
+        Assert.Equal(EngineCore.StoppingWords, reply.Payload);
+        Assert.False(lead.Engine.ShowNow.Armed);
+        Assert.Empty(group.Sent);
+        Assert.False(b.Engine.ShowNow.Armed);
+        Assert.Contains(lead.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Line) == ("refused", EngineCore.StoppingWords, "SHOW ARM ALL doors"));
+    }
+
+    [Fact]
     public async Task AMemberThatKeepsDisarmToItsOwnDeskRefusesTheGroupsDisarm()
     {
         await using var b = Member("FOH-B");

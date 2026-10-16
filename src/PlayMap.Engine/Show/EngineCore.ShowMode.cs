@@ -218,10 +218,12 @@ public sealed partial class EngineCore : IShowDecisions
 
     /// <summary>This node's half on the lane, then (ALL) the group's at the leader instant this node's half ran: a node already in the
     /// asked mode still sends the line on, so ALL brings every member to it. The reply lists this node and then each member with its
-    /// receipt.</summary>
+    /// receipt. A line still waiting for the lane when the node began to stop is refused there, as every line is, and the group is
+    /// sent nothing.</summary>
     private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords)
     {
-        var (local, at) = await _lane.RunAsync(() => (here(), LeaderNowNs)).ConfigureAwait(false);
+        var (local, at) = await _lane.RunAsync(() => RefusedAsStopping(c.Session) ? (CommandReply.Fail(StoppingWords), 0L) : (here(), LeaderNowNs))
+            .ConfigureAwait(false);
         if (!all)
             return local;
         var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);

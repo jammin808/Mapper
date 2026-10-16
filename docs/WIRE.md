@@ -15,10 +15,11 @@ transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
 
 A node that has begun to stop takes no more lines, from any source — every transport here (MCP's tools before they
 would queue a line for a person), OSC, a control binding, the assistant, an approval: each is answered `ERR the node
-is stopping — it takes no more lines` and journalled as any refusal of its verb, and a line still waiting for the lane
-is refused the same way. The node's own lines still run — a panic's shutters and effects, sent at the panic's instant
-while the projector links are open (they close last), since a panic put back after a restart takes its shutters as
-closed — and its last work (the recovery record, the journal) is not a line and still happens.
+is stopping — it takes no more lines` and journalled as any refusal of its verb, and a line still waiting for the
+lane is refused the same way (a group's `SHOW ARM|DISARM ALL` then sends the group nothing). The node's own lines
+still run — a panic's shutters and effects, sent at the panic's instant while the projector links are open (they
+close last), since a panic put back after a restart takes its shutters as closed — and its last work (the recovery
+record, the journal) is not a line and still happens.
 
 ### Answered by the transport, refused off the wire
 
