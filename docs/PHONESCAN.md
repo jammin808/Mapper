@@ -141,6 +141,14 @@ moment a scan drives the phone, so a scan's cues are the only ones it sees.
 - **Lab only**: real phones (Chrome Android's exposure lock, iOS Safari's steady behaviour and its motion permission, lens
   switching, rolling-shutter timing, turning the phone, Wi-Fi), the certificate click-through, motion sensors.
 
+## Running the tests
+
+The phone's tests run with the Engine suite. The closed browser loop (`PhoneScanE2ETests`) runs only with `PLAYMAP_E2E=1` and
+takes a few minutes: it needs a display (Xvfb, `DISPLAY`), node 22 or later, Playwright (`npm ci` in `tests/e2e/phonescan`, or
+installed globally) and its Chromium (`PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers` when unset); without them its tests are
+skipped with the reason. The Folder camera's tests read their photos through FFmpeg 9 (`PLAYMAP_FFMPEG_DIR`, `/opt/ffmpeg9/lib`
+when unset) and are skipped with the reason where it is missing.
+
 ## Many views, surfaces, the folder
 
 A phone (or any camera) can stand in more places: `SCAN START phone:<id> … INTO <scan>` adds a view and every view is solved

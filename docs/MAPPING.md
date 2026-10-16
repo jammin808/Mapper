@@ -89,6 +89,15 @@ imported mesh, through its transform (`BridgeModel`), never a mesh file's raw co
 model give thousands of 2D↔3D pairs per projector for `PoseSolver`. With no such model, or an uncalibrated camera, the scan
 self-calibrates in the camera's frame and is carried into the stage by the camera rig's pose.
 
+A scan can take more views: `SCAN START <camera> … INTO <scan>` from wherever the camera sees the light — a capture camera, a
+phone, a folder a tethered camera shoots into. Every view of every projector is then solved together, anchored on the projectors'
+pixels (docs/SCAN-MULTIVIEW.md): with nothing held, the result keeps the scan's own frame and scale by its anchor view's place
+(where the scan's last solve put that camera); with `SCAN SOLVE <scan> HOLD <projector>…`, the held projectors stay at their stage
+poses bit for bit and the solve is in the stage's frame (metric with two held) — re-solving only the projector that moved. A
+single-view scan is placed by its camera (bridged into the model when the camera is calibrated), so the views added to it inherit
+that placement; `SCAN APPLY` then puts the merged mesh and every solved projector on the stage as one edit, and its score names a
+view that disagrees with the rest (`SCAN DROP`).
+
 A scan's data lives in its folder, not in the project, so a site move does not reach it: a scan taken before `SITE ORIGIN` moved the
 stage keeps the old frame's points. Each view of a scan keeps the site frame its place was solved in, and the scan's next view `INTO`
 it, `SCAN SOLVE` or `SCAN DROP` carries its views by the move since (`StageMove.Between` the two frames) before the solve keeps the

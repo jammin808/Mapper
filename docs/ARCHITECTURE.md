@@ -193,7 +193,8 @@ Windows; asked for today (`dxgi`), the node runs GL and says so (docs/ROADMAP.md
   latency and that the settle detector accepts. All projectors are then solved at once in the camera's frame and
   carried into the world by the camera rig's pose (bridged into the stage's model instead when it has one and the
   camera is calibrated); a calibrated camera keeps its focal length, because a camera and projectors aimed at one
-  object have nearly meeting optical axes and two views cannot then tell focal length from depth. SCAN APPLY puts
+  object have nearly meeting optical axes and two views cannot then tell focal length from depth. A run `INTO` a scan is
+  one more view of it, solved together with the scan's other views (Many views, below). SCAN APPLY puts
   the scan on the stage as one undoable edit; SCAN SURFACE makes a surface of a click on the smart scan. The camera
   "sim" runs the same pipeline on the scan simulator — demo mode and the tests scan with no hardware. The node
   composes it through the host's hooks (`EngineParts.Ops.cs` → `OpsParts`): the runner is the scan backend over the
@@ -237,8 +238,16 @@ Windows; asked for today (`dxgi`), the node runs GL and says so (docs/ROADMAP.md
   one edit through the ledger. A projector whose own geometry or edge blend is on while its output carries a measured
   correction is read live (`Devices/Native`, Panasonic) and named in the context and preflight with the line that turns it
   off (docs/ALIGN.md).
-- **Many views**: Core solves many camera views of many projectors together, anchored on the projectors' pixels, into a
-  dense depth map per projector and a merged mesh; no verb drives it yet (docs/SCAN-MULTIVIEW.md).
+- **Many views** (`MultiViewScan`, behind `SCAN START … INTO`, `SCAN SOLVE` and `SCAN DROP`): each run of a scan is a view —
+  the camera and its optics as they were and each projector's decode. Every view of every projector is solved together by Core's
+  multi-view solve, anchored on the projectors' pixels, off the lane and one solve per scan at a time; the result is carried onto
+  the scan's frame by its anchor view's place (or the held projectors' stage poses) and by any move of the site frame since, and
+  gives a dense depth map per projector, the merged mesh and regions joined across projectors. The record lands through the lane
+  as one edit. The views, decodes (`CorrespondenceArchive`), the solve and the depth maps sit in the scan's folder
+  (`ScanViewArchive`) and are read back after a restart; what does not read is listed, never guessed. `ScanSuggestions` turns
+  the measured regions into lines queued on the node's own approval list — none runs before a person's `APPROVE` — and no
+  solve or view lands on a scan while its suggestions are made. `FolderCamera` is a cued camera beside the phone: a tethered camera or a person shooting into a
+  folder, its stills read through FFmpeg (`Media/Stills`) (docs/SCAN-MULTIVIEW.md, docs/wire/multiscan.md).
 
 ## 7. Network — a node of the Show Bus (docs/SHOWBUS-NODE.md)
 

@@ -164,8 +164,10 @@ These are the keys every node writes; the packages' keys follow at the end of th
   `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
   `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
-  first projector's smart scan. The smart scan, the confidence and the camera's live picture are preview views
-  (`VIEW <view> SHOW scan:<id>:smart|confidence`, `VIEW <view> SHOW camera:<id>`; see Previews).
+  first projector's smart scan. A scan of many views adds the view being taken, the scan's views, the coverage per projector,
+  each region's projectors and the surface suggestions waiting for a person (docs/wire/multiscan.md). The smart scan, the
+  confidence and the camera's live picture are preview views (`VIEW <view> SHOW scan:<id>:smart|confidence`,
+  `VIEW <view> SHOW camera:<id>`; see Previews).
 - `solve` is the running or last `BLEND SOLVE` (null before the first): `{"id":"bs1","kind":"blend","state":"running",
   "progress":0.42,"words":"solving the blend for 2 outputs","outputs":[],"problems":[]}`. `state` is running, done,
   stale (the stage changed while it solved: the result was dropped, nothing installed), failed or cancelled; once
@@ -230,8 +232,10 @@ These are the keys every node writes; the packages' keys follow at the end of th
   never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
   refused wherever it arrives.
-- `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
-  `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
+- `SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
+  `SCAN SURFACE <scan> REGION <region> [ON <projector>] [<name>]` of a suggested region (`ON`: what that projector lights of
+  it); it answers the surface's id. `SCAN SUGGEST <scan>` queues a scan's measured regions as such lines on the node's own
+  list, each run only by a person's `APPROVE` (docs/wire/multiscan.md).
 
 ## HTTP (9940)
 
@@ -315,7 +319,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
-  `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
+  `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `scan` — `pairing`, `view`,
+  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
   Inside the packages' own objects: `air.overlay.cursorP95Ms` is how late a cursor move is drawn (p95 over the last 300 moves,
   −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
   without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
@@ -329,9 +334,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) ·
-  [facade](wire/facade.md) · [multiview](wire/multiview.md) (Core only: no verb, no STATE).
+  [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
+  camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
-  answers "not available on this node yet" (multiscan has no rows of its own; stacks' `STACK ALIGN` waits unrouted in
-  facade's block, its other rows come with it):
-  [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) ·
-  [stacks](wire/stacks.md) · [multiscan](wire/multiscan.md).
+  answers "not available on this node yet" (stacks' `STACK ALIGN` waits unrouted in facade's block, its other rows come with
+  it): [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) · [stacks](wire/stacks.md).

@@ -103,22 +103,3 @@ the one it lacks; a folder with no view.json is a view whose write never finishe
 - `SCAN APPLY` of a multi-view scan scores each projector by the joint solve: dense fit over its tracks, the decoded share of its
   views, the views that saw it; when a view disagrees with the rest the dense fit's term is `where:<view>`, fix
   `SCAN DROP <scan> <view>`.
-
-## Papers note
-
-For the integration docs pass:
-
-- `WIRE.md`: the rows above; STATE `scan.view`, `views`, `coverage`, `regions[].projector/projectors`, `suggestions`.
-- `MAPPING.md` (scanning): views INTO a scan from anywhere that sees the light; SCAN SOLVE (HOLD to re-solve only what moved),
-  SCAN VIEWS, SCAN DROP of the view that disagrees; regions per projector joined across projectors and `ON <projector>`; scans
-  kept on disk and used after a restart; safe suggestions (measured, text-only to an assistant, a person approves each); the Folder
-  camera (tether and manual).
-- Hunks in other packages' files: `EngineCore.Content.cs` (SCAN START's `INTO` and `phone:`), `EngineCore.Mapping.cs` (the first
-  round's SCAN SURFACE asks `ScanSurfaceMultiscanAsync` first: ON and multi-view scans), `Core/Calibration/Scoring/CalibrationScoring.cs`
-  (`ScanScoreInputs.ScanId`/`DropView`, the dense fit's fix `SCAN DROP`).
-- `ARCHITECTURE.md`: `Engine/Scanning/MultiViewScan` (the engine over Core's multi-view solver), `ScanViewArchive`,
-  `ScanSuggestions`, `FolderCamera`, `Media/Stills/StillImageReader`; `ICuedScanCamera.Patience`/`TakeNow`.
-- `ROADMAP.md`: R1.9 Wave B done (views INTO, joint solve, suggestions, persistence, Folder camera, the closed browser loop);
-  next: coverage on the wall (`SCAN COVERAGE … SHOW`), metric scale from a tape or a phone's depth, the desk's phone path.
-- `docs/PHONESCAN.md` (running the tests): the closed browser loop runs with `PLAYMAP_E2E=1` (a few minutes; Xvfb, node,
-  Playwright and `/opt/pw-browsers`); the Folder camera's tests need FFmpeg 9.

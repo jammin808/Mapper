@@ -180,6 +180,8 @@ registered to the world on its track points (as registering a scan to a surveyed
 - **A bad view.** Every joint solve measures each view's influence; the view whose removal halves the residual (when it is at least
   0.1 px) is named in `SCAN VIEWS` (`disagreeing`), in the solve's words, and in `SCAN APPLY`'s score: the dense fit's fix is
   `SCAN DROP <scan> <view>`. `SCAN DROP` solves the rest warm from the last solve; the view stays in the folder, marked dropped.
+  A view the solve leaves out (it saw too little of the light) is listed "left out" with the solve's words; the same solve of the
+  same views leaves it out again, so `SCAN SOLVE` of them is refused as changing nothing, with those words.
 - **What SCAN APPLY reads.** The merged mesh (each surface once), every projector at the model's raster, the first view's camera
   (the rig's solved optics there), and the planar regions as plane suggestions.
 - **Regions.** Per projector on its own raster, joined across projectors; STATE lists each with `projector` (whose smart scan places
@@ -187,7 +189,19 @@ registered to the world on its track points (as registering a scan to a surveyed
   the region that projector lights (their centre on a cell of its part whose own depth agrees). A single-view scan's regions list
   the solved projectors whose picture holds a fifth of their points.
 - **On disk.** `scans/<id>/views/<view>/` (view.json and one `.pmcm` decode per projector), `multiview.json`, `depth/<projector>.bin`.
-  After a restart the scan reads back whole: INTO, SOLVE, DROP, SURFACE, SUGGEST and APPLY work on it as before.
+  After a restart the scan reads back whole: INTO, SOLVE, DROP, SURFACE, SUGGEST and APPLY work on it as before. A view whose
+  view.json or every decode does not read is listed "unreadable" with the words why; it takes no part in a solve (whose words
+  say so) and its folder is never written over. A view missing one projector's decode takes part with the others and names
+  the decode it lacks.
+- **Suggestions.** `SCAN SUGGEST` ranks the measured regions (flatness, area, the projectors that light them) and queues each
+  one's lines — its `SCAN SURFACE … REGION`, and a `SURFACE QUAD` for a plane — on the node's own approval list, one batch each;
+  only a person's `APPROVE` runs one. An assistant asked to name them gets text descriptors only and answers through one naming
+  tool. While a scan's suggestions are made no solve or view lands on it, and none is made while it takes a view or is solved;
+  a solve withdraws the ones still waiting, since they name the regions of the solve they came from.
+- **While a view is taken.** STATE.scan is the scan with the views, coverage and regions it has and the view being taken; a view
+  that fails or is cancelled leaves the scan as it was.
+- **The cameras.** A view comes through any scan camera: a capture device or stream (its latency measured by white flashes), a
+  phone (paired by the tags its pictures show), or a folder a tethered camera or a person shoots into (docs/PHONESCAN.md).
 
 Measured through the engine (simulator, `tests/PlayMap.Engine.Tests/Phone/MultiViewScanTests.cs`): the same scene, priors and three
 views as Core's, each view a `SCAN START … INTO` — every projector within 5 mm, 0.05° and 0.2 % of throw after registering the track
