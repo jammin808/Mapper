@@ -373,7 +373,7 @@ public sealed class RenderHostTests(ITestOutputHelper log)
     }
 
     [Fact]
-    public void WithNoDisplayTryCreateAnswersNullAndSaysWhy()
+    public async Task WithNoDisplayTryCreateAnswersNullAndSaysWhy()
     {
         var display = Environment.GetEnvironmentVariable("DISPLAY");
         var wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
@@ -382,9 +382,19 @@ public sealed class RenderHostTests(ITestOutputHelper log)
             Environment.SetEnvironmentVariable("DISPLAY", null);
             Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", null);
             var host = RenderHost.TryCreate(RenderHostOptions.Default, out var why);
-            Assert.Null(host);
-            Assert.Contains("no display", why, StringComparison.Ordinal);
-            Assert.Contains("DISPLAY", why, StringComparison.Ordinal);
+            if (OperatingSystem.IsLinux())
+            {
+                Assert.Null(host);
+                Assert.Contains("no display", why, StringComparison.Ordinal);
+                Assert.Contains("DISPLAY", why, StringComparison.Ordinal);
+            }
+            else
+            {
+                // DISPLAY and WAYLAND_DISPLAY name Linux's display servers: elsewhere the window system needs neither, and the
+                // host is made.
+                Assert.True(host is not null, why);
+                await host.DisposeAsync();
+            }
         }
         finally
         {

@@ -542,6 +542,9 @@ public sealed class OptimiseService : IAsyncDisposable
             job = _running;
             _sent = null;
             _running = null;
+            // The worker is gone and with it the partial file's writer: the file goes before the job reads as queued or failed.
+            if (job is not null)
+                DeletePartial(job);
             if (job is not null && expected)
             {
                 // Stopped by the engine (idle exit, shutdown) while it held a job: the job waits for the next worker, no attempt spent.

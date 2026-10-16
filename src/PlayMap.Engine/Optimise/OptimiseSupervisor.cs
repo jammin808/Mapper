@@ -139,32 +139,54 @@ internal sealed class OptimiseSupervisor(WorkerLaunch launch, ILogger log) : IAs
     public async Task StopAsync()
     {
         Process? p;
+        bool running;
         lock (_gate)
         {
             p = _process;
-            if (p is null || p.HasExited)
+            if (p is null)
                 return;
-            _expected = true;
+            running = !p.HasExited;
+            if (running)
+                _expected = true;
         }
-        try
+        if (running)
         {
-            await p.StandardInput.WriteLineAsync("{\"t\":\"stop\"}");
-            p.StandardInput.Close();
+            try
+            {
+                await p.StandardInput.WriteLineAsync("{\"t\":\"stop\"}");
+                p.StandardInput.Close();
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            {
+                log.LogDebug(ex, "The optimise worker's input was closed already.");
+            }
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await p.WaitForExitAsync(wait.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Kill();
+            }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            log.LogDebug(ex, "The optimise worker's input was closed already.");
-        }
-        using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try
-        {
-            await p.WaitForExitAsync(wait.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Kill();
-        }
+        // A worker killed a moment ago (a cancel) reads as exited while it still holds its files: the stop is over when it is gone.
+        await GoneAsync(p);
     }
+
+    /// <summary>Waits until the process is gone, its handles closed. On Windows HasExited and WaitForExitAsync answer as soon as the
+    /// exit code is set, while a killed worker still holds its source and its partial file; WaitForExit waits on the process itself.</summary>
+    private static Task GoneAsync(Process p) => Task.Run(() =>
+    {
+        try
+        {
+            p.WaitForExit();
+        }
+        catch (InvalidOperationException)
+        {
+            // Never started, or already let go: nothing holds a file.
+        }
+    });
 
     private async Task ReadAsync(Process p)
     {
@@ -182,14 +204,8 @@ internal sealed class OptimiseSupervisor(WorkerLaunch launch, ILogger log) : IAs
         {
             log.LogDebug(ex, "The optimise worker's output closed.");
         }
-        try
-        {
-            await p.WaitForExitAsync();
-        }
-        catch (InvalidOperationException ex)
-        {
-            log.LogDebug(ex, "The optimise worker was not started.");
-        }
+        // Its exit is reported once it is gone: the job's partial file is deleted next, and on Windows a file still open is not.
+        await GoneAsync(p);
         bool expected;
         lock (_gate)
         {

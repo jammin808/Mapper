@@ -41,7 +41,8 @@ public class PlayDragTests
             await Task.Delay(10, Ct);
             DeskHarness.Pump();
         }
-        Assert.Contains($"MEDIA IMPORT \"{clip}\"", desk.Verbs());
+        // A path with a space rides quoted, its backslashes (a Windows path's) escaped; one without rides bare, as it is.
+        Assert.Contains("MEDIA IMPORT \"" + clip.Replace("\\", "\\\\", StringComparison.Ordinal) + "\"", desk.Verbs());
         Assert.Contains($"MEDIA IMPORT {logo}", desk.Verbs());
         Directory.Delete(folder, recursive: true);
         Assert.Contains(desk.Link.CurrentProject.Media, m => m.Name == "Second act.mov" && m.Kind == MediaKind.Video);

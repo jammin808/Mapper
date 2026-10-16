@@ -79,7 +79,9 @@ public class CaptureTests
     public async Task AMissingDeviceSaysSo()
     {
         TestMedia.Ensure();
-        using var camera = new CaptureSource(new CaptureOptions { Format = "v4l2", Device = "/dev/video-none" });
+        // The platform's own capture format, with a device that is not there.
+        var missing = CaptureDevices.PlatformFormat == "dshow" ? "video=PlayMap no such camera" : "/dev/video-none";
+        using var camera = new CaptureSource(new CaptureOptions { Format = CaptureDevices.PlatformFormat, Device = missing });
         Assert.False(await camera.Opened);
         Assert.Contains("cannot open", camera.Health.Status, StringComparison.Ordinal);
         Assert.Null(camera.Acquire(0));

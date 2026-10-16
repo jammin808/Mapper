@@ -46,7 +46,7 @@ public sealed class ControlStateFixtureTests
         control["osc"]!["port"] = 0;
         var playlists = new JsonArray(root["playlists"]!.AsArray().Select(p => (JsonNode)new JsonObject { ["id"] = p!["id"]!.GetValue<string>(), ["chase"] = p["chase"]?.DeepClone() }).ToArray());
         var fixture = new JsonObject { ["control"] = control, ["timecode"] = root["timecode"]!.DeepClone(), ["playlists"] = playlists };
-        var text = fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var text = fixture.ToJsonString(FixtureJson.Indented) + "\n";
         // Fresh ids differ from run to run: each becomes its kind and its order of first appearance (ct00000001, bd00000002…).
         var seen = new Dictionary<string, string>(StringComparer.Ordinal);
         return System.Text.RegularExpressions.Regex.Replace(text, "\"(ct|bd|tc)[0-9a-f]{8}\"", m =>
@@ -158,7 +158,7 @@ public sealed class ControlStateFixtureTests
             Assert.Equal("unavailable", timecode.GetProperty("sources")[1].GetProperty("state").GetString());
             Assert.Equal(("locked", "it_a"), (timecode.GetProperty("chases")[0].GetProperty("state").GetString(), timecode.GetProperty("chases")[0].GetProperty("item").GetString()));
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
             await File.WriteAllTextAsync(FixturePath("control.json"), fixture);

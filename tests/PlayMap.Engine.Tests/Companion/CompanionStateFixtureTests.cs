@@ -24,7 +24,7 @@ public sealed class CompanionStateFixtureTests
             ["events"] = root["events"]!.DeepClone(),
             ["project"] = new JsonObject { ["index"] = "9f1c2ab07d3e4410" },
         };
-        return fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return fixture.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]

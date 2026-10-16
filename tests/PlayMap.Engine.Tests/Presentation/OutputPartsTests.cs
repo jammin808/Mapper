@@ -171,10 +171,15 @@ public sealed class OutputFixtureTests
     {
         var root = JsonNode.Parse(MainStateFixtureTests.Normalise(stateJson))!.AsObject();
         root["machine"]!["renderer"] = "OpenGL 4.5 llvmpipe";
+        // The fixture is written on Linux: another platform's own window-system words read as GLX's (EGL stays EGL).
+        if ((string?)root["machine"]!["gl"] == HostRig.NativeBinding)
+            root["machine"]!["gl"] = "glx";
         if (root["machine"]!["present"] is JsonObject machine)
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";
             machine["presentMsP95"] = 0.21;
+            if ((string?)machine["context"] == HostRig.NativeContext)
+                machine["context"] = "glx";
         }
         foreach (var o in root["outputs"]!.AsArray().OfType<JsonObject>())
         {
@@ -195,7 +200,7 @@ public sealed class OutputFixtureTests
                 p["words"] = "60 Hz target · offscreen · 0 missed in 60 s";
             }
         }
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>The desk's cards for this package's STATE blocks: title, STATE path, light, words, up to six fields, actions as lines.</summary>
@@ -220,7 +225,7 @@ public sealed class OutputFixtureTests
                  ("Adapter", "machine.present.adapter", ""), ("Air latency", "machine.present.airLatencyMs", "ms"), ("Present p95", "machine.present.presentMsP95", "ms")],
                 [("Stats", "OUTPUT STATS ALL"), ("Reset", "PRESENT RESET"), ("OpenGL", "PRESENT PATH GL")]),
         };
-        return cards.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return cards.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     private static JsonObject Card(string title, string path, string? light, string words, (string Label, string Path, string Unit)[] fields,

@@ -118,8 +118,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
             o["words"] = "aac copied; 44.1 dB average, 43.9 dB lowest";
         }
         var root = new JsonObject { ["media"] = new JsonObject { ["optimise"] = node } };
-        var fixture = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
-        var cards = JsonNode.Parse(Cards)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var fixture = root.ToJsonString(FixtureJson.Indented) + "\n";
+        var cards = JsonNode.Parse(Cards)!.ToJsonString(FixtureJson.Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
             await File.WriteAllTextAsync(FixturePath("optimise.json"), fixture);

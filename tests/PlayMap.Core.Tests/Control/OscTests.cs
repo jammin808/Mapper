@@ -229,7 +229,7 @@ public sealed class OscInteropTests
     public void PacketsWrittenHereReadInOscJsAsHere()
     {
         var ours = new JsonArray(Ours().Select(o => (JsonNode)new JsonObject { ["name"] = o.Name, ["hex"] = Convert.ToHexStringLower(OscCodec.Write(o.Packet)) }).ToArray());
-        var text = ours.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var text = ours.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n";
         var path = Path.Combine(Folder(), "ours.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             File.WriteAllText(path, text);

@@ -21,6 +21,12 @@ public sealed class RenderHostCollection;
 internal sealed class HostRig : IAsyncDisposable
 {
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    /// <summary>The window system's own context word: what a hidden context is made on when EGL is not asked for.</summary>
+    public static string NativeContext => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
+
+    /// <summary>The binding GL answers for such a context (STATE's machine.gl): WGL on Windows, CGL on macOS, GLX elsewhere.</summary>
+    public static string NativeBinding => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cgl" : "glx";
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
 
     private HostRig(ManualClock clock, EngineCore engine, RenderHost host)
@@ -126,14 +132,14 @@ internal static class Clips
 {
     private static readonly Lazy<string> Folder = new(() => Directory.CreateTempSubdirectory("playmap-stage-tests-").FullName);
 
+    /// <summary>The ffmpeg tool beside the libraries the tests load (the platform's own file name), as <see cref="Host.FfmpegFactAttribute"/>
+    /// finds it.</summary>
     public static string Ffmpeg()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)))
-            Environment.SetEnvironmentVariable(FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Host.FfmpegFactAttribute.UseDefaultLibraries();
         FfmpegLoader.EnsureLoaded();
-        var libs = Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!;
-        var tool = Path.GetFullPath(Path.Combine(libs, "..", "bin", "ffmpeg"));
-        return File.Exists(tool) ? tool : "/opt/ffmpeg9/bin/ffmpeg";
+        return Host.FfmpegFactAttribute.Tool()
+            ?? throw new InvalidOperationException("the ffmpeg tool was not found beside " + Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable));
     }
 
     /// <summary>A 64 × 48 H.264 clip at 25 fps, <paramref name="seconds"/> long, every frame its index painted.</summary>

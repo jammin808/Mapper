@@ -22,7 +22,11 @@ public sealed class FxLaneContextTests
             {
                 using var c = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlDialect.Es300));
                 Assert.Equal(GlDialect.Es300, c.Dialect);
-                Assert.True(c.Api == "egl" || c.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {c.Words}");
+                // On Linux ES is made on EGL (or on GLX, saying so); elsewhere the window system's own API makes it and has nothing to say.
+                if (OperatingSystem.IsLinux())
+                    Assert.True(c.Api == "egl" || c.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {c.Words}");
+                else
+                    Assert.Equal((OperatingSystem.IsWindows() ? "wgl" : "cocoa", ""), (c.Api, c.Words));
                 Assert.Equal(c.Api == "egl", c.EglWindows);
                 using var lane = new FxCompileLane(c);
                 Assert.Equal("shared-context", lane.Mode);

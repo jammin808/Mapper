@@ -24,9 +24,17 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
             Assert.StartsWith("OpenGL ES 3.", c.Device.Version, StringComparison.Ordinal);
             Assert.Equal("es300", c.Device.Caps.Dialect);
             Assert.False(c.Device.Caps.IsCore);
-            Assert.Equal("egl-surfaceless", c.Api);
-            Assert.False(c.HasWindows);
-            Assert.Empty(c.Monitors());
+            if (OperatingSystem.IsLinux())
+            {
+                Assert.Equal("egl-surfaceless", c.Api);
+                Assert.False(c.HasWindows);
+                Assert.Empty(c.Monitors());
+            }
+            else
+            {
+                // A hidden context made through the window system says which.
+                Assert.Equal(OperatingSystem.IsWindows() ? "wgl" : "cocoa", c.Api);
+            }
             Assert.True(c.Device.GlVersion >= 30, $"GL_VERSION reads {c.Device.GlVersion}");
         });
     }
