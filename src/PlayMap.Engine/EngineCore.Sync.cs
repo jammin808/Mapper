@@ -177,6 +177,8 @@ public sealed partial class EngineCore
         // Every engine takes its clock's steps on this lane, with the rebase, whether or not the sync part is in.
         Services.Clock.StepOn = TakeStepOnLane;
         Services.Clock.Stepped += RebaseOnStep;
+        // Every node lists the sync section, a node without the sync part (or in no group) with no rows.
+        routes.Index(new Sync.SyncIndex(this));
         if (Services.GroupSync is not { } sync)
             return;
         routes.OffLane("SYNC LEAD", c => sync.LeadAsync(c.Args, c.Ct));
@@ -184,7 +186,6 @@ public sealed partial class EngineCore
         routes.Lane("SYNC RECEIPT", c => sync.Receipt(c.Args, c.Session));
         routes.Lane("LINK PATTERNS", c => LinkPatternsKept(sync, c));
         routes.Topic("ANCHORS", sync.OpenAnchors);
-        routes.Index(new Sync.SyncIndex(this, sync));
         AnchorPublished += (playlistId, json) =>
         {
             if (Store.Project.FindPlaylist(playlistId)?.SyncGroup is { } group)

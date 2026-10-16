@@ -66,7 +66,7 @@ period, p95 over the last 300 moves (−1 before the first). Unknown numbers are
 - Events: `calibration.staged` (a re-solve or a ledger record staged a result), `calibration.recalled`.
 - Preflight section `calibration`: each projector an output shows — red F (fix: `CALIBRATION FALLBACK`), amber C, a staged result
   (`CALIBRATION ACCEPT <snapshot>`) or no fallback (`CALIBRATION ACCEPT <projector>`), green otherwise.
-- INDEX section `calibration`: a row per projector (light from its grade, state "A 0.2"); keys Re-solve, Fallback (hold), History.
+- INDEX section `calibration`: a row per projector (light from its grade, state "A 0.2"); keys Re-solve (held, as its row is), Fallback (hold), History.
 
 ## Papers note
 

@@ -1,8 +1,9 @@
 // The module against the real node: tools/PlayMap.Node built beside it, run `engine --headless` with a pairing token, the module
 // through the host's InstanceWrapper. It pairs over ws:// by proof, makes a playlist with its actions, sees the playlist's template
-// group come with the INDEX push, presses the item key's down action and sees its feedback and variable move with STATE, sees every
-// key dimmed when the engine is killed, and pairs again when it is back. PLAYMAP_ENGINE names the node host's dll; otherwise the
-// Debug build in the tree is used (build the solution first). The engine started is killed on every path, and a start reads only
+// group come with the INDEX push (every package's section listed as the module's INDEX fixture lists it), presses the item key's down
+// action and sees its feedback and variable move with STATE, sees every key dimmed when the engine is killed, and pairs again when it
+// is back. PLAYMAP_ENGINE names the node host's dll (CI runs its Release build); otherwise the Debug build in the tree is used (build
+// the solution first). The engine started is killed on every path, and a start reads only
 // the log written since it spawned: one that exits, says a port is closed or is not up by its deadline is killed and fails with the
 // engine's stderr (held here against a script standing in for the engine).
 import test from 'node:test'
@@ -16,6 +17,7 @@ import { InstanceStatus } from '@companion-module/base'
 import { boot, configFor, type Booted } from './harness.ts'
 import { openChannel } from '../src/link/channel.ts'
 import { MODULE_VERSION } from '../src/version.ts'
+import { readIndex, type IndexSection } from '../src/state/index-doc.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -352,6 +354,13 @@ void test(
 				[],
 				'no INDEX asked: the push brought it',
 			)
+			// The integrated node lists every package's section with the hint the module's INDEX fixture holds, so each is a preset
+			// section of the module (sampled where the fixture's show lists no rows) and each key's line is one the node's contract
+			// test fits: a section the fixture lacks fails here.
+			const hints = (sections: readonly IndexSection[]): unknown[] =>
+				sections.map((s) => ({ section: s.section, title: s.title, rowKind: s.rowKind, keys: s.keys }))
+			const fixture = readIndex(JSON.parse(readFileSync(new URL('./fixtures/index.json', import.meta.url), 'utf8')))
+			assert.deepEqual(hints(m.instance.model.index?.sections ?? []), hints(fixture.sections))
 
 			// The item key: its feedbacks placed, its down action pressed; the light moves when STATE does, not on the press.
 			await m.place('onair', 'item_on_air', { item })

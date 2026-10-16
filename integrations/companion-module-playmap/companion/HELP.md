@@ -28,7 +28,7 @@ The presets come from the show, by id: renaming or reordering an item never orph
 - **Outputs**, **Projectors** (light and calibration score ring), **Surfaces** (show or hide, held), **Fleet** (the machines this node hears).
 - **Live page** — 32 slots that fill themselves (below).
 - **Encoders** — master, rate, seek and the Live page on dials; a generator's parameters.
-- **Every package's section** — the node describes its keys (effects bypass and mix, calibration re-solve, tempo, timecode chase, the show's arm and panic, the Eye …) and the module builds them; a new package reaches the deck without a new module.
+- **Every package's section** — the node describes its keys (effects bypass and mix, calibration re-solve, tempo, timecode chase, the show's arm and panic, the Eye, a hot backup's FAILOVER and FAILBACK, a scan's surface suggestions to approve …) and the module builds them; a new package reaches the deck without a new module.
 
 Untick a group in the connection to leave it out.
 

@@ -92,6 +92,14 @@ public sealed partial class VerbParamTests
             Assert.Equal((name, VerbRisk.High), (spec?.Name, spec?.Risk));
             Assert.Equal(PressShapes.Hold, VerbParams.Press(spec!));
         }
+        // The hot backup's takeovers and fences take or give the air: held like every other high-risk row (FLEET FENCE and MIRROR are
+        // node-to-node and never a key's, but say held all the same).
+        foreach (var name in new[] { "FAILOVER", "FAILBACK", "FLEET PROMOTE", "FLEET FENCE", "FLEET BACKUP", "FLEET SOLO", "MIRROR" })
+            Assert.Equal((name, VerbRisk.High, PressShapes.Hold), (VerbCatalog.Find(name)?.Name, VerbCatalog.Find(name)?.Risk, VerbParams.Press(VerbCatalog.Find(name)!)));
+        // A scan solved again, a view dropped, a survey imported, the site frame set: review rows that put no picture over the air (the
+        // solve is recorded on the scan; the site frame moves the whole stage, every reprojection kept) fire at once.
+        foreach (var name in new[] { "SCAN SOLVE", "SCAN DROP", "SURVEY IMPORT", "SITE ORIGIN", "SITE POINTS" })
+            Assert.Equal((name, VerbRisk.Review, PressShapes.Instant), (VerbCatalog.Find(name)?.Name, VerbCatalog.Find(name)?.Risk, VerbParams.Press(VerbCatalog.Find(name)!)));
         // What replaces the show or cannot be taken back is pressed twice, as a projector's power is.
         string[] twice = ["PROJECT OPEN", "PROJECT NEW", "SCAN START", "APPROVE"];
         foreach (var name in twice)

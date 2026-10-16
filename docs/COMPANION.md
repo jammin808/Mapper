@@ -48,9 +48,13 @@ desk's name is sent a `NONCE` at once, so the desk's link proves the token witho
 
 INDEX lists playlists with their items, surfaces, projectors, outputs, devices, generators with typed parameters, canvases and the
 media count, then one section per package that adds something a controller acts on (effect slots, LED fixtures, inputs and sends,
-calibration targets, peers, proposals…). A package contributes its section through `IIndexContributor`: rows from published state,
-and a preset hint — a title, a row kind, and key templates (a label, the line a press sends with `$(id)` for the row, the feedback
-that lights it, the press shape). The module builds a preset section per hint, so a new package reaches the deck without module code.
+calibration targets, the Eye's machines, the hot backup's takeovers, the sync group, surface suggestions waiting for a person…). A
+package contributes its section through `IIndexContributor`: rows from published state, and a preset hint — a title, a row kind, and
+key templates (a label, the line a press sends with `$(id)` for the row, the feedback that lights it, the press shape). Every node lists
+every section, one whose part is not running (no hot backup, no group) with no rows. A key that sends a line of its own presses no
+softer than that line's row (design §3.7); a key whose line is the row's id (`$(id)`: the show, the Eye, the fleet) is pressed as the
+stronger of the hint's press and the row's line's. The module builds a preset section per hint, so a new package reaches the deck
+without module code.
 
 Two signatures keep a deck quiet: `sig` moves only when the structure does (ids and kinds, an item's source kind, a generator's
 parameter names, a section's rows and hint), `labels` only when names do. STATE carries `project.index` (the `sig`), so a controller
@@ -248,9 +252,13 @@ or a generator stays.
 
 **Tests.** `npm test` (Node 22) type-checks, lints and runs the module through `@companion-module/host`'s `InstanceWrapper` — Companion's own
 host layer — against a fake node in Node, and against `tools/PlayMap.Node engine --headless` itself (`e2e-engine.test.ts`, which kills the
-engine it started on every path, and fails a start that exits, says a port is closed or is not up within 60 s with the engine's stderr).
+engine it started on every path, and fails a start that exits, says a port is closed or is not up within 60 s with the engine's stderr;
+it holds the integrated node's INDEX sections and hints to the fixture's, so every section the node lists is one the module builds a
+preset section for). CI runs `npm ci`, `npm test` (the e2e test against its Release engine, `PLAYMAP_ENGINE`) and `npm run check` on
+Linux after the .NET suites.
 The node holds its side in `CompanionContractTests`: `verbs.json` is VERBS, every line in `test/lines.txt` and every section key and Live slot line in
-`test/section-lines.txt` (filled by the module from the INDEX fixture, a sample row for a section with none) parses and fits its row,
+`test/section-lines.txt` (filled by the module from the INDEX fixture, sample rows for a section with none — the fleet's takeovers,
+a waiting suggestion, a sync group) parses and fits its row,
 the module's secret rows are every row that carries a secret or pairs, every path in `test/state-paths.txt` is in a STATE the engine wrote, one version, one line protocol, Patterns' palette byte for byte.
 `CompanionModuleFixtureTests` writes the module's STATE and INDEX fixtures from the engine (`PLAYMAP_WRITE_FIXTURES=1`), as the verbs
 test writes `verbs.json`.

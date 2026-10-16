@@ -143,9 +143,8 @@ internal sealed class ScanDataPreflight : IPreflightCheck
     }
 }
 
-/// <summary>INDEX section "scan": one row per phone camera with its connection as the light, one per surface suggestion waiting for a
-/// person (its row id the proposal that approves it), and a preset per phone — the picture again (SCAN NEXT), cancel the scan, the
-/// phones' list.</summary>
+/// <summary>INDEX section "scan": one row per phone camera with its connection as the light, and a preset per phone — the picture
+/// again (SCAN NEXT), cancel the scan, the phones' list.</summary>
 internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "scan";
@@ -176,18 +175,39 @@ internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
             w.WriteString("state", facts is not { Connected: true } ? "not connected" : running ? "scanning" : "ready");
             w.WriteEndObject();
         }
-        // The surface suggestions waiting for a person (wp2-multiscan): one row each, under its scan, with the line that approves it.
+        w.WriteEndArray();
+    }
+}
+
+/// <summary>INDEX section "suggestions" (wp2-multiscan): one row per surface suggestion waiting for a person, under its scan, its row id
+/// the proposal that approves it (its first, the SCAN SURFACE line), amber; a key approves it (pressed twice, as APPROVE is) and a key
+/// rejects it (held). A section of its own, so a deck's keys for a suggestion are the lines that decide it.</summary>
+internal sealed class SuggestionIndex(EngineCore engine) : IIndexContributor
+{
+    public string Section => "suggestions";
+
+    public IndexPresetHint Hint { get; } = new("Suggestions", "suggestion",
+    [
+        new IndexKey("Approve", "APPROVE $(id)", "$(light)", "double"),
+        new IndexKey("Reject", "REJECT $(id)", "$(light)", "hold"),
+    ]);
+
+    public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        w.WriteStartArray();
         if (engine.Services.Scan is Scanning.ScanRunner runner)
         {
             foreach (var (scan, s, _) in runner.Waiting())
             {
+                var proposal = s.Proposals.FirstOrDefault() ?? s.Id;
                 w.WriteStartObject();
-                w.WriteString("id", s.Proposals.FirstOrDefault() ?? s.Id);
+                w.WriteString("id", proposal);
                 w.WriteString("kind", "suggestion");
                 w.WriteString("label", s.Label);
                 w.WriteString("parent", scan);
                 w.WriteString("light", "amber");
-                w.WriteString("state", "waits for a person — APPROVE " + (s.Proposals.FirstOrDefault() ?? s.Id));
+                w.WriteString("state", "waits for a person — APPROVE " + proposal);
                 w.WriteEndObject();
             }
         }

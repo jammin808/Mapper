@@ -175,15 +175,23 @@
     "surveys": []
   },
   "scan": {
+    "id": null,
     "state": "projecting",
-    "projector": "pj_left",
+    "stage": "projecting",
     "pattern": 12,
-    "of": 40,
-    "quality": 0.9,
-    "words": "pattern 12 of 40 on Left",
     "patterns": 40,
     "progress": 0.3,
-    "message": "pattern 12 of 40 on Left"
+    "quality": 0.9,
+    "qualityWords": "",
+    "message": "pattern 12 of 40 on Left",
+    "projectors": [],
+    "regions": [],
+    "projector": "pj_left",
+    "pairing": null,
+    "view": null,
+    "views": [],
+    "coverage": [],
+    "suggestions": []
   },
   "sync": {
     "role": "solo",
@@ -204,7 +212,8 @@
       "rejoins": 0,
       "time": "clock",
       "refused": null
-    }
+    },
+    "epoch": 0
   },
   "links": {
     "patterns": {
@@ -332,7 +341,9 @@
     "last": null,
     "nodes": [],
     "light": "grey",
-    "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet"
+    "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet",
+    "routes": [],
+    "routeTest": null
   },
   "eye": {
     "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet",

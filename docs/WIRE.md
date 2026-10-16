@@ -108,7 +108,8 @@ as raw substrings):
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6,"pins":12}],"scans":1},
  "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
    "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
-   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…"},
+   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…","pairing":null,
+   "view":"v1","views":[],"coverage":[],"suggestions":[]},
  "sync":{"role":"follower","leader":"9f8e7d6c","offsetMs":0.21,"rttMs":0.35,"driftPpm":3.2,"groups":["show"]},
  "links":{"patterns":{"state":"live","host":"10.0.0.5:9697","paired":true,"detail":"VT 2:28","clip":"VT 2:28"},
    "stagewatch":{"state":"live","host":"10.0.0.6:9924","paired":true,"detail":"following Stagewatch at 10.0.0.6:9924",
@@ -165,8 +166,11 @@ These are the keys every node writes; the packages' keys follow at the end of th
   `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
   `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
-  first projector's smart scan. A scan of many views adds the view being taken, the scan's views, the coverage per projector,
-  each region's projectors and the surface suggestions waiting for a person (docs/wire/multiscan.md). The smart scan, the
+  first projector's smart scan. `pairing` is a phone camera's frame pairing (docs/wire/phonescan.md; null for any other camera);
+  `view` is the view being taken, `views` the scan's views, `coverage` each projector's, each region names its projectors, and
+  `suggestions` are the surfaces waiting for a person (docs/wire/multiscan.md). A scan backend other than the node's scan runner
+  writes the same keys in the same order — its state as the stage too, null where it knows nothing (an id, the pairing, the view)
+  and empty lists. The smart scan, the
   confidence and the camera's live picture are preview views (`VIEW <view> SHOW scan:<id>:smart|confidence`,
   `VIEW <view> SHOW camera:<id>`; see Previews).
 - `solve` is the running or last `BLEND SOLVE` (null before the first): `{"id":"bs1","kind":"blend","state":"running",

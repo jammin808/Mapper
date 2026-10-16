@@ -174,7 +174,7 @@
             "label": "Re-solve",
             "line": "CALIBRATION RESOLVE $(id)",
             "feedback": "calibration.grade",
-            "press": "instant"
+            "press": "hold"
           },
           {
             "label": "Fallback",
@@ -291,6 +291,22 @@
       ]
     },
     {
+      "section": "fleet",
+      "hint": {
+        "title": "Fleet",
+        "rowKind": "takeover",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "$(id)",
+            "feedback": "$(light)",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "fx",
       "hint": {
         "title": "Effects",
@@ -328,19 +344,19 @@
             "label": "On",
             "line": "LED OUTPUT ON $(id)",
             "feedback": "led.node",
-            "press": "instant"
+            "press": "hold"
           },
           {
             "label": "Off",
             "line": "LED OUTPUT OFF $(id)",
             "feedback": "led.node",
-            "press": "instant"
+            "press": "hold"
           },
           {
             "label": "Test",
             "line": "LED TEST CHASE ON $(id)",
             "feedback": "led.test",
-            "press": "instant"
+            "press": "hold"
           },
           {
             "label": "Level \u002B",
@@ -658,6 +674,44 @@
       ]
     },
     {
+      "section": "suggestions",
+      "hint": {
+        "title": "Suggestions",
+        "rowKind": "suggestion",
+        "keys": [
+          {
+            "label": "Approve",
+            "line": "APPROVE $(id)",
+            "feedback": "$(light)",
+            "press": "double"
+          },
+          {
+            "label": "Reject",
+            "line": "REJECT $(id)",
+            "feedback": "$(light)",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "sync",
+      "hint": {
+        "title": "Sync",
+        "rowKind": "sync",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "SYNC STATUS",
+            "feedback": "sync.verdict",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "tempo",
       "hint": {
         "title": "Tempo",
@@ -722,7 +776,7 @@
             "label": "Engage",
             "line": "TIMECODE ENGAGE $(id) TOGGLE",
             "feedback": "chase.engaged",
-            "press": "instant"
+            "press": "hold"
           }
         ]
       },

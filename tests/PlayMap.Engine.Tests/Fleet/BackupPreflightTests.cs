@@ -7,6 +7,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Net;
 using PlayMap.Engine.Tests.Sync;
 
 namespace PlayMap.Engine.Tests.Fleet;
@@ -14,7 +15,8 @@ namespace PlayMap.Engine.Tests.Fleet;
 /// <summary>Preflight's backup rows and INDEX's fleet section with faults injected: an optimised version no machine holds leaves the
 /// backup's files amber with the line that fetches it, and a mesh the show names beside it that the primary does not hold is counted
 /// and named there too; a route whose projector does not answer is red with FLEET ROUTE TEST; the primary lists its backup; the
-/// backup's INDEX offers FAILOVER lit by its mirror; a solo node says it has no hot backup.</summary>
+/// backup's INDEX offers FAILOVER lit by its mirror, pushed to a deck that holds INDEX as it moves; a solo node says it has no hot
+/// backup.</summary>
 public sealed class BackupPreflightTests
 {
     private const long Second = SyncRig.Second;
@@ -63,6 +65,10 @@ public sealed class BackupPreflightTests
         await primary.OkAsync($"FLEET ROUTE op_1 DEVICE {dv} 31 32");
         await primary.OkAsync("SYNC LEAD show");
         await BackupRig.MeetAsync(primary, backup);
+        // A deck on the backup holds INDEX: it is pushed again when the fleet section's FAILOVER key comes and its light moves.
+        var deck = new Companion.RecordingSink();
+        Assert.True(((IPushTopics)backup.Engine).TryOpen("INDEX", [], Companion.CompanionRig.Paired, deck, out var watching, out var why), why);
+        using var subscription = watching;
         await backup.OkAsync($"CREDENTIAL SET node.{primary.Id} {HostRig.Token}");
         await backup.OkAsync("FLEET BACKUP " + primary.Id);
         Assert.True(await Eventually.TrueAsync(() => backup.Journal().Contains("mv_1.hap-q could not be pulled from FOH-A", StringComparison.Ordinal)), backup.Journal());
@@ -87,6 +93,7 @@ public sealed class BackupPreflightTests
         // INDEX: the backup's FAILOVER key, lit by its mirror; the primary's key per backup.
         var failover = (await Index(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
         Assert.Equal(("amber", "different"), (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString()));
+        await deck.Heard("\"id\":\"FAILOVER\",\"kind\":\"takeover\",\"label\":\"FAILOVER\",\"parent\":\"fleet\",\"light\":\"amber\",\"state\":\"different\"");
         Assert.Contains(await Index(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
     }
 }

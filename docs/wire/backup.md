@@ -108,7 +108,7 @@ with the first missing media file's line: `MEDIA FETCH <media> VERSION <version>
 that could not be pulled too, which no line fetches: the mirror asks for it again itself); on a primary, `backup:<node>` per backup;
 `route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else one grey row. INDEX section
 `fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`, `FLEET PROMOTE` (red while the leader is
-silent), and `FLEET FOCUS machine:<node>` per backup.
+silent), and `FLEET FOCUS machine:<node>` per backup; every node lists the section, a solo one with no rows.
 
 ## Papers note
 

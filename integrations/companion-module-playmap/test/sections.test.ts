@@ -4,8 +4,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeepStrictEqual } from 'node:util'
+import { readFileSync } from 'node:fs'
 import { FakeNode, copy, fixture } from './fake-node.ts'
 import { boot, configFor, type Booted } from './harness.ts'
+import { sampledSections } from './emitted.ts'
+import { BUNDLED_VERBS, pressOfLine } from '../src/catalog/verbs.ts'
+import { rowOfLine } from '../src/actions.ts'
+import { presetStructure } from '../src/presets.ts'
+import { pressable, readIndex } from '../src/state/index-doc.ts'
 
 interface Row {
 	id: string
@@ -112,4 +118,55 @@ void test('an encoder row is turned, never pressed: no section preset lists it, 
 		await m.stop()
 		await node.stop()
 	}
+})
+
+void test('every section the node lists in INDEX is a preset section once it has rows: a group per key, every row pressed once', () => {
+	// The fixture's sections as the integrated node lists them (the e2e test holds the real engine to the same list), each given the
+	// rows a show lists there where the fixture's show lists none: the fleet's takeovers, the scan's suggestions, a sync group.
+	const sections = sampledSections()
+	const index = readIndex(JSON.parse(readFileSync(new URL('./fixtures/index.json', import.meta.url), 'utf8')))
+	for (const name of ['fleet', 'suggestions', 'sync'])
+		assert.ok(
+			sections.some((s) => s.section === name),
+			`the fixture lists the ${name} section`,
+		)
+	const pressOf = (line: string): 'instant' | 'hold' | 'double' => {
+		const row = rowOfLine(BUNDLED_VERBS, line)
+		return row ? pressOfLine(row, line) : 'instant'
+	}
+	type Group = {
+		id: string
+		presetId?: string
+		commonVariableValues?: { key?: number }
+		templateValues?: { value: unknown }[]
+	}
+	const structure = presetStructure({ ...index, sections }, {}, { peers: [], pressOf }) as {
+		id: string
+		definitions: Group[]
+	}[]
+	for (const s of sections) {
+		const preset = structure.find((x) => x.id === `sec.${s.section}`)
+		assert.ok(preset, `a preset section for ${s.section}`)
+		s.keys.forEach((_, i) => {
+			const listed = preset.definitions
+				.filter((g) => g.commonVariableValues?.key === i)
+				.flatMap((g) => (g.templateValues ?? []).map((v) => v.value))
+			assert.deepEqual(
+				listed.sort(),
+				s.rows
+					.filter(pressable)
+					.map((r) => r.id)
+					.sort(),
+				`${s.section} key ${i} lists every pressed row once`,
+			)
+		})
+	}
+	// A takeover is held and a suggestion's approval pressed twice, whatever the row's line alone would say.
+	const press = (section: string, key: number): string[] =>
+		(structure.find((x) => x.id === `sec.${section}`)?.definitions ?? [])
+			.filter((g) => g.commonVariableValues?.key === key)
+			.map((g) => g.presetId ?? '')
+	assert.deepEqual(press('fleet', 0), ['section_key_hold'])
+	assert.deepEqual(press('suggestions', 0), ['section_key_double'])
+	assert.deepEqual(press('suggestions', 1), ['section_key_hold'])
 })

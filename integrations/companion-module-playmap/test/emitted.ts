@@ -36,21 +36,61 @@ export function statePaths(): string[] {
 	return [...new Set(Object.values(P))].sort()
 }
 
-/** A row for a section the INDEX fixture lists none of, by its hint's row kind: what a show would list there. An align group's id
- * and an input's name hold a space, so the module quotes them in a line. */
-export const SAMPLE_ROWS: Readonly<Record<string, IndexRow>> = {
-	align: { id: 'Front wall', kind: 'align', label: 'Front wall', parent: '', light: 'grey', state: 'idle' },
-	projector: { id: 'pj0a1b2c3d', kind: 'projector', label: 'Left', parent: '', light: 'green', state: 'A' },
-	fx: { id: 'fx0a1b2c3d', kind: 'fx', label: 'Blur', parent: 'sf0a1b2c3d', light: 'grey', state: 'on' },
-	output: { id: 'op0a1b2c3d', kind: 'output', label: 'Output 2', parent: '', light: 'green', state: 'locked' },
-	chase: { id: 'pl0a1b2c3d', kind: 'chase', label: 'Show', parent: '', light: 'grey', state: 'disengaged' },
-	lednode: { id: 'ln0a1b2c3d', kind: 'lednode', label: 'Truss', parent: '', light: 'grey', state: 'off' },
-	send: { id: 'sd0a1b2c3d', kind: 'send', label: 'Program', parent: '', light: 'grey', state: 'off' },
-	input: { id: 'Stage cam', kind: 'input', label: 'Stage cam', parent: '', light: 'green', state: 'live' },
+/** The rows of a section the INDEX fixture lists none of, by its hint's row kind: what a show would list there. An align group's id
+ * and an input's name hold a space, so the module quotes them in a line; a fleet row's id is the line its key sends (a hot backup's
+ * FAILOVER, a primary's FAILBACK CONFIRM, a follower's FLEET PROMOTE, a backup's FLEET FOCUS), and a suggestion's the proposal that
+ * approves it. */
+export const SAMPLE_ROWS: Readonly<Record<string, readonly IndexRow[]>> = {
+	align: [{ id: 'Front wall', kind: 'align', label: 'Front wall', parent: '', light: 'grey', state: 'idle' }],
+	projector: [{ id: 'pj0a1b2c3d', kind: 'projector', label: 'Left', parent: '', light: 'green', state: 'A' }],
+	fx: [{ id: 'fx0a1b2c3d', kind: 'fx', label: 'Blur', parent: 'sf0a1b2c3d', light: 'grey', state: 'on' }],
+	output: [{ id: 'op0a1b2c3d', kind: 'output', label: 'Output 2', parent: '', light: 'green', state: 'locked' }],
+	chase: [{ id: 'pl0a1b2c3d', kind: 'chase', label: 'Show', parent: '', light: 'grey', state: 'disengaged' }],
+	lednode: [{ id: 'ln0a1b2c3d', kind: 'lednode', label: 'Truss', parent: '', light: 'grey', state: 'off' }],
+	send: [{ id: 'sd0a1b2c3d', kind: 'send', label: 'Program', parent: '', light: 'grey', state: 'off' }],
+	input: [{ id: 'Stage cam', kind: 'input', label: 'Stage cam', parent: '', light: 'green', state: 'live' }],
+	takeover: [
+		{ id: 'FAILOVER', kind: 'takeover', label: 'FAILOVER', parent: 'fleet', light: 'green', state: 'identical' },
+		{
+			id: 'FAILBACK CONFIRM',
+			kind: 'takeover',
+			label: 'FAILBACK',
+			parent: 'fleet',
+			light: 'green',
+			state: 'to a1b2c3d4',
+		},
+		{
+			id: 'FLEET PROMOTE',
+			kind: 'takeover',
+			label: 'PROMOTE',
+			parent: 'fleet',
+			light: 'grey',
+			state: 'following a1b2c3d4',
+		},
+		{
+			id: 'FLEET FOCUS machine:a1b2c3d4',
+			kind: 'backup',
+			label: 'Stage left',
+			parent: 'fleet',
+			light: 'green',
+			state: 'identical',
+		},
+	],
+	suggestion: [
+		{
+			id: 'ap1',
+			kind: 'suggestion',
+			label: 'Wall',
+			parent: 'sc0a1b2c3d',
+			light: 'amber',
+			state: 'waits for a person — APPROVE ap1',
+		},
+	],
+	sync: [{ id: 'sync:show', kind: 'sync', label: 'show', parent: '', light: 'green', state: 'free-running' }],
 }
 
-/** The INDEX fixture's sections, a section with no rows given the sample row of its kind when a line of its keys names a row (one
- * whose lines name none, SCAN NEXT, is given a row that names nothing). */
+/** The INDEX fixture's sections, a section with no rows given the sample rows of its kind when a line of its keys names a row (one
+ * whose lines name none, SCAN NEXT, is given its sample rows, or a row that names nothing). */
 export function sampledSections(): IndexSection[] {
 	const index = readIndex(JSON.parse(readFileSync(new URL('./fixtures/index.json', import.meta.url), 'utf8')))
 	return index.sections.map((s) => {
@@ -59,7 +99,7 @@ export function sampledSections(): IndexSection[] {
 		const sample = SAMPLE_ROWS[s.rowKind]
 		if (named && !sample)
 			throw new Error(`section ${s.section} has no rows and no sample row for its kind ${s.rowKind}`)
-		return { ...s, rows: [sample ?? { id: '', kind: s.rowKind, label: '', parent: '', light: 'grey', state: '' }] }
+		return { ...s, rows: sample ?? [{ id: '', kind: s.rowKind, label: '', parent: '', light: 'grey', state: '' }] }
 	})
 }
 

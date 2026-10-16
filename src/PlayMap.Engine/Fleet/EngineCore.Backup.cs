@@ -44,6 +44,8 @@ public sealed partial class EngineCore
 
     private void RouteBackup(VerbRoutes routes)
     {
+        // Every node lists the fleet section, a node without the backup part (or a solo one) with no rows.
+        routes.Index(new BackupIndex(this));
         if (Services.Backup is not { } backup)
             return;
         routes.OffLane("FLEET BACKUP", c => backup.BackupAsync(c.Args, c.Ct));
@@ -55,7 +57,6 @@ public sealed partial class EngineCore
         routes.OffLane("MIRROR", backup.MirrorAsync);
         routes.OffLane("FLEET ROUTE", FleetRouteAsync);
         routes.Topic("MIRROR", backup.OpenMirror);
-        routes.Index(new BackupIndex(this));
         StateChanged += _ => backup.PublishProject();
         var last = Playback.Snapshot;
         Playback.Changed += snap =>

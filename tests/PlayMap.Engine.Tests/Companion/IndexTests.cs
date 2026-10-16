@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlayMap.Core.Model;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine.Tests.Companion;
 
@@ -97,6 +98,47 @@ public sealed class IndexTests
 
         public void WriteRows(Project project, EngineSnapshot snapshot, Utf8JsonWriter w) =>
             throw new NullReferenceException("a package's own bug");
+    }
+
+    [Fact]
+    public async Task EverySectionKeyIsPressedAtLeastAsHardAsTheLineItSends()
+    {
+        // Every package's section, the fleet's and the sync group's too, is listed on every node; a key whose line is its own (not a
+        // row's id) says a press no softer than that line's (design §3.7: held unless it is one of the eight instant presses, pressed
+        // twice where its row is), so a deck that follows the hint alone never fires a held line at once.
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var sections = engine.Routes.IndexSections.ToList();
+        Assert.Superset(new HashSet<string>(["fleet", "sync", "suggestions", "scan", "eye", "show", "led", "calibration", "timecode"], StringComparer.Ordinal),
+            sections.Select(s => s.Section).ToHashSet(StringComparer.Ordinal));
+        string[] order = [PressShapes.Instant, PressShapes.Hold, PressShapes.Double];
+        var soft = new List<string>();
+        foreach (var section in sections)
+        {
+            foreach (var key in section.Hint.Keys)
+            {
+                Assert.Contains(key.Press, order);
+                if (key.DownLine.Trim() == "$(id)")
+                    continue;
+                var text = key.DownLine.Replace("$(id)", "x0a1b2c3d", StringComparison.Ordinal);
+                Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{section.Section}: {text}: {error?.Reason}");
+                var press = PressOf(line);
+                if (Array.IndexOf(order, key.Press) < Array.IndexOf(order, press))
+                    soft.Add($"{section.Section} '{key.DownLine}' says {key.Press}, its line is pressed {press}");
+            }
+        }
+        Assert.True(soft.Count == 0, string.Join("\n", soft));
+    }
+
+    /// <summary>A line's press as a key sends it: its row's (the eight instant rows, a row pressed twice), else held when the line is
+    /// high-risk with its words (a row's per-argument risk) or a review row that puts a picture over the air.</summary>
+    private static string PressOf(WireLine line)
+    {
+        var spec = VerbCatalog.Match(line)?.Spec;
+        Assert.NotNull(spec);
+        var row = VerbParams.Press(spec);
+        if (row == PressShapes.Double || (row == PressShapes.Instant && spec.Risk == VerbRisk.High))
+            return row;
+        return VerbCatalog.RiskOf(line) == VerbRisk.High || (row == PressShapes.Hold && spec.Risk != VerbRisk.High) ? PressShapes.Hold : PressShapes.Instant;
     }
 
     [Fact]

@@ -124,7 +124,7 @@ public sealed partial class CompanionModuleFixtureTests
     /// <summary>A structured-light scan twelve patterns into forty.</summary>
     private sealed class OneScan : IScanBackend
     {
-        public ScanProgress? Current => new("projecting", "pj_left", 12, 40, 0.9, "pattern 12 of 40 on Left");
+        public ScanProgress? Current => new("projecting", "pj_left", 12, 40, 90, "pattern 12 of 40 on Left");
 
         public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct) =>
             Task.FromException<string>(new InvalidOperationException("a scan is already running"));
