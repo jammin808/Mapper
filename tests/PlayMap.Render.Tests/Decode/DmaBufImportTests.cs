@@ -129,6 +129,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
     }
 
     [LinuxTheory]
+    [Trait("Category", "Linux")]
     [InlineData(1918, 1078, 2048, 256, false)]
     [InlineData(1920, 1080, 2048, 0, false)]
     [InlineData(1280, 720, 2816, 512, true)]
@@ -167,6 +168,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
     }
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void TheRendererNeverHoldsMoreThanTwoSurfacesAndHoldsTheLastPictureWhenBothAreInFlight()
     {
         using var frame = Make(320, 180, 512, 0, false, 99);
@@ -191,6 +193,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
     }
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void AFailedImportKeepsTheLastPictureReportsTheSourceAndSaysWhy()
     {
         using var frame = Make(256, 144, 256, 0, false, 5);
@@ -233,6 +236,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
     }
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void TheShareOfThisEglDisplayImportsThePlaneFormatsAndSaysWhyZeroCopyIsNotReady()
     {
         egl.Run(ctx =>
@@ -260,6 +264,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
     }
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void ATextureExportedAsADmabufImportsBackUnchangedWhereMesaExportsIt()
     {
         egl.Run(ctx =>

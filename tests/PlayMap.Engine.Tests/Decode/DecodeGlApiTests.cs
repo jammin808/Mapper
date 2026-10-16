@@ -9,11 +9,13 @@ namespace PlayMap.Engine.Tests.Decode;
 
 /// <summary>decode.glApi followed down the chain: a render host asked for EGL makes its desktop context on EGL, and STATE.decode's
 /// platform says so — binding egl, the dmabuf share of that display, and why zero-copy waits (a software GL names no render node).
-/// decode.glApi, EGL's windowed contexts and dmabufs are Linux's: other platforms have one binding and ignore the word.</summary>
+/// decode.glApi is read on Linux only (a hidden context elsewhere is made the platform's way, whatever the word says), and EGL's
+/// desktop contexts and dmabuf shares exist only there.</summary>
 [Collection("render host")]
 public sealed class DecodeGlApiTests(ITestOutputHelper log)
 {
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public async Task AnEglContextGivesTheDecodePlatformItsBindingAndTheDmabufShare()
     {
         var options = RenderHostOptions.Default with { Windows = false, Platform = PlatformRequest.Default with { GlApi = "egl" } };

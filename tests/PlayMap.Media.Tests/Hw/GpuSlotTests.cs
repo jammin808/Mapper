@@ -186,6 +186,7 @@ public sealed class GpuSlotTests
     // VA-API is reached through libva and a DRM render node, and its frames shared as dmabufs: Linux's only (the guard that asks
     // for libva is not asked elsewhere).
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public async Task AClipForARendererWhoseVaapiCannotBeUsedSaysThePathItsFramesComeBy()
     {
         TestMedia.Ensure();

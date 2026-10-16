@@ -37,6 +37,7 @@ public sealed class GlApiTests(ITestOutputHelper log)
     private static string NativeApi => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void EglMakesTheDesktopContextAndItsWindowsOnEglWhoseDisplayImportsDmabufs()
     {
         OnOwnThread(() =>
@@ -69,6 +70,7 @@ public sealed class GlApiTests(ITestOutputHelper log)
     }
 
     [LinuxFact]
+    [Trait("Category", "Linux")]
     public void GlxMakesEvenAnEsContextOnGlx()
     {
         OnOwnThread(() =>
