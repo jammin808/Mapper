@@ -59,6 +59,9 @@ public sealed class BindingLearnTests
     [InlineData("SET sf_a opacity * *", "a target line carries one value word ('*', '*%' or '#*'), not two")]
     [InlineData("SET sf_a rect.x [*]", "a value can ride only as a whole word, never inside JSON")]
     [InlineData("FROB 1", "'FROB' is no verb — HELP lists the vocabulary")]
+    [InlineData("\"AUTH s3cr3t-7f2a\"", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
+    [InlineData("\"LINK PATTERNS\tpatterns.local s3cr3t-7f2a\" 1", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
+    [InlineData("{\"target\":\"AUTH s3cr3t-7f2a\"}", "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary")]
     public void ATargetThatCannotBeBoundIsRefusedWithWords(string line, string why)
     {
         Assert.Null(TargetLine.Parse(line, out var reason));

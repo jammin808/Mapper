@@ -35,6 +35,9 @@ public sealed class BindingEngineTests
             $"BIND ADD {{\"input\":\"OSC /x\",\"target\":\"LINK PATTERNS 10.0.0.5 {Token}\"}}",
             $"BIND LEARN LINK STAGEWATCH 10.0.0.6 {Token}",
             $"SET {id} target \"CREDENTIAL SET pj1 admin {Token}\"",
+            // JSON giving a key twice (a reader takes it), and a value whose words are parted by a tab.
+            $"BIND ADD {{\"input\":\"OSC /x\",\"target\":\"AUTH {Token}\",\"target\":\"LINK PATTERNS 10.0.0.5 {Token}\"}}",
+            $"SET {id} target \"AUTH\t{Token}\"",
         ];
         foreach (var line in lines)
             Assert.DoesNotContain(Token, await rig.Refused(line), StringComparison.Ordinal);
