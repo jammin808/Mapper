@@ -82,6 +82,8 @@ public static partial class MeshIO
         var minor = head[25];
         var headerSize = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(94));
         var offset = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(96));
+        if (headerSize < 227)
+            throw new FormatException(string.Create(Inv, $"The LAS header says it is {headerSize} bytes, shorter than the 227 its own fields take: the file is damaged."));
         var formatByte = head[104];
         if ((formatByte & 0xC0) != 0)
             throw new NotSupportedException("Compressed LAS (LAZ) is not read; decompress it to LAS first.");
@@ -96,8 +98,10 @@ public static partial class MeshIO
             ReadExactly(stream, head.AsSpan(227, 375 - 227));
             read = 375;
             var count64 = BinaryPrimitives.ReadUInt64LittleEndian(head.AsSpan(247));
+            if (count64 > long.MaxValue)
+                throw new FormatException(string.Create(Inv, $"The LAS file declares {count64} points, more than any file holds: the header is damaged."));
             if (count == 0 || count64 > (ulong)count)
-                count = checked((long)count64);
+                count = (long)count64;
         }
         var (minLength, rgbAt) = format switch
         {
@@ -116,8 +120,14 @@ public static partial class MeshIO
         };
         if (recordLength < minLength)
             throw new FormatException($"LAS records of {recordLength} bytes are too short for format {format}.");
-        if (offset < read)
+        if (offset < headerSize)
             throw new FormatException("The LAS point data starts inside the header.");
+        // The whole cloud is held in memory: a count the file cannot hold is refused before it is allocated.
+        if (stream.CanSeek && count > (stream.Length - offset) / recordLength)
+        {
+            throw new FormatException(string.Create(Inv,
+                $"The LAS file declares {count:N0} points but holds at most {Math.Max(0, (stream.Length - offset) / recordLength):N0}: it is cut short or damaged."));
+        }
         Skip(stream, offset - read);
 
         var pts = new Vec3d[count];

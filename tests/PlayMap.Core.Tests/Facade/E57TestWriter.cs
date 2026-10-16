@@ -23,6 +23,10 @@ internal sealed record E57TestScan(string Name, Vec3d[] Points)
     public bool OmitLimits { get; init; }
     /// <summary>Records per data packet (small, so fields straddle packets).</summary>
     public int PerPacket { get; init; } = 97;
+    /// <summary>The record count the XML declares, when it is not the points' (a damaged or hostile file).</summary>
+    public long? RecordCount { get; init; }
+    /// <summary>Every coordinate written as a ScaledInteger whose minimum is its maximum: no bits a point.</summary>
+    public bool Constant { get; init; }
 }
 
 /// <summary>Writes minimal valid E57 files for the reader's tests, from the format as libE57Format writes it: the 48-byte header, the
@@ -134,6 +138,13 @@ internal static class E57TestWriter
                 case "scaled":
                 {
                     var raws = Enumerable.Range(0, pts.Length).Select(i => (long)Math.Round(C(i) / scan.Scale)).ToArray();
+                    if (scan.Constant)
+                    {
+                        var only = raws.Length > 0 ? raws[0] : 0;
+                        fields.Add(new Field(axes[a], $"<{axes[a]} type=\"ScaledInteger\" minimum=\"{only}\" maximum=\"{only}\" scale=\"{X(scan.Scale)}\" offset=\"0\"/>",
+                            0, _ => 0));
+                        break;
+                    }
                     if (scan.OmitLimits)
                     {
                         fields.Add(new Field(axes[a], $"<{axes[a]} type=\"ScaledInteger\" scale=\"{X(scan.Scale)}\"/>", 64,
@@ -199,7 +210,7 @@ internal static class E57TestWriter
             + "<pose type=\"Structure\"><rotation type=\"Structure\">"
             + $"<w type=\"Float\">{X(w)}</w><x type=\"Float\">{X(x)}</x><y type=\"Float\">{X(y)}</y><z type=\"Float\">{X(z)}</z></rotation>"
             + $"<translation type=\"Structure\"><x type=\"Float\">{X(t.X)}</x><y type=\"Float\">{X(t.Y)}</y><z type=\"Float\">{X(t.Z)}</z></translation></pose>\n"
-            + $"<points type=\"CompressedVector\" fileOffset=\"{sectionPhysical}\" recordCount=\"{scan.Points.Length}\">\n"
+            + $"<points type=\"CompressedVector\" fileOffset=\"{sectionPhysical}\" recordCount=\"{scan.RecordCount ?? scan.Points.Length}\">\n"
             + "<prototype type=\"Structure\">" + string.Concat(fields.Select(f => f.Xml)) + "</prototype>\n"
             + "<codecs type=\"Vector\" allowHeterogeneousChildren=\"1\"/>\n</points>\n</vectorChild>\n";
     }

@@ -68,6 +68,8 @@ public sealed partial class LasChunkSource : IPointChunkSource
         var minor = head[25];
         var headerSize = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(94));
         var pointsAt = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(96));
+        if (headerSize < 227)
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"The LAS header says it is {headerSize} bytes, shorter than the 227 its own fields take: the file is damaged."));
         var vlrs = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(100));
         var formatByte = head[104];
         if ((formatByte & 0xC0) != 0)
@@ -88,8 +90,10 @@ public sealed partial class LasChunkSource : IPointChunkSource
             evlrAt = BinaryPrimitives.ReadUInt64LittleEndian(head.AsSpan(235));
             evlrs = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(243));
             var count64 = BinaryPrimitives.ReadUInt64LittleEndian(head.AsSpan(247));
+            if (count64 > long.MaxValue)
+                throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"The LAS file declares {count64} points, more than any file holds: the header is damaged."));
             if (count == 0 || count64 > (ulong)count)
-                count = checked((long)count64);
+                count = (long)count64;
         }
         (var minLength, _rgbAt) = format switch
         {
@@ -108,7 +112,7 @@ public sealed partial class LasChunkSource : IPointChunkSource
         };
         if (_recordLength < minLength)
             throw new FormatException($"LAS records of {_recordLength} bytes are too short for format {format}.");
-        if (pointsAt < read)
+        if (pointsAt < headerSize)
             throw new FormatException("The LAS point data starts inside the header.");
         DeclaredCount = count;
         _left = count;
@@ -133,7 +137,8 @@ public sealed partial class LasChunkSource : IPointChunkSource
             if (user == "LASF_Projection")
                 crs = Better(crs, CrsOf(record, body));
         }
-        if (crs.Length == 0 && evlrs > 0 && evlrAt > 0 && _stream.CanSeek)
+        // Extended records the file does not reach name no coordinate system; the points are read as they are.
+        if (crs.Length == 0 && evlrs > 0 && evlrAt > 0 && _stream.CanSeek && evlrAt < (ulong)_stream.Length)
         {
             var back = _stream.Position;
             _stream.Seek((long)evlrAt, SeekOrigin.Begin);

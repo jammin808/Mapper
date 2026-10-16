@@ -48,6 +48,8 @@ public static partial class MeshIO
             throw new NotSupportedException($"E57 version {major}.{minor} is not read (1.x is).");
         if (xmlLength is 0 or > 64 * 1024 * 1024)
             throw new FormatException("The E57 XML section has no sensible length.");
+        if (xmlAt >= (ulong)file.PhysicalLength || (ulong)E57Pages.Logical((long)xmlAt) + xmlLength > (ulong)file.LogicalLength)
+            throw new FormatException("The E57 XML section lies beyond the end of the file: the file is cut short or damaged.");
         var xml = new byte[(int)xmlLength];
         file.ReadLogical(E57Pages.Logical((long)xmlAt), xml);
         XDocument doc;
@@ -198,6 +200,10 @@ public static partial class MeshIO
             throw new NotSupportedException($"{name} uses a codec other than bit-pack, which is not read");
         var records = (long)Attr(points, "recordCount", 0);
         var at = (long)Attr(points, "fileOffset", 0);
+        if (records < 0)
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"{name} declares {records} points"));
+        if (at < 0 || at >= file.PhysicalLength)
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"{name}'s points lie beyond the end of the file (offset {at:N0})"));
         var prototype = Child(points, "prototype") ?? throw new FormatException($"{name}'s points have no prototype");
         var fields = prototype.Elements().Select(FieldOf).ToList();
         int Find(string n) => fields.FindIndex(f => f.Name == n);
@@ -222,9 +228,6 @@ public static partial class MeshIO
             2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw),
             2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy));
 
-        var pts = new List<Vec3d>((int)Math.Min(records, 1 << 24));
-        var cols = colour ? new List<int>(pts.Capacity) : null;
-        var rows = structured ? new List<(int R, int C)>(pts.Capacity) : null;
         int Byte(E57Field f, double v) => f.Max > f.Min ? (int)Math.Clamp(Math.Round((v - f.Min) * 255 / (f.Max - f.Min)), 0, 255) : (int)Math.Clamp(v, 0, 255);
 
         // The binary section: its header, then data packets, each carrying a run of every field's byte stream.
@@ -232,9 +235,24 @@ public static partial class MeshIO
         file.ReadLogical(E57Pages.Logical(at), section);
         if (section[0] != 1)
             throw new FormatException($"{name}'s binary section is not a compressed vector section (id {section[0]})");
-        var sectionLength = (long)BinaryPrimitives.ReadUInt64LittleEndian(section[8..]);
+        var sectionLength = BinaryPrimitives.ReadUInt64LittleEndian(section[8..]);
+        if ((double)E57Pages.Logical(at) + sectionLength > file.LogicalLength)
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"{name}'s section of {sectionLength:N0} bytes runs past the end of the file"));
+        // Every record takes its fields' bits of the section's byte streams: the count is held to what the section can carry before
+        // anything is allocated for it, and a record of no bits (every field constant) carries nothing a count could be checked by.
+        var bitsPerRecord = fields.Sum(f => (long)f.Bits);
+        if (records > 0 && bitsPerRecord == 0)
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture, $"{name}'s fields are all constant: its {records:N0} points carry no bits"));
+        if ((double)records * bitsPerRecord > (double)sectionLength * 8)
+        {
+            throw new FormatException(string.Create(CultureInfo.InvariantCulture,
+                $"{name} declares {records:N0} points, more than its section of {sectionLength:N0} bytes holds at {bitsPerRecord} bits a point"));
+        }
+        var pts = new List<Vec3d>((int)Math.Min(records, 1 << 20));
+        var cols = colour ? new List<int>(pts.Capacity) : null;
+        var rows = structured ? new List<(int R, int C)>(pts.Capacity) : null;
         var dataAt = (long)BinaryPrimitives.ReadUInt64LittleEndian(section[16..]);
-        var end = E57Pages.Logical(at) + sectionLength;
+        var end = E57Pages.Logical(at) + (long)sectionLength;
         var cursor = E57Pages.Logical(dataAt);
         long done = 0;
         var header = new byte[6];
@@ -297,10 +315,15 @@ public static partial class MeshIO
         PointCloud cloud;
         if (structured && rows!.Count > 0)
         {
-            var height = rows.Max(r => r.R) + 1;
-            var width = rows.Max(r => r.C) + 1;
-            if ((long)width * height > 200_000_000)
-                throw new FormatException($"{name}'s grid of {width} × {height} is too large");
+            var height = rows.Max(r => Math.Max(0L, r.R)) + 1;
+            var width = rows.Max(r => Math.Max(0L, r.C)) + 1;
+            // The grid organises the points it has: one far larger than the scan's records (invalid cells included) is a damaged
+            // index, refused before the grid is allocated.
+            if (width * height > Math.Min(MaxE57GridCells, Math.Max(E57GridCellsPerRecord * records, 1 << 20)))
+            {
+                throw new FormatException(string.Create(CultureInfo.InvariantCulture,
+                    $"{name}'s grid of {width:N0} × {height:N0} cells is far larger than its {records:N0} points: its row and column indices are damaged"));
+            }
             var grid = new Vec3d[width * height];
             Array.Fill(grid, new Vec3d(double.NaN, double.NaN, double.NaN));
             var gridColours = colour ? new int[grid.Length] : null;
@@ -313,7 +336,7 @@ public static partial class MeshIO
                 if (gridColours is not null)
                     gridColours[r * width + c] = cols![i];
             }
-            cloud = new PointCloud(grid, null, gridColours, width, height);
+            cloud = new PointCloud(grid, null, gridColours, (int)width, (int)height);
         }
         else
         {
@@ -322,6 +345,12 @@ public static partial class MeshIO
         return new E57Scan(name, guid, cloud, structured, records, translation, rotation);
     }
 
+    /// <summary>The most cells a structured scan's grid may have (24 bytes each).</summary>
+    private const long MaxE57GridCells = 200_000_000;
+
+    /// <summary>How many grid cells a structured scan may have for each record it declares (cells no record names are invalid).</summary>
+    private const long E57GridCellsPerRecord = 16;
+
     /// <summary>An E57 file's pages: logical bytes read through the 1020-byte data of each 1024-byte page, each page's CRC-32C checked
     /// once on first read.</summary>
     private sealed class E57Pages(Stream stream)
@@ -329,6 +358,12 @@ public static partial class MeshIO
         private readonly HashSet<long> _checked = [];
         private readonly byte[] _page = new byte[E57PageSize];
         private long _cached = -1;
+
+        /// <summary>The file's length in bytes (as large as a long holds when the stream cannot say).</summary>
+        public long PhysicalLength { get; } = stream.CanSeek ? stream.Length : long.MaxValue;
+
+        /// <summary>The logical bytes the file holds (its pages' data, the CRCs taken out).</summary>
+        public long LogicalLength => PhysicalLength == long.MaxValue ? long.MaxValue : Logical(PhysicalLength);
 
         /// <summary>The logical offset of a physical one (the CRCs taken out).</summary>
         public static long Logical(long physical) => physical / E57PageSize * E57PageData + physical % E57PageSize;
