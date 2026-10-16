@@ -171,6 +171,8 @@ public sealed partial class EngineCore
         if (journalLine && !reply.Silent && IsJournalled(line))
             Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
                 session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        else if (!journalLine && reply.Ok && !reply.Silent)
+            FanOutGestureLine(line);
         return reply;
     }
 

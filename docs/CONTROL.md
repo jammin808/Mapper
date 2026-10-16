@@ -50,11 +50,12 @@ rule):
 
 ## Lines, the journal and undo
 
-A binding fires as session `binding` with the authority of the person who made it; the show's gate decides what an armed show
-lets through. A press is journalled as its line, with the binding as who. A fader's sweep is journalled **once**, closed 400 ms
-after the last move ("OSC /fader → Lobby opacity 0.1 → 0.5 over 0.2 s (5 edits)"), and is one undo step (edits of one field
-coalesce). `CONTROL ENABLE OFF` pauses every binding (kept on the node); `BIND ENABLE` turns a binding or a surface off.
-`CONTROL INJECT <input> <value>` fires an input's bindings as if it moved — a person's test, never an assistant's.
+A binding fires as session `binding` with the authority of the person who made it; the show's gate decides what an armed show lets
+through. A press is journalled as its line, with the binding as who. A fader's sweep is journalled **once**, closed 400 ms after
+the last move ("OSC /fader → Lobby opacity 0.1 → 0.5 over 0.2 s (5 edits)"), and is one undo step (edits of one field coalesce);
+on a sync group's leader each line of a sweep on the group's air (a fader on `MASTER`) still reaches every member as it runs here
+(SYNC.md). `CONTROL ENABLE OFF` pauses every binding (kept on the node); `BIND ENABLE` turns a binding or a surface off. `CONTROL
+INJECT <input> <value>` fires an input's bindings as if it moved — a person's test, never an assistant's.
 
 ## OSC
 

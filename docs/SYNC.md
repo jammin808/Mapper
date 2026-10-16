@@ -68,20 +68,21 @@ in order:
   the playlist's next switch, lands on its instant as on the leader. Nothing is adopted until the follower's clock reads this
   leader's time line: lines wait for an estimate heard since the follow (or the feed's connection) began, and for any step to be
   taken.
-- **`ANCHOR <group> @air {"feed","seq","line","leaderNs"}`**: the group's air. On a leader, `PANIC`, `PANIC CLEAR`, `BLACKOUT` (a toggle
-  is sent as the state it left) and `MASTER` go to every member as they ran here (`HERE` keeps a line local, and so does a panic
-  line that names outputs: they are this node's). A panic's `AT <unix ms>` goes as `AT +<ms>` from the line's instant, read on the
-  leader's wall clock, and a panic carries the leader's `PANIC-LEAD` in its `AT` (`PANIC FADE 1000 AT +200`): a member adds no
-  lead of its own, so the group fades on the leader's frames. Show's `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` use the same path
-  through `IFleetFanout`, once per line, at the instant the leader's own half ran. A member runs `PANIC`, `PANIC CLEAR`,
-  `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM` and `PREFLIGHT` from its leader and refuses anything else with words. A
-  `PREFLIGHT` runs beside the feed (a later air line is never held behind its checks); for `PREFLIGHT QUICK WAIT` the member's
-  receipt carries its finished report, and the leader waits up to 10 s for it (a member's checks run under their own budgets). A lane
-  verb runs pinned to the leader's instant: at once when that instant has come and nothing waits before it, else in arrival order
-  from the lane's tick once its instant has come (the member answers `accepted` first). A `PANIC` from no later than the panic
-  the member is in is that press handed again: refused as such, never a second (hard) press. Every member answers each line with `SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns>
-  [<words>]`; the leader journals each receipt ("PANIC FADE 1000 on Stage: applied — …") and a member silent for 2 s reads
-  `silent` (one deadline for the whole group).
+- **`ANCHOR <group> @air {"feed","seq","line","leaderNs"}`**: the group's air. On a leader, `PANIC`, `PANIC CLEAR`, `BLACKOUT` (a
+  toggle is sent as the state it left) and `MASTER` go to every member as they ran here (`HERE` keeps a line local, and so does a
+  panic line that names outputs: they are this node's), each line of a bound fader's or encoder's sweep too, which the journal
+  keeps as one row (its members' receipts are not journalled line by line). A panic's `AT <unix ms>` goes as `AT +<ms>` from the
+  line's instant, read on the leader's wall clock, and a panic carries the leader's `PANIC-LEAD` in its `AT` (`PANIC FADE 1000 AT
+  +200`): a member adds no lead of its own, so the group fades on the leader's frames. Show's `SHOW ARM|DISARM ALL` and `PREFLIGHT
+  ALL` use the same path through `IFleetFanout`, once per line, at the instant the leader's own half ran. A member runs `PANIC`,
+  `PANIC CLEAR`, `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM` and `PREFLIGHT` from its leader and refuses anything else with
+  words. A `PREFLIGHT` runs beside the feed (a later air line is never held behind its checks); for `PREFLIGHT QUICK WAIT` the
+  member's receipt carries its finished report, and the leader waits up to 10 s for it (a member's checks run under their own
+  budgets). A lane verb runs pinned to the leader's instant: at once when that instant has come and nothing waits before it, else
+  in arrival order from the lane's tick once its instant has come (the member answers `accepted` first). A `PANIC` from no later
+  than the panic the member is in is that press handed again: refused as such, never a second (hard) press. Every member answers
+  each line with `SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]`; the leader journals each receipt ("PANIC
+  FADE 1000 on Stage: applied — …") and a member silent for 2 s reads `silent` (one deadline for the whole group).
 - **`ANCHOR <group> @lock {"apply","swapGroup","barrier","counter":{…}|null}`**: the group's frame lock. A member offers the
   leader's counter anchor to its outputs (`IFrameLockBackend.OfferAnchor`, so counts map to the same show time), joins when the
   leader applied the lock and leaves when it released it — never with its own frame lock off or once it has begun to stop, and not

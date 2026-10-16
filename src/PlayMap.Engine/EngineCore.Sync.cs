@@ -496,10 +496,23 @@ public sealed partial class EngineCore
     /// journalled when it comes.</summary>
     private void FanOutAir(JournalRow row)
     {
+        if (row.Kind == "verb" && row.Ok && row.Line is not null)
+            FanOutAirLine(row.Line, journalReceipts: true);
+    }
+
+    /// <summary>A line of a binding's gesture (a fader's or an encoder's move) that ran here: the journal keeps the gesture as one row,
+    /// not a verb row per line, yet each of its lines is the group's air (a fader on MASTER) and goes to every member as it runs here.
+    /// Its members' receipts are not journalled line by line, as the sweep itself is not.</summary>
+    private void FanOutGestureLine(WireLine line) => FanOutAirLine(VerbCatalog.Redacted(line), journalReceipts: false);
+
+    /// <summary>A leader's own line that ran here to every member as its air line, at the instant it ran here (see
+    /// <see cref="Sync.SyncNode.FanoutLine"/>); each member's receipt journalled when it comes, when <paramref name="journalReceipts"/>.</summary>
+    private void FanOutAirLine(string line, bool journalReceipts)
+    {
         // Sent with no member too: the feed keeps it as its kind's latest for a member that joins (or comes back) later.
-        if (row.Kind != "verb" || !row.Ok || row.Line is null || Services.GroupSync is not { Leads: true } sync)
+        if (Services.GroupSync is not { Leads: true } sync)
             return;
-        if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout, Services.Wall.UnixMs, Store.Project.Show.Rules.PanicLeadMs) is not { } text)
+        if (Sync.SyncNode.FanoutLine(line, _air.Blackout, Services.Wall.UnixMs, Store.Project.Show.Rules.PanicLeadMs) is not { } text)
             return;
         var at = LeaderNowNs;
         // Pushed here, in the order this session's lines ran (the journal's row is written before the line is answered); only the
@@ -514,14 +527,17 @@ public sealed partial class EngineCore
             Journal.Add("fault", $"{text} to the group: {Journal.Describe(ex)}", ok: false);
             return;
         }
-        _ = JournalReceiptsAsync(text, sent);
+        _ = JournalReceiptsAsync(text, sent, journalReceipts);
     }
 
-    private async Task JournalReceiptsAsync(string text, Task<IReadOnlyList<FanoutReceipt>> sent)
+    private async Task JournalReceiptsAsync(string text, Task<IReadOnlyList<FanoutReceipt>> sent, bool journalReceipts)
     {
         try
         {
-            foreach (var r in await sent.ConfigureAwait(false))
+            var receipts = await sent.ConfigureAwait(false);
+            if (!journalReceipts)
+                return;
+            foreach (var r in receipts)
                 Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage is not ("refused" or "silent"));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

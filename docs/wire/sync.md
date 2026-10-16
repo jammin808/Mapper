@@ -63,13 +63,13 @@ is never held behind a member's checks; for `PREFLIGHT QUICK WAIT` the words are
 ## IFleetFanout (for wp2-blind and wp2-backup)
 
 `EngineServices.Fanout` (the sync part) — `Members`: the node ids subscribed as members while this node leads (empty otherwise);
-`SendAsync(line, atLeaderNs, ct)`: pushes `ANCHOR <group> @air {…}` to every subscriber and answers one `FanoutReceipt(Node,
-Name, Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `accepted` (its instant is still to come) or
-`silent` (no answer within 2 s, or 10 s for a report: one deadline for every member of the send); an applied receipt's `Words` is
-the member's report for `PREFLIGHT … WAIT`, else what the line did there. The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
-sync part when they run (from the journal's verb rows; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes
-as `AT +<ms>`, with the leader's `PANIC-LEAD` added, and a member adds no lead of its own): a package must not send them through
-`SendAsync` again.
+`SendAsync(line, atLeaderNs, ct)`: pushes `ANCHOR <group> @air {…}` to every subscriber and answers one `FanoutReceipt(Node, Name,
+Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `accepted` (its instant is still to come) or `silent` (no
+answer within 2 s, or 10 s for a report: one deadline for every member of the send); an applied receipt's `Words` is the member's
+report for `PREFLIGHT … WAIT`, else what the line did there. The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are
+already fanned out by the sync part when they run (from the journal's verb rows, and each line of a binding's sweep, which the
+journal keeps as one row; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes as `AT +<ms>`, with the
+leader's `PANIC-LEAD` added, and a member adds no lead of its own): a package must not send them through `SendAsync` again.
 
 ## PMVB (member → leader, UDP, the clock-sync port)
 

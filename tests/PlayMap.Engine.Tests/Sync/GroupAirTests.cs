@@ -126,6 +126,33 @@ public sealed class GroupAirTests
         Assert.True(member.State().GetProperty("air").GetProperty("panic").GetProperty("hard").GetBoolean());
     }
 
+    [Fact]
+    public async Task ALeadersMasterOnABoundFaderReachesTheMemberLineByLine()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await PlayMap.Engine.Tests.Host.HostRig.StartAsync("FOH", network: true, mono: new OffsetClock(clock, Ahead),
+            parts: new PlayMap.Engine.Host.EngineParts { Extensions = [PlayMap.Engine.Sync.SyncExtension.With(SyncRig.Fast()), s => new PlayMap.Engine.Control.ControlExtension(s)] },
+            settings: s => s with
+            {
+                NodeId = SyncRig.LeaderId,
+                Control = s.Control with { OscBind = PlayMap.Engine.Tests.Control.ControlRig.Loopback, OscPort = 0, OscQueryEnabled = false, MidiEnabled = false },
+            });
+        await using var member = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(member);
+        await SyncRig.GroupAsync(leader, member);
+        await leader.OkAsync("BIND ADD OSC /master TO MASTER *");
+
+        // A fader's sweep is one journal row on the leader, but every move of it is the group's master: each reaches the member.
+        foreach (var level in new[] { 0.5, 0.25, 0.8 })
+        {
+            await leader.OkAsync("CONTROL INJECT OSC /master " + level.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(level, leader.Engine.AirGain("op_1", leader.Engine.LeaderNowNs), 1e-6);
+            Assert.True(await Eventually.TrueAsync(() => Math.Abs(member.Engine.AirGain("op_1", member.Engine.LeaderNowNs) - level) < 1e-6),
+                $"the member's master reads {member.Engine.AirGain("op_1", member.Engine.LeaderNowNs)}; " + member.Journal());
+        }
+    }
+
     private sealed class NullSink : PlayMap.Net.IPushSink
     {
         public void Latest(string key, string line)
