@@ -229,9 +229,10 @@ public sealed class IndexTests
         var opened = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
         Assert.Equal("green", RowLight(opened, list));
 
-        // Blackout moves no structure and no label, only the row's light.
+        // Blackout moves no structure and no label, only the row's light. Every INDEX carries every section's rows, and another
+        // section's may be amber from the first: the wait is for this row lit amber.
         await rig.Ok("BLACKOUT ON", OpsRig.Desk);
-        await sink.Heard("\"amber\"");
+        await sink.Heard(l => RowLight(CompanionRig.Json(l["INDEX ".Length..]), list) == "amber");
         var pushed = CompanionRig.Json(sink.Latests["index"]["INDEX ".Length..]);
         Assert.Equal("amber", RowLight(pushed, list));
         Assert.Equal(opened.GetProperty("sig").GetString(), pushed.GetProperty("sig").GetString());
