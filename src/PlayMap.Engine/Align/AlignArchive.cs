@@ -79,6 +79,22 @@ public static partial class AlignArchive
         }
     }
 
+    /// <summary>A small text file of a run's folder (basis.txt, canvas.txt), or null when missing.</summary>
+    public static string? ReadText(string? projectFolder, string runId, string name)
+    {
+        if (string.IsNullOrEmpty(projectFolder) || !IsRunId(runId) || name.IndexOfAny(['/', '\\']) >= 0)
+            return null;
+        var path = Path.Combine(projectFolder, Folder, runId, name);
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The full path of a file a project names (relative to its folder), or null when the name leaves the folder.</summary>
     public static string? Resolve(string? projectFolder, string relative)
     {

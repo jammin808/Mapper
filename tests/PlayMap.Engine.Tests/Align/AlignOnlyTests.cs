@@ -73,4 +73,39 @@ public sealed class AlignOnlyTests(ITestOutputHelper log)
         log.WriteLine($"after ONLY op2: seams {back:0.000} px");
         Assert.True(back <= 0.3, $"{back} px");
     }
+
+    [Fact]
+    public async Task ChainedOnlyRunsKeepOneCanvasAndAChangedCanvasIsRefused()
+    {
+        await using var rig = new AlignRig(AlignRig.Project(2, Layout));
+        var group = await rig.NewGroup();
+        await rig.Ok($"ALIGN ACCEPT {await rig.RunToEnd(group)}");
+        async Task Knock(string layout)
+        {
+            var r = await rig.Engine.EditAsync(AlignRig.Desk, "knock",
+                p => p.WithStage(st => st with { Cameras = st.Cameras.Update("cm_sim", c => c with { Source = layout }) }));
+            Assert.True(r.Changed);
+        }
+
+        // P2 knocked and rescanned, then P1 knocked and rescanned: the second ONLY fits P1 to the canvas the first run made, so the
+        // seams close again with P2's warp from the first ONLY untouched.
+        await Knock(Layout + ":shift2=3");
+        await rig.Ok($"ALIGN ACCEPT {await rig.RunToEnd(group, "ONLY op2")}");
+        var op2 = rig.Current.FindOutput("op2")!.Measured!.Warp;
+        const string both = Layout + ":shift2=3:shift1=-2";
+        await Knock(both);
+        Assert.True(SeamP95(rig, both) > 1.0);
+        await rig.Ok($"ALIGN ACCEPT {await rig.RunToEnd(group, "ONLY op1")}");
+        Assert.Equal(op2, rig.Current.FindOutput("op2")!.Measured!.Warp);
+        var seam = SeamP95(rig, both);
+        log.WriteLine($"after two ONLY runs: seams {seam:0.000} px");
+        Assert.True(seam <= 0.3, $"{seam} px");
+
+        // The canvas's own settings changed since that canvas was made: ONLY refuses with words, and nothing is staged.
+        await rig.Ok($"SET {group} target.marginPct 5");
+        await rig.RunToEnd(group, "ONLY op2");
+        var view = rig.Runner.View!;
+        Assert.Equal("failed", view.State);
+        Assert.Contains("canvas settings", view.Words, StringComparison.Ordinal);
+    }
 }

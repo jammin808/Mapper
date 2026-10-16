@@ -272,13 +272,17 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             var specs = outputs.Select((o, j) => new AlignOutputSpec(o.Id, o.Name, o.Width, o.Height, PriorFor(o, setup.Projectors[j]))).ToList();
             IReadOnlyList<AlignCapture>? reference = null;
             ImmutableArray<int>? only = setup.Only.IsDefaultOrEmpty ? null : setup.Only;
+            // ONLY: the others' latest captures (beside the run the outputs stand on) and the captures the canvas was first made from
+            // (the basis run's: chained ONLY runs keep one canvas), refused when the canvas's own settings changed since.
+            IReadOnlyList<AlignCapture>? basis = null;
+            var basisRun = setup.RunId;
             if (only is not null)
             {
-                var kept = new AlignCapture[outputs.Count];
-                for (var j = 0; j < outputs.Count; j++)
-                    kept[j] = AlignArchive.LoadCapture(setup.ProjectFolder, setup.ReferenceRunId, outputs[j].Id, specs[j].Prior)
-                        ?? throw new InvalidOperationException($"{outputs[j].Name}'s capture is not beside {setup.ReferenceRunId} — ALIGN RUN {setup.Group.Id} without ONLY scans every output again");
-                reference = kept;
+                reference = LoadCaptures(setup, specs, setup.ReferenceRunId);
+                basisRun = AlignArchive.ReadText(setup.ProjectFolder, setup.ReferenceRunId, "basis.txt") ?? setup.ReferenceRunId;
+                if (AlignArchive.ReadText(setup.ProjectFolder, basisRun, "canvas.txt") != CanvasKey(setup))
+                    throw new InvalidOperationException($"{setup.Group.Name}'s canvas settings (fit, aspect, margin, corners) changed since {basisRun} made its canvas — ALIGN RUN {setup.Group.Id} without ONLY scans every output again");
+                basis = basisRun == setup.ReferenceRunId ? reference : LoadCaptures(setup, specs, basisRun);
             }
             List<AlignOutputSpec> scanned = only is null ? specs : [.. only.Value.Select(j => specs[j])];
             var total = AlignSequence.Shots(scanned);
@@ -294,7 +298,9 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             IReadOnlyList<AlignCapture> captures = fresh;
             if (only is not null)
             {
-                var all = reference!.ToArray();
+                if (reference![0].Map.Width != black.Width || reference[0].Map.Height != black.Height)
+                    throw new InvalidOperationException($"the camera's picture is {black.Width}×{black.Height}, not the {reference[0].Map.Width}×{reference[0].Map.Height} {setup.ReferenceRunId} saw — ALIGN RUN {setup.Group.Id} without ONLY scans every output again");
+                var all = reference.ToArray();
                 for (var k = 0; k < only.Value.Length; k++)
                     all[only.Value[k]] = fresh[k];
                 captures = all;
@@ -313,7 +319,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             var corners = group.Target.CameraCorners.IsDefaultOrEmpty ? [] : group.Target.CameraCorners.ToList();
             var input = new AlignSolveInput(black.Width, black.Height, black.Gray, captures, setup.Fit, setup.Aspect, corners, group.Target.MarginPct, group.Options)
             {
-                Reference = reference,
+                Reference = basis,
                 Rescanned = only?.ToHashSet(),
             };
             var result = await Task.Run(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
@@ -334,7 +340,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                     p => Step(setup, p.Step, p.Output, 0.95, -1, p.Words, outputs.Count), ct, only?.ToHashSet()).ConfigureAwait(false);
             }
             _lastPictures = ((CountingShooter)shooter).Pictures;
-            Finish(setup, started, result, captures, colour, black, verify);
+            Finish(setup, started, result, captures, colour, black, verify, basisRun);
         }
         catch (OperationCanceledException)
         {
@@ -356,6 +362,19 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 _display?.Release();
             camera?.Dispose();
         }
+    }
+
+    /// <summary>What a run's canvas is made from besides the captures: the fit, the aspect, the margin and the corners.</summary>
+    internal static string CanvasKey(AlignRunSetup setup) => string.Create(CultureInfo.InvariantCulture,
+        $"{setup.Fit}|{setup.Aspect:R}|{setup.Group.Target.MarginPct:R}|{string.Join(";", (setup.Group.Target.CameraCorners.IsDefault ? [] : setup.Group.Target.CameraCorners).Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.X:R},{c.Y:R}")))}");
+
+    private static AlignCapture[] LoadCaptures(AlignRunSetup setup, List<AlignOutputSpec> specs, string runId)
+    {
+        var captures = new AlignCapture[setup.Outputs.Count];
+        for (var j = 0; j < captures.Length; j++)
+            captures[j] = AlignArchive.LoadCapture(setup.ProjectFolder, runId, setup.Outputs[j].Id, specs[j].Prior)
+                ?? throw new InvalidOperationException($"{setup.Outputs[j].Name}'s capture is not beside {runId} — ALIGN RUN {setup.Group.Id} without ONLY scans every output again");
+        return captures;
     }
 
     private static Func<double> Stopwatch()
@@ -408,7 +427,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
     }
 
     private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour, CameraShot black,
-        AlignVerifyResult? verify)
+        AlignVerifyResult? verify, string basisRun)
     {
         if (!result.Ok)
         {
@@ -448,6 +467,8 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             outs.Add(new AlignRunOutput(o.OutputId, setup.Outputs[j].Name, measured, o.Gamma, o.DecodedShare, o.Warp.HeldOutRmsPx, o.FitRmsPx));
         }
         files.Add(("black.bin", AlignCaptureFile.WriteBlack(black)));
+        files.Add(("basis.txt", System.Text.Encoding.UTF8.GetBytes(basisRun)));
+        files.Add(("canvas.txt", System.Text.Encoding.UTF8.GetBytes(CanvasKey(setup))));
         var words = string.Create(CultureInfo.InvariantCulture, $"staged {score.Grade} {score.Value:0}: ") + result.Words
             + string.Create(CultureInfo.InvariantCulture, $"; {_lastPictures} pictures, {_lastPictures * _options.PatternHold.TotalSeconds:0} s of patterns")
             + (verify is null ? "" : "; " + verify.Words)
