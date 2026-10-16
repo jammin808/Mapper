@@ -7,8 +7,10 @@ namespace PlayMap.Core.Tests.Wire;
 
 /// <summary>Typed parameters for the whole catalogue: every row and every alternative has its list; the list agrees with the syntax
 /// HELP prints (each token up to the first optional part is a required parameter — a keyword and its value, a literal choice with
-/// the same words, or a placeholder); no override names a row the catalogue lacks; every Panic, Air and Transport row fires at once;
-/// a keyword is never parted from the choice it introduces, and a range inside a placeholder is not a repeat.</summary>
+/// the same words, or a placeholder); no override names a row the catalogue lacks; only the design's named rows (GO, NEXT, PREV,
+/// PLAY, PAUSE, BLACKOUT, FREEZE, PANIC) fire at once and every other high-risk row is held; a keyword is never parted from the
+/// choice it introduces, and a range inside a placeholder is not a repeat; "line" and "json" type a parameter only as whole words,
+/// and nothing follows a parameter that takes the rest of the line.</summary>
 public sealed class VerbParamTests
 {
     [Fact]
@@ -71,23 +73,33 @@ public sealed class VerbParamTests
     }
 
     [Fact]
-    public void EveryPanicAirAndTransportRowFiresAtOnce()
+    public void OnlyTheDesignsNamedRowsFireAtOnceAndEveryOtherHighRowIsHeld()
     {
-        var air = VerbCatalog.All.Where(v => v.Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport).ToList();
-        Assert.NotEmpty(air);
-        Assert.All(air, v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
-        foreach (var name in new[] { "PANIC", "BLACKOUT", "PLAYLIST GO", "PLAYLIST NEXT", "PLAYLIST PREV" })
-            if (VerbCatalog.Find(name) is { } spec && spec.Name == name)
-                Assert.Equal(PressShapes.Instant, VerbParams.Press(spec));
-        // Anything else that is high risk is held to confirm; low risk fires at once.
-        string[] twice = ["PROJECT OPEN", "PROJECT NEW", "SCAN START", "APPROVE"];
-        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.High && !air.Contains(v) && v.Show != ShowClass.DevicePower && !twice.Contains(v.Name)),
-            v => Assert.Equal(PressShapes.Hold, VerbParams.Press(v)));
+        // A show's GO, its transport's play and pause, the blackout, the freeze and the panic are never confirmed.
+        string[] instant = ["PLAYLIST GO", "PLAYLIST NEXT", "PLAYLIST PREV", "VIDEO PLAY", "VIDEO PAUSE", "BLACKOUT", "FREEZE", "PANIC"];
+        foreach (var name in instant)
+        {
+            var spec = VerbCatalog.Find(name);
+            Assert.Equal(name, spec?.Name);
+            Assert.Equal(PressShapes.Instant, VerbParams.Press(spec!));
+        }
+        // A show class is no licence: lifting a panic, stopping or seeking a playlist, the master and an LED output are high risk and
+        // held like any other.
+        foreach (var name in new[] { "PANIC CLEAR", "VIDEO STOP", "VIDEO SEEK", "MASTER", "LED OUTPUT", "TIMECODE ENGAGE", "PLAYLIST ANCHOR" })
+        {
+            var spec = VerbCatalog.Find(name);
+            Assert.Equal((name, VerbRisk.High), (spec?.Name, spec?.Risk));
+            Assert.Equal(PressShapes.Hold, VerbParams.Press(spec!));
+        }
         // What replaces the show or cannot be taken back is pressed twice, as a projector's power is.
+        string[] twice = ["PROJECT OPEN", "PROJECT NEW", "SCAN START", "APPROVE"];
         foreach (var name in twice)
             Assert.Equal(PressShapes.Double, VerbParams.Press(VerbCatalog.Find(name)!));
         Assert.All(VerbCatalog.All.Where(v => v.Show == ShowClass.DevicePower), v => Assert.Equal(PressShapes.Double, VerbParams.Press(v)));
-        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.Low && !air.Contains(v)), v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
+        bool Named(VerbSpec v) => instant.Contains(v.Name) || twice.Contains(v.Name) || v.Show == ShowClass.DevicePower;
+        // Every other high-risk row is held to confirm; a low-risk row fires at once, whatever its show class.
+        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.High && !Named(v)), v => Assert.Equal(PressShapes.Hold, VerbParams.Press(v)));
+        Assert.All(VerbCatalog.All.Where(v => v.Risk == VerbRisk.Low && !Named(v)), v => Assert.Equal(PressShapes.Instant, VerbParams.Press(v)));
     }
 
     [Fact]

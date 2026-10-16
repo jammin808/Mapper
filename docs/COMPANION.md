@@ -88,9 +88,13 @@ with `ETag` and 304.
 
 `VerbParams` reads every catalogue row's forms through `VerbSyntax` into typed parameters — an entity with its id prefix, a literal
 choice, a number with its range, a time, a source, a line, JSON, a keyword and its value, another form it accepts (`#<n>` for an item
-by position), whether it repeats — with overrides by row name where the syntax says too little. A row's press shape comes from its
-show class first: Panic, Air and Transport rows fire at once, always; otherwise a high-risk row, and an identify that puts a picture
-over the air (`OUTPUT IDENTIFY`, `DEVICE IDENTIFY`), is held to confirm and a projector's power is pressed twice. `VERBS` and `/api/verbs` carry `params`, `formParams` and `press`, so the module generates its actions.
+by position), whether it repeats — with overrides by row name where the syntax says too little. A placeholder is a line or JSON only
+when it says `line` or `json` as a word of its own (`<target line>`, `<json>`; `<cursor,outlines,…>` is a word of text), and nothing
+follows one, since it takes the rest of the line. A row's press shape: `PLAYLIST GO`, `NEXT` and `PREV`, `VIDEO PLAY` and `PAUSE`,
+`BLACKOUT`, `FREEZE` and `PANIC` fire at once, always; a projector's power, a project opened or made, a scan started and a proposal
+approved are pressed twice; every other high-risk row (`PANIC CLEAR`, `VIDEO STOP`, `VIDEO SEEK`, `MASTER`, `LED OUTPUT` among them),
+and an identify that puts a picture over the air (`OUTPUT IDENTIFY`, `DEVICE IDENTIFY`), is held to confirm; the rest fire at once.
+`VERBS` and `/api/verbs` carry `params`, `formParams` and `press`, so the module generates its actions.
 
 ## Announcement
 
@@ -178,14 +182,15 @@ surface's opacity by `NUDGE` (relative); turns within 30 ms are one line. A pres
 variable `result`, for an *if* block on the key; a part of a Live slot's press that does nothing for its slot (the release or 800 ms of
 an instant one, the down of a held one) answers the key's last result unchanged, so `result` stays the press's answer.
 
-**Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): Panic, Air and Transport rows fire on the down, never held; a high-risk row and an identify
-are held 0.8 s; a projector's power, a project opened or made, a scan started and a proposal approved are two held presses within 3 s
-of the same line (the module keeps the first, armed for its key and line — a preset cannot reset a button's step; a press of another
-line, the Live page turned under it, arms the key anew and sends nothing). A section key and a Live slot are pressed as the stronger of
-their hint's press and their line's; a Live slot sends an instant line on the down, a held one at 800 ms, and says HOLD (or SURE?)
-otherwise. GO, NEXT and PREV expect the item the node will play for them — the cued one, the one after the current in list order,
-the first when idle — not STATE's `next`, which follows the item's end action; `next` says the same item. The double-GO guard
-holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
+**Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): GO, NEXT,
+PREV, PLAY, PAUSE, BLACKOUT, FREEZE and PANIC fire on the down, never held; every other high-risk row (`PANIC CLEAR`, a stop, a seek,
+`MASTER`) and an identify are held 0.8 s; a projector's power, a project opened or made, a scan started and a proposal approved are
+two held presses within 3 s of the same line (the module keeps the first, armed for its key and line — a preset cannot reset a
+button's step; a press of another line, the Live page turned under it, arms the key anew and sends nothing). A section key and a Live
+slot are pressed as the stronger of their hint's press and their line's; a Live slot sends an instant line on the down, a held one at
+800 ms, and says HOLD (or SURE?) otherwise. GO, NEXT and PREV expect the item the node will play for them — the cued one, the one
+after the current in list order, the first when idle — not STATE's `next`, which follows the item's end action; `next` says the same
+item. The double-GO guard holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
 
 **Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default) and typed values a layered key binds through
 `$(this:value)` style overrides: label, light, state word, progress, time left, picture, score, any STATE path, a Live slot, a section

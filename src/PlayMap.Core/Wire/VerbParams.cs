@@ -57,9 +57,10 @@ public static class PressShapes
 
 /// <summary>Typed parameters for every row of the catalogue and every alternative of its syntax, read through <see cref="VerbSyntax"/>
 /// (the one reader of a row's syntax) with overrides by row name where the syntax's words alone say too little; and each row's press
-/// shape: Panic, Air and Transport rows fire at once (a show's emergency and its GO are never held); a projector's power, a project
-/// opened or made, a scan started and a proposal approved are pressed twice; otherwise a high-risk row, and a review row that puts a
-/// picture over the air, is held to confirm. VERBS and /api/verbs carry both, so a controller builds its actions from data.</summary>
+/// shape: a show's GO, NEXT and PREV, a playlist's PLAY and PAUSE, BLACKOUT, FREEZE and PANIC fire at once (never confirmed); a
+/// projector's power, a project opened or made, a scan started and a proposal approved are pressed twice; every other high-risk row
+/// (lifting a panic, a stop, a seek, the master among them), and a review row that puts a picture over the air, is held to confirm;
+/// the rest fire at once. VERBS and /api/verbs carry both, so a controller builds its actions from data.</summary>
 public static class VerbParams
 {
     private static readonly ConditionalWeakTable<VerbSpec, IReadOnlyList<IReadOnlyList<VerbParam>>> Made = new();
@@ -71,6 +72,13 @@ public static class VerbParams
         ["scan"] = "sc", ["mask"] = "mk", ["viewpoint"] = "vp", ["pin"] = "pn", ["send"] = "sd", ["fixture"] = "lf", ["stack"] = "sk",
         ["survey"] = "sv", ["binding"] = "bd", ["slot"] = "fx", ["asset"] = "fa", ["snapshot"] = "cs", ["control"] = "ct",
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The rows a key fires at once whatever their risk: a show's GO, NEXT and PREV, a playlist's PLAY and PAUSE, the
+    /// blackout, the freeze and the panic. VerbParamTests finds each in the catalogue.</summary>
+    private static readonly FrozenSet<string> NeverHeld = new[]
+    {
+        "PLAYLIST GO", "PLAYLIST NEXT", "PLAYLIST PREV", "VIDEO PLAY", "VIDEO PAUSE", "BLACKOUT", "FREEZE", "PANIC",
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Review rows that put a picture over the air (an output's or a projector's identify): held like a high-risk row.</summary>
     private static readonly FrozenSet<string> HeldReview = new[] { "OUTPUT IDENTIFY", "DEVICE IDENTIFY" }.ToFrozenSet(StringComparer.Ordinal);
@@ -181,7 +189,7 @@ public static class VerbParams
     public static string Press(VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        if (spec.Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport)
+        if (NeverHeld.Contains(spec.Name))
             return PressShapes.Instant;
         if (spec.Show == ShowClass.DevicePower || PressedTwice.Contains(spec.Name))
             return PressShapes.Double;

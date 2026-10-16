@@ -62,9 +62,12 @@ its package through `RaiseEvent`; the ring keeps them all.
 
 **VERBS and `/api/verbs`.** Each row gains `params` (its first form's typed parameters: `name`, `kind` — entity, enum, number,
 integer, text, json, time, ref, line, flag — and when they say something `optional`, `prefix`, `keyword`, `values`, `min`, `max`,
-`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for Panic, Air and Transport rows; otherwise `double` for a
-projector's power, `PROJECT OPEN`, `PROJECT NEW`, `SCAN START` and `APPROVE`; `hold` for a high-risk row and for `OUTPUT IDENTIFY`
-and `DEVICE IDENTIFY`; `instant` for the rest). A keyword and the choice it introduces (`[MODE FAST|ROBUST]`) are one enum with its
+`alt`, `repeats`), `formParams` (every form's) and `press` (`instant` for `PLAYLIST GO`, `PLAYLIST NEXT`, `PLAYLIST PREV`,
+`VIDEO PLAY`, `VIDEO PAUSE`, `BLACKOUT`, `FREEZE` and `PANIC`; otherwise `double` for a projector's power, `PROJECT OPEN`,
+`PROJECT NEW`, `SCAN START` and `APPROVE`; `hold` for every other high-risk row — `PANIC CLEAR`, `VIDEO STOP`, `MASTER`, `LED OUTPUT`
+among them — and for `OUTPUT IDENTIFY` and `DEVICE IDENTIFY`; `instant` for the rest). A parameter is `line` or `json` only when its
+placeholder says the word whole (`<target line>`, `<json>`; `<cursor,outlines,…>` is text), and no parameter follows one, since it
+takes the rest of the line. A keyword and the choice it introduces (`[MODE FAST|ROBUST]`) are one enum with its
 `keyword`, never a flag and a choice a key could send apart. `alt` is another word the value may be (`ALL`, `#<n>`); on a text
 parameter whose only alternative carries marks of its own it is the shape the value is written in (`<w>x<h>`, `@<fps>`,
 `#<rrggbb>`). `repeats` is a value given several times, a word each (`<output>…`); a range or list inside one word (`<-1…1>`,
