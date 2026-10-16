@@ -35,8 +35,15 @@ public sealed record ScanPairing(string Mode, int Sites, int RollingRejects, int
 public sealed partial class ScanRunner
 {
     private readonly Lock _cueGate = new();
+
+    /// <summary>The cued camera a scan drives now (null between scans).</summary>
+    private ICuedScanCamera? _cuedCamera;
     private Func<Task>? _cueNext;
     private bool _nextAsked;
+
+    /// <summary>SCAN NEXT for a camera a person releases by hand (a manual folder camera): it takes the picture of the pattern on the
+    /// glass now. False when the scan's camera is not one waiting so.</summary>
+    public bool TakeByHand() => Volatile.Read(ref _cuedCamera)?.TakeNow() == true;
 
     /// <summary>SCAN NEXT: the wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for
     /// afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. False when no scan waits
@@ -74,7 +81,7 @@ public sealed partial class ScanRunner
         {
             var present = await show(ct).ConfigureAwait(false);
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            wait.CancelAfter(_options.PatternTimeout);
+            wait.CancelAfter(camera.Patience ?? _options.PatternTimeout);
             lock (_cueGate)
             {
                 _cueNext = wait.CancelAsync;

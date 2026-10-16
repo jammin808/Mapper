@@ -139,6 +139,11 @@ public sealed class PhoneCamera : ICuedScanCamera
 
     public int Moves => _session?.Moves ?? 0;
 
+    public TimeSpan? Patience => null;
+
+    /// <summary>A phone takes its pictures itself: SCAN NEXT shows its pattern again instead.</summary>
+    public bool TakeNow() => false;
+
     public async Task<CuedPicture> CueAsync(PatternCue cue, CancellationToken ct, CancellationToken scan)
     {
         ArgumentNullException.ThrowIfNull(cue);

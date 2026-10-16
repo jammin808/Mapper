@@ -45,4 +45,11 @@ public interface ICuedScanCamera : IScanCamera
 
     /// <summary>How many times the camera's own motion sensor has said it moved (0 for a camera without one).</summary>
     int Moves { get; }
+
+    /// <summary>How long a scan waits on one picture before asking again (null: the runner's pattern timeout).</summary>
+    TimeSpan? Patience { get; }
+
+    /// <summary>SCAN NEXT for a camera a person releases by hand (a manual folder camera): the picture is taken now. False when the
+    /// camera takes its pictures on its own.</summary>
+    bool TakeNow();
 }

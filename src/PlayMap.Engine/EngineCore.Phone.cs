@@ -25,8 +25,10 @@ public sealed partial class EngineCore
         routes.Lane("PHONE FORGET", PhoneForget);
         // An attempt: the wait is ended and the pattern goes up again, unless the camera's answer was already on its way (STATE.scan
         // shows which).
-        routes.Lane("SCAN NEXT", _ => Services.Scan is ScanRunner runner && runner.Next()
-            ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
+        // A camera released by hand (a manual folder camera) takes its picture now (wp2-multiscan).
+        routes.Lane("SCAN NEXT", _ => Services.Scan is not ScanRunner runner ? CommandReply.Fail("no scan is waiting for a picture")
+            : runner.TakeByHand() ? CommandReply.Success(effect: "taken: the newest picture in the folder is the pattern's on the glass")
+            : runner.Next() ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
             : CommandReply.Fail("no scan is waiting for a picture"));
         routes.Index(new PhoneIndex(this));
         RouteMultiscan(routes);

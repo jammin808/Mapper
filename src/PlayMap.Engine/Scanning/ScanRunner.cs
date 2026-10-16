@@ -723,6 +723,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                 throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
             await PrepareDevicesAsync(engine, setup, track, camera, notes, ct).ConfigureAwait(false);
+            if (camera is FolderCamera folder)
+                folder.Say = words => track.Step("running", "waiting", words);
+            Volatile.Write(ref _cuedCamera, camera as ICuedScanCamera);
             var captures = new List<ProjectorCapture>();
             var cuedScan = new CuedScan();
             for (var j = 0; j < setup.Parts.Count; j++)
@@ -753,6 +756,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         }
         finally
         {
+            Volatile.Write(ref _cuedCamera, null);
             display.Release();
             camera?.Dispose();
             ReleaseCamera(setup);
