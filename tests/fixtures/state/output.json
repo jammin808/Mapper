@@ -201,7 +201,9 @@
         "state": "clear",
         "attempt": 0,
         "at": 0
-      }
+      },
+      "airLatencyMs": 33,
+      "latencyWords": ""
     },
     "gl": "glx"
   },

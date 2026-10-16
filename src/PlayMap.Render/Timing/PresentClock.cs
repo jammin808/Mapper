@@ -142,8 +142,11 @@ public sealed class PresentClock
 
     public double NominalHz => Vblank.NominalHz;
 
-    /// <summary>Whole frames this output's picture is held back to line up with slower displays (0 this round).</summary>
+    /// <summary>Whole frames this output's picture is held back to line up with slower displays (the latency plan's).</summary>
     public int DelayFrames { get; set; }
+
+    /// <summary>What the whole-frame delay leaves over, ms (|residual| ≤ half a frame).</summary>
+    public double LatencyResidualMs { get; set; }
 
     /// <summary>Switches between measured and nominal (the pacing output changed): the fit starts again; the ledger keeps counting.</summary>
     public void SetMeasured(bool measured)
@@ -288,7 +291,7 @@ public sealed class PresentClock
         var age = Ledger.LastShownNs < 0 ? 0 : (nowNs - Ledger.LastShownNs) / 1e6;
         return new PresentSnapshot(Path, mode, ModeEvidence.None, Measured, Measured ? Vblank.RefreshHz : Vblank.NominalHz, Vblank.NominalHz,
             Measured ? Vblank.Ppm : 0, Measured && Vblank.Settled, Ledger.Presented, Ledger.MissedVblanks, Ledger.Missed60s(nowNs),
-            Ledger.Glitches, Ledger.Repeats, Ledger.Held, Ledger.MissedIn(nowNs, 10), Ledger.RefreshesIn(nowNs, 10), DelayFrames, 0,
+            Ledger.Glitches, Ledger.Repeats, Ledger.Held, Ledger.MissedIn(nowNs, 10), Ledger.RefreshesIn(nowNs, 10), DelayFrames, LatencyResidualMs,
             Math.Max(0, age), Vblank.LastVblankNs);
     }
 }

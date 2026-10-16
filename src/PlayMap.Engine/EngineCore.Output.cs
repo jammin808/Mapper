@@ -484,6 +484,8 @@ public sealed partial class EngineCore
         w.WriteString("dialect", m.Dialect);
         w.WriteString("context", m.Context);
         WritePathAndFuse(w, m.FuseArmed);
+        w.WriteNumber("airLatencyMs", m.AirLatencyMs);
+        w.WriteString("latencyWords", m.LatencyWords);
         w.WriteEndObject();
     }
 
@@ -530,7 +532,15 @@ public sealed partial class EngineCore
 
     partial void ValidateOutput(Project p, object entity, ref string? why)
     {
-        if (entity is Output o && (double.IsNaN(o.LatencyMs) || o.LatencyMs < 0 || o.LatencyMs > 500))
+        if (entity is not Output o)
+            return;
+        if (double.IsNaN(o.LatencyMs) || o.LatencyMs < 0 || o.LatencyMs > 500)
+        {
             why = string.Create(CultureInfo.InvariantCulture, $"latencyMs is 0–500 ms (the display's input lag); {o.LatencyMs} was given");
+            return;
+        }
+        // The delay ring holds at most six frames: input lags further apart than that cannot be lined up on one node.
+        if (o.Enabled)
+            why = LatencyPlan.Refuse(p.Outputs.Where(x => x.Enabled && x.Id != o.Id).Append(o).Select(x => (x.Id, x.LatencyMs, x.RefreshHz)));
     }
 }

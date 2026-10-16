@@ -15,6 +15,12 @@ public sealed record MachinePresentView(string Api, string Adapter, string Path,
 
     /// <summary>Every display output of a DXGI start reached its first settled frames (the fuse may go).</summary>
     public bool FirstFrames { get; init; }
+
+    /// <summary>The node's air latency, ms: every frame is drawn for the instant its light leaves the slowest display.</summary>
+    public double AirLatencyMs { get; init; }
+
+    /// <summary>Why an output's delay was capped ("" when none was).</summary>
+    public string LatencyWords { get; init; } = "";
 }
 
 /// <summary>One output's presentation for STATE and OUTPUT STATS: its numbers (taken on the render thread) and whether a presenter
@@ -32,6 +38,12 @@ public interface IPresentBackend
 
     /// <summary>Zeroes the named outputs' counters (all when null) on the render thread; answers the totals that were there.</summary>
     Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct);
+
+    /// <summary>Raises the node's air latency to the group's (a sync group's slowest node, ms; 0 lets it go): the seam sync's group
+    /// latency writes through.</summary>
+    void SetGroupAirLatency(double ms)
+    {
+    }
 
     /// <summary>Control lane: deletes this start's fuse once its outputs reached their first settled frames; true when it went now.</summary>
     bool ConfirmFirstFrames() => false;

@@ -49,8 +49,9 @@ public sealed record RenderHostOptions
 
     public StageResourceOptions Stage { get; init; } = StageResourceOptions.Default;
 
-    /// <summary>The displays' measured latency, added to the predicted vertical blank: the leader instant a
-    /// frame is drawn for is when its light leaves the lens.</summary>
+    /// <summary>The displays' latency when no output names its own (<c>Output.LatencyMs</c> all 0), added to the predicted vertical
+    /// blank: the leader instant a frame is drawn for is when its light leaves the lens. Outputs that name theirs give the node's air
+    /// latency instead (the largest), and the faster ones wait whole frames for it (RenderHost.Output.cs).</summary>
     public long DisplayLatencyNs { get; init; }
 
     /// <summary>The loop's rate while no window paces it (0 = the project's frame rate).</summary>
@@ -580,13 +581,13 @@ public sealed partial class RenderHost : IRenderHost
         long leaderNs;
         if (_lock.TryNextLeaderNs(windows.Pacer, out var lockedNs))
         {
-            leaderNs = lockedNs + _options.DisplayLatencyNs;
+            leaderNs = lockedNs + AirLatencyNs(project);
         }
         else
         {
             var next = windows.Pacer is { } pacing ? renderer.NextVblankNs(pacing, monoNow) : null;
             var lead = next is { } n ? Math.Max(0, n - monoNow) : 0;
-            leaderNs = engine.LeaderNowNs + lead + _options.DisplayLatencyNs;
+            leaderNs = engine.LeaderNowNs + lead + AirLatencyNs(project);
         }
         var inputs = new FrameInputs
         {
@@ -660,6 +661,7 @@ public sealed partial class RenderHost : IRenderHost
     private void ProjectChanged(EngineCore engine, Project project)
     {
         _headless.Sync(project);
+        PlanLatency(project);
         if (_options.Windows)
         {
             RefreshDisplays();

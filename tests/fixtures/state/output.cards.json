@@ -26,9 +26,9 @@
         "unit": ""
       },
       {
-        "label": "Path",
-        "path": "outputs[].present.path",
-        "unit": ""
+        "label": "Delay",
+        "path": "outputs[].present.delayFrames",
+        "unit": "frames"
       },
       {
         "label": "Latency",
@@ -164,9 +164,9 @@
         "unit": ""
       },
       {
-        "label": "Dialect",
-        "path": "machine.present.dialect",
-        "unit": ""
+        "label": "Air latency",
+        "path": "machine.present.airLatencyMs",
+        "unit": "ms"
       },
       {
         "label": "Present p95",

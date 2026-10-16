@@ -4,6 +4,8 @@ using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
+using PlayMap.Render.Timing;
+using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -16,6 +18,9 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
 
     private volatile bool _firstFrames;
     private volatile bool _fuseCleared;
+    private volatile LatencyPlan _latency = LatencyPlan.None;
+    private double _groupAirMs;
+    private double _plannedGroupAirMs;
 
     partial void ComposeOutput(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
@@ -70,7 +75,38 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         {
             FuseArmed = _options.Fuse is not null && !_fuseCleared,
             FirstFrames = _firstFrames,
+            AirLatencyMs = Math.Round(_latency.AirLatencyMs > 0 ? _latency.AirLatencyMs : _options.DisplayLatencyNs / 1e6, 3),
+            LatencyWords = _latency.Words,
         };
+    }
+
+    /// <summary>The node's latency plan now: its air latency (the largest output's, or the group's when larger) and each output's
+    /// whole-frame delay. Any thread.</summary>
+    public LatencyPlan Latency => _latency;
+
+    /// <summary>The group's air latency (a sync group's slowest node), ms: the node's own is raised to it, never lowered; 0 lets it go.
+    /// Any thread; the render thread plans again at its next frame.</summary>
+    public void SetGroupAirLatency(double ms) => Volatile.Write(ref _groupAirMs, double.IsFinite(ms) && ms > 0 ? ms : 0);
+
+    /// <summary>Render thread: the plan for the project's enabled outputs, handed to the renderer's delay rings.</summary>
+    private void PlanLatency(Project project)
+    {
+        var group = Volatile.Read(ref _groupAirMs);
+        _plannedGroupAirMs = group;
+        var plan = LatencyPlan.Make(project.Outputs.Where(o => o.Enabled).Select(o => (o.Id, o.LatencyMs, o.RefreshHz)), group);
+        foreach (var d in plan.Outputs)
+            _renderer?.SetDelay(d.OutputId, d.DelayFrames, d.ResidualMs);
+        _latency = plan;
+    }
+
+    /// <summary>Render thread, once a frame: the air latency the frame is drawn for — the plan's, or the configured display latency
+    /// when no output names one; planned again when the group's moved.</summary>
+    private long AirLatencyNs(Project project)
+    {
+        if (Volatile.Read(ref _groupAirMs) != _plannedGroupAirMs)
+            PlanLatency(project);
+        var plan = _latency;
+        return plan.AirLatencyMs > 0 ? plan.AirLatencyNs : _options.DisplayLatencyNs;
     }
 
     /// <summary>Every display output of the DXGI start has presented 120 frames on a settled clock (render thread, under the health
