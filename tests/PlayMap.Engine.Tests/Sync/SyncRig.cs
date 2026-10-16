@@ -70,6 +70,9 @@ internal static class SyncRig
         // The manual clock stands still: once the follower's estimate is in, both read the same leader instant exactly.
         Assert.True(await Eventually.TrueAsync(() => follower.Engine.LeaderNowNs == leader.Engine.LeaderNowNs),
             $"the follower reads {follower.Engine.LeaderNowNs}, the leader {leader.Engine.LeaderNowNs}");
+        // The clock reads the new line as its step begins on the lane; STATE counts the step once it is taken in full.
+        Assert.True(await Eventually.TrueAsync(() => Sync(follower).GetProperty("steps").GetInt64() == follower.Engine.Services.Clock.Steps),
+            follower.Journal());
         Assert.True(await Eventually.TrueAsync(() => Sync(follower).GetProperty("feed").GetString() == "live"), follower.Journal());
         Assert.True(await Eventually.TrueAsync(() => leader.Engine.Services.Fanout!.Members.Contains(follower.Id)));
     }

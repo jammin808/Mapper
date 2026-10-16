@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Tests.Host;
 
@@ -149,5 +150,32 @@ public sealed class ClockSlewTests
         Assert.Contains("show clock stepped −7 s", node.Journal(), StringComparison.Ordinal);
         foreach (var later in new[] { 0L, 1, 5, 10 })
             Assert.Equal(0.0, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs + later * Second), 1e-9);
+    }
+
+    /// <summary>STATE counts a step once it is taken in full, never ahead of its work: as the step's last word is written (its journal
+    /// line, after every anchor and instant has moved), STATE, read afresh there, still counts the steps before it; once it counts
+    /// the step, the line is in the journal.</summary>
+    [Fact]
+    public async Task AStepIsCountedOnceItIsTakenInFull()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new MovableClock(clock, 7 * Second));
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await node.OkAsync("PLAYLIST GO pl_local");
+        var counted = new ConcurrentQueue<long>();
+        node.Engine.Journal.Written += row =>
+        {
+            if (row.Kind != "sync" || !row.Text.Contains("show clock stepped", StringComparison.Ordinal))
+                return;
+            node.Engine.FactsChanged();
+            counted.Enqueue(SyncRig.Sync(node).GetProperty("steps").GetInt64());
+        };
+
+        await SyncRig.GroupAsync(leader, node);
+        Assert.Equal(1, SyncRig.Sync(node).GetProperty("steps").GetInt64());
+        Assert.Equal([0L], counted.ToArray());
+        Assert.Contains("show clock stepped +7 s; 1 playlist kept its place", node.Journal(), StringComparison.Ordinal);
     }
 }
