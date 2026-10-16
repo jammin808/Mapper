@@ -37,7 +37,21 @@ jobs:
       - name: Restore
         run: dotnet restore
       - name: Build (the analyzers are fences)
-        run: dotnet build -c Release --no-restore
+        # A numbered build (Version.props): this run's number and commit. The version is in the tree and the commit is the
+        # workflow's own, so no git history is read and the checkout's default depth is enough.
+        run: dotnet build -c Release --no-restore -p:PlayMapBuild=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The version
+        shell: pwsh
+        run: |
+          # What the build stamped, read from the built assembly, checked against this run's number and commit and written to the
+          # job's summary.
+          $ErrorActionPreference = 'Stop'
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll).Path)
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          if ($info.FileVersion -notmatch "^\d+\.\d+\.\d+\.$env:GITHUB_RUN_NUMBER$") { throw "PlayMap.Core.dll's file version $($info.FileVersion) is not build $env:GITHUB_RUN_NUMBER" }
+          if ($info.ProductVersion -notmatch "^\d+\.\d+\.\d+\+$env:GITHUB_RUN_NUMBER\.$short$") { throw "PlayMap.Core.dll's product version $($info.ProductVersion) is not build $env:GITHUB_RUN_NUMBER of $short" }
+          $version = $info.ProductVersion.Split('+')[0]
+          "### PlayMap $version (build $env:GITHUB_RUN_NUMBER, $short)`n`nLinux: file version ``$($info.FileVersion)``, product version ``$($info.ProductVersion)``" >> $env:GITHUB_STEP_SUMMARY
       - name: The machine is bare (no libva, no system OpenAL)
         run: |
           # The decode ladder's VA-API guard and the bundled OpenAL are proven here only while these are absent; on a machine
@@ -124,7 +138,8 @@ jobs:
       - name: Restore
         run: dotnet restore
       - name: Build
-        run: dotnet build -c Release --no-restore
+        # A numbered build (Version.props): this run's number and commit; no git history is read (see the Linux job).
+        run: dotnet build -c Release --no-restore -p:PlayMapBuild=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
       - name: OpenGL beside the test hosts
         shell: pwsh
         run: |
@@ -176,9 +191,24 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
       - name: Publish the portable exe
-        run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
+        # Publishing compiles again for win-x64, so it is given the same build number and commit as the build.
+        run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap -p:PlayMapBuild=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The version
+        id: version
+        shell: pwsh
+        run: |
+          # The published exe's Windows version resource, checked against this run's number and commit: it names the artifact and
+          # heads the job's summary.
+          $ErrorActionPreference = 'Stop'
+          $info = (Get-Item publish/PlayMap/PlayMap.exe).VersionInfo
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          if ($info.FileVersion -notmatch "^\d+\.\d+\.\d+\.$env:GITHUB_RUN_NUMBER$") { throw "PlayMap.exe's file version $($info.FileVersion) is not build $env:GITHUB_RUN_NUMBER" }
+          if ($info.ProductVersion -notmatch "^\d+\.\d+\.\d+\+$env:GITHUB_RUN_NUMBER\.$short$") { throw "PlayMap.exe's product version $($info.ProductVersion) is not build $env:GITHUB_RUN_NUMBER of $short" }
+          $version = $info.ProductVersion.Split('+')[0]
+          "file=$($info.FileVersion)" >> $env:GITHUB_OUTPUT
+          "### PlayMap $version (build $env:GITHUB_RUN_NUMBER, $short)`n`nPlayMap.exe: file version ``$($info.FileVersion)``, product version ``$($info.ProductVersion)``; artifact ``PlayMap-$($info.FileVersion)-win-x64``" >> $env:GITHUB_STEP_SUMMARY
       - name: Upload the exe
         uses: actions/upload-artifact@v5
         with:
-          name: PlayMap-win-x64
+          name: PlayMap-${{ steps.version.outputs.file }}-win-x64
           path: publish/PlayMap
