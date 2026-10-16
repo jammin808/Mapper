@@ -621,6 +621,15 @@ public sealed partial class EngineCore
     {
         /// <summary>What the result records as its run: "camera:&lt;camera&gt;" for a camera re-solve, else "".</summary>
         public string RunId { get; init; } = "";
+
+        /// <summary>The projector's priors the solve used ("throw", "position"; PROJECTOR PRIOR sets them).</summary>
+        public IReadOnlyList<string> PriorsUsed { get; init; } = [];
+
+        /// <summary>True when the solve locked the focal from the lens prior because the pins could not carry it.</summary>
+        public bool FocalLocked { get; init; }
+
+        /// <summary>What the long-throw solve adds to the words (the lens lock, or the weak direction), "" when nothing.</summary>
+        public string LongThrowWords { get; init; } = "";
     }
 
     /// <summary>CALIBRATION RESOLVE &lt;projector&gt;… [CAMERA &lt;camera&gt;] [STAGE]: each named projector solved again — from its pins as they
@@ -660,6 +669,8 @@ public sealed partial class EngineCore
                 var pins = pj.Pins.Count(x => x.Enabled);
                 if (pins < 4)
                     return CommandReply.Fail($"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
+                if (BoundPinAway(p.Stage, pj) is { } away)
+                    return CommandReply.Fail($"{pj.Name}: {away}");
             }
             if (!named.Any(x => x.Id == pj.Id))
                 named.Add(pj);
@@ -680,12 +691,20 @@ public sealed partial class EngineCore
             for (var i = 0; i < named.Count; i++)
             {
                 var pj = named[i];
-                var solution = await Task.Run(() => PoseSolver.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose }), cts.Token)
-                    .ConfigureAwait(false);
+                // The same solve as PROJECTOR SOLVE's with no LOCK word: the projector's priors as rows, and a focal the lens locked
+                // asked again.
+                var longThrow = await Task.Run(() => LongThrowSolve.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose },
+                    retestLock: true), cts.Token).ConfigureAwait(false);
                 cts.Token.ThrowIfCancellationRequested();
-                var after = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose };
+                var solution = longThrow.Solution;
+                var after = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = longThrow.LocksUsed };
                 var (score, uncertainty) = CalibrationScoring.ForPins(after, solution, "resolve");
-                solved.Add(new Resolved(pj, after, score, uncertainty, -1, -1, null));
+                solved.Add(new Resolved(pj, after, score, uncertainty, -1, -1, null)
+                {
+                    PriorsUsed = PriorsUsed(pj.Priors),
+                    FocalLocked = longThrow.FocalLocked,
+                    LongThrowWords = longThrow.Note,
+                });
                 task = task with { Projector = pj.Id, Progress = (i + 1.0) / named.Count };
                 SetTask(task);
             }
@@ -776,7 +795,9 @@ public sealed partial class EngineCore
                     : "";
                 var apply = why.Length == 0;
                 var id = project.NewId(Ids.Calibration);
+                // The locks the solve answers (a focal the lens locked, or freed when the pins carry it again) go with its optics.
                 var result = now with { Intrinsics = x.After.Intrinsics, Lens = x.After.Lens, Pose = x.After.Pose, Pins = x.After.Pins,
+                    Locks = x.After.Locks == x.Before.Locks ? now.Locks : x.After.Locks,
                     Uncertainty = apply ? x.Uncertainty : now.Uncertainty };
                 var snap = CalibrationLedger.Of(result, id, CalibrationLedger.NameFor(project, now.Id, CalibrationSource.Resolve), score,
                     CalibrationSource.Resolve, c.Session.ClientName, Services.Wall.UnixMs) with
@@ -817,7 +838,7 @@ public sealed partial class EngineCore
         if (_calibrationMoved.Length > 0)
             _calibrationMoved = [.. _calibrationMoved.Where(id => !results.Any(x => x.Applied && x.Projector == id))];
         var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
-            $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
+            $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{LongThrowNote(solved, x.Projector)}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         if (applied.Count > 0)
@@ -856,6 +877,14 @@ public sealed partial class EngineCore
                 w.WriteEndObject();
                 w.WriteNumber("verifiedP50", Math.Round(s.VerifiedP50, 3));
                 w.WriteNumber("verifiedP95", Math.Round(s.VerifiedP95, 3));
+                w.WriteStartArray("priorsUsed");
+                foreach (var used in s.PriorsUsed)
+                    w.WriteStringValue(used);
+                w.WriteEndArray();
+                w.WriteStartArray("locked");
+                if (s.FocalLocked)
+                    w.WriteStringValue("focal");
+                w.WriteEndArray();
                 w.WriteEndObject();
             }
             w.WriteEndArray();
@@ -867,6 +896,10 @@ public sealed partial class EngineCore
     }
 
     private const string ResolveCancelled = "cancelled — nothing was applied";
+
+    /// <summary>A re-solved projector's long-throw words for the reply ("; zoom locked from the lens: …"), "" when there are none.</summary>
+    private static string LongThrowNote(List<Resolved> solved, string projector) =>
+        solved.FirstOrDefault(s => s.Before.Id == projector) is { LongThrowWords.Length: > 0 } x ? "; " + x.LongThrowWords : "";
 
     /// <summary>A camera re-solve's result says so in its RunId ("camera:&lt;camera&gt;"): accepting it later re-seats the quads.</summary>
     private const string CameraRunPrefix = "camera:";

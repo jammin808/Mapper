@@ -150,6 +150,9 @@ public sealed partial class EngineCore
                 var pj = named[j];
                 var pairs = MotionAttribution.Pairs(check[j], cameraView, world);
                 var labels = Enumerable.Range(1, pairs.Count).Select(i => i.ToString(CultureInfo.InvariantCulture)).ToList();
+                // The optics are held, so the lens prior has nothing to weigh; a position prior joins the dots as rows, weighed
+                // against the dots' own noise.
+                var priors = PosePriors.From(pj.Priors, pj.Intrinsics, pj.Priors.Position, PosePriors.DensePixelSigma).WithoutFocal;
                 var solution = await Task.Run(() => PoseSolver.Solve(pairs, pj.Intrinsics, pj.Lens, PoseSolveOptions.Default with
                 {
                     Locks = SolveLocks.Focal | SolveLocks.Shift | SolveLocks.Distortion,
@@ -157,6 +160,7 @@ public sealed partial class EngineCore
                     Noun = "dot",
                     Labels = labels,
                     OutlierThresholdPx = 3,
+                    Priors = priors,
                 }), cts.Token).ConfigureAwait(false);
                 cts.Token.ThrowIfCancellationRequested();
                 var after = pj with { Pose = solution.Pose, Pins = Reseat2D.Pins(pj.Pins, new DeviceView(pj.Intrinsics, pj.Lens, solution.Pose)) };
@@ -176,6 +180,7 @@ public sealed partial class EngineCore
                 solved.Add(new Resolved(pj, after, score, uncertainty, p50, p95, project => ReseatQuads(project, pj.Id, before, newView, world, fallbackDistance))
                 {
                     RunId = CameraRunPrefix + rig.Id,
+                    PriorsUsed = PriorsUsed(pj.Priors, focal: false),
                 });
             }
             var patternMs = frames * settings.ResolveFrameMs;

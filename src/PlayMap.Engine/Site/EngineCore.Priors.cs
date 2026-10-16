@@ -116,7 +116,15 @@ public sealed partial class EngineCore
     /// it there: a solve never runs on a bound pin's stale world point.</summary>
     private LongThrowResult SolveWithPriors(Projector pj, SolveLocks locks, bool retestLock)
     {
-        var stage = Edits.Project.Stage;
+        if (BoundPinAway(Edits.Project.Stage, pj) is { } away)
+            throw new EditRefusedException(away);
+        return LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retestLock);
+    }
+
+    /// <summary>The refusal for a projector whose enabled pin is bound to a control point it is not at, with the line that puts it
+    /// there; null when every bound pin sits at its point. Every solve from pins asks it first.</summary>
+    internal static string? BoundPinAway(Stage stage, Projector pj)
+    {
         for (var i = 0; i < pj.Pins.Length; i++)
         {
             var pin = pj.Pins[i];
@@ -124,10 +132,21 @@ public sealed partial class EngineCore
                 continue;
             var at = stage.Site.ToStage(cp.Grid);
             if ((pin.World - at).Length > BoundPinToleranceM)
-                throw new EditRefusedException(string.Create(SiteInv,
-                    $"pin {i + 1} is bound to {cp.Name} but is not at it — SET {pin.Id} world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}"));
+                return string.Create(SiteInv,
+                    $"pin {i + 1} is bound to {cp.Name} but is not at it — SET {pin.Id} world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}");
         }
-        return LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retestLock);
+        return null;
+    }
+
+    /// <summary>The priors a solve used, as the replies name them ("throw", "position").</summary>
+    internal static List<string> PriorsUsed(SolvePriors priors, bool focal = true)
+    {
+        var used = new List<string>(2);
+        if (focal && priors.ThrowRatio > 0)
+            used.Add("throw");
+        if (priors.Position is not null)
+            used.Add("position");
+        return used;
     }
 
     /// <summary>How far a bound pin's world point may be from its control point's (metres).</summary>
@@ -158,10 +177,8 @@ public sealed partial class EngineCore
             w.WriteStringValue("focal");
         w.WriteEndArray();
         w.WriteStartArray("priorsUsed");
-        if (pj.Priors.ThrowRatio > 0)
-            w.WriteStringValue("throw");
-        if (pj.Priors.Position is not null)
-            w.WriteStringValue("position");
+        foreach (var used in PriorsUsed(pj.Priors))
+            w.WriteStringValue(used);
         w.WriteEndArray();
     }
 

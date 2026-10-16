@@ -104,7 +104,10 @@ result is **staged**: recorded with the projector untouched and `calibration.sta
 it. A projector with no fallback keeps its calibration from before as one. No other projector, result or surface moves.
 
 **From the pins** (no `CAMERA`): the pins as they stand — the operator dragged them onto the wall's features (`ResolveTests`: a
-projector knocked 2 cm comes back within half a pixel RMS on the wall).
+projector knocked 2 cm comes back within half a pixel RMS on the wall). It is `PROJECTOR SOLVE`'s solve with no LOCK word
+(docs/FACADE.md): the projector's priors (`PROJECTOR PRIOR`) are rows beside the pins, the zoom is locked from the lens when the pins
+cannot carry it (and a lock the lens put there is asked again), the locks it answers go with the result, and a pin bound to a control
+point it is not at refuses the re-solve with the `SET` line that puts it there. Each reply row names `priorsUsed` and `locked`.
 
 **From a camera** (`CAMERA <camera>`, calibops M5–M8 at their QUICK rung): a calibrated camera of the stage takes a fresh look at
 only the named projectors (`ALL`: every projector). One projector named alone is looked at with another the stage shows, as a
@@ -124,7 +127,8 @@ read the same. A real camera's look holds every other projector output black whi
    together means the camera moved, and nothing is re-solved ("place the camera again"). Nothing moved, the camera, or nothing
    seen is refused with these words.
 4. *Solve*: each mover's pose alone (its optics kept) from its dots — the camera's ray through each spot onto the stage, paired
-   with the dot's projector pixel — through `PoseSolver`, robust.
+   with the dot's projector pixel — through `PoseSolver`, robust. A position prior (`PROJECTOR PRIOR … AT`) joins the dots as rows
+   weighed against their noise (0.3 px); the lens prior has nothing to weigh with the optics held.
 5. *Verify*: the mover's dots looked at once more, matched through the new pose; the wall error of the new pose against them
    (p50, p95) is the result's `verifiedP95`.
 6. *Score*: the dot fit scored as a pin solve (each dot a pin), a fix that would name a dot being the re-solve again.

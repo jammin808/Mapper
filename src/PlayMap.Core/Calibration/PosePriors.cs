@@ -31,6 +31,10 @@ public sealed record PosePriors(double? Focal, double FocalSigma, Vec3d? Centre,
     /// <summary>The default σ of a position prior when none is given (a total-station shot of the lens, ±5 cm).</summary>
     public const double DefaultPositionSigmaM = 0.05;
 
+    /// <summary>The noise the rows of dense camera-measured pairs (a scan's, a re-solve's dots) are weighed against (px); hand pins
+    /// are 1 px.</summary>
+    public const double DensePixelSigma = 0.3;
+
     /// <summary>A projector's priors in solver terms: f₀ = throw ratio × raster width, σ_f = f₀·pct/100; the position as given (a
     /// control point's is resolved to stage coordinates by the caller).</summary>
     public static PosePriors From(SolvePriors priors, Intrinsics k, Vec3d? position, double pixelSigma = 1)
@@ -47,7 +51,11 @@ public sealed record PosePriors(double? Focal, double FocalSigma, Vec3d? Centre,
 /// <summary>A long-throw solve: the solution, whether the focal was locked from the lens because the pins could not carry it, the
 /// uncertainty (null when the pins cannot carry one), the weak direction in words and the solve's words.</summary>
 public sealed record LongThrowResult(PoseSolution Solution, bool FocalLocked, SolveUncertainty? Uncertainty, string Weak, string Words,
-    SolveLocks LocksUsed);
+    SolveLocks LocksUsed)
+{
+    /// <summary>What the long-throw rule says beyond the solve's own words (the lens lock, or the weak direction); "" when nothing.</summary>
+    public string Note { get; init; } = "";
+}
 
 /// <summary>Solves a far projector with what the pins cannot tell it. First the pins alone (the position prior as rows); if they
 /// cannot carry the focal — its σ from the solve's own information is above 10 % — the focal is locked at the lens prior when there is
@@ -153,7 +161,7 @@ public static class LongThrowSolve
         else if (u is not null && locked)
             u = u with { Weak = "" };
         var all = words.Length > 0 ? s.Words + "; " + words : s.Words;
-        return new LongThrowResult(s with { Words = all }, locked, u, u?.Weak ?? weak, all, locks);
+        return new LongThrowResult(s with { Words = all }, locked, u, u?.Weak ?? weak, all, locks) { Note = words };
     }
 
     private static List<Correspondence> Inliers(PoseSolution s, IReadOnlyList<Correspondence> pairs) =>

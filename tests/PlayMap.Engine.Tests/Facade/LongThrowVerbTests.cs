@@ -9,7 +9,7 @@ namespace PlayMap.Engine.Tests.Facade;
 /// relief the prior joins the solve as a row; the uncertainty leads with the wall.</summary>
 public sealed class LongThrowVerbTests
 {
-    private static Project Facade(double relief, ulong seed = 3)
+    internal static Project Facade(double relief, ulong seed = 3)
     {
         var k = Intrinsics.FromThrowRatio(3840, 2160, 3);
         var truth = Pose.LookAt(new Vec3d(0, 10, 100), new Vec3d(0, 10, 0), Vec3d.UnitY);
