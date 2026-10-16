@@ -400,6 +400,14 @@ public sealed partial class EngineCore
             TouchShow();
             return;
         }
+        LandCommit(b, commit);
+    }
+
+    /// <summary>A commit whose instant came lands as one undo step, or stays staged with the words when a lock refuses it. Its own
+    /// method: its closures (the root it lands, the commit its event names) are made only when a commit lands. Written in
+    /// <see cref="TickBlind"/>, an optimised build would allocate them at the method's entry, on every tick of the lane.</summary>
+    private void LandCommit(BlindDraft b, BlindCommit commit)
+    {
         var root = commit.Patch.ApplyTo(Store.Project);
         EditResult r;
         _promoting = true;

@@ -86,31 +86,37 @@ public sealed partial class EngineCore
             _nativeDue[link.Id] = now + Math.Max(1000, link.PollIntervalMs) * 1_000_000L;
             var outputs = guarded.Select(o => o.Id).ToList();
             var generation = _nativeGeneration.AddOrUpdate(link.Id, 1, (_, g) => g + 1);
-            _ = Task.Run(async () =>
-            {
-                NativeView view;
-                try
-                {
-                    var reading = await ReadNativeAsync(devices, link, CancellationToken.None).ConfigureAwait(false);
-                    view = new NativeView(link.Id, outputs, reading, Services.Wall.UnixMs, reading?.Words ?? "not read");
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    // The projector went away mid-read, or the node is stopping: the read is told as failed and the next poll tries again.
-                    view = new NativeView(link.Id, outputs, null, Services.Wall.UnixMs, $"not read: {ex.Message}");
-                }
-                finally
-                {
-                    _nativeBusy.TryRemove(link.Id, out _);
-                }
-                // A read that finishes after the device stopped guarding anything, or after the node began to stop, is dropped.
-                if (Stopping || !_nativeDue.ContainsKey(link.Id) || _nativeGeneration.GetValueOrDefault(link.Id) != generation)
-                    return;
-                _native[link.Id] = view;
-                FactsChanged();
-            }, CancellationToken.None);
+            StartNativeRead(devices, link, outputs, generation);
         }
     }
+
+    /// <summary>Reads a guarded device's own geometry on a worker. Its own method: the worker's closure (it captures the device, its
+    /// outputs and the generation) is made only when a read is due. Written in <see cref="TickNative"/>, an optimised build would
+    /// allocate it at the method's entry, on every tick of a node with devices.</summary>
+    private void StartNativeRead(DeviceService devices, DeviceLink link, List<string> outputs, long generation) =>
+        _ = Task.Run(async () =>
+        {
+            NativeView view;
+            try
+            {
+                var reading = await ReadNativeAsync(devices, link, CancellationToken.None).ConfigureAwait(false);
+                view = new NativeView(link.Id, outputs, reading, Services.Wall.UnixMs, reading?.Words ?? "not read");
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // The projector went away mid-read, or the node is stopping: the read is told as failed and the next poll tries again.
+                view = new NativeView(link.Id, outputs, null, Services.Wall.UnixMs, $"not read: {ex.Message}");
+            }
+            finally
+            {
+                _nativeBusy.TryRemove(link.Id, out _);
+            }
+            // A read that finishes after the device stopped guarding anything, or after the node began to stop, is dropped.
+            if (Stopping || !_nativeDue.ContainsKey(link.Id) || _nativeGeneration.GetValueOrDefault(link.Id) != generation)
+                return;
+            _native[link.Id] = view;
+            FactsChanged();
+        }, CancellationToken.None);
 
     /// <summary>A guarded device's next read is due now (an accept just put a measured correction on its output).</summary>
     private void NativeDueNow()
