@@ -31,10 +31,12 @@ public sealed record AlignScoreInputs(string GroupId, double CoverageShare, doub
 /// the two terms that cost most; each term carries its own words, where, fix line and hint.</summary>
 public static class CalibrationScoring
 {
-    /// <summary>A pin solve's score: the solved projector (its optics, pose, locks and pins) and the solve's residuals and inliers in
-    /// pin order. Answers the uncertainty too (null when the pins cannot carry one).</summary>
+    /// <summary>A pin solve's score: the solved projector (its optics, pose, locks, pins and priors) and the solve's residuals and
+    /// inliers in pin order. Answers the uncertainty too (null when the pins cannot carry one): the pins' information with the
+    /// projector's priors added as the solve weighed them (<paramref name="priorPixelSigma"/>: the noise its rows were weighed against,
+    /// 1 px for hand pins), so the score, STATE and the solve's reply carry one uncertainty.</summary>
     public static (QualityScore Score, SolveUncertainty? Uncertainty) ForPins(Projector solved, PoseSolution solution,
-        string source = "pins")
+        string source = "pins", double priorPixelSigma = 1)
     {
         ArgumentNullException.ThrowIfNull(solved);
         ArgumentNullException.ThrowIfNull(solution);
@@ -126,7 +128,11 @@ public static class CalibrationScoring
             inEmpty == 0 ? $"; none in the {QuarterWords(empty)} quarter" : ""), covered * 100, 2 * Math.Max(0, 0.5 - covered), "quadrant:" + empty, holes));
 
         // Conditioning: the solve's own uncertainty on the wall, and its weakest direction.
-        var analysed = SolveUncertaintyAnalysis.Analyse(k, solved.Lens, solved.Pose, inlierPairs, solved.Locks);
+        // A focal the solve held carries no row: the lens prior adds nothing to a locked focal.
+        var priors = solved.Priors.ThrowRatio > 0 || solved.Priors.Position is not null
+            ? PosePriors.From(solved.Priors, k, solved.Priors.Position, priorPixelSigma)
+            : null;
+        var analysed = SolveUncertaintyAnalysis.Analyse(k, solved.Lens, solved.Pose, inlierPairs, solved.Locks, priors);
         var confidence = 0.0;
         SolveUncertainty? uncertainty = null;
         if (analysed is { } a)

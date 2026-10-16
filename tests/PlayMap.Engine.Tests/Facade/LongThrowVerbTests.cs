@@ -92,6 +92,21 @@ public sealed class LongThrowVerbTests
     }
 
     [Fact]
+    public async Task StateCarriesTheUncertaintyOfTheSolveWithItsPriors()
+    {
+        await using var rig = new SiteRig(Facade(2));
+        await rig.Ok("PROJECTOR PRIOR pj_far1 THROW 3 ±2");
+        await rig.Ok("PROJECTOR PRIOR pj_far1 AT 0 10 100 ±0.05");
+        var reply = SiteRig.Json(await rig.Ok("PROJECTOR SOLVE pj_far1")).GetProperty("uncertainty");
+        var state = rig.State().GetProperty("stage").GetProperty("projectors")[0].GetProperty("uncertainty");
+        // One solve, one uncertainty: what the reply said is what STATE (and the score that reads it) carries.
+        Assert.True(state.GetProperty("axisM").GetDouble() < 0.1, state.GetRawText());
+        Assert.Equal(reply.GetProperty("axisM").GetDouble(), state.GetProperty("axisM").GetDouble(), 3);
+        Assert.Equal(reply.GetProperty("wallPx").GetDouble(), state.GetProperty("wallPx").GetDouble(), 3);
+        Assert.Equal(reply.GetProperty("focalPct").GetDouble(), state.GetProperty("focalPct").GetDouble(), 3);
+    }
+
+    [Fact]
     public async Task WithoutAPriorTheSolveIsNamedWeak()
     {
         await using var rig = new SiteRig(Facade(0));

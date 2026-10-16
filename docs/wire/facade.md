@@ -56,7 +56,7 @@ EPSG system to another; a pin bound to a control point that is not there or not 
 ```
 
 `stage.projectors[]` (before the wall's keys): `"uncertainty": null | {"wallPx": 0.78, "axisM": 0.02, "focalPct": 0, "weak": ""}` (the
-calibration score's: the pins' own information, a locked zoom held),
+calibration score's, which is the solve's: the pins' information with the projector's priors, a locked zoom held),
 `"priors": "TR 3.02 ±2 % · at CP7 ±5 cm" | ""`.
 
 ## Context

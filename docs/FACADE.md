@@ -71,8 +71,8 @@ from distance" when the weakest direction lies along zoom and the along-axis dis
 prior the solve is kept and named weak, with the lines that fix it. Otherwise the lens prior joins the solve as a row. A lock the lens
 put there is asked again at every solve (more pins or depth free it); an operator's `LOCK FOCAL` keeps the projector's own focal. The
 reply carries the uncertainty from the solve's own information matrix with the priors' added: on the wall first (px), then along the
-axis and across it (m), and the zoom (%); STATE carries the calibration score's uncertainty (the pins' own information, a locked
-zoom held).
+axis and across it (m), and the zoom (%). STATE and the calibration score carry the same uncertainty: the pins' information with the
+projector's priors, a locked zoom held.
 
 The recommended path at a facade: the lens prior from the datasheet → 8–15 pins on control points → solve, wall px read first.
 

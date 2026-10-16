@@ -69,7 +69,8 @@ Every calibration result carries one explainable `QualityScore`, in one vocabula
 
 - **Pins** (px-equivalents, lower is better): the inlier RMS rounded up to 0.1 px is the base; p95 of the inliers, outlier pins
   (0.5 each, the worst named, its fix disables it), the inliers' spread (convex hull share of the picture), coverage (cells with a
-  pin), conditioning (the solve's own uncertainty on the wall, and 1 px more when zoom cannot be told from distance) and lens
+  pin), conditioning (the solve's own uncertainty on the wall, the projector's priors' information included, and 1 px more when
+  zoom cannot be told from distance) and lens
   plausibility (square pixels, a principal point within reach, a throw a lens has, mild distortion) add penalties. A pin behind
   the projector, too few inliers or no optics is a hard failure: 99.9 and F.
 - **Scans**: the dense fit is the base; a poorly decoded picture and a single view add.

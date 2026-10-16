@@ -248,7 +248,7 @@ public sealed partial class EngineCore
     {
         var dots = pairs.Select((x, i) => new CalibrationPin("dot" + (i + 1).ToString(CultureInfo.InvariantCulture), x.World, x.Pixel, true)).ToImmutableArray();
         var asPins = pj with { Pose = solution.Pose, Pins = dots, Locks = SolveLocks.Focal | SolveLocks.Shift | SolveLocks.Distortion };
-        var (pinScore, uncertainty) = CalibrationScoring.ForPins(asPins, solution, "resolve");
+        var (pinScore, uncertainty) = CalibrationScoring.ForPins(asPins, solution, "resolve", PosePriors.DensePixelSigma);
         var score = pinScore with { Words = pinScore.Words.Replace(" pins", " dots", StringComparison.Ordinal) };
         var again = $"CALIBRATION RESOLVE {pj.Id} CAMERA {rig.Id}";
         return (score with
