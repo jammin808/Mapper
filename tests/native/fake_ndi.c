@@ -782,12 +782,34 @@ static void reset_locked(void) {
 	snprintf(g_version, sizeof g_version, "%s", FAKE_DEFAULT_VERSION);
 }
 
+// The process environment's value of a variable (a copy to free), or NULL: on Windows the process environment block, where
+// SetEnvironmentVariable writes (the C runtime's getenv keeps a copy of its own that it never sees); elsewhere libc's environ.
+static char* env_dup(const char* name) {
+#ifdef _WIN32
+	DWORD size = GetEnvironmentVariableA(name, NULL, 0);
+	if (size == 0)
+		return NULL;
+	char* value = malloc(size);
+	if (value && GetEnvironmentVariableA(name, value, size) != size - 1) {
+		free(value);
+		return NULL;
+	}
+	return value;
+#else
+	const char* value = getenv(name);
+	return value ? strdup(value) : NULL;
+#endif
+}
+
 // The string value of "discovery" under "networks" in $NDI_CONFIG_DIR/ndi-config.v1.json, or NULL.
 static char* read_config_discovery(void) {
-	const char* dir = getenv("NDI_CONFIG_DIR");
-	if (!dir || !*dir)
+	char* dir = env_dup("NDI_CONFIG_DIR");
+	if (!dir || !*dir) {
+		free(dir);
 		return NULL;
+	}
 	char* path = format_dup("%s/ndi-config.v1.json", dir);
+	free(dir);
 	if (!path)
 		return NULL;
 	FILE* file = fopen(path, "rb");
