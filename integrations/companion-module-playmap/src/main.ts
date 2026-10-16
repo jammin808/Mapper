@@ -18,7 +18,7 @@ import { BUNDLED_VERBS, pressOfLine, readVerbs, type VerbRow } from './catalog/v
 import { configFields, connectionTarget, num, type PlayMapConfig, type PlayMapSecrets } from './config.ts'
 import type { Ctx, SendOptions } from './context.ts'
 import { Encoders } from './encoders.ts'
-import { EventLog, eventWords, readEvent } from './events.ts'
+import { EVENT_RING, EventLog, eventWords, readEvent, type NodeEvent } from './events.ts'
 import { FEEDBACK_SLICES, feedbackDefinitions } from './feedbacks.ts'
 import { Confirms, GoGuard, Receipts, replyResult, unansweredResult, type PressResult } from './guards.ts'
 import { LineError, NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
@@ -153,8 +153,8 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#definedVariables = ''
 	/** Destroyed: nothing more reaches the host and no timer is armed. */
 	#destroyed = false
-	/** Events pushed while an EVENTS SINCE replay is in flight, taken after it; null when no replay is. */
-	#held: unknown[] | null = null
+	/** Events pushed while an EVENTS SINCE replay is in flight, taken after it (at most the node's ring); null when no replay is. */
+	#held: NodeEvent[] | null = null
 	#replayTimer: ReturnType<typeof setTimeout> | null = null
 	#pairedBefore = false
 	/** STATE's show.armed as last heard (false once the link drops: a relink asks every picture again anyway). */
@@ -453,10 +453,12 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 
 	/** Opens EVENTS and replays what this deck missed since the last seq it took. Events pushed while the replay is in flight are held
 	 * and taken after it, oldest first, so the last seq taken never passes a replayed event and every event is taken once. */
-	#replayEvents(attempt = 0, carried: readonly unknown[] = []): void {
-		const held: unknown[] = [...carried]
+	#replayEvents(attempt = 0, carried: readonly NodeEvent[] = [], subscribe = attempt === 0): void {
+		if (this.#replayTimer) clearTimeout(this.#replayTimer)
+		this.#replayTimer = null
+		const held: NodeEvent[] = [...carried]
 		this.#held = held
-		if (attempt === 0) this.#subscribe(Lines.subscribe('EVENTS'))
+		if (subscribe) this.#subscribe(Lines.subscribe('EVENTS'))
 		const since = async (seq: number): Promise<boolean> => {
 			const reply = await this.ask(Lines.eventsSince(seq))
 			if (!reply.ok || this.#held !== held) return false
@@ -468,7 +470,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			}
 			// A node heard to start again is replayed from its first: that, not a later STATE's seq, is where it was first heard.
 			this.events.heard(seq)
-			this.#takeAll(Array.isArray(o.events) ? o.events : [])
+			this.#takeAll((Array.isArray(o.events) ? o.events : []).map(readEvent).filter((e) => e !== null))
 			return true
 		}
 		const settle = (took: boolean): void => {
@@ -493,11 +495,10 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		})
 	}
 
-	#takeAll(events: readonly unknown[]): void {
-		const read = events.map(readEvent).filter((e) => e !== null)
-		read.sort((a, b) => a.seq - b.seq)
+	#takeAll(events: readonly NodeEvent[]): void {
+		const sorted = [...events].sort((a, b) => a.seq - b.seq)
 		let took = false
-		for (const e of read) took = this.events.take(e) || took
+		for (const e of sorted) took = this.events.take(e) || took
 		if (took) this.#touch('events')
 	}
 
@@ -656,12 +657,16 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	}
 
 	#event(json: unknown): void {
+		const e = readEvent(json)
+		if (!e) return
 		if (this.#held) {
-			this.#held.push(json)
+			// A replay holds at most the node's ring: past it the node has let go of events this deck has not taken, so what is held is
+			// let go too and the replay asked again from the last seq taken (the subscription stays open).
+			if (this.#held.length >= EVENT_RING) this.#replayEvents(0, [], false)
+			else this.#held.push(e)
 			return
 		}
-		const e = readEvent(json)
-		if (!e || !this.events.take(e)) return
+		if (!this.events.take(e)) return
 		this.#touch('events')
 	}
 

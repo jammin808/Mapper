@@ -8,6 +8,20 @@ export interface NodeEvent {
 }
 
 const RECENT = 64
+/** The node's event ring: it keeps the last 256 events, so a replay never answers more than this. */
+export const EVENT_RING = 256
+/** The most of an event's text kept (its kind, each text field), in UTF-16 units. */
+export const MAX_EVENT_TEXT = 1024
+/** The most fields an event keeps, and the longest field name. */
+const MAX_EVENT_FIELDS = 32
+const MAX_FIELD_NAME = 64
+
+/** At most MAX_EVENT_TEXT of a text, copied when cut, so what is kept holds no reference to the longer text it came from. */
+function capped(text: string): string {
+	return text.length <= MAX_EVENT_TEXT
+		? text
+		: Buffer.from(text.slice(0, MAX_EVENT_TEXT), 'utf16le').toString('utf16le')
+}
 
 /** The words an event reads as on a key: its own words when it has them, else its kind and what it names. */
 export function eventWords(e: NodeEvent): string {
@@ -18,13 +32,24 @@ export function eventWords(e: NodeEvent): string {
 	return [e.kind, ...names].join(' ')
 }
 
-/** Reads an EVENT push's or an EVENTS reply's event object. */
+/** Reads an EVENT push's or an EVENTS reply's event object. What it keeps is bounded whatever the push holds: its kind and each
+ * text at most 1 KiB, plain values only (text, number, true/false, null — the node writes no other), at most 32 fields. */
 export function readEvent(json: unknown): NodeEvent | null {
-	if (!json || typeof json !== 'object') return null
+	if (!json || typeof json !== 'object' || Array.isArray(json)) return null
 	const o = json as Record<string, unknown>
 	if (typeof o.seq !== 'number' || typeof o.kind !== 'string') return null
-	const { seq, at, kind, ...fields } = o
-	return { seq, at: typeof at === 'number' ? at : 0, kind, fields }
+	const fields: Record<string, unknown> = {}
+	let kept = 0
+	for (const name in o) {
+		if (kept >= MAX_EVENT_FIELDS) break
+		if (name === 'seq' || name === 'at' || name === 'kind' || name.length > MAX_FIELD_NAME) continue
+		const v = o[name]
+		if (typeof v === 'string') fields[name] = capped(v)
+		else if (typeof v === 'number' || typeof v === 'boolean' || v === null) fields[name] = v
+		else continue
+		kept++
+	}
+	return { seq: o.seq, at: typeof o.at === 'number' ? o.at : 0, kind: capped(o.kind), fields }
 }
 
 /** The events heard, in order of their seq, and the pulses they make: an `event_pulse` feedback is true for `hold_ms` after an event

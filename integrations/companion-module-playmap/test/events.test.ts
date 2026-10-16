@@ -3,7 +3,8 @@
 // "fault.*" prefix) and, when it names a ref, one of whose fields is that ref, timed by the node's clock; an event at or below the
 // last seq heard is never taken again; after a drop the re-paired link asks EVENTS SINCE the last seq heard and takes what it missed,
 // whatever the node pushes meanwhile (a deck that took none, from the node's events.seq when it first heard it, 0 too); an EVENTS
-// overflow is replayed and the subscription opened again, never left a silent gap.
+// overflow is replayed and the subscription opened again, never left a silent gap. A replay holds at most the node's ring of pushed
+// events, and an event keeps at most 1 KiB of each text.
 // The hold's end on the node's clock runs on fake timers (the one such test in this file).
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,6 +12,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, type Booted } from './harness.ts'
 import { advance, fakeChannels, settle } from './fake-channel.ts'
+import { EVENT_RING, MAX_EVENT_TEXT, readEvent } from '../src/events.ts'
 
 /** One event as the node's ring writes it: {seq, at, leaderNs, kind, …fields}. */
 function eventJson(
@@ -557,6 +559,105 @@ void test('an EVENTS overflow is replayed from the last seq heard and the subscr
 		}
 		await values(m, { start: true, fault: true }, 'the replayed events pulse')
 		assert.deepEqual(taken(m), [412, 413, 414])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('an event keeps at most 1 KiB of each text, its plain fields and a few of them: a push cannot grow what the module holds', () => {
+	assert.equal(MAX_EVENT_TEXT, 1024)
+	const long = 'x'.repeat(1 << 20)
+	const e = readEvent({
+		seq: 7,
+		at: 1_760_000_000_000,
+		kind: 'item.end'.padEnd(4096, '!'),
+		words: long,
+		item: SHOW.red,
+		on: true,
+		level: 0.5,
+		nested: { words: long },
+		list: [long],
+		[`k${'e'.repeat(4096)}`]: 'a key past any field name',
+		...Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`f${i}`, long])),
+	})
+	assert.ok(e)
+	assert.equal(e.seq, 7)
+	assert.equal(e.kind.length, MAX_EVENT_TEXT)
+	assert.equal(e.fields.words, long.slice(0, MAX_EVENT_TEXT))
+	assert.equal(e.fields.item, SHOW.red)
+	assert.equal(e.fields.on, true)
+	assert.equal(e.fields.level, 0.5)
+	assert.ok(!('nested' in e.fields) && !('list' in e.fields), 'a field that is no plain value is left out')
+	assert.ok(
+		Object.keys(e.fields).every((k) => k.length <= 64),
+		'a field name past 64 marks is left out',
+	)
+	assert.ok(Object.keys(e.fields).length <= 32, 'at most 32 fields')
+	assert.ok(
+		Object.values(e.fields).every((v) => typeof v !== 'string' || v.length <= MAX_EVENT_TEXT),
+		'every text at most 1 KiB',
+	)
+})
+
+void test('a replay holds at most the node’s ring of pushed events: past it, what is held is let go and the replay asked again from the last seq taken', async () => {
+	assert.equal(EVENT_RING, 256)
+	const node = await new FakeNode().start()
+	const ring: Record<string, unknown>[] = []
+	const asked: string[] = []
+	let answer = true
+	serveRing(node, ring, asked)
+	const served = node.handlers.get('EVENTS SINCE')
+	node.handlers.set('EVENTS SINCE', (line, words) => {
+		if (answer) return served?.(line, words)
+		asked.push(words[2] ?? '')
+		return null
+	})
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		const five = eventJson(5, node.now(), 'item.end')
+		ring.push(five)
+		node.push('EVENT ' + JSON.stringify(five))
+		await seqHeard(m, 5, 'event 5')
+
+		// The node closes this session's EVENTS and leaves the replay unanswered while it pushes a ring's worth of events, and one more.
+		answer = false
+		node.push('EVENTS overflow — this session read too slowly; SUBSCRIBE EVENTS again')
+		await node.heard(/ EVENTS SINCE 5$/u)
+		answer = true
+		const push = (seq: number): void => {
+			const e = eventJson(seq, node.now(), 'item.start', { words: `event ${seq} `.padEnd(4096, '.') })
+			ring.push(e)
+			node.push('EVENT ' + JSON.stringify(e))
+		}
+		for (let seq = 6; seq < 6 + EVENT_RING; seq++) push(seq)
+		// Two round trips: every push before them has been read, and any line it made has reached the node.
+		await m.instance.ask('WHOAMI')
+		await m.instance.ask('WHOAMI')
+		assert.deepEqual(asked, ['5'], 'a ring of events is held while the replay is out')
+		const last = 6 + EVENT_RING
+		push(last)
+		await m.instance.ask('WHOAMI')
+		await m.instance.ask('WHOAMI')
+		assert.deepEqual(
+			asked,
+			['5', '5'],
+			'one more: what was held is let go, and the replay asked again from the last seq taken',
+		)
+
+		await seqHeard(m, last, 'every event, from the replay asked again')
+		assert.deepEqual(
+			taken(m),
+			Array.from({ length: 64 }, (_, i) => last - 63 + i),
+			'each once, in order',
+		)
+		assert.ok(
+			m.instance.events
+				.recent()
+				.every((e) => typeof e.fields.words === 'string' && e.fields.words.length <= MAX_EVENT_TEXT),
+		)
 	} finally {
 		await m.stop()
 		await node.stop()
