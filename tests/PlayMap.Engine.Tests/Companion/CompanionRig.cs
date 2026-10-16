@@ -59,8 +59,10 @@ internal sealed class CompanionRig : IAsyncDisposable
     public ValueTask DisposeAsync() => Engine.DisposeAsync();
 }
 
-/// <summary>A session's sink as the tests hold it: every line in the order it was said, the newest per key, and a wait for the next
-/// line that matches (event driven, never a wall-clock window). In-order lines past <see cref="Bound"/> are refused.</summary>
+/// <summary>A session's sink as the tests hold it: every line in the order it was said, the newest per key, and a wait for a line
+/// that matches, met at once by one already said (event driven, never a wall-clock window): a wait for what a push says must name
+/// something no earlier line says. A wait whose test throws on a line fails with that error; the speaker and the other waits go on.
+/// In-order lines past <see cref="Bound"/> are refused.</summary>
 internal sealed class RecordingSink : IPushSink
 {
     private readonly Lock _gate = new();
@@ -93,8 +95,19 @@ internal sealed class RecordingSink : IPushSink
         Lines.Enqueue(line);
         lock (_gate)
         {
-            foreach (var (_, done) in _waits.Where(w => w.Means(line)).ToList())
-                done.TrySetResult();
+            foreach (var (means, done) in _waits)
+            {
+                try
+                {
+                    if (means(line))
+                        done.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    // The test's code runs on the speaker's thread: its error ends its own wait and never the speaker's push.
+                    done.TrySetException(ex);
+                }
+            }
             _waits.RemoveAll(w => w.Done.Task.IsCompleted);
         }
     }
