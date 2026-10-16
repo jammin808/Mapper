@@ -72,9 +72,11 @@ runs at a time, oldest first, through the worker:
   way out has gone (on Windows a killed worker's files can be deleted only then). A clean stop of the node leaves a running job
   queued for its next start.
 - **The stop.** The service closes before it stops its worker: a worker's line or end, a sweep, a line or a step that comes later
-  does nothing, and the work begun before it (a write of the queue, a recording, a plan) ends first — a recording the stop cuts
-  short leaves its job verifying, queued again at the next start. Once the stop is over nothing writes the queue or the work
-  folder.
+  does nothing — a step under way hands out no job and starts no worker — and a request, CANCEL, PAUSE or RESUME is refused with
+  "the node is stopping — its optimise queue takes no more changes". The work begun before the close (a write of the queue, a
+  recording, a plan, a worker's end being heard) ends before the worker is stopped — a recording the stop cuts short leaves its
+  job verifying, queued again at the next start. Once the stop is over nothing of the service's writes the queue or the work
+  folder; only a killed worker that would not end (above) may still write its partial file there, swept at the next start.
 - **The import hook.** When an import's probe lands (an item gains its content hash), the item is planned under the project's mode.
 
 ## The governor
