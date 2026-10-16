@@ -36,12 +36,16 @@ backup of FOH-A (0badc0de)"; "FOH-A refused the mirror: it asks for its pairing 
 node.0badc0de <FOH-A's pairing token> here first"; "FOH-B is solo already — it backs up no primary"; "FOH-B backs up no primary —
 FAILOVER runs on a hot backup (FLEET BACKUP <primary> first)"; "FOH-A does not mirror FOH-B — FLEET BACKUP FOH-B on FOH-A first, then
 FAILBACK"; "FOH-A is not identical to FOH-B yet (its mirror is resyncing) — FAILBACK waits for it"; "FOH-B leads show already";
-"Op 1's route is that already"; "the primary's input and the backup's are both 31: a takeover would switch nothing".
+"Op 1's route is that already"; "the primary's input and the backup's are both 31: a takeover would switch nothing"; "Desk holds a
+blind draft here: it would land over FOH-A's show — BLIND DISCARD (or BLIND COMMIT) first"; "Cam 1 is a live input: it is received
+from the network, never fetched"; on a node that has begun to stop, a pull asked of it by its own line: "the node is stopping — no
+pull starts".
 
 On a backup a client's line that would change the show is refused "FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to
 make this node the show"; on a fenced node "fenced: FOH-B has the show (epoch 8) — FLEET BACKUP FOH-B to mirror it". Queries, panic,
 Show Mode, the node's administration (credentials, pairing), `MEDIA FETCH` and the fleet's verbs stay; `FLEET ROUTE` (except TEST) is the show's plan,
-edited on the primary.
+edited on the primary; `BLIND ON` and `BLIND COMMIT` are refused (a draft would land over the primary's show; `BLIND DISCARD` and
+`BLIND OFF` stay).
 
 ## Replies
 
@@ -58,10 +62,13 @@ edited on the primary.
 ## The web port
 
 `/mirror` is a web module admitted before the token gate on its own credential: `GET /mirror/project` (the show as compact JSON, its
-revision in `X-PlayMap-Rev`) and `GET /mirror/media/<sha256>` (a verified file, ranged). Each request carries `X-PlayMap-Nonce`
+revision in `X-PlayMap-Rev`), `GET /mirror/media/<sha256>` (a verified file, ranged) and `GET /mirror/file/<kind>/<id>` (a file the
+live show names beside its folder: `mesh/<mesh>`, `warp/<output>`, `blend/<output>`, `cloud/<survey>`; 404 for anything the show
+does not name, or a path outside its folder). Each request carries `X-PlayMap-Nonce`
 (`<unix ms>-<32 hex>`) and `X-PlayMap-Proof` (lowercase hex HMAC-SHA256 of the node's normalised token over the nonce and
 `"GET https /mirror/…"` — the method, the scheme and the path — as AUTH-PROOF's scheme); the node takes a nonce once and only within a minute of its wall clock. A header token is not
-a proof. From an address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules).
+a proof, and a request with a proof that names an Origin (a browser's) is refused "a mirror pull comes from a PlayMap node, never from
+a web page". From an address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules).
 From another machine only HTTPS is let in; the backup sends no pull in clear to another machine and none to a node whose hello drops a
 pinned certificate. Every nonce is remembered for two minutes; a node that holds 8 192 of them refuses more pulls until some expire. Only GET and
 HEAD.
@@ -74,7 +81,10 @@ state on a backup), `of` (the primary a backup mirrors, the node a primary took 
 `{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`), `succession` (the show's plan; `[]`),
 `alarm` (null: automatic takeover is not built), `last` (null, or `{"kind":"takeover|failback|promote","id","at","words"}`), `nodes`,
 `light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`).
-`sync.epoch` is the node's epoch. HEALTH adds `mirror` (the backup's state) and `sync.group`. The fixture is
+`sync.epoch` is the node's epoch. On a hot backup each `led.nodes[]` row whose machine master is on says `state` `standby` (green in
+the context and INDEX) and each enabled `videoio.sends[]` says `standby`, both with the words why ("silent: FOH-B is a hot backup of
+FOH-A — it sends at FAILOVER"); on a fenced node both say `held` ("held black: FOH-A is fenced (FOH-B has the show) — FLEET BACKUP
+FOH-B to mirror it"). HEALTH adds `mirror` (the backup's state) and `sync.group`. The fixture is
 `tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER), its cards `backup.cards.json`.
 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
@@ -94,7 +104,7 @@ silent), and `FLEET FOCUS machine:<node>` per backup.
 
 ## Papers note
 
-For the integration docs pass: the hot backup (FLEET BACKUP, the mirror, pulls with proof over pinned HTTPS, FAILOVER by epoch with
-fencing, FAILBACK, routes with observed input switches, FLEET PROMOTE) ships; WIRE.md's round-2 section gains these rows and
-`SUBSCRIBE MIRROR`; ARCHITECTURE §4 gains the promoted clock and the fence; ROADMAP R4.1 moves to "built (manual takeover)"; automatic
-takeover on silence, `FLEET SUCCESSION`, HOLD, WARM/COLD backups, project deltas, frame keys and the router step stay next round.
+WIRE.md lists these rows and `SUBSCRIBE MIRROR`; ARCHITECTURE §4 has the promoted clock, the fence and the epoch; ROADMAP R4.1 is
+built for a manual takeover. Next round: automatic takeover on silence, `FLEET SUCCESSION`, HOLD, WARM and COLD backups, project
+deltas, frame keys, the router step, `FLEET FENCE` sent over the wire, the pending blind commit carried to the backup with its
+instant (a landing reaches the backup as the revision after it lands), and the 10 s identical window before FAILBACK.

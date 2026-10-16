@@ -67,6 +67,8 @@ device's last packet. A universe not sent for 900 ms is sent again with its last
 | A scan or an align run (an output on a raw frame) | That output's fixtures go **dark**, and its picture is not sampled; the rest of the rig plays | The output shows a measurement pattern, not the show; holding would leave a stale look up for the run's length, and LED light near the surface would spoil the camera's capture |
 | `LED OUTPUT OFF` (machine or node) | One black frame, latched, then silence; sACN adds three terminations; `HOLD` skips both. No sampling while this machine sends nothing | The air rules |
 | The node stops (shutdown) | The same as `LED OUTPUT OFF`: every node still sending gets one black frame and, on sACN, three terminations, before the sockets close | A stopped node must not leave the rig holding its last look; Art-Net nodes hold DMX indefinitely |
+| The node is a hot backup (docs/FLEET.md) | Silence, with no black frame, and nothing sampled; STATE says `standby`. FAILOVER makes it send from its next frame | The rig's universes are the primary's: a second sender would fight its picture |
+| The node is fenced (another node took its show) | One black frame, latched (sACN: three terminations), then silence; STATE says `held` | Nothing it last sent stays lit, and it never fights the new primary |
 
 Values STATE shows that move on their own (a node's state words, frames a second, lateness, how long ago it answered, the
 locate's time left) are written afresh on STATE's next read when they move, with nothing playing, without moving its revision.
