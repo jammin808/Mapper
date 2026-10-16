@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Model;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.Core.Tests.Control;
 
@@ -124,6 +125,20 @@ public sealed class OscAddressMapTests
         Assert.Equal("BLACKOUT TOGGLE", Line(OscMessage.Of("/playmap/blackout")));
         Assert.Equal("VIDEO SEEK 83.5", Line(OscMessage.Of("/playmap/video/seek", OscArg.F(83.5f))));
         Assert.Equal("VIDEO RATE 0.1", Line(OscMessage.Of("/playmap/video/rate", OscArg.F(0.1f))));
+    }
+
+    [Fact]
+    public void AJsonLastArgumentRidesBareAndABracketWordMidLineIsQuoted()
+    {
+        // ADD and PLAYLIST ANCHOR read their JSON from the rest of the line as written: a last word that opens like JSON is not quoted.
+        var add = Line(OscMessage.Of("/playmap/add/surface", OscArg.S("{\"name\":\"Wall\"}")));
+        Assert.Equal("ADD surface {\"name\":\"Wall\"}", add);
+        Assert.True(WireGrammar.TryParse(add, out var parsed, out _));
+        Assert.Equal("{\"name\":\"Wall\"}", parsed.RestAfter(2));
+        Assert.Equal("PLAYLIST ANCHOR pl_show [1,2]", Line(OscMessage.Of("/playmap/playlist/anchor", OscArg.S("pl_show"), OscArg.S("[1,2]"))));
+        // Mid-line, a word that opens like JSON is quoted, so it stays one word.
+        Assert.Equal("DEVICE ADD \"[L]\" pjlink 10.0.0.20",
+            Line(OscMessage.Of("/playmap/device/add", OscArg.S("[L]"), OscArg.S("pjlink"), OscArg.S("10.0.0.20"))));
     }
 
     [Fact]
