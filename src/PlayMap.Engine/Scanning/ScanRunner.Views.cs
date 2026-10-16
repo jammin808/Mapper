@@ -260,17 +260,16 @@ public sealed partial class ScanRunner
             var moved = MultiViewScan.FrameMoved(scan.Captured, engine.Store.Project);
             if (hold.Count == 0)
             {
-                if (!moved && scan.Multi is { } m && m.Held.IsDefaultOrEmpty && m.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
-                    throw new InvalidOperationException($"nothing would change: every view of {scan.Name} was solved together already — HOLD <projector> re-solves holding one at its stage pose");
+                if (!moved && scan.Multi is { } m && m.Held.IsDefaultOrEmpty && Given(m).SetEquals(active))
+                    throw new InvalidOperationException($"nothing would change: every view of {scan.Name} was solved together already{LeftOutWords(m)} — HOLD <projector> re-solves holding one at its stage pose");
                 if (scan.Multi is null && active.Count == 1)
                     throw new InvalidOperationException(moved
                         ? $"{scan.Name} has one view, placed before SITE ORIGIN moved the stage — SCAN START <camera> INTO {scan.Id} adds another and carries both into the new frame"
                         : $"nothing would change: {scan.Name} has one view, solved when it was scanned — SCAN START <camera> INTO {scan.Id} adds another");
             }
-            else if (scan.Multi is { } held && held.Held.ToHashSet(StringComparer.Ordinal).SetEquals(hold)
-                && held.ViewIds.ToHashSet(StringComparer.Ordinal).SetEquals(active))
+            else if (!moved && scan.Multi is { } held && held.Held.ToHashSet(StringComparer.Ordinal).SetEquals(hold) && Given(held).SetEquals(active))
             {
-                throw new InvalidOperationException($"nothing would change: {scan.Name} was solved holding {string.Join(", ", hold)} already, with the same views");
+                throw new InvalidOperationException($"nothing would change: {scan.Name} was solved holding {string.Join(", ", hold)} already, with the same views{LeftOutWords(held)}");
             }
             var known = scan.Captured.Where(v => v.State != "dropped").SelectMany(v => v.ProjectorIds).ToHashSet(StringComparer.Ordinal);
             if (hold.FirstOrDefault(h => !known.Contains(h)) is { } stranger)
@@ -281,6 +280,14 @@ public sealed partial class ScanRunner
             return Combined(scan, multi, placed, project, metric);
         }, ct);
     }
+
+    /// <summary>The views a solve was given: those it used and those it left out — the same solve of the same views leaves them out again.</summary>
+    private static HashSet<string> Given(MultiViewOutcome m) =>
+        m.ViewIds.Concat(m.Result.LeftOut.Select(l => l.ViewId)).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The views a solve left out and why, as a refusal names them ("" when it used every view).</summary>
+    private static string LeftOutWords(MultiViewOutcome m) =>
+        m.Result.LeftOut.IsDefaultOrEmpty ? "" : " (" + string.Join("; ", m.Result.LeftOut.Select(l => l.Words)) + " — left out again by the same solve)";
 
     /// <summary>SCAN DROP: the scan without one view, solved again warm from its last solve (the frame and its scale kept). Refused
     /// for a view the scan does not have, one already dropped, and the scan's last view.</summary>
