@@ -89,7 +89,39 @@ imported mesh, through its transform (`BridgeModel`), never a mesh file's raw co
 model give thousands of 2D↔3D pairs per projector for `PoseSolver`. With no such model, or an uncalibrated camera, the scan
 self-calibrates in the camera's frame and is carried into the stage by the camera rig's pose.
 
+## Stacks
+
+Projectors that light one picture are a stack (`StackGroup`: its members and a master). The 3D blend treats a stack as one projector
+(`BlendSolver3D`): at every point a stack's weight is its master's geometry (incidence and distance), the least edge factor of its
+members that see the point and their summed lumens, and every member's map gets the group's share, so stacked light adds and the
+stack hands over to its neighbours as one projector.
+
+Members placed by hand never land exactly on each other. `STACK ALIGN` fits each member's measured residual to the master's picture
+from a scan that saw every member through one camera (`StackAlignment`): each member pixel the camera saw is taken to the camera,
+back into the master's raster (`ViewInverse`), and from there to where the member's render puts the same picture point (the
+identity when both share one model pose; through the stage's model when their poses differ). The pairs fit a Catmull-Rom
+`WarpLattice` (33 × 19 by default) — linear least squares in the node offsets, Huber-reweighted against stray decodes, a bending
+penalty that leaves shifts and zooms free, conjugate gradients on the banded normal equations — and every tenth pair, held out,
+measures the residual. The lattice is the member's measured correction (`MeasuredCorrection.Lattice`), drawn as the first layer
+of its output's warp (`WarpField`, `WarpMeshBuilder`): before the operator's lattice and corner pin, with no shader of its own.
+`STACK MATCH` brings each member's white to the master's with per-channel gains of at most one, from the same scan's colour white
+frames, through align's colour arithmetic (`StackColour`); level is left alone, because stacked light adds.
+
+## Coordinates on the earth
+
+`Geodesy.cs` converts between geodetic latitude, longitude and height, ECEF and a local east-north-up frame, and projects with the
+transverse Mercator by Krüger's series to sixth order in n (UTM by zone and hemisphere). `CrsInfo` knows the EPSG UTM families
+(WGS 84 326zz/327zz, ETRS89 258zz, NAD83 269zz) and geographic WGS 84 and ETRS89, names a site's system ("ETRS89 / UTM zone
+32N"), and reads a WKT's system from its outermost EPSG authority or, without one, from a UTM name. Other systems are refused with
+their words, never guessed.
+
+## The facade guide
+
+`SiteGuide` reads the workflow from the project: survey → control points → pins → the lens prior and the solve → stacks → blend →
+score. Each step has a state (done, waiting, running, failed), words and the line that does it; the next step is the first not done.
+`SITE GUIDE` answers the steps; STATE's `stage.site.next` is the live stage's next step.
+
 ## Not here yet
 
-Geodesy (UTM and geographic coordinates, CRS conversion), the facade guide, projector stacks and the light plan; LAZ, the night
-capture profile, measured photometry and glass masks; a camera solved from its own pins.
+The light plan; LAZ, the night capture profile, measured photometry and glass masks; a camera solved from its own pins; geographic
+and other-zone surveys converted on import (the conversions exist; the import still refuses another system than the site's).
