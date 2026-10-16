@@ -232,7 +232,7 @@ function carriesSecret(rows: readonly VerbRow[], text: string): boolean {
 
 /** The one fence every key's line passes before it is sent, whoever wrote it (a generated action, raw, a section key or Live slot
  * from INDEX): read as the node reads it, a line must start with a verb of the node, never one the module keeps to itself (the
- * session's words, secrets, pairing, a row the node answers with no line), whatever follows; inside it, where the node may read a
+ * session's words, secrets, pairing, a row whose effect lapses unless it is sent again), whatever follows; inside it, where the node may read a
  * line, it must carry no secret (carriesSecret). What it refuses names only the outer verb, never the operator's words (a token typed
  * as a line). */
 export function fence(

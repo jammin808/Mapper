@@ -519,7 +519,7 @@ void test('a key with two actions pressed twice arms each for its own line, and 
 	}
 })
 
-void test('CURSOR is no key: the node answers it with no line, so no action sends it and raw refuses it unsent', async () => {
+void test('CURSOR is no key: its lease lapses unless it is sent again, so no action sends it and raw refuses it unsent', async () => {
 	const node = await new FakeNode({ token: TOKEN }).start()
 	const m = await boot(configOf(node), SECRETS)
 	try {

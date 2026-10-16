@@ -11,7 +11,8 @@ bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync grou
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
 is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
-(`OK @a1 …`). A refused verb says why; a verb that would change nothing is refused ("already playing").
+(`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
+every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
 transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
@@ -78,7 +79,8 @@ The router journals who did what and the transports fence by it. The transport i
    (`BLACKOUT 1`, `LIVE 0`, `LOOK …`, `DECK p n`…; no request id; `BLACKOUT` only as `0` or `1`) are taken as facts
    and never answered (`BLACKOUT 1` blacks the node out when *Follow Patterns' blackout* is on —
    `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF`). A fact line from a session that is not paired is dropped, unanswered:
-   only a paired or trusted peer's facts reach the air.
+   only a paired or trusted peer's facts reach the air. A line with a request id is no fact: it is read as a verb and
+   answered (`@a1 LIVE 0` is refused as an unknown verb).
 7. Limits: 64 connections, 16 per address; a started line must end within 10 s; one writer per connection,
    replies in order (≤ 256 queued, then closed), pushes latest-wins.
 

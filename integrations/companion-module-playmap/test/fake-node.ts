@@ -347,7 +347,8 @@ export class FakeNode {
 				ok()
 				return
 			case 'CURSOR':
-				// The node answers a cursor with no line at all, request id or not; its lease lapses unless it is sent again.
+				// The node answers a cursor only when its line carries a request id (a bare OK); its lease lapses unless it is sent again.
+				if (id) ok()
 				return
 			case 'THUMB': {
 				const ref = words[1] ?? ''
