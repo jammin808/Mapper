@@ -221,8 +221,9 @@ public sealed partial class EngineCore
     /// <summary>The members' projector views from one place. Pairs compare the camera pixels each member's decode saw, so every
     /// member's view must come from one camera standing in one place: of a scan of many views, the view the last solve used that saw
     /// every member (the one whose least-decoded member decoded most; dropped and unreadable views never), its decodes built into
-    /// projector views; of a scan of one view, its smart scans. Null words when they are found; the words and the line that adds such
-    /// a view when no view saw them all.</summary>
+    /// projector views; of a scan of one view, its smart scans, or, when a member's is not held (a scan read back from its folder after
+    /// a restart, or mirrored by a backup, keeps its view's decodes and no smart scans), that view's decode built into one. Null words
+    /// when they are found; the words and the line that adds such a view when no view saw them all.</summary>
     private static (Dictionary<string, ProjectorView> Views, string ViewId, string? Why) StackViews(ScanOutcome outcome, StackGroup stack,
         ScanRecord scan, Project p)
     {
@@ -232,6 +233,10 @@ public sealed partial class EngineCore
             foreach (var (id, view) in outcome.Views)
                 if (stack.Members.Contains(id, StringComparer.Ordinal))
                     smart.TryAdd(id, view);
+            if (!outcome.Captured.IsDefaultOrEmpty && outcome.Captured[0] is { State: "done" } only)
+                foreach (var id in stack.Members)
+                    if (!smart.ContainsKey(id) && only.Maps.TryGetValue(id, out var map) && map.Axes == ScanAxes.Both)
+                        smart[id] = ProjectorView.Build(map);
             return (smart, outcome.Captured.IsDefaultOrEmpty ? "" : outcome.Captured[0].Id, null);
         }
         ScanViewData? best = null;

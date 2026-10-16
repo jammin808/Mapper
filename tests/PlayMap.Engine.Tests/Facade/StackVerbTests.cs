@@ -378,6 +378,33 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.Contains($"SCAN START sim {StackKit.P1} {StackKit.P2} INTO sc00000002", refused, StringComparison.Ordinal);
     }
 
+    /// <summary>A scan read back from its folder (after a restart, or mirrored by a hot backup) keeps its one view's decodes and no
+    /// smart scans: the stack aligns and matches from those decodes as from the scan that made them.</summary>
+    [Fact]
+    public async Task AScanReadBackFromItsFolderAlignsAndMatchesFromItsViewsDecodes()
+    {
+        var sim = StackKit.Sim();
+        var maps = await StackKit.MapsAsync(sim);
+        var outcome = await StackKit.OutcomeAsync(sim);
+        _scans.Remember(outcome with
+        {
+            Views = [],
+            Captured = [StackKit.View("vw00000001", sim, new Dictionary<string, Core.Scan.CorrespondenceMap> { [StackKit.P1] = maps[0], [StackKit.P2] = maps[1] })],
+        });
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+
+        var aligned = Json(await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}"));
+        Assert.Equal("vw00000001", aligned.GetProperty("view").GetString());
+        var after = StackKit.MisregistrationP95(sim, null, rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.Lattice);
+        log.WriteLine($"misregistration p95 {after:0.000} px");
+        Assert.True(after <= 0.2, $"after {after}");
+        await rig.Ok($"STACK MATCH {id} FROM {StackKit.Scan}");
+        var state = Stage(rig).GetProperty("stacks")[0];
+        Assert.True(state.GetProperty("aligned").GetBoolean());
+        Assert.True(state.GetProperty("matched").GetBoolean());
+    }
+
     /// <summary>The pairs are camera pixels against camera pixels: a move of the whole site between the scan and STACK ALIGN fits the
     /// same lattice, and the stack stays aligned through another move after it.</summary>
     [Fact]
