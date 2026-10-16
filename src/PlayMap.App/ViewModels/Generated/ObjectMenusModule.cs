@@ -23,8 +23,15 @@ public sealed class ObjectMenusModule : DeskModule
     private static readonly ImmutableArray<(string Target, string Words)> OptimiseTargets =
         [("hap", "HAP"), ("hap-alpha", "HAP Alpha"), ("hap-q", "HAP Q"), ("hap-q-alpha", "HAP Q Alpha")];
 
+    /// <summary>An object's entries and what they were made from beyond the node's lists and its kind's own actions: a generator's
+    /// kind (its numbers follow from it).</summary>
+    private sealed record Entries(string? GeneratorKind, List<DeskAction> List);
+
+    /// <summary>Objects whose entries are kept at most; past it they are made again as they are asked for.</summary>
+    private const int MaxKept = 512;
+
     private readonly DeskSession _session;
-    private readonly Dictionary<string, List<DeskAction>> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Entries> _entries = new(StringComparer.Ordinal);
     private ImmutableArray<(string Id, string Name)> _fxKinds = [];
     private ImmutableArray<(string Source, string Words)> _sources = PureSources;
     private ImmutableArray<(string Id, string Name)> _inputs = [];
@@ -45,11 +52,18 @@ public sealed class ObjectMenusModule : DeskModule
     /// <summary>The effect kinds the node answered FX KINDS with.</summary>
     public ImmutableArray<(string Id, string Name)> FxKinds => _fxKinds;
 
+    /// <summary>A project push leaves every object's entries as they are (the same instances, so an open flyout keeps its anchor),
+    /// except a generator whose kind changed: its numbers are another's, and its entries are made again.</summary>
     public override void OnProject(Project project)
     {
         _project = project;
-        // An object's entries are made from the project (a generator's numbers): made again on the next ask.
-        Rebuild();
+        var stale = _entries.Where(e => e.Value.GeneratorKind is { } kind && project.FindGenerator(e.Key[..e.Key.IndexOf('|', StringComparison.Ordinal)])?.Kind != kind)
+            .Select(e => e.Key).ToList();
+        if (stale.Count == 0)
+            return;
+        foreach (var key in stale)
+            _entries.Remove(key);
+        EntriesChanged?.Invoke();
     }
 
     public override void OnState(StateSnapshot state)
@@ -139,15 +153,19 @@ public sealed class ObjectMenusModule : DeskModule
         EntriesChanged?.Invoke();
     }
 
+    /// <summary>The object's entries: the same instances on every ask, from every row and inspector that shows the object, while
+    /// what they are made from stays (the node's lists, a generator's kind).</summary>
     public override IEnumerable<DeskAction> MenuExtras(IMenuTarget target)
     {
         ArgumentNullException.ThrowIfNull(target);
         var key = target.Id + "|" + target.Kind;
-        if (!_entries.TryGetValue(key, out var list))
-        {
-            list = Build(target);
-            _entries[key] = list;
-        }
+        var kind = target.Kind == "generator" ? _project?.FindGenerator(target.Id)?.Kind : null;
+        if (_entries.TryGetValue(key, out var kept) && kept.GeneratorKind == kind)
+            return kept.List;
+        if (_entries.Count >= MaxKept)
+            _entries.Clear();
+        var list = Build(target);
+        _entries[key] = new Entries(kind, list);
         return list;
     }
 

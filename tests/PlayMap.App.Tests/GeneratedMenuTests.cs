@@ -145,6 +145,42 @@ public class GeneratedMenuTests
     }
 
     [AvaloniaFact]
+    public async Task AProjectPushLeavesAnObjectsGeneratedEntriesAndItsOpenFlyoutWhereTheyAre()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        var sf = desk.Main.Map.Outliner.SelectMany(g => g.Nodes).First(n => n.Kind == "surface");
+        desk.Main.Map.Select(sf.Kind, sf.Id);
+        DeskHarness.Pump();
+        var before = desk.Main.Map.Inspector.Extras.ToList();
+        Assert.Contains(before, e => e.Id == "gen.fx");
+        var inspector = window.GetVisualDescendants().OfType<Views.InspectorView>().Single(v => ReferenceEquals(v.DataContext, desk.Main.Map.Inspector) && v.IsEffectivelyVisible);
+        var fx = inspector.GetVisualDescendants().OfType<ActionMenuButton>().Single(b => b.Action is { Id: "gen.fx" });
+        DeskHarness.Click(window, fx);
+        Assert.True(fx.Opened?.IsOpen);
+
+        // Another client renames a playlist: the surface's entries are the same instances, the flyout stays open on its button.
+        var playlist = desk.Link.CurrentProject.Playlists[0].Id;
+        Assert.True((await desk.Session.SendAsync($"SET {playlist} name \"Renamed\"", Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.Equal(before, desk.Main.Map.Inspector.Extras);
+        Assert.True(fx.Opened!.IsOpen);
+        Assert.Same(fx, inspector.GetVisualDescendants().OfType<ActionMenuButton>().Single(b => b.Action is { Id: "gen.fx" }));
+        fx.Opened.Hide();
+
+        // A generator renamed keeps its Modulate ▸ tree.
+        var gen = desk.Link.CurrentProject.Generators.First(g => PlayMap.Core.Content.GeneratorCatalog.Find(g.Kind)?.Params
+            .Any(p => p.Type is PlayMap.Core.Content.ParamType.Number or PlayMap.Core.Content.ParamType.Integer) == true);
+        IMenuTarget gn = desk.Main.Play.Generators.First(g => g.Id == gen.Id);
+        var modulate = desk.Main.ExtrasFor(gn).Single(e => e.Id == "gen.mod");
+        Assert.True((await desk.Session.SendAsync($"SET {gen.Id} name \"Renamed\"", Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.Same(modulate, desk.Main.ExtrasFor(gn).Single(e => e.Id == "gen.mod"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task AnEntryWhoseVerbTheNodeDoesNotRunIsNotShown()
     {
         await using var desk = new DeskHarness(link =>
