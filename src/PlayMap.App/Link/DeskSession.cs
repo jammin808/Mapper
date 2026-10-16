@@ -184,7 +184,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         link.StateChanged += OnState;
         link.ProjectChanged += OnProject;
         _status = link.Status;
-        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(NodeId));
+        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(CanSend), nameof(NodeId));
         // Read what the link already holds at once, so a window opened on a live link is never empty.
         ApplyProject();
         ApplyState();
@@ -305,7 +305,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _transport = "";
         _paired = true;
         GateMoved();
-        Raise(nameof(Link), nameof(Status), nameof(IsLive));
+        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(CanSend));
         StatusUpdated?.Invoke(_status);
     }
 
