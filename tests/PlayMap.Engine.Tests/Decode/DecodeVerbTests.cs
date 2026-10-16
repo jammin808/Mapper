@@ -172,8 +172,9 @@ public sealed class DecodeVerbTests
                 Outputs = new ScriptedOutputs(),
                 PreflightChecks = [new OutputPresentCheck(), new HapLayersCheck(), new DecodePathCheck(), new OptimisePreflight()],
             };
+            // md_c is a cropped UHD frame (3840×2048): the 4K class both sections judge, never one section's alone.
             await using var engine = new EngineCore(services, Show(Clip("md_a", 3840, 2160), Clip("md_b", 4096, 2160, "hevc"),
-                Clip("md_hd", 1920, 1080), Clip("md_h", 3840, 2160, "hap_q")));
+                Clip("md_c", 3840, 2048), Clip("md_hd", 1920, 1080), Clip("md_h", 3840, 2160, "hap_q")));
             var reply = await Run(engine, "PREFLIGHT QUICK WAIT");
             Assert.True(reply.Ok, reply.Payload);
             var report = PreflightReports.Read(reply.Payload!)!;
@@ -183,7 +184,7 @@ public sealed class DecodeVerbTests
             Assert.Contains("decode.hap-layers", ids);
             var decode = report.Rows.Where(r => r.Id.StartsWith("decode.cpu-4k:", StringComparison.Ordinal)).Select(r => r.Id["decode.cpu-4k:".Length..]).Order().ToList();
             var optimise = report.Rows.Where(r => r.Id.StartsWith("optimise.cpu:", StringComparison.Ordinal)).Select(r => r.Id["optimise.cpu:".Length..]).Order().ToList();
-            Assert.Equal(["md_a", "md_b"], decode);
+            Assert.Equal(["md_a", "md_b", "md_c"], decode);
             Assert.Equal(decode, optimise);
         }
         finally
