@@ -101,10 +101,11 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   the epoch and fences itself; only the node with the show drives the LED rig, the network sends and the sound.
 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
-context report it. The desk is one more client of those verbs: a show strip (the Ready light, ARM, PANIC and Blackout), every
-control greyed with the node's own words before a press the show's gate or a lock would refuse, Lock for the show in every object's
-menu, a card for every package's STATE, and Add effect, Modulate, Bind, Optimise and Use input entries built from the node's own
-answers (docs/DESK.md).
+context report it. The desk is one more client of those verbs: a show strip (the Ready light, ARM, PANIC and Blackout, the air's
+controls sending every press at once), every control greyed with the node's own words before a press any of its doors would
+refuse (pairing, the fleet, the show's gate with the desk's own blind draft, a lock), Lock for the show in every object's menu, a
+card for every package's STATE whose buttons take their values from that STATE, Add effect, Modulate, Bind, Optimise and Use
+input entries built from the node's own answers, and an Esc ladder that backs out before it panics (docs/DESK.md).
 
 **In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); the
 Companion module; projector stacks and the facade guide. The blind draft's diff and commit, the sync board and the fleet board
@@ -122,7 +123,7 @@ have no desk view of their own yet: their STATE shows on the desk's cards and th
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
-| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the Core show policy and the locks before the press |
+| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words |
 
 ## Talking to Patterns and Stagewatch
 
