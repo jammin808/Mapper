@@ -35,7 +35,8 @@ public sealed record GeometryReadOptions(double UnitScale, bool ZUp, SiteFrame? 
 
     /// <summary>The frame a reader rebases into after seeing the file's points: the given site, a new one centred on the points
     /// (<see cref="AutoSite"/>), or none (as stored). Throws <see cref="FormatException"/> when the points span more than
-    /// <see cref="MaxExtentM"/> horizontally.</summary>
+    /// <see cref="MaxExtentM"/> horizontally, or their centre is farther than that from the given site's origin (a file in another
+    /// system, or local coordinates, would land kilometres off with float's precision there).</summary>
     public SiteFrame? Resolve(IEnumerable<Vec3d> filePoints)
     {
         ArgumentNullException.ThrowIfNull(filePoints);
@@ -62,7 +63,16 @@ public sealed record GeometryReadOptions(double UnitScale, bool ZUp, SiteFrame? 
                 $"the file spans {span:0} m — a site is at most {MaxExtentM:0} m across: split the site"));
         }
         if (Site is { } site)
+        {
+            var centre = (min + max) / 2;
+            var far = Math.Sqrt(Math.Pow(centre.X - site.Origin.X, 2) + Math.Pow(centre.Y - site.Origin.Y, 2));
+            if (far > MaxExtentM)
+            {
+                throw new FormatException(string.Create(CultureInfo.InvariantCulture,
+                    $"the file's points are {far / 1000:0.#} km from the site's origin — is it in the site's coordinate system ({site.Crs})?"));
+            }
             return site;
+        }
         if (!AutoSite)
             return null;
         var c = (min + max) / 2;

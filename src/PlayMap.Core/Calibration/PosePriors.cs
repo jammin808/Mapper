@@ -49,11 +49,12 @@ public sealed record PosePriors(double? Focal, double FocalSigma, Vec3d? Centre,
 public sealed record LongThrowResult(PoseSolution Solution, bool FocalLocked, SolveUncertainty? Uncertainty, string Weak, string Words,
     SolveLocks LocksUsed);
 
-/// <summary>Solves a far projector with what the pins cannot tell it. First the pins alone (the position prior as rows); if the
-/// solve's information cannot separate zoom from distance — the weakest direction of its normalised information matrix lies
-/// mostly along the focal and the along-axis centre (combined share above 0.7) and the implied focal σ is above 10 % — the focal
-/// is locked at the lens prior when there is one ("zoom locked from the lens"), or the solve is kept and named weak when there is
-/// not. Otherwise the focal prior joins as a row. The uncertainty is the solve's own, with the priors' information added.</summary>
+/// <summary>Solves a far projector with what the pins cannot tell it. First the pins alone (the position prior as rows); if they
+/// cannot carry the focal — its σ from the solve's own information is above 10 % — the focal is locked at the lens prior when there is
+/// one, or the solve is kept and named weak when there is not; the words say "zoom↔distance" when the weakest direction of the
+/// normalised information matrix lies mostly along the focal and the along-axis centre (combined share above 0.7). Otherwise the
+/// focal prior joins as a row. An operator's focal lock keeps the projector's own focal; a lock the lens put there is asked again at
+/// the next solve. The uncertainty is the solve's own, with the priors' information added.</summary>
 public static class LongThrowSolve
 {
     /// <summary>The share of the weakest direction on focal and along-axis centre above which zoom and distance are one direction.</summary>
@@ -67,14 +68,24 @@ public static class LongThrowSolve
 
     public const string LockedWords = "zoom locked from the lens: the pins cannot tell zoom from distance";
 
+    public const string LockedCannotCarryWords = "zoom locked from the lens: the pins cannot carry zoom";
+
+    public const string WeakCannotCarryWords = "the pins cannot carry zoom — set the lens (PROJECTOR PRIOR … THROW) or spread the pins over more of the picture and its depth";
+
     public const string WeakWords = "the pins cannot tell zoom from distance — set the lens (PROJECTOR PRIOR … THROW) or add pins at different depths or a night scan";
 
     /// <summary>Solves a projector from its enabled pins with its locks and its own priors (<see cref="Projector.Priors"/>, the
     /// position already in stage coordinates). Residuals and flags follow the projector's pin order, as <see cref="PoseSolver"/>'s.</summary>
-    public static LongThrowResult Solve(Projector projector, PoseSolveOptions? options = null)
+    /// <param name="retestLock">The focal lock is the one an earlier solve put there from the lens (not the operator's): when the
+    /// projector's focal still sits at its lens prior, the pins are asked again whether they can carry it.</param>
+    public static LongThrowResult Solve(Projector projector, PoseSolveOptions? options = null, bool retestLock = false)
     {
         ArgumentNullException.ThrowIfNull(projector);
         options ??= PoseSolveOptions.Default;
+        var throwPrior = projector.Priors.ThrowRatio * projector.Intrinsics.Width;
+        if (retestLock && (projector.Locks & SolveLocks.Focal) != 0 && throwPrior > 0
+            && Math.Abs(projector.Intrinsics.Fx - throwPrior) <= 1e-6 * throwPrior)
+            projector = projector with { Locks = projector.Locks & ~SolveLocks.Focal };
         var pins = projector.Pins;
         var enabled = Enumerable.Range(0, pins.Length).Where(i => pins[i].Enabled).ToArray();
         var pairs = enabled.Select(i => new Correspondence(pins[i].World, pins[i].Pixel)).ToArray();
@@ -108,21 +119,24 @@ public static class LongThrowSolve
         var locks = options.Locks;
         if ((locks & SolveLocks.Focal) != 0)
         {
-            var held = PoseSolver.Solve(pairs, start, lens, options with { Priors = priors.WithoutFocal });
+            // The operator's lock keeps the projector's own focal, whatever the lens prior says.
+            var held = PoseSolver.Solve(pairs, prior, lens, options with { Priors = priors.WithoutFocal });
             return Finish(held, pairs, locks, priors.WithoutFocal, false, "", "");
         }
         var first = PoseSolver.Solve(pairs, start, lens, options with { Priors = priors.WithoutFocal });
         if (!double.IsFinite(first.RmsPx))
             return new LongThrowResult(first, false, null, "", first.Words, locks);
-        var weak = IsZoomDistanceWeak(first, pairs, locks);
+        var (focalPct, share) = FocalWeakness(first, pairs, locks);
+        var weak = !double.IsFinite(focalPct) || focalPct > WeakFocalPct;
+        var zoomDistance = share > WeakShare;
         if (weak && priors.Focal is not null)
         {
             var lockedLocks = locks | SolveLocks.Focal;
             var held = PoseSolver.Solve(pairs, start, lens, options with { Locks = lockedLocks, Priors = priors.WithoutFocal });
-            return Finish(held, pairs, lockedLocks, priors.WithoutFocal, true, "", LockedWords);
+            return Finish(held, pairs, lockedLocks, priors.WithoutFocal, true, "", zoomDistance ? LockedWords : LockedCannotCarryWords);
         }
         if (weak)
-            return Finish(first, pairs, locks, priors.WithoutFocal, false, "zoom↔distance", WeakWords);
+            return Finish(first, pairs, locks, priors.WithoutFocal, false, zoomDistance ? "zoom↔distance" : "zoom", zoomDistance ? WeakWords : WeakCannotCarryWords);
         if (priors.Focal is null)
             return Finish(first, pairs, locks, priors, false, "", "");
         var withPrior = PoseSolver.Solve(pairs, start, lens, options with { Priors = priors });
@@ -151,6 +165,15 @@ public static class LongThrowSolve
     /// is above <see cref="WeakFocalPct"/> % — or the matrix is singular there.</summary>
     public static bool IsZoomDistanceWeak(PoseSolution s, IReadOnlyList<Correspondence> pairs, SolveLocks locks)
     {
+        var (focalPct, share) = FocalWeakness(s, pairs, locks);
+        return share > WeakShare && (!double.IsFinite(focalPct) || focalPct > WeakFocalPct);
+    }
+
+    /// <summary>How well the solve's pins carry its focal: the focal's σ (%, σ̂ from the inlier residuals floored at
+    /// <see cref="PinFloorPx"/>; infinity when the information matrix is singular there) and the share of the weakest direction of
+    /// the normalised information matrix on the focal and the along-axis centre.</summary>
+    public static (double FocalPct, double Share) FocalWeakness(PoseSolution s, IReadOnlyList<Correspondence> pairs, SolveLocks locks)
+    {
         ArgumentNullException.ThrowIfNull(s);
         ArgumentNullException.ThrowIfNull(pairs);
         var inliers = Inliers(s, pairs);
@@ -158,7 +181,7 @@ public static class LongThrowSolve
         var m = shift ? 9 : 7;
         var n = inliers.Count;
         if (2 * n <= m)
-            return true;
+            return (double.PositiveInfinity, 1);
         var k = s.Intrinsics;
         var pose = s.Pose;
         var c2w = pose.CameraToWorld;
@@ -185,7 +208,7 @@ public static class LongThrowSolve
                 d[p] = -h;
                 var minus = Project(inliers[i].World, d);
                 if (plus is not { } a || minus is not { } b)
-                    return true;
+                    return (double.PositiveInfinity, 1);
                 j[2 * i, p] = (a.X - b.X) / (2 * h);
                 j[2 * i + 1, p] = (a.Y - b.Y) / (2 * h);
             }
@@ -200,8 +223,6 @@ public static class LongThrowSolve
                 normed[r, c] = info[r, c] * scale[r] * scale[c];
         var (values, vectors) = SymmetricEigen.Decompose(normed);
         var share = Math.Sqrt(vectors[6, 0] * vectors[6, 0] + vectors[5, 0] * vectors[5, 0]);
-        if (share <= WeakShare)
-            return false;
         var rmsSq = 0.0;
         foreach (var pair in inliers)
             rmsSq += Math.Pow(PoseSolver.ReprojectionError(pair, k, s.Lens, pose), 2);
@@ -210,7 +231,7 @@ public static class LongThrowSolve
         for (var e = 0; e < m; e++)
             sff += vectors[6, e] * vectors[6, e] / Math.Max(values[e], 1e-300);
         var focalPct = sigma * Math.Sqrt(sff) * scale[6] / k.Fx * 100;
-        return !double.IsFinite(focalPct) || focalPct > WeakFocalPct;
+        return (double.IsFinite(focalPct) ? focalPct : double.PositiveInfinity, share);
     }
 
     /// <summary>The solve's uncertainty in words for a reply: the wall first, then the metres.</summary>

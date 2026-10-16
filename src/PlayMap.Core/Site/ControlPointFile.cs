@@ -52,15 +52,27 @@ public static class ControlPointFile
     private static bool Num(string s, out double v) =>
         double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && double.IsFinite(v);
 
-    /// <summary>The order a header line names, or null when the line is not a header.</summary>
+    private static readonly string[] EastWords = ["e", "x", "east", "easting", "eastings", "e(m)"];
+    private static readonly string[] NorthWords = ["n", "y", "north", "northing", "northings", "n(m)"];
+
+    /// <summary>A column names easting or northing when it is one of the words, or a longer word starting "east" or "north".</summary>
+    private static bool Names(string field, string[] words, string stem)
+    {
+        var f = field.Trim().ToLowerInvariant();
+        return words.Contains(f) || (f.Length > stem.Length && f.StartsWith(stem, StringComparison.Ordinal));
+    }
+
+    /// <summary>The order a header line names, or null when the line is not a header: the easting and northing columns found by
+    /// name, and a name column whenever anything comes before them.</summary>
     private static ControlOrder? FromHeader(string[] f)
     {
-        int Index(params string[] words) => Array.FindIndex(f, x => words.Any(w => x.StartsWith(w, StringComparison.OrdinalIgnoreCase)));
-        var e = Index("east", "e", "x");
-        var n = Index("north", "n", "y");
-        if (e < 0 || n < 0 || f.Any(x => Num(x, out _)))
+        if (f.Any(x => Num(x, out _)))
             return null;
-        var named = Index("point", "name", "pt", "id", "p") is var p && p >= 0 && p < Math.Min(e, n);
+        var e = Array.FindIndex(f, x => Names(x, EastWords, "east"));
+        var n = Array.FindIndex(f, x => Names(x, NorthWords, "north"));
+        if (e < 0 || n < 0 || e == n)
+            return null;
+        var named = Math.Min(e, n) > 0;
         return (named, e < n) switch
         {
             (true, true) => ControlOrder.Penzd,

@@ -79,6 +79,7 @@ public sealed partial class EngineCore
         var ids = new List<string>();
         int added = 0, updated = 0;
         var setSite = false;
+        var siteCrs = "";
         var r = await EditAsync(call.Session, $"control points from {Path.GetFileName(path)}", p =>
         {
             ids.Clear();
@@ -118,13 +119,14 @@ public sealed partial class EngineCore
             }
             if (added == 0 && updated == 0)
                 throw new EditRefusedException($"all {read.Points.Count} points are in the project as they are — this would change nothing");
+            siteCrs = site.Crs;
             return p.WithStage(st => Core.Site.ControlBinding.Rebind(st with { Controls = controls, Site = site }));
         }).ConfigureAwait(false);
         if (!r.Changed)
             return FromEdit(r);
         var words = string.Create(SiteInv, $"{added} control point{(added == 1 ? "" : "s")} added, {updated} moved, from {Path.GetFileName(path)} ({read.Order.ToString().ToUpperInvariant()} from the {read.OrderFrom})")
             + (read.Skipped.Count > 0 ? string.Create(SiteInv, $"; {read.Skipped.Count} line{(read.Skipped.Count == 1 ? "" : "s")} skipped") : "")
-            + (setSite ? $"; the site is {Store.Project.Stage.Site.Crs} at the points' centre" : "");
+            + (setSite ? $"; the site is {siteCrs} at the points' centre" : "");
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();

@@ -4,7 +4,8 @@ using PlayMap.Core.Numerics;
 namespace PlayMap.Core.Tests.Facade;
 
 /// <summary>Quadric edge-collapse decimation: a flat grid collapses to its boundary's worth with no deviation; a relief facade meets
-/// its budget with the measured deviation reported and independently re-measured (vertex to surface, both ways, brute force); the
+/// its budget with the measured deviation reported and independently re-measured (vertices both ways and the result's face centres,
+/// brute force); a triangle soup decimates like its indexed mesh and a budget not met is said; the
 /// boundary and UV seams keep every vertex where it was; no face turns over.</summary>
 public sealed class DecimatorTests
 {
@@ -72,6 +73,8 @@ public sealed class DecimatorTests
         {
             worst = Math.Max(worst, BruteDistance(grid.Position(rng.NextInt(grid.VertexCount)), d.Mesh));
             worst = Math.Max(worst, BruteDistance(d.Mesh.Position(rng.NextInt(d.Mesh.VertexCount)), grid));
+            var (a, b, c) = d.Mesh.Triangle(rng.NextInt(d.Mesh.TriangleCount));
+            worst = Math.Max(worst, BruteDistance((d.Mesh.Position(a) + d.Mesh.Position(b) + d.Mesh.Position(c)) / 3, grid));
         }
         Assert.True(worst <= d.DeviationM + 1e-9, $"measured {worst} against the reported {d.DeviationM}");
         // No face turned over: every face still faces +z (the grid's winding).
@@ -99,6 +102,29 @@ public sealed class DecimatorTests
                 Assert.Contains((x, y, grid.Positions[v * 3 + 2], grid.Uvs[v * 2], grid.Uvs[v * 2 + 1]), kept);
         }
         Assert.True(d.TrianglesAfter < grid.TriangleCount / 2, d.Words);
+    }
+
+    [Fact]
+    public void ATriangleSoupDecimatesLikeItsIndexedMesh()
+    {
+        var grid = Grid(41, 21, 40, 20, (_, _) => 0);
+        // Every triangle with its own three vertices, attributes equal at each position: one surface, not 1 600 seams.
+        var pos = new List<float>();
+        var uv = new List<float>();
+        for (var t = 0; t < grid.TriangleCount; t++)
+        {
+            var (a, b, c) = grid.Triangle(t);
+            foreach (var v in new[] { a, b, c })
+            {
+                pos.AddRange(grid.Positions.AsSpan(v * 3, 3).ToArray());
+                uv.AddRange(grid.Uvs.AsSpan(v * 2, 2).ToArray());
+            }
+        }
+        var soup = new MeshData([.. pos], [], [.. uv], [.. Enumerable.Range(0, pos.Count / 3).Select(i => (uint)i)]);
+        var d = MeshDecimator.Decimate(soup, 200, 0.005);
+        Assert.True(d.TrianglesAfter <= 400, d.Words);
+        var stuck = MeshDecimator.Decimate(Grid(41, 21, 40, 20, (_, _) => 0, seamColumn: 20), 10, 0.005);
+        Assert.Contains("short of the 10 budget", stuck.Words, StringComparison.Ordinal);
     }
 
     [Fact]

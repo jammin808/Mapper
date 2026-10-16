@@ -288,6 +288,33 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
     }
 
     [Fact]
+    public async Task AFileInAnotherSystemOrFarFromTheSiteIsRefusedAndLeavesNothingBehind()
+    {
+        await using var rig = new SiteRig();
+        await rig.Ok("SITE ORIGIN 512340 5401230 110 CRS EPSG:25832");
+        var rng = new Pcg32(8, 8);
+        var pts = Enumerable.Range(0, 2000).Select(_ => new Vec3d(512_300 + rng.Range(0.0, 40.0), 5_401_200 + rng.Range(0.0, 0.5), 100 + rng.Range(0.0, 20.0))).ToList();
+        var other = rig.File("other.las");
+        await File.WriteAllBytesAsync(other, LasTestWriter.Write(pts, null, new Vec3d(0.001, 0.001, 0.001), new Vec3d(512_000, 5_401_000, 0),
+            "PROJCS[\"WGS 84 / UTM zone 32N\",AUTHORITY[\"EPSG\",\"32632\"]]"));
+        var revision = rig.Engine.Store.Current.Revision;
+        var job = await rig.Import(other);
+        Assert.Equal("failed", job.State);
+        Assert.Contains("says it is in EPSG:32632 but the site is in EPSG:25832", job.Words, StringComparison.Ordinal);
+
+        // A model in local coordinates near 0 would land 5 400 km away with a float's precision there.
+        var local = rig.File("local.obj");
+        await File.WriteAllTextAsync(local, "v 0 0 0\nv 10 0 0\nv 10 0 10\nf 1 2 3\n");
+        job = await rig.Import(local);
+        Assert.Equal("failed", job.State);
+        Assert.Contains("km from the site's origin", job.Words, StringComparison.Ordinal);
+
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
+        foreach (var folder in new[] { "meshes", "clouds" })
+            Assert.False(Directory.Exists(rig.File(folder)) && Directory.EnumerateFiles(rig.File(folder)).Any(), folder);
+    }
+
+    [Fact]
     public async Task OneImportAtATimeAndAStoppingNodeStartsNone()
     {
         await using var rig = new SiteRig();

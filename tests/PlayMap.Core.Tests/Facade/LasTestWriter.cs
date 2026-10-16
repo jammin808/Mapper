@@ -8,7 +8,8 @@ namespace PlayMap.Core.Tests.Facade;
 /// (OGC WKT, record 2112, or a GeoKey directory, record 34735), and point format 7 (36 bytes: X Y Z, …, RGB at byte 30).</summary>
 internal static class LasTestWriter
 {
-    public static byte[] Write(IReadOnlyList<Vec3d> points, IReadOnlyList<int>? colours, Vec3d scale, Vec3d offset, string? wkt = null, ushort? geoKeyEpsg = null)
+    public static byte[] Write(IReadOnlyList<Vec3d> points, IReadOnlyList<int>? colours, Vec3d scale, Vec3d offset, string? wkt = null, ushort? geoKeyEpsg = null,
+        IReadOnlyList<bool>? withheld = null)
     {
         var vlrs = new List<byte[]>();
         if (wkt is not null)
@@ -59,6 +60,8 @@ internal static class LasTestWriter
             BinaryPrimitives.WriteInt32LittleEndian(r, (int)Math.Round((points[i].X - offset.X) / scale.X));
             BinaryPrimitives.WriteInt32LittleEndian(r[4..], (int)Math.Round((points[i].Y - offset.Y) / scale.Y));
             BinaryPrimitives.WriteInt32LittleEndian(r[8..], (int)Math.Round((points[i].Z - offset.Z) / scale.Z));
+            if (withheld is not null && withheld[i])
+                r[15] = 0x04;
             var c = colours?[i] ?? 0;
             BinaryPrimitives.WriteUInt16LittleEndian(r[30..], (ushort)(((c >> 16) & 255) * 257));
             BinaryPrimitives.WriteUInt16LittleEndian(r[32..], (ushort)(((c >> 8) & 255) * 257));

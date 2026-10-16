@@ -126,13 +126,13 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no file {path} on this machine");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the survey's mesh and cloud are written beside it");
-        var site = Store.Project.Stage.Site;
+        var site = Edits.Project.Stage.Site;
         if (crs is not null && site.IsSet && crs.StartsWith("EPSG:", StringComparison.Ordinal) && site.Crs.StartsWith("EPSG:", StringComparison.Ordinal)
             && !string.Equals(crs, site.Crs, StringComparison.Ordinal))
             return CommandReply.Fail($"the file is in {crs} but the site is in {site.Crs} — reproject it in your survey software, or import it in the site's system");
         if (name.Length == 0)
             name = Path.GetFileNameWithoutExtension(path);
-        var id = Store.Project.NewId(Ids.Survey);
+        var id = Edits.Project.NewId(Ids.Survey);
         SurveyJobView view;
         lock (_surveyGate)
         {
@@ -183,46 +183,72 @@ public sealed partial class EngineCore
             FactsChanged();
     }
 
-    /// <summary>The worker: the import, then its result applied on the lane as one edit (or the failure kept with its words).</summary>
+    /// <summary>The worker: the import, then its result applied on the lane as one edit — or the failure kept with its words and the
+    /// files it wrote removed. Every way out leaves the job ready or failed, never importing.</summary>
     private async Task RunSurvey(SurveyRequest request, SessionInfo session)
     {
-        Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+        const string StoppedWords = "the node stopped before the survey was applied";
         SurveyProduct product;
-        using var stop = new CancellationTokenSource();
-        var progress = new SurveyProgress(this, stop);
-        try
+        using (var stop = new CancellationTokenSource())
         {
-            product = SurveyImporter.Run(request, progress, stop.Token);
+            var progress = new SurveyProgress(this, stop);
+            Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+            try
+            {
+                product = SurveyImporter.Run(request, progress, stop.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                FailSurvey(request, null, StoppedWords, session);
+                return;
+            }
+            catch (OutOfMemoryException)
+            {
+                FailSurvey(request, null, "the file is too large for this machine's memory — thin or split it first", session);
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FailSurvey(request, null, ex.Message, session);
+                return;
+            }
+            finally
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.Normal;
+            }
         }
-        catch (OperationCanceledException)
-        {
-            FailSurvey(request, "the node stopped before the survey was applied", session);
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or NotSupportedException
-            or InvalidDataException or ArgumentException or OverflowException or System.Xml.XmlException)
-        {
-            FailSurvey(request, ex.Message, session);
-            return;
-        }
-        Thread.CurrentThread.Priority = ThreadPriority.Normal;
         if (Stopping)
         {
-            FailSurvey(request, "the node stopped before the survey was applied", session);
+            FailSurvey(request, product, StoppedWords, session);
             return;
         }
         string words;
         try
         {
-            words = await _lane.RunAsync(() => ApplySurvey(request, product, session)).ConfigureAwait(false);
+            var apply = _lane.RunAsync(() => ApplySurvey(request, product, session));
+            // A lane that stops drops what is queued on it: once the node is stopping, the apply is waited for a short while only.
+            var waitedStopping = 0;
+            while (!apply.IsCompleted)
+            {
+                await Task.WhenAny(apply, Task.Delay(100, CancellationToken.None)).ConfigureAwait(false);
+                if (!apply.IsCompleted && Stopping && ++waitedStopping >= 20)
+                {
+                    FailSurvey(request, product, StoppedWords, session);
+                    return;
+                }
+            }
+            words = await apply.ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
-            FailSurvey(request, "the node stopped before the survey was applied", session);
-            return;
+            words = StoppedWords;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            words = ex.Message;
         }
         if (words.Length > 0)
-            FailSurvey(request, words, session);
+            FailSurvey(request, product, words, session);
     }
 
     /// <summary>On the lane: the product applied as one edit while the site is the one the import placed it in; "" when applied, else
@@ -283,10 +309,24 @@ public sealed partial class EngineCore
         }
     }
 
-    private void FailSurvey(SurveyRequest request, string why, SessionInfo session)
+    /// <summary>The import failed: its words kept on the job (and journalled while the node runs), and the files it wrote beside
+    /// the project removed — nothing references them.</summary>
+    private void FailSurvey(SurveyRequest request, SurveyProduct? product, string why, SessionInfo session)
     {
+        foreach (var relative in product?.Files ?? [])
+        {
+            try
+            {
+                File.Delete(Path.Combine(request.ProjectFolder, relative));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                why += $" ({relative} is left beside the project: {ex.Message})";
+            }
+        }
         var words = $"{request.Name} was not imported: {why}";
-        Journal.Add("refused", words, session.ClientName, $"SURVEY IMPORT {request.Path}", false);
+        if (!Stopping)
+            Journal.Add("refused", words, session.ClientName, $"SURVEY IMPORT {request.Path}", false);
         SetSurvey(v => v with { State = "failed", Words = words }, shown: true);
     }
 
@@ -360,7 +400,7 @@ public sealed partial class EngineCore
 
     private CommandReply SurveyList()
     {
-        var stage = Store.Project.Stage;
+        var stage = Edits.Project.Stage;
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();

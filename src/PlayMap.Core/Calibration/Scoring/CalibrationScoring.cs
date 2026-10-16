@@ -126,8 +126,7 @@ public static class CalibrationScoring
             inEmpty == 0 ? $"; none in the {QuarterWords(empty)} quarter" : ""), covered * 100, 2 * Math.Max(0, 0.5 - covered), "quadrant:" + empty, holes));
 
         // Conditioning: the solve's own uncertainty on the wall, and its weakest direction.
-        var analysed = SolveUncertaintyAnalysis.Analyse(k, solved.Lens, solved.Pose, inlierPairs, solved.Locks,
-            PosePriors.From(solved.Priors, k, solved.Priors.Position));
+        var analysed = SolveUncertaintyAnalysis.Analyse(k, solved.Lens, solved.Pose, inlierPairs, solved.Locks);
         var confidence = 0.0;
         SolveUncertainty? uncertainty = null;
         if (analysed is { } a)

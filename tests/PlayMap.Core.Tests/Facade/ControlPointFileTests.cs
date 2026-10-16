@@ -52,6 +52,25 @@ public sealed class ControlPointFileTests
         Assert.Equal("P1", enh.Points[0].Name);
     }
 
+    [Theory]
+    [InlineData("Name,Easting,Northing,Height,Code", ControlOrder.Penzd)]
+    [InlineData("Number;Northing;Easting;Elev;Desc", ControlOrder.Pnezd)]
+    [InlineData("Station N E Z", ControlOrder.Pnezd)]
+    [InlineData("X,Y,Z", ControlOrder.Enh)]
+    [InlineData("Northing,Easting,Height", ControlOrder.Neh)]
+    public void HeadersNameTheirOrder(string header, ControlOrder order)
+    {
+        var sep = header.Contains(',', StringComparison.Ordinal) ? "," : header.Contains(';', StringComparison.Ordinal) ? ";" : " ";
+        var named = order is ControlOrder.Penzd or ControlOrder.Pnezd;
+        var row = string.Join(sep, (named ? new[] { "A1" } : []).Concat(["100.5", "200.25", "3"]).Concat(named ? ["kerb"] : []));
+        var read = ControlPointFile.Parse(new StringReader(header + "\n" + row + "\n"));
+        Assert.Equal(order, read.Order);
+        Assert.Equal("header", read.OrderFrom);
+        var p = Assert.Single(read.Points);
+        var eastFirst = order is ControlOrder.Penzd or ControlOrder.Enh;
+        Assert.Equal(eastFirst ? 100.5 : 200.25, p.Grid.X);
+    }
+
     [Fact]
     public void ADuplicateNameIsRefusedWithBothLines()
     {

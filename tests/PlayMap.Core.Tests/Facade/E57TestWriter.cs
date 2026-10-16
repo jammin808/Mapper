@@ -19,6 +19,8 @@ internal sealed record E57TestScan(string Name, Vec3d[] Points)
     public double Scale { get; init; } = 0.001;
     public (double W, double X, double Y, double Z) Rotation { get; init; } = (1, 0, 0, 0);
     public Vec3d Translation { get; init; } = Vec3d.Zero;
+    /// <summary>ScaledInteger written with no minimum and maximum (the standard's defaults: the whole int64 range, 64 bits).</summary>
+    public bool OmitLimits { get; init; }
     /// <summary>Records per data packet (small, so fields straddle packets).</summary>
     public int PerPacket { get; init; } = 97;
 }
@@ -132,6 +134,12 @@ internal static class E57TestWriter
                 case "scaled":
                 {
                     var raws = Enumerable.Range(0, pts.Length).Select(i => (long)Math.Round(C(i) / scan.Scale)).ToArray();
+                    if (scan.OmitLimits)
+                    {
+                        fields.Add(new Field(axes[a], $"<{axes[a]} type=\"ScaledInteger\" scale=\"{X(scan.Scale)}\"/>", 64,
+                            i => unchecked((ulong)raws[i] - (ulong)long.MinValue)));
+                        break;
+                    }
                     var min = raws.Length > 0 ? raws.Min() - 3 : 0;
                     var max = raws.Length > 0 ? raws.Max() + 5 : 0;
                     var bits = max > min ? 64 - System.Numerics.BitOperations.LeadingZeroCount((ulong)(max - min)) : 0;

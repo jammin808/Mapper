@@ -43,6 +43,28 @@ public sealed class PointChunkTests
     }
 
     [Fact]
+    public void WithheldPointsAreLeftOutAndADamagedRecordIsRefused()
+    {
+        var pts = Points(9000, 4);
+        var withheld = pts.Select((_, i) => i % 3 == 0).ToList();
+        var bytes = LasTestWriter.Write(pts, null, new Vec3d(0.001, 0.001, 0.001), new Vec3d(512_000, 5_401_000, 0), withheld: withheld);
+        using var source = new LasChunkSource(new MemoryStream(bytes));
+        var got = new List<Vec3d>();
+        var buffer = new Vec3d[1000];
+        int n;
+        while ((n = source.Read(buffer, new int[1000], CancellationToken.None)) > 0)
+            got.AddRange(buffer.AsSpan(0, n).ToArray());
+        Assert.Equal(6000, got.Count);
+        Assert.Equal(3000, source.Withheld);
+        Assert.True(got.Zip(pts.Where((_, i) => i % 3 != 0)).All(p => (p.First - p.Second).Length < 0.001));
+
+        var damaged = LasTestWriter.Write(Points(10, 5), null, new Vec3d(0.01, 0.01, 0.01), Vec3d.Zero, Wkt);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(damaged.AsSpan(375 + 20), 60000);
+        var ex = Assert.Throws<FormatException>(() => new LasChunkSource(new MemoryStream(damaged)));
+        Assert.Contains("runs into its points", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AGeoKeyDirectoryNamesTheProjectedSystem()
     {
         var bytes = LasTestWriter.Write(Points(10, 2), null, new Vec3d(0.01, 0.01, 0.01), Vec3d.Zero, geoKeyEpsg: 25833);

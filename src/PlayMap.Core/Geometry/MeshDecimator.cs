@@ -10,12 +10,14 @@ public sealed record DecimationResult(MeshData Mesh, int[] Colours, int Triangle
     bool StoppedAtError, string Words);
 
 /// <summary>Quadric edge-collapse decimation (Garland and Heckbert's plane quadrics, collapsing an edge onto one of its own
-/// vertices, so no vertex ever moves and its UV, normal and colour stay its own). Positions are welded first; a vertex on a
-/// boundary, on a UV or normal seam (one position, several attribute vertices) or on a non-manifold edge is never removed, so
-/// boundaries and seams keep their exact shape. A collapse is refused when it would join two fans that touch elsewhere (it would
-/// make the mesh non-manifold), turn a remaining face by more than 60° or make one degenerate. Collapses run cheapest first until
-/// the triangle budget is met or the next one's quadric error passes the deviation limit. The deviation reported is measured
-/// afterwards, both ways, over every vertex: what the result is, not what the quadrics estimated.</summary>
+/// vertices, so no vertex ever moves and its UV, normal and colour stay its own). Positions are welded first (copies with the same
+/// attributes are one vertex); a vertex on a boundary, on a UV or normal seam (one position, copies whose attributes differ) or on a
+/// non-manifold edge is never removed, so boundaries and seams keep their exact shape. A collapse is refused when it would join two
+/// fans that touch elsewhere (it would make the mesh non-manifold), turn a remaining face by more than 60°, make one degenerate or
+/// leave a vertex with more than 16 neighbours. Collapses run cheapest first until the triangle budget is met or the next one's
+/// quadric error (a sum of squared plane distances) passes the square of the deviation limit. The deviation reported is measured
+/// afterwards (<see cref="Measure"/>): what the result is, not what the quadrics estimated; the words say when it passes the limit
+/// or the budget was not met.</summary>
 public static class MeshDecimator
 {
     /// <summary>A collapse turning a remaining face further than this (cosine of 60°) is refused.</summary>
@@ -43,6 +45,7 @@ public static class MeshDecimator
         // Weld attribute vertices by position.
         var nAttr = mesh.VertexCount;
         var weldOf = new int[nAttr];
+        var same = new int[nAttr];
         var welded = new Dictionary<(float, float, float), int>(nAttr);
         var attrOf = new List<int>(nAttr);
         var copies = new List<int>(nAttr);
@@ -58,7 +61,17 @@ public static class MeshDecimator
                 copies.Add(0);
             }
             weldOf[v] = w;
-            copies[w]++;
+            // A copy whose UV, normal and colour are the first's is the same vertex (an unindexed or flat-shaded file); only a
+            // copy that differs is a seam.
+            if (SameAttributes(mesh, colours, attrOf[w], v))
+            {
+                same[v] = attrOf[w];
+            }
+            else
+            {
+                same[v] = v;
+                copies[w]++;
+            }
         }
         welded.Clear();
         var nw = attrOf.Count;
@@ -73,9 +86,9 @@ public static class MeshDecimator
         for (var t = 0; t < before; t++)
         {
             var (a, b, c) = mesh.Triangle(t);
-            faces[t * 3] = a;
-            faces[t * 3 + 1] = b;
-            faces[t * 3 + 2] = c;
+            faces[t * 3] = same[a];
+            faces[t * 3 + 1] = same[b];
+            faces[t * 3 + 2] = same[c];
             if (weldOf[a] == weldOf[b] || weldOf[b] == weldOf[c] || weldOf[a] == weldOf[c])
                 dead[t] = true;
             else
@@ -102,7 +115,7 @@ public static class MeshDecimator
         var counts = new Dictionary<int, int>();
         for (var w = 0; w < nw; w++)
         {
-            seam[w] = copies[w] > 1;
+            seam[w] = copies[w] > 0;
             if (seam[w])
             {
                 locked[w] = true;
@@ -293,33 +306,30 @@ public static class MeshDecimator
         var result = new MeshData(outPos, outNor, outUv, [.. idx]);
         ct.ThrowIfCancellationRequested();
         progress?.Report(0.85);
-        var deviation = FanDeviation(pos, gone, mergedInto, adj, dead, faces, weldOf, result, ct);
+        var deviation = Measure(mesh, pos, gone, mergedInto, adj, dead, faces, weldOf, result, ct);
         progress?.Report(1);
-        var words = string.Create(CultureInfo.InvariantCulture,
-            $"{before:N0} → {result.TriangleCount:N0} triangles, deviation {deviation * 1000:0.##} mm")
-            + (stoppedAtError ? string.Create(CultureInfo.InvariantCulture, $" (stopped at the {maxErrorM * 1000:0.#} mm limit before the {targetTriangles:N0} budget)") : "");
+        var inv = CultureInfo.InvariantCulture;
+        var words = string.Create(inv, $"{before:N0} → {result.TriangleCount:N0} triangles, deviation {deviation * 1000:0.##} mm");
+        if (stoppedAtError)
+            words += string.Create(inv, $" (stopped at the {maxErrorM * 1000:0.#} mm limit before the {targetTriangles:N0} budget)");
+        else if (result.TriangleCount > targetTriangles)
+            words += string.Create(inv, $" (short of the {targetTriangles:N0} budget: the rest hold boundaries, seams or edges no collapse may take)");
+        if (deviation > maxErrorM)
+            words += string.Create(inv, $"; the measured deviation is beyond the {maxErrorM * 1000:0.#} mm limit the collapses were stopped by");
         return new DecimationResult(result, outCol, before, result.TriangleCount, deviation, stoppedAtError, words);
     }
 
     /// <summary>The slack the deviation search may stop within (metres), added to what it reports so the report stays a bound.</summary>
     public const double DeviationSlackM = 1e-5;
 
-    /// <summary>An upper bound on the symmetric Hausdorff distance between two meshes measured at their vertices: the largest distance
-    /// from a vertex of either to the other's surface, plus <see cref="DeviationSlackM"/> (a query stops at the first point within the
-    /// slack of the worst so far, which cannot raise it). In parallel; the bound does not depend on the order.</summary>
-    public static double Deviation(MeshData a, MeshData b, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(a);
-        ArgumentNullException.ThrowIfNull(b);
-        return Math.Max(OneWay(a, new MeshDistance(b), ct), OneWay(b, new MeshDistance(a), ct)) + DeviationSlackM;
-    }
-
-    /// <summary>The decimation's deviation, both ways, as <see cref="Deviation"/> measures it: every kept vertex is an original
-    /// vertex, so the result lies on the original at its vertices (0); every removed vertex is measured first to the remaining faces
-    /// around the vertex that absorbed it (following the chain of collapses — a subset of the result, so at least the true distance),
-    /// and only when that could raise the worst so far, to the whole result. The slack is added as <see cref="Deviation"/> adds it.</summary>
-    private static double FanDeviation(Vec3d[] pos, bool[] gone, int[] mergedInto, List<int>[] adj, bool[] dead, int[] faces, int[] weldOf,
-        MeshData result, CancellationToken ct)
+    /// <summary>An upper bound (within <see cref="DeviationSlackM"/>) of the distance between the original and the result, measured
+    /// at every original vertex (to the result), at every result vertex (an original vertex, so 0) and at every result face's centre
+    /// (to the original). A removed vertex is measured first to the remaining faces around the vertex that absorbed it (following
+    /// the chain of collapses — part of the result, so at least its true distance), and only when that could raise the worst so far
+    /// to the whole result. A search stops at the first point within the slack of the worst so far: such a point is covered by the
+    /// report, and the worst is raised only by a distance measured exactly.</summary>
+    private static double Measure(MeshData original, Vec3d[] pos, bool[] gone, int[] mergedInto, List<int>[] adj, bool[] dead, int[] faces,
+        int[] weldOf, MeshData result, CancellationToken ct)
     {
         MeshDistance? whole = null;
         int Final(int w)
@@ -348,33 +358,37 @@ public static class MeshDecimator
                 var c = pos[weldOf[faces[t * 3 + 2]]];
                 best = Math.Min(best, (MeshDistance.ClosestOnTriangle(pos[w], a, b, c) - pos[w]).Length);
             }
-            if (best > worst + DeviationSlackM)
-            {
-                whole ??= new MeshDistance(result);
-                best = Math.Min(best, whole.Closest(pos[w], worst + DeviationSlackM).Distance);
-            }
-            worst = Math.Max(worst, best);
+            if (best <= worst + DeviationSlackM)
+                continue;
+            whole ??= new MeshDistance(result);
+            var exact = whole.Closest(pos[w], worst + DeviationSlackM).Distance;
+            if (exact > worst + DeviationSlackM)
+                worst = exact;
+        }
+        var source = new MeshDistance(original);
+        for (var t = 0; t < result.TriangleCount; t++)
+        {
+            if ((t & 65535) == 0)
+                ct.ThrowIfCancellationRequested();
+            var (a, b, c) = result.Triangle(t);
+            var centre = (result.Position(a) + result.Position(b) + result.Position(c)) / 3;
+            var d = source.Closest(centre, worst + DeviationSlackM).Distance;
+            if (d > worst + DeviationSlackM)
+                worst = d;
         }
         return worst + DeviationSlackM;
     }
 
-    private static double OneWay(MeshData from, MeshDistance to, CancellationToken ct)
+    /// <summary>Two attribute vertices at one position are one vertex when their UV, normal and colour agree.</summary>
+    private static bool SameAttributes(MeshData m, int[] colours, int a, int b)
     {
-        var worst = 0.0;
-        var gate = new Lock();
-        Parallel.For(0, (from.VertexCount + 8191) / 8192, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, block =>
-        {
-            // Starting from the worst found so far only skips points that cannot raise it: the maximum is the same in any order.
-            double local;
-            lock (gate)
-                local = worst;
-            var end = Math.Min(from.VertexCount, (block + 1) * 8192);
-            for (var v = block * 8192; v < end; v++)
-                local = Math.Max(local, to.Closest(from.Position(v), local + DeviationSlackM).Distance);
-            lock (gate)
-                worst = Math.Max(worst, local);
-        });
-        return worst;
+        if (a == b)
+            return true;
+        if (m.HasUvs && (m.Uvs[a * 2] != m.Uvs[b * 2] || m.Uvs[a * 2 + 1] != m.Uvs[b * 2 + 1]))
+            return false;
+        if (m.HasNormals && (m.Normals[a * 3] != m.Normals[b * 3] || m.Normals[a * 3 + 1] != m.Normals[b * 3 + 1] || m.Normals[a * 3 + 2] != m.Normals[b * 3 + 2]))
+            return false;
+        return colours.Length != m.VertexCount || colours[a] == colours[b];
     }
 
     private static void AddPlane(double[] q, int v, Vec3d n, double d)

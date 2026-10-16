@@ -16,7 +16,11 @@ internal sealed record SurveyRequest(string Id, string Name, string Path, Survey
 /// <summary>What an import made: the mesh (stage coordinates) and its file, the thinned cloud's file (grid coordinates), the counts
 /// read, the deviation decimation measured, the frame the stage coordinates are in, and the words.</summary>
 internal sealed record SurveyProduct(MeshAsset? Mesh, string CloudPath, long SourcePoints, long SourceTriangles, double DecimationErrorM,
-    SiteFrame Frame, string Crs, string SourceHash, string Words);
+    SiteFrame Frame, string Crs, string SourceHash, string Words)
+{
+    /// <summary>The files written beside the project (relative), removed when the import is not applied.</summary>
+    public IReadOnlyList<string> Files { get; init; } = [];
+}
 
 /// <summary>The import's work, run on a worker, never on the control lane: read (chunked for LAS; E57 scans one at a time), place in
 /// the site frame in double, thin clouds by voxel and mesh structured E57 stations, decimate meshes to the budget, and write the
@@ -46,6 +50,15 @@ internal static class SurveyImporter
         ct.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(path);
         return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
+    /// <summary>A file naming another EPSG system than the site's is refused: it would be placed as if it were in the site's.</summary>
+    private static void SameSystem(SurveyRequest r, string fileCrs)
+    {
+        var site = r.SiteAtStart;
+        if (r.Crs.Length == 0 && site.IsSet && fileCrs.StartsWith("EPSG:", StringComparison.Ordinal) && site.Crs.StartsWith("EPSG:", StringComparison.Ordinal)
+            && !string.Equals(fileCrs, site.Crs, StringComparison.Ordinal))
+            throw new FormatException($"the file says it is in {fileCrs} but the site is in {site.Crs} — reproject it in your survey software, or import it in the site's system");
     }
 
     private static GeometryReadOptions Options(SurveyRequest r) => r.SiteAtStart.IsSet
@@ -81,6 +94,7 @@ internal static class SurveyImporter
     {
         using (source)
         {
+            SameSystem(r, source.Crs);
             var options = Options(r) with { Crs = r.Crs.Length > 0 ? r.Crs : source.Crs };
             var thinner = new VoxelThinner(r.VoxelM);
             var points = new Vec3d[Chunk];
@@ -95,12 +109,13 @@ internal static class SurveyImporter
                 progress.Report(0.05 + 0.75 * Math.Min(1, thinner.PointsSeen / (double)total));
             }
             var thinned = thinner.ToCloud(source.HasColour);
-            var frame = r.SiteAtStart.IsSet ? r.SiteAtStart : FrameOf(options, thinned.Points);
+            var frame = FrameOf(options, thinned.Points);
             return Finish(r, null, [], 0, thinner.PointsSeen, frame, hash, thinned, options.Crs, progress, ct);
         }
     }
 
-    /// <summary>A frame picked from grid points (the options' auto site), or refused when they span too far.</summary>
+    /// <summary>The frame of grid points: the site as set (refused when they are far from its origin), or one picked from them (the
+    /// options' auto site; refused when they span too far).</summary>
     private static SiteFrame FrameOf(GeometryReadOptions options, IReadOnlyList<Vec3d> grid) =>
         (options with { UnitScale = 1, ZUp = true }).Resolve(grid) ?? SiteFrame.None;
 
@@ -112,6 +127,7 @@ internal static class SurveyImporter
         using (var stream = File.OpenRead(r.Path))
             file = MeshIO.ReadE57(stream, ct);
         progress.Report(0.4);
+        SameSystem(r, LasChunkSource.CrsOfWkt(file.CoordinateMetadata));
         var crs = r.Crs.Length > 0 ? r.Crs : LasChunkSource.CrsOfWkt(file.CoordinateMetadata);
         var options = Options(r) with { Crs = crs };
         var thinner = new VoxelThinner(r.VoxelM);
@@ -123,7 +139,7 @@ internal static class SurveyImporter
             thinner.Add(grid, colour ? scan.Points.Colors : []);
         }
         var thinned = thinner.ToCloud(colour);
-        var frame = r.SiteAtStart.IsSet ? r.SiteAtStart : FrameOf(options, thinned.Points);
+        var frame = FrameOf(options, thinned.Points);
         var meshes = new List<MeshData>();
         foreach (var scan in file.Scans.Where(s => s.Structured))
         {
@@ -169,6 +185,7 @@ internal static class SurveyImporter
     {
         ct.ThrowIfCancellationRequested();
         var words = new List<string>();
+        var written = new List<string>();
         double deviation = 0;
         MeshAsset? asset = null;
         if (mesh is not null)
@@ -186,7 +203,8 @@ internal static class SurveyImporter
                 words.Add(string.Create(CultureInfo.InvariantCulture, $"{mesh.TriangleCount:N0} triangles kept as read"));
             }
             ct.ThrowIfCancellationRequested();
-            var relative = $"meshes/{r.Id}-{Slug(r.Name)}.ply";
+            var relative = Fresh(r.ProjectFolder, $"meshes/{r.Id}-{Slug(r.Name)}", ".ply");
+            written.Add(relative);
             var meshHash = Write(r.ProjectFolder, relative, s => MeshIO.WritePly(s, mesh, meshColours.Length == mesh.VertexCount ? meshColours : null));
             asset = new MeshAsset("", r.Name, MeshOrigin.Imported, relative, meshHash, "", ParamSet.Empty, mesh.VertexCount, mesh.TriangleCount);
             gridCloud ??= new PointCloud([.. Enumerable.Range(0, mesh.VertexCount).Select(i => frame.ToGrid(mesh.Position(i)))]);
@@ -195,13 +213,28 @@ internal static class SurveyImporter
         var cloudPath = "";
         if (gridCloud is { Count: > 0 })
         {
-            cloudPath = $"clouds/{r.Id}.ply";
-            Write(r.ProjectFolder, cloudPath, s => GridCloudFile.Write(s, gridCloud.Points, gridCloud.HasColors ? gridCloud.Colors : null));
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                cloudPath = Fresh(r.ProjectFolder, $"clouds/{r.Id}", ".ply");
+                written.Add(cloudPath);
+                Write(r.ProjectFolder, cloudPath, s => GridCloudFile.Write(s, gridCloud.Points, gridCloud.HasColors ? gridCloud.Colors : null));
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException)
+            {
+                // The mesh written before is referenced by nothing: it goes with the failure.
+                foreach (var f in written.Where(f => File.Exists(System.IO.Path.Combine(r.ProjectFolder, f))))
+                    File.Delete(System.IO.Path.Combine(r.ProjectFolder, f));
+                throw;
+            }
             words.Add(string.Create(CultureInfo.InvariantCulture, $"{sourcePoints:N0} points thinned to {gridCloud.Count:N0}")
                 + (mesh is null ? string.Create(CultureInfo.InvariantCulture, $" at {r.VoxelM * 100:0.#} cm") : ""));
         }
         progress.Report(1);
-        return new SurveyProduct(asset, cloudPath, sourcePoints, sourceTriangles, deviation, frame, crs ?? r.Crs, hash, string.Join("; ", words));
+        return new SurveyProduct(asset, cloudPath, sourcePoints, sourceTriangles, deviation, frame, crs ?? r.Crs, hash, string.Join("; ", words))
+        {
+            Files = written,
+        };
     }
 
     /// <summary>Progress of a stage mapped into its share of the whole.</summary>
@@ -216,18 +249,35 @@ internal static class SurveyImporter
         return s.Length == 0 ? "survey" : s.Length > 40 ? s[..40] : s;
     }
 
-    /// <summary>Written beside, then moved over; answers the file's content hash.</summary>
+    /// <summary>A path no file has yet (an id handed out again after an UNDO never overwrites what the history still names).</summary>
+    private static string Fresh(string folder, string stem, string extension)
+    {
+        var path = stem + extension;
+        for (var n = 2; File.Exists(System.IO.Path.Combine(folder, path)); n++)
+            path = stem + "-" + n.ToString(CultureInfo.InvariantCulture) + extension;
+        return path;
+    }
+
+    /// <summary>Written beside, then moved over (the half-written file removed when writing fails); answers the content hash.</summary>
     private static string Write(string folder, string relative, Action<Stream> write)
     {
         var full = System.IO.Path.Combine(folder, relative);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
         var temp = full + ".saving";
-        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-            write(stream);
-        string hash;
-        using (var read = File.OpenRead(temp))
-            hash = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(read));
-        File.Move(temp, full, overwrite: true);
-        return hash;
+        try
+        {
+            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                write(stream);
+            string hash;
+            using (var read = File.OpenRead(temp))
+                hash = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(read));
+            File.Move(temp, full, overwrite: false);
+            return hash;
+        }
+        finally
+        {
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
     }
 }

@@ -71,6 +71,11 @@ public sealed class ControlPointVerbTests
         Assert.Equal(0.2, bad.GetProperty("fit").GetProperty("shiftM").GetDouble(), 3);
         var site = SiteRig.Json(rig.Engine.Context()).GetProperty("items").EnumerateArray().First(i => i.GetProperty("id").GetString() == "site");
         Assert.Equal("red", site.GetProperty("light").GetString());
+        // Any later change makes the check stale: unknown, not green.
+        await rig.Ok("SITE MAINS 60");
+        site = SiteRig.Json(rig.Engine.Context()).GetProperty("items").EnumerateArray().First(i => i.GetProperty("id").GetString() == "site");
+        Assert.Equal("grey", site.GetProperty("light").GetString());
+        Assert.Contains("not checked since the last change", site.GetProperty("state").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -82,7 +87,21 @@ public sealed class ControlPointVerbTests
         await rig.Ok("ADD projector {\"name\":\"P1\"}");
         var pj = rig.Engine.Store.Project.Stage.Projectors[0].Id;
         var pin = await rig.Ok($"ADD pin {pj} {{\"controlId\":\"{cp1}\",\"pixel\":{{\"x\":100,\"y\":200}}}}");
+        for (var i = 1; i < 4; i++)
+            await rig.Ok($"ADD pin {pj} {{\"controlId\":\"{ids[i].GetString()}\",\"pixel\":{{\"x\":{100 + i * 300},\"y\":{200 + i * 50}}}}}");
         await rig.Ok($"PROJECTOR PRIOR {pj} AT CP1 ±0.02");
+
+        // A pin added bound but not at its point: a solve refuses it and names the line that puts it there.
+        var refused = await rig.Refused($"PROJECTOR SOLVE {pj}");
+        Assert.Contains("pin 1 is bound to CP1 but is not at it", refused, StringComparison.Ordinal);
+        var fix = refused[(refused.IndexOf("SET ", StringComparison.Ordinal))..];
+        Assert.Contains("a pin bound to CP1 sits at it", await rig.Refused($"SET {pin} world {{\"x\":1,\"y\":2,\"z\":3}}"), StringComparison.Ordinal);
+        await rig.Ok(fix);
+        var placed = rig.Engine.Store.Project.FindProjector(pj)!.Pins.Single(x => x.Id == pin);
+        var cpNow = rig.Engine.Store.Project.Stage.Controls.Find(cp1)!;
+        Assert.True((placed.World - rig.Engine.Store.Project.Stage.Site.ToStage(cpNow.Grid)).Length < 1e-9);
+        // A bound point moved by hand would leave its pins behind: refused, with the verb that moves them together.
+        Assert.Contains("re-survey it with SITE POINTS", await rig.Refused($"SET {cp1} grid {{\"x\":1,\"y\":2,\"z\":3}}"), StringComparison.Ordinal);
 
         // Re-surveyed one metre east: the pin and the prior follow in the same edit.
         await File.WriteAllTextAsync(rig.File("points2.csv"), Points(1.0));

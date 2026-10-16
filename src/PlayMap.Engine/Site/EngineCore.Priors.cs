@@ -82,7 +82,7 @@ public sealed partial class EngineCore
         var r = Edits.Apply($"priors of {pj.Name}", pp => pp.WithStage(st => st with { Projectors = st.Projectors.Update(pj.Id, x => x with { Priors = after }) }));
         if (!r.Changed)
             return FromEdit(r);
-        var words = PriorWords(Store.Project, after);
+        var words = PriorWords(Edits.Project, after);
         var said = words.Length > 0 ? $"{pj.Name}: {words}" : $"{pj.Name}: no priors";
         return CommandReply.Success(JsonOut(w =>
         {
@@ -111,9 +111,27 @@ public sealed partial class EngineCore
     }
 
     /// <summary>PROJECTOR SOLVE's solve (wp2-facade): the projector's priors as rows, the focal locked from the lens when the pins
-    /// cannot carry it (the locks it answers then hold the focal), the uncertainty with the priors' information.</summary>
-    private static LongThrowResult SolveWithPriors(Projector pj, SolveLocks locks) =>
-        LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose });
+    /// cannot carry it (the locks it answers then hold the focal; with no LOCK word given, such a lock is asked again), the
+    /// uncertainty with the priors' information. A pin bound to a control point that is not at it is refused with the line that puts
+    /// it there: a solve never runs on a bound pin's stale world point.</summary>
+    private LongThrowResult SolveWithPriors(Projector pj, SolveLocks locks, bool retestLock)
+    {
+        var stage = Edits.Project.Stage;
+        for (var i = 0; i < pj.Pins.Length; i++)
+        {
+            var pin = pj.Pins[i];
+            if (!pin.Enabled || pin.ControlId.Length == 0 || stage.Controls.Find(pin.ControlId) is not { } cp)
+                continue;
+            var at = stage.Site.ToStage(cp.Grid);
+            if ((pin.World - at).Length > BoundPinToleranceM)
+                throw new EditRefusedException(string.Create(SiteInv,
+                    $"pin {i + 1} is bound to {cp.Name} but is not at it — SET {pin.Id} world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}"));
+        }
+        return LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retestLock);
+    }
+
+    /// <summary>How far a bound pin's world point may be from its control point's (metres).</summary>
+    internal const double BoundPinToleranceM = 0.001;
 
     /// <summary>The long-throw part of PROJECTOR SOLVE's reply: the uncertainty, what was locked, which priors were used.</summary>
     private static void WriteLongThrow(Utf8JsonWriter w, Projector pj, LongThrowResult r)

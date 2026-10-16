@@ -16,7 +16,7 @@ public sealed partial class EngineCore
 
     private CommandReply SiteQuery()
     {
-        var site = Store.Project.Stage.Site;
+        var site = Edits.Project.Stage.Site;
         return CommandReply.Success(JsonOut(w => WriteSite(w, site)));
     }
 
@@ -84,6 +84,8 @@ public sealed partial class EngineCore
             }
         }
         rotation = ((rotation % 360) + 360) % 360;
+        if (before.IsSet && before.Crs.StartsWith("EPSG:", StringComparison.Ordinal) && crs.StartsWith("EPSG:", StringComparison.Ordinal) && crs != before.Crs)
+            return CommandReply.Fail($"the site is in {before.Crs} and its control points and surveys are in its numbers — moving to {crs} is a reprojection, which is not done here");
         var after = new SiteFrame(crs, crs == before.Crs ? before.CrsName : "", new Vec3d(e, n, h), rotation, before.GridScale, before.MainsHz);
         if (before.IsSet && after == before)
             return CommandReply.Fail(string.Create(SiteInv, $"the site is at {e:0.###} {n:0.###} {h:0.###} ({crs}) already — this would change nothing"));
@@ -92,8 +94,10 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         var moved = move.IsNone ? Vec3d.Zero : move.T;
+        var scans = Edits.Project.Stage.Scans.Length;
         var words = before.IsSet
             ? string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage moved by {moved.X:0.###} {moved.Y:0.###} {moved.Z:0.###} m so every grid position is kept")
+              + (scans > 0 && !move.IsNone ? string.Create(SiteInv, $"; the {scans} scan{(scans == 1 ? "" : "s")} taken before keep{(scans == 1 ? "s" : "")} the old frame's points — scan again before using them") : "")
             : string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage's coordinates are now relative to it (nothing moved)");
         return CommandReply.Success(JsonOut(w =>
         {

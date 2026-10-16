@@ -124,6 +124,16 @@ public sealed class E57Tests
     }
 
     [Fact]
+    public void ScaledIntegersWithoutLimitsTakeTheWholeInt64Range()
+    {
+        var pts = Enumerable.Range(0, 120).Select(i => new Vec3d(i * 0.25 - 10, 3.5, -i * 0.125)).ToArray();
+        var bytes = E57TestWriter.Write([new E57TestScan("S", pts) { OmitLimits = true, Scale = 0.001, PerPacket = 33 }]);
+        var scan = MeshIO.ReadE57(new MemoryStream(bytes)).Scans[0];
+        for (var i = 0; i < pts.Length; i++)
+            Assert.True((scan.Points.Points[i] - pts[i]).Length < 1e-6, $"{i}: {scan.Points.Points[i]}");
+    }
+
+    [Fact]
     public void TheCrcIsCastagnolis()
     {
         // The standard check value of CRC-32C over "123456789".

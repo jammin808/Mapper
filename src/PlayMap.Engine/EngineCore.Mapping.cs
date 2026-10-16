@@ -41,7 +41,7 @@ public sealed partial class EngineCore
         var pins = pj.Pins.Count(x => x.Enabled);
         if (pins < 4)
             return CommandReply.Fail($"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
-        var longThrow = SolveWithPriors(pj, locks);
+        var longThrow = SolveWithPriors(pj, locks, retestLock: li < 0);
         var solution = longThrow.Solution;
         locks = longThrow.LocksUsed;
         if (solution.Inliers.Count(x => x) < 4 || double.IsNaN(solution.RmsPx))

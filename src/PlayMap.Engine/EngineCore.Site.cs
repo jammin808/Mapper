@@ -77,12 +77,15 @@ public sealed partial class EngineCore
         var georeferenced = stage.Surveys.Any(s => s.Crs.StartsWith("EPSG:", StringComparison.Ordinal));
         if (stage.Site.IsSet || georeferenced || stage.Controls.Length > 0)
         {
+            var current = check is not null && check.Revision == Store.Current.Revision;
+            // Unknown stays unknown: a check made before the last change says nothing about the stage now.
             var light = !stage.Site.IsSet && georeferenced ? Light.Amber
-                : check is { Revision: var rev } && rev == Store.Current.Revision ? check.Light
+                : current ? check!.Light
+                : stage.Controls.Length > 0 ? Light.Grey
                 : Light.Green;
             var state = !stage.Site.IsSet ? "a georeferenced survey has no site — SITE ORIGIN sets it"
                 : string.Create(CultureInfo.InvariantCulture, $"{stage.Site.Crs} at {stage.Site.Origin.X:0.###} {stage.Site.Origin.Y:0.###} {stage.Site.Origin.Z:0.###}; {stage.Controls.Length} control points")
-                  + (check is not null && check.Revision == Store.Current.Revision ? "; " + check.Words : "");
+                  + (current ? "; " + check!.Words : stage.Controls.Length > 0 ? "; not checked since the last change — SITE CHECK" : "");
             items.Add(new ContextItem("site", "site", "Site", light, state));
         }
         foreach (var row in SurveyRows(stage))
@@ -104,8 +107,19 @@ public sealed partial class EngineCore
             case ControlPoint cp when cp.SigmaM < 0 || !double.IsFinite(cp.SigmaM):
                 why = $"control point {cp.Name}'s σ is a distance of 0 or more";
                 break;
-            case CalibrationPin pin when pin.ControlId.Length > 0 && !p.Stage.Controls.Any(c => c.Id == pin.ControlId):
+            case CalibrationPin pin when pin.ControlId.Length > 0 && p.Stage.Controls.Find(pin.ControlId) is null:
                 why = $"no control point {pin.ControlId} — SITE POINTS imports them";
+                break;
+            case CalibrationPin pin when pin.ControlId.Length > 0 && p.Stage.Controls.Find(pin.ControlId) is { } bound
+                && (pin.World - p.Stage.Site.ToStage(bound.Grid)).Length > BoundPinToleranceM:
+            {
+                var at = p.Stage.Site.ToStage(bound.Grid);
+                why = string.Create(SiteInv, $"a pin bound to {bound.Name} sits at it: world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}");
+                break;
+            }
+            case ControlPoint cp when p.Stage.Controls.Find(cp.Id) is { } was && was.Grid != cp.Grid
+                && p.Stage.Projectors.Any(pj => pj.Priors.ControlId == cp.Id || pj.Pins.Any(x => x.ControlId == cp.Id)):
+                why = $"pins or priors are bound to {cp.Name} — re-survey it with SITE POINTS, so they follow it";
                 break;
         }
     }

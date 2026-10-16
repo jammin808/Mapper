@@ -28,7 +28,7 @@ public interface IPointChunkSource : IDisposable
 /// <summary>LAS 1.0–1.4 (point formats 0–10, uncompressed) read in chunks: coordinates through the header's scale and offset, RGB
 /// when the format has it (16-bit brought to 8), and the coordinate system from the projection records — the OGC WKT record (2112)
 /// or GeoTIFF's key directory (34735: ProjectedCSTypeGeoKey 3072, else GeographicTypeGeoKey 2048), in the VLRs or a 1.4 file's
-/// extended VLRs. Written from the ASPRS LAS 1.4 specification.</summary>
+/// extended VLRs. Points flagged withheld are left out. Written from the ASPRS LAS 1.4 specification.</summary>
 public sealed partial class LasChunkSource : IPointChunkSource
 {
     private readonly Stream _stream;
@@ -41,6 +41,7 @@ public sealed partial class LasChunkSource : IPointChunkSource
     private long _left;
     private bool _wideKnown;
     private bool _wide;
+    private readonly byte _withheldMask;
 
     public long DeclaredCount { get; }
 
@@ -49,6 +50,9 @@ public sealed partial class LasChunkSource : IPointChunkSource
     public (Vec3d Min, Vec3d Max)? DeclaredBounds { get; }
 
     public bool HasColour => _rgbAt >= 0;
+
+    /// <summary>The points read so far that the survey marked withheld (left out).</summary>
+    public long Withheld { get; private set; }
 
     public static LasChunkSource Open(string path) => new(File.OpenRead(path), own: true);
 
@@ -108,6 +112,7 @@ public sealed partial class LasChunkSource : IPointChunkSource
             throw new FormatException("The LAS point data starts inside the header.");
         DeclaredCount = count;
         _left = count;
+        _withheldMask = format >= 6 ? (byte)0x04 : (byte)0x80;
 
         // The VLRs sit between the header and the points.
         Skip(headerSize - read);
@@ -120,6 +125,8 @@ public sealed partial class LasChunkSource : IPointChunkSource
             var user = Encoding.ASCII.GetString(vh, 2, 16).TrimEnd('\0', ' ');
             var record = BinaryPrimitives.ReadUInt16LittleEndian(vh.AsSpan(18));
             var length = BinaryPrimitives.ReadUInt16LittleEndian(vh.AsSpan(20));
+            if (at + 54 + length > pointsAt)
+                throw new FormatException($"the LAS file's record {i + 1} runs into its points — the file is damaged");
             var body = new byte[length];
             Exactly(body);
             at += 54 + length;
@@ -194,6 +201,15 @@ public sealed partial class LasChunkSource : IPointChunkSource
 
     public int Read(Span<Vec3d> points, Span<int> colours, CancellationToken ct)
     {
+        // A chunk of withheld points only: read on, so 0 still means the end.
+        int kept;
+        while ((kept = ReadChunk(points, colours, ct)) == 0 && _left > 0)
+            ct.ThrowIfCancellationRequested();
+        return kept;
+    }
+
+    private int ReadChunk(Span<Vec3d> points, Span<int> colours, CancellationToken ct)
+    {
         ct.ThrowIfCancellationRequested();
         var take = (int)Math.Min(Math.Min(points.Length, _buffer.Length / _recordLength), _left);
         if (take <= 0)
@@ -209,10 +225,17 @@ public sealed partial class LasChunkSource : IPointChunkSource
             _wideKnown = true;
         }
         var shift = _wide ? 8 : 0;
+        var kept = 0;
         for (var k = 0; k < take; k++)
         {
             var r = _buffer.AsSpan(k * _recordLength, _recordLength);
-            points[k] = new Vec3d(
+            // A withheld point is one the survey marked to be left out (classification flags, LAS 1.4 §2.6–2.11).
+            if ((r[15] & _withheldMask) != 0)
+            {
+                Withheld++;
+                continue;
+            }
+            points[kept] = new Vec3d(
                 BinaryPrimitives.ReadInt32LittleEndian(r) * _scale.X + _offset.X,
                 BinaryPrimitives.ReadInt32LittleEndian(r[4..]) * _scale.Y + _offset.Y,
                 BinaryPrimitives.ReadInt32LittleEndian(r[8..]) * _scale.Z + _offset.Z);
@@ -221,11 +244,12 @@ public sealed partial class LasChunkSource : IPointChunkSource
                 var red = BinaryPrimitives.ReadUInt16LittleEndian(r[_rgbAt..]) >> shift;
                 var green = BinaryPrimitives.ReadUInt16LittleEndian(r[(_rgbAt + 2)..]) >> shift;
                 var blue = BinaryPrimitives.ReadUInt16LittleEndian(r[(_rgbAt + 4)..]) >> shift;
-                colours[k] = (Math.Min(red, 255) << 16) | (Math.Min(green, 255) << 8) | Math.Min(blue, 255);
+                colours[kept] = (Math.Min(red, 255) << 16) | (Math.Min(green, 255) << 8) | Math.Min(blue, 255);
             }
+            kept++;
         }
         _left -= take;
-        return take;
+        return kept;
     }
 
     private static double D(byte[] b, int at) => BinaryPrimitives.ReadDoubleLittleEndian(b.AsSpan(at));

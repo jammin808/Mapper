@@ -59,6 +59,22 @@ public sealed class LongThrowVerbTests
     }
 
     [Fact]
+    public async Task ALensLockIsAskedAgainAndAnOperatorsLockIsKept()
+    {
+        await using var rig = new SiteRig(Facade(0));
+        await rig.Ok("PROJECTOR PRIOR pj_far1 THROW 3.02 ±2");
+        await rig.Ok("PROJECTOR SOLVE pj_far1");
+        Assert.Equal(SolveLocks.Focal, rig.Engine.Store.Project.FindProjector("pj_far1")!.Locks & SolveLocks.Focal);
+        // Still flat: asked again, the pins still cannot carry zoom, and say so.
+        var again = SiteRig.Json(await rig.Ok("PROJECTOR SOLVE pj_far1"));
+        Assert.Equal("focal", again.GetProperty("locked")[0].GetString());
+        // The operator's own lock: the focal it has is kept and nothing is said about the lens.
+        var held = SiteRig.Json(await rig.Ok("PROJECTOR SOLVE pj_far1 LOCK FOCAL SHIFT DISTORTION"));
+        Assert.Equal(0, held.GetProperty("locked").GetArrayLength());
+        Assert.Equal(3.02, rig.Engine.Store.Project.FindProjector("pj_far1")!.Intrinsics.ThrowRatio, 9);
+    }
+
+    [Fact]
     public async Task WithoutAPriorTheSolveIsNamedWeak()
     {
         await using var rig = new SiteRig(Facade(0));

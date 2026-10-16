@@ -75,6 +75,9 @@ public static partial class MeshIO
     private static double Number(XElement? e, double fallback = 0) =>
         e is not null && double.TryParse(e.Value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
+    private static long Int64Attr(XElement e, string name, long fallback) =>
+        e.Attribute(name) is { } a && long.TryParse(a.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
     private static double Attr(XElement e, string name, double fallback) =>
         e.Attribute(name) is { } a && double.TryParse(a.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
@@ -106,7 +109,7 @@ public static partial class MeshIO
             Decoded++;
             if (IsFloat)
                 return Bits == 32 ? BitConverter.Int32BitsToSingle((int)raw) : BitConverter.Int64BitsToDouble((long)raw);
-            return (IntMin + (long)raw) * Scale + Offset;
+            return unchecked((long)((ulong)IntMin + raw)) * Scale + Offset;
         }
 
         /// <summary>The next <paramref name="n"/> bits, least significant first (the bit-pack codec's order).</summary>
@@ -151,11 +154,12 @@ public static partial class MeshIO
             case "Integer" or "ScaledInteger":
             {
                 var scaled = TypeOf(e) == "ScaledInteger";
-                var min = (long)Attr(e, "minimum", 0);
-                var max = (long)Attr(e, "maximum", 0);
+                // The standard's defaults are the whole int64 range (libE57Format omits a limit at its default).
+                var min = Int64Attr(e, "minimum", long.MinValue);
+                var max = Int64Attr(e, "maximum", long.MaxValue);
                 if (max < min)
                     throw new FormatException($"the E57 field {name} has its maximum below its minimum");
-                var span = (ulong)(max - min);
+                var span = unchecked((ulong)max - (ulong)min);
                 var bits = span == 0 ? 0 : 64 - BitOperations.LeadingZeroCount(span);
                 return new E57Field
                 {
