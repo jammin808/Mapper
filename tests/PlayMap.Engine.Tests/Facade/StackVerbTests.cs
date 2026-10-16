@@ -194,6 +194,33 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.True(after <= 0.2, $"after {after}");
     }
 
+    /// <summary>A band of the member's decodes that comes back mirrored (glass, a reflection: consistent, so the fit's reweighting
+    /// cannot set it aside) would fold the member's picture over itself: the alignment is refused with where, and nothing lands.</summary>
+    [Fact]
+    public async Task AFitThatWouldFoldTheMembersPictureIsRefusedAndNothingLands()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim, alter: (j, map) =>
+        {
+            if (j != 1)
+                return;
+            var w = map.ProjectorWidth;
+            for (var k = 0; k < map.ProjectorX.Length; k++)
+                if ((map.Flags[k] & Core.Scan.DecodeStatus.Valid) != 0 && map.ProjectorX[k] > 0.42f * w && map.ProjectorX[k] < 0.58f * w)
+                    map.ProjectorX[k] = w - map.ProjectorX[k];
+        }));
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        var revision = rig.Engine.Store.Current.Revision;
+        var refused = await rig.Refused($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        log.WriteLine(refused);
+        Assert.Contains("P2: the fit would fold its picture near (", refused, StringComparison.Ordinal);
+        Assert.Contains("nothing was applied", refused, StringComparison.Ordinal);
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
+        Assert.Null(rig.Engine.Store.Project.FindOutput("op00000002")!.Measured);
+        Assert.False(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+    }
+
     [Fact]
     public async Task AStackOfOneMadeByAGenericAddIsNeverCountedAligned()
     {

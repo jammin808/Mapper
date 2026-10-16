@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 
@@ -35,7 +36,12 @@ public sealed record StackFitOptions
 
 /// <summary>A member's fit: its residual lattice (raster-normalised offsets, Catmull-Rom), the held-out misfit after it (RMS and
 /// p95, pixels) and before it, the pairs used and held out, and words.</summary>
-public sealed record StackFit(WarpLattice Lattice, double ResidualPx, double P95Px, double BeforePx, int Pairs, int HeldOut, string Words);
+public sealed record StackFit(WarpLattice Lattice, double ResidualPx, double P95Px, double BeforePx, int Pairs, int HeldOut, string Words)
+{
+    /// <summary>Where the lattice folds the member's raster (pixels), or null when it keeps the raster's order everywhere: a folded
+    /// lattice draws part of the picture mirrored over the rest, which no stack's light asks for.</summary>
+    public Vec2d? FoldsAt { get; init; }
+}
 
 /// <summary>
 /// A stack member's measured residual (facade §3.9): a Catmull-Rom <see cref="WarpLattice"/> L with Render + L(Render) = Emit, so the
@@ -152,9 +158,37 @@ public static class StackAlignment
         var rms = Rms(after);
         var p95 = Quantile(after, 0.95);
         var was = Rms(before);
+        var folds = FoldOf(lattice, width, height);
         var words = string.Create(CultureInfo.InvariantCulture,
-            $"{train.Count} pairs fitted on a {basis.Columns}×{basis.Rows} lattice; held out {held.Count}: {was:0.00} px apart before, {rms:0.00} px RMS after (p95 {p95:0.00} px)");
-        return new StackFit(lattice, rms, p95, was, train.Count, held.Count, words);
+            $"{train.Count} pairs fitted on a {basis.Columns}×{basis.Rows} lattice; held out {held.Count}: {was:0.00} px apart before, {rms:0.00} px RMS after (p95 {p95:0.00} px)")
+            + (folds is { } at ? string.Create(CultureInfo.InvariantCulture, $"; it folds the picture near ({at.X:0}, {at.Y:0}) px") : "");
+        return new StackFit(lattice, rms, p95, was, train.Count, held.Count, words) { FoldsAt = folds };
+    }
+
+    /// <summary>Samples per cell side at which <see cref="FoldOf"/> reads the lattice's Jacobian.</summary>
+    private const int FoldSamples = 4;
+
+    /// <summary>The first point of the raster (pixels, row by row) where the lattice's Jacobian is not positive — the picture turns
+    /// over itself there — read at <see cref="FoldSamples"/> points along every cell side and at every node; null when it is positive
+    /// throughout.</summary>
+    public static Vec2d? FoldOf(WarpLattice lattice, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(lattice);
+        if (lattice.IsAtRest)
+            return null;
+        var surface = new LatticeSurface(lattice);
+        var nu = surface.CellsU * FoldSamples;
+        var nv = surface.CellsV * FoldSamples;
+        for (var j = 0; j <= nv; j++)
+            for (var i = 0; i <= nu; i++)
+            {
+                var u = i / (double)nu;
+                var v = j / (double)nv;
+                var (_, du, dv) = surface.EvaluateWithDerivatives(u, v);
+                if (du.X * dv.Y - du.Y * dv.X <= 0)
+                    return new Vec2d(u * width, v * height);
+            }
+        return null;
     }
 
     /// <summary>The distance (pixels) between where the lattice sends a pair's render point and where its light leaves.</summary>

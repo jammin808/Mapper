@@ -65,6 +65,29 @@ public sealed class StackTests(ITestOutputHelper log)
         Assert.Equal(19, fit.Lattice.Rows);
     }
 
+    [Fact]
+    public void AFitThatWouldFoldThePictureSaysWhereAndAStraightFieldNeverFolds()
+    {
+        // A glass band: the decodes there come back mirrored about the raster's middle, consistently, so the reweighting cannot set
+        // them aside; the lattice that follows them turns the picture over itself there.
+        var rng = new Pcg32(5, 1);
+        var pairs = new List<StackPair>();
+        for (var i = 0; i < 40_000; i++)
+        {
+            var r = new Vec2d(rng.Range(0, 320), rng.Range(0, 180));
+            pairs.Add(new StackPair(r, r.X is > 140 and < 180 ? new Vec2d(320 - r.X, r.Y) : r));
+        }
+        var fit = StackAlignment.Fit(pairs, 320, 180);
+        log.WriteLine(fit.Words);
+        var at = Assert.NotNull(fit.FoldsAt);
+        Assert.InRange(at.X, 120, 200);
+        Assert.Contains("it folds the picture near", fit.Words, StringComparison.Ordinal);
+
+        var straight = pairs.Select(p => new StackPair(p.Render, new Vec2d(160 + (p.Render.X - 160) * 1.003 + 0.8, p.Render.Y - 0.4))).ToList();
+        Assert.Null(StackAlignment.Fit(straight, 320, 180).FoldsAt);
+        Assert.Null(StackAlignment.FoldOf(WarpLattice.AtRest(33, 19), 320, 180));
+    }
+
     private static List<AlignOutputSpec> Specs(MultiProjectorSim sim) =>
         [.. sim.Projectors.Select((p, j) => new AlignOutputSpec($"op{j + 1}", $"P{j + 1}", p.Intrinsics.Width, p.Intrinsics.Height,
             new ProjectorPrior(p.Intrinsics.Width, p.Intrinsics.Height, p.Intrinsics.Cx, p.Intrinsics.Cy, p.Intrinsics.Fx, 0.05)))];

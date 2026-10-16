@@ -52,14 +52,18 @@ internal static class StackKit
         [.. sim.Projectors.Select((p, j) => new AlignOutputSpec($"op{j + 1}", $"P{j + 1}", p.Intrinsics.Width, p.Intrinsics.Height,
             new ProjectorPrior(p.Intrinsics.Width, p.Intrinsics.Height, p.Intrinsics.Cx, p.Intrinsics.Cy, p.Intrinsics.Fx, 0.05)))];
 
-    /// <summary>The scan of both members: each decode with its colour white frame (the member's full white, camera-encoded).</summary>
-    public static async Task<ScanOutcome> OutcomeAsync(MultiProjectorSim sim, bool colour = true)
+    /// <summary>The scan of both members: each decode with its colour white frame (the member's full white, camera-encoded), member
+    /// j's decode first altered by <paramref name="alter"/> when given (what a reflection or a stray reads).</summary>
+    public static async Task<ScanOutcome> OutcomeAsync(MultiProjectorSim sim, bool colour = true, Action<int, CorrespondenceMap>? alter = null)
     {
         var maps = await MapsAsync(sim, colour);
         var views = new List<(string, ProjectorView)>();
         string[] ids = [P1, P2];
         for (var j = 0; j < maps.Count; j++)
+        {
+            alter?.Invoke(j, maps[j]);
             views.Add((ids[j], ProjectorView.Build(maps[j])));
+        }
         var camera = new ScanCameraView("sim", "Simulator", sim.Camera.Intrinsics, sim.Camera.Lens, sim.Camera.Pose, true);
         var solution = new ScanSolution(camera, [], null, null, 0, [], 1, true, "stack", "the stack scanned through one camera");
         return new ScanOutcome(Scan, "Stack scan", "sim", true, "stack", solution, views, []);

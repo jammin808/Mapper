@@ -458,6 +458,9 @@ public sealed partial class EngineCore
             var fit = StackAlignment.Fit(pairs, width, height, options, ct);
             if (!double.IsFinite(fit.ResidualPx))
                 return new StackFits([], $"{member.Projector.Name}: {fit.Words} — did the camera see it and {master.Projector.Name} in one place?");
+            if (fit.FoldsAt is { } fold)
+                return new StackFits([], string.Create(CultureInfo.InvariantCulture,
+                    $"{member.Projector.Name}: the fit would fold its picture near ({fold.X:0}, {fold.Y:0}) px — the scan read light there that is not the stack's own (glass, a reflection, a stray decode); nothing was applied: scan again, or fit a coarser GRID"));
             list.Add((member, fit));
         }
         return new StackFits(list, null);
