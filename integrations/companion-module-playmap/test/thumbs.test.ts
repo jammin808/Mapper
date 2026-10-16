@@ -4,7 +4,7 @@
 // The refs placed keys show are told to the node with one SUBSCRIBE THUMBS a debounce after they change: a key that leaves drops
 // its ref, and the last one leaving tells the node to watch none. A THUMBS push whose ETag moved for a placed ref fetches it again
 // with IF <the ETag held>, after a relink too; a refused THUMB leaves the key without a picture and the module running. A key on an
-// item shows its source as INDEX has it now.
+// item shows its source as INDEX has it now; a picture of the air goes with the link, a colour's stays.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeepStrictEqual } from 'node:util'
@@ -527,5 +527,31 @@ void test("an item key's picture follows its item's source when INDEX moves it",
 	} finally {
 		await m.stop()
 		await node.stop()
+	}
+})
+
+void test("a picture of the air (a playlist's current item) goes with the link; a colour's stays", async () => {
+	const { node, m } = await linked()
+	let stopped = false
+	try {
+		const { red } = items()
+		await m.place('show', 'thumb', { ref: SHOW.playlist, size: 96 })
+		await m.place('red', 'thumb', { ref: red.id, size: 96 })
+		await values(
+			m,
+			{ show: pictureOf(`playlist:${SHOW.playlist}`), red: pictureOf(red.source) },
+			"the playlist's picture and Red's",
+		)
+		await node.stop()
+		stopped = true
+		await m.host.until(() => m.instance.link() === 'connecting', 'the dropped link')
+		await values(
+			m,
+			{ show: '', red: pictureOf(red.source) },
+			'what is on the air is no fact without the link; a colour is',
+		)
+	} finally {
+		await m.stop()
+		if (!stopped) await node.stop()
 	}
 })

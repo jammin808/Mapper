@@ -11,6 +11,9 @@ export const MAX_PICTURE_CHARS = 256 * 1024
 /** The most every picture held may weigh together (base64 characters); the least recently shown go first past it. */
 export const MAX_CACHE_CHARS = 16 * 1024 * 1024
 const PICTURE_TYPES = new Set(['image/jpeg', 'image/png'])
+/** Refs whose picture is what is on the air now (a playlist's current item, an output, a projector), unlike a poster of media, a
+ * colour or a generator. */
+const AIR_REF = /^(playlist|output|projector):/u
 
 interface Cached {
 	readonly etag: string
@@ -103,6 +106,14 @@ export class Thumbs {
 					this.#fetch(ref, p.size, cached?.etag)
 				}
 		}
+	}
+
+	/** The link dropped: a picture of the air is no fact without it, so its keys show none until the node says again; posters stay. */
+	linkDropped(): void {
+		const air = new Set(
+			[...this.#cache.keys()].map((key) => key.slice(0, key.lastIndexOf('|'))).filter((r) => AIR_REF.test(r)),
+		)
+		for (const ref of air) this.#drop(ref, null)
 	}
 
 	/** The link is paired again: the watched set is told again and every placed picture not held is fetched. */

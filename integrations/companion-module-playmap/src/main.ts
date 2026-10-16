@@ -404,6 +404,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.goGuard.clear()
 		this.encoders.clear()
 		this.live.clear()
+		this.thumbs.linkDropped()
 		if (this.#ticker) clearInterval(this.#ticker)
 		this.#ticker = null
 	}
