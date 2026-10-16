@@ -172,6 +172,13 @@ gives 48 lux and an 8.7 mm pixel; a double stack 96.
 score — each with its state and the line that does it, and names the next. STATE's `stage.site.next` carries the next step, so the
 desk and Companion can drive the workflow with the verbs everyone uses.
 
+The guide asks for attention only once the facade work has begun: a site set, a survey (importing, imported or failed) or a control
+point. Projectors, pins, solve priors, an imported model, scans, blends and stacks serve every rig and do not begin it: any rig's
+weak solve asks for the lens's throw prior, a position prior at a control point needs the control point, and a stack's own keys light
+what it needs. INDEX's `NEXT` key is grey with the next step named until then — the survey or the control points, since every later
+step needs three control points — so a playback or mapping node's deck shows no standing amber; amber while a step is left; green
+through. STATE's `next` is there only with a site, which begins the work.
+
 ## Not here yet
 
 Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, glass masks,

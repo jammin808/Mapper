@@ -66,5 +66,8 @@ every member is aligned within 0.5 px; amber otherwise — "moved since aligned"
 
 Section `site` (preset "Site"): per stack an `ALIGN <name>` row (`STACK ALIGN <id> FROM <scan>`, lit by its alignment, its state the
 residual, "moved since aligned" or "not aligned") and a `MATCH <name>` row (`STACK MATCH …`), and a `NEXT` row (`SITE GUIDE`) whose
-state is the guide's next step.
+state is the guide's next step ("survey: Import the surveyed model …", or "through"). It is grey until the facade work has begun — a
+site set, a survey (importing, imported or failed) or a control point; projectors, pins, solve priors, a model, scans and stacks
+serve every rig — so a node doing no facade work is asked for nothing; amber while a step is left; green through.
+STATE's `stage.site.next` is there only once a site is set, so it is never a step asked of a node the work has not begun on.
 
