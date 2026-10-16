@@ -389,6 +389,12 @@ void test('a refused THUMB leaves the key without a picture, and the module runs
 			[],
 			'no feedback check failed',
 		)
+		// What last_refusal and last_receipt are made from, set as a reply is read (the variables follow at the next flush).
+		assert.deepEqual(
+			{ refusal: m.instance.receipts.lastRefusal, receipt: m.instance.receipts.lastReceipt },
+			{ refusal: '', receipt: '' },
+			'a picture is not a press: no key’s refusal or receipt',
+		)
 		assert.notEqual(m.host.variables.get('last_refusal'), words, 'a picture is not a press: no key’s refusal')
 	} finally {
 		await m.stop()
