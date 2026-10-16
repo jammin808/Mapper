@@ -135,12 +135,31 @@ export class FakeNode {
 		this.push('INDEX ' + JSON.stringify(this.index))
 	}
 
-	/** Resolves with the first line the module sent (from now or before) that matches. */
+	/** Resolves with the first line the module sent (from now or before) that matches. One not heard within PLAYMAP_TEST_WAIT_MS
+	 * (20 s, as RecordingHost.until's) fails the wait with the pattern and the lines heard so far: a line the module stops sending
+	 * fails the run, never hangs it. */
 	async heard(match: RegExp | string): Promise<string> {
 		const test = (l: string): boolean => (typeof match === 'string' ? l.includes(match) : match.test(l))
 		const before = this.lines.find(test)
 		if (before) return before
-		return new Promise((resolve) => this.#waits.push({ match: test, done: resolve }))
+		const ms = Number(process.env.PLAYMAP_TEST_WAIT_MS ?? 20000)
+		return new Promise((resolve, reject) => {
+			const wait = {
+				match: test,
+				done: (line: string): void => {
+					clearTimeout(guard)
+					resolve(line)
+				},
+			}
+			const guard = setTimeout(() => {
+				this.#waits = this.#waits.filter((w) => w !== wait)
+				reject(
+					new Error(`no line matching ${String(match)} within ${ms} ms; heard: ${this.lines.join(' | ') || 'nothing'}`),
+				)
+			}, ms)
+			guard.unref()
+			this.#waits.push(wait)
+		})
 	}
 
 	/** Lines the module sent, without their request ids. */
