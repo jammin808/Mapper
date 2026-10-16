@@ -11,6 +11,7 @@ using PlayMap.Core.Wire;
 using PlayMap.Engine.Decode;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Rendering;
+using PlayMap.Media.Hw;
 using PlayMap.Media.Sources;
 using FfmpegFactAttribute = PlayMap.Engine.Tests.Host.FfmpegFactAttribute;
 
@@ -95,8 +96,9 @@ public sealed class DecodeVerbTests
         using (var r = JsonDocument.Parse(direct.Payload!))
             Assert.Contains("zero-copy is not ready here: no render context", r.RootElement.GetProperty("effect").GetString(), StringComparison.Ordinal);
         var forced = await Run(engine, "DECODE POLICY DIRECT FORCE");
-        Assert.True(forced.Ok, forced.Payload);
-        Assert.Equal((DecodePolicy.Direct, true), engine.DecodeFacts.Policy);
+        Assert.False(forced.Ok);
+        Assert.StartsWith("FORCE changes nothing here", forced.Payload, StringComparison.Ordinal);
+        Assert.Equal((DecodePolicy.Direct, false), engine.DecodeFacts.Policy);
     }
 
     [Fact]

@@ -70,6 +70,9 @@ public sealed partial class EngineCore
         // Direct sampling of D3D11 decoder arrays needs the proof for this driver; VAAPI images are sampled in place on every driver.
         if (policy == DecodePolicy.Direct && !force && zero.Api == "d3d11" && !zero.DirectProven)
             return CommandReply.Fail("direct sampling is not proven on this driver (the proof runs next round): DECODE POLICY DIRECT FORCE takes it unproven, or AUTO takes one GPU copy");
+        // FORCE only takes direct sampling unproven on a D3D11 renderer; anywhere else it changes no rung.
+        if (force && zero.Api != "d3d11")
+            return CommandReply.Fail("FORCE changes nothing here: only a D3D11 renderer needs a proof for direct sampling (VAAPI images are sampled in place) — DECODE POLICY DIRECT");
         if (policy == current && force == forced)
             return CommandReply.Fail($"the decode policy is already {DecodeLadder.Word(policy)}{(forced ? " (forced)" : "")}");
         if (DecodeFacts.Persist?.Invoke(policy) is { } failed)

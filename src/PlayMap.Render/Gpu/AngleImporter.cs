@@ -38,7 +38,7 @@ public record struct D3D11Box(uint Left, uint Top, uint Front, uint Right, uint 
 /// <summary>Imports D3D11VA frames into an ANGLE context made on the decoder's own device (wp2-d3d11's share), through
 /// EGL_ANGLE_image_d3d11_texture with the plane and array-slice attributes of EGL_ANGLE_d3d_texture_client_buffer (NV12 and P010 need
 /// the plane: 0 luma, 1 chroma). By default one CopySubresourceRegion a frame copies the decoder's array slice into one of three
-/// pooled NV12/P010 textures whose plane images are made once; once direct sampling is proven (or forced) the slice itself is
+/// pooled NV12/P010 textures whose plane images are made once; on the direct rung (proven, or forced) the slice itself is
 /// imported, its images cached per (array, slice, plane) for the decoder pool's life. Plane textures cover the coded size, so the
 /// `yuv` pass crops (uCrop, uMaxUv).
 /// <para>One device, one immediate context: the decoder's writes, the copy and the draw are recorded on one context, which runs
@@ -66,7 +66,7 @@ public sealed unsafe class AngleImporter : IDisposable
     private int _next;
     private bool _disposed;
 
-    private struct Pooled
+    private record struct Pooled
     {
         public nint Texture;
         public int Width;
@@ -145,7 +145,8 @@ public sealed unsafe class AngleImporter : IDisposable
         _share.Enter();
         try
         {
-            return _share.DirectProven ? Direct(surface, out luma, out chroma, out words)
+            // The rung is the source's (GpuSurface.Direct): what it reports is what is done here.
+            return surface.Direct ? Direct(surface, out luma, out chroma, out words)
                 : Copy(surface, out luma, out chroma, out codedWidth, out codedHeight, out words);
         }
         finally
@@ -247,7 +248,16 @@ public sealed unsafe class AngleImporter : IDisposable
         chroma = _device.AdoptExternal((w + 1) / 2, (h + 1) / 2, ten ? TextureFormat.Rg16 : TextureFormat.Rg8);
         if (!_device.BindImage(luma, lumaImage, GlProc) || !_device.BindImage(chroma, chromaImage, GlProc))
         {
+            // Nothing half-made is kept: the images and textures go with the refusal.
             words = "the GL refused to sample a D3D11 plane image";
+            Destroy(lumaImage);
+            Destroy(chromaImage);
+            lumaImage = 0;
+            chromaImage = 0;
+            luma.Dispose();
+            chroma.Dispose();
+            luma = null;
+            chroma = null;
             return false;
         }
         return true;

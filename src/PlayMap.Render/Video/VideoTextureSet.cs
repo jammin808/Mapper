@@ -316,25 +316,23 @@ public sealed class VideoTextureSet : IDisposable
             Picture = _converted.Color;
         }
         var k = YuvConstants.For(layout, matrix, range, transfer);
-        Draw(k, luma, chroma, chroma, Crop(width, height, codedWidth, codedHeight, chroma));
+        Draw(k, luma, chroma, chroma, Crop(layout, width, height, codedWidth, codedHeight, chroma));
     }
 
     /// <summary>The crop of the visible size out of the coded one, and the chroma clamp: the last visible chroma texel's centre over
-    /// the chroma texture's size.</summary>
-    internal static (float X, float Y, float MaxU, float MaxV) Crop(int width, int height, int codedWidth, int codedHeight, GpuTexture chroma)
+    /// the chroma texture's size. The subsampling is the layout's (NV12, P010 and the 4:2:0 planar layouts halve both ways; 4:2:2
+    /// halves the width; 4:4:4 neither), never guessed from the textures' sizes.</summary>
+    internal static (float X, float Y, float MaxU, float MaxV) Crop(PixelLayout layout, int width, int height, int codedWidth, int codedHeight,
+        GpuTexture chroma)
     {
-        var visibleCw = (width + 1) / 2;
-        var visibleCh = (height + 1) / 2;
-        if (chroma.Width >= width)
+        var (halfWidth, halfHeight) = layout switch
         {
-            // 4:4:4 (chroma at full size): the clamp is in luma texels.
-            visibleCw = width;
-            visibleCh = chroma.Height >= height ? height : visibleCh;
-        }
-        else if (chroma.Height >= height)
-        {
-            visibleCh = height;   // 4:2:2: full height
-        }
+            PixelLayout.Yuv444P => (false, false),
+            PixelLayout.Yuv422P => (true, false),
+            _ => (true, true),
+        };
+        var visibleCw = halfWidth ? (width + 1) / 2 : width;
+        var visibleCh = halfHeight ? (height + 1) / 2 : height;
         return (width / (float)codedWidth, height / (float)codedHeight,
             (visibleCw - 0.5f) / chroma.Width, (visibleCh - 0.5f) / chroma.Height);
     }
@@ -343,7 +341,7 @@ public sealed class VideoTextureSet : IDisposable
     {
         var k = YuvConstants.For(lease.Layout, lease.Matrix, lease.Range, lease.Transfer);
         var chroma = _planes[1]!;
-        Draw(k, _planes[0]!, chroma, _planes[k.Planes == 3 ? 2 : 1]!, Crop(lease.Width, lease.Height, lease.Width, lease.Height, chroma));
+        Draw(k, _planes[0]!, chroma, _planes[k.Planes == 3 ? 2 : 1]!, Crop(lease.Layout, lease.Width, lease.Height, lease.Width, lease.Height, chroma));
     }
 
     private void Draw(in YuvConstants k, GpuTexture y, GpuTexture u, GpuTexture v, (float X, float Y, float MaxU, float MaxV) crop)

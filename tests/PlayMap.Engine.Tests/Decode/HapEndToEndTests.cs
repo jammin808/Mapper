@@ -43,9 +43,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
         var node = JsonNode.Parse(decode.GetRawText())!.AsObject();
         if (node["platform"] is JsonObject platform)
         {
-            // The words a context gives and the free part of the arena move with the machine and the moment.
-            if (platform["why"]?.GetValue<string>() is { Length: > 0 })
-                platform["why"] = "the render context is GLX: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)";
+            // The free part of the arena moves with the moment.
             if (platform["blocks"] is JsonObject b)
                 b["arenaFreeMb"] = 255;
         }

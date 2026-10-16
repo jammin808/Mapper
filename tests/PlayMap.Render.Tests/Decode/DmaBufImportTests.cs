@@ -267,8 +267,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             var extensions = EglImages.Text(EglImages.QueryString(display, EglImages.Extensions));
             if (!extensions.Contains("EGL_MESA_image_dma_buf_export", StringComparison.Ordinal))
             {
-                log.WriteLine("EGL_MESA_image_dma_buf_export is absent on this display: the export half is compile-only here; the import half runs on memfds");
-                Assert.DoesNotContain("EGL_MESA_image_dma_buf_export", extensions, StringComparison.Ordinal);
+                // Said, not skipped silently: the import half runs on memfds in the tests above.
+                log.WriteLine("EGL_MESA_image_dma_buf_export is absent on this display: the export round trip is compile-only here");
                 return;
             }
             ExportRoundTrip(ctx.Device, display);
@@ -293,12 +293,15 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         var query = (delegate* unmanaged<nint, nint, int*, int*, ulong*, uint>)EglImages.GetProcAddress("eglExportDMABUFImageQueryMESA");
         var export = (delegate* unmanaged<nint, nint, int*, int*, int*, uint>)EglImages.GetProcAddress("eglExportDMABUFImageMESA");
         var planes = new DmaBufPlane[2];
+        var images = new nint[2];
+        var destroy = (delegate* unmanaged<nint, nint, uint>)EglImages.GetProcAddress("eglDestroyImageKHR");
         var textures = new[] { y, c };
         for (var i = 0; i < 2; i++)
         {
             var none = EglImages.None;
             var image = create(display, EglImages.GetCurrentContext(), EglImages.GlTexture2D, (nint)textures[i].Id, &none);
             Assert.NotEqual(0, image);
+            images[i] = image;
             int fourcc, count, fd, stride, offset;
             ulong modifier;
             Assert.NotEqual(0u, query(display, image, &fourcc, &count, &modifier));
@@ -325,6 +328,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             device.Finish();
             foreach (var p in planes)
                 _ = Close(p.Fd);
+            foreach (var image in images)
+                _ = destroy(display, image);
         }
     }
 }

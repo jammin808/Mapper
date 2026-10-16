@@ -11,7 +11,7 @@ namespace PlayMap.Media.Tests.Hw;
 /// support stands in for wp2-d3d11's share; FFmpeg's D3D11VA device context is made on it (hwcontext_d3d11va.h: the caller sets
 /// <c>device</c>, BindFlags and the lock callbacks before av_hwdevice_ctx_init) — it opens, or the test says why: WARP has no video
 /// decoder, and the runner may have no FFmpeg. Elsewhere it asserts the share is refused without a device.</summary>
-public sealed unsafe partial class D3d11vaWarpTests
+public sealed unsafe partial class D3d11vaWarpTests(Xunit.Abstractions.ITestOutputHelper log)
 {
     private const int DriverTypeWarp = 5;
     private const uint CreateBgraSupport = 0x20;
@@ -29,18 +29,19 @@ public sealed unsafe partial class D3d11vaWarpTests
             Assert.Equal("vaapi", StreamDecoder.ZeroCopyDevice(GpuApi.DmaBuf));
             return;
         }
-        OnWindows();
+        OnWindows(log);
     }
 
     [SupportedOSPlatform("windows")]
-    private static void OnWindows()
+    private static void OnWindows(Xunit.Abstractions.ITestOutputHelper log)
     {
         nint device = 0;
         var hr = D3D11CreateDevice(0, DriverTypeWarp, 0, CreateBgraSupport | CreateVideoSupport, null, 0, SdkVersion, &device, null, null);
         if (hr < 0 || device == 0)
         {
             // WARP without video support: the words are the HRESULT, and nothing else is tried.
-            Assert.NotEqual(0, hr);
+            log.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"D3D11CreateDevice(WARP, VIDEO_SUPPORT) refused: 0x{hr:X8}"));
+            Assert.True(hr < 0, "no device and no failure code");
             return;
         }
         try
@@ -48,6 +49,7 @@ public sealed unsafe partial class D3d11vaWarpTests
             if (!FfmpegLoader.TryLoad(out var problem))
             {
                 Assert.False(string.IsNullOrWhiteSpace(problem), "FFmpeg neither loaded nor said why");
+                log.WriteLine("FFmpeg is not on this runner: " + problem);
                 return;
             }
             var share = new D3D11Share(device);
@@ -56,6 +58,7 @@ public sealed unsafe partial class D3d11vaWarpTests
             {
                 Assert.False(string.IsNullOrWhiteSpace(why), "the D3D11VA device neither opened nor said why");
                 Assert.StartsWith("d3d11va", why, StringComparison.Ordinal);
+                log.WriteLine(why);
                 return;
             }
             var hw = (AVD3D11VADeviceContext*)((AVHWDeviceContext*)context->data)->hwctx;

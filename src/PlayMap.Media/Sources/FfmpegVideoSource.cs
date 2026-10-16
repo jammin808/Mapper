@@ -10,9 +10,6 @@ using PlayMap.Media.Hw;
 
 namespace PlayMap.Media.Sources;
 
-/// <summary>A source stepped down the decode-path ladder: from which rung to which, on what trigger, and the words.</summary>
-public readonly record struct PathStep(string Key, DecodePath From, DecodePath To, DemotionTrigger Trigger, string Why);
-
 /// <summary>How a clip is opened and played.</summary>
 public sealed record VideoSourceOptions
 {
@@ -105,11 +102,11 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     private long _busyTicks;
     private AVDiscard _skip = AVDiscard.AVDISCARD_DEFAULT;
     private long _threadAllocated;
-    // The zero-copy rung (frames published as the decoder's own surfaces): decided at open, only ever switched off after.
-    private bool _zero;
-    private bool _checkedImport;
-    private long _waitSince;
-    private readonly StarvationWatch _starvation = new();
+    // The run-time ladder (made at open): while it says zero-copy, frames are published as the decoder's own surfaces.
+    private SurfaceLadder? _ladder;
+    private FrameLayout? _gpuLayout;
+    private long _poolEpoch;
+    private static long _poolEpochs;
 
     public FfmpegVideoSource(string path, VideoSourceOptions? options = null, string? key = null)
     {
@@ -256,8 +253,11 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
             _why = _decoder.Why;
             _device = _decoder.Device;
             _pathUsed = (int)_decoder.ZeroCopy;
-            _zero = _decoder.ZeroCopy is DecodePath.HwDirect or DecodePath.HwGpuCopy && _options.Decoder.Gpu is not null;
-            if (_zero)
+            _ladder = new SurfaceLadder(Key, _options.Decoder.Gpu, _decoder.ZeroCopy, _frameNs);
+            _ladder.Stepped += OnStepped;
+            // The decoder's surface pool: an importer's cache of its surfaces is valid for this open only.
+            _poolEpoch = Interlocked.Increment(ref _poolEpochs);
+            if (_ladder.ZeroCopy)
             {
                 // Surfaces the source can have out at once: the queue's, the decoder's references, what the renderer holds.
                 _surfaces = _pool.Capacity + _decoder.Context->extra_hw_frames;
@@ -560,6 +560,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private void ClearHeld()
     {
+        _ladder?.ForgetWait();
         for (var i = 0; i < _pendingFrames.Length; i++)
             ffmpeg.av_frame_unref((AVFrame*)_pendingFrames[i]);
         _pendingCount = 0;
@@ -581,7 +582,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
                 return false;
             var frame = (AVFrame*)_pendingFrames[0];
             var t0 = Stopwatch.GetTimestamp();
-            if (_zero)
+            if (_ladder!.ZeroCopy)
             {
                 switch (PublishSurface(frame, t0))
                 {
@@ -614,7 +615,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
                 // profile or size): say what is really decoding.
                 _hardware = false;
                 _decoderName = FfmpegUtil.Text(_decoder.Context->codec->name);
-                Step(DemotionTrigger.HandedBack, _decoder.Device);
+                _ladder.HandedBack(_decoder.Device);
                 _why = StreamDecoder.Words(_decoder.Why, _decoder.Device + " handed this stream back to software");
                 _device = "";
             }
@@ -654,38 +655,31 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     /// three times in ten seconds, steps it down too. Demoted, the frame falls through to the copy-back path.</summary>
     private SurfaceOutcome PublishSurface(AVFrame* frame, long t0)
     {
-        var share = _options.Decoder.Gpu!;
-        if (share.ImportFailed(Key, out var failed))
-        {
-            Step(DemotionTrigger.ImportFailed, failed);
+        var ladder = _ladder!;
+        var share = ladder.Share!;
+        if (!ladder.BeforeMap())
             return SurfaceOutcome.Demoted;
-        }
         if ((AVPixelFormat)frame->format != _decoder!.HardwareFormat)
         {
             // The decoder handed this stream back to software: there is no surface to publish.
             return SurfaceOutcome.Demoted;
         }
         var tenBit = frame->hw_frames_ctx is not null && ((AVHWFramesContext*)frame->hw_frames_ctx->data)->sw_format == AVPixelFormat.AV_PIX_FMT_P010LE;
-        var layout = FrameLayout.For(tenBit ? PixelLayout.P010 : PixelLayout.Nv12, frame->width, frame->height);
-        var slot = _pool.TryRentGpu(layout, out var surface);
-        var now = Stopwatch.GetTimestamp();
+        var kind = tenBit ? PixelLayout.P010 : PixelLayout.Nv12;
+        if (_gpuLayout is null || _gpuLayout.Layout != kind || _gpuLayout.Width != frame->width || _gpuLayout.Height != frame->height)
+            _gpuLayout = FrameLayout.For(kind, frame->width, frame->height);
+        var slot = _pool.TryRentGpu(_gpuLayout, out var surface);
+        var now = (long)Stopwatch.GetElapsedTime(0, Stopwatch.GetTimestamp()).TotalNanoseconds;
         if (slot is null)
         {
-            // Every slot is out with the queue not full: the renderer holds them. Timed from the first refusal.
-            if (_waitSince == 0)
-                _waitSince = now;
+            // Every slot is out with the queue not full: the renderer holds them. A wait only while playing.
+            ladder.NoSlot(now, _queue.Control().Playing);
             return SurfaceOutcome.NoSlot;
         }
-        if (_waitSince != 0)
+        if (!ladder.GotSlot(now))
         {
-            var waited = (long)Stopwatch.GetElapsedTime(_waitSince, now).TotalNanoseconds;
-            _waitSince = 0;
-            if (_starvation.Waited(waited, _frameNs, (long)Stopwatch.GetElapsedTime(0, now).TotalNanoseconds))
-            {
-                slot.Release();
-                Step(DemotionTrigger.Starved, "");
-                return SurfaceOutcome.Demoted;
-            }
+            slot.Release();
+            return SurfaceOutcome.Demoted;
         }
         if (slot.HwFrame == 0)
             slot.HwFrame = (nint)ffmpeg.av_frame_alloc();
@@ -712,34 +706,20 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
             if (!referenced)
                 words = "the D3D11 frame could not be referenced";
         }
-        if (ok && !_checkedImport)
-        {
-            _checkedImport = true;
-            for (var i = 0; i < surface.PlaneCount && ok; i++)
-            {
-                var plane = surface.Planes[i];
-                if (!share.CanImport(surface.Format, plane.Fourcc, plane.Modifier))
-                {
-                    ok = false;
-                    words = string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                        $"{DrmFourcc.Name(plane.Fourcc)} with modifier 0x{plane.Modifier:X16}");
-                }
-            }
-            if (!ok)
-            {
-                slot.Release();
-                Step(DemotionTrigger.NotImportable, words);
-                return SurfaceOutcome.Demoted;
-            }
-        }
         if (!ok)
         {
             slot.Release();
-            Step(DemotionTrigger.ImportFailed, words);
+            ladder.Failed(words);
+            return SurfaceOutcome.Demoted;
+        }
+        if (!ladder.CheckFirst(surface))
+        {
+            slot.Release();
             return SurfaceOutcome.Demoted;
         }
         surface.SourceKey = Key;
-        surface.PoolEpoch = share.DeviceEpoch;
+        surface.PoolEpoch = _poolEpoch;
+        surface.Direct = ladder.Path == DecodePath.HwDirect;
         slot.PtsNs = _pendingNs[0];
         slot.DurationNs = _pendingDur[0];
         slot.Generation = ++_generation;
@@ -747,7 +727,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
         slot.Matrix = FrameFormats.Matrix(frame->colorspace, frame->height);
         slot.Range = FrameFormats.Range(frame->color_range, tenBit ? AVPixelFormat.AV_PIX_FMT_P010LE : AVPixelFormat.AV_PIX_FMT_NV12);
         slot.Transfer = FrameFormats.Transfer(frame->color_trc);
-        _pathUsed = (int)_decoder.ZeroCopy;
+        _pathUsed = (int)ladder.Path;
         Interlocked.Exchange(ref _busBytes, 0);
         Interlocked.Exchange(ref _vramBytes, _surfaces * HwDecode.FrameBytes(Align(frame->width, 16), Align(frame->height, 16), tenBit));
         _busyTicks += Stopwatch.GetTimestamp() - t0;
@@ -761,25 +741,20 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private static int Align(int v, int a) => (v + a - 1) / a * a;
 
-    /// <summary>Steps down the ladder (DecodeLadder.Demote), says why and tells whoever listens; a step that keeps the rung changes
-    /// nothing. Decode thread.</summary>
-    private void Step(DemotionTrigger trigger, string detail)
+    /// <summary>The renderer's device this source opened on is no longer the renderer's: its next frame steps down. Any thread.</summary>
+    public void ShareChanged(string words) => _ladder?.ShareChanged(words);
+
+    /// <summary>The ladder stepped down (decode thread): the path and the words move, and whoever listens is told.</summary>
+    private void OnStepped(PathStep step)
     {
-        var from = (DecodePath)_pathUsed;
-        if (_zero && trigger != DemotionTrigger.HandedBack)
-            from = _decoder!.ZeroCopy;
-        var (to, why) = DecodeLadder.Demote(from, trigger, detail);
-        if (to == from)
-            return;
-        if (to is DecodePath.HwCopyBack or DecodePath.Software)
+        if (DecodeLadder.Rank(step.To) >= 3)
         {
-            _zero = false;
             Interlocked.Exchange(ref _vramBytes, 0);
             _surfaces = 0;
         }
-        _pathUsed = (int)to;
-        _why = StreamDecoder.Words(_why, why);
-        PathChanged?.Invoke(new PathStep(Key, from, to, trigger, why));
+        _pathUsed = (int)step.To;
+        _why = StreamDecoder.Words(_why, step.Why);
+        PathChanged?.Invoke(step);
     }
 
     private void ShiftPending()

@@ -31,6 +31,9 @@ public sealed class GpuSurface
     public int PlaneCount { get; set; }
     public bool Persistent { get; set; }
 
+    /// <summary>Sample the decoder's own surface in place (the source is on the direct rung); false: one GPU copy a frame first.</summary>
+    public bool Direct { get; set; }
+
     /// <summary>The source whose decoder made it (what an import failure is reported against, IGpuShare.ReportImportFailure).</summary>
     public string SourceKey { get; set; } = "";
 

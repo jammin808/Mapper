@@ -57,7 +57,7 @@ public sealed partial class RenderHost
         {
             var words = _decodeBinding == "egl" ? "the EGL display does not import dmabufs: frames come back to system memory"
                 : $"the render context is {(_decodeBinding.Length > 0 ? _decodeBinding.ToUpperInvariant() : "not EGL")}: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)";
-            facts = DecodeLadder.Platform(platform, false, words);
+            facts = platform is null ? new ZeroCopyPlatform(GpuApi.None, false, false, words) : DecodeLadder.Platform(platform, false, words);
         }
         var arena = GlUploadArena.Create(device, arenaMb, out var arenaWords);
         return new DecodeContext(share, facts, _decodeBinding, arena, arenaWords);

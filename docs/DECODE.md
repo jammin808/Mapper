@@ -60,11 +60,12 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
   takes one GPU copy until direct sampling is proven on the driver (the proof harness is next round) or `DECODE POLICY DIRECT
   FORCE`. A renderer whose device imports nothing (GLX, or a software GL) opens every clip on copy-back with the renderer's words
   ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context").
-- **At run time** a source steps down — keeping its queue, while the renderer holds the last picture — when the renderer could
-  not import a frame (it reports the failure to the share against the source's key; the decode thread reads it before its next
-  map), when the first frame's planes are not a (fourcc, modifier) the display imports, when the decoder waits more than three
-  frame periods for a free surface three times in ten seconds (`StarvationWatch`), or when the device hands the stream back to
-  software. Each step is one journal row (`decode`, "Intro: hw-direct → hw-copy-back — …") and moves STATE. A source steps back up
+- **At run time** (`SurfaceLadder`, one per decoder) a source steps down — keeping its queue, while the renderer holds the last
+  picture — when the renderer could not import a frame (it reports the failure to the share against the source's key; the decode
+  thread reads it before its next map), when the renderer's device changes under it (its context was rebuilt: it steps to
+  copy-back), when the first frame's planes are not a (fourcc, modifier) the display imports, when, while playing, it waits more
+  than three frame periods for a free surface three times in ten seconds (`StarvationWatch`; a pause or a seek is no wait), or
+  when the device hands the stream back to software. Each step is one journal row (`decode`, "Intro: hw-direct → hw-copy-back — …") and moves STATE. A source steps back up
   only when it is opened again (its import failure is forgotten then).
 - **The path a source reports is its latest frame's**: the path it published by (a copied-back frame says `hw-copy-back`, a
   frame the device handed back says `software`), never only the rung it opened on.
@@ -84,8 +85,8 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
 - **Windows, D3D11VA on the renderer's device.** `HwDecode.D3d11vaOnShare` makes FFmpeg's D3D11VA device on the share's
   `ID3D11Device` (AddRef'd for FFmpeg, BindFlags DECODER | SHADER_RESOURCE, lock callbacks into the share's recursive lock).
   `AngleImporter` copies the decoder's array slice into one of three pooled NV12/P010 textures (`CopySubresourceRegion`) whose plane
-  images (`EGL_ANGLE_image_d3d11_texture` with the plane and array-slice attributes) are made once, or, proven, imports the slice
-  itself; one device and one immediate context, so a frame is released as soon as its read is recorded.
+  images (`EGL_ANGLE_image_d3d11_texture` with the plane and array-slice attributes) are made once, or, when the source is on the
+  direct rung (`GpuSurface.Direct`), imports the slice itself, its images cached for that decoder's pool only; one device and one immediate context, so a frame is released as soon as its read is recorded.
 - **Padded surfaces.** The `yuv` program crops: `uCrop` is visible ÷ coded size and `uMaxUv` the last visible chroma texel's
   centre, so a 1920×1088 coded frame shows no padding row and chroma never filters into it. Dmabuf planes import at their visible
   size (no crop); D3D11 plane images cover the coded size.
@@ -98,7 +99,8 @@ rents a block (`ArenaAllocator`: aligned first-fit ranges, coalesced, at most 64
 second stage straight into it; the renderer uploads its blocks from the buffer at the block's offset, with no copy of its own. A
 returned block is free again only after a fence the GPU has passed (`GlUploadArena.EndFrame`, once a frame). When the context goes,
 sources are told first and return once none is writing into the arena; their queued frames in it are let go and made again; the
-arena's epoch moves, so a late block is ignored and a frame in a gone arena is never read. STATE says `staging: persistent` and the
+arena's epoch moves, so a late block is ignored and a frame in a gone arena is never read. A HAP source is handed the arena under
+the same lock that lists it as open, so one opened while the context goes never writes into an arena it was not told about. STATE says `staging: persistent` and the
 arena's size and free megabytes.
 
 ## HAP HDR
@@ -142,7 +144,8 @@ and timed beside.
 ## Next round
 
 - The direct-sampling proof (`DECODE PROBE`, `NodeHome/decode-proof.json`), the EGLImage cache per VA surface, the per-item decode
-  override, raw HAP straight from disk into the arena, CUDA → GL; `decode.glApi` (an EGL desktop context on X11) needs the render
+  override, a measured `importMsP95` (0 this round), promoting a clip opened before the render context said what it imports (it
+  stays on copy-back, honestly reported, until it is opened again), raw HAP straight from disk into the arena, CUDA → GL; `decode.glApi` (an EGL desktop context on X11) needs the render
   context's API choice in `RenderContext` (wp2-d3d11's file): today a desktop context on X11 is GLX and imports no dmabufs.
 - `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens without a loop of its own, so a
   clip that ends holds its last frame and a looping item (a library item shown directly, a looping playlist clip) wraps through a

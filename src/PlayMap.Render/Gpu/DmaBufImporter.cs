@@ -257,7 +257,7 @@ public sealed unsafe class DmaBufImporter : IDisposable
 {
     private const int Slots = 2;
 
-    private struct Slot
+    private record struct Slot
     {
         public GpuTexture? Luma;
         public GpuTexture? Chroma;

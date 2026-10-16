@@ -168,6 +168,27 @@ public sealed class GpuSlotTests
         Assert.Equal("copy", source.Health.Hap!.Staging);
     }
 
+    // An mpeg4 clip (an LGPL-compatible encoder), made once: two seconds of FFmpeg's synthetic pattern at 25 fps.
+    private static readonly Lazy<string> Mpeg4 = new(() =>
+    {
+        var path = Path.Combine(TestMedia.Dir, "zerocopy-mpeg4.mp4");
+        var tool = Path.GetFullPath(Path.Combine(Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!, "..", "bin", "ffmpeg"));
+        var psi = new System.Diagnostics.ProcessStartInfo(File.Exists(tool) ? tool : "/opt/ffmpeg9/bin/ffmpeg") { RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=25:d=2", "-c:v", "mpeg4", "-q:v", "4", path })
+            psi.ArgumentList.Add(a);
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var err = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+        return path;
+    });
+
+    private static string Mpeg4Clip()
+    {
+        TestMedia.Ensure();
+        return Mpeg4.Value;
+    }
+
     [Fact]
     public async Task AClipForARendererWhoseVaapiCannotBeUsedSaysThePathItsFramesComeBy()
     {
@@ -184,7 +205,7 @@ public sealed class GpuSlotTests
                 HardwareDevice = "vaapi",
             },
         };
-        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_25.mp4"), options);
+        using var source = new FfmpegVideoSource(Mpeg4Clip(), options);
         Assert.True(await source.Opened, source.Health.Status);
         const long t = 1_000_000_000;
         source.Prepare(t, false, 1);
@@ -205,7 +226,7 @@ public sealed class GpuSlotTests
     public async Task APolicyOfSoftwareOpensNoDevice()
     {
         TestMedia.Ensure();
-        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_25.mp4"), new VideoSourceOptions
+        using var source = new FfmpegVideoSource(Mpeg4Clip(), new VideoSourceOptions
         {
             Decoder = new DecoderOptions { AllowHardware = false, Ceiling = DecodePath.Software, Gpu = null },
         });

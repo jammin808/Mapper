@@ -91,7 +91,7 @@ public sealed class DecodeLadderTests
     [InlineData(DecodePath.HwDirect, DemotionTrigger.Starved, DecodePath.HwCopyBack, "waited over 3 frames for a free surface 3 times in 10 s")]
     [InlineData(DecodePath.HwDirect, DemotionTrigger.ProofFailed, DecodePath.HwGpuCopy, "proof failed: EGL_BAD_MATCH; one GPU copy")]
     [InlineData(DecodePath.HwCopyBack, DemotionTrigger.HandedBack, DecodePath.Software, "handed this stream back to software: EGL_BAD_MATCH")]
-    [InlineData(DecodePath.HwDirect, DemotionTrigger.DeviceLost, DecodePath.HwDirect, "holds its last picture until it is opened again")]
+    [InlineData(DecodePath.HwDirect, DemotionTrigger.DeviceLost, DecodePath.HwCopyBack, "the renderer's device changed: EGL_BAD_MATCH; frames come back")]
     public void EveryDemotionStepsDownWithItsWords(DecodePath from, DemotionTrigger trigger, DecodePath to, string words)
     {
         var (next, why) = DecodeLadder.Demote(from, trigger, "EGL_BAD_MATCH");
@@ -106,6 +106,7 @@ public sealed class DecodeLadderTests
     [InlineData(DecodePath.HwGpuCopy, DemotionTrigger.ProofFailed)]
     [InlineData(DecodePath.Software, DemotionTrigger.HandedBack)]
     [InlineData(DecodePath.HapGpu, DemotionTrigger.NotImportable)]
+    [InlineData(DecodePath.HwCopyBack, DemotionTrigger.DeviceLost)]
     public void ATriggerThatDoesNotApplyToTheRungChangesNothing(DecodePath from, DemotionTrigger trigger) =>
         Assert.Equal((from, ""), DecodeLadder.Demote(from, trigger, "x"));
 

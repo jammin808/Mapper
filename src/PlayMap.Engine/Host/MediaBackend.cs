@@ -9,6 +9,7 @@ using PlayMap.Core.Model;
 using PlayMap.Media;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Hap;
+using PlayMap.Media.Hw;
 using PlayMap.Media.Sources;
 using PlayMap.Net;
 using PlayMap.Render.Gpu;
@@ -162,7 +163,7 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             var located = item with { Location = path };
             var why = "";
             if (item.Kind == MediaKind.Video && HapRoute(item, out why) is { } hap)
-                return Track(item, new HapVideoSource(path, hap, item.Id), "");
+                return Track(item, new HapVideoSource(path, hap, item.Id), "");   // the arena is handed over in Track, under the gate
             var options = MediaSourceOptions.Default;
             var choice = default(LadderChoice);
             if (item.Kind == MediaKind.Video)
@@ -173,7 +174,7 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             if (source is FfmpegVideoSource clip)
             {
                 clip.PathChanged += step => OnPathStep(item, step);
-                return Track(item, clip, why, choice.Why);
+                return Track(item, clip, why, choice.Why, options.Video.Decoder.Gpu);
             }
             return source;
         }
@@ -192,7 +193,18 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     /// words why not (null when the context went). Open decoders keep their path.</summary>
     public void UseZeroCopy(IGpuShare? share, ZeroCopyPlatform? platform)
     {
-        _zeroCopy = platform is { } p ? new ZeroCopyState(share, p) : ZeroCopyState.None;
+        lock (_openGate)
+        {
+            var before = ZeroCopy.Share;
+            _zeroCopy = platform is { } p ? new ZeroCopyState(share, p) : ZeroCopyState.None;
+            if (!ReferenceEquals(before, ZeroCopy.Share))
+            {
+                // Open clips decoding onto the share that went: their surfaces do not import into the new context.
+                foreach (var d in _open)
+                    if (d.Source is FfmpegVideoSource { IsDisposed: false } clip)
+                        clip.ShareChanged(share is null ? "the render context went" : "the render context was rebuilt");
+            }
+        }
         Changed?.Invoke();
     }
 
@@ -258,10 +270,14 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         var known = formats != BlockFormats.None;
         _formats = (int)(known ? formats : BlockFormats.Bc1 | BlockFormats.Bc3 | BlockFormats.Bc4);
         _rendererSaid = known;
-        _arena = arena;
-        foreach (var d in OpenDecoders())
-            if (d.Source is HapVideoSource staged)
-                staged.UseArena(arena);
+        lock (_openGate)
+        {
+            // Each source returns once none of its frames is being written into the old arena (a HAP frame's decompress at most).
+            _arena = arena;
+            foreach (var d in _open)
+                if (d.Source is HapVideoSource { IsDisposed: false } staged)
+                    staged.UseArena(arena);
+        }
         if (known)
         {
             // A clip opened before the renderer said (or for a context that went) stops with the words why when its blocks
@@ -292,12 +308,19 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         }
     }
 
-    private IVideoSource Track(MediaItem item, IVideoSource source, string why, string ladder = "")
+    private IVideoSource Track(MediaItem item, IVideoSource source, string why, string ladder = "", IGpuShare? opened = null)
     {
         lock (_openGate)
         {
             _open.RemoveAll(d => d.Source is FfmpegVideoSource { IsDisposed: true } or HapVideoSource { IsDisposed: true });
             _open.Add(new OpenDecoder(item.Id, item.Name, item.Info.VideoCodec, source, why) { Ladder = ladder });
+            // Under the same gate UseRenderer swaps the arena: a source is either listed before a swap (and told by it) or given
+            // the arena that is current after it.
+            if (source is HapVideoSource hap)
+                hap.UseArena(_arena);
+            // A clip opened on a share the renderer has since replaced steps down at its first frame.
+            if (source is FfmpegVideoSource clip && opened is not null && !ReferenceEquals(ZeroCopy.Share, opened))
+                clip.ShareChanged("the renderer's context changed while the clip opened");
         }
         return source;
     }
@@ -328,7 +351,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             Workers = Math.Max(0, settings.HapWorkers),
             // No loop of its own: a clip that ends holds its last frame, and a consumer that wraps its time seeks back.
             Color = item.Color,
-            Arena = _arena,
+            // The arena is handed over under the open gate (Track), never read here: a context going between this and Track
+            // would otherwise leave the source writing into an unmapped buffer.
+            Arena = null,
         };
     }
 

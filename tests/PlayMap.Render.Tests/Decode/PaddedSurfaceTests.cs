@@ -96,12 +96,20 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
     public void TheCropAndTheChromaClampFollowTheVisibleAndCodedSizes() => gl.Run(ctx =>
     {
         using var chroma = ctx.Device.CreateTexture(W / 2, CodedH / 2, TextureFormat.Rg8);
-        var (x, y, maxU, maxV) = VideoTextureSet.Crop(W, H, W, CodedH, chroma);
+        var (x, y, maxU, maxV) = VideoTextureSet.Crop(PixelLayout.Nv12, W, H, W, CodedH, chroma);
         Assert.Equal((1f, 1080f / 1088f, 959.5f / 960f, 539.5f / 544f), (x, y, maxU, maxV));
         using var tight = ctx.Device.CreateTexture(960, 540, TextureFormat.Rg8);
-        Assert.Equal((1f, 1f, 959.5f / 960f, 539.5f / 540f), VideoTextureSet.Crop(W, H, W, H, tight));
+        Assert.Equal((1f, 1f, 959.5f / 960f, 539.5f / 540f), VideoTextureSet.Crop(PixelLayout.Nv12, W, H, W, H, tight));
         // An odd visible size: chroma rounds up, the clamp is the last chroma texel the picture covers.
         using var odd = ctx.Device.CreateTexture(960, 544, TextureFormat.Rg8);
-        Assert.Equal((1919f / 1920f, 1079f / 1088f, 959.5f / 960f, 539.5f / 544f), VideoTextureSet.Crop(1919, 1079, 1920, 1088, odd));
+        Assert.Equal((1919f / 1920f, 1079f / 1088f, 959.5f / 960f, 539.5f / 544f), VideoTextureSet.Crop(PixelLayout.P010, 1919, 1079, 1920, 1088, odd));
+        // A small picture coded several times its width is still 4:2:0: the clamp stays inside its visible chroma.
+        using var wide = ctx.Device.CreateTexture(64, 16, TextureFormat.Rg8);
+        Assert.Equal((32f / 128f, 1f, 15.5f / 64f, 15.5f / 16f), VideoTextureSet.Crop(PixelLayout.Nv12, 32, 32, 128, 32, wide));
+        // 4:4:4 and 4:2:2 planar keep the full chroma size where they do not halve it.
+        using var full = ctx.Device.CreateTexture(32, 32, TextureFormat.R8);
+        Assert.Equal((1f, 1f, 31.5f / 32f, 31.5f / 32f), VideoTextureSet.Crop(PixelLayout.Yuv444P, 32, 32, 32, 32, full));
+        using var half = ctx.Device.CreateTexture(16, 32, TextureFormat.R8);
+        Assert.Equal((1f, 1f, 15.5f / 16f, 31.5f / 32f), VideoTextureSet.Crop(PixelLayout.Yuv422P, 32, 32, 32, 32, half));
     });
 }

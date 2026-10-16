@@ -51,8 +51,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => gl.Run(ctx =>
     {
         var device = ctx.Device;
-        if (!device.Caps.Dxt1)
-            return;
+        Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
         using var arena = Make(device);
         try
         {
@@ -109,8 +108,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     public void AFrameInAnArenaThatIsGoneIsNeverReadAndTheLastPictureHolds() => gl.Run(ctx =>
     {
         var device = ctx.Device;
-        if (!device.Caps.Dxt1)
-            return;
+        Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
         var arena = Make(device);
         try
         {

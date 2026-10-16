@@ -33,7 +33,7 @@ public sealed partial record EngineParts
                 setup.Home.SaveSettings(current with { Decode = current.Decode with { Policy = PlayMap.Core.Media.Decode.DecodeLadder.Word(policy) } });
                 return null;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
             {
                 return ex.Message;
             }

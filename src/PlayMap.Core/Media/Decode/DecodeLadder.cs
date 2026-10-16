@@ -14,7 +14,7 @@ public enum DemotionTrigger
     NotImportable,
     /// <summary>The decoder waited more than three frame periods for a free surface, three times in ten seconds.</summary>
     Starved,
-    /// <summary>The device was rebuilt: the source holds its last picture until it is next opened.</summary>
+    /// <summary>The renderer's device changed under the source (its context was rebuilt): its surfaces no longer import there.</summary>
     DeviceLost,
     /// <summary>The direct-sampling proof failed: sources opened afterwards take one GPU copy.</summary>
     ProofFailed,
@@ -146,8 +146,8 @@ public static class DecodeLadder
         }
     }
 
-    /// <summary>The rung a source steps down to on a trigger, and the words why; a trigger that keeps the rung (a lost device holds
-    /// the source until it is reopened) answers the same path.</summary>
+    /// <summary>The rung a source steps down to on a trigger, and the words why; a trigger that does not apply to the rung answers
+    /// the same path and no words.</summary>
     public static (DecodePath Next, string Why) Demote(DecodePath current, DemotionTrigger trigger, string detail)
     {
         var c = CultureInfo.InvariantCulture;
@@ -164,8 +164,8 @@ public static class DecodeLadder
                 (DecodePath.HwGpuCopy, $"the direct-sampling proof failed{tail}; one GPU copy a frame"),
             DemotionTrigger.HandedBack when current != DecodePath.Software =>
                 (DecodePath.Software, $"the device handed this stream back to software{tail}"),
-            DemotionTrigger.DeviceLost =>
-                (current, $"the device was rebuilt{tail}; the source holds its last picture until it is opened again"),
+            DemotionTrigger.DeviceLost when Rank(current) is 1 or 2 =>
+                (DecodePath.HwCopyBack, $"the renderer's device changed{tail}; frames come back to system memory until the clip is opened again"),
             _ => (current, ""),
         };
     }
