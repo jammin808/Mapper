@@ -174,9 +174,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no scan {args[0]}");
         if (IsAssistantTransport(call.Session) && runner.SuggestionsFor(record.Id).Any(x => runner.StateOf(x) == "pending"))
             return CommandReply.Fail($"{record.Name}'s suggestions wait for a person: a person decides them, or asks for new ones");
-        using var work = runner.BeginSuggest(record.Id, call.Ct);
+        using var work = runner.BeginSuggest(record.Id, record.Name, call.Ct, out var busy);
         if (work is null)
-            return CommandReply.Fail(runner.IsStopping ? ScanRunner.StoppingWords : $"{record.Name}'s suggestions are being made already");
+            return CommandReply.Fail(busy);
         var queued = new List<string>();
         try
         {

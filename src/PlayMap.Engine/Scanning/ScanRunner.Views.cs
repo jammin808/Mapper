@@ -37,8 +37,9 @@ public sealed partial record ScanView
 /// <summary>
 /// wp2-multiscan's part of the runner: a view added INTO a scan, the scan's views solved again (SCAN SOLVE, with projectors held)
 /// or without one (SCAN DROP), and the scan shown in STATE with its views, coverage, regions across projectors and its waiting
-/// suggestions. A solve runs off the lane, one per scan at a time, never while that scan takes a view, and not at all once the
-/// runner has begun to stop; the node's stop waits for one under way.
+/// suggestions. A solve runs off the lane, one per scan at a time, never while that scan takes a view or has its suggestions made
+/// (and no suggestion is made while it takes a view or is solved), and not at all once the runner has begun to stop; the node's stop
+/// waits for one under way.
 /// </summary>
 public sealed partial class ScanRunner
 {
@@ -92,6 +93,9 @@ public sealed partial class ScanRunner
             throw new InvalidOperationException($"{record.Name} is not a structured-light scan: views are added to those only");
         if (_solving.Contains(record.Id))
             throw new InvalidOperationException($"{record.Name} is being solved — add the view once it is done");
+        // Suggestions name regions of the solve they are made from: a view that lands meanwhile would leave them naming a solve that is gone.
+        if (_suggesting.Contains(record.Id))
+            throw new InvalidOperationException($"{record.Name}'s suggestions are being made — add the view once they are queued");
         var held = Find(record.Id);
         if (held is null && engine.ProjectFolderForFiles is null)
             throw new InvalidOperationException($"{record.Name}'s data is not on this node — views join a scan this node made and keeps");
@@ -301,8 +305,8 @@ public sealed partial class ScanRunner
         }, ct);
     }
 
-    /// <summary>One solve of a scan off the lane: refused once the runner stops, while that scan takes a view or is being solved, and
-    /// for a scan this node does not hold; the result is kept, written and recorded, and the scan shown in STATE.</summary>
+    /// <summary>One solve of a scan off the lane: refused once the runner stops, while that scan takes a view, is being solved or has its
+    /// suggestions made, and for a scan this node does not hold; the result is kept, written and recorded, and the scan shown in STATE.</summary>
     private async Task<ScanOutcome> RunWorkAsync(string scanId, Func<EngineCore, ScanOutcome, CancellationToken, Task<ScanOutcome>> work, CancellationToken ct)
     {
         EngineCore engine;
@@ -315,6 +319,9 @@ public sealed partial class ScanRunner
             engine = _engine ?? throw new InvalidOperationException("the scan runner is not bound to an engine");
             if (_running is not null && _runningScanId == scanId)
                 throw new InvalidOperationException($"{scanId} is taking a view now — solve it once the view is done");
+            // Suggestions name regions of the solve they are made from: one that lands meanwhile would leave them naming a solve that is gone.
+            if (_suggesting.Contains(scanId))
+                throw new InvalidOperationException($"{engine.Store.Project.Stage.Scans.Find(scanId)?.Name ?? scanId}'s suggestions are being made — solve it once they are queued");
             if (!_solving.Add(scanId))
                 throw new InvalidOperationException($"{scanId} is being solved already");
             cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -455,27 +462,25 @@ public sealed partial class ScanRunner
         }
     }
 
-    /// <summary>Claims a scan for one SCAN SUGGEST; null while another is making its suggestions or the runner is stopping. The stop
-    /// cancels it and waits for it, so no proposal is queued once the runner has stopped.</summary>
-    internal SuggestWork? BeginSuggest(string scanId, CancellationToken ct)
+    /// <summary>Claims a scan for one SCAN SUGGEST; null, with <paramref name="why"/>, while the runner is stopping, while the scan takes a
+    /// view or is being solved (the suggestions would name regions of a solve about to be replaced) and while another SCAN SUGGEST of it
+    /// runs. A solve or a view of the scan is refused while it holds the claim, so every suggestion queued names the scan's solve as it
+    /// stands. The stop cancels it and waits for it, so no proposal is queued once the runner has stopped.</summary>
+    internal SuggestWork? BeginSuggest(string scanId, string scanName, CancellationToken ct, out string why)
     {
         lock (_gate)
         {
-            if (_stopped || !_suggesting.Add(scanId))
+            why = _stopped ? StoppingWords
+                : _running is not null && _runningScanId == scanId ? $"{scanName} is taking a view now — SCAN SUGGEST once it is solved"
+                : _solving.Contains(scanId) ? $"{scanName} is being solved — SCAN SUGGEST once it is done"
+                : _suggesting.Contains(scanId) ? $"{scanName}'s suggestions are being made already"
+                : "";
+            if (why.Length > 0)
                 return null;
+            _suggesting.Add(scanId);
             var work = new SuggestWork(this, scanId, ct);
             _work[work.Done] = work.Cancellation;
             return work;
-        }
-    }
-
-    /// <summary>True once the runner has begun to stop.</summary>
-    internal bool IsStopping
-    {
-        get
-        {
-            lock (_gate)
-                return _stopped;
         }
     }
 
