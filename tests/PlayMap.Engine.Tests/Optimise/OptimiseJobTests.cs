@@ -174,9 +174,9 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     public async Task AWorkerKilledMidJobIsRestartedAndTheJobRunsAgainToItsVersion()
     {
         await using var rig = OptimiseRig.Start();
-        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10);
+        var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10);
         var id = await rig.ImportAsync(clip, "Clip");
-        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         Assert.Equal("accepted", reply.RootElement.GetProperty("stage").GetString());
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
@@ -203,8 +203,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     {
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
             options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
-        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
-        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10), "Clip");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
         await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
@@ -241,8 +241,8 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
         string jobId;
         var first = OptimiseRig.Start(dir: dir);
-        var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 640, 360, 10), "Clip");
-        using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap")))
+        var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 320, 180, 10), "Clip");
+        using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST")))
             jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await first.Until(() => first.Job(jobId).FramesDone >= 1, "the first frames");
         await first.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
@@ -272,6 +272,70 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.Empty(rig.Engine.Store.Project.FindMedia(id)!.Versions);
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(rig.Home.Folder, "optimise", "work")));
         Assert.Empty(Directory.EnumerateFiles(rig.Home.MediaStore, "*.mov"));
+    }
+
+    [FfmpegFact]
+    public async Task LedFramesDroppedOrLateWhileAJobRunsPauseTheGovernor()
+    {
+        // An LED-only rig: no output window, no playlist — the LED sender is the air.
+        var led = new FakeLed();
+        // The node's own pause window: this test is about the pause.
+        await using var rig = OptimiseRig.Start(led: led, settings: s => s with { PauseAfterDropS = 60 });
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
+        var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
+        await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
+        // Held between frames: the job still runs, so what the air loses now is the job's.
+        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        string Governor() => rig.State().GetProperty("media").GetProperty("optimise").GetProperty("governor").GetString()!;
+        Assert.Equal("run", Governor());
+        led.Dropped = 3;
+        await rig.Until(() => Governor() == "paused", "the pause for dropped LED frames");
+        Assert.Equal("paused for 60 s: 3 frames dropped while it ran",
+            rig.State().GetProperty("media").GetProperty("optimise").GetProperty("words").GetString());
+        // The window passes on the node's clock; then a node whose frames leave late pauses it again.
+        rig.Clock.Advance(61_000_000_000);
+        await rig.Until(() => Governor() == "run", "the end of the pause");
+        led.Late = true;
+        await rig.Until(() => Governor() == "paused", "the pause for a late LED node");
+        Assert.EndsWith("late while it ran", rig.State().GetProperty("media").GetProperty("optimise").GetProperty("words").GetString(), StringComparison.Ordinal);
+        await rig.Ok($"MEDIA OPTIMISE CANCEL {jobId}");
+    }
+
+    /// <summary>An LED sender as the engine reads it: a node that sends (or sends late) and the frames dropped so far.</summary>
+    private sealed class FakeLed : Core.Led.ILedOutput
+    {
+        public volatile int Dropped;
+        public volatile bool Late;
+
+        public Core.Led.ILedFrameSink Sink { get; } = new Core.Led.LedFramePool();
+
+        public void Apply(Core.Led.LedSendProgram program)
+        {
+            // Nothing is sent: the view is the test's.
+        }
+
+        public void SetMaster(bool on, bool blackFirst)
+        {
+            // As Apply.
+        }
+
+        public void StopNode(string nodeId, bool blackFirst)
+        {
+            // As Apply.
+        }
+
+        public Core.Led.LedOutputView View() => new(true,
+            [new Core.Led.LedNodeView("ln_1", Late ? "late" : "sending", 60, 1, Late ? 40 : 2, 0, null, Late ? "frames leave 40.0 ms after their instant" : "", 600, 600)],
+            Dropped, 0);
+
+        public bool TryMonitor(string nodeId, int universe, Span<byte> slots, out long leaderNs)
+        {
+            leaderNs = 0;
+            return false;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     [FfmpegFact]

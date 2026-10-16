@@ -101,6 +101,48 @@ public sealed class OptimiseEngineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AFourKClipReadOnlyByAGeneratorsInputOrAnLedFixtureIsAmberToo()
+    {
+        var clip = new MediaItem("md_4k", "Facade", MediaKind.Video, "/nowhere/facade.mp4", "", 0,
+            MediaInfo.Unknown with { Width = 3840, Height = 2160, VideoCodec = "h264", FrameRate = "60" }, []);
+        var check = new OptimisePreflight();
+        async Task<PreflightRow> Row(Project p)
+        {
+            await using var engine = new EngineCore(EngineServices.ForTests(), p with { Media = [clip] });
+            return Assert.Single(await check.RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None));
+        }
+
+        // A generator on the air whose input reads the clip (GENERATOR INPUT … source media:md_4k).
+        var warp = new Generator("gn_warp", "Warp", "fx.warp", ParamSet.Empty)
+        {
+            Inputs = System.Collections.Immutable.ImmutableSortedDictionary<string, SourceRef>.Empty.Add("source", SourceRef.Media("md_4k")),
+        };
+        var byGenerator = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Generator("gn_warp"), 1920, 1080)) with { Generators = [warp] };
+        var g = await Row(byGenerator);
+        Assert.Equal(("optimise.cpu:md_4k", Light.Amber, "MEDIA OPTIMISE md_4k TO hap-q"), (g.Id, g.Light, g.Fix));
+
+        // An LED fixture sampling the clip, and one sampling a canvas whose layer shows it; no output shows either.
+        Core.Model.LedFixture Fixture(Core.Model.LedSpace space, string spaceId) => new("lf00000001", "Strip", "builtin:rgb", space, spaceId, Transform3.Identity,
+            new Core.Model.LedLayout(Core.Model.LedShape.Line, 10, 1, new Core.Numerics.Vec3d(9, 0, 0), Core.Model.LedStart.TopLeft, false, false, []), null,
+            Core.Model.LedSampling.Point, 0, Core.Model.LedColor.Neutral, true, false, false, "#FF8800", []);
+        var bySource = Project.CreateDefault("Led") with { Leds = new Core.Model.LedRig { Fixtures = [Fixture(Core.Model.LedSpace.Source, "media:md_4k")] } };
+        var s = await Row(bySource);
+        Assert.Equal(("optimise.cpu:md_4k", Light.Amber, "MEDIA OPTIMISE md_4k TO hap-q"), (s.Id, s.Light, s.Fix));
+        var canvas = new Canvas("cv00000001", "Wall", 64, 32, "#000000",
+            [new Layer("ly_clip", "Clip", SourceRef.Media("md_4k"), new RectD(0, 0, 64, 32), 1, LayerBlend.Normal, true)]);
+        var byCanvas = Project.CreateDefault("Led") with
+        {
+            Canvases = [canvas],
+            Leds = new Core.Model.LedRig { Fixtures = [Fixture(Core.Model.LedSpace.Canvas, "cv00000001")] },
+        };
+        var c = await Row(byCanvas);
+        Assert.Equal(("optimise.cpu:md_4k", Light.Amber), (c.Id, c.Light));
+        // A fixture that is off samples nothing.
+        var off = bySource with { Leds = new Core.Model.LedRig { Fixtures = [Fixture(Core.Model.LedSpace.Source, "media:md_4k") with { Enabled = false }] } };
+        Assert.Equal(Light.Green, (await Row(off)).Light);
+    }
+
+    [Fact]
     public async Task TheNodeComposesTheServiceAndItsCheckFromTheOptimiseExtension()
     {
         var parts = global::PlayMap.Engine.Host.EngineParts.Bare with

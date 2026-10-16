@@ -43,14 +43,16 @@ internal sealed class OptimiseRig : IAsyncDisposable
     public NodeHome Home => new(Path.Combine(Dir.FullName, "node"));
 
     public static OptimiseRig Start(Project? project = null, bool render = false, OptimiseOptions? options = null,
-        Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null)
+        Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null, Core.Led.ILedOutput? led = null)
     {
         FfmpegFactAttribute.UseDefaultLibraries();
         dir ??= Directory.CreateTempSubdirectory("playmap-optimise-");
         var home = new NodeHome(Path.Combine(dir.FullName, "node"));
         var media = new MediaBackend(home, NullLogger.Instance);
-        // The margin a show node keeps is 10 GB; a test box's disk is not the point here.
-        var node = OptimiseNodeSettings.Default with { MinFreeGb = 0 };
+        // The margin a show node keeps is 10 GB; a test box's disk is not the point here. Nor is the air: a frame the test node's own
+        // output drops under a loaded machine would pause a job for a minute, so the pause window is zero unless a test is about it
+        // (it asks for one through settings).
+        var node = OptimiseNodeSettings.Default with { MinFreeGb = 0, PauseAfterDropS = 0 };
         var service = new OptimiseService(home, settings?.Invoke(node) ?? node, NullLogger.Instance,
             options ?? new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100) });
         RenderHost? host = null;
@@ -67,6 +69,7 @@ internal sealed class OptimiseRig : IAsyncDisposable
             Optimise = service,
             ShowGate = gate,
             ProjectFolder = dir.FullName,
+            LedOutput = led,
         };
         var engine = new EngineCore(services, project ?? Project.CreateDefault("Optimise"));
         host?.Start(engine);

@@ -53,10 +53,13 @@ a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
 
 ## Preflight
 
-Section `optimise`: amber for each video the show plays at 4K or larger that this node decodes on the CPU (what plays here is not a
+Section `optimise`: amber for each video the show plays at 4K or larger (what outputs and surfaces show, through playlists, canvases
+and generators' inputs, and what enabled LED fixtures sample) that this node decodes on the CPU (what plays here is not a
 HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
 
 ## Not in the catalogue
 
 `MEDIA ESTIMATE` (estimates and the rate table) and `MEDIA VERSION` (removing a version, with the lossless rewriter) have
 no row: they are next (`docs/OPTIMISE.md`). The worker is the same exe's third role, `PlayMap optimise-worker` (docs/ARCHITECTURE.md §1).
+The governor reads dropped and late LED frames as it reads the outputs' drops, and "what the show plays" (preflight, the
+context's red) follows generator inputs and LED fixtures as well as outputs and surfaces.
