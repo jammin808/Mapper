@@ -53,9 +53,12 @@ public sealed class BackupNetworkAirTests
         Assert.Contains("hot backup of FOH-A", LedWords(backup), StringComparison.Ordinal);
         Assert.Equal("green", ContextLight(backup, "send:" + SendId(backup)));
         Assert.Equal("green", ContextLight(backup, "led:ln00000001"));
+        // Nor does its sound go out: the primary's is the air's.
+        Assert.Equal(0f, backup.Engine.AirAudioGain(backup.Engine.LeaderNowNs));
         // The primary sends all the while.
         Assert.True(ledA.Master);
         Assert.Equal(0, ndiA.Sinks[0].Closes);
+        Assert.Equal(1f, primary.Engine.AirAudioGain(primary.Engine.LeaderNowNs));
 
         // FAILOVER: the new primary sends from now on; the old primary is fenced, its LED black once then stopped, its send dark and closed.
         var takeover = await backup.RunAsync("FAILOVER");
@@ -70,6 +73,9 @@ public sealed class BackupNetworkAirTests
         Assert.Equal("held", SendState(primary));
         Assert.Equal("held", LedState(primary));
         Assert.Contains("fenced", LedWords(primary), StringComparison.Ordinal);
+        // The sound goes with them: the new primary's sounds, the fenced node's is silent.
+        Assert.Equal(1f, backup.Engine.AirAudioGain(backup.Engine.LeaderNowNs));
+        Assert.Equal(0f, primary.Engine.AirAudioGain(primary.Engine.LeaderNowNs));
 
         // The fenced node mirrors the new primary: still silent, no new sender, no new black frame.
         var heldCalls = ledA.Calls.Count;

@@ -16,7 +16,7 @@ public static class FleetRoles
 
     public static bool IsKnown(string role) => role is Solo or Primary or Backup or Fenced;
 
-    /// <summary>What a node in <paramref name="role"/> may put on the network beside its own outputs.</summary>
+    /// <summary>What a node in <paramref name="role"/> may put out beside its own outputs (LED data, sends, sound).</summary>
     public static NetworkAir AirOf(string role) => role switch
     {
         Backup => NetworkAir.Silent,
@@ -25,21 +25,22 @@ public static class FleetRoles
     };
 }
 
-/// <summary>What a node may put on the network beside its own outputs — its LED rig's data and its video sends — as its place in a
-/// hot-backup pair decides. The rig's nodes and universes are shared by every machine that drives them, and a send is received by
-/// name, so only the node that has the show sends; its own outputs (windows routed by the projectors' inputs) are the fleet's air
-/// gain's to decide.</summary>
+/// <summary>What a node may put out beside its own outputs — its LED rig's data, its video sends and the air's sound — as its place in
+/// a hot-backup pair decides. The rig's nodes and universes are shared by every machine that drives them, a send is received by name and
+/// the sound reaches the room's one system, none switched by a projector's input, so only the node that has the show puts them out;
+/// its own outputs (windows routed by the projectors' inputs) are the fleet's air gain's to decide.</summary>
 public enum NetworkAir
 {
-    /// <summary>The node has the show (solo or primary): its LED data and sends go out.</summary>
+    /// <summary>The node has the show (solo or primary): its LED data, sends and sound go out.</summary>
     Live,
 
-    /// <summary>A hot backup: nothing goes out (its primary's picture is on the rig and the network; the backup's would fight it), and
-    /// nothing goes black as it begins (the primary's frames are the rig's). FAILOVER makes it <see cref="Live"/>.</summary>
+    /// <summary>A hot backup: nothing goes out (its primary's picture and sound are on the rig, the network and the room; the backup's
+    /// would fight them), and nothing goes black as it begins (the primary's frames are the rig's). FAILOVER makes it
+    /// <see cref="Live"/>.</summary>
     Silent,
 
-    /// <summary>Fenced: held black — what it sent goes black once, as a stopped LED output or send does, then nothing goes out (the
-    /// new primary drives the rig and the network).</summary>
+    /// <summary>Fenced: held black — what it sent goes black once, as a stopped LED output or send does, then nothing goes out, its
+    /// sound silent (the new primary drives the rig, the network and the room).</summary>
     Held,
 }
 
