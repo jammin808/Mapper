@@ -1,5 +1,6 @@
-// The link: pairing over the web port's line channel (the HMAC proof, never the token), the node's words on a refused upgrade, the
-// TCP fallback for a node without a line channel, the stop on a wrong token, and replies matched by their ids, not by order.
+// The link: pairing over the web port's line channel (the HMAC proof, the node's known answer, never the token), the node's words on a
+// refused upgrade, the TCP fallback for a node without a line channel, the stop on a wrong token or a lockout, the backoff after a
+// node's passing fault, a rename that relinks, nothing published before the pairing, and replies matched by their ids, not by order.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { InstanceStatus, type JsonValue } from '@companion-module/base'
@@ -19,6 +20,54 @@ function helloOf(label: string): RegExp {
 	const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 	return new RegExp(`^@c\\d+ HELLO ${literal(`Companion:${label}`)} module=${literal(MODULE_VERSION)}$`, 'u')
 }
+
+// On fake timers, first in the file: no socket an earlier test closed is still closing on the real clock while this one mocks it. The
+// node is real, on loopback; the module's clocks, and the time each line reaches the node, are the test's.
+void test('a HELLO the node fails to greet is tried again after the backoff; only a token, a lockout or a pin halts', async (t) => {
+	t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_760_000_000_000 })
+	const node = await new FakeNode({ token: TOKEN, helloFaults: 1 }).start()
+	// random () => 0: the first backoff is its 1 s base times 0.8.
+	const m = await boot(configFor(node.webPort), { token: TOKEN }, { random: () => 0 })
+	try {
+		/** When each HELLO reached the node. */
+		const hellos = (): number[] =>
+			node.lines.flatMap((l, i) => (/^@c\d+ HELLO /u.test(l) ? [node.heardAt[i] ?? Number.NaN] : []))
+		/** Moves the clock on 10 ms at a time, letting the loopback answer between, until `done` holds or `budgetMs` is spent. */
+		const run = async (done: () => boolean, budgetMs: number): Promise<void> => {
+			for (let spent = 0; !done() && spent < budgetMs; spent += 10) {
+				t.mock.timers.tick(10)
+				await settle()
+			}
+		}
+		await run(() => hellos().length >= 2, 5000)
+		const [first, second] = hellos()
+		assert.ok(first !== undefined && second !== undefined, `two HELLOs, not ${hellos().length}`)
+		assert.ok(second - first >= 800, `the second HELLO waits the first backoff (800 ms), not ${second - first} ms`)
+		await run(() => m.host.status?.status === InstanceStatus.Ok, 5000)
+		assert.equal(m.host.status?.status, InstanceStatus.Ok, 'paired on the second try')
+		assert.equal(hellos().length, 2)
+		assert.ok(
+			m.host.statuses.some(
+				(s) =>
+					s.status === InstanceStatus.ConnectionFailure && s.message === 'the node faulted while greeting — try again',
+			),
+			"the node's fault is said in its words",
+		)
+		assert.ok(
+			m.host.statuses.every(
+				(s) => s.status !== InstanceStatus.AuthenticationFailure && s.status !== InstanceStatus.BadConfig,
+			),
+			JSON.stringify(m.host.statuses),
+		)
+		const links = m.host.variableLog.filter((v) => v.id === 'link').map((v) => v.value)
+		assert.ok(!links.includes('halted'), `the link never halted: ${JSON.stringify(links)}`)
+		assert.ok(links.includes('connecting'))
+		assert.equal(links.at(-1), 'live')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
 
 void test('a token proves itself by HMAC over the line channel; the token never crosses the wire', async () => {
 	const node = await new FakeNode({ token: TOKEN }).start()
@@ -224,19 +273,6 @@ void test('a token changed on the node halts the live link with words; the old o
 			proofs,
 			'the old token is not proved again',
 		)
-	} finally {
-		await m.stop()
-		await node.stop()
-	}
-})
-
-void test('a HELLO the node fails to greet is tried again after the backoff; only a token, a lockout or a pin halts', async () => {
-	const node = await new FakeNode({ token: TOKEN, helloFaults: 1 }).start()
-	const m = await boot(configFor(node.webPort), { token: TOKEN }, { random: () => 0 })
-	try {
-		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'paired on the second try')
-		assert.equal(node.sent().filter((l) => l.startsWith('HELLO')).length, 2)
-		assert.ok(m.host.statuses.every((s) => s.status !== InstanceStatus.UnknownError || m.instance.link() !== 'halted'))
 	} finally {
 		await m.stop()
 		await node.stop()

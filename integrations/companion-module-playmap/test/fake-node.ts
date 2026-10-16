@@ -65,6 +65,8 @@ function proofIsRight(token: string | undefined, nonce: string, name: string, pr
 export class FakeNode {
 	readonly options: FakeNodeOptions
 	readonly lines: string[] = []
+	/** When each of `lines` arrived, on this process's clock (Date.now(), the test's when it mocks Date). */
+	readonly heardAt: number[] = []
 	readonly sessions = new Set<Session>()
 	readonly handlers = new Map<string, Handler>()
 	state: unknown
@@ -258,6 +260,7 @@ export class FakeNode {
 	#line(session: Session, raw: string): void {
 		const text = raw.trim()
 		this.lines.push(text)
+		this.heardAt.push(Date.now())
 		for (const w of this.#waits.filter((x) => x.match(text))) w.done(text)
 		this.#waits = this.#waits.filter((x) => !x.match(text))
 		if (this.silent) return
