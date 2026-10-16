@@ -83,10 +83,19 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
   GPU passed it — two slots, so the renderer never holds more than two surfaces, and when both are in flight the last picture holds
   rather than the render thread waiting.
 - **Windows, D3D11VA on the renderer's device.** `HwDecode.D3d11vaOnShare` makes FFmpeg's D3D11VA device on the share's
-  `ID3D11Device` (AddRef'd for FFmpeg, BindFlags DECODER | SHADER_RESOURCE, lock callbacks into the share's recursive lock).
-  `AngleImporter` copies the decoder's array slice into one of three pooled NV12/P010 textures (`CopySubresourceRegion`) whose plane
-  images (`EGL_ANGLE_image_d3d11_texture` with the plane and array-slice attributes) are made once, or, when the source is on the
-  direct rung (`GpuSurface.Direct`), imports the slice itself, its images cached for that decoder's pool only; one device and one immediate context, so a frame is released as soon as its read is recorded.
+  `ID3D11Device` (AddRef'd for FFmpeg, BindFlags DECODER | SHADER_RESOURCE, lock callbacks into the share's recursive lock), and
+  only on a device made with video support and multithread protection (otherwise the share's words say which is missing and clips
+  copy back). The lock is the device's (`GpuDeviceLock`, `docs/OUTPUT.md`): the render loop holds it around each frame's ANGLE work,
+  so a decoder's begin–submit–end bracket and the renderer's drawing never interleave on the one immediate context; a frame waits
+  for a bracket at most 4 ms. `AngleImporter` makes its plane images through the DXGI platform's own ANGLE loader on the display
+  made on the share's device (never a libEGL found by name), inside the render loop's hold. It copies the decoder's array slice
+  into one of three pooled NV12/P010 textures (`CopySubresourceRegion`) whose plane images (`EGL_ANGLE_image_d3d11_texture` with
+  the plane and array-slice attributes) are made once, or, when the source is on the direct rung (`GpuSurface.Direct`), imports
+  the slice itself, its images cached for that decoder's pool only; one device and one immediate context, so a frame is released
+  as soon as its read is recorded.
+- **The GL API on Linux.** A desktop context on X11 is GLX unless `decode.glApi` is `egl`, which makes it (and its output windows)
+  on EGL: the display then imports dmabufs, `decode.platform.gl` says `egl`, and zero-copy is ready on a GPU whose EGL device names
+  a render node. The DXGI platform's binding reads `angle`.
 - **Padded surfaces.** The `yuv` program crops: `uCrop` is visible ÷ coded size and `uMaxUv` the last visible chroma texel's
   centre, so a 1920×1088 coded frame shows no padding row and chroma never filters into it. Dmabuf planes import at their visible
   size (no crop); D3D11 plane images cover the coded size.
@@ -137,6 +146,11 @@ and timed beside.
   convert to the CPU upload's picture bit for bit; holds, the two-surface limit, a failed import that keeps the last picture.
   `EGL_MESA_image_dma_buf_export` is absent on this display, so the export round trip says so and runs where Mesa offers it.
 - Padded surfaces (a 1920×1088 frame with a magenta padding band), the upload arena (uploads, fences, epochs, allocation-free).
+- The device lock (`GpuDeviceLockTests`; `DeviceLockHostTests` runs the render host on a GL platform wearing a shared device):
+  recursion, exclusion, the bounded take, letting go for a wait and taking every hold back, no allocation once warm; the loop
+  drawing inside the lock, never waiting past its bound while a sharer holds it, and a sharer taking it bracket by bracket.
+- `decode.glApi egl` on Xvfb: the desktop context and its output windows on EGL, the display's dmabuf share, `decode.platform.gl`
+  reading `egl` (`GlApiTests`, `DecodeGlApiTests`).
 - **Compile-only**: VAAPI decode and its DRM mapping (no VA driver, no `/dev/dri`), D3D11VA and the ANGLE importer (a
   `Category=Windows` test opens the D3D11VA device on a WARP device on CI, or says why — WARP has no video decoder and the runner
   has no FFmpeg). Fallback for both: copy-back or software, with the words why. **Lab**: Intel/AMD VAAPI, NVIDIA/Intel D3D11VA.
@@ -145,8 +159,8 @@ and timed beside.
 
 - The direct-sampling proof (`DECODE PROBE`, `NodeHome/decode-proof.json`), the EGLImage cache per VA surface, the per-item decode
   override, a measured `importMsP95` (0 this round), promoting a clip opened before the render context said what it imports (it
-  stays on copy-back, honestly reported, until it is opened again), raw HAP straight from disk into the arena, CUDA → GL; `decode.glApi` (an EGL desktop context on X11) needs the render
-  context's API choice in `RenderContext` (wp2-d3d11's file): today a desktop context on X11 is GLX and imports no dmabufs.
+  stays on copy-back, honestly reported, until it is opened again), raw HAP straight from disk into the arena, CUDA → GL;
+  `decode.glApi auto` choosing EGL for a desktop context on Linux (it is GLX unless `egl` is asked).
 - `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens without a loop of its own, so a
   clip that ends holds its last frame and a looping item (a library item shown directly, a looping playlist clip) wraps through a
   seek — the frame before the loop point holds for the seek's few milliseconds instead of the loop being gapless — and a HAP

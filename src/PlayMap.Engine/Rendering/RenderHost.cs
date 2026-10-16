@@ -29,6 +29,10 @@ public sealed record RenderHostOptions
     /// <summary>The platform asked for: the present path and the GL dialect (NodeSettings.Present), or no window system at all.</summary>
     public PlatformRequest Platform { get; init; } = PlatformRequest.Default;
 
+    /// <summary>What a "dxgi" path is made by (null: this machine's — the flip-model platform on Windows, none elsewhere); tests hand
+    /// in a platform of their own.</summary>
+    public Func<GlDeviceOptions, IGpuPlatform>? Dxgi { get; init; }
+
     /// <summary>The present fuse this start armed (the DXGI path, explicit); the host deletes it once every display output reached its
     /// first settled frames (null: no fuse — a GL start, or a test).</summary>
     public Presentation.PresentFuse? Fuse { get; init; }
@@ -245,7 +249,8 @@ public sealed partial class RenderHost : IRenderHost
         ArgumentNullException.ThrowIfNull(request);
         var log = request.Logs.CreateLogger("PlayMap.Render");
         // The node home's settings, not the run's: PRESENT PATH saved them for this start.
-        var present = request.Home.LoadSettings(request.Settings.Name).Present;
+        var saved = request.Home.LoadSettings(request.Settings.Name);
+        var present = saved.Present;
         var fuse = new PresentFuse(request.Home.Folder, () => request.Wall.UnixMs);
         var (path, fuseWords) = PresentChoice.Decide(present.Path, fuse.Read());
         var armed = path == "dxgi" && OperatingSystem.IsWindows() && !request.Options.Headless;
@@ -254,7 +259,7 @@ public sealed partial class RenderHost : IRenderHost
         var host = TryCreate(RenderHostOptions.Default with
         {
             Windows = !request.Options.Headless,
-            Platform = new PlatformRequest(path, present.Dialect) { Words = fuseWords },
+            Platform = new PlatformRequest(path, present.Dialect) { Words = fuseWords, GlApi = saved.Decode.GlApi },
             Fuse = armed ? fuse : null,
             FrameLockAuto = !string.Equals(present.FrameLock, "off", StringComparison.OrdinalIgnoreCase),
             SwapGroup = (uint)Math.Max(1, present.SwapGroup),
@@ -476,7 +481,9 @@ public sealed partial class RenderHost : IRenderHost
     {
         try
         {
-            _platform = GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
+            _platform = _options.Dxgi is { } dxgi
+                ? GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default, dxgi)
+                : GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
             _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
             _context = _platform.Context;
             _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
@@ -522,34 +529,45 @@ public sealed partial class RenderHost : IRenderHost
     {
         _deadlineNs = MonoClock.Instance.NowNs;
         var faults = 0;
+        // A device other threads share (the DXGI path's, decoders on it): held around each frame and the work between frames, taken
+        // within its bound (past it the frame draws on the device's own per-call ordering, counted), let go of before the pacing wait.
+        var deviceLock = _platform?.DeviceLock;
         while (!_stopping)
         {
             var bytesBefore = GC.GetAllocatedBytesForCurrentThread();
             var start = MonoClock.Instance.NowNs;
+            _ = deviceLock?.TryEnter(Core.Media.GpuDeviceLock.FrameBoundMs);
             try
             {
-                Frame(engine);
-                faults = 0;
+                try
+                {
+                    Frame(engine);
+                    faults = 0;
+                }
+                catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException)
+                {
+                    // One bad frame is journalled and the next is drawn; a fault every frame for a while (a lost
+                    // context) stops the loop, and the engine plays on with its outputs closed.
+                    if (faults++ == 0)
+                        engine.Journal.Add("fault", $"render frame: {ex.GetType().Name}: {ex.Message}", ok: false);
+                    _context!.Device.InvalidateState();
+                    if (faults >= FaultLimit)
+                        throw;
+                }
+                var end = MonoClock.Instance.NowNs;
+                Interlocked.Add(ref _framePathBytes, GC.GetAllocatedBytesForCurrentThread() - bytesBefore);
+                var frames = Interlocked.Increment(ref _frames);
+                lock (_frameMsGate)
+                    _frameMs[(int)((frames - 1) % FrameRing)] = (end - start) / 1e6;
+                if (Volatile.Read(ref _frameWaiterCount) > 0)
+                    ReleaseFrameWaiters(frames);
+                while (_work.TryDequeue(out var work))
+                    work();
             }
-            catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException)
+            finally
             {
-                // One bad frame is journalled and the next is drawn; a fault every frame for a while (a lost
-                // context) stops the loop, and the engine plays on with its outputs closed.
-                if (faults++ == 0)
-                    engine.Journal.Add("fault", $"render frame: {ex.GetType().Name}: {ex.Message}", ok: false);
-                _context!.Device.InvalidateState();
-                if (faults >= FaultLimit)
-                    throw;
+                deviceLock?.ExitAll();
             }
-            var end = MonoClock.Instance.NowNs;
-            Interlocked.Add(ref _framePathBytes, GC.GetAllocatedBytesForCurrentThread() - bytesBefore);
-            var frames = Interlocked.Increment(ref _frames);
-            lock (_frameMsGate)
-                _frameMs[(int)((frames - 1) % FrameRing)] = (end - start) / 1e6;
-            if (Volatile.Read(ref _frameWaiterCount) > 0)
-                ReleaseFrameWaiters(frames);
-            while (_work.TryDequeue(out var work))
-                work();
             Pace(engine, start);
         }
     }
@@ -800,6 +818,9 @@ public sealed partial class RenderHost : IRenderHost
     private void TearDown()
     {
         _scan.Dispose();
+        // The GPU objects go under the shared device's lock as frames are drawn (taken within its bound; let go of before the device).
+        var deviceLock = _platform?.DeviceLock;
+        _ = deviceLock?.TryEnter(Core.Media.GpuDeviceLock.FrameBoundMs);
         try
         {
             // Every output leaves the lock before its window goes.
@@ -813,6 +834,7 @@ public sealed partial class RenderHost : IRenderHost
             // The renderer first: its readbacks write into the views' rings until it is gone.
             _renderer?.Dispose();
             DisposePreviews();
+            deviceLock?.ExitAll();
             if (_platform is not null)
                 _platform.Dispose();
             else
@@ -821,6 +843,11 @@ public sealed partial class RenderHost : IRenderHost
         catch (Exception ex) when (ex is GlException or InvalidOperationException or ObjectDisposedException)
         {
             _startFailure ??= $"the render context did not close cleanly: {ex.Message}";
+        }
+        finally
+        {
+            // A teardown that stopped part way still lets the sharers in (none is left holding on a thread that ends).
+            deviceLock?.ExitAll();
         }
         lock (_waiterGate)
         {

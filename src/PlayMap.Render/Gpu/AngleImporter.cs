@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using PlayMap.Core.Media;
+using PlayMap.Render.Platform.Windows;
 
 namespace PlayMap.Render.Gpu;
 
@@ -42,8 +43,10 @@ public record struct D3D11Box(uint Left, uint Top, uint Front, uint Right, uint 
 /// imported, its images cached per (array, slice, plane) for the decoder pool's life. Plane textures cover the coded size, so the
 /// `yuv` pass crops (uCrop, uMaxUv).
 /// <para>One device, one immediate context: the decoder's writes, the copy and the draw are recorded on one context, which runs
-/// them in order, so a frame is released as soon as its read is recorded — no fence and no extra held surface. Compile-only
-/// here; written to the D3D11 and ANGLE extension documentation. Render thread only.</para></summary>
+/// them in order, so a frame is released as soon as its read is recorded — no fence and no extra held surface. The images are made
+/// through the platform's own ANGLE loader on the display made on the share's device (<see cref="IAngleDisplay"/>), never a libEGL
+/// found by name. Render thread only, inside the render loop's hold of the device's lock (the decoders take it around their
+/// brackets), so it takes no lock of its own. Compile-only here; written to the D3D11 and ANGLE extension documentation.</para></summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe class AngleImporter : IDisposable
 {
@@ -59,7 +62,7 @@ public sealed unsafe class AngleImporter : IDisposable
     private readonly nint _display;
     private readonly nint _create;
     private readonly nint _destroy;
-    private readonly nint _proc;
+    private readonly AngleEgl _egl;
     private readonly Pooled[] _pool = new Pooled[PoolSize];
     private readonly Dictionary<(nint, int, int), (nint Image, GpuTexture Texture)> _direct = [];
     private long _directEpoch = -1;
@@ -78,17 +81,17 @@ public sealed unsafe class AngleImporter : IDisposable
         public GpuTexture? Chroma;
     }
 
-    private AngleImporter(GlDevice device, IGpuShare share, nint display, nint create, nint destroy, nint proc)
+    private AngleImporter(GlDevice device, IGpuShare share, nint display, nint create, nint destroy, AngleEgl egl)
     {
         _device = device;
         _share = share;
         _display = display;
         _create = create;
         _destroy = destroy;
-        _proc = proc;
+        _egl = egl;
     }
 
-    /// <summary>An importer for the ANGLE context current on this thread, or null with words.</summary>
+    /// <summary>An importer for the share's ANGLE display, current on this thread, or null with words.</summary>
     public static AngleImporter? ForCurrentContext(GlDevice device, IGpuShare share, out string words)
     {
         ArgumentNullException.ThrowIfNull(device);
@@ -99,32 +102,26 @@ public sealed unsafe class AngleImporter : IDisposable
             words = "the renderer shares no D3D11 device";
             return null;
         }
-        if (!NativeLibrary.TryLoad("libEGL.dll", out var egl) || !NativeLibrary.TryGetExport(egl, "eglGetProcAddress", out var proc)
-            || !NativeLibrary.TryGetExport(egl, "eglGetCurrentDisplay", out var current))
+        if (share is not IAngleDisplay angle || angle.Display == 0)
         {
-            words = "ANGLE's libEGL is not loaded: D3D11 frames cannot be imported";
+            words = "the D3D11 device is not ANGLE's: its frames cannot be imported";
             return null;
         }
-        var display = ((delegate* unmanaged<nint>)current)();
-        var getProc = (delegate* unmanaged<byte*, nint>)proc;
-        var create = Proc(getProc, "eglCreateImageKHR");
-        var destroy = Proc(getProc, "eglDestroyImageKHR");
-        if (display == 0 || create == 0 || destroy == 0)
+        var egl = angle.Egl;
+        if (egl.CreateImageKhr is null || egl.DestroyImageKhr is null || egl.GetCurrentDisplay is null)
         {
-            words = "the ANGLE display has no image entry points";
+            words = "ANGLE has no image entry points (EGL_KHR_image_base)";
             return null;
         }
-        return new AngleImporter(device, share, display, create, destroy, proc);
+        if (egl.GetCurrentDisplay() != angle.Display)
+        {
+            words = "the current context is not on the display made on the share's device";
+            return null;
+        }
+        return new AngleImporter(device, share, angle.Display, (nint)egl.CreateImageKhr, (nint)egl.DestroyImageKhr, egl);
     }
 
-    private static nint Proc(delegate* unmanaged<byte*, nint> getProc, string name)
-    {
-        var bytes = System.Text.Encoding.ASCII.GetBytes(name + "\0");
-        fixed (byte* p = bytes)
-            return getProc(p);
-    }
-
-    private nint GlProc(string name) => Proc((delegate* unmanaged<byte*, nint>)_proc, name);
+    private nint GlProc(string name) => _egl.Proc(name);
 
     /// <summary>The plane textures of the frame (luma, chroma) at the coded size the `yuv` pass crops from; false with words when
     /// ANGLE refused (the source steps down).</summary>
@@ -142,17 +139,9 @@ public sealed unsafe class AngleImporter : IDisposable
             words = "not a D3D11 frame";
             return false;
         }
-        _share.Enter();
-        try
-        {
-            // The rung is the source's (GpuSurface.Direct): what it reports is what is done here.
-            return surface.Direct ? Direct(surface, out luma, out chroma, out words)
-                : Copy(surface, out luma, out chroma, out codedWidth, out codedHeight, out words);
-        }
-        finally
-        {
-            _share.Exit();
-        }
+        // The rung is the source's (GpuSurface.Direct): what it reports is what is done here.
+        return surface.Direct ? Direct(surface, out luma, out chroma, out words)
+            : Copy(surface, out luma, out chroma, out codedWidth, out codedHeight, out words);
     }
 
     private bool Copy(GpuSurface surface, out GpuTexture luma, out GpuTexture chroma, out int codedWidth, out int codedHeight, out string words)

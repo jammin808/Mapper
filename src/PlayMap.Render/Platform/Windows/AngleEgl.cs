@@ -56,6 +56,11 @@ internal sealed unsafe class AngleEgl : IDisposable
     public delegate* unmanaged<nint, int, nint*, uint> QueryDisplayAttribExt { get; private set; }
     public delegate* unmanaged<nint, int, nint*, uint> QueryDeviceAttribExt { get; private set; }
 
+    // The decode importer's (EGL_KHR_image_base, core eglGetCurrentDisplay): null where this ANGLE has none; the importer says so.
+    public delegate* unmanaged<nint, nint, int, nint, int*, nint> CreateImageKhr { get; private set; }
+    public delegate* unmanaged<nint, nint, uint> DestroyImageKhr { get; private set; }
+    public delegate* unmanaged<nint> GetCurrentDisplay { get; private set; }
+
     /// <summary>Loads the library beside the exe (or the assembly) and resolves every entry point; throws at stage Angle with words
     /// naming what is missing.</summary>
     public static AngleEgl Load()
@@ -98,6 +103,9 @@ internal sealed unsafe class AngleEgl : IDisposable
         QueryDeviceStringExt = (delegate* unmanaged<nint, int, byte*>)Extension("eglQueryDeviceStringEXT");
         QueryDisplayAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Extension("eglQueryDisplayAttribEXT");
         QueryDeviceAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Extension("eglQueryDeviceAttribEXT");
+        CreateImageKhr = (delegate* unmanaged<nint, nint, int, nint, int*, nint>)Extension("eglCreateImageKHR");
+        DestroyImageKhr = (delegate* unmanaged<nint, nint, uint>)Extension("eglDestroyImageKHR");
+        GetCurrentDisplay = (delegate* unmanaged<nint>)Extension("eglGetCurrentDisplay");
     }
 
     private nint Export(string name) =>
@@ -128,4 +136,14 @@ internal sealed unsafe class AngleEgl : IDisposable
     /// <summary>Lets the entry points go; the library itself stays loaded for the process (ANGLE keeps worker threads of its own,
     /// and the desk's own ANGLE use loads the same file), so nothing is freed.</summary>
     public void Dispose() => _library = 0;
+}
+
+/// <summary>A device share whose ANGLE display was made on that device: the one loader (<see cref="AngleEgl"/>, the platform's) and
+/// the display the decode importer makes its plane images on — a D3D11 texture imports only into a display made on its own device.</summary>
+[SupportedOSPlatform("windows")]
+internal interface IAngleDisplay
+{
+    AngleEgl Egl { get; }
+
+    nint Display { get; }
 }

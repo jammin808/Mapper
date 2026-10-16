@@ -128,6 +128,7 @@ public sealed class AnglePlatform : IGpuPlatform
     private readonly D3D11Adapter _adapter;
     private readonly AngleContext _angle;
     private readonly D3D11Share _share;
+    private readonly GpuDeviceLock _deviceLock = new();
     private readonly DwmNudge _nudge = new();
     private bool _disposed;
 
@@ -136,7 +137,7 @@ public sealed class AnglePlatform : IGpuPlatform
         _adapter = adapter;
         _angle = angle;
         Context = context;
-        _share = new D3D11Share(adapter, context);
+        _share = new D3D11Share(adapter, angle, context, _deviceLock);
     }
 
     /// <summary>Brings the platform up stage by stage (<see cref="DxgiStartStage"/>); throws <see cref="GpuPlatformStartException"/>
@@ -195,6 +196,10 @@ public sealed class AnglePlatform : IGpuPlatform
 
     public IGpuShare Share => _share;
 
+    /// <summary>The device's lock: decoders (FFmpeg's lock callbacks) and texture sharers take it around their immediate-context work;
+    /// the render loop holds it around each frame and every window lets go of it while it waits on its swap chain.</summary>
+    public GpuDeviceLock DeviceLock => _deviceLock;
+
     /// <summary>"Direct3D 11 + ANGLE · NVIDIA RTX A4000".</summary>
     public string Adapter => "Direct3D 11 + ANGLE · " + _adapter.Name;
 
@@ -205,7 +210,7 @@ public sealed class AnglePlatform : IGpuPlatform
     public IOutputPresenter CreatePresenter(OutputPresenterOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return DxgiOutputWindow.Create(_adapter, _angle, Context, options, _nudge);
+        return DxgiOutputWindow.Create(_adapter, _angle, Context, options, _nudge, _deviceLock);
     }
 
     /// <summary>Messages are pumped by each window's frame wait and here, between frames; never blocks.</summary>
@@ -222,11 +227,14 @@ public sealed class AnglePlatform : IGpuPlatform
         _adapter.Dispose();
     }
 
-    /// <summary>The device as decoders see it: Direct3D 11 with its LUID; multithread-protected, so single calls from other threads
-    /// are ordered. ANGLE keeps pipeline state on the immediate context, so a sharer issues no immediate-context work on it from another
-    /// thread: decoders and texture sharers open what they need by share handle on a device of their own (Spout does), or on a
-    /// deferred path a later round adds behind Enter/Exit.</summary>
-    private sealed class D3D11Share(D3D11Adapter adapter, RenderContext context) : IGpuShare
+    /// <summary>The device as decoders see it: Direct3D 11 with its LUID, the device ANGLE's display was made on (so the importer's
+    /// plane images of a decoder's texture are legal), and its lock. ANGLE records the renderer's work onto the device's immediate
+    /// context; a sharer — FFmpeg's D3D11VA decoder through its lock callbacks, a texture sharer on this device — issues
+    /// immediate-context work only inside Enter/Exit, which the render loop holds around each frame (<see cref="GpuDeviceLock"/>).
+    /// Multithread protection is the floor under it: each call is ordered even in a frame drawn past the lock's bound. Decoders
+    /// go on it only when it was made with video support and that protection (<see cref="ZeroCopyWords"/>). No proof of direct
+    /// sampling runs this round, so <see cref="DirectProven"/> is false: the direct rung is only ever forced.</summary>
+    private sealed class D3D11Share(D3D11Adapter adapter, AngleContext angle, RenderContext context, GpuDeviceLock deviceLock) : IGpuShare, IAngleDisplay
     {
         private static long _epochs;
         private readonly Dictionary<string, string> _failures = new(StringComparer.Ordinal);
@@ -249,15 +257,18 @@ public sealed class AnglePlatform : IGpuPlatform
 
         public bool CanImport(GpuSurfaceFormat format, uint fourcc, ulong modifier) => false;
 
-        public void Enter()
-        {
-            // The device is multithread-protected (ID3D10Multithread): its own lock orders the decoders' calls with ours.
-        }
+        public string ZeroCopyWords { get; } =
+            !adapter.VideoSupport ? $"the renderer's Direct3D 11 device on {adapter.Name} has no video support: decoders copy frames back"
+            : !adapter.MultithreadProtected ? "the renderer's Direct3D 11 device is not multithread-protected: decoders copy frames back"
+            : "";
 
-        public void Exit()
-        {
-            // As Enter.
-        }
+        public AngleEgl Egl => angle.Egl;
+
+        public nint Display => angle.Display;
+
+        public void Enter() => deviceLock.Enter();
+
+        public void Exit() => deviceLock.Exit();
 
         public void ReportImportFailure(string sourceKey, string words)
         {

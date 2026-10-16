@@ -141,7 +141,8 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
   (`{"pm":1,"node","send","rate","tap","frame","leaderNs","w","h"}`). Spout shows no receivers, so a send counts one connection (its
   shared texture) and sends whenever it is on; stopping sends one black frame and removes the name.
 - **The GPU target** (`IGpuSendTarget`, videoio's GPU send provider) gives a renderer the shared texture to draw into, made on the
-  renderer's own Direct3D 11 device when it has one (`IGpuShare`), with the same lock and counter (a frame of another size is
+  renderer's own Direct3D 11 device when it has one (`IGpuShare`; every call on its immediate context under the device's lock, which
+  the render loop holds around each frame), with the same lock and counter (a frame of another size is
   skipped and counted, never remade on the frame path); videoio's send stage drives the packed path this round, so Spout sends go through it.
 - **Spout's device** is its own Direct3D 11 device (the default adapter; WARP on CI): the renderer is OpenGL on `auto`, and the shared
   textures are legacy share handles, as Spout publishes them.

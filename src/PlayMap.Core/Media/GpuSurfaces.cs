@@ -57,21 +57,33 @@ public interface IGpuSurfaceOwner
 }
 
 /// <summary>The renderer's device as decoders and texture-share inputs see it: what it can import, the D3D11 device to decode
-/// on, its lock. Made by the render platform (wp2-output) and handed to decoders through IMediaBackend.UseGpu.</summary>
+/// on, its lock. Made by the render platform and handed to decoders through IMediaBackend.UseGpu.</summary>
 public interface IGpuShare
 {
     GpuApi Api { get; }
     string Describe { get; }
+
+    /// <summary>The ID3D11Device* (not AddRef'd) when <see cref="Api"/> is D3D11, else 0. The renderer draws through its immediate
+    /// context: a sharer issues immediate-context work on it only between <see cref="Enter"/> and <see cref="Exit"/>.</summary>
     nint D3D11Device { get; }
     long AdapterLuid { get; }
     string? DrmRenderNode { get; }
     long DeviceEpoch { get; }
+
+    /// <summary>Sampling decoder surfaces in place is proven on this driver (no proof runs on D3D11 yet: false there).</summary>
     bool DirectProven { get; }
     bool CanImport(GpuSurfaceFormat format, uint fourcc, ulong modifier);
+
+    /// <summary>Takes the device's recursive lock (<see cref="GpuDeviceLock"/>), waiting while another thread holds it — the render
+    /// thread holds it around each frame's work on a shared device. A device nothing else draws on has nothing to take.</summary>
     void Enter();
     void Exit();
     void ReportImportFailure(string sourceKey, string words);
     bool ImportFailed(string sourceKey, out string words);
+
+    /// <summary>Why decoders cannot decode onto this device ("" when they can): a D3D11 device made without video support or
+    /// without multithread protection, a software GL.</summary>
+    string ZeroCopyWords => "";
 }
 
 /// <summary>Block-compressed families the renderer samples on this node, and whether it stages through a persistent buffer.</summary>

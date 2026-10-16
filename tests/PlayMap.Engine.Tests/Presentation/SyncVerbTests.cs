@@ -240,9 +240,11 @@ public sealed class FrameLockHostTests
     }
 
     /// <summary>A presenter that returns as a vsync'd swap does, just after the next vblank of a 60 Hz grid on the monotonic clock,
-    /// and holds every tenth present four periods more (a software rasteriser, a display server's round trip, a starved thread):
-    /// each present lasts at least that long whatever the machine's load.</summary>
-    private sealed class HeldPresenter : IOutputPresenter
+    /// and holds every tenth present (each lasts at least that long whatever the machine's load). On the GL contract a held present
+    /// returns four periods late (a software rasteriser, a display server's round trip, a starved thread); on the DXGI flip contract
+    /// (<c>DxgiOutputWindow</c>) a held present is a full queue — <c>Present1(DO_NOT_WAIT)</c> answers at once that it queued nothing
+    /// — and every fifteenth waits out the waitable's cap of three periods.</summary>
+    private sealed class HeldPresenter(PresentPath path) : IOutputPresenter
     {
         private const double Period = 1e9 / 60;
         private readonly long _start = MonoClock.Instance.NowNs;
@@ -251,7 +253,7 @@ public sealed class FrameLockHostTests
         public int Width => 64;
         public int Height => 36;
         public bool IsClosing => false;
-        public PresentPath Path => PresentPath.GlWindow;
+        public PresentPath Path => path;
         public int SwapInterval { get; private set; }
         public long LastSwapNs { get; private set; }
         public int Held { get; private set; }
@@ -265,8 +267,11 @@ public sealed class FrameLockHostTests
             var hold = ++_presents % 10 == 0;
             if (hold)
                 Held++;
+            if (hold && path == PresentPath.DxgiFlip)
+                return new PresentResult(false, MonoClock.Instance.NowNs, PresentProblem.Held);
+            var capped = path == PresentPath.DxgiFlip && _presents % 15 == 0;
             var now = MonoClock.Instance.NowNs;
-            var k = (long)Math.Floor((now - _start) / Period) + (hold ? 5 : 1);
+            var k = (long)Math.Floor((now - _start) / Period) + (hold ? 5 : capped ? 3 : 1);
             var returns = _start + (long)Math.Round(k * Period);
             var spin = new SpinWait();
             while (MonoClock.Instance.NowNs < returns)
@@ -281,15 +286,18 @@ public sealed class FrameLockHostTests
         }
     }
 
-    /// <summary>Presents that take four periods while joined are the node's own slowness, not the barrier's: the output locks
-    /// through them. Only the driver's own fact, its barrier wait timing out, makes it fall out with the stall's words.</summary>
-    [Fact]
-    public async Task APresentThatTakesLongIsNoBarrierStallAndOnlyTheBarriersOwnTimeoutIs()
+    /// <summary>Presents that take four periods while joined (GL), or a flip queue that is full and a waitable that waits out its
+    /// cap (DXGI), are the node's own pace, not the barrier's: the output locks through them. Only the driver's own fact, its barrier
+    /// wait timing out, makes it fall out with the stall's words.</summary>
+    [Theory]
+    [InlineData(PresentPath.GlWindow)]
+    [InlineData(PresentPath.DxgiFlip)]
+    public async Task APresentThatTakesLongIsNoBarrierStallAndOnlyTheBarriersOwnTimeoutIs(PresentPath path)
     {
         var (rig, driver) = Start(Screen("op_a"));
         await using var _rig = rig;
         await Until(rig, () => rig.Host.Board is not null && rig.Host.Locks().Count == 1, "the board was never seen");
-        using var presenter = new HeldPresenter();
+        using var presenter = new HeldPresenter(path);
         await rig.Host.InvokeAsync(r =>
         {
             r.Attach("op_a", presenter, 60);

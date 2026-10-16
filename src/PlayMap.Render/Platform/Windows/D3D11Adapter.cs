@@ -4,9 +4,9 @@ using System.Runtime.Versioning;
 namespace PlayMap.Render.Platform.Windows;
 
 /// <summary>The Direct3D 11 device the flip path renders on: the DXGI factory, the adapter that drives the first display output (or
-/// the first adapter, or WARP — the software rasteriser CI runs on), the device with BGRA and video support, its immediate context
-/// and multithread protection switched on (decoders share the device). Owns every COM pointer it made and releases them in reverse
-/// order. Render thread.</summary>
+/// the first adapter, or WARP — the software rasteriser CI runs on), the device with BGRA and video support (without video support
+/// where the adapter refuses it, which <see cref="VideoSupport"/> says), its immediate context and multithread protection switched on
+/// (decoders share the device). Owns every COM pointer it made and releases them in reverse order. Render thread.</summary>
 [SupportedOSPlatform("windows")]
 internal sealed unsafe class D3D11Adapter : IDisposable
 {
@@ -31,6 +31,13 @@ internal sealed unsafe class D3D11Adapter : IDisposable
     public long Luid { get; private set; }
 
     public bool Warp { get; private set; }
+
+    /// <summary>The device was made with D3D11_CREATE_DEVICE_VIDEO_SUPPORT (WARP and some drivers refuse it: decoders cannot use it).</summary>
+    public bool VideoSupport { get; private set; }
+
+    /// <summary>ID3D10Multithread::SetMultithreadProtected took: every immediate-context call is ordered under the device's own
+    /// lock, so a sharer's call on another thread never interleaves inside one of the renderer's.</summary>
+    public bool MultithreadProtected { get; private set; }
 
     /// <summary>Makes the device on the adapter whose outputs include <paramref name="displayName"/> ("\\.\DISPLAY2"; null or no
     /// match: the first adapter), or on WARP. Throws <see cref="GpuPlatformStartException"/> with the stage and words.</summary>
@@ -65,6 +72,7 @@ internal sealed unsafe class D3D11Adapter : IDisposable
         var flags = DxgiNative.CreateBgraSupport | DxgiNative.CreateVideoSupport;
         hr = DxgiNative.D3D11CreateDevice(_adapter, _adapter != 0 ? DxgiNative.DriverTypeUnknown : DxgiNative.DriverTypeWarp, 0, flags,
             levels, 2, DxgiNative.SdkVersion, &device, &level, &context);
+        VideoSupport = hr >= 0;
         if (hr < 0 && (flags & DxgiNative.CreateVideoSupport) != 0)
         {
             // WARP and some drivers have no video support: the renderer does not need it, decoders say so on their own.
@@ -83,6 +91,7 @@ internal sealed unsafe class D3D11Adapter : IDisposable
         {
             _ = ((delegate* unmanaged<nint, int, int>)Com.Slot(mt, ComSlots.MultithreadSetMultithreadProtected))(mt, 1);
             Com.Release(ref mt);
+            MultithreadProtected = true;
         }
     }
 

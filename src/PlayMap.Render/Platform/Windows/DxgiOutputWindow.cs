@@ -46,6 +46,7 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
     private readonly Func<nint, Pbuffer> _wrap;
     private uint _lastStatsCount;
     private long _lastStatsNs;
+    private Core.Media.GpuDeviceLock? _deviceLock;
     private bool _disposed;
 
     private DxgiOutputWindow(D3D11Adapter adapter, AngleContext angle, RenderContext context, DwmNudge nudge, int width, int height, double hz)
@@ -82,14 +83,18 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
     /// <summary>How many times buffer 0 was wrapped (one per swap chain, again after a resize or a device loss).</summary>
     public int BackBufferWraps => _backBuffer.Wraps;
 
-    public static DxgiOutputWindow Create(D3D11Adapter adapter, AngleContext angle, RenderContext context, OutputPresenterOptions options, DwmNudge nudge)
+    public static DxgiOutputWindow Create(D3D11Adapter adapter, AngleContext angle, RenderContext context, OutputPresenterOptions options, DwmNudge nudge,
+        Core.Media.GpuDeviceLock deviceLock)
     {
         var (x, y, w, h) = (options.X, options.Y, options.Width, options.Height);
         if (options.Monitor is { } m && options.Borderless)
             (x, y, w, h) = (m.X, m.Y, Math.Max(1, m.Width), Math.Max(1, m.Height));
         else if (options.Monitor is { } placed)
             (x, y) = (placed.X + options.X, placed.Y + options.Y);
-        var window = new DxgiOutputWindow(adapter, angle, context, nudge, Math.Max(1, w), Math.Max(1, h), options.Monitor?.RefreshHz ?? 60);
+        var window = new DxgiOutputWindow(adapter, angle, context, nudge, Math.Max(1, w), Math.Max(1, h), options.Monitor?.RefreshHz ?? 60)
+        {
+            _deviceLock = deviceLock,
+        };
         try
         {
             window.Open(options, x, y);
@@ -195,22 +200,31 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
     public void SetSwapInterval(int interval) => SwapInterval = interval;
 
     /// <summary>Waits until the swap chain takes a new frame, pumping messages, at most three periods (a stall is the air's, never
-    /// the thread's): true when it signalled.</summary>
+    /// the thread's): true when it signalled. The device's lock is let go of for the wait (decoders on the device submit while the
+    /// frame waits for the vertical blank) and taken back within its bound after.</summary>
     private bool WaitForFrame()
     {
-        var deadline = MonoClock.Instance.NowNs + (long)(3 * _periodMs * 1e6);
-        var handle = _waitable;
-        while (true)
+        var holds = _deviceLock?.ExitAll() ?? 0;
+        try
         {
-            var left = (deadline - MonoClock.Instance.NowNs) / 1_000_000;
-            if (left < 0)
-                return false;
-            var r = DxgiNative.MsgWaitForMultipleObjectsEx(1, &handle, (uint)left, DxgiNative.QsAllInput, DxgiNative.MwmoInputAvailable);
-            if (r == DxgiNative.WaitObject0)
-                return true;
-            if (r != DxgiNative.WaitObject0 + 1)
-                return false;
-            PumpMessages();
+            var deadline = MonoClock.Instance.NowNs + (long)(3 * _periodMs * 1e6);
+            var handle = _waitable;
+            while (true)
+            {
+                var left = (deadline - MonoClock.Instance.NowNs) / 1_000_000;
+                if (left < 0)
+                    return false;
+                var r = DxgiNative.MsgWaitForMultipleObjectsEx(1, &handle, (uint)left, DxgiNative.QsAllInput, DxgiNative.MwmoInputAvailable);
+                if (r == DxgiNative.WaitObject0)
+                    return true;
+                if (r != DxgiNative.WaitObject0 + 1)
+                    return false;
+                PumpMessages();
+            }
+        }
+        finally
+        {
+            _ = _deviceLock?.Reenter(holds, Core.Media.GpuDeviceLock.FrameBoundMs);
         }
     }
 

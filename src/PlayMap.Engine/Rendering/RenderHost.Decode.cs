@@ -3,6 +3,7 @@ using PlayMap.Core.Media.Decode;
 using PlayMap.Render.Decode;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
+using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -46,7 +47,8 @@ public sealed partial class RenderHost
         ZeroCopyPlatform facts;
         if (platform is { Api: GpuApi.D3D11 })
         {
-            facts = DecodeLadder.Platform(platform, true, "");
+            // Decoders go on the renderer's own device: ready when it was made with video support and multithread protection.
+            facts = DecodeLadder.Platform(platform, platform.ZeroCopyWords.Length == 0, platform.ZeroCopyWords);
         }
         else if (DmaBufShare.ForCurrentContext(platform, device.Renderer) is { } dmabuf)
         {
@@ -65,7 +67,8 @@ public sealed partial class RenderHost
 
     partial void OnContextDecode(RenderEngine renderer)
     {
-        _decodeBinding = GlDevice.CurrentBinding();
+        // ANGLE's EGL is the DXGI platform's own library (no libEGL a binding probe would find): its binding is said by the platform.
+        _decodeBinding = _platform?.Path == PresentPath.DxgiFlip ? "angle" : GlDevice.CurrentBinding();
         _decodeDevice = renderer.Device;
         _decodeContext = null;
         _decodeFormats = (int)renderer.Device.BlockFormats;

@@ -28,8 +28,13 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
   synchronous read swaps on the CPU and the streamed read-back refuses with words).
 - **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
-- The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID on the DXGI
-  one; nothing imported directly this round) through `IMediaBackend.UseGpu`.
+- The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID, its lock
+  and its ANGLE display on the DXGI one) through `IMediaBackend.UseGpu`.
+- **The GL context's window-system API on Linux** is `decode.glApi`: `auto` makes an ES context on EGL and a desktop one on GLX,
+  `egl` makes both on EGL (the display then imports VAAPI's dmabufs, `docs/DECODE.md`), `glx` both on GLX. Output windows are made
+  on the context's own API (a shared context comes from one API); an EGL window the platform refuses comes up on GLX with the words,
+  and a word it does not know is the platform's choice with words. A surfaceless context is EGL whatever it says; other platforms
+  have one API.
 
 ## The DXGI flip path
 
@@ -38,8 +43,9 @@ stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `p
 runs GL:
 
 1. **Adapter and device.** `CreateDXGIFactory2`; the adapter whose outputs include the primary display (else the first; WARP on the
-   CI runner); `D3D11CreateDevice` at feature level 11.1/11.0 with BGRA (and video, where the driver has it) support;
-   `ID3D10Multithread` protection on, so decoders may share the device.
+   CI runner); `D3D11CreateDevice` at feature level 11.1/11.0 with BGRA and video support (without video where the adapter refuses
+   it, as WARP does); `ID3D10Multithread` protection on. Decoders go on the device only when it has both: otherwise
+   `decode.platform.why` says which is missing and clips copy back.
 2. **ANGLE** (BSD), loaded at run time by the single name `av_libglesv2` — the file Avalonia.Angle.Windows.Natives puts beside the
    exe; PlayMap adds no binary. Its EGL entry points are resolved from that handle by the names the library exports them under
    (`eglFoo` as `EGL_Foo`).
@@ -48,9 +54,15 @@ runs GL:
    (`EGL_ANGLE_device_d3d11`), display (`EGL_ANGLE_d3d_texture_client_buffer`, `EGL_KHR_surfaceless_context`).
 4. **The context**: `eglCreateDeviceANGLE` on our device, the display on it (verified: the display's device is ours, else "ANGLE made
    its own device"), an ES 3.0 context current with no surface, adopted as the renderer's (`RenderContext.Adopt`); every program
-   is translated inside the start (a program ANGLE refuses is the `programs` stage's words and a GL start). ANGLE keeps pipeline
-   state on the device's immediate context, so nothing else issues immediate-context work on it from another thread: sharers open
-   what they need by share handle on a device of their own (Spout does).
+   is translated inside the start (a program ANGLE refuses is the `programs` stage's words and a GL start).
+   **The device lock.** ANGLE records the renderer's work on the device's immediate context, and decoders share that context, so
+   it has one recursive lock (`GpuDeviceLock`, `IGpuShare.Enter`/`Exit`): every thread issues immediate-context work only while it
+   holds it. The render loop holds it around each frame and the work between frames, and lets go of every hold while a window
+   waits on its swap chain (sharers submit during the vertical-blank wait); FFmpeg's D3D11VA decoders take it through their lock
+   callbacks around each begin–submit–end bracket; Spout on this device takes it around each of its calls. A sharer waits as long as
+   the frame takes; the frame waits at most `GpuDeviceLock.FrameBoundMs` (4 ms) for a sharer's bracket, and past it is drawn on the
+   device's multithread protection (each call ordered) and counted (`TimedOut`). Nothing allocates in the lock once warm. One
+   device and one immediate context are what let a decoded frame go as soon as the renderer's read of it is recorded.
 5. **One window and swap chain per display output** (`DxgiOutputWindow`): a borderless top-most popup over the monitor (transitions
    off, the cursor hidden), a waitable `FLIP_DISCARD` swap chain (three B8G8R8A8 buffers, no scaling, no tearing, frame latency 1),
    Alt+Enter and window changes left to PlayMap; a swap chain that lands on another display than its monitor is refused with words.
@@ -61,8 +73,8 @@ runs GL:
    first, as PlayMap's targets do).
 7. **Present**: `glFlush` then `Present1(1, DO_NOT_WAIT)` — a full queue holds the previous picture one refresh (counted, never a
    block, never a tear); occluded and device-removed come back as the result's problem. The pacing output waits on its waitable
-   object after it presents (pumping window messages, at most three periods), so the next frame starts just after the vblank as a
-   GL swap returns; every other output presents only when its waitable is already signalled, and a count it took for a present that
+   object after it presents (pumping window messages, at most three periods, the device lock let go of meanwhile), so the next
+   frame starts just after the vblank as a GL swap returns; every other output presents only when its waitable is already signalled, and a count it took for a present that
    did not queue is kept for its next present rather than lost.
 8. **Statistics**: after every output presented, `GetFrameStatistics` once per swap chain. The first statistics switch the output's
    clock to display timing — `SyncRefreshCount` and `SyncQPCTime` (QPC to ns as `(q / f)·10⁹ + (q % f)·10⁹ / f`, which never

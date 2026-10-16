@@ -9,8 +9,8 @@ namespace PlayMap.Media.Hw;
 
 /// <summary>The zero-copy half of opening a hardware decoder: a device made on the renderer's own GPU, so its surfaces import
 /// without leaving the GPU. Linux makes a VAAPI device on the render node the renderer's EGL display names (never "renderD128" by
-/// guess: on a machine with two GPUs only the renderer's imports); Windows adopts the renderer's ID3D11Device (wp2-d3d11's share)
-/// with decoder and shader-resource binding and the share's recursive lock. The frame side maps a VAAPI frame to DRM PRIME
+/// guess: on a machine with two GPUs only the renderer's imports); Windows adopts the renderer's ID3D11Device (the DXGI platform's
+/// share) with decoder and shader-resource binding and the share's recursive lock. The frame side maps a VAAPI frame to DRM PRIME
 /// (av_hwframe_map with read access, which syncs the surface first) and reads a D3D11 frame's texture array and slice.
 /// Written to FFmpeg's public headers (hwcontext.h, hwcontext_drm.h, hwcontext_d3d11va.h) and the D3D11 API documentation.</summary>
 public static unsafe class HwDecode
@@ -40,8 +40,9 @@ public static unsafe class HwDecode
     }
 
     /// <summary>A D3D11VA device on the share's ID3D11Device: AddRef'd for FFmpeg (which releases it with the device context),
-    /// BindFlags DECODER | SHADER_RESOURCE, and lock callbacks that enter and exit the share's recursive lock (the device's immediate
-    /// context is the renderer's too). 0 with words when the share has no device or FFmpeg refuses it.</summary>
+    /// BindFlags DECODER | SHADER_RESOURCE, and lock callbacks that enter and exit the share's recursive lock — the render loop holds
+    /// it around each frame, because ANGLE records the renderer's work on the same immediate context (<see cref="GpuDeviceLock"/>).
+    /// 0 with words when the share has no device, cannot decode (no video support, no multithread protection) or FFmpeg refuses it.</summary>
     [SupportedOSPlatform("windows")]
     internal static AVBufferRef* D3d11vaOnShare(IGpuShare share, out string why)
     {
@@ -50,6 +51,11 @@ public static unsafe class HwDecode
         if (d3d == 0)
         {
             why = "d3d11va: the renderer shares no D3D11 device";
+            return null;
+        }
+        if (share.ZeroCopyWords.Length > 0)
+        {
+            why = "d3d11va: " + share.ZeroCopyWords;
             return null;
         }
         var buffer = ffmpeg.av_hwdevice_ctx_alloc(AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA);

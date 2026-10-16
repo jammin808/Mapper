@@ -62,12 +62,14 @@ public sealed class RenderContext : IDisposable
     internal bool DisplayLive => !OperatingSystem.IsLinux() || _surfaceless is not EglSurfacelessContext egl || egl.DisplayLive;
 
     /// <summary>Makes a hidden context of <see cref="GlDeviceOptions.Dialect"/> through the platform's windowing: OpenGL 3.3 core
-    /// (forward-compatible; debug-flagged when debug output is asked), or OpenGL ES 3.0 — on EGL when <paramref name="preferEgl"/>
-    /// and the platform has it, else the native API (GLX), with the words that say so.</summary>
-    public static RenderContext CreateHidden(GlDeviceOptions? options = null) => CreateHidden(options, preferEgl: true);
+    /// (forward-compatible; debug-flagged when debug output is asked), or OpenGL ES 3.0 — an ES context on EGL where the platform has
+    /// it, a desktop one on the native API (GLX on X11).</summary>
+    public static RenderContext CreateHidden(GlDeviceOptions? options = null) => CreateHidden(options, GlApi.Auto);
 
-    /// <inheritdoc cref="CreateHidden(GlDeviceOptions?)"/>
-    public static RenderContext CreateHidden(GlDeviceOptions? options, bool preferEgl)
+    /// <summary>As <see cref="CreateHidden(GlDeviceOptions?)"/>, with the window-system API asked on Linux (<see cref="GlApi"/>):
+    /// <see cref="GlApi.Egl"/> makes a desktop context on EGL too (its display imports dmabufs), <see cref="GlApi.Glx"/> an ES one on
+    /// GLX. An EGL window the platform refuses comes up on GLX, with the words that say so; other platforms ignore the choice.</summary>
+    public static RenderContext CreateHidden(GlDeviceOptions? options, GlApi api)
     {
         options ??= GlDeviceOptions.Default;
         var es = options.Dialect == GlDialect.Es300;
@@ -90,7 +92,7 @@ public sealed class RenderContext : IDisposable
         var words = "";
         IWindow window;
         var egl = false;
-        if (es && preferEgl && OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() && (api == GlApi.Egl || (api == GlApi.Auto && es)))
         {
             try
             {
@@ -99,7 +101,7 @@ public sealed class RenderContext : IDisposable
             }
             catch (Exception ex) when (ex is GlfwException or InvalidOperationException or PlatformNotSupportedException)
             {
-                words = $"ES through GLX: EGL refused the window ({ex.Message})";
+                words = $"{(es ? "ES" : "desktop GL")} through GLX: EGL refused the window ({ex.Message})";
                 window = MakeWindow(wo, egl: false);
             }
         }
@@ -112,10 +114,10 @@ public sealed class RenderContext : IDisposable
         try
         {
             var device = new GlDevice(gl, options);
-            var api = egl ? "egl" : OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
+            var made = egl ? "egl" : OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
             if (device.Dialect != options.Dialect)
                 words = $"asked for {GlDialects.Word(options.Dialect)}, the driver gave {GlDialects.Word(device.Dialect)}";
-            return new RenderContext(window, null, gl, device, api, egl, words);
+            return new RenderContext(window, null, gl, device, made, egl, words);
         }
         catch
         {
@@ -233,6 +235,23 @@ public sealed class RenderContext : IDisposable
         _surfaceless?.Dispose();
         _disposed = true;
     }
+}
+
+/// <summary>The window-system API a windowed GL context is made through on Linux (<c>NodeSettings.Decode.GlApi</c>): Auto (ES on
+/// EGL, desktop on GLX), Egl (both on EGL), Glx (both on GLX).</summary>
+public enum GlApi { Auto, Egl, Glx }
+
+/// <summary>The settings words of <see cref="GlApi"/>.</summary>
+public static class GlApis
+{
+    /// <summary>"auto" (or empty), "egl", "glx", any case; null for any other word.</summary>
+    public static GlApi? Parse(string? word) => word?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "auto" => GlApi.Auto,
+        "egl" => GlApi.Egl,
+        "glx" => GlApi.Glx,
+        _ => null,
+    };
 }
 
 /// <summary>A context with no window that can be made current again on its thread (EGL surfaceless, ANGLE on a D3D11 device).</summary>

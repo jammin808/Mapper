@@ -218,7 +218,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
                 return (z.Share, z.Platform);
             var platform = _platformShare;
             return platform is null ? (null, ZeroCopyPlatform.None)
-                : (platform, DecodeLadder.Platform(platform, platform.Api == GpuApi.D3D11, z.Platform.Words.Length > 0 ? z.Platform.Words : "the render context has not said what it imports yet"));
+                : (platform, DecodeLadder.Platform(platform, platform.Api == GpuApi.D3D11 && platform.ZeroCopyWords.Length == 0,
+                    platform.ZeroCopyWords.Length > 0 ? platform.ZeroCopyWords
+                    : z.Platform.Words.Length > 0 ? z.Platform.Words : "the render context has not said what it imports yet"));
         }
     }
 

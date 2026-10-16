@@ -28,7 +28,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     private readonly IMonoClock _clock;
     private readonly ISpoutKernel? _kernel;
     private readonly Func<ISpoutGpu>? _makeGpu;
-    private readonly Func<nint, ISpoutGpu>? _shareGpu;
+    private readonly Func<IGpuShare, ISpoutGpu>? _shareGpu;
     private readonly Lock _gate = new();
     private readonly Timer? _discovery;
     private ISpoutGpu? _gpu;
@@ -38,7 +38,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
 
     /// <summary>A provider over a kernel and a GPU maker (null both: unavailable, with <paramref name="words"/>).</summary>
     public SpoutProvider(SpoutOptions options, IMonoClock clock, ISpoutKernel? kernel, Func<ISpoutGpu>? gpu, string words = "",
-        Func<nint, ISpoutGpu>? shareGpu = null)
+        Func<IGpuShare, ISpoutGpu>? shareGpu = null)
     {
         _shareGpu = shareGpu;
         ArgumentNullException.ThrowIfNull(options);
@@ -64,7 +64,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
     /// <summary>The Windows provider (WARP: the CI runner's software device).</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public static SpoutProvider Windows(SpoutOptions options, IMonoClock clock, bool warp) =>
-        new(options, clock, new Win32SpoutKernel(), () => D3D11SpoutGpu.Create(warp), shareGpu: D3D11SpoutGpu.OnDevice);
+        new(options, clock, new Win32SpoutKernel(), () => D3D11SpoutGpu.Create(warp), shareGpu: D3D11SpoutGpu.OnShare);
 
     public string Words { get; }
 
@@ -170,7 +170,7 @@ public sealed class SpoutProvider : ILiveInputProvider, ISendProvider, ISendSink
             throw new NotSupportedException(Unavailable());
         // On the renderer's own Direct3D 11 device when it has one (the DXGI path), so it draws into the texture with no copy;
         // else Spout's device.
-        var device = gpu.Api == GpuApi.D3D11 && gpu.D3D11Device != 0 && _shareGpu is not null ? _shareGpu(gpu.D3D11Device) : own;
+        var device = gpu.Api == GpuApi.D3D11 && gpu.D3D11Device != 0 && _shareGpu is not null ? _shareGpu(gpu) : own;
         var name = PublishedName(send.Name, publishedName);
         var data = new SpoutDataWriter(_options.Node, send.Id, send.Tap, send.Fps > 0 ? send.Fps.ToString(System.Globalization.CultureInfo.InvariantCulture) : "show");
         var sender = new SpoutSender(_kernel, device, name, SpoutFormats.Bgra8, data);

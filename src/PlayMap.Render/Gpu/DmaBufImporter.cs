@@ -123,6 +123,8 @@ public sealed unsafe class DmaBufShare : IGpuShare
     /// <summary>Why zero-copy is not ready ("" when it is).</summary>
     public string Words { get; }
 
+    public string ZeroCopyWords => Words;
+
     public GpuApi Api => GpuApi.DmaBuf;
 
     public string Describe { get; }

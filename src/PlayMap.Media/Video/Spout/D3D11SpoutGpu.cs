@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using PlayMap.Core.Media;
 
 namespace PlayMap.Media.Video.Spout;
 
@@ -43,8 +44,8 @@ internal record struct SpoutMapped(nint Data, uint RowPitch, uint DepthPitch);
 /// <summary>Spout's own Direct3D 11 device (Windows): on the default adapter, or WARP. Sender textures are made shared (legacy
 /// share handles, as Spout publishes them: <c>IDXGIResource::GetSharedHandle</c>, truncated to 32 bits) and a published one opened
 /// with <c>OpenSharedResource</c>; a received texture is copied into three staging textures and mapped with DO_NOT_WAIT (a copy still
-/// in flight is "pending", never waited for). The immediate context is used by one thread at a time per texture (the device is
-/// multithread-protected for the rest).</summary>
+/// in flight is "pending", never waited for). Immediate-context calls go under one lock: Spout's own on its own device, the share's
+/// on the renderer's device (<see cref="OnShare"/>), where the render loop holds it around each frame's drawing.</summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
 {
@@ -66,6 +67,7 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
     private nint _device;
     private nint _context;
     private readonly Lock _gate = new();
+    private IGpuShare? _share;
 
     private D3D11SpoutGpu(nint device, nint context, bool warp)
     {
@@ -93,15 +95,34 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
         return new D3D11SpoutGpu(device, context, warp);
     }
 
-    /// <summary>Spout's textures on a device another part owns (the renderer's, on the DXGI path): a reference is taken on it and its
-    /// immediate context, and given back on dispose.</summary>
-    public static D3D11SpoutGpu OnDevice(nint device)
+    /// <summary>Spout's textures on the renderer's device (the DXGI path's share): a reference is taken on it and its immediate
+    /// context, and given back on dispose; every immediate-context call takes the share's lock (the renderer draws on that context).</summary>
+    public static D3D11SpoutGpu OnShare(IGpuShare share)
     {
+        ArgumentNullException.ThrowIfNull(share);
+        var device = share.D3D11Device;
         ArgumentOutOfRangeException.ThrowIfZero(device);
         _ = ((delegate* unmanaged<nint, uint>)Slot(device, 1))(device);
         nint context = 0;
         ((delegate* unmanaged<nint, nint*, void>)Slot(device, SpoutCom.DeviceGetImmediateContext))(device, &context);
-        return new D3D11SpoutGpu(device, context, false) { Shared = true };
+        return new D3D11SpoutGpu(device, context, false) { Shared = true, _share = share };
+    }
+
+    /// <summary>Takes the immediate context's lock: the share's on the renderer's device, Spout's own on its own.</summary>
+    private void EnterContext()
+    {
+        if (_share is { } share)
+            share.Enter();
+        else
+            _gate.Enter();
+    }
+
+    private void ExitContext()
+    {
+        if (_share is { } share)
+            share.Exit();
+        else
+            _gate.Exit();
     }
 
     /// <summary>On a device another part made (its describe says so).</summary>
@@ -177,8 +198,15 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             Release(ref texture);
             throw new InvalidOperationException("Direct3D 11 gave no share handle for Spout's texture");
         }
-        lock (_gate)
+        EnterContext();
+        try
+        {
             ((delegate* unmanaged<nint, void>)Slot(_context, SpoutCom.ContextFlush))(_context);
+        }
+        finally
+        {
+            ExitContext();
+        }
         // Spout publishes the legacy handle's low 32 bits (they are all that is used).
         return new Texture(this, texture, (uint)(ulong)shared, width, height, format, staging: false);
     }
@@ -247,8 +275,15 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             var target = _staging[slot];
             if (target == 0)
                 throw new InvalidOperationException("this texture has no staging copies (a sender's own)");
-            lock (_gpu._gate)
+            _gpu.EnterContext();
+            try
+            {
                 ((delegate* unmanaged<nint, nint, nint, void>)Slot(_gpu._context, SpoutCom.ContextCopyResource))(_gpu._context, target, _texture);
+            }
+            finally
+            {
+                _gpu.ExitContext();
+            }
         }
 
         public StagingRead ReadStaging(int slot, Span<byte> destination, int stride)
@@ -256,7 +291,8 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             var staging = _staging[slot];
             if (staging == 0)
                 return StagingRead.Failed;
-            lock (_gpu._gate)
+            _gpu.EnterContext();
+            try
             {
                 SpoutMapped mapped = default;
                 var hr = ((delegate* unmanaged<nint, nint, uint, uint, uint, SpoutMapped*, int>)Slot(_gpu._context, SpoutCom.ContextMap))(
@@ -271,6 +307,10 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
                 ((delegate* unmanaged<nint, nint, uint, void>)Slot(_gpu._context, SpoutCom.ContextUnmap))(_gpu._context, staging, 0);
                 return StagingRead.Ready;
             }
+            finally
+            {
+                _gpu.ExitContext();
+            }
         }
 
         public void Upload(ReadOnlySpan<byte> pixels, int stride)
@@ -279,16 +319,30 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
                 throw new ArgumentException("fewer rows than the texture holds", nameof(pixels));
             fixed (byte* p = pixels)
             {
-                lock (_gpu._gate)
+                _gpu.EnterContext();
+                try
+                {
                     ((delegate* unmanaged<nint, nint, uint, nint, byte*, uint, uint, void>)Slot(_gpu._context, SpoutCom.ContextUpdateSubresource))(
                         _gpu._context, _texture, 0, 0, p, (uint)stride, 0);
+                }
+                finally
+                {
+                    _gpu.ExitContext();
+                }
             }
         }
 
         public void Flush()
         {
-            lock (_gpu._gate)
+            _gpu.EnterContext();
+            try
+            {
                 ((delegate* unmanaged<nint, void>)Slot(_gpu._context, SpoutCom.ContextFlush))(_gpu._context);
+            }
+            finally
+            {
+                _gpu.ExitContext();
+            }
         }
 
         public void Dispose()

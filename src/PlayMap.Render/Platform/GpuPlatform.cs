@@ -41,6 +41,12 @@ public interface IGpuPlatform : IDisposable
     /// <summary>The renderer's device as decoders may share it.</summary>
     IGpuShare Share { get; }
 
+    /// <summary>The lock of a device other threads issue work on while the renderer draws on it (the D3D11 device decoders share on
+    /// the DXGI path): the render loop holds it around each frame, bounded (<see cref="GpuDeviceLock.FrameBoundMs"/>), and lets go of
+    /// it while it waits on a display. Null when nothing else draws on the renderer's device (a GL context is the render thread's
+    /// alone).</summary>
+    GpuDeviceLock? DeviceLock => null;
+
     /// <summary>The adapter the platform renders on, in words ("Direct3D 11 + ANGLE · NVIDIA RTX A4000"); "" when the GL renderer
     /// string says it.</summary>
     string Adapter => "";
@@ -48,8 +54,8 @@ public interface IGpuPlatform : IDisposable
 
 /// <summary>What a node asks of its platform: the present path ("auto" | "gl" | "dxgi") and the GL dialect ("auto" | "core330" |
 /// "es300"), from <c>NodeSettings.Present</c>; whether the node runs with no window system (offscreen only); whether the DXGI path
-/// renders on WARP (the software rasteriser, for CI); and words that already explain the choice (a blown fuse), which lead the
-/// platform's own.</summary>
+/// renders on WARP (the software rasteriser, for CI); the window-system API of a GL context on Linux (<see cref="GlApi"/>); and words
+/// that already explain the choice (a blown fuse), which lead the platform's own.</summary>
 public sealed record PlatformRequest(string Path = "auto", string Dialect = "auto", bool Surfaceless = false)
 {
     public static readonly PlatformRequest Default = new();
@@ -57,6 +63,11 @@ public sealed record PlatformRequest(string Path = "auto", string Dialect = "aut
     public bool Warp { get; init; }
 
     public string Words { get; init; } = "";
+
+    /// <summary>How a windowed GL context is made on Linux (<c>NodeSettings.Decode.GlApi</c>): "auto" (an ES context on EGL, a desktop
+    /// one on GLX), "egl" (both on EGL: the display then imports VAAPI's dmabufs), "glx" (both on GLX). A surfaceless context is EGL
+    /// whatever this says; other platforms have one API and ignore it.</summary>
+    public string GlApi { get; init; } = "auto";
 }
 
 /// <summary>Makes the platform a node asks for.</summary>
@@ -112,7 +123,10 @@ public static class GpuPlatforms
             words.Add($"GL dialect '{request.Dialect}' is none of auto, core330, es300: the context is desktop 3.3 core");
         var dialect = asked ?? GlDialect.Core330;
         var options = device with { Dialect = dialect };
-        var context = request.Surfaceless ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
+        var api = GlApis.Parse(request.GlApi);
+        if (api is null)
+            words.Add($"decode.glApi '{request.GlApi}' is none of auto, egl, glx: the context is made the platform's way");
+        var context = request.Surfaceless ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options, api ?? GlApi.Auto);
         if (context.Words.Length > 0)
             words.Add(context.Words);
         return new GlPlatform(context, string.Join("; ", words));
@@ -183,7 +197,7 @@ public sealed class GlPlatform : IGpuPlatform
     }
 
     /// <summary>The GL device as decoders see it: OpenGL, no D3D11 device, no import proven this round (decoders copy into the
-    /// renderer's textures); one render thread, so the lock is the thread itself.</summary>
+    /// renderer's textures); nothing but the render thread draws on the context, so there is no lock to take.</summary>
     private sealed class GlShare(RenderContext context) : IGpuShare
     {
         private static long _epochs;

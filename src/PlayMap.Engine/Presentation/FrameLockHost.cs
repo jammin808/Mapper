@@ -10,13 +10,15 @@ using PlayMap.Render.Timing;
 namespace PlayMap.Engine.Presentation;
 
 /// <summary>The frame lock on the render thread: one <see cref="FrameLockMachine"/> per enabled output, stepped once a frame with the
-/// facts of that frame (the board as last polled, the output's clock and present wait, its frame count, the show's arm and
+/// facts of that frame (the board as last polled, the output's clock, the driver's barrier wait, its frame count, the show's arm and
 /// boundary, the group's wish), the driver's actions performed at once, and the views republished only when one changed.
 ///
 /// <list type="bullet">
 /// <item><b>Never stalls.</b> The driver's barrier wait timing out (3 refreshes) or the board's count standing still for 3 periods
 /// is the watchdog's evidence: the machine leaves the barrier and the output presents free from its next present. How long a
-/// present call took is never evidence: it holds the node's own work, not the barrier.</item>
+/// present call took is never evidence: it holds the node's own work, not the barrier. Either presenter keeps its own waits
+/// bounded — a GL swap returns at the vblank; on the DXGI flip path a full queue answers at once (DO_NOT_WAIT) and the pacing
+/// output's waitable wait stops at three periods — so a frame never waits on a barrier the driver has not said is there.</item>
 /// <item><b>Content time under the lock.</b> While the pacing output is locked with a valid count, the next frame's show time is
 /// the anchor's mapping of the next count (<see cref="LockCounter"/>), the same on every node; the anchor is this node's own
 /// (re-made every 60 s from the pacer's fitted vblank) unless a leader's was offered.</item>
