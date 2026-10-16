@@ -38,7 +38,7 @@ The press shape comes from the node's vocabulary:
 
 - **At once** — GO, NEXT and PREV, PLAY and PAUSE, BLACKOUT, FREEZE and PANIC (every outcome): never held, never confirmed.
 - **Held 0.8 s** — every other high-risk verb (PANIC CLEAR, MASTER, a stop, a seek, an LED output, showing or hiding a surface …) and an identify that puts a picture over the air: the key says HOLD… while held.
-- **Two presses** — a projector's power, a project opened or made, a scan started, a proposal approved: the first held press says SURE? for 3 s, the second sends. The second must be of the same line: a Live slot whose page turned in between says SURE? again and sends nothing.
+- **Two presses** — a projector's power, a project opened or made, a scan started, a proposal approved: the first held press says SURE? for 3 s, the second sends. The second must be of the same line: a Live slot whose page turned in between says SURE? again and sends nothing. A key with two such actions (both projectors on) sends both on its second press.
 
 A package section's key whose rows press differently is a group per press: the show section's PANIC keys fire at once, its PANIC CLEAR and MASTER keys are held.
 

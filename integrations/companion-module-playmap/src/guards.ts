@@ -207,44 +207,49 @@ function acceptedEffect(payload: string): string {
 export const CONFIRM_MS = 3_000
 
 /** Two presses plus a hold: the first held press arms its control for its line ("SURE?") for 3 s, and only a second held press of
- * that same line within them sends. A press of another line (the page turned, the slot moved) arms the control anew for it. Kept in
- * the module because a preset's internal actions cannot reset a button's step. */
+ * that same line on that control within them sends. Each line a control arms keeps its own 3 s, so a key whose step holds two such
+ * actions confirms each on its second press; a press of a line not armed on its control (the page turned, the slot moved) arms that
+ * line and sends nothing. Kept in the module because a preset's internal actions cannot reset a button's step. */
 export class Confirms {
-	readonly #armed = new Map<string, { readonly line: string; readonly timer: ReturnType<typeof setTimeout> }>()
+	/** Each control's armed lines, each with the timer that disarms it. */
+	readonly #armed = new Map<string, Map<string, ReturnType<typeof setTimeout>>>()
 	readonly #changed: (controlId: string) => void
 
 	constructor(changed: (controlId: string) => void) {
 		this.#changed = changed
 	}
 
-	/** True when this press confirms the line its control armed (send now); false when it armed the control for this line. */
+	/** True when this press confirms a line its control armed (send now); false when it armed the control for this line. */
 	press(controlId: string, line: string): boolean {
-		const armed = this.#armed.get(controlId)
-		if (armed) {
-			clearTimeout(armed.timer)
-			this.#armed.delete(controlId)
-			if (armed.line === line) {
-				this.#changed(controlId)
-				return true
-			}
+		const lines = this.#armed.get(controlId) ?? new Map<string, ReturnType<typeof setTimeout>>()
+		const armed = lines.get(line)
+		if (armed !== undefined) {
+			clearTimeout(armed)
+			this.#disarm(controlId, lines, line)
+			return true
 		}
-		this.#armed.set(controlId, {
+		lines.set(
 			line,
-			timer: setTimeout(() => {
-				this.#armed.delete(controlId)
-				this.#changed(controlId)
-			}, CONFIRM_MS),
-		})
+			setTimeout(() => this.#disarm(controlId, lines, line), CONFIRM_MS),
+		)
+		this.#armed.set(controlId, lines)
 		this.#changed(controlId)
 		return false
 	}
 
+	#disarm(controlId: string, lines: Map<string, ReturnType<typeof setTimeout>>, line: string): void {
+		lines.delete(line)
+		if (lines.size === 0 && this.#armed.get(controlId) === lines) this.#armed.delete(controlId)
+		this.#changed(controlId)
+	}
+
+	/** Whether any line is armed on this control (its key says SURE?). */
 	pending(controlId: string): boolean {
-		return this.#armed.has(controlId)
+		return (this.#armed.get(controlId)?.size ?? 0) > 0
 	}
 
 	clear(): void {
-		for (const a of this.#armed.values()) clearTimeout(a.timer)
+		for (const lines of this.#armed.values()) for (const timer of lines.values()) clearTimeout(timer)
 		this.#armed.clear()
 	}
 }

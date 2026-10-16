@@ -194,8 +194,9 @@ an instant one, the down of a held one) answers the key's last result unchanged,
 **Press shapes** come from each row's `press`, with its per-argument risk (`riskWhen`: `DECODE POLICY … FORCE` is held): GO, NEXT,
 PREV, PLAY, PAUSE, BLACKOUT, FREEZE and PANIC fire on the down, never held; every other high-risk row (`PANIC CLEAR`, a stop, a seek,
 `MASTER`) and an identify are held 0.8 s; a projector's power, a project opened or made, a scan started and a proposal approved are
-two held presses within 3 s of the same line (the module keeps the first, armed for its key and line — a preset cannot reset a
-button's step; a press of another line, the Live page turned under it, arms the key anew and sends nothing). A section key and a Live
+two held presses within 3 s of the same line (the module keeps the first, armed for its key and line, each line its own 3 s — a
+preset cannot reset a button's step — so a key whose step holds two such actions sends both on its second press, and a press of a
+line not armed on the key, the Live page turned under it, arms that line and sends nothing). A section key and a Live
 slot are pressed as the stronger of their hint's press and their line's; a Live slot sends an instant line on the down, a held one at
 800 ms, and says HOLD (or SURE?) otherwise. GO, NEXT and PREV expect the item the node will play for them — the cued one, the one
 after the current in list order, the first when idle — not STATE's `next`, which follows the item's end action; `next` says the same

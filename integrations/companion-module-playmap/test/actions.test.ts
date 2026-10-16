@@ -1,7 +1,8 @@
 // Actions as Companion runs them: one generated action per catalogue row (the session's own words and every row that carries a
 // secret aside), id v_<name>, writing the node's grammar; the GO, NEXT, PREV, BLACKOUT, FREEZE and panic keys press on the down
 // with no held group, PANIC CLEAR's is held, and a key of a generated row presses as the row's press field says; the lines the node's contract test parses are the ones the module
-// writes now; two presses confirm within 3 s and only then; the double-GO guard holds a second GO of a playlist within min_go_ms;
+// writes now; two presses confirm within 3 s and only then, each line armed on its key with its own 3 s (a key with two such
+// actions confirms both on its second press); the double-GO guard holds a second GO of a playlist within min_go_ms;
 // raw and ask_node never put a session word, a secret or (for ask_node) a change on the wire; learn fills from the focused
 // playlist; every press answers ok, stage, effect and error. An older node's untyped VERBS keeps the bundled rows' forms and presses.
 import test from 'node:test'
@@ -469,6 +470,49 @@ void test('a key of a generated row, or of the module’s own GO, NEXT, PREV, PA
 				},
 			},
 		])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a key with two actions pressed twice arms each for its own line, and its second press confirms both', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const m = await boot(configOf(node), SECRETS)
+	try {
+		await ready(m)
+		await m.place('sure', 'confirm_pending', {}, 'key-both')
+		// One button step: both projectors on, each a projector's power (pressed twice by its row).
+		const both = ['dv00000001', 'dv00000002'].map((device) => ({ device, state: 'ON', confirm: 'twice' }))
+		const press = async (): Promise<Fields[]> => {
+			const out: Fields[] = []
+			for (const options of both) out.push(fields(await m.press('v_device_power', options, 'key-both')))
+			return out
+		}
+		const first = await press()
+		assert.deepEqual(
+			first.map((r) => [r.stage, r.error]),
+			[
+				['not-sent', 'press again within 3 s to confirm'],
+				['not-sent', 'press again within 3 s to confirm'],
+			],
+			'the first press arms each action’s line',
+		)
+		assert.equal(m.instance.confirms.pending('key-both'), true)
+		await m.host.until(() => m.host.feedbackValues.get('sure') === true, 'SURE? on the key')
+		const second = await press()
+		assert.deepEqual(
+			second.map((r) => r.stage),
+			['applied', 'applied'],
+			'the second press confirms both',
+		)
+		assert.equal(m.instance.confirms.pending('key-both'), false, 'nothing is left armed')
+		await m.host.until(() => m.host.feedbackValues.get('sure') === false, 'SURE? gone')
+		assert.deepEqual(
+			node.sent().filter((l) => isOf(l, 'DEVICE POWER')),
+			['DEVICE POWER dv00000001 ON', 'DEVICE POWER dv00000002 ON'],
+			'each projector’s line sent once, on the second press',
+		)
 	} finally {
 		await m.stop()
 		await node.stop()
