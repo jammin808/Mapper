@@ -117,7 +117,9 @@ it shows paused, `hard:true`. A press after every fade has settled changes nothi
 The render thread reads `AirLevels`, built on the lane once per change and allocation-free per frame: each output's gain is master
 × panic level × degrade gain (`IOutputGains`), multiplied last in the output stage (`uAir`) so 0 is true black; the SAFE look rides
 the pattern-override path; FREEZE holds the output's picture. The air's sound gain (`IAirLevels.AudioGain`) is master × the darkest
-panic, from the same fades, so sound fades on the same frames as picture (a SAFE look has no show sound).
+panic, from the same fades, so sound fades on the same frames as picture (a SAFE look has no show sound). STATE shows each level
+as it stands when read: it moves when a fade starts and once more when every fade has settled, and never on its own while nothing
+fades (a node just started included, its degrade gains on the air from the start).
 
 `MASTER <0-100> [FADE <ms>]` is the grand master over every output, picture and sound, faded on the show clock; it is runtime, not
 an undo step.
