@@ -820,14 +820,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         var sync = s.Sync;
         SyncText = sync.Role switch
         {
-            "follower" => string.Create(CultureInfo.InvariantCulture, $"{sync.OffsetMs:0.00} ms"),
+            "follower" => sync.UncertaintyText,
             "leader" => "lead",
             _ => "",
         };
         NetworkTip = string.Create(CultureInfo.InvariantCulture,
             $"Engine: {Session.LinkLabel} ({linkWord})\nPatterns: {s.Patterns.State}{(s.Patterns.Host.Length > 0 ? " · " + s.Patterns.Host : "")}\n"
             + $"Stagewatch: {s.Stagewatch.State}{(s.Stagewatch.Host.Length > 0 ? " · " + s.Stagewatch.Host : "")}\n"
-            + $"Sync: {sync.Role}{(sync.Role == "follower" ? $" · offset {sync.OffsetMs:0.00} ms" : "")}\n{s.Peers.Length} peer(s) on the Show Bus");
+            + $"Sync: {sync.Role}{(sync.Role == "follower" ? $" · leader time {sync.UncertaintyText} (half the round trip)" : "")}\n{s.Peers.Length} peer(s) on the Show Bus");
     }
 
     public async ValueTask DisposeAsync()

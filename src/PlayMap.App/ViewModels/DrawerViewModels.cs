@@ -543,7 +543,7 @@ public sealed class NetworkDrawerViewModel : ObservableObject
         Timer = s.Stagewatch.Timer;
         var sync = s.Sync;
         SyncText = string.Create(CultureInfo.InvariantCulture,
-            $"{(sync.Role == "leader" ? "Leading" : sync.Role == "follower" ? "Following " + (sync.Leader ?? "?") : "On its own")} · offset {sync.OffsetMs:0.00} ms · round trip {sync.RttMs:0.00} ms · drift {sync.DriftPpm:0.0} ppm{(sync.Groups.Length > 0 ? " · groups " + string.Join(", ", sync.Groups) : "")}");
+            $"{(sync.Role == "leader" ? "Leading" : sync.Role == "follower" ? "Following " + (sync.Leader ?? "?") + " · leader time " + sync.UncertaintyText + " (half the round trip)" : "On its own")} · round trip {sync.RttMs:0.00} ms · drift {sync.DriftPpm:0.0} ppm{(sync.Groups.Length > 0 ? " · groups " + string.Join(", ", sync.Groups) : "")}");
         Transfers.Clear();
         foreach (var t in s.Media.Transfers)
             Transfers.Add(new TransferRow(t.Name, t.From, t.Progress, string.Create(CultureInfo.InvariantCulture, $"{t.Name} from {t.From} · {t.Progress * 100:0} %")));

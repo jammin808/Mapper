@@ -27,8 +27,16 @@ public sealed record PlaylistState(string Id, string Name, bool Focused, string 
     public bool IsIdle => State is "empty" or "idle" || Item is null;
 }
 
+/// <summary>One output as STATE says it. <see cref="Dropped"/> is its late presents in the last 10 s once they pass 0.5 % of its
+/// refreshes (0 within that budget); <see cref="LatencyMs"/> its display's input lag as the node holds it (-1 unknown);
+/// <see cref="PresentPath"/> how its frames reach the display (outputs[].present.path: "gl", "dxgi", "offscreen", …).</summary>
 public sealed record OutputState(string Id, string Name, string Mode, string Display, int Width, int Height, double RefreshHz, bool Open,
-    double Fps, long Dropped, double FrameMsP95, string? Pattern, string Light);
+    double Fps, long Dropped, double FrameMsP95, string? Pattern, string Light)
+{
+    public double LatencyMs { get; init; } = -1;
+
+    public string PresentPath { get; init; } = "";
+}
 
 public sealed record TransferState(string MediaId, string Name, double Progress, string From, string State);
 
@@ -52,8 +60,13 @@ public sealed record ScanState(string Id, string State, string Stage, int Patter
     public bool IsDone => State == "done";
 }
 
+/// <summary>STATE.sync's clock part. <see cref="OffsetMs"/> is how far this node's reading of its leader's clock can be off (half the
+/// best exchange's round trip): an uncertainty, never a measured offset between two machines.</summary>
 public sealed record SyncState(string Role, string? Leader, double OffsetMs, double RttMs, double DriftPpm, ImmutableArray<string> Groups)
 {
+    /// <summary>"± 0.21 ms": the leader-time uncertainty as the desk shows it.</summary>
+    public string UncertaintyText => string.Create(CultureInfo.InvariantCulture, $"± {OffsetMs:0.00} ms");
+
     public static readonly SyncState None = new("solo", null, 0, 0, 0, []);
 }
 
@@ -201,7 +214,11 @@ public sealed record StateSnapshot(
 
     private static OutputState ReadOutput(JsonElement o) => new(
         o.Str("id"), o.Str("name"), o.Str("mode"), o.Str("display"), (int)o.Long("width"), (int)o.Long("height"), o.Num("refreshHz", 60),
-        o.Bool("open"), o.Num("fps"), o.Long("dropped"), o.Num("frameMsP95"), o.StrOrNull("pattern"), o.Str("light", "grey"));
+        o.Bool("open"), o.Num("fps"), o.Long("dropped"), o.Num("frameMsP95"), o.StrOrNull("pattern"), o.Str("light", "grey"))
+    {
+        LatencyMs = o.Num("latencyMs", -1),
+        PresentPath = o.Obj("present")?.Str("path") ?? "",
+    };
 
     private static MediaState ReadMedia(JsonElement? m) => m is { } e
         ? new MediaState((int)e.Long("items"), (int)e.Long("missing"), e.Bool("ready", true),
