@@ -299,6 +299,38 @@ public class DeskSpineTests(ITestOutputHelper output)
         window.Close();
     }
 
+    /// <summary>Arming draws the red frame over the window's edge and moves nothing: at every width the bar keeps its width and its
+    /// form (one row or two, the pills' words, the position column, the VT chip).</summary>
+    [AvaloniaTheory]
+    [InlineData(1280)]
+    [InlineData(1284)]
+    [InlineData(1366)]
+    [InlineData(1370)]
+    public async Task ArmingMovesNothingInTheTopBar(int width)
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.Load(desk.Link, "show");
+        await desk.Session.SendAsync("PANIC CLEAR", Ct);
+        await desk.Session.SendAsync("SHOW DISARM", Ct);
+        var window = MainWindowTests.Open(desk, width, 900);
+        DeskHarness.Pump();
+        var bar = MainWindowTests.Find<TopBarPanel>(window, "TopBarPanel");
+        (double, bool, bool, bool, bool) Form() => (desk.Main.BarWidth, bar.IsTwoRow, desk.Main.ShowPillWords, desk.Main.ShowPositionColumn, desk.Main.ShowProToggle);
+        var rehearsal = Form();
+        Assert.Equal("", desk.Main.Frame);
+
+        await desk.Session.SendAsync("SHOW ARM", Ct);
+        DeskHarness.Pump();
+        window.UpdateLayout();
+        Assert.Equal("red", desk.Main.Frame);
+        Assert.Equal(rehearsal, Form());
+        Assert.Equal(width, desk.Main.BarWidth, 0.5);
+        var frame = MainWindowTests.Find<Border>(window, "ModeFrame");
+        Assert.Equal(new Thickness(4), frame.BorderThickness);
+        Assert.Equal(window.Bounds.Width, frame.Bounds.Width, 0.5);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task BannersComeAndGoWithStateAndFoldBeyondTwo()
     {

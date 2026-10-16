@@ -8,7 +8,7 @@
         x:DataType="vm:MainViewModel"
         Title="{Binding ProjectName, StringFormat='PlayMap · {0}'}"
         Width="1600" Height="960" MinWidth="1100" MinHeight="680">
-  <Border BorderBrush="{Binding Frame, Converter={StaticResource LightBrush}}" BorderThickness="{Binding FrameThickness}" x:Name="ModeFrame">
+  <Panel>
   <Grid RowDefinitions="Auto,Auto,*,Auto">
 
     <!-- The top bar: project, workspaces, the master transport, the show cluster, the drawers. One row from 1366 px when it
@@ -196,5 +196,8 @@
       </Grid>
     </Border>
   </Grid>
-  </Border>
+  <!-- The mode frame (red armed, amber with anything but the show on a wall) is drawn over the window's edge and takes no room:
+       arming never moves or reflows anything under it. -->
+  <Border x:Name="ModeFrame" IsHitTestVisible="False" BorderBrush="{Binding Frame, Converter={StaticResource LightBrush}}" BorderThickness="{Binding FrameThickness}" />
+  </Panel>
 </Window>
