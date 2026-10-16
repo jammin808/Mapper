@@ -11,7 +11,7 @@ namespace PlayMap.App.Tests;
 
 /// <summary>The desk has no private API: with every package's STATE fixture loaded, every action reachable from the top
 /// bar, the drawers, the inspectors and every object's right-click menu (its own actions and the modules' entries) sends a
-/// line the catalogue parses, and no line carries a secret. Every toolbar is a subset of its object's menu, and every
+/// line the catalogue parses with every word its row requires, and no line carries a secret. Every toolbar is a subset of its object's menu, and every
 /// entry a module appends to a menu is also on that object's inspector toolbar.</summary>
 public class DeskVerbRuleTests(ITestOutputHelper output)
 {
@@ -76,13 +76,15 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         return type.IsArray && Interesting(type.GetElementType()!);
     }
 
-    /// <summary>A line is the catalogue's: it parses, a row matches, and it carries no secret word.</summary>
+    /// <summary>A line is the catalogue's: it parses, a row matches, it holds every word the row requires, and it carries no secret word.</summary>
     internal static string? Fault(string line)
     {
         if (!WireGrammar.TryParse(line, out var parsed, out var error))
             return "does not parse: " + error?.Reason;
         if (VerbCatalog.Match(parsed) is not { } m)
             return "no catalogue row";
+        if (!VerbSyntax.Fits(m.Spec, parsed, m.Words, out var lacks))
+            return "does not fit " + m.Spec.Name + ": " + lacks;
         if (m.Spec.SecretFrom is int from)
         {
             // A word in the secret position is a secret unless it is one of the syntax's own keywords (LINK PATTERNS

@@ -21,7 +21,7 @@ public sealed class ObjectMenusModule : DeskModule
         [("beat", "the beat's phase"), ("bar", "the bar's phase"), ("beat:pulse", "a pulse on each beat"), ("lfo:sine/4", "a sine every 4 s")];
 
     private static readonly ImmutableArray<(string Target, string Words)> OptimiseTargets =
-        [("hap", "HAP"), ("hap-alpha", "HAP Alpha"), ("hap-q", "HAP Q"), ("hap-q-alpha", "HAP Q Alpha"), ("rechunk", "Rechunk for the GPU")];
+        [("hap", "HAP"), ("hap-alpha", "HAP Alpha"), ("hap-q", "HAP Q"), ("hap-q-alpha", "HAP Q Alpha")];
 
     private readonly DeskSession _session;
     private readonly Dictionary<string, List<DeskAction>> _entries = new(StringComparer.Ordinal);
@@ -183,8 +183,7 @@ public sealed class ObjectMenusModule : DeskModule
             var opt = Menu("gen.optimise", "Optimise", "optimise");
             foreach (var (to, words) in OptimiseTargets)
                 opt.Children.Add(DeskAction.Send(_session, "gen.optimise." + to, words, () => $"MEDIA OPTIMISE {id} TO {to}"));
-            opt.Children.Add(DeskAction.Send(_session, "gen.optimise.estimate", "Estimate", () => $"MEDIA ESTIMATE {id}").Look(separator: true));
-            opt.Children.Add(DeskAction.Send(_session, "gen.optimise.versions", "Versions", () => $"MEDIA VERSIONS {id}"));
+            opt.Children.Add(DeskAction.Send(_session, "gen.optimise.versions", "Versions", () => $"MEDIA VERSIONS {id}").Look(separator: true));
             list.Add(opt);
         }
         if (target.Kind == "surface" && _inputs.Length > 0)

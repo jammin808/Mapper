@@ -122,10 +122,11 @@ public sealed class ScanWizardViewModel : ObservableObject
         Start = DeskAction.Send(session, "start", "Scan", StartVerb, isEnabled: () => _camera is not null && Projectors.Any(p => p.IsPicked) && _scan is not { IsRunning: true })
             .Look("scan", danger: true);
         Cancel = DeskAction.Send(session, "cancel", "Cancel scan", () => "SCAN CANCEL", isEnabled: () => _scan is { IsRunning: true }).Look("stop");
-        MakeSurface = DeskAction.Send(session, "makeSurface", "Make surface", () => _scan is { } s && _selectedRegion is { } r
+        MakeSurface = DeskAction.Send(session, "makeSurface", "Make surface", () => _scan is { Id.Length: > 0 } s && _selectedRegion is { } r
             ? string.Create(CultureInfo.InvariantCulture, $"SCAN SURFACE {s.Id} {VerbText.Num(r.X + r.W / 2)} {VerbText.Num(r.Y + r.H / 2)} {VerbText.Word(Capital(r.Label))}")
             : null, isEnabled: () => _selectedRegion is not null).Look("surface");
-        Apply = DeskAction.Run(session, "apply", "Apply scan", ApplyAsync, () => _scan is { } s ? "SCAN APPLY " + s.Id : null,
+        // A scan block without an id (a view being taken before the scan is named) has nothing to apply.
+        Apply = DeskAction.Run(session, "apply", "Apply scan", ApplyAsync, () => _scan is { Id.Length: > 0 } s ? "SCAN APPLY " + s.Id : null,
             isEnabled: () => _scan is { IsDone: true }).Look("scan");
         UpdateSentences();
         Steps[0].IsCurrent = true;
@@ -377,7 +378,7 @@ public sealed class ScanWizardViewModel : ObservableObject
 
     private async Task ApplyAsync(CancellationToken ct)
     {
-        if (_scan is not { } s)
+        if (_scan is not { Id.Length: > 0 } s)
             return;
         var reply = await _session.SendAsync("SCAN APPLY " + s.Id, ct);
         if (reply.Ok)

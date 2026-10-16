@@ -152,7 +152,6 @@ public class GeneratedMenuTests
             link.WithoutVerbs.Add("FX ADD");
             link.WithoutVerbs.Add("FX KINDS");
             link.WithoutVerbs.Add("MEDIA OPTIMISE");
-            link.WithoutVerbs.Add("MEDIA ESTIMATE");
             link.WithoutVerbs.Add("MEDIA VERSIONS");
         });
         var window = MainWindowTests.Open(desk);
