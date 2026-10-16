@@ -171,11 +171,13 @@ public sealed class OutputFixtureTests
     {
         var root = JsonNode.Parse(MainStateFixtureTests.Normalise(stateJson))!.AsObject();
         root["machine"]!["renderer"] = "OpenGL 4.5 llvmpipe";
+        // The fixture is written on Linux: another platform's own window-system words read as GLX's (EGL stays EGL).
+        if ((string?)root["machine"]!["gl"] == HostRig.NativeBinding)
+            root["machine"]!["gl"] = "glx";
         if (root["machine"]!["present"] is JsonObject machine)
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";
             machine["presentMsP95"] = 0.21;
-            // The fixture is written on Linux: another platform's own window-system word reads as GLX's (EGL stays EGL).
             if ((string?)machine["context"] == HostRig.NativeContext)
                 machine["context"] = "glx";
         }

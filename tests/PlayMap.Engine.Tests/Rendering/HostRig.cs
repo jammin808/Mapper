@@ -24,6 +24,9 @@ internal sealed class HostRig : IAsyncDisposable
 
     /// <summary>The window system's own context word: what a hidden context is made on when EGL is not asked for.</summary>
     public static string NativeContext => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
+
+    /// <summary>The binding GL answers for such a context (STATE's machine.gl): WGL on Windows, CGL on macOS, GLX elsewhere.</summary>
+    public static string NativeBinding => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cgl" : "glx";
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
 
     private HostRig(ManualClock clock, EngineCore engine, RenderHost host)
