@@ -803,7 +803,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 					? { ...this.model.whoami, may: this.model.whoami.may ? [...this.model.whoami.may] : '*' }
 					: null,
 			),
-			playlists: j(playlists.map((p) => [p.id, p.state, p.itemId, p.nextId, p.focused, p.rate])),
+			playlists: j(
+				playlists.map((p) => [p.id, p.name, p.state, p.itemId, p.itemLabel, p.nextId, p.nextLabel, p.focused, p.rate]),
+			),
 			clock: j(
 				playlists.map((p) => [
 					p.progress === null ? null : Math.round(p.progress * 200),

@@ -1,12 +1,14 @@
 // A rename alone (INDEX's labels move, its sig does not) relabels keys at once through their value feedbacks and re-sends the
 // preset structure only after 3 s; a structural change (the sig moves) re-sends it at once. Neither changes a preset's id or bytes.
-// On fake timers, in its own file so its clock is its own.
+// The first test runs on fake timers, so its clock is its own. A playlist's name is STATE's: its keys relabel when the STATE that
+// carries a rename comes, after the INDEX that said it.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { boot, type Booted } from './harness.ts'
+import { isDeepStrictEqual } from 'node:util'
+import { boot, configFor, type Booted } from './harness.ts'
 import { advance, fakeChannels, settle, type FakeChannel, type FakeTimers } from './fake-channel.ts'
-import { SHOW, copy, fixture } from './fake-node.ts'
+import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { LABELS_DEBOUNCE_MS } from '../src/main.ts'
 
 interface IndexJson {
@@ -96,5 +98,46 @@ void test('a rename alone re-sends the structure after 3 s, a structural change 
 		assert.equal(m.instance.link(), 'live')
 	} finally {
 		await m.stop()
+	}
+})
+
+void test("a playlist's rename relabels its keys when the STATE that carries the name comes after the INDEX", async () => {
+	const node = await new FakeNode().start()
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(() => m.instance.model.index !== null && m.instance.linked(), 'INDEX and the link')
+		await m.place('show', 'label', { ref: SHOW.playlist })
+		await m.place('red', 'label', { ref: SHOW.red })
+		await m.place('slot', 'slot', { rule: 'playlists', n: 1, field: 'label' })
+		const held = (): Record<string, unknown> =>
+			Object.fromEntries(['show', 'red', 'slot'].map((id) => [id, m.host.feedbackValues.get(id)]))
+		const expect = async (values: Record<string, unknown>, what: string): Promise<void> => {
+			await m.host.until(() => isDeepStrictEqual(held(), values), what).catch(() => undefined)
+			assert.deepEqual(held(), values, what)
+		}
+		await expect({ show: 'Show', red: 'Red', slot: 'Show' }, 'the names before')
+
+		// The node pushes INDEX at once and STATE after: the INDEX (an item's label from it moves at once) ...
+		const doc = copy(fixture('index.json') as IndexJson)
+		const show = doc.playlists.find((p) => p.id === SHOW.playlist)
+		const red = show?.items.find((i) => i.id === SHOW.red)
+		assert.ok(show && red)
+		show.name = 'Main show'
+		red.label = 'Crimson'
+		doc.labels = '1234abcd5678ef90'
+		node.pushIndex(doc)
+		await expect({ show: 'Show', red: 'Crimson', slot: 'Show' }, 'the INDEX taken; the playlist is named by STATE')
+
+		// ... then the STATE with the playlist's new name: its keys relabel.
+		const state = copy(fixture('state.json')) as { seq: number; playlists: { id: string; name: string }[] }
+		const named = state.playlists.find((p) => p.id === SHOW.playlist)
+		assert.ok(named)
+		named.name = 'Main show'
+		state.seq += 1
+		node.pushState(state)
+		await expect({ show: 'Main show', red: 'Crimson', slot: 'Main show' }, 'the playlist relabelled by its STATE')
+	} finally {
+		await m.stop()
+		await node.stop()
 	}
 })

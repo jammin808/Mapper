@@ -147,8 +147,9 @@ a STATE the engine wrote. Variables are computed from it as a pure function of S
 and sent at most 25 times a second; feedback types are checked only when a slice of STATE they read moved. Playing clocks run between
 pushes at 10 Hz from `positionMs`, `rate` and STATE's `at`, in whole seconds and progress steps of 0.005. A new INDEX `sig` rebuilds the
 variable definitions, the actions' and feedbacks' dropdowns and the preset structure at once; a rename (`labels` only) re-sends the
-structure after 3 s, while keys relabel at once through value feedbacks; a `project.index` that moved with no INDEX push following asks
-`INDEX`.
+structure after 3 s, while keys relabel at once through value feedbacks (a playlist's name, its item's and its next one's labels are
+STATE's, so its keys relabel with the STATE that carries them, which the node pushes after INDEX); a `project.index` that moved with
+no INDEX push following asks `INDEX`.
 
 **Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself, that carries no secret and that the node answers — `CURSOR` gets no line back and its lease lapses unless sent again, so it is no key), with typed
 options from `params` — entity dropdowns from INDEX, literal choices, keyword parameters, a form chooser for a row with several — and the
