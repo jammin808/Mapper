@@ -3,6 +3,7 @@ using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Engine.Rendering;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Wall;
@@ -119,6 +120,66 @@ public sealed class ReseatTests(ITestOutputHelper output)
         }
         output.WriteLine($"accepted: the corners land {worst:0.000} px from their old spots");
         Assert.True(worst <= 0.5, $"{worst} px");
+    }
+
+    [Fact]
+    public async Task AcceptedInABlindDraftTheLiveBlendWaitsForTheDraftToLand()
+    {
+        var p = CameraStage.With(WallRig.ProjectorsWithPins(3, noisePx: 0.1));
+        p = p.WithStage(st => st with
+        {
+            Projectors = [.. st.Projectors.Select((pj, n) => pj with { Pose = WallRig.TruePose(n) })],
+            Surfaces = st.Surfaces.Add(QuadOn("sf_quad2", "pj_test2", null)),
+        });
+        await using var rig = new WallRig(p);
+        foreach (var pj in rig.Project.Stage.Projectors)
+            rig.Engine.SimulatedStage.Knock(pj, Vec3d.Zero, Vec3d.Zero);
+        rig.Engine.SimulatedStage.Knock(rig.Project.FindProjector("pj_test2")!, new Vec3d(0, 16.0 / 2880, 0), Vec3d.Zero);
+        var reply = WallRig.Json(await rig.Ok("CALIBRATION RESOLVE ALL CAMERA cm_sim STAGE"));
+        var staged = reply.GetProperty("projectors")[0].GetProperty("snapshot").GetString()!;
+
+        // The render host's automatic blend, on the live project.
+        await using var resources = new StageResources(rig.Engine.Meshes, StageResourceOptions.Default with { BlendDebounce = TimeSpan.FromMilliseconds(50) });
+        await Settle(resources, rig, () => resources.Blend("op_test2") is not null);
+        var before = resources.Blend("op_test2")!;
+        var solves = resources.BlendSolves;
+
+        // Accepted in a blind draft: the draft takes the pose and the quad; the live project and STATE.solve do not move, and the reply
+        // claims nothing of the live blend.
+        var draft = new ProjectStore(rig.Project);
+        rig.Engine.DraftForTests = s => s.SessionId == WallRig.Desk.SessionId ? draft : null;
+        var live = rig.Project;
+        var solve = rig.State().GetProperty("solve").GetRawText();
+        var accepted = await rig.Ok($"CALIBRATION ACCEPT {staged}");
+        output.WriteLine(accepted);
+        Assert.Equal(staged, draft.Project.FindProjector("pj_test2")!.CalibrationId);
+        Assert.NotEqual(live.FindSurface("sf_quad2")!.Pixel, draft.Project.FindSurface("sf_quad2")!.Pixel);
+        Assert.Same(live, rig.Project);
+        Assert.DoesNotContain("solving the blend", accepted, StringComparison.Ordinal);
+        Assert.Contains("the blend is solved for the new pose when the draft lands", accepted, StringComparison.Ordinal);
+        Assert.Equal(solve, rig.State().GetProperty("solve").GetRawText());
+
+        // The draft lands: the automatic blend follows the new pose.
+        rig.Engine.DraftForTests = null;
+        rig.Engine.Store.Apply("land the draft", _ => draft.Project);
+        await Settle(resources, rig, () => resources.BlendSolves > solves);
+        var after = resources.Blend("op_test2")!;
+        Assert.False(before.Weights.AsSpan().SequenceEqual(after.Weights), "the blend did not move with the pose");
+        var expected = BlendInputs.Of(rig.Project).Solve(rig.Engine.Meshes).For("op_test2")!.Map;
+        Assert.True(expected.Weights.AsSpan().SequenceEqual(after.Weights), "the blend is not the committed pose's");
+    }
+
+    /// <summary>Lets the render host's resources observe the live project until a condition holds (up to 30 s).</summary>
+    private static async Task Settle(StageResources resources, WallRig rig, Func<bool> condition)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        resources.Observe(rig.Engine.Store.Current);
+        while (!condition())
+        {
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(30), "timed out");
+            await Task.Delay(20);
+            resources.Observe(rig.Engine.Store.Current);
+        }
     }
 
     private static Surface QuadOn(string id, string projectorId, WarpLattice? lattice) =>

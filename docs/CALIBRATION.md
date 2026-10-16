@@ -134,12 +134,16 @@ read the same. A real camera's look holds every other projector output black whi
    projector that blends automatically has its blend solved again off the lane (BLEND SOLVE's receipt is the reply's `blend`, or
    why it was not). A projector changed while it was being re-solved (dragged pins, a nudged pose) refuses the whole edit with
    words. A staged camera result is marked as one (its `runId` is `camera:<camera>`): when a person accepts it, its quads are
-   re-seated from the pose it replaces and the blend is solved again, as if it had been applied at once.
+   re-seated from the pose it replaces and the blend is solved again, as if it had been applied at once. Accepted in a blind
+   draft, the live blend is left alone and the reply says so: the render host's automatic blend solves it for the new pose once
+   the draft lands on the air.
 
 The task's state moves through `capturing`, `matching`, `solving`, `verifying` to `done`; `CALIBRATION CANCEL` stops it before it
 applies. A simulated camera (a rig of kind Simulated) is its own display: `StageSimulator` traces the stage from the camera and
 lights it from each projector where `SimulatedStage` says it truly stands (knocked or as the project says). A real camera shows
-the dots on the projectors' outputs through the align display shooter (latency measured first, each picture taken once settled).
+the dots on the projectors' outputs through the align display shooter (latency measured first, each picture taken once settled);
+it opens as a scan opens it (`ScanCameras`): a phone through the node's phone hub, a still a picture, else a capture device or a
+stream.
 The pattern time is the frames times `wall.resolveFrameMs` (100 ms). `ResolveCameraTests`: of three projectors, P2 knocked 0.8°
 and 2 cm is found moved and the others unmoved, P2 alone is re-solved to 0.004 px p95 on the wall against the truth, in five
 frames (0.5 s of patterns); `ReseatTests`: a quad on a projector knocked 16 px lights its old wall spots again within 0.001 px.
