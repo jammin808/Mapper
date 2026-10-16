@@ -12,7 +12,6 @@ using PlayMap.Media.Hap;
 using PlayMap.Media.Hw;
 using PlayMap.Media.Sources;
 using PlayMap.Net;
-using PlayMap.Render.Gpu;
 
 using LibraryImport = PlayMap.Media.MediaImport;
 
@@ -232,8 +231,8 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         var (share, platform) = ZeroCopy;
         var choice = DecodeLadder.Choose(policy, platform, forced);
         var zero = DecodeLadder.Rank(choice.Ceiling) is 1 or 2;
-        if (zero && share is DmaBufShare dmabuf)
-            dmabuf.Forget(key);   // opened again: it starts from the top of the ladder
+        // Opened again: it starts from the top of the ladder, whatever the renderer's share remembers of its last open.
+        share?.Forget(key);
         var queueHw = Math.Clamp(settings.QueueFramesHw, 2, 32);
         var decoder = DecoderOptions.Default with
         {

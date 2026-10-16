@@ -81,6 +81,13 @@ public interface IGpuShare
     void ReportImportFailure(string sourceKey, string words);
     bool ImportFailed(string sourceKey, out string words);
 
+    /// <summary>Forgets a source's import failure: the source was opened again and starts from the top of the ladder. A share that
+    /// remembers no failures has nothing to forget.</summary>
+    void Forget(string sourceKey)
+    {
+        // Nothing remembered.
+    }
+
     /// <summary>Why decoders cannot decode onto this device ("" when they can): a D3D11 device made without video support or
     /// without multithread protection, a software GL.</summary>
     string ZeroCopyWords => "";

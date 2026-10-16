@@ -312,3 +312,78 @@ public sealed class DecodePathStateTests
         }
     }
 }
+
+/// <summary>A clip opened again starts from the top of the ladder on whatever share the renderer has: the import failure the renderer
+/// reported against its last open is forgotten at the open, so its first frame is not stepped down for what an earlier decoder did —
+/// on a D3D11 share as on a dmabuf one.</summary>
+public sealed class ReopenLadderTests
+{
+    /// <summary>A share of the D3D11 kind (its device is no real one: on this platform no decoder goes on it) that remembers import
+    /// failures by source, as the renderer's do.</summary>
+    private sealed class RememberingShare : IGpuShare
+    {
+        private readonly Dictionary<string, string> _failures = new(StringComparer.Ordinal);
+
+        public GpuApi Api => GpuApi.D3D11;
+        public string Describe => "a D3D11 share that remembers";
+        public nint D3D11Device => 0;
+        public long AdapterLuid => 0;
+        public string? DrmRenderNode => null;
+        public long DeviceEpoch => 1;
+        public bool DirectProven => false;
+        public bool CanImport(GpuSurfaceFormat format, uint fourcc, ulong modifier) => false;
+
+        public void Enter()
+        {
+            // No device to lock.
+        }
+
+        public void Exit()
+        {
+            // As Enter.
+        }
+
+        public void ReportImportFailure(string sourceKey, string words) => _failures[sourceKey] = words;
+
+        public bool ImportFailed(string sourceKey, out string words) => _failures.TryGetValue(sourceKey, out words!);
+
+        public void Forget(string sourceKey) => _failures.Remove(sourceKey);
+    }
+
+    [FfmpegFact]
+    public async Task AClipOpenedAgainForgetsTheImportFailureOfItsLastOpen()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-decode-reopen-");
+        try
+        {
+            FfmpegFactAttribute.UseDefaultLibraries();
+            var path = Path.Combine(dir.FullName, "clip.mp4");
+            var psi = new ProcessStartInfo(Clips.Ffmpeg()) { RedirectStandardError = true, UseShellExecute = false };
+            foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=64x36:r=25:d=1",
+                         "-c:v", "mpeg4", "-q:v", "8", "-pix_fmt", "yuv420p", path })
+                psi.ArgumentList.Add(a);
+            using (var p = Process.Start(psi)!)
+            {
+                var err = await p.StandardError.ReadToEndAsync();
+                await p.WaitForExitAsync();
+                Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+            }
+            var item = new MediaItem("md_clip", "Clip", MediaKind.Video, path, "", 0,
+                MediaInfo.Unknown with { Width = 64, Height = 36, FrameRate = "25", VideoCodec = "mpeg4", DurationNs = 1_000_000_000 }, []);
+            await using var media = new MediaBackend(new NodeHome(Path.Combine(dir.FullName, "node")), NullLogger.Instance);
+            var share = new RememberingShare();
+            media.UseGpu(share);
+            Assert.True(media.ZeroCopy.Platform.Ready, media.ZeroCopy.Platform.Words);
+            share.ReportImportFailure("md_clip", "ANGLE refused the plane (EGL_BAD_MATCH)");
+
+            var source = media.Open(item);
+            Assert.NotNull(source);
+            source.Dispose();
+            Assert.False(share.ImportFailed("md_clip", out var words), $"the clip opened again still carries its last open's failure: {words}");
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+}

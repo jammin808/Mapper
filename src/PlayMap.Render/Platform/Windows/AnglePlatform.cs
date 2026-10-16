@@ -289,6 +289,12 @@ public sealed class AnglePlatform : IGpuPlatform
             words = "";
             return false;
         }
+
+        public void Forget(string sourceKey)
+        {
+            lock (_gate)
+                _failures.Remove(sourceKey);
+        }
     }
 }
 

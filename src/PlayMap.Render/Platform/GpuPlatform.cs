@@ -250,5 +250,11 @@ public sealed class GlPlatform : IGpuPlatform
             words = "";
             return false;
         }
+
+        public void Forget(string sourceKey)
+        {
+            lock (_gate)
+                _failures.Remove(sourceKey);
+        }
     }
 }
