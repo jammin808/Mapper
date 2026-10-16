@@ -19,7 +19,7 @@ import { actionIdOf } from './catalog/verbs.ts'
 import { groupOn, type PlayMapConfig } from './config.ts'
 import { RULES, SLOTS, fillHint, stronger } from './live.ts'
 import { colourOf, css, inkOn, lightExpression, rgbOf } from './palette/playmap.ts'
-import type { IndexDoc } from './state/index-doc.ts'
+import { pressable, type IndexDoc } from './state/index-doc.ts'
 import { P } from './state/paths.ts'
 
 type PresetAction = SomePresetActionEntry
@@ -1083,7 +1083,8 @@ export function presetStructure(
 		})
 	if (groupOn(config, 'sections'))
 		for (const s of index?.sections ?? []) {
-			if (s.rows.length === 0 || s.keys.length === 0) continue
+			const rows = s.rows.filter(pressable)
+			if (rows.length === 0 || s.keys.length === 0) continue
 			sections.push({
 				id: `sec.${s.section}`,
 				name: s.title || s.section,
@@ -1092,12 +1093,12 @@ export function presetStructure(
 					template(
 						`sec.${s.section}.${i}`,
 						fillHint(k.label, { id: '', label: k.label, light: '' }).replace('$(label)', '') || s.title,
-						`section_key_${s.rows.reduce<'instant' | 'hold' | 'double'>(
+						`section_key_${rows.reduce<'instant' | 'hold' | 'double'>(
 							(press, r) => stronger(press, extras.pressOf?.(fillHint(k.line, r)) ?? 'instant'),
 							k.press === 'hold' || k.press === 'double' ? k.press : 'instant',
 						)}`,
 						'row',
-						s.rows.map((r) => ({
+						rows.map((r) => ({
 							name: fillHint(k.label, r) === r.label ? r.label : `${fillHint(k.label, r)} ${r.label}`,
 							value: r.id,
 						})),

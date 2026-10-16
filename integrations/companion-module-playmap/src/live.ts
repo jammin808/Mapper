@@ -3,6 +3,7 @@ import type { NodeModel } from './state/model.ts'
 import { P, bool, field, list, num, str } from './state/paths.ts'
 import { projectorLight } from './state/variables.ts'
 import { Lines } from './lines.ts'
+import { pressable } from './state/index-doc.ts'
 
 /** What one Live slot shows and sends. */
 export interface Slot {
@@ -146,7 +147,7 @@ export function layout(rule: string, model: NodeModel, nodeNow: number, pressOf:
 					sub: r.state,
 					light: r.light || 'grey',
 					thumbRef: null,
-					line: key ? fillHint(key.line, r) : null,
+					line: key && pressable(r) ? fillHint(key.line, r) : null,
 				},
 				own,
 			),

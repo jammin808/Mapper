@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { InstanceStatus } from '@companion-module/base'
 import { boot, configFor } from './harness.ts'
 import { openChannel } from '../src/link/channel.ts'
+import { MODULE_VERSION } from '../src/version.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 
@@ -121,6 +122,19 @@ void test(
 			const who = JSON.parse((await m.instance.ask('WHOAMI')).payload) as { channel?: string; paired?: boolean }
 			assert.equal(who.channel, 'ws')
 			await m.host.until(() => m.host.variables.get('node_name') === 'E2E node', 'STATE from the engine')
+
+			// PRESENCE as the module writes it is taken by the engine's own reader: STATE.clients shows this deck's version and
+			// what its Live page shows.
+			type Client = { kind?: string; paired?: boolean; module?: string | null; where?: string | null }
+			const deck = (): Client | undefined =>
+				((m.instance.model.state?.clients ?? []) as Client[]).find((c) => c.kind === 'companion')
+			await m.host.until(() => deck()?.module === MODULE_VERSION, 'STATE.clients shows the module PRESENCE named')
+			assert.equal(deck()?.paired, true)
+			assert.match(deck()?.where ?? '', /^Live · focused /u)
+			assert.ok(
+				said.some((l) => /^@c\d+ PRESENCE \{"kind":"companion","module":"/u.test(l)),
+				'PRESENCE said once paired',
+			)
 
 			// Actions make a playlist.
 			const made = (await m.press('v_playlist_new', { name: 'E2E show' })) as {

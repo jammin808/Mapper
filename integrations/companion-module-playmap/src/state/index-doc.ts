@@ -78,6 +78,12 @@ export interface IndexRow {
 	readonly state: string
 }
 
+/** Whether a section row is pressed: every row but an encoder's (the show's MASTER), which a dial turns with its value and whose
+ * line is never sent bare. */
+export function pressable(row: IndexRow): boolean {
+	return row.kind !== 'encoder'
+}
+
 export interface IndexSection {
 	readonly section: string
 	readonly title: string

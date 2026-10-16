@@ -227,15 +227,17 @@ void test('INDEX makes a template group per playlist keyed pl.<id>, a section pe
 				assert.equal(g?.type, 'template')
 				assert.equal(g.presetId, `section_key_${k.press}`, `${s.section} key ${i} is pressed ${k.press}`)
 				assert.equal(g.templateVariableName, 'row')
+				// Every row is a key but an encoder's, which is turned with its value.
+				const pressed = s.rows.filter((r) => r.kind !== 'encoder')
 				assert.deepEqual(
 					g.templateValues?.map((v) => v.value),
-					s.rows.map((r) => r.id),
+					pressed.map((r) => r.id),
 				)
 				assert.deepEqual(g.commonVariableValues, { section: s.section, key: i })
 				if (k.label === '$(label)')
 					assert.deepEqual(
 						g.templateValues?.map((v) => v.name),
-						s.rows.map((r) => r.label),
+						pressed.map((r) => r.label),
 					)
 			})
 		}

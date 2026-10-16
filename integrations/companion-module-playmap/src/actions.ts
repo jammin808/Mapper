@@ -16,6 +16,7 @@ import { RULES, fillHint } from './live.ts'
 import { P, at, num } from './state/paths.ts'
 import { parseNode } from './json.ts'
 import { Lines } from './lines.ts'
+import { pressable } from './state/index-doc.ts'
 
 /** The verbs whose press is a GO of a playlist (the double-GO guard applies). */
 const GO_VERBS = new Set(['PLAYLIST GO', 'PLAYLIST NEXT', 'PLAYLIST PREV'])
@@ -396,6 +397,8 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			const key = section?.keys[num(Number(action.options.key), 0)]
 			if (!section || !row || !key)
 				return ctx.receipts.notSent(action.controlId, 'section', 'the node no longer lists this key')
+			if (!pressable(row))
+				return ctx.receipts.notSent(action.controlId, 'section', `${row.label} is turned with a value, never pressed`)
 			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId)) return ARMED
 			return ctx.send(fillHint(key.line, row), action.controlId)
 		},

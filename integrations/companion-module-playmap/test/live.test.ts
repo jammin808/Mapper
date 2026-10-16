@@ -262,6 +262,10 @@ void test('every source lays its slots out from INDEX and STATE, and a slot past
 		const [peer] = state.peers
 		const [output] = state.outputs
 		assert.ok(intro && red && blue && green && showSection && fault && peer && output)
+		assert.ok(
+			showSection.rows.some((r) => r.kind === 'encoder'),
+			'the fixture show section has its encoder row',
+		)
 		assert.equal(state.playlists.find((p) => p.id === show.id)?.item?.id, red.id, 'the fixture plays Red')
 		assert.equal(state.playlists.find((p) => p.id === show.id)?.next?.id, blue.id, 'and Blue is next')
 		assert.equal(state.playlists.find((p) => p.id === loops.id)?.next?.id, green.id, 'Loops is idle, Green next')
@@ -295,9 +299,15 @@ void test('every source lays its slots out from INDEX and STATE, and a slot past
 			faults: [{ label: fault.part, sub: fault.words, light: 'red', line: '', thumb: '' }, null],
 			// The fleet: each machine's name, headline and light.
 			peers: [{ label: peer.name, sub: peer.headline, light: peer.light, line: '', thumb: '' }, null],
-			// A package's section: its first key's label and line with each row's words in, lit by the row.
+			// A package's section: its first key's label and line with each row's words in, lit by the row; an encoder row (the
+			// master) is turned with its value, so its slot shows and sends nothing.
 			'section:show': [
-				...showSection.rows.map((r) => ({ label: r.label, light: r.light || 'grey', line: r.id, thumb: '' })),
+				...showSection.rows.map((r) => ({
+					label: r.label,
+					light: r.light || 'grey',
+					line: r.kind === 'encoder' ? '' : r.id,
+					thumb: '',
+				})),
 				null,
 			],
 			// A source the module does not know lays out nothing.

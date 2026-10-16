@@ -17,6 +17,8 @@ interface IndexJson {
 	sections: { section: string; rows: Row[] }[]
 }
 interface StateJson {
+	seq: number
+	at: number
 	outputs: { id: string; present: unknown }[]
 }
 
@@ -52,6 +54,9 @@ void test('a section key is lit from a STATE light its hint names, else from its
 		const output = state.outputs.find((o) => o.id === 'op_1')
 		assert.ok(output)
 		output.present = { light: 'green' }
+		// As a node writes it: every STATE it publishes moves its seq and its at.
+		state.seq += 1
+		state.at += 1
 		node.push('STATE ' + JSON.stringify(state))
 		await values(m, { arm: 'grey', present: 'green', rejoin: 'grey', tap: 'grey' }, 'a STATE light the hint names')
 
@@ -66,6 +71,43 @@ void test('a section key is lit from a STATE light its hint names, else from its
 		// The link drops: no key says what the node no longer says.
 		for (const s of [...node.sessions]) s.close(1001)
 		await values(m, { arm: 'grey', present: 'grey', rejoin: 'grey', tap: 'grey' }, 'grey once the link is not live')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('an encoder row is turned, never pressed: no section preset lists it, and section_press refuses it unsent', async () => {
+	const node = await new FakeNode().start()
+	const m = await boot(configFor(node.webPort), {})
+	try {
+		await m.host.until(() => m.instance.linked() && m.instance.model.index !== null, 'linked, INDEX heard')
+		const index = fixture('index.json') as { sections: { section: string; rows: (Row & { kind: string })[] }[] }
+		const master = index.sections.find((s) => s.section === 'show')?.rows.find((r) => r.kind === 'encoder')
+		assert.ok(master, 'the fixture show section has its encoder row')
+
+		// The show section's preset lists every pressed row and not the encoder's.
+		type Definition = { id: string; templateValues?: { value: unknown }[] }
+		const show = (m.host.structure as { id: string; definitions: Definition[] }[]).find((s) => s.id === 'sec.show')
+		const listed = (show?.definitions[0]?.templateValues ?? []).map((v) => v.value)
+		assert.ok(listed.includes('MASTER 100') && listed.includes('SHOW ARM'), JSON.stringify(listed))
+		assert.ok(!listed.includes(master.id), 'the encoder row is no key of the preset')
+
+		// Pressed anyway (a key made by hand): nothing reaches the node, and the result says why.
+		const before = node.lines.length
+		const pressed = (await m.press('section_press', { section: 'show', row: master.id, key: 0 }, 'key-master')) as {
+			ok: boolean
+			stage: string
+			error: string
+		}
+		assert.equal(pressed.ok, false)
+		assert.equal(pressed.stage, 'not-sent')
+		assert.match(pressed.error, /turned with a value, never pressed/u)
+		assert.deepEqual(
+			node.lines.slice(before).filter((l) => /\bMASTER\b/u.test(l)),
+			[],
+			'no bare MASTER sent',
+		)
 	} finally {
 		await m.stop()
 		await node.stop()

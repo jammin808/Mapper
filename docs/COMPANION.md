@@ -183,7 +183,9 @@ pair — a layered key, then a simple one for a host that cannot draw it — and
 no traffic, in Companion's own expressions: Show Mode's frame on `oscillate(2000)` while armed, the headline's mark on `blink(500)` while
 a fault stands, the Beat key on `oscillate(60000 / bpm, 'square')`, a projector's ground in `colorMix` from red to green by its score. A package's INDEX
 section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says, lit by the
-hint's feedback when it is a STATE path to a light (`outputs.$(id).present.light`), else by the row's light. The **Live page** is
+hint's feedback when it is a STATE path to a light (`outputs.$(id).present.light`), else by the row's light. An `encoder` row (the
+show's MASTER) is turned with its value, never pressed: it is no key of the section's preset, its Live slot only shows, and
+`section_press` refuses it unsent — the Master encoder preset turns it. The **Live page** is
 one template group of 32 slots whose source is the page variable `pm_live`; the module lays the slots out from INDEX and STATE and, while
 the show is armed, keeps each slot on its entity (lights and labels still move; a gone one reads REMOVED) until RE-LAY or disarming.
 
