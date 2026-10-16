@@ -273,6 +273,8 @@ internal sealed class FramePool : IDisposable
 
     public int Capacity { get; }
 
+    internal Lock Gate => _gate;
+
     /// <summary>Slots out of the pool (queued or leased).</summary>
     public int InUse
     {

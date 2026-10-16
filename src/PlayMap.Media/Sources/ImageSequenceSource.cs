@@ -67,6 +67,7 @@ public sealed unsafe class ImageSequenceSource : IVideoSource
         var wake = new Action(() => _wake.Set());
         _queue = new FrameQueue(_options.Queue, _stats, wake);
         _pool = new FramePool(_queue.Capacity + 4, wake);
+        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate);
         _queue.SetLoopInitial(_options.Loop, _options.InNs, _options.OutNs);
         _thread = new Thread(Run) { IsBackground = true, Name = "sequence " + Path.GetFileName(location) };
         _thread.Start();
@@ -116,6 +117,7 @@ public sealed unsafe class ImageSequenceSource : IVideoSource
 
     private void Run()
     {
+        LockWaits.PrepareThisThread();
         try
         {
             _files = ImageSequence.Resolve(_location);

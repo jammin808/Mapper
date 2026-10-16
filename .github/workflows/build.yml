@@ -8,7 +8,9 @@ on:
 
 jobs:
   # Every suite on Linux: headless OpenGL through Mesa (llvmpipe) under Xvfb, and FFmpeg 9.0's shared
-  # libraries for the media suite (the binding's major version must match the libraries').
+  # libraries for the media suite (the binding's major version must match the libraries'). The image stays a bare
+  # user machine with Microsoft's .NET: no VA-API, no system OpenAL (a sound server is not installed: Ubuntu's
+  # PulseAudio pulls the distro FFmpeg and with it libva), so the suites prove the node falls back with words there.
   test:
     runs-on: ubuntu-latest
     env:
@@ -34,8 +36,25 @@ jobs:
         run: dotnet restore
       - name: Build (the analyzers are fences)
         run: dotnet build -c Release --no-restore
-      - name: Test
-        run: dotnet test -c Release --no-build --logger "trx;LogFileName=results.trx"
+      - name: The machine is bare (no libva, no system OpenAL)
+        run: |
+          # The decode ladder's VA-API guard and the bundled OpenAL are proven here only while these are absent; on a machine
+          # that has them, tools/without-libs.sh hides them for one command.
+          present=$(ldconfig -p | grep -oE '(libva(-drm)?|libopenal)\.so\.[0-9]+' | sort -u | tr '\n' ' ')
+          if [ -n "$present" ]; then echo "::error::the runner has $present; run the suites through tools/without-libs.sh"; exit 1; fi
+      - name: Test (every project to its end; one crash hides no other result)
+        run: |
+          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
+          # project runs.
+          failed=""
+          for project in tests/*/*.csproj; do
+            name=$(basename "$project" .csproj)
+            echo "::group::$name"
+            dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" \
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none || failed="$failed $name"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5

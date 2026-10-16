@@ -117,11 +117,18 @@ public sealed class MachineSamplerTests
         Assert.True(s.DiskFreeGb > 0, $"{s.DiskFreeGb} GB free");
         Assert.True(s.UptimeS > 0, $"{s.UptimeS} s up");
         Assert.True(s.NetMbps >= 0);
-        if (!Directory.Exists("/sys/class/drm") || !Directory.EnumerateFiles("/sys/class/drm", "gpu_busy_percent", SearchOption.AllDirectories).Any())
-        {
+        // Where the reader looks: each card's own device (sysfs links back into itself, so a walk of the whole tree never ends).
+        var devices = Directory.Exists("/sys/class/drm")
+            ? Directory.EnumerateDirectories("/sys/class/drm", "card*").Where(c => !Path.GetFileName(c).Contains('-', StringComparison.Ordinal))
+                .Select(c => Path.Combine(c, "device")).ToArray()
+            : [];
+        var busy = devices.Any(d => File.Exists(Path.Combine(d, "gpu_busy_percent")));
+        var temperature = devices.Any(d => Directory.Exists(Path.Combine(d, "hwmon"))
+            && Directory.EnumerateDirectories(Path.Combine(d, "hwmon")).Any(m => File.Exists(Path.Combine(m, "temp1_input"))));
+        if (!busy)
             Assert.Equal(-1, s.GpuPct);
+        if (!busy && !temperature)
             Assert.Equal(LinuxMachineReader.NoGpuWords, s.GpuWhy);
-        }
     }
 }
 

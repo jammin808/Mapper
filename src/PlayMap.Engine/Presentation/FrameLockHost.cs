@@ -14,8 +14,9 @@ namespace PlayMap.Engine.Presentation;
 /// boundary, the group's wish), the driver's actions performed at once, and the views republished only when one changed.
 ///
 /// <list type="bullet">
-/// <item><b>Never stalls.</b> A present that waited more than three periods on a joined output is the watchdog's evidence: the
-/// machine leaves the barrier and the output presents free from its next present.</item>
+/// <item><b>Never stalls.</b> The driver's barrier wait timing out (3 refreshes) or the board's count standing still for 3 periods
+/// is the watchdog's evidence: the machine leaves the barrier and the output presents free from its next present. How long a
+/// present call took is never evidence: it holds the node's own work, not the barrier.</item>
 /// <item><b>Content time under the lock.</b> While the pacing output is locked with a valid count, the next frame's show time is
 /// the anchor's mapping of the next count (<see cref="LockCounter"/>), the same on every node; the anchor is this node's own
 /// (re-made every 60 s from the pacer's fitted vblank) unless a leader's was offered.</item>
@@ -256,7 +257,7 @@ internal sealed class FrameLockHost : IDisposable
         var outputIntent = heldOut ? intent with { Apply = false } : intent;
         uint count = 0;
         var valid = slot.Joined && _driver.TryFrameCount(id, presenter, out count);
-        var timedOut = slot.Joined && presenter is not null && renderer.PresentWaitNs(id) > 3 * period;
+        var timedOut = slot.Joined && _driver.WaitTimedOut(id);
         var facts = new LockFacts(monoNow, period, present?.Settled ?? false, board is not null, board?.Configured ?? false,
             board?.Synced ?? false, board?.SignalAvailable ?? false, board?.HouseSync ?? false, board?.CableIntoSwitch ?? false, slot.Joined,
             slot.Joined && _driver.BarrierBound(id), valid, count, timedOut, false, displayChanged, armed, blackedOut, atBoundary, outputIntent)

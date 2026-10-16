@@ -130,15 +130,18 @@ public sealed class AudioRuntime : IDisposable
         && (_spec != spec || (_state.State == "retrying" && monoNowNs >= Interlocked.Read(ref _retryAtMonoNs)));
 
     /// <summary>Makes the node hear what the show asks: the same input keeps its open device (only the gain, the gate and the latency
-    /// move); another input closes the old one and opens the new one. A failure is the state "retrying" with its words.</summary>
-    public async Task<ListenState> ListenAsync(ListenSpec spec, CancellationToken ct)
+    /// move); another input closes the old one and opens the new one. A failure is the state "retrying" with its words.
+    /// <paramref name="ask"/> is read while the one-open gate is held, so callers that run in any order end on the newest ask: an
+    /// ask read before another caller's open can never be applied over it.</summary>
+    public async Task<ListenState> ListenAsync(Func<ListenSpec> ask, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(spec);
+        ArgumentNullException.ThrowIfNull(ask);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         await _listenGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            var spec = ask();
             var current = _spec;
             if (current is not null && _analyser is { } analyser && _state.State == "listening"
                 && current.Input == spec.Input && current.Channels == spec.Channels)
