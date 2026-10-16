@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Engine.Scanning;
 using PlayMap.Engine.Tests.Host;
@@ -5,8 +6,9 @@ using PlayMap.Engine.Tests.Host;
 namespace PlayMap.Engine.Tests.Phone;
 
 /// <summary>
-/// A folder camera and a picture still being written: a file a tethering tool has made but not yet filled (no bytes) is not a picture —
-/// the camera waits for its bytes, then takes it once its size stands still.
+/// A folder camera and pictures that are not yet, or not the right, picture: a file a tethering tool has made but not yet filled (no bytes)
+/// is not a picture — the camera waits for its bytes, then takes it once its size stands still; photos of another size than the camera
+/// rig's fail the scan at the first one with the size to shoot, before anything is solved or recorded.
 /// </summary>
 public sealed class FolderCameraWriteTests
 {
@@ -38,6 +40,43 @@ public sealed class FolderCameraWriteTests
             Assert.Equal((64, 48), (frame.Width, frame.Height));
             Assert.Equal(samples.Select(s => (byte)s), frame.Gray);
             Assert.Equal("", camera.Problem);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [FfmpegFact]
+    public async Task PhotosOfAnotherSizeFailTheScanWithTheSizeToShoot()
+    {
+        var folder = Directory.CreateTempSubdirectory("playmap-size-").FullName;
+        PhoneScanRig? rigRef = null;
+        var shot = 0;
+        void Shoot(PatternCue cue)
+        {
+            var rig = rigRef!;
+            var (w, h) = (rig.Camera.CameraWidth / 2, rig.Camera.CameraHeight / 2);
+            FolderCameraTests.Drop(folder, Interlocked.Increment(ref shot), new byte[w * h], w, h);
+        }
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions
+        {
+            PatternTimeout = TimeSpan.FromSeconds(5),
+            OpenCamera = r => new FolderCamera(r, new FolderCameraOptions { Cued = Shoot, Poll = TimeSpan.FromMilliseconds(20) }),
+        });
+        rigRef = rig;
+        try
+        {
+            await FolderCameraTests.AddRigAsync(rig, folder, FolderAdvance.NewFile);
+            var k = rig.Engine.Store.Project.Stage.Cameras.Find(FolderCameraTests.Rig)!.Intrinsics;
+            await rig.Ok($"SCAN START {FolderCameraTests.Rig} pj00000001 MODE FAST");
+            var view = await rig.EndedAsync();
+            Assert.Equal("failed", view.State);
+            Assert.Equal(1, Volatile.Read(ref shot));
+            Assert.Empty(rig.Engine.Store.Project.Stage.Scans);
+            var (w, h) = (rig.Camera.CameraWidth / 2, rig.Camera.CameraHeight / 2);
+            Assert.Contains(string.Create(CultureInfo.InvariantCulture, $"sends {w}×{h} pictures"), view.Message, StringComparison.Ordinal);
+            Assert.Contains(string.Create(CultureInfo.InvariantCulture, $"shoot at {k.Width}×{k.Height}"), view.Message, StringComparison.Ordinal);
         }
         finally
         {

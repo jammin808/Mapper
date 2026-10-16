@@ -16,7 +16,7 @@ namespace PlayMap.Engine.Tests.Phone;
 /// </summary>
 public sealed class FolderCameraTests(ITestOutputHelper output)
 {
-    private const string Rig = "cm0000f01d";
+    internal const string Rig = "cm0000f01d";
 
     /// <summary>A minimal uncompressed grey TIFF (8 or 16 bits a sample, little-endian), as a tethering tool writes.</summary>
     internal static byte[] Tiff(int width, int height, ReadOnlySpan<ushort> samples, int bits)
@@ -62,7 +62,7 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
     }
 
     /// <summary>A picture written as a tethering tool does: beside, then renamed into place.</summary>
-    private static void Drop(string folder, int n, byte[] gray, int width, int height)
+    internal static void Drop(string folder, int n, byte[] gray, int width, int height)
     {
         var samples = gray.Select(b => (ushort)b).ToArray();
         var path = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"photo-{n:0000}.tif"));
@@ -70,7 +70,7 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
         File.Move(path + ".part", path);
     }
 
-    private static async Task AddRigAsync(PhoneScanRig rig, string folder, FolderAdvance advance)
+    internal static async Task AddRigAsync(PhoneScanRig rig, string folder, FolderAdvance advance)
     {
         var cam = rig.Truth.Camera;
         var r = await rig.Engine.EditAsync(PhoneScanRig.Desk, "the tethered camera", p => p.WithStage(s => s with

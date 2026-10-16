@@ -208,9 +208,15 @@ public sealed partial class ScanRunner
                 $"locate frame {k + 1}", ct).ConfigureAwait(false);
             (w, h) = Size(frame, w, h);
             // The rig's optics are for the raster its camera joined with: pictures of another size would be solved against the wrong ones.
+            // A phone joins again to give its rig its size; a folder's photos are shot at the size its rig was set up for.
             if ((w, h) != rigRaster)
+            {
+                var fix = camera is FolderCamera
+                    ? string.Create(CultureInfo.InvariantCulture, $"shoot at {rigRaster.Width}×{rigRaster.Height}, the size its camera rig was set up for (its optics are for that picture)")
+                    : "join it again so the rig takes its picture size";
                 throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                    $"{camera.Name} sends {w}×{h} pictures, but its camera rig is {rigRaster.Width}×{rigRaster.Height}: join it again so the rig takes its picture size"));
+                    $"{camera.Name} sends {w}×{h} pictures, but its camera rig is {rigRaster.Width}×{rigRaster.Height}: {fix}"));
+            }
             locate[k] = frame.Gray;
             views?.CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
         }
