@@ -494,7 +494,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "VIDEO RESTART",
@@ -568,7 +568,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "VIDEO SEEK",
@@ -620,7 +620,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "VIDEO END",
@@ -673,7 +673,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "VIDEO RATE",
@@ -724,7 +724,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "PLAYLIST LIST",
@@ -1403,7 +1403,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "MEDIA LIST",
@@ -4987,7 +4987,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "PANIC SET",
@@ -5151,7 +5151,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "LOCK",
@@ -8755,7 +8755,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "TIMECODE ENGAGE",
@@ -8810,7 +8810,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "TIMECODE SET",
@@ -9059,7 +9059,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "INDEX",
@@ -11486,7 +11486,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "LED TEST",
@@ -11669,7 +11669,7 @@
         }
       ]
     ],
-    "press": "instant"
+    "press": "hold"
   },
   {
     "name": "LED MONITOR",
@@ -13890,7 +13890,7 @@
       },
       {
         "name": "layers",
-        "kind": "line",
+        "kind": "text",
         "optional": true,
         "keyword": "LAYERS",
         "alt": "EDIT|ALL"
@@ -13918,7 +13918,7 @@
         },
         {
           "name": "layers",
-          "kind": "line",
+          "kind": "text",
           "optional": true,
           "keyword": "LAYERS",
           "alt": "EDIT|ALL"
