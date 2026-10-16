@@ -472,7 +472,7 @@ public static class VerbCatalog
         V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
-        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass and ALIGN SCORE).
+        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass, ALIGN SCORE and DEVICE NATIVE).
         V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN RUN", "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ, and with COLOR WHITE each white matched) with its score; ONLY scans those outputs again and keeps the others; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("ALIGN STATUS", "ALIGN STATUS", "The running or last run", VerbCategory.Align, VerbRisk.Low, false),
@@ -482,6 +482,7 @@ public static class VerbCatalog
         V2("ALIGN REVERT", "ALIGN REVERT <group>", "Back to each output's fallback correction", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CORNERS", "ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> | ALIGN CORNERS <group> CLEAR", "The screen's corners in the camera picture (0–1), for an exact canvas", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
+        V2("DEVICE NATIVE", "DEVICE NATIVE <device>", "A projector's own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard", VerbCategory.Device, VerbRisk.Low, false),
 
         // The phone as a scan camera, fully local; many views into one scan (wp2-phonescan; SCAN SOLVE/VIEWS/DROP by wp2-multiscan).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },

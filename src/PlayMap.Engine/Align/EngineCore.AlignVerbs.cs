@@ -48,6 +48,7 @@ public sealed partial class EngineCore
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));
         routes.Lane("ALIGN STATUS", _ => CommandReply.Success(JsonOut(w => WriteAlignRun(w, AlignBackend.View))));
         routes.Lane("ALIGN SCORE", AlignScore);
+        routes.OffLane("DEVICE NATIVE", DeviceNativeAsync);
         routes.Lane("ALIGN CANCEL", AlignCancel);
         routes.OffLane("ALIGN ACCEPT", c => AlignGate(c) is { } refused ? Task.FromResult(refused) : AlignAcceptAsync(c));
         routes.Lane("ALIGN REVERT", AlignGuarded(AlignRevert));
@@ -447,6 +448,7 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         runner.MarkAccepted(runId);
+        NativeDueNow();
         RaiseEvent("align.accepted", LeaderNowNs, w =>
         {
             w.WriteString("group", record.GroupId);
@@ -835,6 +837,7 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }
         w.WriteEndArray();
+        WriteNative(w);
         w.WriteEndObject();
     }
 

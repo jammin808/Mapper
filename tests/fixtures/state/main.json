@@ -524,6 +524,7 @@
   },
   "align": {
     "run": null,
-    "groups": []
+    "groups": [],
+    "devices": []
   }
 }
