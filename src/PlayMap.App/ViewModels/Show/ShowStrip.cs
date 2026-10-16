@@ -110,7 +110,9 @@ public sealed class ShowStripViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(session);
         Arm = DeskAction.Send(session, "show.arm", "Arm", () => _show.Armed ? "SHOW DISARM" : "SHOW ARM", ArmLabel,
             isChecked: () => _show.Armed, isEnabled: () => session.IsLive).Look("arm", "Ctrl+Shift+A");
-        Panic = DeskAction.Send(session, "show.panic", "PANIC", () => "PANIC", isEnabled: () => session.IsLive).Look("panic", "F12", danger: true);
+        // PANIC sends every press at once (a second press within the fade is HARD, however slow the first one's reply), and on a
+        // stale link too.
+        Panic = DeskAction.Send(session, "show.panic", "PANIC", () => "PANIC", isEnabled: () => session.CanSend, everyPress: true).Look("panic", "F12", danger: true);
         Ready = DeskAction.Local("show.ready", "Ready", openHealth).Look("health");
 
         var areas = DeskAction.Local("show.lockArea", "Lock area", () => { }).Look("lock");
@@ -140,7 +142,8 @@ public sealed class ShowStripViewModel : ObservableObject
             DeskAction.Send(session, "show.blind", "Edit blind", () => "BLIND ON").Look("blind", menuOnly: true),
             rules.Look(menuOnly: true, separator: true),
         ];
-        PanicMenu = [Panic, .. Outcomes.Select((o, i) => DeskAction.Send(session, "show.panic." + o, "Panic: " + o.ToLowerInvariant(), () => "PANIC " + o)
+        PanicMenu = [Panic, .. Outcomes.Select((o, i) => DeskAction.Send(session, "show.panic." + o, "Panic: " + o.ToLowerInvariant(), () => "PANIC " + o,
+                isEnabled: () => session.CanSend, everyPress: true)
             .Look("panic", danger: true, menuOnly: true, separator: i == 0))];
         ReadyMenu =
         [
@@ -256,11 +259,12 @@ public sealed class ShowStripModule : DeskModule
         _prefs = prefs;
         _inPlay = inPlay;
         Strip = new ShowStripViewModel(session, prefs, openHealth);
-        _clear = DeskAction.Send(session, "panic.clear", "Clear", () => "PANIC CLEAR FADE 1000").Look("play");
+        _clear = DeskAction.Send(session, "panic.clear", "Clear", () => "PANIC CLEAR FADE 1000", isEnabled: () => session.CanSend, everyPress: true).Look("play");
         _clearMenu = DeskAction.Local("panic.clearFade", "Clear with a fade", () => { });
         foreach (var ms in new[] { 0, 1000, 2000, 5000 })
             _clearMenu.Children.Add(DeskAction.Send(session, "panic.clear." + ms.ToString(CultureInfo.InvariantCulture),
-                ms == 0 ? "At once" : (ms / 1000).ToString(CultureInfo.InvariantCulture) + " s", () => "PANIC CLEAR FADE " + ms.ToString(CultureInfo.InvariantCulture)));
+                ms == 0 ? "At once" : (ms / 1000).ToString(CultureInfo.InvariantCulture) + " s", () => "PANIC CLEAR FADE " + ms.ToString(CultureInfo.InvariantCulture),
+                isEnabled: () => session.CanSend, everyPress: true));
         _armNow = DeskAction.Send(session, "show.armBanner", "Arm", () => "SHOW ARM").Look("arm");
         // One array per banner for the module's life: a banner that has not changed compares equal, so a push during a
         // panic fade leaves its buttons (and an open fade menu) where they are.

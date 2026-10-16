@@ -48,13 +48,14 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         // The supervisor speaks from its own worker; the toast goes up on the UI thread.
         _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));
         Master = new TransportViewModel(session, () => session.State.FocusedPlaylist, master: true);
+        // The air's own controls send every press at once, never waiting for the reply before, and on a stale link too.
         Blackout = DeskAction.Send(session, "blackout", "Blackout", () => _isBlackout ? "BLACKOUT OFF" : "BLACKOUT ON",
-            () => _isBlackout ? "Back on air" : "Blackout", isChecked: () => _isBlackout, isEnabled: () => session.IsLive)
+            () => _isBlackout ? "Back on air" : "Blackout", isChecked: () => _isBlackout, isEnabled: () => session.CanSend, everyPress: true)
             .Look("blackout", "Ctrl+B", danger: true);
         var master = DeskAction.Local("master", "Master", () => { }).Look("blackout", menuOnly: true, separator: true);
         foreach (var level in new[] { 100, 75, 50, 0 })
             master.Children.Add(DeskAction.Send(session, "master." + level.ToString(CultureInfo.InvariantCulture), level.ToString(CultureInfo.InvariantCulture) + " % over 2 s",
-                () => "MASTER " + level.ToString(CultureInfo.InvariantCulture) + " FADE 2000"));
+                () => "MASTER " + level.ToString(CultureInfo.InvariantCulture) + " FADE 2000", isEnabled: () => session.CanSend, everyPress: true));
         BlackoutMenu = [Blackout, master];
         Undo = DeskAction.Send(session, "undo", "Undo", () => "UNDO", isEnabled: () => session.IsLive).Look("undo", "Ctrl+Z");
         Redo = DeskAction.Send(session, "redo", "Redo", () => "REDO", isEnabled: () => session.IsLive).Look("redo", "Ctrl+Y");
@@ -598,7 +599,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     private void OnStatus(LinkStatus status)
     {
         Raise(nameof(IsConnected));
-        new[] { Blackout, Undo, Redo, Save }.RefreshAll();
+        // What a control may send moves with the link (PANIC stays live on a stale link, an edit does not): every action re-reads.
+        foreach (var m in Modules)
+            m.RefreshActions();
+        RefreshEverything();
         UpdateNetworkPill(Session.State);
         if (status == LinkStatus.Live)
             Connect.IsOpen = false;

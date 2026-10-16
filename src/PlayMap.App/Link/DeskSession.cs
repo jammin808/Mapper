@@ -144,6 +144,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     public bool IsLive => _status == LinkStatus.Live;
 
+    /// <summary>The link would carry a line now: live, or stale (quiet, still open). The air's own controls (PANIC, BLACKOUT, the
+    /// master) stay live on a stale link; the reply, or its timeout, says what came of it.</summary>
+    public bool CanSend => _status is LinkStatus.Live or LinkStatus.Stale;
+
     /// <summary>"Demo node", "This machine", "10.0.0.7:9941".</summary>
     public string LinkLabel
     {
@@ -326,7 +330,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     private async Task<WireReply> SendCoreAsync(string line, CancellationToken ct)
     {
         var link = _link;
-        if (link is null || link.Status != LinkStatus.Live)
+        if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
             return new WireReply(false, "not connected to an engine — nothing was sent");
         try
         {
@@ -406,7 +410,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             if (s == _status)
                 return;
             _status = s;
-            Raise(nameof(Status), nameof(IsLive));
+            Raise(nameof(Status), nameof(IsLive), nameof(CanSend));
             StatusUpdated?.Invoke(s);
             if (s == LinkStatus.Live)
                 Reload();

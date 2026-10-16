@@ -31,9 +31,10 @@ public sealed class DeskAction : ObservableObject
     }
 
     /// <summary>An action that sends the line <paramref name="verb"/> returns (null = nothing to send now). <paramref name="whyNot"/>
-    /// says why its own condition (<paramref name="isEnabled"/>) holds it greyed, in its tooltip.</summary>
+    /// says why its own condition (<paramref name="isEnabled"/>) holds it greyed, in its tooltip. With <paramref name="everyPress"/>
+    /// every press is sent at once, never waiting for the reply to the one before (PANIC, BLACKOUT, the master).</summary>
     public static DeskAction Send(DeskSession session, string id, string label, Func<string?> verb, Func<string>? dynamicLabel = null,
-        Func<bool>? isChecked = null, Func<bool>? isEnabled = null, Func<string?>? whyNot = null)
+        Func<bool>? isChecked = null, Func<bool>? isEnabled = null, Func<string?>? whyNot = null, bool everyPress = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         DeskAction? self = null;
@@ -42,7 +43,7 @@ public sealed class DeskAction : ObservableObject
             var line = verb();
             if (line is not null)
                 await session.SendAsync(line, ct);
-        }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message));
+        }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message), everyPress);
         self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session, _whyNot = whyNot };
         return self;
     }

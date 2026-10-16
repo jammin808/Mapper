@@ -203,10 +203,27 @@ public sealed partial class FakeEngineLink : IEngineLink
         StatusChanged?.Invoke(status);
     }
 
+    /// <summary>Holds a line's reply until the task it returns completes (the line is taken and acted on at once): a slow link,
+    /// for tests. Null answers at once.</summary>
+    public Func<string, Task>? ReplyAfter { get; set; }
+
+    /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open).</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
+        var reply = SendNow(line, ct);
+        return ReplyAfter is { } after ? Later(reply, after(line)) : reply;
+    }
+
+    private static async Task<WireReply> Later(Task<WireReply> reply, Task after)
+    {
+        await after;
+        return await reply;
+    }
+
+    private Task<WireReply> SendNow(string line, CancellationToken ct)
+    {
         ct.ThrowIfCancellationRequested();
-        if (_status != LinkStatus.Live)
+        if (_status is not (LinkStatus.Live or LinkStatus.Stale))
             return Task.FromResult(new WireReply(false, "the link is down — nothing was sent"));
         WireReply reply;
         long stateRev;
