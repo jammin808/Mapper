@@ -85,8 +85,8 @@ public static partial class MeshIO
         };
     }
 
-    /// <summary>Reads LAS 1.0–1.4 points (formats 0–10; compressed LAZ is refused): coordinates through the
-    /// header's scale and offset, RGB when the format has it (16-bit values brought to 8 bits; files that
+    /// <summary>Reads LAS 1.0–1.4 points (formats 0–10; compressed LAZ is refused), leaving out points flagged withheld (as the
+    /// chunked reader does): coordinates through the header's scale and offset, RGB when the format has it (16-bit values brought to 8 bits; files that
     /// store 8-bit values in the 16-bit fields are recognised). Coordinates are as stored (usually Z-up).</summary>
     public static PointCloud ReadLas(Stream stream)
     {
@@ -151,7 +151,10 @@ public static partial class MeshIO
         var chunk = Math.Max(1, (1 << 20) / recordLength);
         var buffer = new byte[chunk * recordLength];
         long done = 0;
+        long kept = 0;
         var wide = false;
+        // A withheld point is one the survey marked to be left out (classification flags, LAS 1.4 §2.6–2.11): never read in.
+        var withheld = format >= 6 ? (byte)0x04 : (byte)0x80;
         while (done < count)
         {
             var take = (int)Math.Min(chunk, count - done);
@@ -159,7 +162,9 @@ public static partial class MeshIO
             for (var k = 0; k < take; k++)
             {
                 var r = buffer.AsSpan(k * recordLength, recordLength);
-                var i = done + k;
+                if ((r[15] & withheld) != 0)
+                    continue;
+                var i = kept++;
                 pts[i] = new Vec3d(
                     BinaryPrimitives.ReadInt32LittleEndian(r) * scale.X + origin.X,
                     BinaryPrimitives.ReadInt32LittleEndian(r[4..]) * scale.Y + origin.Y,
@@ -175,12 +180,14 @@ public static partial class MeshIO
             }
             done += take;
         }
+        if (kept < count)
+            Array.Resize(ref pts, (int)kept);
         int[]? colours = null;
         if (rgb is not null)
         {
-            colours = new int[count];
+            colours = new int[kept];
             var shift = wide ? 8 : 0;
-            for (long i = 0; i < count; i++)
+            for (long i = 0; i < kept; i++)
                 colours[i] = ((rgb[i * 3] >> shift) << 16) | ((rgb[i * 3 + 1] >> shift) << 8) | (rgb[i * 3 + 2] >> shift);
         }
         return new PointCloud(pts, null, colours);

@@ -45,6 +45,7 @@ public static partial class MeshIO
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(options);
         var (format, elements) = ReadPlyHeader(stream);
+        CheckPlyCounts(stream, format, elements);
         IPlyValues values = format == PlyFormat.Ascii ? new PlyAscii(stream) : new PlyBinary(stream, format == PlyFormat.BinaryBigEndian);
         try
         {
@@ -53,6 +54,50 @@ public static partial class MeshIO
         finally
         {
             values.Dispose();
+        }
+    }
+
+    /// <summary>The most vertices a PLY file is read with (three doubles each: 6 GB of positions).</summary>
+    private const long MaxPlyVertices = 1L << 28;
+
+    private static int PlySize(PlyType t) => t switch
+    {
+        PlyType.Int8 or PlyType.UInt8 => 1,
+        PlyType.Int16 or PlyType.UInt16 => 2,
+        PlyType.Int32 or PlyType.UInt32 or PlyType.Float32 => 4,
+        _ => 8,
+    };
+
+    /// <summary>A header's counts held to what the file can carry, before anything is allocated for them: every record takes at least
+    /// its fixed properties' bytes and each list's count (binary), or two characters a value (ASCII: a digit and a separator). A
+    /// stream of unknown length is held to the vertex ceiling alone.</summary>
+    private static void CheckPlyCounts(Stream stream, PlyFormat format, List<PlyElement> elements)
+    {
+        foreach (var e in elements)
+        {
+            if (e.Count < 0)
+                throw new FormatException($"the PLY header declares {e.Count} {e.Name} records");
+            if (e.Name == "vertex" && e.Count > MaxPlyVertices)
+                throw new FormatException($"the PLY header declares {e.Count} vertices — more than {MaxPlyVertices} are not read");
+        }
+        if (!stream.CanSeek)
+            return;
+        var remaining = Math.Max(0, stream.Length - stream.Position);
+        var least = 0.0;
+        foreach (var e in elements)
+        {
+            var record = format == PlyFormat.Ascii
+                ? 2.0 * e.Properties.Count
+                : e.Properties.Sum(p => (double)PlySize(p.IsList ? p.CountType : p.Type));
+            least += record * e.Count;
+        }
+        // The last ASCII value needs no separator after it.
+        if (format == PlyFormat.Ascii && least > 0)
+            least -= 1;
+        if (least > remaining)
+        {
+            var named = string.Join(", ", elements.Select(e => $"{e.Count} {e.Name}"));
+            throw new FormatException($"the PLY header declares {named}, more than its {remaining} bytes can hold — the file is damaged or cut short");
         }
     }
 
