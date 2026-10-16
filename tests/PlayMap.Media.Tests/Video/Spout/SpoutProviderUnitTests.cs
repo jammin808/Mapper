@@ -136,6 +136,39 @@ public sealed class SpoutProviderUnitTests
         Assert.DoesNotContain("PlayMap stage - Main", SpoutNames.Read(kernel.MapBytes(SpoutNames.List) ?? []));
     }
 
+    /// <summary>A frame of a format Spout's texture does not take is never counted sent: it is dropped with the words, nothing reaches
+    /// the texture, and the stop's black frame keeps the shape of the last frame really sent.</summary>
+    [Fact]
+    public async Task AFrameThatDoesNotConvertIsDroppedNeverCountedSent()
+    {
+        var kernel = new FakeSpoutKernel();
+        var gpu = new FakeSpoutGpu();
+        using var provider = Fake(kernel, gpu);
+        var sink = ((ISendProvider)provider).Create(new SendSpec("sd_1", "Main", 4, 2, 60, 1, SendFormat.Bgra8, "default", "", "", false));
+        var texture = gpu.Sender(SpoutInfo.Read(kernel.MapBytes("PlayMap stage - Main")).ShareHandle)!;
+        using (var white = new TestFrame(4, 2, 16, SendFormat.Bgra8, [255, 255, 255, 255]))
+        {
+            sink.Offer(white);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (sink.Stats.Sent == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(2);
+        }
+        Assert.Equal(1, sink.Stats.Sent);
+        using (var deep = new TestFrame(4, 2, 32, SendFormat.Rgba16F, [0, 60]))
+        {
+            sink.Offer(deep);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (sink.Stats.Sent + sink.Stats.Dropped < 2 && DateTime.UtcNow < deadline)
+                await Task.Delay(2);
+        }
+        Assert.Equal((1L, 1L), (sink.Stats.Sent, sink.Stats.Dropped));
+        Assert.Contains("do not convert for Spout", sink.Words, StringComparison.Ordinal);
+        Assert.All(texture.Rows, b => Assert.Equal(255, b));
+        sink.Dispose();
+        // The stop's black frame is of the last frame sent (BGRA8 4×2): it reached the texture.
+        Assert.Equal([0, 0, 0, 255], texture.Rows[..4]);
+    }
+
     /// <summary>A packed frame of one repeated pattern, freed on release.</summary>
     private sealed unsafe class TestFrame : SendFrame, IDisposable
     {

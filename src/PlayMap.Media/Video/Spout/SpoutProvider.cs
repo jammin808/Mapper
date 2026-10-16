@@ -364,11 +364,10 @@ internal sealed class SpoutSink : SendSink
         if (_bgra.Length < bytes)
             _bgra = new byte[bytes];
         var source = new ReadOnlySpan<byte>((void*)frame.Data, frame.Bytes);
+        // A frame that does not convert reaches no receiver: dropped with the words (the base class counts a frame whose transmit
+        // throws), never counted sent, and never the shape of the stop's black frame.
         if (!SpoutPixels.ToBgra(source, frame.Stride, frame.Format, frame.Width, frame.Height, _bgra))
-        {
-            Words = $"{frame.Format} frames do not convert for Spout: send BGRA8 or UYVY";
-            return false;
-        }
+            throw new InvalidOperationException($"{frame.Format} frames do not convert for Spout: send BGRA8 or UYVY");
         if (_sender.Texture is { } t && (t.Width != frame.Width || t.Height != frame.Height))
             _sender.Resize(frame.Width, frame.Height);
         // The worker may wait a little for a receiver's copy (the stop's black frame among them); still held, the frame is skipped and
