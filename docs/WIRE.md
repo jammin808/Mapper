@@ -315,7 +315,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
-  `stage.projectors[]` — `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
+  `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
   Inside the packages' own objects: `air.overlay.cursorP95Ms` is how late a cursor move is drawn (p95 over the last 300 moves,
   −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
   without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
@@ -329,8 +329,9 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) ·
-  [multiview](wire/multiview.md) (Core only: no verb, no STATE).
+  [facade](wire/facade.md) · [multiview](wire/multiview.md) (Core only: no verb, no STATE).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
-  answers "not available on this node yet" (stacks and multiscan have no rows of their own):
+  answers "not available on this node yet" (multiscan has no rows of its own; stacks' `STACK ALIGN` waits unrouted in
+  facade's block, its other rows come with it):
   [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) ·
-  [facade](wire/facade.md) · [stacks](wire/stacks.md) · [multiscan](wire/multiscan.md).
+  [stacks](wire/stacks.md) · [multiscan](wire/multiscan.md).
