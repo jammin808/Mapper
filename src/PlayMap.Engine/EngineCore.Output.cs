@@ -532,7 +532,8 @@ public sealed partial class EngineCore
 
     partial void ValidateOutput(Project p, object entity, ref string? why)
     {
-        if (entity is not Output o)
+        // Another check's words stand: this one only adds its own.
+        if (entity is not Output o || why is not null)
             return;
         if (double.IsNaN(o.LatencyMs) || o.LatencyMs < 0 || o.LatencyMs > 500)
         {
@@ -540,7 +541,7 @@ public sealed partial class EngineCore
             return;
         }
         // The delay ring holds at most six frames: input lags further apart than that cannot be lined up on one node.
-        if (o.Enabled)
-            why = LatencyPlan.Refuse(p.Outputs.Where(x => x.Enabled && x.Id != o.Id).Append(o).Select(x => (x.Id, x.LatencyMs, x.RefreshHz)));
+        if (o.Enabled && LatencyPlan.Refuse(p.Outputs.Where(x => x.Enabled && x.Id != o.Id).Append(o).Select(x => (x.Id, x.LatencyMs, x.RefreshHz))) is { } apart)
+            why = apart;
     }
 }
