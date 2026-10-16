@@ -126,7 +126,8 @@ required) shows the node's own words from the body. Every line carries `@c<n>`; 
 **stale**: the status says so and every key dims with a ⚠. 10 s (or the node closing) drops the link, the status saying in words
 that the node is not there and when the link tries again: what the node said is emptied, every feedback is checked
 again (a dead key never stays green), and the link opens again after 1, 2, 4, 8, then 15 s, each ±20 %. A wrong token, a locked-out
-address, or a token changed on the node (its lines answered `not paired`) halts the link until the token or address changes — an
+address (in a line, by close 4401, or at the upgrade: HTTP 429), or a token changed on the node (its lines answered `not paired`)
+halts the link until the token or address changes — an
 edit to anything else keeps the link and its halt — so a deck never spends the address's wrong tokens. Any other refusal of the
 greeting is the node's passing fault and is tried again. An address is read as typed (`host`, `host:port`, `[v6]:port`, a scheme
 left off); one no link could open says so in words. Lines the module sends are held to the

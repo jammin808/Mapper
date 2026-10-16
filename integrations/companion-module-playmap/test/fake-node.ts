@@ -72,6 +72,8 @@ export class FakeNode {
 	whoami: unknown
 	/** While true the node reads lines but answers nothing (a hung node). */
 	silent = false
+	/** How many upgrades of the web port's /ws the node was asked for, answered or refused. */
+	upgrades = 0
 	webPort = 0
 	wirePort = 0
 	#http: Server | null = null
@@ -185,6 +187,7 @@ export class FakeNode {
 	}
 
 	#upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+		this.upgrades++
 		const refuse = this.options.refuse
 		if (refuse) {
 			const body = JSON.stringify({ error: refuse.error })

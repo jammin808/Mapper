@@ -14,6 +14,7 @@ The status says what is wrong in words:
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | This node asks for its pairing token          | Type the token from the Network drawer                                                                                   |
 | The pairing token is not this node's          | Type it again; the link stops until you do, so wrong tokens are not spent                                                |
+| The node closed the link after wrong tokens   | Wait a minute and check the token, then type it or disable and enable the connection; the link stops until then          |
 | The node's own words (refused upgrade)        | The node answers its own address and names only: connect by its address, or add the name you use to the node's web hosts |
 | No answer from the node for 4 s — keys dimmed | The node or the network is busy; keys come back by themselves                                                            |
 | Node speaks line protocol N                   | Update this module                                                                                                       |

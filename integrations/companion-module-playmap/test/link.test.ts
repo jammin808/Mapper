@@ -96,6 +96,25 @@ void test("a refused upgrade shows the node's own words from the body, never a g
 	}
 })
 
+void test('an address locked out at the upgrade (429) halts with the lockout words, as one locked out in a line does; it is not tried again', async () => {
+	const words = 'too many wrong tokens from this address — wait a minute'
+	const node = await new FakeNode({ token: TOKEN, refuse: { status: 429, error: words } }).start()
+	const m = await boot(configFor(node.webPort), { token: TOKEN })
+	try {
+		await m.host.until(() => m.host.status?.status === InstanceStatus.AuthenticationFailure, 'the lockout halts')
+		assert.equal(m.host.status?.message, Words.lockedOut(words))
+		assert.equal(m.instance.link(), 'halted')
+		assert.equal(node.upgrades, 1, 'one upgrade asked, none after it')
+		assert.ok(
+			m.host.statuses.every((s) => s.status !== InstanceStatus.BadConfig),
+			'a lockout is no config fault to retry past',
+		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 for (const [older, options] of [
 	['its /ws takes no subprotocol (the screens’ socket)', { noLineChannel: true }],
 	['its web token gate answers 401', { refuse: { status: 401, error: 'this node needs its token' } }],

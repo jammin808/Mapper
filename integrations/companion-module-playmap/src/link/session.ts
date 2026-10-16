@@ -356,6 +356,10 @@ export class NodeSession {
 		}
 		if (info.pinMismatch) return this.#fail(InstanceStatus.AuthenticationFailure, Words.pinMismatch)
 		if (info.code === 4401) return this.#fail(InstanceStatus.AuthenticationFailure, Words.lockedOut(info.reason))
+		// 429 is the address's wrong-token lockout answered at the upgrade: a retry once the window lifts would prove the typed token
+		// unasked and spend the address's wrong tokens again.
+		if (info.httpStatus === 429)
+			return this.#fail(InstanceStatus.AuthenticationFailure, Words.lockedOut(info.httpWords ?? info.reason))
 		// Only a plain ws link falls back to plain TCP: a wss link never trades its certificate for cleartext.
 		if (info.fallback && target.kind === 'wss') return this.#fail(InstanceStatus.BadConfig, Words.noLineChannelTls)
 		if (info.fallback && target.kind === 'ws') {
@@ -366,7 +370,7 @@ export class NodeSession {
 		}
 		const delay = this.#backoff()
 		const where = `${target.host}:${target.port}`
-		if (info.httpStatus === 403 || info.httpStatus === 429)
+		if (info.httpStatus === 403)
 			this.#host.status(InstanceStatus.BadConfig, info.httpWords ?? Words.refusedUpgrade(info.httpStatus))
 		else
 			this.#host.status(
