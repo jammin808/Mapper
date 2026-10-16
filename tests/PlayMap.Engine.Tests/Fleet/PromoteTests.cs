@@ -14,6 +14,9 @@ public sealed class PromoteTests
 {
     private const long Second = SyncRig.Second;
 
+    /// <summary>How far the machines' clock runs on while follower 2's leader time is sampled across the change of leader.</summary>
+    private const long MovedWhileSampling = 500_000;
+
     private static JsonElement Sync(HostRig rig) => rig.State().GetProperty("sync");
 
     private static JsonElement? Item(HostRig rig, string id) =>
@@ -64,16 +67,22 @@ public sealed class PromoteTests
             Assert.Equal(one.Engine.AnchorJson("pl_show"), two.Engine.AnchorJson("pl_show"));
             Assert.Equal(go + 10 * Second, JsonDocument.Parse(one.Engine.AnchorJson("pl_show")!).RootElement.GetProperty("leaderNs").GetInt64());
 
-            // Follower 2's leader time, sampled all through the promotion and the change of leader.
             // Follower 2's leader time against the machines' own clock, sampled all through the promotion and the change of leader while
-            // that clock runs on (1 µs a sample, so the exchange's own measurement stays exact).
+            // that clock runs on: 1 µs a sample for its first half millisecond, then still. A clock exchange in flight while the clock
+            // moves reads the leader's time out by up to half of what it moved in flight, so the clock moves by a bounded amount — then
+            // however the machine's load interleaves the samples with the exchanges, no exchange reads the new leader more than 250 µs out.
             var samples = new ConcurrentQueue<(long Local, long Leader)>();
             using var stop = new CancellationTokenSource();
             var sampling = Task.Run(async () =>
             {
+                var moved = 0L;
                 while (!stop.IsCancellationRequested)
                 {
-                    clock.Advance(1_000);
+                    if (moved < MovedWhileSampling)
+                    {
+                        clock.Advance(1_000);
+                        moved += 1_000;
+                    }
                     samples.Enqueue((clock.NowNs, two.Engine.LeaderNowNs));
                     await Task.Yield();
                 }
@@ -82,8 +91,9 @@ public sealed class PromoteTests
             Assert.True(promoted.Ok, promoted.Payload);
             Assert.Equal("leader", Sync(one).GetProperty("role").GetString());
             Assert.Equal(1, Sync(one).GetProperty("epoch").GetInt64());
+            // Follower 2 follows it, and keeps its epoch once the follow is taken (the fleet's part keeps it right after).
             Assert.True(await Eventually.TrueAsync(() => Sync(two).GetProperty("leader").GetString() == one.Id && Sync(two).GetProperty("feed").GetString() == "live"
-                && !two.Engine.Services.Clock.IsHolding, 15000), Sync(two) + "\n" + two.Journal());
+                && !two.Engine.Services.Clock.IsHolding && Sync(two).GetProperty("epoch").GetInt64() == 1, 15000), Sync(two) + "\n" + two.Journal());
             await stop.CancelAsync();
             await sampling;
             Assert.InRange(Math.Abs(two.Engine.LeaderNowNs - one.Engine.LeaderNowNs), 0, 1_000_000);
