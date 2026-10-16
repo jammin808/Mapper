@@ -48,6 +48,10 @@ public sealed partial record ScanRunnerOptions
     /// <summary>A cued camera (a phone) that says nothing about a pattern for this long has it shown again.</summary>
     public TimeSpan PatternTimeout { get; init; } = TimeSpan.FromSeconds(8);
 
+    /// <summary>The clock a cued camera's patience runs on (<see cref="PatternTimeout"/>, the wait for a picture said seen, the wait
+    /// for its exposure): what the scan shows again is a function of this clock and of the camera's answers.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>How many times one pattern is shown again before the view fails.</summary>
     public int MaxRetakes { get; init; } = 2;
 
