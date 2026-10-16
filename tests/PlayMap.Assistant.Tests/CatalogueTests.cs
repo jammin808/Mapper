@@ -25,6 +25,7 @@ public sealed class CatalogueTests
         "MEDIA ESTIMATE", "MEDIA VERSION", // wp2-optimise: estimates and removing a version (with the lossless rewriter) are next round
         "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
         "SITE GUIDE", "PLAN LIGHT", "STACK NEW", "STACK MATCH", "STACK FAILOVER", "STACK LIST", // wp2-facade: the guide, the light plan and stacks are wp2-stacks'
+        "DECODE PROBE", // wp2-zerocopy: the direct-sampling proof harness is next round
     ];
 
     /// <summary>Rows a package added inside its own block for what it ships (PLAN §2.2), beyond SPINE §4.3's.</summary>

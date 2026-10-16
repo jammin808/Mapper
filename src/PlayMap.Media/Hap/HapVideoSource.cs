@@ -30,6 +30,9 @@ public sealed record HapSourceOptions
 
     public ColorOverride Color { get; init; } = ColorOverride.Auto;
 
+    /// <summary>The renderer's upload arena (null: frames go into the source's own buffers).</summary>
+    public IUploadArena? Arena { get; init; }
+
     public static readonly HapSourceOptions Default = new();
 }
 
@@ -65,6 +68,9 @@ public sealed unsafe class HapVideoSource : IVideoSource
     private readonly Lock _inputGate = new();
     private readonly Lock _ringGate = new();
     private readonly Lock _formatsGate = new();
+    private readonly Lock _arenaGate = new();
+    private IUploadArena? _arena;
+    private volatile bool _staged;
     private MediaInput? _input;
     private volatile MediaInfo _info;
     private volatile string _status = "opening";
@@ -146,6 +152,7 @@ public sealed unsafe class HapVideoSource : IVideoSource
         _path = path;
         _options = options ?? HapSourceOptions.Default;
         _formats = _options.Formats;
+        _arena = _options.Arena;
         Key = key ?? path;
         _info = MediaInfo.Unknown;
         var queue = new QueueSettings
@@ -212,13 +219,28 @@ public sealed unsafe class HapVideoSource : IVideoSource
             var rawShare = chunks > 0 ? Math.Round(raw / (double)chunks, 3) : 0;
             var stage = chunks == 0 ? "" : raw == 0 ? "snappy" : raw == chunks ? "none" : "mixed";
             var texture = HapCodecs.TextureWord(_lastLayout);
-            var facts = new HapFacts(HapCodecs.Name(_codec), texture, _lastChunks, rawShare, stage, h.DecodeMsP95, _textureBytes, "copy",
+            var facts = new HapFacts(HapCodecs.Name(_codec), texture, _lastChunks, rawShare, stage, h.DecodeMsP95, _textureBytes, _staged ? "persistent" : "copy",
                 Interlocked.Read(ref _corrupt), _lastRefusal, _codec == HapCodec.HapHdr ? _hdr.Words : "");
             return h with { Path = DecodePath.HapGpu, Hap = facts, BusBytesPerFrame = _textureBytes };
         }
     }
 
     public VideoFrameLease? Acquire(long mediaNs) => _queue.Acquire(mediaNs);
+
+    /// <summary>The renderer's upload arena came, changed or went (null): frames from now on are written into it (or into the
+    /// source's own buffers). Returns once no frame is being written into the old one; queued frames in it are let go and made
+    /// again from the play head, so nothing reads an arena after its renderer took it away.</summary>
+    public void UseArena(IUploadArena? arena)
+    {
+        lock (_arenaGate)
+        {
+            if (ReferenceEquals(_arena, arena))
+                return;
+            _arena = arena;
+            _staged = false;
+        }
+        _queue.Refill();
+    }
 
     /// <summary>What the renderer samples now (its context came, or came back different). A clip whose blocks it cannot sample
     /// stops with the words why — its health reads failed and it answers no frame — never handing the renderer a frame it
@@ -749,6 +771,13 @@ public sealed unsafe class HapVideoSource : IVideoSource
             _gap = true;
             return true;
         }
+        // The frame is written and published under the arena's gate: the arena is never taken away while a frame is half in it.
+        lock (_arenaGate)
+            return Decompress(e);
+    }
+
+    private bool Decompress(Entry e)
+    {
         var t0 = Stopwatch.GetTimestamp();
         var f = e.Frame;
         var layout = HapCodecs.Layout(_codec, f.Texture(0).Kind);
@@ -759,9 +788,12 @@ public sealed unsafe class HapVideoSource : IVideoSource
             _pool.Reserve(_layout);
             _reserved = _layout;
         }
-        var slot = _pool.TryRent(_layout);
+        // Into the renderer's upload arena when it has room (the renderer then uploads from it with no copy of its own); else into
+        // the source's own buffer, as when there is no arena.
+        var slot = _arena is { } arena ? _pool.TryRentStaged(_layout, arena) ?? _pool.TryRent(_layout) : _pool.TryRent(_layout);
         if (slot is null)
             return false;
+        _staged = !slot.Staged.IsEmpty;
         _stats.FrameDecoded();
         var chunks = f.AllChunks.Length;
         _countdown.Arm(chunks);

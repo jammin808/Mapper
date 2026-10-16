@@ -41,6 +41,12 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
     internal static string Normalise(JsonElement decode)
     {
         var node = JsonNode.Parse(decode.GetRawText())!.AsObject();
+        if (node["platform"] is JsonObject platform)
+        {
+            // The free part of the arena moves with the moment.
+            if (platform["blocks"] is JsonObject b)
+                b["arenaFreeMb"] = 255;
+        }
         if (node["platform"]?["hapLayers4k60"] is JsonObject layers)
         {
             layers["value"] = 9;
@@ -79,9 +85,14 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
               { "label": "BC1 / BC3", "path": "decode.platform.blocks.bc3" },
               { "label": "BC4", "path": "decode.platform.blocks.bc4" },
               { "label": "BC7 / BC6H", "path": "decode.platform.blocks.bc7" },
-              { "label": "Staging", "path": "decode.platform.blocks.staging" }
+              { "label": "Staging", "path": "decode.platform.blocks.staging" },
+              { "label": "Upload arena MB", "path": "decode.platform.blocks.arenaMb" },
+              { "label": "Zero-copy", "path": "decode.platform.zeroCopy" },
+              { "label": "Why not", "path": "decode.platform.why" },
+              { "label": "Direct sampling", "path": "decode.platform.direct" },
+              { "label": "Policy", "path": "decode.policy" }
             ],
-            "actions": [ "PREFLIGHT QUICK" ]
+            "actions": [ "PREFLIGHT QUICK", "DECODE STATUS", "DECODE POLICY AUTO", "DECODE POLICY SOFTWARE" ]
           },
           {
             "id": "decode.source",
@@ -93,6 +104,8 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             "fields": [
               { "label": "Codec", "path": "codec" },
               { "label": "Path", "path": "path" },
+              { "label": "Device", "path": "device" },
+              { "label": "Zero-copy", "path": "zeroCopy" },
               { "label": "Decode ms p95", "path": "decodeMsP95" },
               { "label": "Texture", "path": "hap.texture" },
               { "label": "Chunks", "path": "hap.chunks" },
@@ -146,7 +159,10 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             var blocks = decode.GetProperty("platform").GetProperty("blocks");
             Assert.True(blocks.GetProperty("bc1").GetBoolean() && blocks.GetProperty("bc3").GetBoolean() && blocks.GetProperty("bc4").GetBoolean()
                         && blocks.GetProperty("bc7").GetBoolean() && blocks.GetProperty("bc6h").GetBoolean());
-            Assert.Equal("copy", blocks.GetProperty("staging").GetString());
+            // The render context's upload arena (wp2-zerocopy): llvmpipe maps persistent buffers, so the HAP frames were written
+            // into it by the decode thread and uploaded from it.
+            Assert.Equal("persistent", blocks.GetProperty("staging").GetString());
+            Assert.Equal(256, blocks.GetProperty("arenaMb").GetInt32());
             var source = Assert.Single(decode.GetProperty("sources").EnumerateArray());
             Assert.Equal(id, source.GetProperty("media").GetString());
             Assert.Equal("hap_q", source.GetProperty("codec").GetString());
@@ -157,6 +173,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             Assert.Equal("ycocg-bc3", hap.GetProperty("texture").GetString());
             Assert.Equal(0, hap.GetProperty("corrupt").GetInt64());
             Assert.Equal(0.003, hap.GetProperty("uploadMb").GetDouble());   // 16 × 12 blocks of 16 bytes
+            Assert.Equal("persistent", hap.GetProperty("staging").GetString());
             // The binding the render context came through: GLFW on an X server (this rig's Xvfb) makes it with GLX.
             var gl = state.RootElement.GetProperty("machine").GetProperty("gl").GetString();
             if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))

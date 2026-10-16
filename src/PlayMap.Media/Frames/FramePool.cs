@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 
 namespace PlayMap.Media.Frames;
@@ -145,18 +146,42 @@ internal sealed class FrameLayout : IEquatable<FrameLayout>
 /// <summary>One pooled picture buffer and the metadata of the frame it holds. Reference counted: the queue
 /// holds one reference, each lease one more; at zero the slot returns to its pool. Metadata is written only
 /// while the producer holds the only reference, so a lease reads it without a lock.</summary>
-internal sealed unsafe class FrameSlot
+internal sealed unsafe class FrameSlot : IGpuSurfaceOwner
 {
     private int _refs;
     private FramePlane[] _planes = [];
+    private byte* _own;
+    private nuint _ownCapacity;
+    private IUploadArena? _stagedIn;
 
     internal FrameSlot(FramePool pool) => Pool = pool;
 
     public FramePool Pool { get; }
+
+    /// <summary>Where the planes are: the slot's own native buffer, or a block of the renderer's upload arena.</summary>
     public byte* Buffer { get; private set; }
+
     public nuint Capacity { get; private set; }
     public FrameLayout? Layout { get; private set; }
-    public IReadOnlyList<FramePlane> Planes => _planes;
+
+    /// <summary>The planes of a CPU picture; none for a GPU picture.</summary>
+    public IReadOnlyList<FramePlane> Planes => IsGpu ? [] : _planes;
+
+    /// <summary>The block of the upload arena the planes were written into (empty when they are in the slot's own buffer).</summary>
+    public UploadBlock Staged { get; private set; }
+
+    /// <summary>The picture is on the GPU (<see cref="Surface"/>): a decoder surface the slot holds through <see cref="HwFrame"/>.</summary>
+    public bool IsGpu { get; private set; }
+
+    /// <summary>The layout and visible size of a GPU picture (its planes are the surface's).</summary>
+    public FrameLayout? GpuLayout { get; private set; }
+
+    /// <summary>The GPU picture's description, made once per slot and reused.</summary>
+    public GpuSurface? Surface { get; private set; }
+
+    /// <summary>An AVFrame* the slot owns (allocated once, on the producer's thread) holding the decoder's surface while the picture
+    /// is out: unreferenced when the slot returns to its pool, so the surface goes back to the decoder only then.</summary>
+    public nint HwFrame;
 
     public long PtsNs;
     public long DurationNs;
@@ -190,14 +215,44 @@ internal sealed unsafe class FrameSlot
 
     internal void Prepare(FrameLayout layout)
     {
-        if (Capacity < layout.TotalBytes)
+        if (_ownCapacity < layout.TotalBytes)
         {
-            if (Buffer is not null)
-                NativeMemory.AlignedFree(Buffer);
-            Buffer = (byte*)NativeMemory.AlignedAlloc(layout.TotalBytes, FrameLayout.Alignment);
-            Capacity = layout.TotalBytes;
+            if (_own is not null)
+                NativeMemory.AlignedFree(_own);
+            _own = (byte*)NativeMemory.AlignedAlloc(layout.TotalBytes, FrameLayout.Alignment);
+            _ownCapacity = layout.TotalBytes;
         }
-        if (!layout.Equals(Layout))
+        Place(layout, _own, _ownCapacity);
+    }
+
+    /// <summary>As <see cref="Prepare"/>, with the planes written into a block of the renderer's upload arena (returned to it when
+    /// the slot comes back); the slot's own buffer is not touched.</summary>
+    internal void PrepareStaged(FrameLayout layout, IUploadArena arena, in UploadBlock block)
+    {
+        Place(layout, (byte*)block.Pointer, (nuint)block.Bytes);
+        _stagedIn = arena;
+        Staged = block;
+    }
+
+    /// <summary>Readies the slot for a GPU picture of the layout's visible size; the producer fills <see cref="Surface"/> (made here
+    /// once) and <see cref="HwFrame"/>.</summary>
+    internal GpuSurface PrepareGpu(FrameLayout layout)
+    {
+        Surface ??= new GpuSurface();
+        Surface.Owner = this;
+        GpuLayout = layout;
+        IsGpu = true;
+        ResetMetadata();
+        return Surface;
+    }
+
+    private void Place(FrameLayout layout, byte* buffer, nuint capacity)
+    {
+        var moved = Buffer != buffer;
+        Buffer = buffer;
+        Capacity = capacity;
+        IsGpu = false;
+        if (!layout.Equals(Layout) || moved)
         {
             Layout = layout;
             if (_planes.Length != layout.Planes)
@@ -205,11 +260,11 @@ internal sealed unsafe class FrameSlot
             for (var i = 0; i < layout.Planes; i++)
                 _planes[i] = new FramePlane((nint)(Buffer + layout.Offset(i)), layout.Stride(i), layout.SampleWidth(i), layout.Rows(i));
         }
-        else if (_planes.Length > 0 && _planes[0].Data != (nint)(Buffer + layout.Offset(0)))
-        {
-            for (var i = 0; i < layout.Planes; i++)
-                _planes[i] = _planes[i] with { Data = (nint)(Buffer + layout.Offset(i)) };
-        }
+        ResetMetadata();
+    }
+
+    private void ResetMetadata()
+    {
         PtsNs = 0;
         DurationNs = 0;
         ArrivalNs = 0;
@@ -235,13 +290,43 @@ internal sealed unsafe class FrameSlot
             throw new InvalidOperationException("A frame was released more often than it was referenced.");
     }
 
+    void IGpuSurfaceOwner.Retain(GpuSurface surface) => AddRef();
+
+    void IGpuSurfaceOwner.Release(GpuSurface surface) => Release();
+
+    /// <summary>The slot came back with no reference left: what it held of the decoder (a surface) or of the arena (a block) goes
+    /// back to them now.</summary>
+    internal void LetGo()
+    {
+        if (HwFrame != 0)
+            ffmpeg.av_frame_unref((AVFrame*)HwFrame);
+        IsGpu = false;
+        if (_stagedIn is { } arena)
+        {
+            arena.Return(Staged);
+            _stagedIn = null;
+            Staged = default;
+            Layout = null;
+            Buffer = null;
+        }
+    }
+
     internal void FreeBuffer()
     {
-        if (Buffer is not null)
-            NativeMemory.AlignedFree(Buffer);
+        LetGo();
+        if (_own is not null)
+            NativeMemory.AlignedFree(_own);
+        _own = null;
+        _ownCapacity = 0;
         Buffer = null;
         Capacity = 0;
         Layout = null;
+        if (HwFrame != 0)
+        {
+            var f = (AVFrame*)HwFrame;
+            ffmpeg.av_frame_free(&f);
+            HwFrame = 0;
+        }
     }
 }
 
@@ -314,8 +399,54 @@ internal sealed class FramePool : IDisposable
                 _free[i]!.ReservePlanes(layout.Planes);
     }
 
+    /// <summary>A slot for a GPU picture with one reference (the caller's), or null when every slot is in use. No buffer is taken.</summary>
+    public FrameSlot? TryRentGpu(FrameLayout layout, out GpuSurface surface)
+    {
+        surface = null!;
+        FrameSlot? slot = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return null;
+            if (_freeCount > 0)
+                slot = _free[--_freeCount];
+        }
+        if (slot is null)
+            return null;
+        surface = slot.PrepareGpu(layout);
+        slot.SetFirstReference();
+        return slot;
+    }
+
+    /// <summary>A slot whose planes go into a block of the upload arena, or null when every slot is in use or the arena has no
+    /// room (the caller rents a plain slot instead). The block goes back to the arena when the slot comes back.</summary>
+    public FrameSlot? TryRentStaged(FrameLayout layout, IUploadArena arena)
+    {
+        ArgumentNullException.ThrowIfNull(arena);
+        FrameSlot? slot = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return null;
+            if (_freeCount > 0)
+                slot = _free[--_freeCount];
+        }
+        if (slot is null)
+            return null;
+        if (!arena.TryRent((long)layout.TotalBytes, out var block) || block.Pointer == 0)
+        {
+            lock (_gate)
+                _free[_freeCount++] = slot;
+            return null;
+        }
+        slot.PrepareStaged(layout, arena, block);
+        slot.SetFirstReference();
+        return slot;
+    }
+
     internal void Return(FrameSlot slot)
     {
+        slot.LetGo();
         lock (_gate)
         {
             if (_disposed)

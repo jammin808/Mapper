@@ -7,13 +7,20 @@
         "bc4": true,
         "bc7": true,
         "bc6h": true,
-        "staging": "copy",
-        "arenaMb": 0,
-        "arenaFreeMb": 0
+        "staging": "persistent",
+        "arenaMb": 256,
+        "arenaFreeMb": 255,
+        "arenaWords": ""
       },
       "hapLayers4k60": null,
       "light": "green",
-      "words": "1 decoder \u00B7 1 HAP on the GPU"
+      "words": "1 decoder \u00B7 1 HAP on the GPU",
+      "api": "opengl",
+      "describe": "OpenGL through GLX: no zero-copy imports",
+      "gl": "glx",
+      "zeroCopy": "unavailable",
+      "direct": "n/a",
+      "why": "the render context is GLX: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)"
     },
     "sources": [
       {
@@ -37,12 +44,21 @@
           "secondStage": "snappy",
           "stageMsP95": 0,
           "uploadMb": 0.003,
-          "staging": "copy",
+          "staging": "persistent",
           "corrupt": 0,
           "lastRefusal": "",
           "hdr": null
-        }
+        },
+        "device": "",
+        "gpuCopies": 0,
+        "width": 64,
+        "height": 48,
+        "surfaces": 0,
+        "vramMb": 0,
+        "importMsP95": 0
       }
-    ]
+    ],
+    "policy": "auto",
+    "forced": false
   }
 }
