@@ -11,7 +11,9 @@
 
 That work spans items from Rounds 1–4 and the mid term; a **Built** note on an item below says what main has of it. Camera auto-align and the content package have no item of their own.
 
-**In flight:** Spout (with D3D11); the Companion module; the desk's controls for the new verbs (the show strip, panic, locks, generated right-click entries, cards for every package's STATE); CI parity on Linux and Windows. Until the desk's controls land, the new verbs run over the wire, HTTP, MCP and bindings.
+**In flight:** the Direct3D 11 present path with Spout and per-output latency; the decode-path ladder and hardware frame imports; the Companion module; sites, surveys and long throws on a facade, then stacks; many views into one phone scan; a hot backup that takes over the air; the desk's controls for the new verbs (the show strip, panic, locks, generated right-click entries, cards for every package's STATE). Until the desk's controls land, the new verbs run over the wire, HTTP, MCP and bindings.
+
+**CI:** every push builds the whole solution with the analyzers on and runs every test project on Linux (Mesa llvmpipe, FFmpeg 9.0, no libva and no system OpenAL, as on a bare machine); on Windows it runs the suites that need no GPU or FFmpeg and the Windows-only render and media code on WARP, and publishes the portable exe.
 
 **Not yet run on real hardware:** the tests run on Mesa llvmpipe under Xvfb, on the scan, align and stage simulators and on a scripted frame-lock board; OMT runs for real over loopback, and NDI against a fake runtime the tests compile; the NVAPI tier, WASAPI and WinMM are compiled on Linux and run by the Windows CI job, which has no GPU; a sync group's nodes run in one process on loopback, on a manual clock with synthetic vblanks. A real projector, a real camera scan, a camera re-solve and a colour match through a real camera, a Panasonic's answers to the double-correction guard's reads, a sync board, HAP R and HAP HDR files from other encoders, real LED nodes, a real NDI runtime and a second machine (the video checklist in docs/VIDEO.md among them) are lab checks still to do.
 
