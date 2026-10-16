@@ -120,15 +120,18 @@ Two or more projectors lighting one picture are a stack: `STACK NEW` groups them
 member must light at least 80 % of the master's picture (where the master's raster lands on the model, or on a wall at its throw
 without one) and may be in one stack only. The blend treats the stack as one projector whose light is its members' summed.
 
-`STACK ALIGN <stack> FROM <scan>` fits each member to the master's picture from a scan that saw every member through one camera.
+`STACK ALIGN <stack> FROM <scan>` fits each member to the master's picture — as the master's output draws it, through its own corner
+pin or lattice — from a scan that saw every member through one camera.
 Its pairs compare camera pixels, so they come from one camera place: of a scan of many views, the view its last solve used that saw
 every member (the reply names it); a scan with no such view is refused with the line that adds one (`SCAN START … INTO`). A site
 moved between the scan and the alignment fits the same lattice. The master is the target and its output is left as it is. The fit is a residual lattice per member, taken through the member's own
 warp (so a corner pin or lattice on it keeps the registration), written to the member's output as its measured correction through the calibration ledger
 (source "stack", the correction it had kept as its fallback; one edit, one undo step), and drawn as the first layer of the output's
-warp. The reply gives each member's held-out residual before and after, in pixels; a member farther than 0.5 px from the master lights
+warp. A fit that would fold a member's picture over itself (decodes that come back mirrored, from glass or a reflection) is refused
+with where, and so is one whose members, poses, optics, outputs or warps changed while it ran: nothing is applied. The reply gives each member's held-out residual before and after, in pixels; a member farther than 0.5 px from the master lights
 the stack amber. `STACK MATCH <stack> FROM <scan>` gives each member per-channel gains of at most one that bring its white to the
-master's, from the scan's colour white frames over the area every member lights, written beside the lattice. The white frames carry the
+master's, from the scan's colour white frames over the area every member lights, written beside the lattice — never beside a
+lattice another stack fitted (the stack aligns that member first). The white frames carry the
 ambient light as well, the same for every member: a dark scene matches best. The measured lattice is drawn on the air; the wall's
 overlay, the click mapping and MPCDI export follow the operator's warp alone; what a send or an LED map taps and what a delayed
 display presents carry it, being the output's finished picture. A projector's own geometry or blend left on beside a measured
@@ -142,13 +145,16 @@ another pose or other optics — a re-solve, a scan applied, a result recalled, 
 STATE, the context, preflight and the guide say so with the line that fits it again (a scan taken since, if it moved), and the solve's
 reply names the stack it left. A move of the whole site, or a result recorded as it stands, leaves it aligned.
 
-A scan's projector views are held in memory by the node that scanned; after a restart, scan the stack again.
+A scan keeps each view's decodes in its folder, so a stack aligns and matches from it after a restart, or on a hot backup that
+mirrors the show, as on the node that scanned.
 
 `STACK FAILOVER <stack> HOLD|MATCH` says what happens when a member fails — its projector in standby or cooling down, or reporting an
 error, or its display output not open (a closed shutter is no loss: shutters are closed on purpose). HOLD (the default) tells it: the stack is red
-in STATE, the context and preflight, and the journal names the cause. MATCH also dims every other output of the stack's blend group to
-the light that remains (Σ remaining lumens ÷ Σ lumens), so the building stays even: a runtime gain like BLACKOUT, never an edit,
-fading down in 0.5 s and back over 2 s on the leader's clock when the member returns, multiplied with any degrade gain another part sets.
+in STATE, the context and preflight, and the journal names the cause. MATCH also dims the rest of the stack's blend group to the light
+that remains (Σ remaining lumens ÷ Σ lumens) — the stack's own members give that light already and stay as they are — so the
+building stays even: a runtime gain like BLACKOUT, never an edit, fading down in 0.5 s and back over 2 s on the leader's clock when the
+member returns (read at the instant each frame is drawn for, and moved with a step of that clock), multiplied with any degrade gain
+another part sets.
 A hot backup's fence is one: the node composes the fleet's fence over the stacks' gains, so a fenced node is black whatever its stacks
 say, and the stacks' gains hold once the fence lifts (docs/FLEET.md).
 

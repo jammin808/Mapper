@@ -62,9 +62,9 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   as one undo step; total-station control points check the model and give pins their exact points. At 50–150 m the lens and
   position priors carry what pins cannot: the zoom is locked from the lens when the pins cannot tell it from distance, and every
   solve says how far the picture could be off on the wall. A site is named by its EPSG system (from a LAS's GeoKeys or WKT).
-  Projectors stacked on one picture are aligned to their master's and colour-matched from one scan, blended as one projector,
-  and dim as one when a member fails; a light plan predicts each surface's lux and pixel pitch, and the
-  facade guide names the next step.
+  Projectors stacked on one picture are aligned to their master's picture and colour-matched from one scan, and blended as one
+  projector; when a member fails, the rest of the building dims to the light the stack has left. A light plan predicts each
+  surface's lux and pixel pitch, and the facade guide names the next step.
 - **Drives LEDs.** Fixtures laid on a canvas, an output, a surface or a source sample its picture in linear light every frame
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
   patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,

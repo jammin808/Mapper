@@ -236,10 +236,12 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
   the projector's frame edge × incidence angle × distance falloff, normalised to one in light, through the gamma;
   black-level pedestal to the deepest overlap's floor. A stack (projectors lighting one picture) blends as one projector:
   its master's geometry, its members' least edge factor and summed lumens, every member taking the group's share.
-- **Stacks** (`STACK NEW|ALIGN|MATCH|FAILOVER`): each member fitted to its master's picture from a scan's decodes through one
-  camera place, as a residual lattice drawn as the first layer of its output's warp (and kept with the poses it was fitted
-  to: a member that moves against its master is no longer aligned), its white matched with gains ≤ 1, both through the
-  calibration ledger; a member lost dims the stack's blend group through a degrade gain (docs/FACADE.md, docs/MAPPING.md).
+- **Stacks** (`STACK NEW|ALIGN|MATCH|FAILOVER`): each member fitted to its master's picture, as the master's output draws it,
+  from a scan's decodes through one camera place, as a residual lattice drawn as the first layer of its output's warp (and kept
+  with the poses it was fitted to: a member that moves against its master is no longer aligned; a fit that would fold the
+  picture is refused), its white matched with gains ≤ 1, both through the calibration ledger; a member lost dims the rest of the
+  stack's blend group to the light the stack has left through a degrade gain read at each frame's leader instant
+  (docs/FACADE.md, docs/MAPPING.md).
 - **The quad on the wall**: `LIGHT WALL` puts an output full screen with a nominal projector; `SURFACE QUAD` makes a
   pixel quad from four wall clicks, taken back through the output's warp, and its handles move by verb with one undo
   step per burst (docs/CALIBRATION.md).
