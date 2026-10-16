@@ -74,11 +74,14 @@ it always was.
 `PROJECTOR SOLVE` first solves from the pins (and any position prior). When the pins cannot carry the zoom — its σ from the solve's
 own information passes 10 % — the zoom is locked at the lens prior and the solve runs again; the words say "the pins cannot tell zoom
 from distance" when the weakest direction lies along zoom and the along-axis distance, else "the pins cannot carry zoom". With no lens
-prior the solve is kept and named weak, with the lines that fix it. Otherwise the lens prior joins the solve as a row. A lock the lens
-put there is asked again at every solve (more pins or depth free it); an operator's `LOCK FOCAL` keeps the projector's own focal. The
-reply carries the uncertainty from the solve's own information matrix with the priors' added: on the wall first (px), then along the
-axis and across it (m), and the zoom (%). STATE and the calibration score carry the same uncertainty: the pins' information with the
-projector's priors, a locked zoom held.
+prior the solve is kept and named weak, with the lines that fix it. Otherwise the lens prior joins the solve as a row. The projector
+keeps who put its focal lock there (`focalLock`: `operator` or `lens`, and the ledger puts it back with a result): a lock the lens put
+there is asked again at every solve (more pins or depth free it); an operator's lock — `LOCK FOCAL` on the line, or the locks set by
+hand — holds at every solve and re-solve, wherever its focal sits, the lens prior's value included. A file that does not say holds the
+lock as the operator's. The reply carries the uncertainty from the solve's own information matrix with the priors' added: on the wall
+first (px), then along the axis and across it (m), and the zoom (%). STATE and the calibration score carry that same analysis, made
+once per solve: the pins' information with the projector's priors, a locked zoom held. The solve and its score run off the control
+lane; the projector is read and its result lands on the lane, a result refused when the projector changed while it was solved.
 
 The recommended path at a facade: the lens prior from the datasheet → 8–15 pins on control points → solve, wall px read first.
 
@@ -118,15 +121,26 @@ member must light at least 80 % of the master's picture (where the master's rast
 without one) and may be in one stack only. The blend treats the stack as one projector whose light is its members' summed.
 
 `STACK ALIGN <stack> FROM <scan>` fits each member to the master's picture from a scan that saw every member through one camera.
-The master is the target and its output is left as it is. The fit is a residual lattice per member, taken through the member's own
+Its pairs compare camera pixels, so they come from one camera place: of a scan of many views, the view its last solve used that saw
+every member (the reply names it); a scan with no such view is refused with the line that adds one (`SCAN START … INTO`). A site
+moved between the scan and the alignment fits the same lattice. The master is the target and its output is left as it is. The fit is a residual lattice per member, taken through the member's own
 warp (so a corner pin or lattice on it keeps the registration), written to the member's output as its measured correction through the calibration ledger
 (source "stack", the correction it had kept as its fallback; one edit, one undo step), and drawn as the first layer of the output's
 warp. The reply gives each member's held-out residual before and after, in pixels; a member farther than 0.5 px from the master lights
 the stack amber. `STACK MATCH <stack> FROM <scan>` gives each member per-channel gains of at most one that bring its white to the
 master's, from the scan's colour white frames over the area every member lights, written beside the lattice. The white frames carry the
 ambient light as well, the same for every member: a dark scene matches best. The measured lattice is drawn on the air; the wall's
-overlay, the click mapping and MPCDI export follow the operator's warp alone. A projector's own geometry or blend left on beside a
-measured correction is named by align's double-correction guard.
+overlay, the click mapping and MPCDI export follow the operator's warp alone; what a send or an LED map taps and what a delayed
+display presents carry it, being the output's finished picture. A projector's own geometry or blend left on beside a measured
+correction is named by align's double-correction guard, and a member that an alignment already draws through its measured warp grid
+is refused (a lattice on it would register it twice): `ALIGN CLEAR` takes that warp off, or `ALIGN RUN` registers the stack on its
+canvas.
+
+A lattice is the measured light less the modelled pictures, so it holds only while the member stands against its master as it was
+fitted (the member's pose in the master's frame and both projectors' optics are kept with it). Once either is solved again to
+another pose or other optics — a re-solve, a scan applied, a result recalled, a pose set by hand — the stack is no longer aligned:
+STATE, the context, preflight and the guide say so with the line that fits it again (a scan taken since, if it moved), and the solve's
+reply names the stack it left. A move of the whole site, or a result recorded as it stands, leaves it aligned.
 
 A scan's projector views are held in memory by the node that scanned; after a restart, scan the stack again.
 
@@ -135,6 +149,8 @@ error, or its display output not open (a closed shutter is no loss: shutters are
 in STATE, the context and preflight, and the journal names the cause. MATCH also dims every other output of the stack's blend group to
 the light that remains (Σ remaining lumens ÷ Σ lumens), so the building stays even: a runtime gain like BLACKOUT, never an edit,
 fading down in 0.5 s and back over 2 s on the leader's clock when the member returns, multiplied with any degrade gain another part sets.
+A hot backup's fence is one: the node composes the fleet's fence over the stacks' gains, so a fenced node is black whatever its stacks
+say, and the stacks' gains hold once the fence lifts (docs/FLEET.md).
 
 ## The light plan
 
@@ -152,5 +168,5 @@ desk and Companion can drive the workflow with the verbs everyone uses.
 
 ## Not here yet
 
-Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, measured photometry, glass masks, camera solves from photos and
-the desk's facade drawer; geographic or other-zone surveys converted on import.
+Measured photometry against the light plan, and a heat map of it in the editor view; LAZ, the night capture profile, glass masks,
+camera solves from photos and the desk's facade drawer; geographic or other-zone surveys converted on import.

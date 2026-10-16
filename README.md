@@ -61,7 +61,10 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   origin. Surveyed models and point clouds (OBJ, PLY, glTF, LAS, E57, XYZ) come in off the control lane, decimated or thinned,
   as one undo step; total-station control points check the model and give pins their exact points. At 50–150 m the lens and
   position priors carry what pins cannot: the zoom is locked from the lens when the pins cannot tell it from distance, and every
-  solve says how far the picture could be off on the wall.
+  solve says how far the picture could be off on the wall. A site is named by its EPSG system (from a LAS's GeoKeys or WKT).
+  Projectors stacked on one picture are aligned to their master's and colour-matched from one scan, blended as one projector,
+  and dim as one when a member fails; a light plan predicts each surface's lux and pixel pitch, and the
+  facade guide names the next step.
 - **Drives LEDs.** Fixtures laid on a canvas, an output, a surface or a source sample its picture in linear light every frame
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
   patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,
@@ -104,8 +107,8 @@ Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' 
 context report it.
 
 **In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); the
-Companion module; projector stacks and the facade guide; and the desk's controls for show safety, locks, blind edit, the
-sync board, effects and the rest, which today run over the wire.
+Companion module; and the desk's controls for show safety, locks, blind edit, the sync board, effects and the rest, which
+today run over the wire.
 
 ## What it is made of
 
@@ -155,7 +158,8 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/MAPPING.md` — the stage, the site frame and solving a projector from pins and priors
 - `docs/CALIBRATION.md` — the quad on the wall, the edit overlay, the score, the calibration ledger and re-solving the
   projector that moved
-- `docs/FACADE.md` — buildings: the site frame, survey import, control points and long-throw solves
+- `docs/FACADE.md` — buildings: the site frame, survey import, control points, long-throw solves, geodesy, stacks, the light
+  plan and the facade guide
 - `docs/ALIGN.md` — camera auto-align of flat screens: warp, blend, white, rescanning one output, the verify pass and the score
 - `docs/PHONESCAN.md` — the phone as a scan camera, fully local
 - `docs/SCAN-MULTIVIEW.md` — many views of many projectors, solved together

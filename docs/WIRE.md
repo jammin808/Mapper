@@ -322,7 +322,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`, `epoch`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
-  `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `scan` — `pairing`, `view`,
+  `stage` — `site`, `controls`, `surveys`, `stacks`; `stage.site` — `next` (after `mainsHz`); `stage.projectors[]` — `uncertainty`,
+  `priors`, `stack`, `grade`, `quads`; `scan` — `pairing`, `view`,
   `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `machine.present` — after
   output's keys, `asked`, `kept`, `fuse` (`state` clear, armed or blown, `attempt`, `at`), `airLatencyMs`, `latencyWords`; `decode.platform` —
   after decode's keys, `api`, `describe`, `gl`, `zeroCopy`, `direct`, `why`; `decode.platform.blocks` — `arenaWords`; `decode.sources[]` — `device`, `gpuCopies`, `width`, `height`,
@@ -341,13 +342,12 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [backup](wire/backup.md) ·
   [phonescan](wire/phonescan.md) ·
-  [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
+  [facade](wire/facade.md) · [stacks](wire/stacks.md) (`STACK NEW|LIST|ALIGN|MATCH|FAILOVER`, `PLAN LIGHT`, `SITE GUIDE` and
+  `FACADE GUIDE`; `stage.stacks`, `stage.site.next`, each projector's `stack`, a member's lattice and gains in its output's
+  `measured`) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
   camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own) ·
   [d3d11](wire/d3d11.md) (`PRESENT PATH AUTO|DXGI|GL` from the render host's next start, DXGI explicit and experimental, the
   present fuse that `PRESENT RESET` clears; Spout's lines through videoio's rows; each output's `latencyMs` and the node's air
   latency) · [zerocopy](wire/zerocopy.md) (`DECODE STATUS`, the `decode` object STATE carries with each source's path — the path its
   latest frame came by — and why; `DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]` for decoders opened from now on,
   kept in the node's settings; `PRESENT PATH` and `DECODE POLICY` are set-up lines, refused while the show is armed).
-- **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
-  answers "not available on this node yet" (stacks' `STACK ALIGN` waits unrouted in facade's block, its other rows come with
-  it): [stacks](wire/stacks.md).
