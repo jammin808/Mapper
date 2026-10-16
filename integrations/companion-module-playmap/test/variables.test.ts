@@ -67,12 +67,18 @@ const valuesOf = (m: Booted, ids: readonly string[]): Record<string, JsonValue |
 async function linked(index?: unknown): Promise<{ node: FakeNode; m: Booted }> {
 	const node = await new FakeNode({ token: TOKEN, ...(index ? { index } : {}) }).start()
 	const m = await boot(configFor(node.webPort, node.wirePort), { token: TOKEN })
-	await m.host.until(
-		() =>
-			m.host.variables.get('node_name') === 'Test node' &&
-			m.host.variables.get(`pl.${SHOW.playlist}.state`) === 'playing',
-		'the greeting STATE and INDEX as variables',
-	)
+	try {
+		await m.host.until(
+			() =>
+				m.host.variables.get('node_name') === 'Test node' &&
+				m.host.variables.get(`pl.${SHOW.playlist}.state`) === 'playing',
+			'the greeting STATE and INDEX as variables',
+		)
+	} catch (e) {
+		await m.stop()
+		await node.stop()
+		throw e
+	}
 	return { node, m }
 }
 

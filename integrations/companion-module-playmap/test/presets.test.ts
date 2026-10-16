@@ -125,10 +125,16 @@ async function values(m: Booted, expected: Record<string, unknown>, what: string
 async function linked(index?: IndexJson): Promise<{ node: FakeNode; m: Booted }> {
 	const node = await new FakeNode({ token: TOKEN, ...(index ? { index } : {}) }).start()
 	const m = await boot(configFor(node.webPort), { token: TOKEN })
-	await m.host.until(
-		() => group(m, `pl.${SHOW.playlist}`) !== undefined && group(m, 'fleet') !== undefined,
-		'the structure from INDEX and STATE',
-	)
+	try {
+		await m.host.until(
+			() => group(m, `pl.${SHOW.playlist}`) !== undefined && group(m, 'fleet') !== undefined,
+			'the structure from INDEX and STATE',
+		)
+	} catch (e) {
+		await m.stop()
+		await node.stop()
+		throw e
+	}
 	return { node, m }
 }
 

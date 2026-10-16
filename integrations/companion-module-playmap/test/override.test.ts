@@ -105,10 +105,16 @@ async function values(m: Booted, expected: Record<string, unknown>, what: string
 async function linked(): Promise<{ node: FakeNode; m: Booted }> {
 	const node = await new FakeNode({ token: TOKEN }).start()
 	const m = await boot(configFor(node.webPort), { token: TOKEN })
-	await m.host.until(
-		() => 'item_key' in m.host.presets && m.host.variables.get('node_name') === 'Test node',
-		'the presets from INDEX and the greeting STATE',
-	)
+	try {
+		await m.host.until(
+			() => 'item_key' in m.host.presets && m.host.variables.get('node_name') === 'Test node',
+			'the presets from INDEX and the greeting STATE',
+		)
+	} catch (e) {
+		await m.stop()
+		await node.stop()
+		throw e
+	}
 	return { node, m }
 }
 

@@ -225,15 +225,21 @@ async function linked(): Promise<{ node: FakeNode; m: Booted }> {
 	align.rows = [{ id: PROJECTOR, kind: 'projector', label: 'Left', parent: null, light: 'grey', state: 'idle' }]
 	const node = await new FakeNode({ index: doc }).start()
 	const m = await boot(configFor(node.webPort), {})
-	const every = Object.keys(presetDefinitions(m.instance.config))
-	await m.host.until(
-		() =>
-			every.every((id) => id in m.host.presets) &&
-			Object.keys(m.host.composites).length > 0 &&
-			m.host.variableDefs.has(`pl.${SHOW.playlist}.state`) &&
-			m.host.variableDefs.has(`pj.${PROJECTOR}.light`),
-		'every preset, the composites and the per-id variables with Companion',
-	)
+	try {
+		const every = Object.keys(presetDefinitions(m.instance.config))
+		await m.host.until(
+			() =>
+				every.every((id) => id in m.host.presets) &&
+				Object.keys(m.host.composites).length > 0 &&
+				m.host.variableDefs.has(`pl.${SHOW.playlist}.state`) &&
+				m.host.variableDefs.has(`pj.${PROJECTOR}.light`),
+			'every preset, the composites and the per-id variables with Companion',
+		)
+	} catch (e) {
+		await m.stop()
+		await node.stop()
+		throw e
+	}
 	return { node, m }
 }
 

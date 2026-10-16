@@ -27,10 +27,16 @@ interface IndexJson {
 async function linked(): Promise<{ node: FakeNode; m: Booted }> {
 	const node = await new FakeNode({ token: TOKEN }).start()
 	const m = await boot(configFor(node.webPort), { token: TOKEN })
-	await m.host.until(
-		() => m.instance.linked() && m.host.variables.get('node_name') === 'Test node',
-		'linked, STATE heard',
-	)
+	try {
+		await m.host.until(
+			() => m.instance.linked() && m.host.variables.get('node_name') === 'Test node',
+			'linked, STATE heard',
+		)
+	} catch (e) {
+		await m.stop()
+		await node.stop()
+		throw e
+	}
 	return { node, m }
 }
 
