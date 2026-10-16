@@ -173,7 +173,7 @@ public sealed class RenderHostPresentTests
         Assert.Equal("gl", machine.GetProperty("api").GetString());
         Assert.Equal("offscreen", machine.GetProperty("path").GetString());
         Assert.Equal("core330", machine.GetProperty("dialect").GetString());
-        Assert.Equal("glx", machine.GetProperty("context").GetString());
+        Assert.Equal(HostRig.NativeContext, machine.GetProperty("context").GetString());
         var lockJson = doc.RootElement.GetProperty("outputs")[0].GetProperty("lock");
         Assert.Equal("free-unknown", lockJson.GetProperty("state").GetString());
         Assert.Equal("none", doc.RootElement.GetProperty("sync").GetProperty("lock").GetProperty("driver").GetString());
@@ -192,7 +192,11 @@ public sealed class RenderHostPresentTests
         Assert.Equal((0, 0, 255), HostRig.At(await rig.Read("op_1"), 64, 10, 10));
         var machine = rig.Host.Machine();
         Assert.Equal("es300", machine.Dialect);
-        Assert.True(machine.Context == "egl" || machine.Why.StartsWith("ES through GLX", StringComparison.Ordinal), $"{machine.Context}: {machine.Why}");
+        // On Linux ES is made on EGL (or on GLX, saying so); elsewhere the window system's own API makes it and has nothing to say.
+        if (OperatingSystem.IsLinux())
+            Assert.True(machine.Context == "egl" || machine.Why.StartsWith("ES through GLX", StringComparison.Ordinal), $"{machine.Context}: {machine.Why}");
+        else
+            Assert.Equal((HostRig.NativeContext, ""), (machine.Context, machine.Why));
     }
 
     [Fact]

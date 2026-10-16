@@ -21,6 +21,9 @@ public sealed class RenderHostCollection;
 internal sealed class HostRig : IAsyncDisposable
 {
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    /// <summary>The window system's own context word: what a hidden context is made on when EGL is not asked for.</summary>
+    public static string NativeContext => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
 
     private HostRig(ManualClock clock, EngineCore engine, RenderHost host)

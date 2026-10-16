@@ -175,6 +175,9 @@ public sealed class OutputFixtureTests
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";
             machine["presentMsP95"] = 0.21;
+            // The fixture is written on Linux: another platform's own window-system word reads as GLX's (EGL stays EGL).
+            if ((string?)machine["context"] == HostRig.NativeContext)
+                machine["context"] = "glx";
         }
         foreach (var o in root["outputs"]!.AsArray().OfType<JsonObject>())
         {
