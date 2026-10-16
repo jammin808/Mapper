@@ -42,6 +42,45 @@ public sealed record ScanOutcome(
             : null;
 }
 
+/// <summary>The stage's model a bridged scan registers into: every visible surface on an imported mesh, through its placement
+/// (<see cref="Core.Mapping.StageScene"/>, world coordinates) — never a mesh file's raw coordinates, so a surface moved on the stage
+/// bridges where it stands. Null when no such surface's mesh loads from the project folder.</summary>
+public static class BridgeModel
+{
+    public static MeshRaycaster? Of(Project project, string folder)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(folder);
+        var imported = project.Stage.Meshes.Where(m => m.Path.Length > 0 && m.Origin == MeshOrigin.Imported).ToDictionary(m => m.Id, StringComparer.Ordinal);
+        var loaded = new Dictionary<string, MeshData?>(StringComparer.Ordinal);
+        MeshData? Mesh(string id)
+        {
+            if (loaded.TryGetValue(id, out var have))
+                return have;
+            MeshData? mesh = null;
+            if (imported.TryGetValue(id, out var asset))
+            {
+                try
+                {
+                    mesh = MeshIO.Load(Path.Combine(folder, asset.Path)).Mesh;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or NotSupportedException or InvalidDataException)
+                {
+                    // A model that does not load is not bridged into; the scan self-calibrates when none does.
+                    mesh = null;
+                }
+            }
+            loaded[id] = mesh;
+            return mesh;
+        }
+        var surfaces = project.Stage.Surfaces.Where(s => s.Pixel is null && imported.ContainsKey(s.MeshId)).ToList();
+        if (surfaces.Count == 0)
+            return null;
+        var scene = Core.Mapping.StageScene.Build(project.Stage with { Surfaces = [.. surfaces] }, Mesh);
+        return scene.World.TriangleCount > 0 ? scene.Raycaster : null;
+    }
+}
+
 /// <summary>A scan's folder beside the project ("scans/&lt;id&gt;"): scan.json (the solve without its geometry),
 /// mesh.ply and points.ply (binary PLY; UVs top-left with v down inside PlayMap, flipped at the file as MeshIO
 /// does), one smart-&lt;projector&gt;.pgm per projector, and what click-to-surface needs on the camera's grid —
