@@ -10,7 +10,7 @@ namespace PlayMap.Media.Tests.Hw;
 /// <summary>D3D11VA on the renderer's own device (Category=Windows: the Windows CI job runs it). A WARP device made with video
 /// support stands in for wp2-d3d11's share; FFmpeg's D3D11VA device context is made on it (hwcontext_d3d11va.h: the caller sets
 /// <c>device</c>, BindFlags and the lock callbacks before av_hwdevice_ctx_init) — it opens, or the test says why: WARP has no video
-/// decoder, and the runner may have no FFmpeg. Elsewhere it asserts the share is refused without a device.</summary>
+/// decoder, and the runner may have no FFmpeg. Elsewhere it is skipped; each share API's FFmpeg device name is asserted everywhere.</summary>
 public sealed unsafe partial class D3d11vaWarpTests(Xunit.Abstractions.ITestOutputHelper log)
 {
     private const int DriverTypeWarp = 5;
@@ -19,21 +19,17 @@ public sealed unsafe partial class D3d11vaWarpTests(Xunit.Abstractions.ITestOutp
     private const uint SdkVersion = 7;
 
     [Fact]
-    [Trait("Category", "Windows")]
-    public void TheHardwareDeviceOpensOnTheRenderersDeviceOrSaysWhy()
+    public void EachShareApiNamesFfmpegsZeroCopyDevice()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Equal("", StreamDecoder.ZeroCopyDevice(GpuApi.OpenGl));
-            Assert.Equal("d3d11va", StreamDecoder.ZeroCopyDevice(GpuApi.D3D11));
-            Assert.Equal("vaapi", StreamDecoder.ZeroCopyDevice(GpuApi.DmaBuf));
-            return;
-        }
-        OnWindows(log);
+        Assert.Equal("", StreamDecoder.ZeroCopyDevice(GpuApi.OpenGl));
+        Assert.Equal("d3d11va", StreamDecoder.ZeroCopyDevice(GpuApi.D3D11));
+        Assert.Equal("vaapi", StreamDecoder.ZeroCopyDevice(GpuApi.DmaBuf));
     }
 
+    [WindowsFact]
+    [Trait("Category", "Windows")]
     [SupportedOSPlatform("windows")]
-    private static void OnWindows(Xunit.Abstractions.ITestOutputHelper log)
+    public void TheHardwareDeviceOpensOnTheRenderersDeviceOrSaysWhy()
     {
         nint device = 0;
         var hr = D3D11CreateDevice(0, DriverTypeWarp, 0, CreateBgraSupport | CreateVideoSupport, null, 0, SdkVersion, &device, null, null);

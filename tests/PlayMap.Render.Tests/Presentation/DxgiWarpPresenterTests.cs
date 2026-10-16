@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
@@ -10,21 +11,18 @@ namespace PlayMap.Render.Tests.Presentation;
 /// <summary>The DXGI flip path on the Windows CI runner, which has no GPU: the Direct3D 11 device on WARP, ANGLE's ES 3.0 context on
 /// it with every shader program translated, a waitable FLIP_DISCARD swap chain on a window, 120 presents with buffer 0 wrapped once,
 /// the frame statistics read (or, where WARP gives none, the clock timing swap returns — printed, never skipped), and the frame read
-/// back from buffer 0 with its top row first. Off Windows the test asserts the path is refused with words instead.</summary>
+/// back from buffer 0 with its top row first. Off Windows it is skipped (GpuPlatformFaultTests and PresentPathTests assert the
+/// path is refused there with words).</summary>
 public sealed class DxgiWarpPresenterTests(ITestOutputHelper output)
 {
     private const int W = 64;
     private const int H = 36;
 
-    [Fact]
+    [WindowsFact]
     [Trait("Category", "Windows")]
+    [SupportedOSPlatform("windows")]
     public void TheFlipPathPresentsOnWarpAndReadsTheFrameBack()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            output.WriteLine("not Windows: the DXGI path is refused here (GpuPlatformFaultTests and PresentPathTests assert the words)");
-            return;
-        }
         using var platform = AnglePlatform.Create(new GlDeviceOptions(CheckErrors: true, DebugOutput: false), warp: true);
         Assert.True(platform.Warp);
         Assert.Equal("dxgi", platform.Name);

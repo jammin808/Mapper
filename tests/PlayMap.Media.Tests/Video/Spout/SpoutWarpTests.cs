@@ -10,7 +10,7 @@ namespace PlayMap.Media.Tests.Video.Spout;
 /// <summary>Spout on the Windows CI runner (WARP, no GPU): the real kernel's named objects and two WARP devices in one process — a
 /// sender publishes a 64×36 chart, a receiver opens its texture by the share handle and reads it back through staging. Where WARP
 /// shares no resources the test says so and runs the protocol goldens over the real kernel with the fake GPU instead — printed which
-/// ran, never a skip. Off Windows it says the round trip is a Windows test (the goldens run in SpoutProtocolTests).</summary>
+/// ran, never a skip on Windows. Off Windows it is skipped (the protocol goldens run there in SpoutProtocolTests).</summary>
 public sealed class SpoutWarpTests(ITestOutputHelper output)
 {
     private const int W = 64;
@@ -28,15 +28,11 @@ public sealed class SpoutWarpTests(ITestOutputHelper output)
         return chart;
     }
 
-    [Fact]
+    [WindowsFact]
     [Trait("Category", "Windows")]
+    [SupportedOSPlatform("windows")]
     public void ASenderAndAReceiverRoundTripAChartOnWarp()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            output.WriteLine("not Windows: the WARP round trip runs on the Windows CI job; the protocol goldens ran in SpoutProtocolTests");
-            return;
-        }
         var kernel = new Win32SpoutKernel();
         var name = "PlayMap CI " + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var sendGpu = D3D11SpoutGpu.Create(warp: true);
