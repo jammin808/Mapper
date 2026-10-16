@@ -111,6 +111,47 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         return (job, watch.Elapsed.TotalSeconds);
     }
 
+    /// <summary>The longest the control lane may take to answer a query (SITE) while an import runs (ms).</summary>
+    internal const double LaneAnswerBudgetMs = 50;
+
+    /// <summary>Whether the solvers run optimised (a Release build): a Debug build's times are held to the 4× ceiling only.</summary>
+    internal static bool Optimised => typeof(MeshDecimator).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
+        .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
+
+    /// <summary>Imports the 2 M-triangle front while the lane is asked SITE every 20 ms: the import's time, the worst answer and how
+    /// many were asked.</summary>
+    internal static async Task<(double Seconds, double WorstMs, int Asked)> ImportWhileAsking(SiteRig rig, string file)
+    {
+        var watch = Stopwatch.StartNew();
+        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL UP Z DECIMATE 300000");
+        var worst = 0.0;
+        var asked = 0;
+        while (!rig.Engine.WhenSurveyed.IsCompleted)
+        {
+            var ask = Stopwatch.StartNew();
+            await rig.Ok("SITE");
+            worst = Math.Max(worst, ask.Elapsed.TotalMilliseconds);
+            asked++;
+            await Task.Delay(20);
+        }
+        await rig.Engine.WhenSurveyed;
+        return (watch.Elapsed.TotalSeconds, worst, asked);
+    }
+
+    /// <summary>The lane answers SITE throughout an import: here, beside whatever else runs on the machine, the answer is recorded and
+    /// held to the 4× ceiling of its 50 ms budget; the Perf twin, run alone, holds it to 50 ms.</summary>
+    [Fact]
+    public async Task TheLaneAnswersAQueryThroughoutAnImport()
+    {
+        await using var rig = new SiteRig();
+        var file = SurveyFacade.WritePly(rig.File("north-front.ply"), Cols, Rows);
+        var (seconds, worst, asked) = await ImportWhileAsking(rig, file);
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles in {seconds:0.0} s; {asked} lane queries, worst {worst:0.0} ms"));
+        Assert.Equal("ready", rig.Engine.SurveyJob!.State);
+        Assert.True(asked >= 2, $"{asked}");
+        Assert.True(worst <= 4 * LaneAnswerBudgetMs, string.Create(CultureInfo.InvariantCulture, $"{worst:0.0} ms"));
+    }
+
     [Fact]
     public async Task ATwoMillionTrianglePlyComesInAsOneEditWithinItsDeviationAndNeverHoldsTheLane()
     {
@@ -379,8 +420,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 }
 
 /// <summary>The import's budgets, measured on this machine and run serially at integration: 2 M triangles in 15 s, and the control lane
-/// answering within 50 ms throughout (PING is the transport's own word, so the lane is probed with SITE, a query it answers). The 15 s
-/// is a budget for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its time against the 4× ceiling.</summary>
+/// answering within 50 ms throughout (PING is the transport's own word, so the lane is probed with SITE, a query it answers). Both are
+/// budgets for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its times against their 4× ceilings.</summary>
 [Trait("Category", "Perf")]
 [Collection(SurveyPerfCollection.Name)]
 public sealed class SurveyImportPerfTests(ITestOutputHelper log)
@@ -390,27 +431,14 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
     {
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
-        var watch = Stopwatch.StartNew();
-        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL UP Z DECIMATE 300000");
-        var worstPing = 0.0;
-        var pings = 0;
-        while (!rig.Engine.WhenSurveyed.IsCompleted)
-        {
-            var ping = Stopwatch.StartNew();
-            await rig.Ok("SITE");
-            worstPing = Math.Max(worstPing, ping.Elapsed.TotalMilliseconds);
-            pings++;
-            await Task.Delay(20);
-        }
-        await rig.Engine.WhenSurveyed;
-        var seconds = watch.Elapsed.TotalSeconds;
-        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles in {seconds:0.0} s; {pings} lane queries, worst {worstPing:0.0} ms"));
+        var (seconds, worst, asked) = await SurveyImportTests.ImportWhileAsking(rig, file);
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles in {seconds:0.0} s; {asked} lane queries, worst {worst:0.0} ms"));
         Assert.Equal("ready", rig.Engine.SurveyJob!.State);
-        var optimised = typeof(MeshDecimator).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
-            .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
-        log.WriteLine(optimised ? "optimised build: the 15 s budget holds" : "Debug build: recorded against the 4× ceiling (60 s)");
-        Assert.True(seconds <= (optimised ? 15 : 60), $"{seconds:0.0} s");
-        Assert.True(worstPing <= 50, $"{worstPing:0.0} ms");
+        // Both budgets are for optimised code: a Debug build (the JIT's optimiser off) records its times against their 4× ceilings.
+        var scale = SurveyImportTests.Optimised ? 1 : 4;
+        log.WriteLine(SurveyImportTests.Optimised ? "optimised build: the 15 s and 50 ms budgets hold" : "Debug build: recorded against the 4× ceilings (60 s, 200 ms)");
+        Assert.True(seconds <= 15 * scale, string.Create(CultureInfo.InvariantCulture, $"{seconds:0.0} s"));
+        Assert.True(worst <= SurveyImportTests.LaneAnswerBudgetMs * scale, string.Create(CultureInfo.InvariantCulture, $"{worst:0.0} ms"));
     }
 
     [Fact]
