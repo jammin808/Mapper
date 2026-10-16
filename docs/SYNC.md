@@ -111,7 +111,10 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 **`SyncBoard`** (pure) turns them into numbers:
 
-- the **reference** output is the leader's first, else the first heard; entries unheard for 5 s read "not heard";
+- the **rows** read in one order, whatever order the reports arrive in: the leader's own outputs in its project's order, then each
+  member's by node id, in the order its `SUBSCRIBE ANCHORS` named them (its project's; one it did not name, by hash). The
+  **reference** output is the first heard in that order — the leader's first output, else the first member's; entries unheard
+  for 5 s read "not heard";
 - the **phase** of each output against the reference, each one's vblank nearest a common leader instant along its own period,
   wrapped into (−P/2, P/2]; its **uncertainty** is both members' clock uncertainty, so a 210 µs uncertainty is never shown as
   a 12 µs phase;
@@ -136,7 +139,9 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 - **Preflight** (section `sync`): a follower's leader heard (red with `SYNC FOLLOW <group> <leader>`), its clock uncertainty under
   ± 4 ms, its feed live (show's own `clock` row yields a follower's clock to these rows, so the clock has one light per report); a
   leader's rates (red on a mixed rate, with `SET <output> refreshHz <rate>` for its own odd output, or the member's node and the
-  line to run there — output ids repeat across nodes) and its members; a solo node grey.
+  line to run there — output ids repeat across nodes) and its members; a solo node grey. The reference's rate is the group's
+  and the odd output is the first at another rate in the board's order, so a tie (one output at each rate) goes to the leader's
+  first output in its project, and the same outputs give the same row and line whatever order their reports came in.
 - **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`.
 
 ## Verified here, next

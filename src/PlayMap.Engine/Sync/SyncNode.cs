@@ -69,6 +69,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly Dictionary<string, (string Feed, long Seq)> _airLatest = new(StringComparer.Ordinal);
     private readonly Lock _dueGate = new();
     private readonly Lock _persistGate = new();
+
+    /// <summary>A leader's watch offers its own outputs to the board, and a lead resets the board, one at a time.</summary>
+    private readonly Lock _boardGate = new();
     private readonly Queue<DueAir> _due = new();
     private readonly List<Task> _work = [];
     private volatile EngineCore? _engine;
@@ -208,12 +211,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             await StopFollowingAsync().ConfigureAwait(false);
             _adopted.Clear();
             _joining = "";
-            Board.Clear();
-            foreach (var m in Feed.Members)
-            {
-                foreach (var o in m.Outputs)
-                    Board.Name(m.Node, o);
-            }
+            ResetBoard();
             // The group's latest lines start again: every synced playlist's anchor as it is now (a member that joins after a GO is
             // put on the playing item), no air or lock from before.
             Feed.Forget();
@@ -311,8 +309,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         if (node.Length > 0 && !session.Paired && !(FindPeer(node) is { } peer && peer.Id == node && SameAddress(peer.Address, NormalText(session.RemoteAddress))))
             return PushOpen.Refuse($"SUBSCRIBE ANCHORS {node}: no PlayMap node {node} is heard from {session.RemoteAddress} — name no node to read the feed");
         var outputs = args.Skip(1).ToImmutableArray();
-        foreach (var o in outputs)
-            Board.Name(node, o);
+        if (node.Length > 0)
+            Board.Name(node, outputs);
         var member = new AnchorMember(session.SessionId, node, session.ClientName, session.RemoteAddress, outputs);
         var sub = Feed.Subscribe(member, sink);
         return PushOpen.Open(new Ended(() =>
@@ -749,25 +747,68 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         // (the estimate's drift, not a slew's), and the uncertainty widened by any correction still being slewed.
         var rate = 1 + Clock.Drift;
         var uncertaintyUs = (uint)Math.Clamp(Math.Round((Clock.UncertaintyNs + Clock.SlewingNs) / 1000), 0, VblankReport.MaxClockUncertaintyUs);
-        foreach (var v in source.Read())
+        var outputs = source.Read();
+        if (leads)
+        {
+            lock (_boardGate)
+            {
+                // The leader's own outputs are named in its project's order before any is offered, whatever order the source lists
+                // them in: the board's rows and its reference (the first heard) follow that order, never the reports' arrival.
+                Board.Name(me, InProjectOrder(outputs));
+                foreach (var v in outputs)
+                {
+                    if (Due(v) is { } report)
+                        Board.Offer(report, mono, local: true);
+                }
+            }
+            return;
+        }
+        foreach (var v in outputs)
+        {
+            if (Due(v) is { } report)
+                reporter!.Send(report);
+        }
+
+        VblankReport? Due(OutputVblank v)
         {
             if (_lastSent.TryGetValue(v.OutputId, out var last) && watch - last.AtWatch < every && last.State == v.State)
-                continue;
+                return null;
             var seq = _seq.AddOrUpdate(v.OutputId, 1, (_, s) => s + 1);
             var periodPs = Math.Clamp((long)Math.Round(v.PeriodPs * rate), VblankReport.MinPeriodPs, VblankReport.MaxPeriodPs);
-            var report = new VblankReport(v.State, (byte)(v.Settled ? VblankReport.FlagSettled : 0), v.Path, node, VblankReport.HashId(v.OutputId), seq,
+            _lastSent[v.OutputId] = (v.State, watch);
+            return new VblankReport(v.State, (byte)(v.Settled ? VblankReport.FlagSettled : 0), v.Path, node, VblankReport.HashId(v.OutputId), seq,
                 v.FrameCount & 0xFFFFFF, periodPs, Math.Max(0, Clock.ToLeader(v.LastVblankLocalNs)),
                 v.RefreshIndex, v.Missed60s, 0, v.AirLatencyUs, uncertaintyUs);
-            if (leads)
+        }
+    }
+
+    /// <summary>The ids of this node's reported outputs in its project's order (any the project does not hold after them, as listed).</summary>
+    private List<string> InProjectOrder(IReadOnlyList<OutputVblank> outputs)
+    {
+        var project = _engine?.Snapshot.Project.Project.Outputs ?? [];
+        int Index(string id)
+        {
+            for (var i = 0; i < project.Length; i++)
             {
-                Board.Name(me, v.OutputId);
-                Board.Offer(report, mono, local: true);
+                if (string.Equals(project[i].Id, id, StringComparison.Ordinal))
+                    return i;
             }
-            else
-            {
-                reporter!.Send(report);
-            }
-            _lastSent[v.OutputId] = (v.State, watch);
+            return int.MaxValue;
+        }
+        return [.. outputs.Select(v => v.OutputId).OrderBy(Index)];
+    }
+
+    /// <summary>The board starts again (a lead): its entries and names go, the members it has are named again, and this node's own
+    /// outputs are offered afresh on the next watch. Under the gate a watch's pass offers under, so no output of this node's is ever
+    /// on the board without its name and place.</summary>
+    private void ResetBoard()
+    {
+        lock (_boardGate)
+        {
+            Board.Clear();
+            _lastSent.Clear();
+            foreach (var m in Feed.Members)
+                Board.Name(m.Node, m.Outputs);
         }
     }
 

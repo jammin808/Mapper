@@ -52,9 +52,12 @@ public sealed class SyncPreflight(SyncNode sync) : IPreflightCheck
                 var picture = sync.Picture(context.Engine.IsAnimating);
                 if (picture.MixedRate)
                 {
-                    // The odd output is set to the reference's rate where it is; one on another node is fixed there.
-                    var reference = picture.Outputs.FirstOrDefault(o => o.Heard);
+                    // The reference's rate is the group's (the leader's first output in its project, else the first member's heard);
+                    // the odd output is the first at another rate in the board's order, set to it where it is: one on another node is
+                    // fixed there. The board's order is the projects', so the same outputs give the same row whatever order their
+                    // reports came in.
                     var pair = picture.Pairs.First(p => p.MixedRate);
+                    var reference = picture.Outputs.FirstOrDefault(o => o.Output == pair.A && o.Node == pair.ANode && o.Heard);
                     var odd = pair.B;
                     // Output ids repeat across nodes: the odd one is the pair's, on the pair's node.
                     var row = picture.Outputs.FirstOrDefault(o => o.Output == odd && o.Node == pair.BNode && o.Heard);
