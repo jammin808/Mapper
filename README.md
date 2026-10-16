@@ -91,8 +91,9 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it.
 
-**In progress:** the Companion module; Spout; and the desk's controls for show safety, locks,
-blind edit, the sync board, effects and the rest, which today run over the wire.
+**In progress:** the Direct3D 11 present path with Spout; hardware decode straight into textures; the Companion module;
+many views into one phone scan; projector stacks and the facade guide; a hot backup that takes over the air; and the desk's
+controls for show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
 
 ## What it is made of
 
