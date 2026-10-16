@@ -254,7 +254,8 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
         return PresentResult.Done(LastSwapNs) with { PresentCount = count };
     }
 
-    /// <summary>Draws the picture (black for null) into buffer 0 with the window's surface current, then makes the renderer's
+    /// <summary>Draws the picture (black for null) into buffer 0 with the window's surface current — rows as they are: ANGLE's surface
+    /// on a Direct3D 11 texture runs top first, as PlayMap's targets do (the WARP read-back proves it) — then makes the renderer's
     /// surfaceless context current again. One immediate context serves ANGLE and DXGI on this thread, so a flush orders the draw
     /// before the flip with no fence.</summary>
     private void Draw(GpuTexture? picture)
@@ -269,7 +270,7 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
             if (picture is null)
                 device.ClearDefault(Width, Height);
             else
-                device.DrawPresent(_vao, picture, Width, Height);
+                device.DrawPresent(_vao, picture, Width, Height, flipY: false);
             device.Flush();
         }
         finally
