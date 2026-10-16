@@ -40,10 +40,11 @@ apply), each slice timed into the import's view. The result lands as one edit, s
   else LOCAL. A file in another EPSG system than the site's, or whose points are more than 2 km from the site's origin, is
   refused: reprojection is not done here. LAS points flagged withheld are left out.
 
-A stopping node starts no import, and one running stops at its next step, unapplied. The import's model lands on the live stage: a
-lock that holds the stage refuses it before the file is read, and so does a session that holds a blind draft (heavy work is never
-staged). An import that fails for any reason is shown
-failed with its words, and the files it wrote are removed; file names are never reused.
+A stopping node starts no import, and one running stops at its next read or step, unapplied; the node's disposal waits for it to
+have ended, so no import outlives the node. The import's model lands on the live stage of the project it was asked for, in the
+folder it was asked in (another project opened, or the project saved elsewhere, while it ran fails it with words): a lock that holds
+the stage refuses it before the file is read, and so does a session that holds a blind draft (heavy work is never staged). An import
+that fails for any reason is shown failed with its words, and the files it wrote are removed; file names are never reused.
 
 ## Control points
 

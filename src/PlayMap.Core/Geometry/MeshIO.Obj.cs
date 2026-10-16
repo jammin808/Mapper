@@ -12,10 +12,14 @@ public static partial class MeshIO
 
     /// <summary>Reads Wavefront OBJ placed by <paramref name="options"/>: vertices are parsed in double and rebased into the
     /// options' frame before they are narrowed to float; normals are turned into the stage's axes.</summary>
-    public static GeometryFile ReadObj(TextReader reader, GeometryReadOptions options)
+    public static GeometryFile ReadObj(TextReader reader, GeometryReadOptions options) => ReadObj(reader, options, CancellationToken.None);
+
+    /// <summary>Reads Wavefront OBJ placed by <paramref name="options"/>; <paramref name="ct"/> stops a long file between lines.</summary>
+    public static GeometryFile ReadObj(TextReader reader, GeometryReadOptions options, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(options);
+        var lines = 0;
         var pos = new List<Vec3d>();
         var col = new List<int>();
         var tex = new List<Vec2d>();
@@ -27,6 +31,8 @@ public static partial class MeshIO
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
+            if ((++lines & 0xFFFF) == 0)
+                ct.ThrowIfCancellationRequested();
             var span = line.AsSpan().Trim();
             if (span.IsEmpty || span[0] == '#')
                 continue;

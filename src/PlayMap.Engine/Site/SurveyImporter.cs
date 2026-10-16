@@ -45,11 +45,19 @@ internal static class SurveyImporter
         };
     }
 
+    /// <summary>The file's SHA-256, read a megabyte at a time so a stop is heard between reads.</summary>
     private static string Hash(string path, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(path);
-        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream));
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[1 << 20];
+        int n;
+        while ((n = stream.Read(buffer)) > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            sha.AppendData(buffer, 0, n);
+        }
+        return "sha256:" + Convert.ToHexStringLower(sha.GetHashAndReset());
     }
 
     /// <summary>A file naming another EPSG system than the site's is refused: it would be placed as if it were in the site's.</summary>
@@ -75,13 +83,13 @@ internal static class SurveyImporter
             progress.Report(0.3);
             return FromChunks(r, new MemoryChunkSource(cloud, r.Crs), hash, progress, ct);
         }
-        var file = MeshIO.Load(r.Path, options);
+        var file = MeshIO.Load(r.Path, options, ct);
         ct.ThrowIfCancellationRequested();
         progress.Report(0.3);
         if (file.Mesh is not { } mesh)
         {
             // Points only: back to the file's own values, thinned as any cloud.
-            var raw = MeshIO.Load(r.Path).Cloud!;
+            var raw = MeshIO.Load(r.Path, GeometryReadOptions.AsStored, ct).Cloud!;
             return FromChunks(r, new MemoryChunkSource(raw, r.Crs), hash, progress, ct);
         }
         var frame = file.Site ?? r.SiteAtStart;

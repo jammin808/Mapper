@@ -220,7 +220,7 @@ public sealed partial class EngineCore
         }
         PointCloud cloud;
         using (var stream = File.OpenRead(Path.Combine(folder, sv.CloudPath)))
-            cloud = MeshIO.ReadPly(stream, new GeometryReadOptions(1, true, p.Stage.Site)).ToPointCloud();
+            cloud = MeshIO.ReadPly(stream, new GeometryReadOptions(1, true, p.Stage.Site), CancellationToken.None).ToPointCloud();
         var tree = new KdTree3(cloud.Points);
         return (q =>
         {

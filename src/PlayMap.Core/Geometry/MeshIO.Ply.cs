@@ -37,7 +37,10 @@ public static partial class MeshIO
 
     /// <summary>Reads PLY placed by <paramref name="options"/>: positions are kept in double as read (a double property keeps its
     /// precision) and rebased before they are narrowed to float.</summary>
-    public static GeometryFile ReadPly(Stream stream, GeometryReadOptions options)
+    public static GeometryFile ReadPly(Stream stream, GeometryReadOptions options) => ReadPly(stream, options, CancellationToken.None);
+
+    /// <summary>Reads PLY placed by <paramref name="options"/>; <paramref name="ct"/> stops a long file between records.</summary>
+    public static GeometryFile ReadPly(Stream stream, GeometryReadOptions options, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(options);
@@ -45,7 +48,7 @@ public static partial class MeshIO
         IPlyValues values = format == PlyFormat.Ascii ? new PlyAscii(stream) : new PlyBinary(stream, format == PlyFormat.BinaryBigEndian);
         try
         {
-            return ReadPlyBody(elements, values, options);
+            return ReadPlyBody(elements, values, options, ct);
         }
         finally
         {
@@ -124,7 +127,7 @@ public static partial class MeshIO
         _ => throw new FormatException($"Unknown PLY type '{s}'."),
     };
 
-    private static GeometryFile ReadPlyBody(List<PlyElement> elements, IPlyValues values, GeometryReadOptions options)
+    private static GeometryFile ReadPlyBody(List<PlyElement> elements, IPlyValues values, GeometryReadOptions options, CancellationToken ct)
     {
         double[] raw = [];
         float[] nor = [];
@@ -147,6 +150,8 @@ public static partial class MeshIO
                 var rgb = new double[3];
                 for (var i = 0; i < vertexCount; i++)
                 {
+                    if ((i & 0xFFFF) == 0)
+                        ct.ThrowIfCancellationRequested();
                     Array.Clear(rgb);
                     for (var k = 0; k < e.Properties.Count; k++)
                     {
@@ -183,6 +188,8 @@ public static partial class MeshIO
             {
                 for (long f = 0; f < e.Count; f++)
                 {
+                    if ((f & 0xFFFF) == 0)
+                        ct.ThrowIfCancellationRequested();
                     foreach (var p in e.Properties)
                     {
                         if (p.IsList && p.Name is "vertex_indices" or "vertex_index")

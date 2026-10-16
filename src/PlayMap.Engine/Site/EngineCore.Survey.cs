@@ -17,8 +17,9 @@ public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, 
 /// <summary>SURVEY IMPORT and SURVEY LIST. The lane checks the line and the node and answers accepted at once; a worker reads,
 /// places, thins, decimates and writes (<see cref="SurveyImporter"/>); the lane then applies the result as one edit — the mesh asset,
 /// a surface over all of it, the survey with its provenance and, when the site was unset, the site the import picked — so one UNDO
-/// takes the whole import back, on the live stage (a session holding a blind draft is refused: heavy work is never staged). One
-/// import runs at a time; a stopping node starts none, and one running stops at its next step.
+/// takes the whole import back, on the live stage (a session holding a blind draft is refused: heavy work is never staged), and only
+/// into the project it was asked for, in the folder it was asked in. One import runs at a time; a stopping node starts none, one
+/// running stops at its next step, and a node's disposal waits for it to have ended.
 /// While it runs, STATE.stage.surveys shows it "importing n %"; a failure is shown "failed: …" until the next import.</summary>
 public sealed partial class EngineCore
 {
@@ -37,6 +38,9 @@ public sealed partial class EngineCore
     private Task? _surveyTask;
     private double _surveyShown;
     private readonly Lock _surveyGate = new();
+
+    /// <summary>Cancelled when the node is disposed: the running import stops at its next read or step.</summary>
+    private readonly CancellationTokenSource _surveyStop = new();
 
     /// <summary>The running or last import (null before the first).</summary>
     public SurveyJobView? SurveyJob => Volatile.Read(ref _survey);
@@ -176,6 +180,17 @@ public sealed partial class EngineCore
         return CommandReply.Success(payload, words) with { Applied = false };
     }
 
+    /// <summary>The node is being disposed: the running import is stopped at its next read or step.</summary>
+    private void CancelSurvey() => _surveyStop.Cancel();
+
+    /// <summary>Once the lane has stopped: the running import has ended (failed with the stop's words, its files removed) before
+    /// disposal goes on, so no import outlives the node or writes beside the project after it.</summary>
+    private async Task EndSurveyAsync()
+    {
+        await WhenSurveyed.ConfigureAwait(false);
+        _surveyStop.Dispose();
+    }
+
     /// <summary>The longest single slice of the lane the import has taken, kept on its view.</summary>
     private void NoteSurveySlice(double ms)
     {
@@ -203,7 +218,7 @@ public sealed partial class EngineCore
     {
         const string StoppedWords = "the node stopped before the survey was applied";
         SurveyProduct product;
-        using (var stop = new CancellationTokenSource())
+        using (var stop = CancellationTokenSource.CreateLinkedTokenSource(_surveyStop.Token))
         {
             var progress = new SurveyProgress(this, stop);
             Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;

@@ -1,8 +1,9 @@
 namespace PlayMap.Engine.Tests.Facade;
 
-/// <summary>A survey import and the life of the project around it: an import that finishes after another project was opened, or after
-/// the project was saved into another folder, is not applied to it — its mesh and cloud were written beside the project it was asked
-/// for — and says so, its files removed.</summary>
+/// <summary>A survey import and the life of the node and the project around it: a node disposed while an import runs has ended the
+/// import by the time its disposal returns, with nothing the import wrote left beside the project; an import that finishes after
+/// another project was opened, or after the project was saved into another folder, is not applied to it — its mesh and cloud were
+/// written beside the project it was asked for — and says so, its files removed.</summary>
 [Collection(SurveyPerfCollection.Name)]
 public sealed class SurveyLifecycleTests
 {
@@ -12,6 +13,26 @@ public sealed class SurveyLifecycleTests
         {
             var dir = Path.Combine(folder, sub);
             Assert.False(Directory.Exists(dir) && Directory.EnumerateFiles(dir).Any(), $"{sub}: {(Directory.Exists(dir) ? string.Join(", ", Directory.EnumerateFiles(dir)) : "")}");
+        }
+    }
+
+    [Fact]
+    public async Task ADisposedNodeHasEndedItsImportAndLeftNothingItWrote()
+    {
+        var rig = new SiteRig();
+        try
+        {
+            var file = SurveyFacade.WritePly(rig.File("front.ply"), 601, 601);
+            await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
+            await rig.Engine.DisposeAsync();
+            Assert.True(rig.Engine.WhenSurveyed.IsCompleted, "the import still runs after the node was disposed");
+            Assert.Equal("failed", rig.Engine.SurveyJob!.State);
+            Assert.Contains("stopped", rig.Engine.SurveyJob.Words, StringComparison.Ordinal);
+            AssertNothingWritten(rig.Folder);
+        }
+        finally
+        {
+            Directory.Delete(rig.Folder, recursive: true);
         }
     }
 

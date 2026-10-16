@@ -430,8 +430,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         BeginStop();
         StopSolving();
+        CancelSurvey();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
+        await EndSurveyAsync().ConfigureAwait(false);
         await Journal.DisposeAsync().ConfigureAwait(false);
     }
 }

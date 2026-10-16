@@ -46,7 +46,11 @@ public static partial class MeshIO
     public static GeometryFile Load(string path) => Load(path, GeometryReadOptions.AsStored);
 
     /// <summary>Reads a file by its extension, placed by <paramref name="options"/> (rebased in double before narrowing).</summary>
-    public static GeometryFile Load(string path, GeometryReadOptions options)
+    public static GeometryFile Load(string path, GeometryReadOptions options) => Load(path, options, CancellationToken.None);
+
+    /// <summary>Reads a file by its extension, placed by <paramref name="options"/>; <paramref name="ct"/> stops a long OBJ or PLY
+    /// between records.</summary>
+    public static GeometryFile Load(string path, GeometryReadOptions options, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(options);
@@ -56,12 +60,12 @@ public static partial class MeshIO
             case ".obj":
             {
                 using var reader = new StreamReader(path);
-                return ReadObj(reader, options);
+                return ReadObj(reader, options, ct);
             }
             case ".ply":
             {
                 using var stream = File.OpenRead(path);
-                return ReadPly(stream, options);
+                return ReadPly(stream, options, ct);
             }
             case ".xyz" or ".pts" or ".txt" or ".asc" or ".csv":
             {
