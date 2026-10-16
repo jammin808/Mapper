@@ -221,6 +221,32 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.False(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
     }
 
+    /// <summary>The fit runs off the lane: a member's warp moved before its result lands (the lattice was fitted through the warp it
+    /// had) refuses the result, and the member keeps what it had.</summary>
+    [Fact]
+    public async Task AMemberChangedWhileTheStackIsFittedIsNotOverwritten()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        // The lane is held: the alignment reads the stack first, the warp moves next, then the fit's result comes back to the lane.
+        var gate = new TaskCompletionSource();
+        var held = rig.Engine.Lane.RunAsync(() => gate.Task.Wait());
+        var align = rig.Run($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        var moved = rig.Run("WARP NODE op00000002 1 1 0.01 0");
+        gate.SetResult();
+        await held;
+        Assert.True((await moved).Ok);
+        var r = await align;
+        Assert.False(r.Ok, r.Payload);
+        Assert.Contains("P2 was changed while S1 was being fitted — nothing was applied", r.Payload, StringComparison.Ordinal);
+        var o2 = rig.Engine.Store.Project.FindOutput("op00000002")!;
+        Assert.Null(o2.Measured);
+        Assert.NotNull(o2.Warp.Lattice);
+        Assert.False(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+    }
+
     [Fact]
     public async Task AStackOfOneMadeByAGenericAddIsNeverCountedAligned()
     {

@@ -332,11 +332,17 @@ public sealed partial class EngineCore
         var r = await EditAsync(c.Session, $"align stack {stack.Name}", p =>
         {
             applied.Clear();
-            if (p.FindStack(stack.Id) is null)
+            if (p.FindStack(stack.Id) is not { } standing)
                 throw new EditRefusedException($"the stack {stack.Name} is gone");
+            if (standing.MasterId != stack.MasterId || !standing.Members.SequenceEqual(stack.Members, StringComparer.Ordinal))
+                throw new EditRefusedException($"{stack.Name}'s members or master changed while it was being fitted — nothing was applied; STACK ALIGN {stack.Id} FROM {source.Scan.Id} again");
             foreach (var (member, _) in fits.Members)
                 if (OutputOf(p, member.Projector.Id) is { } drawn && AlignWarped(drawn, member.Projector) is { } twice)
                     throw new EditRefusedException(twice);
+            foreach (var (pj, output, _) in source.Members)
+                if (!FittedAsItStands(p, pj, output, pj.Id == masterId))
+                    throw new EditRefusedException(
+                        $"{pj.Name} was changed while {stack.Name} was being fitted — nothing was applied; STACK ALIGN {stack.Id} FROM {source.Scan.Id} again");
             foreach (var (member, fit) in fits.Members)
             {
                 // The master is the target: its correction stays as it is.
@@ -405,6 +411,16 @@ public sealed partial class EngineCore
     private static string? AlignWarped(Output output, Projector pj) => output.Measured?.Warp is null ? null
         : $"{output.Name} ({pj.Name}) is drawn through an alignment's measured warp — a stack lattice on it would register it twice: "
           + $"ALIGN CLEAR {output.Id} takes that off first (or ALIGN RUN registers the stack on its canvas)";
+
+    /// <summary>True when a member stands as the fit read it: its projector's pose and optics (what carries the master's picture to
+    /// it and what <see cref="StackPoses"/> keeps), the output that draws it and that output's warp (the lattice is fitted through it);
+    /// for the master, the measured lattice it draws through as well (its picture is the target).</summary>
+    private static bool FittedAsItStands(Project p, Projector read, Output drawn, bool master) =>
+        p.FindProjector(read.Id) is { } pj && OutputOf(p, read.Id) is { } o && o.Id == drawn.Id
+        && pj.Pose == read.Pose && pj.Intrinsics == read.Intrinsics && pj.Lens == read.Lens
+        && (ReferenceEquals(o.Warp, drawn.Warp) || o.Warp == drawn.Warp)
+        && (o.Width, o.Height) == (drawn.Width, drawn.Height)
+        && (!master || ReferenceEquals(o.Measured?.Lattice, drawn.Measured?.Lattice));
 
     private sealed record StackFits(IReadOnlyList<((Projector Projector, Output Output, ProjectorView View) Member, StackFit? Fit)> Members, string? Why);
 
