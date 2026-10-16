@@ -180,8 +180,9 @@ internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
 }
 
 /// <summary>INDEX section "suggestions" (wp2-multiscan): one row per surface suggestion waiting for a person, under its scan, its row id
-/// the proposal that approves it (its first, the SCAN SURFACE line), amber; a key approves it (pressed twice, as APPROVE is) and a key
-/// rejects it (held). A section of its own, so a deck's keys for a suggestion are the lines that decide it.</summary>
+/// the first of its proposals still waiting (the SCAN SURFACE line, then its SURFACE QUAD layer once the first is decided — each is
+/// approved alone), amber; a key approves it (pressed twice, as APPROVE is) and a key rejects it (held). A section of its own, so a
+/// deck's keys for a suggestion are the lines that decide it.</summary>
 internal sealed class SuggestionIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "suggestions";
@@ -198,9 +199,11 @@ internal sealed class SuggestionIndex(EngineCore engine) : IIndexContributor
         w.WriteStartArray();
         if (engine.Services.Scan is Scanning.ScanRunner runner)
         {
+            var queue = engine.Services.Assistant?.Queue;
             foreach (var (scan, s, _) in runner.Waiting())
             {
-                var proposal = s.Proposals.FirstOrDefault() ?? s.Id;
+                var proposal = s.Proposals.FirstOrDefault(p => queue?.Find(p)?.State is PlayMap.Assistant.ProposalState.Pending or PlayMap.Assistant.ProposalState.Forwarded)
+                    ?? s.Proposals.FirstOrDefault() ?? s.Id;
                 w.WriteStartObject();
                 w.WriteString("id", proposal);
                 w.WriteString("kind", "suggestion");

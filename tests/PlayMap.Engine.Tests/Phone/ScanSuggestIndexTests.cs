@@ -70,4 +70,37 @@ public sealed class ScanSuggestIndexTests
             rig.DeleteFolder();
         }
     }
+
+    [Fact]
+    public async Task ARowsKeysDecideTheLineOfItsSuggestionThatStillWaits()
+    {
+        // A plane's suggestion queues two lines, each approved alone (SCAN SURFACE, then its SURFACE QUAD layer). Once a person decides
+        // the first, the row stays while the other waits, its id (the line its keys approve or reject) and words that one's — never a
+        // decided proposal, whose keys would only be refused.
+        var rig = new OpsRig(new AssistantSettings { Enabled = true }, project: MultiViewScanKit.Project());
+        try
+        {
+            var id = await MultiViewScanKit.ScanAsync(rig, $"SCAN START {MultiViewScanKit.Camera} {MultiViewScanKit.Pj1} {MultiViewScanKit.Pj2}");
+            var suggestions = JsonDocument.Parse(await rig.Ok("SCAN SUGGEST " + id)).RootElement.GetProperty("suggestions").EnumerateArray().ToList();
+            var plane = suggestions.First(s => s.GetProperty("proposals").GetArrayLength() >= 2);
+            var proposals = plane.GetProperty("proposals").EnumerateArray().Select(p => p.GetString()!).ToList();
+            Assert.Contains(Rows(rig), r => r.GetProperty("id").GetString() == proposals[0]);
+
+            await rig.Ok("REJECT " + proposals[0]);
+            Assert.Equal(ProposalState.Rejected, rig.Assistant.Queue.Find(proposals[0])!.State);
+            var row = Assert.Single(Rows(rig), r => proposals.Contains(r.GetProperty("id").GetString()!));
+            Assert.Equal(proposals[1], row.GetProperty("id").GetString());
+            Assert.Equal(id, row.GetProperty("parent").GetString());
+            Assert.EndsWith("APPROVE " + proposals[1], row.GetProperty("state").GetString(), StringComparison.Ordinal);
+
+            // The row's other key rejects the line that waited: the suggestion is decided and its row is gone.
+            await rig.Ok("REJECT " + proposals[1]);
+            Assert.DoesNotContain(Rows(rig), r => proposals.Contains(r.GetProperty("id").GetString()!));
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
 }
