@@ -23,7 +23,7 @@ The status says what is wrong in words:
 
 The presets come from the show, by id: renaming or reordering an item never orphans a linked key.
 
-- **Show** — GO, NEXT and PREV on the focused playlist (GO sends `EXPECT` the next item, so a list that moved under the key is refused, not played), BLACKOUT, FREEZE, PANIC and one per outcome, PANIC CLEAR, the countdown, Show Mode and the node's headline.
+- **Show** — GO, NEXT and PREV on the focused playlist (GO sends `EXPECT` the next item, so a list that moved under the key is refused, not played), BLACKOUT, FREEZE, PANIC and one per outcome, PANIC CLEAR (held), the countdown, Show Mode and the node's headline.
 - **Playlists** — one key per playlist, and one template group per playlist (`pl.<id>`) with a key per item: its picture, its name, its progress bar, a frame lit green on the air, amber next, grey when the show no longer has it. A playlist key's picture is what is on the air, so it goes blank while the node is not linked; a picture the node could not make while the show was armed comes when it disarms.
 - **Outputs**, **Projectors** (light and calibration score ring), **Surfaces** (show or hide, held), **Fleet** (the machines this node hears).
 - **Live page** — 32 slots that fill themselves (below).
@@ -36,9 +36,11 @@ Untick a group in the connection to leave it out.
 
 The press shape comes from the node's vocabulary:
 
-- **At once** — PANIC, BLACKOUT, FREEZE, MASTER, GO, NEXT, PREV and every transport verb: never held, never confirmed.
-- **Held 0.8 s** — verbs that change the air at high risk (show or hide a surface …): the key says HOLD… while held.
-- **Two presses** — a projector's power: the first held press says SURE? for 3 s, the second sends. The second must be of the same line: a Live slot whose page turned in between says SURE? again and sends nothing.
+- **At once** — GO, NEXT and PREV, PLAY and PAUSE, BLACKOUT, FREEZE and PANIC (every outcome): never held, never confirmed.
+- **Held 0.8 s** — every other high-risk verb (PANIC CLEAR, MASTER, a stop, a seek, an LED output, showing or hiding a surface …) and an identify that puts a picture over the air: the key says HOLD… while held.
+- **Two presses** — a projector's power, a project opened or made, a scan started, a proposal approved: the first held press says SURE? for 3 s, the second sends. The second must be of the same line: a Live slot whose page turned in between says SURE? again and sends nothing.
+
+A package section's key whose rows press differently is a group per press: the show section's PANIC keys fire at once, its PANIC CLEAR and MASTER keys are held.
 
 A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`, and red for 2 s when no answer came. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and _if_ blocks can branch on it. The `stage` is one of:
 

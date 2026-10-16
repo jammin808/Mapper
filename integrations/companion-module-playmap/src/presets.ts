@@ -19,7 +19,7 @@ import { actionIdOf } from './catalog/verbs.ts'
 import { groupOn, type PlayMapConfig } from './config.ts'
 import { RULES, SLOTS, fillHint, stronger } from './live.ts'
 import { colourOf, css, inkOn, lightExpression, rgbOf } from './palette/playmap.ts'
-import { pressable, type IndexDoc } from './state/index-doc.ts'
+import { pressable, type IndexDoc, type IndexKey, type IndexRow } from './state/index-doc.ts'
 import { P } from './state/paths.ts'
 
 type PresetAction = SomePresetActionEntry
@@ -545,12 +545,12 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		})
 	presets.show_panic_clear = key({
 		name: 'PANIC CLEAR',
-		notes: 'PANIC CLEAR — brings the air back from a panic over its fade. Instant.',
+		notes: 'PANIC CLEAR — brings the air back from a panic over its fade. Held 0.8 s: a tap never lifts a panic.',
 		keywords: ['panic', 'clear'],
 		locals: [],
 		label: 'PANIC\nCLEAR',
 		grounds: [{ feedbackId: 'panic_active', options: {}, colour: 'amber' }],
-		press: 'instant',
+		press: 'hold',
 		action: { actionId: actionIdOf('PANIC CLEAR'), options: {} },
 		receipt: true,
 	})
@@ -1089,25 +1089,47 @@ export function presetStructure(
 				id: `sec.${s.section}`,
 				name: s.title || s.section,
 				description: `From the node's ${s.section} section`,
-				definitions: s.keys.map((k, i) =>
-					template(
-						`sec.${s.section}.${i}`,
-						fillHint(k.label, { id: '', label: k.label, light: '' }).replace('$(label)', '') || s.title,
-						`section_key_${rows.reduce<'instant' | 'hold' | 'double'>(
-							(press, r) => stronger(press, extras.pressOf?.(fillHint(k.line, r)) ?? 'instant'),
-							k.press === 'hold' || k.press === 'double' ? k.press : 'instant',
-						)}`,
-						'row',
-						rows.map((r) => ({
-							name: fillHint(k.label, r) === r.label ? r.label : `${fillHint(k.label, r)} ${r.label}`,
-							value: r.id,
-						})),
-						{ section: s.section, key: i },
-					),
+				definitions: s.keys.flatMap((k, i) =>
+					pressGroups(k, rows, extras.pressOf).map(({ press, rows: pressed }, n) => {
+						const name = fillHint(k.label, { id: '', label: k.label, light: '' }).replace('$(label)', '') || s.title
+						return template(
+							n === 0 ? `sec.${s.section}.${i}` : `sec.${s.section}.${i}.${press}`,
+							n === 0 ? name : `${name} (${press === 'double' ? '×2' : 'hold'})`,
+							`section_key_${press}`,
+							'row',
+							pressed.map((r) => ({
+								name: fillHint(k.label, r) === r.label ? r.label : `${fillHint(k.label, r)} ${r.label}`,
+								value: r.id,
+							})),
+							{ section: s.section, key: i },
+						)
+					}),
 				),
 			})
 		}
 	return sections
+}
+
+const SHAPES = ['instant', 'hold', 'double'] as const
+
+/** A section key's rows by the press each is pressed at — the stronger of the hint's press and the catalogue's for the row's line —
+ * in the order instant, hold, double, a press no row has left out: a key whose rows press differently (PANIC at once, PANIC CLEAR
+ * and MASTER held) is a group per press, so no row is pressed harder or softer than its own line. */
+export function pressGroups(
+	key: IndexKey,
+	rows: readonly IndexRow[],
+	pressOf: StructureExtras['pressOf'],
+): { readonly press: PressShape; readonly rows: readonly IndexRow[] }[] {
+	const own: PressShape = key.press === 'hold' || key.press === 'double' ? key.press : 'instant'
+	const by = new Map<PressShape, IndexRow[]>()
+	for (const r of rows) {
+		const press = stronger(own, pressOf?.(fillHint(key.line, r)) ?? 'instant')
+		by.set(press, [...(by.get(press) ?? []), r])
+	}
+	return SHAPES.flatMap((press) => {
+		const pressed = by.get(press)
+		return pressed ? [{ press, rows: pressed }] : []
+	})
 }
 
 /** Composite elements a user (or a Patterns page) can put on any key: a tile, a ring, the lock and the receipt dot. */

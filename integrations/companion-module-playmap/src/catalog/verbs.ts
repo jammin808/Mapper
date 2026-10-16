@@ -109,13 +109,24 @@ function readRiskWhen(v: unknown): VerbRow['riskWhen'] {
 	})
 }
 
-/** Show classes whose rows fire at once whatever the line says (a show's emergency and its GO are never held). */
-const NEVER_HELD = new Set(['panic', 'air', 'transport'])
+/** The rows a key fires at once whatever their line says, by row name (an alias is its row): a show's GO, NEXT and PREV, a
+ * playlist's PLAY and PAUSE, the blackout, the freeze and the panic (design 3.7; the node's VerbParams.NeverHeld). */
+export const NEVER_HELD: ReadonlySet<string> = new Set([
+	'PLAYLIST GO',
+	'PLAYLIST NEXT',
+	'PLAYLIST PREV',
+	'VIDEO PLAY',
+	'VIDEO PAUSE',
+	'BLACKOUT',
+	'FREEZE',
+	'PANIC',
+])
 
 /** How a key sends this line of this row: the row's press, made hold when a word of the line raises it to high risk (DECODE POLICY
- * … FORCE), or instant when a word lowers a held high-risk row (MEDIA OPTIMISE CANCEL), as the node's own press rule would. */
+ * … FORCE), or instant when a word lowers a held high-risk row (MEDIA OPTIMISE CANCEL), as the node's own press rule would. A
+ * never-held row and a row pressed twice keep their press whatever the line says. */
 export function pressOfLine(row: VerbRow, line: string): VerbRow['press'] {
-	if (row.press === 'double' || NEVER_HELD.has(row.show)) return row.press
+	if (row.press === 'double' || NEVER_HELD.has(row.name)) return row.press
 	const args = line
 		.trim()
 		.split(/\s+/u)

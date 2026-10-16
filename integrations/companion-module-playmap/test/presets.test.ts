@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
-import { SLOTS } from '../src/live.ts'
+import { SLOTS, fillHint } from '../src/live.ts'
 import { RESULT_ACTIONS, compositeDefinitions, presetDefinitions } from '../src/presets.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
@@ -26,6 +26,7 @@ interface IndexItemJson {
 interface IndexRowJson {
 	id: string
 	label: string
+	kind: string
 	[key: string]: unknown
 }
 
@@ -38,7 +39,7 @@ interface IndexJson {
 	projectors: unknown[]
 	sections: {
 		section: string
-		hint: { title: string; keys: { label: string; press: string }[] }
+		hint: { title: string; keys: { label: string; line: string; press: string }[] }
 		rows: IndexRowJson[]
 	}[]
 }
@@ -210,6 +211,7 @@ void test('INDEX makes a template group per playlist keyed pl.<id>, a section pe
 			Array.from({ length: 32 }, (_, i) => ({ name: `Slot ${i + 1}`, value: i + 1 })),
 		)
 
+		const SHAPES = ['instant', 'hold', 'double'] as const
 		for (const s of doc.sections) {
 			const section = sections(m).find((x) => x.id === `sec.${s.section}`)
 			if (s.rows.length === 0 || s.hint.keys.length === 0) {
@@ -218,29 +220,76 @@ void test('INDEX makes a template group per playlist keyed pl.<id>, a section pe
 			}
 			assert.ok(section, `a section for ${s.section}`)
 			assert.equal(section.name, s.hint.title)
-			assert.deepEqual(
-				section.definitions.map((g) => g.id),
-				s.hint.keys.map((_, i) => `sec.${s.section}.${i}`),
-			)
 			s.hint.keys.forEach((k, i) => {
-				const g = section.definitions[i]
-				assert.equal(g?.type, 'template')
-				assert.equal(g.presetId, `section_key_${k.press}`, `${s.section} key ${i} is pressed ${k.press}`)
-				assert.equal(g.templateVariableName, 'row')
-				// Every row is a key but an encoder's, which is turned with its value.
-				const pressed = s.rows.filter((r) => r.kind !== 'encoder')
+				// A key is a template group per press its rows are pressed at (the stronger of the hint's and the row's line's), in the
+				// order instant, hold, double: the first keeps the id sec.<section>.<i>, the others add their press.
+				const mine = section.definitions.filter((g) => g.commonVariableValues?.key === i)
+				assert.ok(mine.length > 0, `${s.section} key ${i} has a group`)
+				const presses = mine.map((g) => (g.presetId ?? '').replace('section_key_', ''))
 				assert.deepEqual(
-					g.templateValues?.map((v) => v.value),
-					pressed.map((r) => r.id),
+					presses,
+					SHAPES.filter((p) => presses.includes(p)),
+					`${s.section} key ${i}: one group per press, in order`,
 				)
-				assert.deepEqual(g.commonVariableValues, { section: s.section, key: i })
-				if (k.label === '$(label)')
+				assert.deepEqual(
+					mine.map((g) => g.id),
+					presses.map((p, n) => (n === 0 ? `sec.${s.section}.${i}` : `sec.${s.section}.${i}.${p}`)),
+				)
+				// Every row is a key but an encoder's, which is turned with its value; each in the group of its press.
+				const pressed = s.rows.filter((r) => r.kind !== 'encoder')
+				const own = k.press === 'hold' || k.press === 'double' ? k.press : 'instant'
+				const pressOf = (r: IndexRowJson): string => {
+					const catalogue = m.instance.pressOf(fillHint(k.line, { id: r.id, label: r.label, light: '' }))
+					return SHAPES.indexOf(catalogue) > SHAPES.indexOf(own) ? catalogue : own
+				}
+				for (const g of mine) {
+					assert.equal(g.type, 'template')
+					assert.equal(g.templateVariableName, 'row')
+					assert.deepEqual(g.commonVariableValues, { section: s.section, key: i })
+					const press = (g.presetId ?? '').replace('section_key_', '')
 					assert.deepEqual(
-						g.templateValues?.map((v) => v.name),
-						pressed.map((r) => r.label),
+						g.templateValues?.map((v) => v.value),
+						pressed.filter((r) => pressOf(r) === press).map((r) => r.id),
+						`${g.id} lists the rows pressed ${press}`,
 					)
+					if (k.label === '$(label)')
+						assert.deepEqual(
+							g.templateValues?.map((v) => v.name),
+							pressed.filter((r) => pressOf(r) === press).map((r) => r.label),
+						)
+				}
+				assert.deepEqual(
+					mine.flatMap((g) => g.templateValues?.map((v) => v.value) ?? []).sort(),
+					pressed.map((r) => r.id).sort(),
+					`${s.section} key ${i} lists every pressed row once`,
+				)
 			})
+			assert.equal(
+				section.definitions.length,
+				new Set(section.definitions.map((g) => g.id)).size,
+				`${s.section}: no two groups share an id`,
+			)
 		}
+		// The show section: PANIC (every outcome) and the arm stay instant; lifting a panic and setting the master are held.
+		assert.deepEqual(
+			sections(m)
+				.find((x) => x.id === 'sec.show')
+				?.definitions.map((g) => [g.id, g.presetId, g.templateValues?.map((v) => v.value)]),
+			[
+				['sec.show.0', 'section_key_instant', ['SHOW ARM', 'SHOW DISARM', 'PANIC', 'PANIC BLACK', 'PANIC HARD']],
+				['sec.show.0.hold', 'section_key_hold', ['PANIC CLEAR', 'MASTER 0', 'MASTER 100']],
+			],
+		)
+		// The output section's REJOIN key is held as its hint says; its present key is instant.
+		assert.deepEqual(
+			sections(m)
+				.find((x) => x.id === 'sec.present')
+				?.definitions.map((g) => [g.id, g.presetId]),
+			[
+				['sec.present.0', 'section_key_instant'],
+				['sec.present.1', 'section_key_hold'],
+			],
+		)
 
 		// A template's variable and its common values land in local variables its preset declares, in both variants.
 		for (const g of groups(m)) {

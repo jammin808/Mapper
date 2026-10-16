@@ -1,6 +1,6 @@
 // Actions as Companion runs them: one generated action per catalogue row (the session's own words and every row that carries a
-// secret aside), id v_<name>, writing the node's grammar; the transport and panic keys press on the down with no held group, and a
-// key of a generated row presses as the row's press field says; the lines the node's contract test parses are the ones the module
+// secret aside), id v_<name>, writing the node's grammar; the GO, NEXT, PREV, BLACKOUT, FREEZE and panic keys press on the down
+// with no held group, PANIC CLEAR's is held, and a key of a generated row presses as the row's press field says; the lines the node's contract test parses are the ones the module
 // writes now; two presses confirm within 3 s and only then; the double-GO guard holds a second GO of a playlist within min_go_ms;
 // raw and ask_node never put a session word, a secret or (for ask_node) a change on the wire; learn fills from the focused
 // playlist; every press answers ok, stage, effect and error. An older node's untyped VERBS keeps the bundled rows' forms and presses.
@@ -295,22 +295,37 @@ void test('one action per catalogue row but the module’s own words and secrets
 			if (row.riskWhen.length === 0) assert.equal(m.instance.pressOf(sampleLine(row)), row.press, `${row.name} press`)
 			else assert.equal(m.instance.pressOf(sampleLine(row)), pressOfLine(row, sampleLine(row)), `${row.name} press`)
 		}
-		// The air and transport verbs are instant on every key the module makes of them.
+		// The design's named rows are instant on every key the module makes of them; every other high-risk row is held, lifting a
+		// panic (by its alias too), the master, a stop and an LED output among them.
 		for (const line of [
 			'PANIC',
-			'PANIC CLEAR',
+			'PANIC BLACK',
 			'BLACKOUT ON',
 			'FREEZE ON',
 			'PLAYLIST GO pl0a1b2c3d',
 			'PLAYLIST NEXT pl0a1b2c3d',
+			'PLAYLIST PREV pl0a1b2c3d',
+			'VIDEO PLAY pl0a1b2c3d',
+			'VIDEO RESUME pl0a1b2c3d',
+			'VIDEO PAUSE pl0a1b2c3d',
 		])
 			assert.equal(m.instance.pressOf(line), 'instant', line)
+		for (const line of [
+			'PANIC CLEAR',
+			'PANIC OFF',
+			'MASTER 0',
+			'VIDEO STOP pl0a1b2c3d',
+			'VIDEO SEEK pl0a1b2c3d 10',
+			'LED OUTPUT OFF ALL',
+			'TIMECODE CHASE tc0a1b2c3d ON',
+		])
+			assert.equal(m.instance.pressOf(line), 'hold', line)
 	} finally {
 		await m.stop()
 	}
 })
 
-void test('PANIC (every outcome), PANIC CLEAR, BLACKOUT, FREEZE, GO, NEXT and PREV keys press on the down, never held', async () => {
+void test('PANIC (every outcome), BLACKOUT, FREEZE, GO, NEXT and PREV keys press on the down, never held; PANIC CLEAR is held', async () => {
 	const node = await new FakeNode({ token: TOKEN }).start()
 	const m = await boot(configOf(node), SECRETS)
 	try {
@@ -329,9 +344,16 @@ void test('PANIC (every outcome), PANIC CLEAR, BLACKOUT, FREEZE, GO, NEXT and PR
 		for (const id of panicIds)
 			for (const variant of variantsOf(m, id)) {
 				const step = variant.steps[0] ?? {}
-				const action = ((step.down as PresetAction[] | undefined) ?? [])[0]
-				if (action?.actionId === actionIdOf('PANIC CLEAR')) {
-					assertOnDown(variant, actionIdOf('PANIC CLEAR'), `${id} ${variant.type}`)
+				const held = ((step['800'] as { actions?: PresetAction[] } | undefined)?.actions ?? [])[0]
+				if (held?.actionId === actionIdOf('PANIC CLEAR')) {
+					// Lifting a panic puts content back on the air: held 0.8 s, nothing on the down or the up.
+					const where = `${id} ${variant.type}`
+					assert.equal(id, 'show_panic_clear', where)
+					assert.equal(variant.steps.length, 1, where)
+					assert.deepEqual(heldGroups(step), ['800'], where)
+					assert.deepEqual((step['800'] as { options?: Fields }).options, { runWhileHeld: true }, where)
+					assert.deepEqual(step.down, [], where)
+					assert.deepEqual(step.up, [], where)
 					clears++
 					continue
 				}
@@ -339,7 +361,7 @@ void test('PANIC (every outcome), PANIC CLEAR, BLACKOUT, FREEZE, GO, NEXT and PR
 				if (variant.type === 'layered') outcomes.push(panic.options?.outcome)
 			}
 		assert.deepEqual([...outcomes].sort(), [...PANIC_OUTCOMES].sort())
-		assert.equal(clears, 2, 'PANIC CLEAR, layered and simple')
+		assert.equal(clears, 2, 'PANIC CLEAR, layered and simple, held')
 
 		for (const [id, actionId, options] of [
 			['show_go', 'go_focused', { playlist: '', expect: true }],
@@ -361,7 +383,7 @@ void test('PANIC (every outcome), PANIC CLEAR, BLACKOUT, FREEZE, GO, NEXT and PR
 	}
 })
 
-void test('a key of a generated row presses as the row’s press field says', async () => {
+void test('a key of a generated row, or of the module’s own GO, NEXT, PREV, PANIC, BLACKOUT and FREEZE, presses as its row’s press field says', async () => {
 	const index = copy(fixture('index.json')) as { surfaces: unknown[] }
 	index.surfaces.push({ id: 'sf00000009', name: 'Wall', tags: ['wall'], source: '' })
 	const node = await new FakeNode({ index, token: TOKEN }).start()
@@ -372,7 +394,21 @@ void test('a key of a generated row presses as the row’s press field says', as
 			'the surfaces section from INDEX',
 		)
 		const byAction = new Map(generatedRows(BUNDLED_VERBS).map((r) => [actionIdOf(r.name), r]))
+		// The module's own actions send these rows' lines.
+		for (const [actionId, name] of [
+			['go_focused', 'PLAYLIST GO'],
+			['next_focused', 'PLAYLIST NEXT'],
+			['prev_focused', 'PLAYLIST PREV'],
+			['panic', 'PANIC'],
+			['blackout_toggle', 'BLACKOUT'],
+			['freeze_toggle', 'FREEZE'],
+		] as const) {
+			const row = BUNDLED_VERBS.find((r) => r.name === name)
+			assert.ok(row, name)
+			byAction.set(actionId, row)
+		}
 		const seen = new Set<string>()
+		const keyed = new Map<string, string>()
 		for (const [id, preset] of Object.entries(m.host.presets))
 			for (const variant of (preset as { variants?: Variant[] }).variants ?? [])
 				for (const step of variant.steps) {
@@ -383,6 +419,7 @@ void test('a key of a generated row presses as the row’s press field says', as
 						if (!row) continue
 						const where = `${id} (${variant.type}): ${row.name} is ${row.press}`
 						seen.add(row.press)
+						keyed.set(id, row.name)
 						if (row.press === 'instant') {
 							assert.ok(down.includes(action), where)
 							assert.deepEqual(heldGroups(step), [], where)
@@ -398,6 +435,23 @@ void test('a key of a generated row presses as the row’s press field says', as
 			seen.has('instant') && seen.has('hold'),
 			`keys of instant and held rows were checked (${[...seen].join(', ')})`,
 		)
+		// Every hard-coded key that presses a row was checked, PANIC CLEAR's (held) among them.
+		for (const [id, name] of [
+			['show_go', 'PLAYLIST GO'],
+			['show_next', 'PLAYLIST NEXT'],
+			['show_prev', 'PLAYLIST PREV'],
+			['show_blackout', 'BLACKOUT'],
+			['show_freeze', 'FREEZE'],
+			['show_panic', 'PANIC'],
+			['show_panic_clear', 'PANIC CLEAR'],
+			['item_key', 'PLAYLIST GO'],
+			['playlist_key', 'PLAYLIST GO'],
+			['output_key', 'OUTPUT IDENTIFY'],
+			['surface_show', 'SURFACE SHOW'],
+			['surface_hide', 'SURFACE SHOW'],
+		] as const)
+			assert.equal(keyed.get(id), name, `${id} presses ${name}`)
+		assert.equal(BUNDLED_VERBS.find((r) => r.name === 'PANIC CLEAR')?.press, 'hold')
 
 		// The one shape each press takes on a key.
 		const action = { actionId: actionIdOf('DEVICE POWER'), options: { device: 'dv0a1b2c3d', state: 'OFF' } }

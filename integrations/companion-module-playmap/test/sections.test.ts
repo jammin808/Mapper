@@ -86,10 +86,10 @@ void test('an encoder row is turned, never pressed: no section preset lists it, 
 		const master = index.sections.find((s) => s.section === 'show')?.rows.find((r) => r.kind === 'encoder')
 		assert.ok(master, 'the fixture show section has its encoder row')
 
-		// The show section's preset lists every pressed row and not the encoder's.
+		// The show section's key lists every pressed row (in the group of its press) and not the encoder's.
 		type Definition = { id: string; templateValues?: { value: unknown }[] }
 		const show = (m.host.structure as { id: string; definitions: Definition[] }[]).find((s) => s.id === 'sec.show')
-		const listed = (show?.definitions[0]?.templateValues ?? []).map((v) => v.value)
+		const listed = (show?.definitions ?? []).flatMap((d) => (d.templateValues ?? []).map((v) => v.value))
 		assert.ok(listed.includes('MASTER 100') && listed.includes('SHOW ARM'), JSON.stringify(listed))
 		assert.ok(!listed.includes(master.id), 'the encoder row is no key of the preset')
 

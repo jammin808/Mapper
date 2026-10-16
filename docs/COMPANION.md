@@ -210,7 +210,9 @@ reads WHOAMI's `may`.
 pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. Keys breathe with
 no traffic, in Companion's own expressions: Show Mode's frame on `oscillate(2000)` while armed, the headline's mark on `blink(500)` while
 a fault stands, the Beat key on `oscillate(60000 / bpm, 'square')`, a projector's ground in `colorMix` from red to green by its score. A package's INDEX
-section becomes a preset section from its hint: one template group per key over its rows, pressed as the hint says, lit by the
+section becomes a preset section from its hint: for each key, a template group per press over the rows pressed at it — a row at
+the stronger of the hint's press and its own line's, in the order instant, hold, double, the first group `sec.<section>.<i>`, the
+others `sec.<section>.<i>.<press>` — so the show's PANIC rows stay instant while PANIC CLEAR and MASTER 0 and 100 are held; lit by the
 hint's feedback when it is a STATE path to a light (`outputs.$(id).present.light`), else by the row's light. An `encoder` row (the
 show's MASTER) is turned with its value, never pressed: it is no key of the section's preset, its Live slot only shows, and
 `section_press` refuses it unsent — the Master encoder preset turns it. The **Live page** is
