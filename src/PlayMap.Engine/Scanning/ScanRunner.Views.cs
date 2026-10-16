@@ -439,9 +439,6 @@ public sealed partial class ScanRunner
 
         public CancellationToken Token => _cts.Token;
 
-        /// <summary>True once the runner's stop cancelled it.</summary>
-        public bool Stopped { get; set; }
-
         internal Task Done => _done.Task;
 
         internal CancellationTokenSource Cancellation => _cts;
