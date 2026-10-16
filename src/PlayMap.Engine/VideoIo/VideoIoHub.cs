@@ -19,6 +19,9 @@ internal sealed class SendSlot
 
     public SendSpec? Spec { get; set; }
 
+    /// <summary>The protocol the sender was made for (a send moved to another protocol gets a new sender).</summary>
+    public SendProtocol MadeFor { get; set; }
+
     /// <summary>Why it sends nothing (no runtime for its protocol, a refused sender, a tap with nothing behind it), or "".</summary>
     public string Problem { get; set; } = "";
 
@@ -534,14 +537,15 @@ public sealed class VideoIoHub : IDisposable
                 slot.Plan = null;
                 continue;
             }
-            if (slot.Sink is not null && slot.Spec is { } old
-                && (old.Name != spec.Name || old.Format != spec.Format || old.Width != spec.Width || old.Height != spec.Height))
+            if (slot.Sink is not null && (slot.MadeFor != send.Protocol || slot.Spec is { } old
+                && (old.Name != spec.Name || old.Format != spec.Format || old.Width != spec.Width || old.Height != spec.Height)))
                 CloseSink(slot);
             if (slot.Sink is null)
             {
                 try
                 {
                     slot.Sink = provider.Create(spec);
+                    slot.MadeFor = send.Protocol;
                     slot.Problem = "";
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or NotSupportedException or System.Net.Sockets.SocketException)

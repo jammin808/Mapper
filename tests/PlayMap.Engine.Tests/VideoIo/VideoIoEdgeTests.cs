@@ -192,6 +192,21 @@ public sealed class VideoIoEdgeTests
     }
 
     [Fact]
+    public async Task ASendMovedToAnotherProtocolGetsThatProtocolsSender()
+    {
+        await using var rig = new VideoIoRig();
+        var id = VideoIoRig.IdOf(await rig.Ok("SEND ADD NDI Main output:op_1"));
+        var ndi = rig.Ndi.Sinks.Single();
+        await rig.Ok($"SET {id} protocol \"omt\"");
+        // A generic edit reaches the hub at its next tick.
+        rig.Engine.VideoIo.Tick();
+        Assert.Equal(1, ndi.Closes);
+        Assert.Single(rig.Omt.Sinks);
+        Assert.Equal("omt", rig.Send(id).GetProperty("proto").GetString());
+        Assert.Equal("FAKEHOST (Main)", rig.Send(id).GetProperty("fullName").GetString());
+    }
+
+    [Fact]
     public async Task AnUnfitFallbackNeverBlocksAnEditThatLeavesItAlone()
     {
         var project = VideoIoRig.Show() with
