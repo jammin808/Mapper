@@ -399,10 +399,9 @@ public sealed partial class EngineCore
     /// (when the clock now reads that leader's line). Every other instant the air holds moves with them in the same action: the
     /// identify deadline, the master's and the panic's fades and safe looks, the fades back from a panic, the panic's transport steps
     /// and lines still waiting for their instants, and a blind commit waiting for its instant — so nothing on the air jumps or fires
-    /// early or late.</summary>
+    /// early or late. STATE counts the step once all of this and its journal line are done.</summary>
     private void RebaseOnStep(long delta)
     {
-        Interlocked.Increment(ref _syncSteps);
         var p = Store.Project;
         var now = LeaderNowNs;
         var adopted = Services.Clock.IsFollowing ? Services.GroupSync?.Adopted ?? [] : [];
@@ -432,6 +431,8 @@ public sealed partial class EngineCore
         RebaseAir(delta);
         var who = Services.Clock.IsFollowing && Services.GroupSync is { Joining.Length: > 0 } s ? $"followed {s.Joining}: " : "";
         Journal.Add("sync", $"{who}show clock stepped {StepWords(delta)}; {kept} playlist{(kept == 1 ? "" : "s")} kept {(kept == 1 ? "its" : "their")} place");
+        // Counted last: a reader that sees the count sees the step taken in full — every anchor and instant moved, the line written.
+        Interlocked.Increment(ref _syncSteps);
         RaiseEvent("sync.stepped", now, w => w.WriteNumber("deltaNs", delta));
         FactsChanged();
     }

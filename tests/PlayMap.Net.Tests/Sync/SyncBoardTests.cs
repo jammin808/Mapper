@@ -151,6 +151,90 @@ public sealed class SyncBoardTests
     }
 
     [Fact]
+    public void TheRowsAndTheReferenceFollowTheNamedOrdersNotTheReportsArrival()
+    {
+        const uint Other = 0x1a2b3c4d;
+        var p50 = (long)Math.Round(1e12 / 50);
+        var reports = new (VblankReport Report, bool Local)[]
+        {
+            (Report(Member, "op_b", P60Ps, T), false),
+            (Report(Other, "op_x", P60Ps, T), false),
+            (Report(Leader, "op_2", p50, T), true),
+            (Report(Member, "op_a", P60Ps, T), false),
+            (Report(Leader, "op_1", P60Ps, T), true),
+        };
+        SyncPicture Picture(IEnumerable<(VblankReport Report, bool Local)> arrival)
+        {
+            var board = new SyncBoard();
+            board.Name("0badc0de", "op_1", "op_2");
+            board.Name("9f8e7d6c", "op_a", "op_b");
+            foreach (var (r, local) in arrival)
+                Assert.True(board.Offer(r, 0, local));
+            return board.Picture(T, 0);
+        }
+
+        // The leader's own outputs in its order, then each member's by node id in the order it named them (one it did not name, by
+        // hash): the same whichever way round the reports came.
+        var x = "#" + VblankReport.HashId("op_x").ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+        string[] rows = ["0badc0de/op_1", "0badc0de/op_2", "1a2b3c4d/" + x, "9f8e7d6c/op_a", "9f8e7d6c/op_b"];
+        foreach (var arrival in new[] { reports, Enumerable.Reverse(reports).ToArray() })
+        {
+            var p = Picture(arrival);
+            Assert.Equal(rows, p.Outputs.Select(o => o.Node + "/" + o.Output));
+            Assert.Equal("mixed rate", p.Verdict);
+            Assert.All(p.Pairs, pair => Assert.Equal(("op_1", "0badc0de"), (pair.A, pair.ANode)));
+            var odd = p.Pairs.First(pair => pair.MixedRate);
+            Assert.Equal(("op_2", "0badc0de"), (odd.B, odd.BNode));
+        }
+
+        // Named the other way round, the leader's first is op_2: its rate is the reference's.
+        var board = new SyncBoard();
+        board.Name("0badc0de", "op_2", "op_1");
+        foreach (var (r, local) in reports)
+            Assert.True(board.Offer(r, 0, local));
+        var other = board.Picture(T, 0);
+        Assert.All(other.Pairs, pair => Assert.Equal("op_2", pair.A));
+        Assert.All(other.Pairs, pair => Assert.True(pair.MixedRate));
+
+        // With none of the leader's heard, the first member's by the same order is the reference.
+        var members = new SyncBoard();
+        members.Name("9f8e7d6c", "op_a", "op_b");
+        foreach (var (r, local) in reports.Where(r => !r.Local).Reverse())
+            Assert.True(members.Offer(r, 0, local));
+        var heard = members.Picture(T, 0);
+        Assert.Equal(["1a2b3c4d/" + x, "9f8e7d6c/op_a", "9f8e7d6c/op_b"], heard.Outputs.Select(o => o.Node + "/" + o.Output));
+        Assert.All(heard.Pairs, pair => Assert.Equal((x, "1a2b3c4d"), (pair.A, pair.ANode)));
+    }
+
+    /// <summary>A restart (a lead) forgets every report heard; the names and order each node gave stay until that node is unnamed, so
+    /// a member subscribed across the lead reads by its ids in its order whenever the lead lands.</summary>
+    [Fact]
+    public void ARestartForgetsTheReportsAndKeepsEachNodesNamesAndOrderUntilItIsUnnamed()
+    {
+        var board = new SyncBoard();
+        board.Name("0badc0de", "op_1");
+        board.Name("9f8e7d6c", "op_b", "op_a");
+        (VblankReport Report, bool Local)[] reports =
+            [(Report(Member, "op_a", P60Ps, T), false), (Report(Leader, "op_1", P60Ps, T), true), (Report(Member, "op_b", P60Ps, T), false)];
+        foreach (var (r, local) in reports)
+            Assert.True(board.Offer(r, 0, local));
+        board.Restart();
+        Assert.Equal(SyncPicture.Empty, board.Picture(T, 0));
+
+        // Heard again from the first report of each (a lead starts the reports afresh): the ids and places given before the restart.
+        foreach (var (r, local) in reports)
+            Assert.True(board.Offer(r, 0, local));
+        Assert.Equal(["0badc0de/op_1", "9f8e7d6c/op_b", "9f8e7d6c/op_a"], board.Picture(T, 0).Outputs.Select(o => o.Node + "/" + o.Output));
+
+        // Unnamed (its subscription ended), the member's outputs read by hash, in hash order.
+        board.Unname("9f8e7d6c");
+        var hashed = new[] { "op_a", "op_b" }.Select(VblankReport.HashId).Order()
+            .Select(h => "9f8e7d6c/#" + h.ToString("x8", System.Globalization.CultureInfo.InvariantCulture));
+        string[] rows = ["0badc0de/op_1", .. hashed];
+        Assert.Equal(rows, board.Picture(T, 0).Outputs.Select(o => o.Node + "/" + o.Output));
+    }
+
+    [Fact]
     public void AnOlderReportIsRefusedAnUnheardOneGreysAndARestartedMemberCountsAgain()
     {
         var board = new SyncBoard();

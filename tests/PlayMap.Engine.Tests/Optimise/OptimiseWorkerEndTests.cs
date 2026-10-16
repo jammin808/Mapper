@@ -14,9 +14,10 @@ namespace PlayMap.Engine.Tests.Optimise;
 /// <summary>The worker's end, with a worker that reads nothing and never ends by itself (the system's own sleeper) and a kill the
 /// system takes and the worker does not obey — a thread held in a driver, which no real worker can be made to do. A node whose
 /// killed worker will not end stops within its bounds, its journal on disk says so and the rest of its stop still happens; a stop
-/// that outlives its worker kills that worker, never the fresh one that took a job meanwhile; and the partial file a replaced
-/// worker held is swept once that worker has gone, while the fresh one runs on. No FFmpeg: the jobs are written to the node's
-/// queue before it starts.</summary>
+/// that outlives its worker kills that worker, never the fresh one that took a job meanwhile; the partial file a replaced worker
+/// held is swept once that worker has gone, while the fresh one runs on; and a stop waits for the work under way as it began (a
+/// worker's end being heard, a step), which starts nothing after it, before it stops the worker. No FFmpeg: the jobs are written to
+/// the node's queue before it starts.</summary>
 public sealed class OptimiseWorkerEndTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
@@ -145,13 +146,13 @@ public sealed class OptimiseWorkerEndTests
         int first = 0, second = 0;
         try
         {
-            supervisor.EnsureStarted();
+            Assert.True(supervisor.EnsureStarted());
             first = supervisor.Pid!.Value;
             // The idle exit asks the worker to end; it reads nothing and does not.
             var stop = supervisor.StopAsync();
             Assert.False(supervisor.Send(knobs));
             // A job comes while it is on its way out: it is killed (and does not obey), and a fresh worker takes the job at once.
-            supervisor.EnsureStarted();
+            Assert.True(supervisor.EnsureStarted());
             second = supervisor.Pid!.Value;
             Assert.NotEqual(first, second);
             Assert.True(supervisor.Send(knobs));
@@ -220,6 +221,250 @@ public sealed class OptimiseWorkerEndTests
         {
             End(first);
             End(second);
+        }
+    }
+
+    /// <summary>A stop waits for a worker's end that was being heard as it began: what that end writes (its job queued again, the
+    /// attempt spent) is written before the stop stops the worker and before it returns. The end is held where it says so, after its
+    /// write, and let go once the stop waits for it — or, were the stop not to wait, once the stop has killed the worker.</summary>
+    [Fact]
+    public async Task AStopWaitsForAWorkersEndBeingHeardBeforeItStopsTheWorker()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        var home = new NodeHome(Path.Combine(dir.FullName, "node"));
+        var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
+        store.Save([Job("ojfirst1", 1, paused: false)]);
+        var order = new ConcurrentQueue<string>();
+        using var inside = new SemaphoreSlim(0);
+        using var letGo = new SemaphoreSlim(0);
+        var options = new OptimiseOptions
+        {
+            Worker = Sleeper(),
+            Step = TimeSpan.FromMilliseconds(100),
+            StopGrace = TimeSpan.FromMilliseconds(500),
+            Kill = p =>
+            {
+                order.Enqueue("killed");
+                letGo.Release();
+                p.Kill(entireProcessTree: true);
+            },
+            StopWaits = () =>
+            {
+                order.Enqueue("waits");
+                letGo.Release();
+            },
+        };
+        await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Media = [Clip(dir)] }, options: options, dir: dir);
+        await rig.Until(() => rig.Job("ojfirst1").State == JobStates.Encoding && rig.Service.View.Pid is not null, "the job on its worker");
+        rig.Service.Said += (_, words, _) =>
+        {
+            if (!words.StartsWith("the optimise worker stopped (exit code 1)", StringComparison.Ordinal))
+                return;
+            inside.Release();
+            Assert.True(letGo.Wait(Patience), "the worker's end was never let go");
+            order.Enqueue("heard");
+        };
+
+        // The worker's end, as its reader reports it, is under way: its write is made, and it is held where it says so.
+        var heard = Task.Run(() => rig.Service.OnExited(1, expected: false));
+        Assert.True(await inside.WaitAsync(Patience));
+        await rig.Service.DisposeAsync().AsTask().WaitAsync(Patience);
+        order.Enqueue("stopped");
+        await heard.WaitAsync(Patience);
+
+        // The stop waited for the end, then stopped the worker (asked, and killed once its grace passed), then returned.
+        Assert.Equal(["waits", "heard", "killed", "stopped"], order.ToArray());
+        var job = Assert.Single(new JobStore(store.Folder, NullLogger.Instance).Load());
+        Assert.Equal(("ojfirst1", JobStates.Queued, 1), (job.Id, job.State, job.Attempts));
+        Assert.False(File.Exists(store.Path + ".new"));
+    }
+
+    /// <summary>A step under way as the stop begins hands out no job and starts no worker after it: the job it would have handed out
+    /// stays queued, on disk too, for the next start — neither given a worker (its clip on the node) nor failed (its item gone from
+    /// the project) — and no worker is started for the stop to stop. The step is held where it reads the air (the LED sender's view)
+    /// while its job is let go and the stop begins.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AStepUnderWayAsTheStopBeginsHandsOutNoJobAndStartsNoWorker(bool itemInProject)
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        var home = new NodeHome(Path.Combine(dir.FullName, "node"));
+        var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
+        store.Save([Job("ojwait01", 1, paused: true)]);
+        var kills = new ConcurrentQueue<int>();
+        var options = new OptimiseOptions
+        {
+            Worker = Sleeper(),
+            Step = TimeSpan.FromMilliseconds(100),
+            StopGrace = TimeSpan.FromMilliseconds(500),
+            Kill = p =>
+            {
+                kills.Enqueue(p.Id);
+                p.Kill(entireProcessTree: true);
+            },
+        };
+        await using var led = new HeldLed();
+        var project = Project.CreateDefault("Optimise");
+        await using var rig = OptimiseRig.Start(itemInProject ? project with { Media = [Clip(dir)] } : project, options: options, dir: dir, led: led);
+
+        await led.HoldNext().WaitAsync(Patience);
+        Assert.Equal(["ojwait01"], rig.Service.Hold("ojwait01", paused: false).Jobs);
+        var stop = rig.Service.DisposeAsync().AsTask();
+        led.LetGo();
+        await stop.WaitAsync(Patience);
+
+        Assert.Empty(kills);
+        var kept = rig.Job("ojwait01");
+        Assert.Equal((JobStates.Queued, false), (kept.State, kept.Paused));
+        var job = Assert.Single(new JobStore(store.Folder, NullLogger.Instance).Load());
+        Assert.Equal(("ojwait01", JobStates.Queued, false, 0), (job.Id, job.State, job.Paused, job.Attempts));
+    }
+
+    /// <summary>A closed supervisor (the service's stop has begun) starts no worker: none where there is none, and no fresh one for a
+    /// worker on its way out, which is not killed again for it; the worker there is stays the stop's.</summary>
+    [Fact]
+    public async Task AClosedSupervisorStartsNoWorkerAndKillsNoneToStartOne()
+    {
+        var kills = new ConcurrentQueue<int>();
+        var options = new OptimiseOptions
+        {
+            Worker = Sleeper(),
+            StopGrace = TimeSpan.FromMilliseconds(500),
+            KillWait = TimeSpan.FromMilliseconds(500),
+            Kill = p => kills.Enqueue(p.Id),
+        };
+        var none = new OptimiseSupervisor(options, NullLogger.Instance);
+        none.Close();
+        Assert.False(none.EnsureStarted());
+        Assert.Null(none.Pid);
+        await none.DisposeAsync();
+
+        var supervisor = new OptimiseSupervisor(options, NullLogger.Instance);
+        var pid = 0;
+        try
+        {
+            Assert.True(supervisor.EnsureStarted());
+            pid = supervisor.Pid!.Value;
+            // A cancel kills it and it does not obey: it is on its way out, which an open supervisor kills again to start a fresh one.
+            supervisor.Kill();
+            supervisor.Close();
+            Assert.False(supervisor.EnsureStarted());
+            Assert.Equal(pid, supervisor.Pid);
+            Assert.Equal(new[] { pid }, kills.ToArray());
+        }
+        finally
+        {
+            End(pid);
+            await supervisor.DisposeAsync();
+        }
+    }
+
+    /// <summary>A stopped service writes nothing more: the end of its worker, the worker's last line and a replaced worker's going,
+    /// reported only now by a reader that had them on the way as the stop began, and a line or a step that come after it, leave the
+    /// queue on disk as the stop left it (the running job "encoding", queued again at the next start) and the work folder alone.</summary>
+    [Fact]
+    public async Task NothingTheServiceHearsOnceItHasStoppedWritesTheNodesFiles()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        var home = new NodeHome(Path.Combine(dir.FullName, "node"));
+        var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
+        store.Save([Job("ojfirst1", 1, paused: false), Job("ojnext01", 2, paused: false)]);
+        var options = new OptimiseOptions { Worker = Sleeper(), Step = TimeSpan.FromMilliseconds(100), StopGrace = TimeSpan.FromMilliseconds(500) };
+        var clip = Clip(dir);
+        await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Media = [clip] }, options: options, dir: dir);
+        await rig.Until(() => rig.Job("ojfirst1").State == JobStates.Encoding && rig.Service.View.Pid is not null, "the first job on its worker");
+        // The running job's partial, as its worker writes it.
+        var partial = store.PartialFor("ojfirst1");
+        Directory.CreateDirectory(store.Work);
+        await File.WriteAllBytesAsync(partial, [1]);
+
+        await rig.Service.DisposeAsync();
+        var stopped = await File.ReadAllBytesAsync(store.Path);
+        var jobs = rig.Service.Jobs;
+
+        rig.Service.OnExited(1, expected: false);
+        rig.Service.OnEvent(WorkerProtocol.Parse(WorkerProtocol.Failed("ojfirst1", "the clip ended early"))!);
+        rig.Service.OnLetGo();
+        Assert.Equal(OptimiseService.StoppingWords, Assert.Single(rig.Service.Request([clip], "hap", EncodeQuality.Fast)).Why);
+        var held = rig.Service.Hold("ALL", paused: true);
+        Assert.Equal((0, OptimiseService.StoppingWords), (held.Jobs.Count, held.Why));
+        var cancelled = rig.Service.Cancel("ALL");
+        Assert.Equal((0, OptimiseService.StoppingWords), (cancelled.Jobs.Count, cancelled.Why));
+        rig.Service.StepOnce();
+        // The verbs give that reason, not that no job is there to change: both jobs are, and stay as the stop left them.
+        foreach (var line in new[] { "MEDIA OPTIMISE CANCEL ALL", "MEDIA OPTIMISE CANCEL ojfirst1", "MEDIA OPTIMISE PAUSE ALL", "MEDIA OPTIMISE RESUME ojnext01" })
+        {
+            var reply = await rig.Run(line);
+            Assert.Equal((false, OptimiseService.StoppingWords), (reply.Ok, reply.Payload));
+        }
+        var asked = await rig.Run("MEDIA OPTIMISE md_clip TO hap");
+        Assert.Equal((false, "nothing to do: Clip: " + OptimiseService.StoppingWords), (asked.Ok, asked.Payload));
+
+        Assert.Equal(stopped, await File.ReadAllBytesAsync(store.Path));
+        Assert.False(File.Exists(store.Path + ".new"));
+        Assert.True(File.Exists(partial));
+        Assert.Equal(jobs, rig.Service.Jobs);
+        Assert.Equal(0, rig.Service.View.Restarts);
+        var next = new JobStore(store.Folder, NullLogger.Instance).Load();
+        Assert.Equal([("ojfirst1", JobStates.Queued, 0, false), ("ojnext01", JobStates.Queued, 0, false)],
+            next.Select(j => (j.Id, j.State, j.Attempts, j.Paused)));
+    }
+
+    /// <summary>An LED sender that sends nothing and whose view a test can hold: the next read of it after <see cref="HoldNext"/>
+    /// says so and waits until <see cref="LetGo"/> (the optimise step reads it as it weighs the air, before it hands out a job).</summary>
+    private sealed class HeldLed : Core.Led.ILedOutput
+    {
+        private readonly SemaphoreSlim _letGo = new(0);
+        private TaskCompletionSource? _hold;
+
+        public Core.Led.ILedFrameSink Sink { get; } = new Core.Led.LedFramePool();
+
+        /// <summary>Holds the next read of the view: the answer completes once that read is held.</summary>
+        public Task HoldNext()
+        {
+            var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _hold, hold);
+            return hold.Task;
+        }
+
+        public void LetGo() => _letGo.Release();
+
+        public Core.Led.LedOutputView View()
+        {
+            if (Interlocked.Exchange(ref _hold, null) is { } hold)
+            {
+                hold.SetResult();
+                Assert.True(_letGo.Wait(Patience), "the held read was never let go");
+            }
+            return Core.Led.LedOutputView.Off;
+        }
+
+        public void Apply(Core.Led.LedSendProgram program)
+        {
+            // Nothing is sent: the view is the test's.
+        }
+
+        public void SetMaster(bool on, bool blackFirst)
+        {
+            // As Apply.
+        }
+
+        public void StopNode(string nodeId, bool blackFirst)
+        {
+            // As Apply.
+        }
+
+        public bool TryMonitor(string nodeId, int universe, Span<byte> slots, out long leaderNs)
+        {
+            leaderNs = 0;
+            return false;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _letGo.Dispose();
+            return ValueTask.CompletedTask;
         }
     }
 }

@@ -36,7 +36,9 @@ read lock-free by the lane and the render thread.
   commit pinned to it. The render thread reads the snapshot and the clock separately, so a frame drawn in the
   microseconds between the clock's swap and the rebased snapshot can show one step; a step happens when a node starts following
   or its leader's clock jumps, not in a running show (an epoch in the snapshot would close it: a spine amendment). The journal says
-  "followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place"; the event `sync.stepped` carries Δ.
+  "followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place"; the event `sync.stepped` carries Δ. STATE's
+  `sync.steps` counts a step once it is taken in full: a reader that sees the count sees every anchor and instant moved and the
+  journal's line.
 - **Hold.** A leader silent for `leaderTimeoutMs` (3 s): the follower free-wheels on its last estimate (drift applied). Its
   playlists keep switching their own items at the anchored instants. STATE `sync.freewheelS`, the journal ("FOH (0badc0de)
   went quiet: free-wheeling on the last estimate"), the event `sync.leader.lost`, the context's red light. The next estimate
@@ -111,7 +113,11 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 **`SyncBoard`** (pure) turns them into numbers:
 
-- the **reference** output is the leader's first, else the first heard; entries unheard for 5 s read "not heard";
+- the **rows** read in one order, whatever order the reports arrive in: the leader's own outputs in its project's order, then each
+  member's by node id, in the order its `SUBSCRIBE ANCHORS` named them (its project's; one it did not name, by hash). The
+  **reference** output is the first heard in that order — the leader's first output, else the first member's; entries unheard
+  for 5 s read "not heard". A lead starts the board again: the reports it heard go, and the names and order a member gave (its
+  latest subscription's, while it holds two) stay for as long as it is subscribed, whenever the lead lands beside its subscription;
 - the **phase** of each output against the reference, each one's vblank nearest a common leader instant along its own period,
   wrapped into (−P/2, P/2]; its **uncertainty** is both members' clock uncertainty, so a 210 µs uncertainty is never shown as
   a 12 µs phase;
@@ -136,7 +142,9 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 - **Preflight** (section `sync`): a follower's leader heard (red with `SYNC FOLLOW <group> <leader>`), its clock uncertainty under
   ± 4 ms, its feed live (show's own `clock` row yields a follower's clock to these rows, so the clock has one light per report); a
   leader's rates (red on a mixed rate, with `SET <output> refreshHz <rate>` for its own odd output, or the member's node and the
-  line to run there — output ids repeat across nodes) and its members; a solo node grey.
+  line to run there — output ids repeat across nodes) and its members; a solo node grey. The reference's rate is the group's
+  and the odd output is the first at another rate in the board's order, so a tie (one output at each rate) goes to the leader's
+  first output in its project, and the same outputs give the same row and line whatever order their reports came in.
 - **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`; a node in no group lists the
   section with no rows.
 
