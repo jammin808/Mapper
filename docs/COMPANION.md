@@ -147,9 +147,10 @@ nothing a push holds can throw into Companion's process.
 
 **Once paired** it says `PRESENCE` (its version, its Live source and page, how many pictures it holds), asks `WHOAMI` (again when Show
 Mode or the controllers move) and `VERBS`, subscribes to `INDEX` and `EVENTS`, asks `EVENTS SINCE <seq>` for what a drop missed, and
-watches the pictures its keys show with `SUBSCRIBE THUMBS`. After every drop it replays from the last event it took (or, having taken
-none, from the node's `events.seq` when it first heard it, 0 included — a later greeting's seq, which counts what was raised while the
-link was down, never moves it); events pushed while the replay is in flight wait for it — at most the node's ring of 256: one more
+watches the pictures its keys show with `SUBSCRIBE THUMBS`. After every drop it replays, from a node that speaks events (an older
+node, whose STATE has no `events` and which refuses `EVENTS`, raises none and is asked no replay), from the last event it took (or,
+having taken none, from the node's `events.seq` when it first heard it, 0 included — a later greeting's seq, which counts what was
+raised while the link was down, never moves it); events pushed while the replay is in flight wait for it — at most the node's ring of 256: one more
 lets go of what waits and asks the replay again from the last seq taken — a replay the node does not answer is asked again (three
 tries, 2 s apart) and one the link drops leaves them untaken, so the last seq never passes a gap; a node whose newest seq is below it
 started again and is replayed from its first. An `EVENTS overflow` line replays the same way. An event is kept bounded whatever a push

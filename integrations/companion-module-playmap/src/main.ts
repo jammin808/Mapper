@@ -157,6 +157,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#held: NodeEvent[] | null = null
 	#replayTimer: ReturnType<typeof setTimeout> | null = null
 	#pairedBefore = false
+	/** Whether the node speaks events: the last STATE heard (the greeting's, once taken) has events.seq. An older node's has none, and
+	 * it refuses EVENTS. */
+	#speaksEvents = false
 	/** STATE's show.armed as last heard (false once the link drops: a relink asks every picture again anyway). */
 	#armed = false
 	/** What the instance last handed Companion's presets (the test reads it to compare with what the host kept). */
@@ -444,8 +447,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			})
 			.catch((e: unknown) => this.log('debug', `VERBS: ${e instanceof Error ? e.message : String(e)}`))
 		this.#subscribe(Lines.subscribe('INDEX'))
-		// A first pairing has missed nothing; every later one replays what was raised while the link was down, from 0 too.
-		if (this.#pairedBefore) this.#replayEvents()
+		// A first pairing has missed nothing; every later one replays what was raised while the link was down, from 0 too — from a
+		// node that speaks events: an older node raises none, so it is asked no replay and no gap is warned of.
+		if (this.#pairedBefore && this.#speaksEvents) this.#replayEvents()
 		else this.#subscribe(Lines.subscribe('EVENTS'))
 		this.#pairedBefore = true
 		this.thumbs.relinked()
@@ -595,6 +599,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	#state(json: unknown): void {
 		this.model.setState(json)
 		const s = this.model.state
+		if (s) this.#speaksEvents = at(s, P.eventsSeq) !== undefined
 		this.events.heard(numOf(at(s, P.eventsSeq)))
 		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
 		this.encoders.stateMoved(numOf(at(s, P.seq)))
