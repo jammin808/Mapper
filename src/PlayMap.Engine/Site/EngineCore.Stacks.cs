@@ -73,7 +73,7 @@ public sealed partial class EngineCore
                 return CommandReply.Fail($"no projector {word}");
             if (members.Any(m => m.Id == pj.Id))
                 return CommandReply.Fail($"{pj.Name} is named twice");
-            if (p.Stage.Stacks.FirstOrDefault(s => s.ProjectorIds.Contains(pj.Id, StringComparer.Ordinal)) is { } other)
+            if (p.Stage.Stacks.FirstOrDefault(s => s.Members.Contains(pj.Id, StringComparer.Ordinal)) is { } other)
                 return CommandReply.Fail($"{pj.Name} is in stack {other.Name} already — REMOVE {other.Id} first, or name other projectors");
             members.Add(pj);
         }
@@ -188,20 +188,20 @@ public sealed partial class EngineCore
             return (null, $"no stack {args[0]} — STACK NEW makes one");
         var scan = p.Stage.Scans.Find(from) ?? p.Stage.Scans.FirstOrDefault(s => s.Name.Equals(from, StringComparison.OrdinalIgnoreCase));
         if (scan is null)
-            return (null, $"no scan {from} — SCAN START <camera> {string.Join(" ", stack.ProjectorIds)} scans every member through one camera");
+            return (null, $"no scan {from} — SCAN START <camera> {string.Join(" ", stack.Members)} scans every member through one camera");
         if (OutcomeOf(scan) is not { } outcome)
             return (null, NoData(scan));
         var members = new List<(Projector, Output, ProjectorView)>();
         var master = -1;
-        foreach (var id in stack.ProjectorIds)
+        foreach (var id in stack.Members)
         {
             if (p.FindProjector(id) is not { } pj)
                 return (null, $"{stack.Name}'s member {id} is gone — REMOVE {stack.Id} and STACK NEW again");
             var view = outcome.Views.FirstOrDefault(v => v.ProjectorId == id).View;
             if (view is null)
                 return (null, outcome.Views.Count == 0
-                    ? $"{scan.Name} keeps no projector views on this node (they are held in memory until the node stops) — scan the stack again: SCAN START {outcome.CameraId} {string.Join(" ", stack.ProjectorIds)}"
-                    : $"{scan.Name} did not scan {pj.Name} — every member must be scanned through one camera: SCAN START {outcome.CameraId} {string.Join(" ", stack.ProjectorIds)}");
+                    ? $"{scan.Name} keeps no projector views on this node (they are held in memory until the node stops) — scan the stack again: SCAN START {outcome.CameraId} {string.Join(" ", stack.Members)}"
+                    : $"{scan.Name} did not scan {pj.Name} — every member must be scanned through one camera: SCAN START {outcome.CameraId} {string.Join(" ", stack.Members)}");
             if (OutputOf(p, id) is not { } output)
                 return (null, $"{pj.Name} drives no output in Projector mode — the correction lives on its output");
             if (id == stack.MasterId)
@@ -215,23 +215,25 @@ public sealed partial class EngineCore
 
     /// <summary>Master raster → where the member's render puts the same picture point: a scale between rasters when both share one
     /// model pose; else the master's ray onto the stage, seen by the member; null when neither can say.</summary>
-    private Func<Vec2d, Vec2d?>? MasterToRender(Project p, Projector master, Projector member, StageScene? scene, out string? why)
+    private static Func<Vec2d, Vec2d?>? MasterToRender(Projector master, Projector member, Lazy<StageScene?> stage, out string? why)
     {
         why = null;
         var km = master.Intrinsics;
         var kj = member.Intrinsics;
         var sx = kj.Width / (double)km.Width;
         var sy = kj.Height / (double)km.Height;
+        var rm = master.Pose.CameraToWorld;
+        var rj = member.Pose.CameraToWorld;
         var samePose = (master.Pose.Position - member.Pose.Position).Length < 1e-3
-            && Vec3d.Dot(master.Pose.Forward, member.Pose.Forward) > Math.Cos(1e-4)
+            && Vec3d.Dot(rm.Column(0), rj.Column(0)) > Math.Cos(1e-4) && Vec3d.Dot(rm.Column(2), rj.Column(2)) > Math.Cos(1e-4)
             && Math.Abs(km.Fx * sx - kj.Fx) < 1e-6 * kj.Fx && Math.Abs(km.Fy * sy - kj.Fy) < 1e-6 * kj.Fy
             && Math.Abs(km.Cx * sx - kj.Cx) < 1e-6 * kj.Width && Math.Abs(km.Cy * sy - kj.Cy) < 1e-6 * kj.Height
             && master.Lens == member.Lens;
         if (samePose)
             return StackPairs.Scaled(km.Width, km.Height, kj.Width, kj.Height);
-        if (scene is null)
+        if (stage.Value is not { } scene)
         {
-            why = $"{member.Name} and {master.Name} sit at different poses and the stage has no model to carry one's picture to the other — SURVEY IMPORT or SCAN APPLY a model";
+            why = $"{member.Name} and {master.Name} are modelled with different poses or optics and the stage has no model to carry one's picture to the other — SURVEY IMPORT or SCAN APPLY a model";
             return null;
         }
         var mv = DeviceView.Of(master);
@@ -276,11 +278,14 @@ public sealed partial class EngineCore
                 throw new EditRefusedException($"the stack {stack.Name} is gone");
             foreach (var (member, fit) in fits.Members)
             {
+                // The master is the target: its correction stays as it is.
+                if (fit is null)
+                    continue;
                 var o = OutputOf(p, member.Projector.Id) ?? throw new EditRefusedException($"{member.Projector.Name}'s output is gone");
                 var measured = (o.Measured ?? new MeasuredCorrection(null, null, null, null, 0, "", "", "", 0)) with
                 {
-                    Lattice = fit?.Lattice,
-                    ResidualPx = fit is null ? 0 : Math.Round(fit.ResidualPx, 4),
+                    Lattice = fit.Lattice,
+                    ResidualPx = Math.Round(fit.ResidualPx, 4),
                     ScanId = source.Scan.Id,
                     StackId = stack.Id,
                     MeasuredUnixMs = now,
@@ -336,7 +341,8 @@ public sealed partial class EngineCore
     /// <summary>Every member but the master fitted to the master's picture (the master: no lattice).</summary>
     private StackFits FitStack(StackSource source, StackFitOptions options, CancellationToken ct)
     {
-        var scene = source.Members.All(m => m.Projector.Pose == source.Members[source.Master].Projector.Pose) ? null : StackScene(source.Project);
+        // The model loads only when a member's modelled pose or optics differ from the master's.
+        var scene = new Lazy<StageScene?>(() => StackScene(source.Project), LazyThreadSafetyMode.None);
         var master = source.Members[source.Master];
         var list = new List<((Projector, Output, ProjectorView), StackFit?)>();
         foreach (var member in source.Members)
@@ -347,13 +353,24 @@ public sealed partial class EngineCore
                 list.Add((member, null));
                 continue;
             }
-            if (MasterToRender(source.Project, master.Projector, member.Projector, scene, out var why) is not { } map)
+            if (MasterToRender(master.Projector, member.Projector, scene, out var why) is not { } map)
                 return new StackFits([], why);
-            var pairs = StackPairs.Against(master.View, member.View, map);
             var width = member.Output.Width > 0 ? member.Output.Width : member.Projector.Intrinsics.Width;
             var height = member.Output.Height > 0 ? member.Output.Height : member.Projector.Intrinsics.Height;
             if (member.View.Width != width || member.View.Height != height)
                 return new StackFits([], $"{member.Projector.Name} was scanned at {member.View.Width}×{member.View.Height} and its output is {width}×{height} — scan it at its output's raster");
+            var pairs = StackPairs.Against(master.View, member.View, map);
+            // The lattice is drawn under the member's own warp (W(L(u))), and the scan saw the raw raster: where the light must leave
+            // is taken back through the operator's warp, so registration holds with a corner pin or lattice on the member.
+            var warp = new WarpField(member.Output.Warp);
+            if (!warp.IsIdentity)
+            {
+                var through = new List<StackPair>(pairs.Count);
+                foreach (var pair in pairs)
+                    if (warp.Invert(pair.Emit.X / width, pair.Emit.Y / height) is { } back)
+                        through.Add(pair with { Emit = new Vec2d(back.X * width, back.Y * height) });
+                pairs = through;
+            }
             var fit = StackAlignment.Fit(pairs, width, height, options, ct);
             if (!double.IsFinite(fit.ResidualPx))
                 return new StackFits([], $"{member.Projector.Name}: {fit.Words} — did the camera see it and {master.Projector.Name} in one place?");
@@ -396,15 +413,9 @@ public sealed partial class EngineCore
     }
 
     /// <summary>A member's alignment score: the held-out residual against the master as the stack term.</summary>
-    private static QualityScore StackScore(StackGroup stack, ScanRecord scan, Projector member, StackFit? fit)
+    private static QualityScore StackScore(StackGroup stack, ScanRecord scan, Projector member, StackFit fit)
     {
         var fix = $"STACK ALIGN {stack.Id} FROM {scan.Id}";
-        if (fit is null)
-        {
-            var master = new ScoreTerm(ScoreTermCodes.StackConvergence, $"{member.Name} is the stack's master: the others are fitted to it", 0, "px", 0,
-                "green", member.Id, fix, "");
-            return new QualityScore(0, "px", "A", 0, 0, 1, [master], master.Words) { Source = "stack" };
-        }
         var light = fit.P95Px <= StackResidualMaxPx ? "green" : fit.P95Px <= 1 ? "amber" : "red";
         var term = new ScoreTerm(ScoreTermCodes.StackConvergence,
             string.Create(CultureInfo.InvariantCulture, $"{member.Name} lands {fit.ResidualPx:0.00} px RMS (p95 {fit.P95Px:0.00} px) from the master on pairs it was not fitted to"),
@@ -491,13 +502,16 @@ public sealed partial class EngineCore
         }), words);
     }
 
-    /// <summary>Each member's white from the scan's colour white frame (camera-linear, trimmed mean over the pixels the scan measured),
-    /// matched to the master's.</summary>
+    /// <summary>Each member's white from the scan's colour white frame (camera-linear, trimmed mean over the pixels the scan measured
+    /// where the camera saw every member: the area the stack shares), matched to the master's. The white frame holds the ambient light
+    /// as well, the same for every member, so a dark scene matches best; the words say so.</summary>
     private static (StackColourMatch? Match, string Words) MatchStack(StackSource source)
     {
         var colours = new List<ProjectorColour>(source.Members.Count);
-        foreach (var (pj, _, view) in source.Members)
+        var inverses = source.Members.Select(m => new ViewInverse(m.View)).ToList();
+        for (var j = 0; j < source.Members.Count; j++)
         {
+            var (pj, _, view) = source.Members[j];
             if (view.SmartScanColour is not { } colour)
                 return (null, $"{source.Scan.Name} has no colour white frame for {pj.Name} — scan the stack with a colour camera");
             var rgb = new byte[colour.Length * 3];
@@ -508,17 +522,23 @@ public sealed partial class EngineCore
                 rgb[k * 3] = (byte)(colour[k] >> 16);
                 rgb[k * 3 + 1] = (byte)(colour[k] >> 8);
                 rgb[k * 3 + 2] = (byte)colour[k];
-                if (view.Coverage[k] == ProjectorCoverage.Measured)
-                {
-                    mask[k] = true;
-                    n++;
-                }
+                if (view.Coverage[k] != ProjectorCoverage.Measured)
+                    continue;
+                var camera = new Vec2d(view.CameraX[k], view.CameraY[k]);
+                var shared = true;
+                for (var other = 0; other < inverses.Count && shared; other++)
+                    shared = other == j || inverses[other].At(camera) is not null;
+                if (!shared)
+                    continue;
+                mask[k] = true;
+                n++;
             }
             if (n < 64)
-                return (null, $"{source.Scan.Name} measured too little of {pj.Name} to read its white");
+                return (null, $"{source.Scan.Name} saw too little of {pj.Name} where every member lights to read its white");
             colours.Add(StackColour.FromWhite(Vec3d.Zero, ColourMatch.Mean(rgb, mask)));
         }
-        return StackColour.ToMaster(colours, source.Master);
+        var (match, words) = StackColour.ToMaster(colours, source.Master);
+        return match is null ? (null, words) : (match with { Words = words + " (from the scan's white frames, ambient light included: a dark scene matches best)" }, words);
     }
 
     // ---- STATE, context ------------------------------------------------------------------------------------------------------
@@ -527,10 +547,13 @@ public sealed partial class EngineCore
     /// worst member's held-out residual, the members' gains, and which members are degraded.</summary>
     internal static (bool Aligned, double ResidualPx, bool Matched) StackFacts(Project p, StackGroup sk)
     {
+        // A stack of fewer than two (made by a generic ADD) stacks nothing: never counted aligned.
+        if (sk.ProjectorIds.IsDefault || sk.Members.Length < 2)
+            return (false, 0, false);
         var aligned = true;
         var matched = true;
         var worst = 0.0;
-        foreach (var id in sk.ProjectorIds)
+        foreach (var id in sk.Members)
         {
             var m = OutputOf(p, id)?.Measured;
             var mine = m is not null && m.StackId == sk.Id;
@@ -559,7 +582,7 @@ public sealed partial class EngineCore
             w.WriteString("id", sk.Id);
             w.WriteString("name", sk.Name);
             w.WriteStartArray("members");
-            foreach (var id in sk.ProjectorIds)
+            foreach (var id in sk.Members)
                 w.WriteStringValue(id);
             w.WriteEndArray();
             w.WriteString("master", sk.MasterId);
@@ -576,7 +599,7 @@ public sealed partial class EngineCore
             if (list)
             {
                 w.WriteStartArray("gains");
-                foreach (var id in sk.ProjectorIds)
+                foreach (var id in sk.Members)
                 {
                     var c = OutputOf(p, id)?.Measured?.Color;
                     w.WriteStartArray();
@@ -605,7 +628,7 @@ public sealed partial class EngineCore
                     + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $"matched: the building at {lost.Gain * 100:0} %") : "held"))
                 : !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
                 : residual > StackResidualMaxPx ? (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: a member lands {residual:0.00} px from the master"))
-                : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.ProjectorIds.Length} projectors within {residual:0.00} px"));
+                : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.Members.Length} projectors within {residual:0.00} px"));
             items.Add(new ContextItem("stack:" + sk.Id, "stack", sk.Name, light, state));
         }
     }

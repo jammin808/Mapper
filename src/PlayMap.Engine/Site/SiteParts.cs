@@ -58,8 +58,8 @@ internal sealed class SitePreflight : IPreflightCheck
                 continue;
             }
             var (aligned, residual, _) = EngineCore.StackFacts(p, sk);
-            var scan = p.Stage.Scans.LastOrDefault(s => sk.ProjectorIds.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
-            var fix = scan is null ? $"SCAN START <camera> {string.Join(' ', sk.ProjectorIds)}" : $"STACK ALIGN {sk.Id} FROM {scan.Id}";
+            var scan = p.Stage.Scans.LastOrDefault(s => sk.Members.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
+            var fix = scan is null ? $"SCAN START <camera> {string.Join(' ', sk.Members)}" : $"STACK ALIGN {sk.Id} FROM {scan.Id}";
             var ok = aligned && residual <= EngineCore.StackResidualMaxPx;
             var words = !aligned ? $"{sk.Name}'s members are not aligned to {p.FindProjector(sk.MasterId)?.Name ?? sk.MasterId}"
                 : string.Create(CultureInfo.InvariantCulture, $"{sk.Name}'s worst member lands {residual:0.00} px from the master (within {EngineCore.StackResidualMaxPx:0.0} px is ready)");
@@ -89,7 +89,7 @@ internal sealed class SiteIndex(EngineCore engine) : IIndexContributor
         foreach (var sk in project.Stage.Stacks)
         {
             var (aligned, residual, matched) = EngineCore.StackFacts(project, sk);
-            var scan = project.Stage.Scans.LastOrDefault(s => sk.ProjectorIds.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
+            var scan = project.Stage.Scans.LastOrDefault(s => sk.Members.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
             var from = scan?.Id ?? "<scan>";
             var alignLight = !aligned ? "amber" : residual > EngineCore.StackResidualMaxPx ? "amber" : "green";
             Row(w, $"STACK ALIGN {sk.Id} FROM {from}", "align", $"ALIGN {sk.Name}", alignLight,
@@ -126,7 +126,7 @@ internal sealed class SiteExtension : IEngineExtension
     public EngineServices Configure(EngineServices services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        var gains = new StackGains(services.Mono);
+        var gains = new StackGains(services.Clock);
         return services with
         {
             PreflightChecks = [.. services.PreflightChecks, new SitePreflight()],
@@ -138,6 +138,8 @@ internal sealed class SiteExtension : IEngineExtension
     public Task StartAsync(EngineCore engine, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(engine);
+        if (engine.Stopping)
+            return Task.CompletedTask;
         var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
         _watch = Task.Run(async () =>
         {

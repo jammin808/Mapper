@@ -3,7 +3,7 @@ using PlayMap.Core.Time;
 
 namespace PlayMap.Engine.Site;
 
-/// <summary>One output's degrade gain moving from a level to another over a time on the monotonic clock (a fade of zero length is a
+/// <summary>One output's degrade gain moving from a level to another over a time on the leader's clock (a fade of zero length is a
 /// step).</summary>
 internal readonly record struct GainFade(float From, float To, long StartNs, long DurationNs)
 {
@@ -19,12 +19,12 @@ internal readonly record struct GainFade(float From, float To, long StartNs, lon
 }
 
 /// <summary>
-/// The stacks' degrade gains (facade §3.9, failover MATCH): each output's gain as a fade on the node's monotonic clock — down in 0.5 s
-/// when a member is lost, back up over 2 s when it returns. Written on the control lane as a whole new table; read by the render thread
-/// through <see cref="IOutputGains"/> lock-free and without allocating (a frozen table swapped by reference). Runtime state like
+/// The stacks' degrade gains (facade §3.9, failover MATCH): each output's gain as a fade on the leader's clock (show time, the clock
+/// every fade of the air runs on) — down in 0.5 s when a member is lost, back up over 2 s when it returns. Written on the control lane
+/// as a whole new table, only when a target changes; read by the render thread through <see cref="IOutputGains"/> lock-free and without allocating (a frozen table swapped by reference). Runtime state like
 /// BLACKOUT: never in the project, never in undo.
 /// </summary>
-public sealed class StackGains(IMonoClock clock) : IOutputGains
+public sealed class StackGains(NetworkClock clock) : IOutputGains
 {
     public const long DownNs = 500_000_000;
     public const long UpNs = 2_000_000_000;
@@ -41,8 +41,11 @@ public sealed class StackGains(IMonoClock clock) : IOutputGains
     public void Set(IReadOnlyDictionary<string, float> targets)
     {
         ArgumentNullException.ThrowIfNull(targets);
-        var now = clock.NowNs;
         var was = _fades;
+        // Nothing held and nothing asked: the table stands (the watch's usual tick allocates nothing).
+        if (targets.Count == 0 && was.Count == 0)
+            return;
+        var now = clock.NowNs;
         var next = new Dictionary<string, GainFade>(StringComparer.Ordinal);
         foreach (var id in was.Keys.Concat(targets.Keys).Distinct(StringComparer.Ordinal))
         {
@@ -57,20 +60,9 @@ public sealed class StackGains(IMonoClock clock) : IOutputGains
             var from = current.At(now);
             next[id] = new GainFade(from, to, now, to < from ? DownNs : UpNs);
         }
+        if (next.Count == was.Count && next.All(kv => was.TryGetValue(kv.Key, out var f) && f == kv.Value))
+            return;
         _fades = next.ToFrozenDictionary(StringComparer.Ordinal);
-    }
-
-    /// <summary>True while any output's gain is moving or held below 1.</summary>
-    public bool Active
-    {
-        get
-        {
-            var now = clock.NowNs;
-            foreach (var f in _fades.Values)
-                if (f.At(now) < 1 || f.To < 1)
-                    return true;
-            return false;
-        }
     }
 }
 

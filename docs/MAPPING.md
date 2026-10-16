@@ -102,7 +102,8 @@ back into the master's raster (`ViewInverse`), and from there to where the membe
 identity when both share one model pose; through the stage's model when their poses differ). The pairs fit a Catmull-Rom
 `WarpLattice` (33 × 19 by default) — linear least squares in the node offsets, Huber-reweighted against stray decodes, a bending
 penalty that leaves shifts and zooms free, conjugate gradients on the banded normal equations — and every tenth pair, held out,
-measures the residual. The lattice is the member's measured correction (`MeasuredCorrection.Lattice`), drawn as the first layer
+measures the residual. The pairs are taken back through the member's own warp, so the lattice is right under an operator's corner pin or lattice. The
+lattice is the member's measured correction (`MeasuredCorrection.Lattice`), drawn as the first layer
 of its output's warp (`WarpField`, `WarpMeshBuilder`): before the operator's lattice and corner pin, with no shader of its own.
 `STACK MATCH` brings each member's white to the master's with per-channel gains of at most one, from the same scan's colour white
 frames, through align's colour arithmetic (`StackColour`); level is left alone, because stacked light adds. A stack that loses a
@@ -120,7 +121,8 @@ overlap evenly; luminance, contrast against an ambient, pixel pitch and the lume
 `Geodesy.cs` converts between geodetic latitude, longitude and height, ECEF and a local east-north-up frame, and projects with the
 transverse Mercator by Krüger's series to sixth order in n (UTM by zone and hemisphere). `CrsInfo` knows the EPSG UTM families
 (WGS 84 326zz/327zz, ETRS89 258zz, NAD83 269zz) and geographic WGS 84 and ETRS89, names a site's system ("ETRS89 / UTM zone
-32N"), and reads a WKT's system from its outermost EPSG authority or, without one, from a UTM name. Other systems are refused with
+32N"), and reads a WKT's system from its root element's own EPSG authority (a compound system's horizontal part's) or, without one,
+from a UTM name. Other systems are refused with
 their words, never guessed.
 
 ## The facade guide

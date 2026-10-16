@@ -127,7 +127,17 @@ public sealed class GeodesyTests(ITestOutputHelper log)
         Assert.Equal("EPSG:25832", CrsInfo.SniffWkt("PROJCS[\"ETRS89 / UTM zone 32N\",GEOGCS[\"ETRS89\"],PROJECTION[\"Transverse_Mercator\"]]"));
         Assert.Equal("EPSG:32633", CrsInfo.SniffWkt("PROJCS[\"WGS_1984_UTM_Zone_33N\",GEOGCS[\"GCS_WGS_1984\"]]"));
         Assert.Equal("EPSG:25832", CrsInfo.SniffWkt("PROJCRS[\"x\",ID[\"EPSG\",25832]]"));
+        Assert.Equal("EPSG:25832", CrsInfo.SniffWkt("AUTHORITY[\"EPSG\",\"25832\"]"));
         Assert.Equal("", CrsInfo.SniffWkt("PROJCS[\"CH1903+ / LV95\"]"));
+        // Authorities nested in the datum, the base system or a unit name those, not the system: the UTM name decides.
+        Assert.Equal("EPSG:25832", CrsInfo.SniffWkt(
+            "PROJCS[\"ETRS89 / UTM zone 32N\",GEOGCS[\"ETRS89\",DATUM[\"ETRS89\",AUTHORITY[\"EPSG\",\"6258\"]],AUTHORITY[\"EPSG\",\"4258\"]],UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]]]"));
+        Assert.Equal("", CrsInfo.SniffWkt("PROJCS[\"custom\",GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]],UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]]]"));
+        // A compound system is its horizontal part's.
+        Assert.Equal("EPSG:25832", CrsInfo.SniffWkt(
+            "COMPD_CS[\"ETRS89 / UTM 32N + DHHN2016\",PROJCS[\"ETRS89 / UTM zone 32N\",GEOGCS[\"ETRS89\"],AUTHORITY[\"EPSG\",\"25832\"]],VERT_CS[\"DHHN2016 height\",AUTHORITY[\"EPSG\",\"7837\"]],AUTHORITY[\"EPSG\",\"9999\"]]"));
+        Assert.Equal("EPSG:25833", CrsInfo.SniffWkt(
+            "COMPD_CS[\"x\",PROJCS[\"ETRS89 / UTM zone 33N\",GEOGCS[\"ETRS89\",AUTHORITY[\"EPSG\",\"4258\"]]],VERT_CS[\"h\",AUTHORITY[\"EPSG\",\"7837\"]]]"));
 
         // A geographic point to the site's UTM and back; a grid scale near the meridian is the projection's 0.9996 less the height.
         var p = etrs.FromGeodetic(new Geodetic(48.77, 9.18, 300));

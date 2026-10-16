@@ -74,7 +74,7 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         _scans.Remember(await StackKit.OutcomeAsync(sim));
         await using var rig = Rig(sim);
         var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
-        var before = StackKit.MisregistrationP95(sim, null, null);
+        var before = StackKit.MisregistrationP95(sim, (WarpLattice?)null, null);
 
         var reply = Json(await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}"));
         log.WriteLine(reply.GetProperty("words").GetString());
@@ -89,7 +89,9 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         var p = rig.Engine.Store.Project;
         var o1 = p.FindOutput("op00000001")!;
         var o2 = p.FindOutput("op00000002")!;
-        Assert.Null(o1.Measured?.Lattice);
+        // The master is the target: its output is left as it was.
+        Assert.Null(o1.Measured);
+        Assert.Null(o1.CalibrationId);
         var m = o2.Measured!;
         Assert.NotNull(m.Lattice);
         Assert.Equal((id, StackKit.Scan), (m.StackId, m.ScanId));
@@ -130,6 +132,46 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.True(Math.Max(c.GainR, Math.Max(c.GainG, c.GainB)) - Math.Min(c.GainR, Math.Min(c.GainG, c.GainB)) > 0.01, "the member's white is moved");
         Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("matched").GetBoolean());
         Assert.Equal(id, rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.StackId);
+
+        // Observed: each member shown through the gains the verb wrote, its white where both light lands within Δu′v′ 0.003 of the
+        // other's.
+        var gains = new[] { "op00000001", "op00000002" }.Select(o => rig.Engine.Store.Project.FindOutput(o)!.Measured!.Color!).ToArray();
+        var before = StackKit.Duv(StackKit.WhiteThrough(sim, 0, 1, 1, 1), StackKit.WhiteThrough(sim, 1, 1, 1, 1));
+        var after = StackKit.Duv(StackKit.WhiteThrough(sim, 0, gains[0].GainR, gains[0].GainG, gains[0].GainB),
+            StackKit.WhiteThrough(sim, 1, gains[1].GainR, gains[1].GainG, gains[1].GainB));
+        log.WriteLine($"Δu′v′ {before:0.0000} before, {after:0.0000} after");
+        Assert.True(before > 0.006, $"before {before}");
+        Assert.True(after <= 0.003, $"after {after}");
+    }
+
+    [Fact]
+    public async Task UnderAnOperatorsCornerPinTheMemberStillLandsOnTheMaster()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        var pin = new OutputWarp(true, CornerPin.None with { TopLeft = new Core.Numerics.Vec2d(0.04, 0.03), BottomRight = new Core.Numerics.Vec2d(-0.03, -0.02) }, null);
+        var project = StackKit.Project(sim);
+        project = project with { Outputs = project.Outputs.Update("op00000002", o => o with { Warp = pin }) };
+        await using var rig = new ShowRig(project, s => s with { Scan = _scans });
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        var o2 = rig.Engine.Store.Project.FindOutput("op00000002")!;
+        var drawn = new Core.Mapping.WarpField(o2.Warp, null, o2.Measured!.Lattice);
+        var pinned = StackKit.MisregistrationP95(sim, Core.Mapping.WarpField.Identity, new Core.Mapping.WarpField(o2.Warp));
+        var after = StackKit.MisregistrationP95(sim, Core.Mapping.WarpField.Identity, drawn);
+        log.WriteLine($"misregistration p95 {pinned:0.000} px with the pin alone, {after:0.000} px with the lattice under it");
+        Assert.True(pinned > 2, $"the pin moves the member {pinned}");
+        Assert.True(after <= 0.2, $"after {after}");
+    }
+
+    [Fact]
+    public async Task AStackOfOneMadeByAGenericAddIsNeverCountedAligned()
+    {
+        await using var rig = Rig(StackKit.Sim());
+        await rig.Ok($$"""ADD stack {"name":"Lone","projectorIds":["{{StackKit.P3}}"],"masterId":"{{StackKit.P3}}"}""");
+        var state = Stage(rig).GetProperty("stacks")[0];
+        Assert.False(state.GetProperty("aligned").GetBoolean());
+        Assert.Equal(Core.Bus.Light.Amber, ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id.StartsWith("stack:", StringComparison.Ordinal)).Light);
     }
 
     [Fact]

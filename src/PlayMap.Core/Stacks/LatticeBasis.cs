@@ -5,14 +5,14 @@ namespace PlayMap.Core.Stacks;
 /// <summary>
 /// The Catmull-Rom warp lattice (<see cref="Mapping.LatticeSurface"/>, handles at rest) as weights on its node offsets: the surface
 /// is linear in the nodes, and a lattice at rest is the identity, so a point's displacement is Σₖ wₖ(u, v)·offsetₖ with the same
-/// weights for x and y. A point in cell (i, j) depends on the nodes two cells around it (the tangents reach one node, the twists two),
-/// at most 6 × 6. The weights are built per cell once (16 Bézier control values per node, from a unit impulse on that node through
+/// weights for x and y. A point in cell (i, j) depends on the cell's four corners and their neighbours (each corner's tangents and
+/// twist reach one node further), at most 4 × 4. The weights are built per cell once (16 Bézier control values per node, from a unit impulse on that node through
 /// the surface's own construction) and evaluated with the Bernstein basis, so they equal the surface's to rounding.
 /// </summary>
 public sealed class LatticeBasis
 {
     /// <summary>The most nodes a point depends on.</summary>
-    public const int MaxSupport = 36;
+    public const int MaxSupport = 16;
 
     private readonly int[][] _nodes;       // per cell: the nodes it depends on
     private readonly double[][] _control;  // per cell: 16 control values per node, node-major
@@ -82,8 +82,8 @@ public sealed class LatticeBasis
     private void BuildCell(int ci, int cj)
     {
         var nodes = new List<int>(MaxSupport);
-        for (var j = Math.Max(0, cj - 2); j <= Math.Min(Rows - 1, cj + 3); j++)
-            for (var i = Math.Max(0, ci - 2); i <= Math.Min(Columns - 1, ci + 3); i++)
+        for (var j = Math.Max(0, cj - 1); j <= Math.Min(Rows - 1, cj + 2); j++)
+            for (var i = Math.Max(0, ci - 1); i <= Math.Min(Columns - 1, ci + 2); i++)
                 nodes.Add(j * Columns + i);
         var control = new double[nodes.Count * 16];
         for (var m = 0; m < nodes.Count; m++)

@@ -6,10 +6,10 @@ namespace PlayMap.Core.Stacks;
 
 /// <summary>A member's colour gains (linear light, each at most one) and its white before them: u′v′ and the distance from the
 /// master's white.</summary>
-public sealed record StackGains(double R, double G, double B, double UBefore, double VBefore, double DuvBefore);
+public sealed record MemberGains(double R, double G, double B, double UBefore, double VBefore, double DuvBefore);
 
 /// <summary>A stack's colour match: each member's gains (in the order given), the master's white u′v′, and words.</summary>
-public sealed record StackColourMatch(IReadOnlyList<StackGains> Members, double U, double V, string Words);
+public sealed record StackColourMatch(IReadOnlyList<MemberGains> Members, double U, double V, string Words);
 
 /// <summary>
 /// A stack's colour match (facade §3.9, STACK MATCH): every member brought to the master's white chromaticity with per-channel gains
@@ -39,7 +39,7 @@ public static class StackColour
         var x = 9 * tu / (4 * tv);
         var z = (12 - 3 * tu - 20 * tv) / (4 * tv);
         var target = ColourMatch.FromXyz(new Vec3d(x, 1, z));
-        var members = new List<StackGains>(colours.Count);
+        var members = new List<MemberGains>(colours.Count);
         var worst = 0.0;
         for (var j = 0; j < colours.Count; j++)
         {
@@ -57,7 +57,7 @@ public static class StackColour
             g /= top;
             var duv = Math.Sqrt((u - tu) * (u - tu) + (v - tv) * (v - tv));
             worst = Math.Max(worst, duv);
-            members.Add(new StackGains(g.X, g.Y, g.Z, u, v, duv));
+            members.Add(new MemberGains(g.X, g.Y, g.Z, u, v, duv));
         }
         var words = string.Create(CultureInfo.InvariantCulture,
             $"{colours.Count} members matched to the master's white u′v′ {tu:0.0000}, {tv:0.0000} (they were up to Δu′v′ {worst:0.0000} from it); levels are left as they are");

@@ -97,14 +97,16 @@ internal static class StackKit
 
     /// <summary>The misregistration (truth) of member 1 against member 0 over the master's raster, each drawing its picture through its
     /// output's measured lattice: p95 in master pixels.</summary>
-    public static double MisregistrationP95(MultiProjectorSim sim, WarpLattice? master, WarpLattice? member)
+    public static double MisregistrationP95(MultiProjectorSim sim, WarpLattice? master, WarpLattice? member) =>
+        MisregistrationP95(sim, new WarpField(OutputWarp.None, null, master), new WarpField(OutputWarp.None, null, member));
+
+    /// <summary>The same through each output's whole warp (its operator's warp with the measured lattice under it).</summary>
+    public static double MisregistrationP95(MultiProjectorSim sim, WarpField master, WarpField member)
     {
         var k = sim.Projectors[0].Intrinsics;
-        Vec2d Emit(WarpLattice? l, Vec2d q)
+        Vec2d Emit(WarpField f, Vec2d q)
         {
-            if (l is null)
-                return q;
-            var at = new LatticeSurface(l).Evaluate(q.X / k.Width, q.Y / k.Height);
+            var at = f.Evaluate(q.X / k.Width, q.Y / k.Height);
             return new Vec2d(at.X * k.Width, at.Y * k.Height);
         }
         var errors = new List<double>();
@@ -121,4 +123,36 @@ internal static class StackKit
     }
 
     public static ImmutableArray<string> Members => [P1, P2];
+
+    /// <summary>Member j's white as the camera sees it over the area every member lights, showing its colour gains (linear light,
+    /// out through the simulator's γ 2.2 as the output stage sends them): camera-linear RGB less black.</summary>
+    public static Vec3d WhiteThrough(MultiProjectorSim sim, int j, double r, double g, double b)
+    {
+        static byte Level(double gain) => (byte)Math.Clamp(Math.Round(255 * Math.Pow(gain, 1 / 2.2)), 0, 255);
+        var n = sim.CameraWidth * sim.CameraHeight;
+        var shared = new bool[n];
+        for (var y = 0; y < sim.CameraHeight; y++)
+            for (var x = 0; x < sim.CameraWidth; x++)
+            {
+                if (sim.CameraToScreen(new Vec2d(x + 0.5, y + 0.5)) is not { } w)
+                    continue;
+                var all = true;
+                for (var m = 0; m < sim.Projectors.Count && all; m++)
+                    all = sim.ScreenToProjector(m, w) is { } q && q.X > 8 && q.Y > 8 && q.X < sim.Projectors[m].Intrinsics.Width - 8 && q.Y < sim.Projectors[m].Intrinsics.Height - 8;
+                shared[y * sim.CameraWidth + x] = all;
+            }
+        var k = sim.Projectors[j].Intrinsics;
+        var frames = new byte[]?[sim.Projectors.Count];
+        frames[j] = AlignSequence.SolidRgb(k.Width, k.Height, Level(r), Level(g), Level(b), 1);
+        var lit = sim.CaptureRgb(frames);
+        var black = sim.CaptureRgb(new byte[]?[sim.Projectors.Count]);
+        return ColourMatch.Mean(lit, shared) - ColourMatch.Mean(black, shared);
+    }
+
+    public static double Duv(Vec3d a, Vec3d b)
+    {
+        var (ua, va) = ColourMatch.Uv(a);
+        var (ub, vb) = ColourMatch.Uv(b);
+        return Math.Sqrt((ua - ub) * (ua - ub) + (va - vb) * (va - vb));
+    }
 }

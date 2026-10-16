@@ -130,13 +130,15 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         var b = solved.For("op00000002")!.Map.Weights;
         Assert.Equal(a.Length, b.Length);
         Assert.True(a.Zip(b).Count(x => Math.Abs(x.First - x.Second) < 0.02) > 0.95 * a.Length, "the members share the group's weights");
-        Assert.Contains(Next(rig), new[] { "score", "" });
+        // Every projector's pins fit to a hundredth of a pixel: the score step is done too, and the guide is through.
+        Assert.Equal("", Next(rig));
 
         // 7. The score: every projector's current result graded; the guide is through.
         foreach (var pj in new[] { StackKit.P1, StackKit.P2 })
         {
-            var status = await rig.Ok($"CALIBRATION STATUS {pj}");
-            log.WriteLine(status);
+            var target = SiteRig.Json(await rig.Ok($"CALIBRATION STATUS {pj}")).GetProperty("targets")[0];
+            Assert.Equal(("A", "green", "pins"), (target.GetProperty("grade").GetString(), target.GetProperty("light").GetString(),
+                target.GetProperty("source").GetString()));
         }
         var guide = SiteRig.Json(await rig.Ok("SITE GUIDE"));
         log.WriteLine(guide.GetProperty("words").GetString());

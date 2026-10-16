@@ -92,7 +92,7 @@ public sealed class BlendInputs : IEquatable<BlendInputs>
         if (a.Length != b.Length)
             return false;
         for (var i = 0; i < a.Length; i++)
-            if (a[i].Id != b[i].Id || a[i].MasterId != b[i].MasterId || !a[i].ProjectorIds.SequenceEqual(b[i].ProjectorIds, StringComparer.Ordinal))
+            if (a[i].Id != b[i].Id || a[i].MasterId != b[i].MasterId || !a[i].Members.SequenceEqual(b[i].Members, StringComparer.Ordinal))
                 return false;
         return true;
     }

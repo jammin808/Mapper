@@ -76,7 +76,7 @@ public sealed partial class EngineCore
             w.WriteNullValue();
         }
         w.WriteString("priors", PriorWords(Store.Project, pj.Priors));
-        if (Store.Project.Stage.Stacks.FirstOrDefault(s => s.ProjectorIds.Contains(pj.Id, StringComparer.Ordinal)) is { } stack)
+        if (Store.Project.Stage.Stacks.FirstOrDefault(s => s.Members.Contains(pj.Id, StringComparer.Ordinal)) is { } stack)
             w.WriteString("stack", stack.Id);
         else
             w.WriteNull("stack");
@@ -131,16 +131,16 @@ public sealed partial class EngineCore
                 why = string.Create(SiteInv, $"a pin bound to {bound.Name} sits at it: world {{\"x\":{at.X:R},\"y\":{at.Y:R},\"z\":{at.Z:R}}}");
                 break;
             }
-            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.ProjectorIds.FirstOrDefault(id => p.FindProjector(id) is null) is { } missing:
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.Members.FirstOrDefault(id => p.FindProjector(id) is null) is { } missing:
                 why = $"stack {sk.Name}: no projector {missing}";
                 break;
-            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.ProjectorIds.Distinct(StringComparer.Ordinal).Count() != sk.ProjectorIds.Length:
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && sk.Members.Distinct(StringComparer.Ordinal).Count() != sk.Members.Length:
                 why = $"stack {sk.Name} names a projector twice";
                 break;
-            case StackGroup sk when sk.MasterId.Length > 0 && !sk.ProjectorIds.IsDefault && !sk.ProjectorIds.Contains(sk.MasterId, StringComparer.Ordinal):
+            case StackGroup sk when sk.MasterId.Length > 0 && !sk.ProjectorIds.IsDefault && !sk.Members.Contains(sk.MasterId, StringComparer.Ordinal):
                 why = $"stack {sk.Name}'s master must be one of its members";
                 break;
-            case StackGroup sk when !sk.ProjectorIds.IsDefault && p.Stage.Stacks.FirstOrDefault(o => o.Id != sk.Id && o.ProjectorIds.Intersect(sk.ProjectorIds, StringComparer.Ordinal).Any()) is { } other:
+            case StackGroup sk when !sk.ProjectorIds.IsDefault && p.Stage.Stacks.FirstOrDefault(o => o.Id != sk.Id && o.Members.Intersect(sk.Members, StringComparer.Ordinal).Any()) is { } other:
                 why = $"a projector of {sk.Name} is in stack {other.Name} already";
                 break;
             case ControlPoint cp when p.Stage.Controls.Find(cp.Id) is { } was && was.Grid != cp.Grid

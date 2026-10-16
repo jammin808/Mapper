@@ -8,8 +8,8 @@ namespace PlayMap.Engine;
 
 /// <summary>
 /// What a stack does when a member fails (facade §3.9). Degraded is a measured fact: the member's projector in standby or cooling down,
-/// reporting an error, or its shutter closed while PlayMap closed none (no panic, no scan); or the member's output, a real display,
-/// not open. HOLD keeps the rest as they are and says so (STATE, the context, the journal). MATCH dims every other output of the stack's
+/// or reporting an error; or the member's output, a real display, not open. A closed shutter is no loss: PlayMap and the operator
+/// close shutters on purpose (DEVICE SHUTTER, PANIC SHUTTER, a scan). HOLD keeps the rest as they are and says so (STATE, the context, the journal). MATCH dims every other output of the stack's
 /// blend group (its members' outputs and those the solved blend overlaps with them, transitively) to the stack's remaining light —
 /// Σ remaining lumens ÷ Σ lumens — as a runtime degrade gain through <see cref="IOutputGains"/>, fading down in 0.5 s and back up over
 /// 2 s when the member returns. Each change is journalled with its cause. The watch runs on the lane.
@@ -79,8 +79,6 @@ public sealed partial class EngineCore
                     return $"{link.Name} is {(state.Power == PowerState.Standby ? "in standby" : "cooling down")}";
                 if (state.Faults.FirstOrDefault(f => f.Severity == FaultSeverity.Error) is { } fault)
                     return $"{link.Name}: {fault.Words}";
-                if (state.ShutterClosed == true && _air.Panic is null && Services.Scan.Current is not { State: "starting" or "running" })
-                    return $"{link.Name}'s shutter is closed, and PlayMap closed none";
             }
         }
         if (OutputOf(p, projectorId) is { Kind: not OutputKind.Virtual } output
@@ -94,7 +92,7 @@ public sealed partial class EngineCore
     private HashSet<string> BlendGroupOf(Project p, StackGroup stack)
     {
         var group = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var id in stack.ProjectorIds)
+        foreach (var id in stack.Members)
             if (OutputOf(p, id) is { } o)
                 group.Add(o.Id);
         if (LastBlendSolve?.Solution is not { } solution)
@@ -123,18 +121,20 @@ public sealed partial class EngineCore
         if (Stopping)
             return;
         var p = Store.Project;
+        if (p.Stage.Stacks.IsEmpty && _degraded.IsEmpty)
+            return;
         var next = ImmutableDictionary.CreateBuilder<string, StackDegradation>(StringComparer.Ordinal);
         var targets = new Dictionary<string, float>(StringComparer.Ordinal);
         foreach (var stack in p.Stage.Stacks)
         {
             var lost = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
-            foreach (var id in stack.ProjectorIds)
+            foreach (var id in stack.Members)
                 if (MemberFault(p, id) is { } why)
                     lost[id] = why;
             if (lost.Count == 0)
                 continue;
             double all = 0, left = 0;
-            foreach (var id in stack.ProjectorIds)
+            foreach (var id in stack.Members)
             {
                 var lumens = p.FindProjector(id) is { Lumens: > 0 } pj ? pj.Lumens : 1;
                 all += lumens;

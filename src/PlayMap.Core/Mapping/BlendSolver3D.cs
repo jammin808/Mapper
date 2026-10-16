@@ -435,7 +435,7 @@ public static class BlendSolver3D
         var any = false;
         foreach (var sk in stage.Stacks)
         {
-            var members = views.Where(v => sk.ProjectorIds.Contains(v.Projector.Id, StringComparer.Ordinal)).ToList();
+            var members = views.Where(v => sk.Members.Contains(v.Projector.Id, StringComparer.Ordinal)).ToList();
             if (members.Count < 2)
                 continue;
             var lead = members.FirstOrDefault(v => v.Projector.Id == sk.MasterId) ?? members[0];

@@ -124,14 +124,18 @@ public static class SiteGuide
             return new("stacks", DoneState, "no stacks (STACK NEW groups projectors lighting one picture)", "STACK NEW <name> <projector> <projector>");
         foreach (var sk in p.Stage.Stacks)
         {
-            var scan = p.Stage.Scans.LastOrDefault(s => sk.ProjectorIds.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
+            if (sk.ProjectorIds.IsDefault || sk.Members.Length < 2)
+                return new("stacks", WaitingState, $"{sk.Name} stacks fewer than two projectors — remove it, or STACK NEW one that names them", $"REMOVE {sk.Id}");
+            var scan = p.Stage.Scans.LastOrDefault(s => sk.Members.All(id => s.ProjectorIds.Contains(id, StringComparer.Ordinal)));
             var from = scan?.Id ?? "<scan>";
-            var outputs = sk.ProjectorIds.Select(id => p.Outputs.FirstOrDefault(o => o.Mode == OutputMode.Projector && o.ProjectorId == id)).ToList();
-            var aligned = sk.ProjectorIds.Zip(outputs).All(x => x.First == sk.MasterId || x.Second?.Measured is { Lattice: not null } m && m.StackId == sk.Id);
+            // The output that draws a member is its enabled one first, as STATE, preflight and INDEX take it.
+            var outputs = sk.Members.Select(id => p.Outputs.Where(o => o.Mode == OutputMode.Projector && o.ProjectorId == id).OrderByDescending(o => o.Enabled)
+                .FirstOrDefault()).ToList();
+            var aligned = sk.Members.Zip(outputs).All(x => x.First == sk.MasterId || x.Second?.Measured is { Lattice: not null } m && m.StackId == sk.Id);
             if (!aligned)
                 return new("stacks", WaitingState, scan is null
                     ? $"Scan {sk.Name}'s members through one camera, then align them"
-                    : $"Align {sk.Name} from {scan.Name}", scan is null ? $"SCAN START <camera> {string.Join(' ', sk.ProjectorIds)}" : $"STACK ALIGN {sk.Id} FROM {from}");
+                    : $"Align {sk.Name} from {scan.Name}", scan is null ? $"SCAN START <camera> {string.Join(' ', sk.Members)}" : $"STACK ALIGN {sk.Id} FROM {from}");
             var matched = outputs.All(o => o?.Measured is { Color: not null } m && m.StackId == sk.Id);
             if (!matched)
                 return new("stacks", WaitingState, $"Match {sk.Name}'s colour", $"STACK MATCH {sk.Id} FROM {from}");

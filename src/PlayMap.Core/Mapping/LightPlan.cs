@@ -60,8 +60,8 @@ public static class LightPlan
         for (var q = 0; q < group.Length; q++)
         {
             var id = projectors[q].Id;
-            var stack = stage.Stacks.FirstOrDefault(s => s.ProjectorIds.Contains(id, StringComparer.Ordinal));
-            group[q] = stack is null ? q : projectors.IndexOf(projectors.FirstOrDefault(p => stack.ProjectorIds.Contains(p.Id, StringComparer.Ordinal))!);
+            var stack = stage.Stacks.FirstOrDefault(s => s.Members.Contains(id, StringComparer.Ordinal));
+            group[q] = stack is null ? q : projectors.IndexOf(projectors.FirstOrDefault(p => stack.Members.Contains(p.Id, StringComparer.Ordinal))!);
         }
         var rotations = projectors.Select(p => p.Pose.CameraToWorld.Transposed()).ToArray();
         var surfaces = new List<SurfaceLight>();
@@ -79,7 +79,7 @@ public static class LightPlan
             var depthAt = new int[mine.Length];
             var reached = new ulong[mine.Length];
             var projectorCount = Math.Min(64, projectors.Length);
-            Parallel.For(0, mine.Length, new ParallelOptions { CancellationToken = ct }, () => new int[projectorCount], (i, _, counts) =>
+            Parallel.For(0, mine.Length, new ParallelOptions { CancellationToken = ct }, () => new int[2 * projectorCount], (i, _, counts) =>
             {
                 var s = mine[i];
                 if (s.Reach == 0)
@@ -93,9 +93,10 @@ public static class LightPlan
                 {
                     if ((s.Reach & (1UL << q)) == 0)
                         continue;
-                    if (counts[group[q]]++ == 0)
+                    deepest = Math.Max(deepest, ++counts[group[q]]);
+                    // Only a group with light shares the point: a projector with no lumens set takes none of it.
+                    if (projectors[q].Lumens > 0 && counts[projectorCount + group[q]]++ == 0)
                         groupCount++;
-                    deepest = Math.Max(deepest, counts[group[q]]);
                 }
                 var sum = 0.0;
                 ulong used = 0;

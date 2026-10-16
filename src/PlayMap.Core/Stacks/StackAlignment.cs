@@ -42,13 +42,14 @@ public sealed record StackFit(WarpLattice Lattice, double ResidualPx, double P95
 /// content its render puts at a point leaves from where its light really reaches that point. The lattice is linear in its node
 /// offsets (<see cref="LatticeBasis"/>), so the fit is linear least squares in them: the pairs' squared misfit, reweighted by Huber
 /// against stray decodes, plus a bending penalty along every row and column of nodes (second differences, so a shift or a zoom is
-/// free). The normal equations are banded (a node meets the nodes five around it) and solved by Jacobi-preconditioned conjugate
-/// gradients, x and y with the same matrix. Every tenth pair is held out and the residual is measured on those. Deterministic: the
+/// free). The normal equations are banded (a node meets the nodes three around it) and solved by Jacobi-preconditioned conjugate
+/// gradients, x and y with the same matrix. Every tenth pair is held out and the residual is measured on those (neighbours of
+/// fitted pairs, so the residual says how well the lattice follows the decodes, not how far they can be trusted). Deterministic: the
 /// pairs are taken in order and every sum runs in one order.
 /// </summary>
 public static class StackAlignment
 {
-    private const int Reach = 5;
+    private const int Reach = 3;
     private const int Band = 2 * Reach + 1;
     private const int BandSize = Band * Band;
 

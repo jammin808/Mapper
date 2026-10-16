@@ -324,21 +324,34 @@ public sealed partial record CrsInfo(string Code, string Name, CrsKind Kind, str
     [GeneratedRegex(@"(?:AUTHORITY|ID)\[\s*""EPSG""\s*,\s*""?(\d+)""?", RegexOptions.IgnoreCase)]
     private static partial Regex WktAuthority();
 
-    [GeneratedRegex(@"^\s*(?:PROJCS|PROJCRS|PROJECTEDCRS)\[\s*""([^""]*)""", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:PROJCS|PROJCRS|PROJECTEDCRS)\[\s*""([^""]*)""", RegexOptions.IgnoreCase)]
     private static partial Regex WktProjectedName();
 
     [GeneratedRegex(@"(WGS[\s_]*(?:19)?84|ETRS[\s_]*(?:19)?89|NAD[\s_]*(?:19)?83)(?![0-9]).*?UTM[\s_]*zone[\s_]*(\d{1,2})\s*([NS])\b", RegexOptions.IgnoreCase)]
     private static partial Regex UtmName();
 
-    /// <summary>The EPSG code a WKT text names: its outermost authority (WKT1 and WKT2 put it last), else a UTM system named by datum
-    /// and zone in its projected name ("ETRS89 / UTM zone 32N", "WGS_1984_UTM_Zone_33N"); "" when it names neither.</summary>
+    /// <summary>The EPSG code a WKT text names: the authority of its root element itself (WKT1 and WKT2 put it last, at the root's own
+    /// level — an authority nested in a unit, a datum or the base geographic system names that, not the system); for a compound system
+    /// its horizontal part's; else a UTM system named by datum and zone in its projected name ("ETRS89 / UTM zone 32N",
+    /// "WGS_1984_UTM_Zone_33N"); "" when it names neither.</summary>
     public static string SniffWkt(string wkt)
     {
         ArgumentNullException.ThrowIfNull(wkt);
-        var matches = WktAuthority().Matches(wkt);
-        if (matches.Count > 0)
-            return "EPSG:" + matches[^1].Groups[1].Value;
-        if (WktProjectedName().Match(wkt) is not { Success: true } named || UtmName().Match(named.Groups[1].Value) is not { Success: true } utm)
+        var text = wkt.TrimStart();
+        var compound = text.StartsWith("COMPD_CS", StringComparison.OrdinalIgnoreCase) || text.StartsWith("COMPOUNDCRS", StringComparison.OrdinalIgnoreCase);
+        var want = compound ? 2 : 1;
+        foreach (Match m in WktAuthority().Matches(text))
+        {
+            // A text that is an authority alone (as E57's coordinate metadata may be) names its system directly.
+            if (m.Index == 0)
+                return "EPSG:" + m.Groups[1].Value;
+            if (Depth(text, m.Index) != want)
+                continue;
+            // In a compound system the first element at depth 2 is the horizontal one; its own authority is what is wanted.
+            if (!compound || FirstChildEnds(text) > m.Index)
+                return "EPSG:" + m.Groups[1].Value;
+        }
+        if (WktProjectedName().Match(text) is not { Success: true } named || UtmName().Match(named.Groups[1].Value) is not { Success: true } utm)
             return "";
         var datum = utm.Groups[1].Value.ToUpperInvariant().Replace(" ", "", StringComparison.Ordinal).Replace("_", "", StringComparison.Ordinal) switch
         {
@@ -348,6 +361,56 @@ public sealed partial record CrsInfo(string Code, string Name, CrsKind Kind, str
         };
         var zone = int.Parse(utm.Groups[2].Value, CultureInfo.InvariantCulture);
         return UtmCode(datum, zone, utm.Groups[3].Value.Equals("N", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The bracket depth at a position (0 outside the root element).</summary>
+    private static int Depth(string text, int at)
+    {
+        var depth = 0;
+        var quoted = false;
+        for (var i = 0; i < at; i++)
+        {
+            var c = text[i];
+            if (c == '"')
+                quoted = !quoted;
+            else if (!quoted && c is '[' or '(')
+                depth++;
+            else if (!quoted && c is ']' or ')')
+                depth--;
+        }
+        return depth;
+    }
+
+    /// <summary>Where the root's first child element (after the root's name) ends, or −1.</summary>
+    private static int FirstChildEnds(string text)
+    {
+        var depth = 0;
+        var quoted = false;
+        var opened = false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '"')
+            {
+                quoted = !quoted;
+                continue;
+            }
+            if (quoted)
+                continue;
+            if (c is '[' or '(')
+            {
+                depth++;
+                if (depth == 2)
+                    opened = true;
+            }
+            else if (c is ']' or ')')
+            {
+                if (depth == 2 && opened)
+                    return i + 1;
+                depth--;
+            }
+        }
+        return -1;
     }
 
     /// <summary>Geodetic coordinates to this system's coordinates: a projected system's (E, N, h), a geographic one's (lon, lat, h).</summary>
