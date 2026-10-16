@@ -5,8 +5,8 @@ namespace PlayMap.Render.Platform.Windows;
 
 /// <summary>ANGLE (BSD) loaded at run time by the single name <see cref="AngleRequirements.Library"/> — the file
 /// Avalonia.Angle.Windows.Natives puts beside the exe; no binary is shipped by PlayMap — and the EGL entry points the flip path calls,
-/// resolved from that library's handle (core ones by export, extension ones through eglGetProcAddress). Holds the library for its
-/// life.</summary>
+/// resolved from that library's handle by the names libGLESv2 exports them under (<c>eglFoo</c> as <c>EGL_Foo</c>,
+/// <see cref="AngleRequirements.ExportName"/>; GL's own through EGL_GetProcAddress). Holds the library for its life.</summary>
 [SupportedOSPlatform("windows")]
 internal sealed unsafe class AngleEgl : IDisposable
 {
@@ -92,18 +92,23 @@ internal sealed unsafe class AngleEgl : IDisposable
         CreatePbufferFromClientBuffer = (delegate* unmanaged<nint, int, nint, nint, int*, nint>)Export("eglCreatePbufferFromClientBuffer");
         DestroySurface = (delegate* unmanaged<nint, nint, uint>)Export("eglDestroySurface");
         ReleaseThread = (delegate* unmanaged<uint>)Export("eglReleaseThread");
-        CreateDeviceAngle = (delegate* unmanaged<int, nint, nint*, nint>)Proc("eglCreateDeviceANGLE");
-        ReleaseDeviceAngle = (delegate* unmanaged<nint, uint>)Proc("eglReleaseDeviceANGLE");
-        GetPlatformDisplayExt = (delegate* unmanaged<int, nint, int*, nint>)Proc("eglGetPlatformDisplayEXT");
-        QueryDeviceStringExt = (delegate* unmanaged<nint, int, byte*>)Proc("eglQueryDeviceStringEXT");
-        QueryDisplayAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Proc("eglQueryDisplayAttribEXT");
-        QueryDeviceAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Proc("eglQueryDeviceAttribEXT");
+        CreateDeviceAngle = (delegate* unmanaged<int, nint, nint*, nint>)Extension("eglCreateDeviceANGLE");
+        ReleaseDeviceAngle = (delegate* unmanaged<nint, uint>)Extension("eglReleaseDeviceANGLE");
+        GetPlatformDisplayExt = (delegate* unmanaged<int, nint, int*, nint>)Extension("eglGetPlatformDisplayEXT");
+        QueryDeviceStringExt = (delegate* unmanaged<nint, int, byte*>)Extension("eglQueryDeviceStringEXT");
+        QueryDisplayAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Extension("eglQueryDisplayAttribEXT");
+        QueryDeviceAttribExt = (delegate* unmanaged<nint, int, nint*, uint>)Extension("eglQueryDeviceAttribEXT");
     }
 
     private nint Export(string name) =>
-        NativeLibrary.TryGetExport(_library, name, out var p)
+        NativeLibrary.TryGetExport(_library, AngleRequirements.ExportName(name), out var p)
             ? p
-            : throw new GpuPlatformStartException(DxgiStartStage.Angle, $"ANGLE's {AngleRequirements.Library} has no {name}");
+            : throw new GpuPlatformStartException(DxgiStartStage.Angle,
+                $"ANGLE's {AngleRequirements.Library} has no {AngleRequirements.ExportName(name)} ({name})");
+
+    /// <summary>An extension entry point: the library's export where it has one, else through EGL_GetProcAddress (0 when neither).</summary>
+    private nint Extension(string name) =>
+        NativeLibrary.TryGetExport(_library, AngleRequirements.ExportName(name), out var p) ? p : Proc(name);
 
     /// <summary>A GL or EGL extension entry point through eglGetProcAddress (0 when ANGLE has none).</summary>
     public nint Proc(string name)

@@ -66,6 +66,23 @@ public static class AngleRequirements
     public static readonly IReadOnlyList<string> Files =
         ["runtimes/win-x64/native/av_libglesv2.dll", "runtimes/win-x86/native/av_libglesv2.dll", "runtimes/win-arm64/native/av_libglesv2.dll"];
 
+    /// <summary>The EGL entry points the loader resolves from the library, by their EGL names.</summary>
+    public static readonly IReadOnlyList<string> Entries =
+    [
+        "eglGetProcAddress", "eglQueryString", "eglGetError", "eglInitialize", "eglTerminate", "eglBindAPI", "eglChooseConfig",
+        "eglCreateContext", "eglDestroyContext", "eglMakeCurrent", "eglCreatePbufferFromClientBuffer", "eglDestroySurface", "eglReleaseThread",
+        "eglCreateDeviceANGLE", "eglReleaseDeviceANGLE", "eglGetPlatformDisplayEXT", "eglQueryDeviceStringEXT", "eglQueryDisplayAttribEXT",
+        "eglQueryDeviceAttribEXT",
+    ];
+
+    /// <summary>The name libGLESv2 exports an EGL entry point under: <c>eglFoo</c> → <c>EGL_Foo</c> (ANGLE's libEGL forwards to
+    /// these; the single library has no <c>egl</c>-prefixed exports).</summary>
+    public static string ExportName(string eglName)
+    {
+        ArgumentNullException.ThrowIfNull(eglName);
+        return eglName.StartsWith("egl", StringComparison.Ordinal) ? "EGL_" + eglName[3..] : eglName;
+    }
+
     public static readonly IReadOnlyList<string> Client =
         ["EGL_EXT_platform_base", "EGL_EXT_platform_device", "EGL_EXT_device_query", "EGL_ANGLE_device_creation", "EGL_ANGLE_device_creation_d3d11"];
 

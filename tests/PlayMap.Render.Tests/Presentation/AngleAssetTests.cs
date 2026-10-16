@@ -38,6 +38,66 @@ public sealed class AngleAssetTests
             Assert.True(File.Exists(Path.Combine(folder, f)), $"{f} is in the NuGet cache at {folder}");
     }
 
+    /// <summary>Every EGL entry point the loader resolves is exported by the package's library under libGLESv2's name (EGL_Foo), read
+    /// from the PE export table of each runtime's file in the NuGet cache.</summary>
+    [Fact]
+    public void EveryEntryPointTheLoaderResolvesIsExportedByTheLibrary()
+    {
+        Assert.Equal("EGL_GetProcAddress", AngleRequirements.ExportName("eglGetProcAddress"));
+        Assert.Equal("EGL_CreateDeviceANGLE", AngleRequirements.ExportName("eglCreateDeviceANGLE"));
+        var assets = Path.Combine(RepoRoot(), "src", "PlayMap.App", "obj", "project.assets.json");
+        using var doc = JsonDocument.Parse(File.ReadAllText(assets));
+        var root = doc.RootElement;
+        var library = root.GetProperty("libraries").EnumerateObject().Single(p => p.Name.StartsWith(Package, StringComparison.OrdinalIgnoreCase));
+        var folder = Path.Combine(root.GetProperty("project").GetProperty("restore").GetProperty("packagesPath").GetString()!,
+            library.Value.GetProperty("path").GetString()!);
+        foreach (var file in AngleRequirements.Files)
+        {
+            var exports = PeExports(File.ReadAllBytes(Path.Combine(folder, file)));
+            Assert.True(exports.Count > 100, $"{file}: {exports.Count} exports");
+            foreach (var entry in AngleRequirements.Entries)
+                Assert.True(exports.Contains(AngleRequirements.ExportName(entry)), $"{file} exports no {AngleRequirements.ExportName(entry)}");
+            // The library has no egl-prefixed exports: asking for eglGetProcAddress by that name finds nothing.
+            Assert.DoesNotContain("eglGetProcAddress", exports);
+        }
+    }
+
+    /// <summary>The names in a PE file's export directory (PE32 or PE32+).</summary>
+    private static HashSet<string> PeExports(byte[] pe)
+    {
+        static int I32(byte[] b, int at) => BitConverter.ToInt32(b, at);
+        var nt = I32(pe, 0x3C);
+        var sections = BitConverter.ToUInt16(pe, nt + 6);
+        var optionalSize = BitConverter.ToUInt16(pe, nt + 20);
+        var optional = nt + 24;
+        var plus = BitConverter.ToUInt16(pe, optional) == 0x20B;
+        var exportRva = I32(pe, optional + (plus ? 112 : 96));
+        var table = optional + optionalSize;
+        int Offset(int rva)
+        {
+            for (var i = 0; i < sections; i++)
+            {
+                var s = table + i * 40;
+                var va = I32(pe, s + 12);
+                var size = Math.Max(I32(pe, s + 8), I32(pe, s + 16));
+                if (rva >= va && rva < va + size)
+                    return rva - va + I32(pe, s + 20);
+            }
+            throw new InvalidOperationException($"RVA 0x{rva:X} is in no section");
+        }
+        var dir = Offset(exportRva);
+        var count = I32(pe, dir + 24);
+        var names = Offset(I32(pe, dir + 32));
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < count; i++)
+        {
+            var at = Offset(I32(pe, names + 4 * i));
+            var end = Array.IndexOf(pe, (byte)0, at);
+            set.Add(System.Text.Encoding.ASCII.GetString(pe, at, end - at));
+        }
+        return set;
+    }
+
     [Fact]
     public void TheExtensionListsNameWhatIsMissingAndFromWhichList()
     {
