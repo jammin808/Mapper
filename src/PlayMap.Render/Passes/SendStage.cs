@@ -60,6 +60,10 @@ public sealed class SendPlanEntry
     /// <summary>The leader-time frame index last sent (render thread).</summary>
     internal long LastK { get; set; } = long.MinValue;
 
+    /// <summary>Its last packed frame is older than the air: a frame fell due while nobody watched and the air was not one the send
+    /// holds, so a hold that begins packs once rather than repeat that older picture (render thread).</summary>
+    internal bool Stale { get; set; }
+
     /// <summary>Frames packed and handed to the sender.</summary>
     public long Packed => Volatile.Read(ref _packed);
 
@@ -185,9 +189,12 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 continue;
             if (!entry.Due(frame.LeaderNs) || sink is null)
                 continue;
+            var holds = _airHeld && !frame.Blackout;
             if (entry.OnlyWhenWatched && sink.Connections == 0)
             {
                 entry.CountUnwatched();
+                if (!holds)
+                    entry.Stale = true;
                 continue;
             }
             if (!ring.HasFree)
@@ -196,9 +203,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 continue;
             }
             // When no output shows the live show and one holds (FREEZE, or a FREEZE outcome), a send that follows the air holds as the
-            // output does: its last packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
+            // output does: its last packed frame goes out again, unchanged — when that frame is the air's. A send first packed during
+            // the hold, or whose last frame is older than the air (nobody watched as the hold began), packs once and holds that.
             var follows = entry.Kind != SendTapKind.Output && entry.FollowAir;
-            var held = follows && _airHeld && !frame.Blackout
+            var held = follows && holds && !entry.Stale
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
                 : null;
             Gpu.RenderTarget packed;
@@ -212,6 +220,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 if (picture is null)
                     entry.CountBlank();
                 packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
+                entry.Stale = false;
             }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
             ring.Request(packed, entry.Format, entry.Width, entry.Height, bytes, stride, frame.LeaderNs, entry.FpsN, entry.FpsD);

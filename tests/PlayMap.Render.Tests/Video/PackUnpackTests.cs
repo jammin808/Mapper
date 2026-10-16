@@ -624,6 +624,66 @@ public sealed class PackUnpackTests(GlFixture gl)
     }
 
     [Fact]
+    public void AHeldSendRepeatsWhatTheAirHeldNeverAFrameFromBeforeNobodyWatched()
+    {
+        const int w = 64, h = 36;
+        gl.Run(c =>
+        {
+            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            engine.WarmUp();
+            static Canvas Card(string colour) =>
+                new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
+            var screen = Scene.SourceOutput("op_1", SourceRef.Canvas("cv_1"), w, h);
+            Project Showing(string colour) => Scene.Project([], [screen], [Card(colour)]);
+            var sink = new TestSink(hold: false);
+            var send = new SendPlanEntry
+            {
+                Id = "sd_c", Name = "sd_c", Kind = SendTapKind.Canvas, Target = "cv_1", Width = w, Height = h, Format = SendFormat.Bgra8,
+                FpsN = 60, FpsD = 1, Fit = SendFit.Fit, Sink = sink, FollowAir = true,
+            };
+            using var stage = new SendStage(engine) { Plan = [send] };
+            var passes = ImmutableArray.Create<IFramePass>(stage);
+            var i = 0L;
+            var centre = ((h / 2) * w + w / 2) * 4;
+            var shown = new byte[w * h * 4];
+            // Two frames of the 60 Hz grid; answers the output's centre pixel and the send's last.
+            (byte[] Output, byte[] Send) Frames(Project p, bool freeze = false)
+            {
+                for (var k = 0; k < 2; k++)
+                {
+                    i++;
+                    engine.Render(Scene.Inputs(p) with { Passes = passes, Freeze = freeze, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
+                    c.Device.Finish();
+                }
+                Assert.True(engine.ReadOutput("op_1", shown));
+                return (shown[centre..(centre + 4)], sink.Frames[^1][centre..(centre + 4)]);
+            }
+            // Watched while the show is grey: the send packs grey.
+            Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frames(Showing("#808080")).Send);
+            // Nobody watches while the show turns blue; then FREEZE holds blue on the output.
+            sink.Connections = 0;
+            Frames(Showing("#0000FF"));
+            var (frozen, _) = Frames(Showing("#0000FF"), freeze: true);
+            Assert.Equal([0xFF, 0x00, 0x00, 0xFF], frozen);
+            // A receiver connects during the hold: the send carries the held air, never the grey it packed before nobody watched.
+            sink.Connections = 1;
+            var (output, sent) = Frames(Showing("#0000FF"), freeze: true);
+            Assert.Equal(frozen, output);
+            Assert.Equal(frozen, sent);
+            // From then on it holds, though the show moves on beneath the freeze, and a receiver that leaves and comes back during the
+            // hold still gets the held picture.
+            Assert.Equal(frozen, Frames(Showing("#00FF00"), freeze: true).Send);
+            sink.Connections = 0;
+            Frames(Showing("#FFFF00"), freeze: true);
+            sink.Connections = 1;
+            Assert.Equal(frozen, Frames(Showing("#FFFF00"), freeze: true).Send);
+            // The hold ends: the send shows the show again.
+            Assert.Equal([0x00, 0xFF, 0xFF, 0xFF], Frames(Showing("#FFFF00")).Send);
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
     public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
     {
         gl.Run(c =>

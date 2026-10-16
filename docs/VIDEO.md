@@ -64,7 +64,8 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   plays on as the rest of the LED rig does. A canvas or source tap that follows the air (`FollowAir`, the default) takes what
   the outputs do to the show, each output decided as it decides itself (a hold first, then a safe look, then the test pattern, else the live show): the live show at
   the brightest gain of the outputs that show it (its signal clamped and scaled as an output's final stage does; the key is the
-  tap's own), while any does; else a hold, while any output holds; else the pattern or the safe look when every output shows it,
+  tap's own), while any does; else a hold, while any output holds (its last frame again when that frame is the air's: a send nobody watched as
+  the hold began packs once and holds that); else the pattern or the safe look when every output shows it,
   drawn as the outputs draw it (as its source is, through no effect) and stretched over the picture; else black (a mixed panic plan). With no output to decide — none on (a node that only sends), or
   every one on a raw frame — it takes the master alone, as the LED rig does. A send larger than the GPU's textures is refused in words, before
   any receiver connects, and never packed.
