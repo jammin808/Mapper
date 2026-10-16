@@ -165,10 +165,9 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(cameraId);
         ArgumentNullException.ThrowIfNull(projectorIds);
-        CancellationTokenSource cts;
         Track track;
         Task<Task<string>> start;
-        Task<string> run;
+        Task<string> finished;
         lock (_gate)
         {
             if (_stopped)
@@ -188,14 +187,16 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
                 return Task.FromException<string>(ex);
             }
             // The scan outlives the line that started it (an HTTP request ends at once): only SCAN CANCEL stops it.
-            cts = new CancellationTokenSource();
+            var cts = new CancellationTokenSource();
             _running = cts;
             var token = cts.Token;
             track = new Track(this, setup);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
+            // The task a stop waits for is the one that publishes the scan's last words, not the run inside it: a second await
+            // of one task is resumed off the thread that runs the first, so a stop waiting on the run could return before them.
             start = new Task<Task<string>>(() => RunAsync(engine, setup, track, token));
-            run = start.Unwrap();
-            _task = run;
+            finished = Finish(start.Unwrap(), track, cts);
+            _task = finished;
         }
         try
         {
@@ -205,7 +206,7 @@ public sealed class ScanRunner : IScanBackend, IAsyncDisposable
         {
             start.Start(TaskScheduler.Default);
         }
-        return Finish(run, track, cts);
+        return finished;
     }
 
     public bool Cancel()
