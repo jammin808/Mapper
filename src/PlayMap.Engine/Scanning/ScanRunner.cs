@@ -253,6 +253,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             }
             var token = cts.Token;
             track = new Track(this, setup);
+            if (setup.Into is { } joining)
+                track.Joins(joining);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
             // The task a stop waits for is the one that publishes the scan's last words, not the run inside it: a second await
             // of one task is resumed off the thread that runs the first, so a stop waiting on the run could return before them.
@@ -378,6 +380,18 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 _viewId = id;
         }
         private ImmutableArray<CoverageState> _coverage = [];
+
+        /// <summary>The scan a view is added to, as it stands until the view lands: its views, coverage and regions are what STATE.scan
+        /// shows meanwhile (and after a view that fails or is cancelled, which leaves the scan as it was).</summary>
+        public void Joins(ScanOutcome scan)
+        {
+            lock (_gate)
+            {
+                _views = scan.Captured;
+                _coverage = CoverageOf(scan);
+                _regions = [.. scan.Regions];
+            }
+        }
 
         /// <summary>The scan's views and coverage once it is solved (wp2-multiscan).</summary>
         public void Solved(ScanOutcome outcome)
@@ -518,6 +532,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             var existing = await Task.Run(() => Load(engine, joined), ct).ConfigureAwait(false);
             setup = Joining(setup, joined, existing);
             track.ViewIs(setup.ViewId);
+            track.Joins(setup.Into!);
         }
         var views = new List<(string, ProjectorView)>();
         var notes = new List<string>();

@@ -40,6 +40,9 @@ measured name stands.
 ```
 
 Each `views`, `coverage` and `suggestions` row carries its `scan`; a suggestion its first `proposal` too (the SCAN SURFACE line).
+While a view is taken INTO a scan, `views`, `coverage` and `regions` are the scan's as it stands and `view` names the view being taken;
+a view that fails or is cancelled (SCAN CANCEL) leaves the scan as it was — its views, solve, folder, record and suggestions — and
+STATE shows it so.
 Once a scan is solved again (INTO, SOLVE, DROP) its suggestions are withdrawn — their proposals still waiting are rejected "the scan
 was solved again — SCAN SUGGEST again" — since they name regions and corners of the solve they came from; a re-solve takes the new
 mesh off the record until SCAN APPLY (the camera the apply placed stays the record's), and SCAN SURFACE refuses while the stage's
