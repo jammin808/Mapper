@@ -42,14 +42,15 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
         _clock = clock;
         _groups = options.Groups.Length > 0 ? Marshal.StringToCoTaskMemUTF8(options.Groups) : 0;
         // The configuration (discovery server, groups) is in place before the runtime is loaded and initialised, whichever of the
-        // two reads it; one that cannot be written is said, and NDI runs on mDNS and the public group.
+        // two reads it; one that cannot be written is said, and NDI discovers by mDNS (the finder and senders still take the groups).
         try
         {
             WriteConfig();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _configWhy = $"NDI's discovery and groups are not applied: its configuration could not be written in {_options.ConfigFolder} ({ex.Message})";
+            _configWhy = $"NDI's discovery server is not applied, and this node's other NDI tools do not get its groups: its configuration "
+                + $"could not be written in {_options.ConfigFolder} ({ex.Message}); its own finder and senders still use the groups";
         }
         _runtime = NdiRuntime.Load(options.RuntimePath, out _why);
         if (_runtime is null)
@@ -356,8 +357,12 @@ internal sealed unsafe class NdiSource : LiveSource
         var height = field ? 2 * h : h;
         if ((int)layout < 0 || frame.Data == 0 || w < 2 || h < 1 || (LivePlanes.IsPacked(layout) && LivePlanes.Refuse(layout, w, height) is not null))
         {
+            // One lost picture is counted once: a field 1 whose field 0 already counted is not counted again.
+            var counted = frame.FrameFormatType == NdiFrameFormat.Field1 && _fieldLost;
             AbandonWeave();
-            CountDropped();
+            if (!counted)
+                CountDropped();
+            _fieldLost = frame.FrameFormatType == NdiFrameFormat.Field0;
             return;
         }
         if (frame.FrameFormatType == NdiFrameFormat.Field1)
@@ -373,8 +378,8 @@ internal sealed unsafe class NdiSource : LiveSource
             }
             _weaving = false;
             CopyRows(in frame, layout, w, h, 1, 2);
-            // The frame's colour: field 1's tag, else field 0's, else the size's rule.
-            var (matrix, transfer) = frame.Metadata != 0 ? ColorInfo(frame.Metadata, w, height) : (_weaveMatrix, _weaveTransfer);
+            // The frame's colour: field 1's tag, else field 0's (which carries the size's rule when it had none).
+            var (matrix, transfer) = Tagged(frame.Metadata) ? ColorInfo(frame.Metadata, w, height) : (_weaveMatrix, _weaveTransfer);
             PublishFrame(layout, w, height, _weaveStamp, matrix, transfer);
             return;
         }
@@ -431,6 +436,10 @@ internal sealed unsafe class NdiSource : LiveSource
         Delivered(layout, w, h, bytes, arrival);
     }
 
+    /// <summary>Whether a frame's metadata carries a colour tag.</summary>
+    private static bool Tagged(nint metadata) =>
+        metadata != 0 && MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)metadata).IndexOf("<ndi_color_info"u8) >= 0;
+
     /// <summary>A lone field waiting for its pair is given back (its pair never came, or a whole frame came instead).</summary>
     private void AbandonWeave()
     {
@@ -456,9 +465,26 @@ internal sealed unsafe class NdiSource : LiveSource
         if (at < 0)
             return (matrix, transfer);
         var element = text[at..];
-        var close = element.IndexOf((byte)'>');
-        if (close > 0)
-            element = element[..close];
+        // The element ends at the first '>' outside a quoted value.
+        byte quote = 0;
+        for (var i = 0; i < element.Length; i++)
+        {
+            var c = element[i];
+            if (quote != 0)
+            {
+                if (c == quote)
+                    quote = 0;
+            }
+            else if (c is (byte)'"' or (byte)'\'')
+            {
+                quote = c;
+            }
+            else if (c == (byte)'>')
+            {
+                element = element[..i];
+                break;
+            }
+        }
         var curve = Attribute(element, "transfer"u8);
         if (curve.SequenceEqual("bt_2100_pq"u8))
             transfer = TransferFunction.Pq;

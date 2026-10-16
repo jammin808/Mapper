@@ -225,6 +225,27 @@ public sealed class NdiFakeRuntimeTests : IDisposable
                 Assert.All(rows.AsSpan(y * 2 * w, 2 * w).ToArray(), b => Assert.Equal(40 + y, b));
         }
         Assert.True(source.Live.Dropped >= 1);
+
+        // A woven frame keeps field 0's colour tag when field 1 carries other metadata (or none).
+        _fake.InjectFormat(2);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(10), stride, 5_000,
+            "<ndi_color_info transfer=\"bt_2100_hlg\" matrix=\"bt_2020\"/>"));
+        await Until(() => _fake.Stats().VideoCaptured == 5, "a tagged field 0 captured");
+        _fake.InjectFormat(3);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(100), stride, 6_000, "<ndi_capabilities ntk_ptz=\"true\"/>"));
+        await Until(() => source.Live.Received == 3, "the tagged woven frame");
+        using (var lease = source.Acquire(0)!)
+            Assert.Equal((ColorMatrix.Bt2020, TransferFunction.Hlg), (lease.Matrix, lease.Transfer));
+
+        // A field 0 the receiver cannot read and its field 1 are one lost picture, counted once.
+        var dropped = source.Live.Dropped;
+        _fake.InjectFormat(2);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", 0x12345678, w, h, Field(10), stride, 7_000));
+        await Until(() => _fake.Stats().VideoCaptured == 7, "an unreadable field 0 captured");
+        _fake.InjectFormat(3);
+        Assert.True(_fake.InjectFrame("STUDIO (Cam 2)", NdiFourCc.Uyvy, w, h, Field(100), stride, 8_000));
+        await Until(() => _fake.Stats().VideoCaptured == 8, "its field 1 captured");
+        Assert.Equal(dropped + 1, source.Live.Dropped);
     }
 
     [Fact]

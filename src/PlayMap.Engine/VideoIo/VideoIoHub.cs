@@ -41,6 +41,7 @@ public sealed class VideoIoHub : IDisposable
 {
     private const long TallyWindowNs = 250_000_000;
     private const long DiscoveryEveryNs = 1_000_000_000;
+    private const long ColdGraceNs = 1_000_000_000;
 
     private readonly EngineCore _engine;
     private readonly Lock _gate = new();
@@ -174,6 +175,10 @@ public sealed class VideoIoHub : IDisposable
         LiveProtocol.Omt when _running.OmtEnabled && !Settings.OmtEnabled => "OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it",
         _ => null,
     };
+
+    /// <summary>Whether a live input uses a protocol, for its primary or its backup.</summary>
+    internal static bool Uses(LiveInput input, LiveProtocol protocol) =>
+        input.Protocol == protocol || (input.Item.Live is { Backup.Length: > 0 } live && LiveUri.TryParse(live.Backup, out var p, out _, out _) && p == protocol);
 
     /// <summary>The words for a protocol nobody provides here.</summary>
     public static string NoProvider(LiveProtocol protocol) => protocol switch
@@ -426,10 +431,9 @@ public sealed class VideoIoHub : IDisposable
                 _inputs[item.Id] = input;
             }
             input.InProject = true;
+            // A cold input nothing holds is closed by the sweep, after its grace.
             if (settings.Warm || input.Handles > 0)
                 OpenInput(input);
-            else if (input.Primary is not null || input.Backup is not null || input.Problem.Length > 0)
-                CloseCold(input);
         }
         foreach (var input in _inputs.Values)
             if (!seen.Contains(input.Id))
@@ -446,18 +450,27 @@ public sealed class VideoIoHub : IDisposable
     }
 
     /// <summary>Closes and forgets the inputs no longer in the project that no consumer holds (a camera rig's feed lives while its
-    /// consumer holds it; a removed item's goes once the renderer lets go of it), and closes a cold input nothing shows.</summary>
+    /// consumer holds it; a removed item's goes once the renderer lets go of it), and closes a cold input nothing has shown for
+    /// <see cref="ColdGraceNs"/>.</summary>
     private void SweepInputs()
     {
         List<string>? gone = null;
+        var now = _mono();
         foreach (var (id, input) in _inputs)
         {
-            if (!input.InProject && input.Handles <= 0)
+            if (input.Handles > 0)
+            {
+                input.UnheldSinceNs = long.MinValue;
+                continue;
+            }
+            if (input.UnheldSinceNs == long.MinValue)
+                input.UnheldSinceNs = now;
+            if (!input.InProject)
                 (gone ??= []).Add(id);
-            else if (input.InProject && input.Handles <= 0 && !(input.Item.Live ?? LiveSettings.Default).Warm
+            else if (!(input.Item.Live ?? LiveSettings.Default).Warm && now - input.UnheldSinceNs >= ColdGraceNs
                      && (input.Primary is not null || input.Backup is not null || input.Problem.Length > 0 || input.BackupProblem.Length > 0))
             {
-                // A cold input is received only while something shows it.
+                // A cold input is received only while something shows it (a second after the last consumer let go).
                 CloseCold(input);
             }
         }
@@ -512,8 +525,8 @@ public sealed class VideoIoHub : IDisposable
             }
             if (SendProvider(protocol) is not { } provider)
             {
-                // A protocol whose senders draw on the GPU (Spout) registers a GPU provider and draws through its own stage: no
-                // read-back plan here, and no failure either.
+                // A protocol whose senders draw on the GPU (Spout) registers a GPU provider and draws through its own stage, which this
+                // hub does not drive: no read-back plan, and the send says why it sends nothing.
                 CloseSink(slot);
                 slot.Problem = GpuSendProvider(send.Protocol) is not null
                     ? $"{Name(protocol)} sends are drawn by {Name(protocol)}'s own GPU stage, which this node does not run"
@@ -880,21 +893,23 @@ public sealed class VideoIoHub : IDisposable
     }
 
     /// <summary>INPUT SWITCH: makes consumers read the primary or the backup from their next acquire; a loss held on the feed left
-    /// is let go (the feed switched to is the person's word). False when the input left the hub meanwhile.</summary>
-    internal bool Switch(LiveInput input, bool backup)
+    /// is let go (the feed switched to is the person's word). Null when done, else why not (the input left, or the feed it checked
+    /// went meanwhile).</summary>
+    internal string? Switch(LiveInput input, bool backup)
     {
         lock (_gate)
         {
-            // The input, and the feed the verb checked, must both still be there.
-            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input) || (backup ? input.Backup : input.Primary) is null)
-                return false;
+            if (!_inputs.TryGetValue(input.Id, out var known) || !ReferenceEquals(known, input))
+                return $"{input.Item.Name} left the show meanwhile — nothing to switch";
+            if ((backup ? input.Backup : input.Primary) is null)
+                return $"{input.Item.Name}'s {(backup ? "backup" : "primary")} went meanwhile — nothing to switch to";
             input.Use(backup);
             input.LossRoute = null;
             input.Loss = "";
             input.SteadySinceNs = long.MinValue;
         }
         Wake();
-        return true;
+        return null;
     }
 
     /// <summary>A number that moves when a word STATE shows moves (states, receivers, tally, problems, discovered count) — not the
@@ -924,6 +939,7 @@ public sealed class VideoIoHub : IDisposable
             {
                 h.Add(slot.Send.Id);
                 h.Add(slot.Problem);
+                h.Add(slot.Plan?.Refused);
                 if (slot.Sink is { } sink)
                 {
                     h.Add(sink.Connections);

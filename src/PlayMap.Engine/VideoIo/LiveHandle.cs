@@ -103,6 +103,10 @@ internal sealed class LiveInput
     /// <summary>Why the backup receives nothing, or "".</summary>
     public string BackupProblem { get; set; } = "";
 
+    /// <summary>Since when no consumer has held it (mono ns; long.MinValue while one does): a cold input closes only after a grace, so
+    /// a consumer that swaps its handle (an edit of the item) never closes it on the air.</summary>
+    public long UnheldSinceNs { get; set; } = long.MinValue;
+
     /// <summary>A library item of the project (false for a camera rig's feed, which lives while a consumer holds it).</summary>
     public bool InProject { get; set; }
 

@@ -27,7 +27,7 @@ internal static class VideoIoChecks
         }
         foreach (var protocol in new[] { LiveProtocol.Ndi, LiveProtocol.Omt, LiveProtocol.Spout })
         {
-            var used = inputs.Any(i => i.Protocol == protocol)
+            var used = inputs.Any(i => VideoIoHub.Uses(i, protocol))
                 || project.Sends.Any(s => s.Enabled && VideoIoHub.ProtocolOf(s.Protocol) == protocol);
             if (!used)
                 continue;
@@ -41,7 +41,10 @@ internal static class VideoIoChecks
                 // Running now, off from the next start: the show's inputs and sends of it will receive and send nothing after a restart.
                 : hub.OffAtNextStart(protocol) is { } off
                     ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Amber, "off at next start", $"{ready} — {off}", FixFor(protocol, hub.Settings))
-                    : new PreflightRow(id, node, Section, $"{name} runtime", Light.Green, "ready", ready, null));
+                    // Ready, with words (NDI's configuration could not be written): amber, with them.
+                    : status is { Words.Length: > 0 }
+                        ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Amber, "ready", $"{ready} — {status.Words}", "VIDEOIO STATUS")
+                        : new PreflightRow(id, node, Section, $"{name} runtime", Light.Green, "ready", ready, null));
         }
         foreach (var input in inputs)
         {
@@ -71,7 +74,7 @@ internal static class VideoIoChecks
             if (!slot.Send.Enabled)
                 continue;
             var id = "videoio.send." + slot.Send.Id;
-            if ((slot.Problem.Length > 0 ? slot.Problem : slot.Plan?.Refused ?? "") is { Length: > 0 } failed)
+            if (EngineCore.SendState(slot.Send, slot) is ("failed", var failed))
                 rows.Add(new PreflightRow(id, node, Section, slot.Send.Name, Light.Red, "failed", failed, $"SEND ENABLE {slot.Send.Id} OFF"));
             else if (slot.Sink is { } sink)
                 rows.Add(new PreflightRow(id, node, Section, slot.Send.Name, Light.Green, "sending",

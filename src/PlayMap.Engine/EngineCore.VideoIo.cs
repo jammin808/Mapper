@@ -205,8 +205,8 @@ public sealed partial class EngineCore
             if (!Open(one) && one.Handles <= 0)
                 return CommandReply.Fail($"{one.Item.Name} is cold and nothing shows it — it connects when something does");
         }
-        // The attempt is journalled before the old receivers go, whatever the protocol then says.
-        Journal.Add("videoio", $"{call.Session.ClientName} reconnects {string.Join(", ", targets.Select(t => t.Item.Name))}", ok: true);
+        // The old receivers go here, whatever the protocol then says: the journal says what came of it, refused or not.
+        var asked = string.Join(", ", targets.Select(t => t.Item.Name));
         targets.RemoveAll(t => !VideoIo.Reconnect(t));
         if (targets.Count == 0)
             return CommandReply.Fail(all ? "the inputs left the show meanwhile — nothing to reconnect" : $"{call.Args[0]} left the show meanwhile — nothing to reconnect");
@@ -222,7 +222,11 @@ public sealed partial class EngineCore
         var refused = targets.Select(t => (Input: t, Why: Refusal(t))).Where(x => x.Why is not null).ToList();
         var refusedWords = string.Join("; ", refused.Select(x => $"{x.Input.Item.Name}: {x.Why}"));
         if (refused.Count == targets.Count)
+        {
+            Journal.Add("videoio", $"{call.Session.ClientName} reconnected {asked}: the old receivers closed, the new ones refused — {refusedWords}", ok: false);
             return CommandReply.Fail(refusedWords);
+        }
+        Journal.Add("videoio", $"{call.Session.ClientName} reconnected {asked}" + (refused.Count > 0 ? $" (refused: {refusedWords})" : ""), ok: refused.Count == 0);
         targets.RemoveAll(t => refused.Any(x => ReferenceEquals(x.Input, t)));
         // Observed, not attempted: answered at the first frame from the new connection, or with the words that none came yet.
         var deadline = Services.Mono.NowNs + 3_000_000_000L;
@@ -387,8 +391,8 @@ public sealed partial class EngineCore
                 : $"{item.Name}'s {feedWord} is {LiveSourceState(health.State)}: {health.Words}");
         var before = health.Received;
         var startNs = Services.Mono.NowNs;
-        if (!VideoIo.Switch(input, backup))
-            return CommandReply.Fail($"{item.Name} left the show meanwhile — nothing to switch");
+        if (VideoIo.Switch(input, backup) is { } notSwitched)
+            return CommandReply.Fail(notSwitched);
         Journal.Add("videoio", $"{call.Session.ClientName} switched {item.Name} to its {feedWord} ({(backup ? live.Backup : item.Location)})", ok: true);
         RaiseEvent("input.switched", LeaderNowNs, w =>
         {
@@ -497,9 +501,7 @@ public sealed partial class EngineCore
         var fullName = slot?.Sink?.FullName ?? "";
         var effect = slot?.Problem is { Length: > 0 } problem
             ? $"added {name}, but it sends nothing: {problem}"
-            : slot?.Sink is null
-                ? $"added {name} from {tap}: {VideoIoHub.Name(live)} draws its sends through its own GPU stage"
-                : $"sending {fullName} from {tap}" + (shapeWords.Length > 0 ? $" ({shapeWords})" : "");
+            : $"sending {fullName} from {tap}" + (shapeWords.Length > 0 ? $" ({shapeWords})" : "");
         return CommandReply.Success(JsonOut(jw =>
         {
             jw.WriteStartObject();
@@ -665,11 +667,12 @@ public sealed partial class EngineCore
                 next = s with { OmtDiscovery = server };
                 (applies, effect) = ("next start", server.Length > 0 ? $"OMT discovery server {server}" : "OMT discovery by mDNS");
                 break;
-            case "SPOUT" when onOff is not null && VideoIo.InputProvider(LiveProtocol.Spout) is null && VideoIo.GpuSendProvider(SendProtocol.Spout) is null:
-                return CommandReply.Fail(VideoIoHub.NoProvider(LiveProtocol.Spout));
             case "SPOUT" when onOff is { } on:
                 next = s with { SpoutEnabled = on };
-                (applies, effect) = ("next start", $"Spout {(on ? "on" : "off")}");
+                // The Spout package reads it when it registers its provider; a node with none now is told so.
+                (applies, effect) = ("next start", $"Spout {(on ? "on" : "off")}"
+                    + (VideoIo.InputProvider(LiveProtocol.Spout) is null && VideoIo.GpuSendProvider(SendProtocol.Spout) is null
+                        ? $" ({VideoIoHub.Unregistered(LiveProtocol.Spout)})" : ""));
                 break;
             case "MAX-SEND-MBPS" when int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var mbps) && mbps is >= 0 and <= 100_000:
                 next = s with { MaxSendMbps = mbps };
@@ -1018,7 +1021,7 @@ public sealed partial class EngineCore
         }
         foreach (var protocol in new[] { LiveProtocol.Ndi, LiveProtocol.Omt })
         {
-            var used = inputs.Any(i => i.Protocol == protocol) || project.Sends.Any(s => s.Enabled && VideoIoHub.ProtocolOf(s.Protocol) == protocol);
+            var used = inputs.Any(i => VideoIoHub.Uses(i, protocol)) || project.Sends.Any(s => s.Enabled && VideoIoHub.ProtocolOf(s.Protocol) == protocol);
             if (used && VideoIo.OffAtNextStart(protocol) is { } off)
                 return (Light.Amber, off);
         }
@@ -1035,8 +1038,8 @@ public sealed partial class EngineCore
         var sends = VideoIo.SendsOf(project);
         foreach (var slot in sends)
         {
-            if (slot.Problem.Length > 0 && slot.Send.Enabled)
-                return (Light.Amber, $"{slot.Send.Name}: {slot.Problem}");
+            if (SendState(slot.Send, slot) is ("failed", var failed))
+                return (Light.Amber, $"{slot.Send.Name}: {failed}");
             if (slot.Sink?.Stats is { Sent: > 100 } st && st.Dropped * 100 > st.Sent)
                 return (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{slot.Send.Name} drops {st.Dropped * 100.0 / st.Sent:0.#} % of its frames"));
         }
@@ -1068,20 +1071,29 @@ public sealed partial class EngineCore
                         why = $"{send.Name} taps nothing — output:<id>, canvas:<id> or source:<ref>";
                     else if (SendShape.Resolve(after, send, out var shapeWhy) is null)
                         why = shapeWhy;
-                    else if (old is not { Enabled: true } && VideoIo.OffAtNextStart(VideoIoHub.ProtocolOf(send.Protocol)) is { } off)
+                    else if ((old is not { Enabled: true } || old.Protocol != send.Protocol)
+                             && VideoIo.OffAtNextStart(VideoIoHub.ProtocolOf(send.Protocol)) is { } off)
                         why = off;
                     else
                         why = OverBandwidth(p, after);
                 }
                 break;
             case MediaItem { Kind: MediaKind.Stream } item:
-                // A new live location is new work, refused on a protocol that is off from the next start as INPUT ADD refuses it.
-                if (p.FindMedia(item.Id)?.Location != item.Location && LiveUri.TryParse(item.Location, out var proto, out _, out _)
+            {
+                // A new live location or backup is new work, refused on a protocol that is off from the next start as INPUT ADD and
+                // INPUT BACKUP refuse it.
+                var was = p.FindMedia(item.Id);
+                var backup = item.Live?.Backup ?? "";
+                if (was?.Location != item.Location && LiveUri.TryParse(item.Location, out var proto, out _, out _)
                     && VideoIo.OffAtNextStart(proto) is { } offIn)
                     why = offIn;
+                else if (backup.Length > 0 && (was?.Live?.Backup ?? "") != backup && LiveUri.TryParse(backup, out var backupProto, out _, out _)
+                         && VideoIo.OffAtNextStart(backupProto) is { } offBackup)
+                    why = offBackup;
                 else if (item.Live is { } live)
                     why = ValidateLive(p, item, live);
                 break;
+            }
             // A larger output or canvas makes the sends that tap it larger: held to the guard as an edit of the send is.
             case Output output when p.Outputs.Find(output.Id) is { } was && (was.Width, was.Height, was.RefreshHz) != (output.Width, output.Height, output.RefreshHz):
                 why = OverBandwidth(p, p with { Outputs = p.Outputs.Update(output.Id, _ => output) });
@@ -1130,15 +1142,17 @@ public sealed partial class EngineCore
             if (LiveUri.TryParse(item.Location, out var pp, out var pa, out _) && pp == bp && string.Equals(pa, ba, StringComparison.OrdinalIgnoreCase))
                 return $"{item.Name}: live.backup is its own location — a backup is another feed";
         }
-        if (live.Fallback.Length > 0 && (!SourceRef.TryParse(live.Fallback, out var fallback) || fallback.Kind is SourceKind.Live
-                || p.FindMedia(fallback.Id) is { Kind: MediaKind.Stream } && fallback.Kind is SourceKind.Media))
-            return $"{item.Name}: live.fallback is a colour, a generator, a canvas, a playlist or a media item, never a live input — not \"{live.Fallback}\"";
-        // The deep check runs when the fallback is set or changed, so an edit that does not touch it is never refused for it (the
-        // loss tick shows black for a fallback that came to be unfit).
+        // The fallback is checked when it is set or changed, so an edit that does not touch it is never refused for it (the loss
+        // tick shows black for a fallback that came to be unfit).
         var wasFallback = (p.FindMedia(item.Id)?.Live ?? LiveSettings.Default).Fallback;
-        if (live.Fallback.Length > 0 && !string.Equals(wasFallback, live.Fallback, StringComparison.Ordinal)
-            && SourceRef.TryParse(live.Fallback, out var fits) && Fallbacks.Fits(p, fits) is { } unfit)
-            return $"{item.Name}: live.fallback — {unfit}";
+        if (live.Fallback.Length > 0 && !string.Equals(wasFallback, live.Fallback, StringComparison.Ordinal))
+        {
+            if (!SourceRef.TryParse(live.Fallback, out var fallback) || fallback.Kind is SourceKind.Live
+                || p.FindMedia(fallback.Id) is { Kind: MediaKind.Stream } && fallback.Kind is SourceKind.Media)
+                return $"{item.Name}: live.fallback is a colour, a generator, a canvas, a playlist or a media item, never a live input — not \"{live.Fallback}\"";
+            if (Fallbacks.Fits(p, fallback) is { } unfit)
+                return $"{item.Name}: live.fallback — {unfit}";
+        }
         if (live.OnLoss == LiveLoss.Fallback && live.Fallback.Length == 0)
             return $"{item.Name}: live.onLoss fallback names its picture in live.fallback";
         return null;

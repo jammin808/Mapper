@@ -197,11 +197,14 @@ internal sealed class OmtSource : LiveSource
         long needed = 0;
         for (var i = 0; i < count; i++)
             needed += (long)SourceStride(layout, i, w, frame.Stride) * h;
-        if (frame.DataLength < needed || !Pool.TryBeginWrite(layout, w, h, out var planes))
+        if (frame.DataLength < needed)
         {
             CountDropped();
             return;
         }
+        // No slot free: the pool counts the drop itself.
+        if (!Pool.TryBeginWrite(layout, w, h, out var planes))
+            return;
         var src = (byte*)frame.Data;
         long bytes = 0;
         for (var i = 0; i < count; i++)

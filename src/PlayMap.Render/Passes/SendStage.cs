@@ -96,19 +96,20 @@ public sealed class SendPlanEntry
         _ => 4L * Width * Height,
     };
 
+    /// <summary>How far back leader time may jitter before it counts as a step that re-arms the grid: a tenth of a second, and at least
+    /// two of the send's frames.</summary>
+    public const long RearmNs = 100_000_000;
+
     /// <summary>Whether a frame is due at a leader instant: frame k = ⌊leaderNs·N / (D·10⁹)⌋ fires once, when k passes the last
     /// sent, so nodes on one show clock send on one grid and a slower send decimates exactly. Render thread.</summary>
-    /// <summary>How far back (in frames of the send's grid) leader time may jitter before it counts as a step that re-arms the grid.</summary>
-    public const long RearmFrames = 2;
-
     public bool Due(long leaderNs)
     {
         if (FpsN <= 0 || FpsD <= 0)
             return false;
         var k = (long)Math.Floor(leaderNs * (double)FpsN / (FpsD * 1e9));
-        // Leader time that went back more than a couple of frames (a node that joined a leader with an earlier epoch) re-arms the
-        // grid at once, rather than holding the send until time passes where it was; a frame or two back is jitter, not a step.
-        if (k <= LastK && LastK - k <= RearmFrames)
+        // Leader time that went back further than jitter (a node that joined a leader with an earlier epoch) re-arms the grid at once,
+        // rather than holding the send until time passes where it was.
+        if (k <= LastK && LastK - k <= Math.Max(2, (long)(RearmNs * (double)FpsN / (FpsD * 1e9))))
             return false;
         LastK = k;
         return true;
@@ -119,11 +120,11 @@ public sealed class SendPlanEntry
 /// plan, finished read-backs are offered to its sender; a frame due on the leader-time grid is tapped (an output's final picture, a
 /// canvas, a source), scaled, packed and queued for read-back — unless nobody watches and the send packs only for watchers (counted,
 /// no GPU work), or every read-back slot is still with the sender (counted busy). An output tap that has no picture this frame (an
-/// output disabled, or not drawn) sends black (counted blank). A canvas or source tap that follows the air takes what every output
-/// takes: black in blackout, the test pattern or the safe look while it covers every output, a hold while every output holds, and
-/// the brightest output's gain (master × panic × degrade), so it is dark only when every output is. Render thread; never blocks;
-/// nothing is allocated per frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go
-/// of every frame).</summary>
+/// output disabled, or not drawn) sends black (counted blank). A canvas or source tap that follows the air takes what the outputs do
+/// to the show (<see cref="ReadAir"/>): black in blackout, the live show at the brightest gain of the outputs that show it, a hold
+/// when none does and one holds, the pattern or safe look when every output shows it, black for a mixed plan. A send too large for
+/// this GPU's textures is refused in words before anything is made for it. Render thread; never blocks; nothing is allocated per
+/// frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go of every frame).</summary>
 public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 {
     private readonly Video.PackPass _pack = new(renderer.Device);
@@ -134,6 +135,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     private bool _disposed;
     private float _airGain = 1;
     private SourceRef? _airSafe;
+    private SourceRef? _airPattern;
+    private bool _airBlack;
     private bool _airHeld;
 
     public string Name => "videoio.sends";
@@ -154,7 +157,12 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         RetireGone();
         var plan = Plan;
         if (plan.IsDefaultOrEmpty)
+        {
+            // No send left: the shared scale and black pictures go with it.
+            _pack.Trim();
             return;
+        }
+        _pack.BeginFrame(frame.Frame);
         ReadAir(in frame);
         foreach (var entry in plan)
         {
@@ -165,6 +173,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
             }
             var sink = entry.Sink;
             ring.Collect(sink);
+            // A packed target larger than this GPU's textures is refused once, in words, as soon as the entry is seen — before any
+            // receiver connects — and never thrown on the render thread.
+            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device))
+                continue;
             if (!entry.Due(frame.LeaderNs) || sink is null)
                 continue;
             if (entry.OnlyWhenWatched && sink.Connections == 0)
@@ -177,11 +189,8 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 entry.CountBusy();
                 continue;
             }
-            // A packed target larger than this GPU's textures is refused once, in words, never thrown on the render thread each frame.
-            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device))
-                continue;
-            // A hold on every output that shows the show (FREEZE, or a FREEZE outcome) holds a send that follows the air as it holds an
-            // output: its last packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
+            // When no output shows the live show and one holds (FREEZE, or a FREEZE outcome), a send that follows the air holds as the
+            // output does: its last packed frame goes out again, unchanged (a send first packed during the hold holds its first frame).
             var follows = entry.Kind != SendTapKind.Output && entry.FollowAir;
             var held = follows && _airHeld && !frame.Blackout
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
@@ -204,54 +213,76 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         }
     }
 
-    /// <summary>What the air does to the show this frame, from the enabled outputs that show it (no safe look on them): the brightest
-    /// of their gains, and whether all of them hold. When no output shows the show (every one on a safe look), the safe look if they
-    /// all show the same one, at the brightest of their gains, else black. With no enabled output (or no levels) the air is untouched
-    /// but for FREEZE. Allocation-free.</summary>
+    /// <summary>What the air does to the show this frame, decided per enabled output as the output decides it — a hold first (FREEZE
+    /// or a FREEZE outcome: the output keeps its last picture), then a safe look, then the test pattern (on every output or on this
+    /// one), else the live show — and then for the send: the live show at the brightest gain of the outputs that show it, while any
+    /// does; else a hold, while any output holds; else the pattern while every output shows it, or the safe look while every output
+    /// shows the same one, at the brightest of their gains; else black (a mixed panic plan). With no enabled output (or no levels and
+    /// no pattern) the air is untouched but for FREEZE. Allocation-free.</summary>
     private void ReadAir(in Engine.PassFrame frame)
     {
         _airGain = 1;
         _airSafe = null;
+        _airPattern = null;
+        _airBlack = false;
         _airHeld = frame.Freeze;
-        if (frame.Levels is not { } levels)
-            return;
+        var levels = frame.Levels;
         var any = false;
         var showing = false;
         var showGain = 0f;
-        var allHeld = true;
-        var safeGain = 0f;
+        var anyHeld = false;
+        var lookGain = 0f;
         SourceRef? safe = null;
         var oneLook = true;
+        var anySafe = false;
+        var anyPattern = false;
         foreach (var o in frame.Project.Outputs)
         {
             if (!o.Enabled)
                 continue;
             any = true;
-            var gain = levels.Gain(o.Id, frame.LeaderNs);
-            if (levels.Override(o.Id, frame.LeaderNs) is { IsNone: false } look)
+            if (frame.Held(o.Id))
             {
-                safeGain = Math.Max(safeGain, gain);
+                anyHeld = true;
+                continue;
+            }
+            var gain = levels?.Gain(o.Id, frame.LeaderNs) ?? 1f;
+            if (levels?.Override(o.Id, frame.LeaderNs) is { IsNone: false } look)
+            {
+                anySafe = true;
+                lookGain = Math.Max(lookGain, gain);
                 if (safe is null)
                     safe = look;
                 else if (!Equals(safe, look))
                     oneLook = false;
                 continue;
             }
+            if (Engine.FrameInputs.PatternCovers(frame.PatternOverride, frame.PatternOutputs, o.Id))
+            {
+                anyPattern = true;
+                lookGain = Math.Max(lookGain, gain);
+                continue;
+            }
             showing = true;
             showGain = Math.Max(showGain, gain);
-            allHeld &= frame.Held(o.Id);
         }
         if (!any)
             return;
+        _airHeld = !showing && anyHeld;
         if (showing)
         {
             _airGain = Math.Clamp(showGain, 0f, 1f);
-            _airHeld = allHeld;
             return;
         }
-        _airSafe = oneLook ? safe : null;
-        _airGain = oneLook ? Math.Clamp(safeGain, 0f, 1f) : 0f;
-        _airHeld = false;
+        if (anyHeld)
+            return;
+        _airGain = Math.Clamp(lookGain, 0f, 1f);
+        if (anyPattern && !anySafe)
+            _airPattern = frame.PatternOverride;
+        else if (anySafe && !anyPattern && oneLook)
+            _airSafe = safe;
+        else
+            _airBlack = true;
     }
 
     /// <summary>Whether this entry's targets (its packed target, and the picture scaled to its size) are larger than this GPU's
@@ -276,21 +307,14 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         fit = entry.Fit;
         if (entry.Kind != SendTapKind.Output && entry.FollowAir)
         {
-            if (frame.Blackout)
+            if (frame.Blackout || _airBlack)
                 return null;
-            // As an output decides: the safe look before the pattern, each stretched over the whole picture as the output stage does.
-            if (_airSafe is { } safe)
+            // What every output shows instead of the show, stretched over the whole picture as the output stage stretches it.
+            if ((_airSafe ?? _airPattern) is { IsNone: false } look)
             {
                 fit = SendFit.Stretch;
-                return renderer.SourcePicture(safe, entry.Width, entry.Height);
+                return renderer.SourcePicture(look, entry.Width, entry.Height);
             }
-            if (frame.PatternOverride is { IsNone: false } pattern && frame.PatternOutputs.IsDefaultOrEmpty)
-            {
-                fit = SendFit.Stretch;
-                return renderer.SourcePicture(pattern, entry.Width, entry.Height);
-            }
-            if (_airGain <= 0)
-                return null;
         }
         return entry.Kind switch
         {

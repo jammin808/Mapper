@@ -23,7 +23,8 @@ public sealed unsafe class LiveFramePoolTests
         // The writer fills each frame with one byte value and stamps it; three readers, all running before the writer starts,
         // acquire, hold the lease while the writer publishes two more frames, and check every byte is still the one stamped and that
         // stamps never go backwards. Fixed counts and a start barrier, no sleeps.
-        using var pool = new LiveFramePool(4);
+        // Eight slots: three readers each holding one and the newest still leave the writer free ones, so it never stalls.
+        using var pool = new LiveFramePool(8);
         const int frames = 20_000;
         var failures = 0;
         var acquired = 0;

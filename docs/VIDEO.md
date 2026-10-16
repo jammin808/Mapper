@@ -15,7 +15,7 @@ media item shows it: a surface, an output in source mode, a playlist item, a pre
 - **One receiver per input.** `MediaBackend.Open` routes NDI and OMT locations to the engine's `VideoIoHub`, which keeps one
   receiver per input and lends every consumer a non-owning `LiveHandle`; three surfaces and a thumbnail are still one network
   stream. A warm input (the default) connects when it enters the show and stays connected while it is in it; a cold one connects at
-  its first consumer and closes when its last lets go. An input that leaves the show is closed once nothing holds it (a camera rig's
+  its first consumer and closes a second after its last lets go. An input that leaves the show is closed once nothing holds it (a camera rig's
   feed lives while its consumer does, and follows the rig to another source).
 - **Receiving.** Each receiver has its own thread (OMT `Receive`, NDI `recv_capture_v3`, 50 ms waits) that copies the frame's planes
   into a `LiveFramePool` (lock-free, reference-counted slots: the writer takes a slot no reader holds, a reader's lease keeps its
@@ -58,14 +58,16 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   are counted. A frame due while every slot is still with the sender is counted busy, never waited for.
 - **What the air shows.** An output tap is the output's final raster, so blackout, freeze, the test pattern, a safe look, the
   master and panic gain and covered or held outputs reach the send exactly as they reach the projector; a disabled output's tap
-  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what the outputs that show the show
-  take: black in a blackout, the safe look or the test pattern while it covers every output (the safe look first, as an output
-  decides, stretched over the picture), a hold while every output showing the show holds, and the brightest such output's gain
-  (its signal clamped and scaled as an output's final stage does). When no output shows the show and they do not share a safe
-  look (a mixed panic plan), it is black. A send larger than the GPU's textures is refused in words and never packed.
+  sends black. A canvas or source tap that follows the air (`FollowAir`, the default) takes what the outputs do to the show, each
+  output decided as it decides itself (a hold first, then a safe look, then the test pattern, else the live show): the live show at
+  the brightest gain of the outputs that show it (its signal clamped and scaled as an output's final stage does; the key is the
+  tap's own), while any does; else a hold, while any output holds; else the pattern or the safe look when every output shows it,
+  stretched over the picture; else black (a mixed panic plan). A send larger than the GPU's textures is refused in words, before
+  any receiver connects, and never packed.
 - **Senders.** Each sender has a worker thread: the newest frame wins (an older one waiting is released and counted dropped), the
-  frame is sent (OMT encodes VMX; NDI `send_send_video_async_v2`, each frame tagged BT.709 so no receiver guesses its colour from
-  its size), and an idle sender releases what it holds after 200 ms. Receivers
+  frame is sent (OMT encodes VMX; NDI `send_send_video_async_v2`, each YUV frame tagged BT.709 so no receiver guesses its colour from
+  its size — a BGRA frame is RGB, which the runtime converts by its own rule, so it carries no tag), and an idle sender releases what
+  it holds after 200 ms. Receivers
   and tally are refreshed every 250 ms. The node's sends are held to a **bandwidth guard** at `SEND ADD`, `SEND ENABLE ON` and any edit of a send.
 
 ## OMT

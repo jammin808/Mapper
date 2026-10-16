@@ -239,13 +239,14 @@ public sealed class PackPass : IDisposable
 {
     private readonly GlDevice _device;
     private readonly Dictionary<object, RenderTarget> _packed = new(ReferenceEqualityComparer.Instance);
-    // Shared per size and kept while used: a size no pack has used for SweepEvery packs is let go (a send resized while dragged leaves
-    // nothing behind).
-    private const long SweepEvery = 600;
+    // Shared per size and kept while used: a size no pack has used for KeepFrames render frames (half a minute at 60 Hz, longer than
+    // any send's own period but the slowest) is let go, so a send resized while dragged leaves nothing behind.
+    private const long KeepFrames = 1_800;
+    private const long SweepEvery = 300;
     private readonly Dictionary<(int W, int H), (RenderTarget Target, long Used)> _scaled = [];
     private readonly Dictionary<(int W, int H), (RenderTarget Target, long Used)> _black = [];
     private readonly List<(int W, int H)> _stale = [];
-    private long _packs;
+    private long _frame;
 
     public PackPass(GlDevice device)
     {
@@ -293,11 +294,6 @@ public sealed class PackPass : IDisposable
     public RenderTarget Pack(object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit, float gain = 1f)
     {
         ArgumentNullException.ThrowIfNull(key);
-        if (++_packs % SweepEvery == 0)
-        {
-            Sweep(_scaled);
-            Sweep(_black);
-        }
         var source = Scale(picture, width, height, fit);
         var (tw, th) = TargetSize(format, width, height);
         if (!_packed.TryGetValue(key, out var target) || target.Width != tw || target.Height != th)
@@ -330,7 +326,7 @@ public sealed class PackPass : IDisposable
                 _device.Clear(0, 0, 0, 1);
                 kept = (made, 0);
             }
-            _black[(width, height)] = (kept.Target, _packs);
+            _black[(width, height)] = (kept.Target, _frame);
             return kept.Target.Color;
         }
         if (picture.Width == width && picture.Height == height)
@@ -338,7 +334,7 @@ public sealed class PackPass : IDisposable
         var target = _scaled.TryGetValue((width, height), out var scaled)
             ? scaled.Target
             : _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, filter: TextureFilter.Nearest);
-        _scaled[(width, height)] = (target, _packs);
+        _scaled[(width, height)] = (target, _frame);
         _device.BindTarget(target);
         _device.SetBlend(BlendMode.Opaque);
         _device.Clear(0, 0, 0, 1);
@@ -394,12 +390,35 @@ public sealed class PackPass : IDisposable
         _black.Clear();
     }
 
-    /// <summary>Lets go of the targets of sizes no pack used in the last <see cref="SweepEvery"/> packs.</summary>
+    /// <summary>Once a render frame, before its packs: the frame's number, and every <see cref="SweepEvery"/> frames the shared
+    /// pictures of sizes no pack used for <see cref="KeepFrames"/> frames let go.</summary>
+    public void BeginFrame(long frame)
+    {
+        _frame = frame;
+        if (frame % SweepEvery != 0)
+            return;
+        Sweep(_scaled);
+        Sweep(_black);
+    }
+
+    /// <summary>Lets go of every shared scale and black picture (no send is left).</summary>
+    public void Trim()
+    {
+        if (_scaled.Count == 0 && _black.Count == 0)
+            return;
+        foreach (var t in _scaled.Values)
+            t.Target.Dispose();
+        _scaled.Clear();
+        foreach (var t in _black.Values)
+            t.Target.Dispose();
+        _black.Clear();
+    }
+
     private void Sweep(Dictionary<(int W, int H), (RenderTarget Target, long Used)> cache)
     {
         _stale.Clear();
         foreach (var (size, entry) in cache)
-            if (_packs - entry.Used >= SweepEvery)
+            if (_frame - entry.Used >= KeepFrames)
                 _stale.Add(size);
         foreach (var size in _stale)
         {

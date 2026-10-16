@@ -93,11 +93,21 @@ public sealed class VideoIoEdgeTests
         var coldFeed = rig.Omt.Opened.Single(f => f.Address == "STUDIO (Cam 3)");
         rig.Engine.VideoIo.Tick();
         Assert.False(coldFeed.Closed);
-        // Its last consumer lets go: it closes at the next tick, without waiting for an edit.
+        // Its last consumer lets go: it closes a second later, without waiting for an edit (a consumer that only swaps its handle
+        // within the second, as the renderer does on an edit of the item, keeps it open).
         handle.Dispose();
+        rig.Engine.VideoIo.Tick();
+        rig.AdvanceMs(500);
+        using (rig.Engine.VideoIo.Open(rig.Engine.Store.Project.FindMedia(cold)!)!)
+            rig.Engine.VideoIo.Tick();
+        rig.AdvanceMs(900);
+        rig.Engine.VideoIo.Tick();
+        Assert.False(coldFeed.Closed);
+        rig.AdvanceMs(1_000);
         rig.Engine.VideoIo.Tick();
         Assert.True(coldFeed.Closed);
         Assert.Equal("connecting", rig.Input(cold).GetProperty("state").GetString());
+        rig.Omt.Opened.Last(f => f.Address == "STUDIO (Cam 4)").Push();
         Assert.Equal("ok", rig.Input(warm).GetProperty("state").GetString());
     }
 
@@ -110,8 +120,9 @@ public sealed class VideoIoEdgeTests
         rig.AdvanceMs(1_200);
         rig.Omt.Status = new ProviderStatus("failed", "", "", "the codec went away", "");
         Assert.Equal("Cam 1: the codec went away", await rig.Refused($"INPUT RECONNECT {id}"));
-        // The attempt is journalled before the old receiver goes, refused or not.
-        Assert.Contains(rig.Engine.Journal.Recent(50), j => j.Kind == "videoio" && j.Text == "PlayMapDesk reconnects Cam 1");
+        // The journal says what came of it: the old receiver closed, the new one refused.
+        Assert.Contains(rig.Engine.Journal.Recent(50), j => j.Kind == "videoio" && !j.Ok
+            && j.Text == "PlayMapDesk reconnected Cam 1: the old receivers closed, the new ones refused — Cam 1: the codec went away");
         // The protocol is back: tried again, never refused from memory; a receiver that fails at once is refused with its words.
         rig.Omt.Status = new ProviderStatus("ready", "fake 1.0", "/fake/omt", "", "");
         rig.Omt.FailOnOpen = "no route to STUDIO";
@@ -201,11 +212,12 @@ public sealed class VideoIoEdgeTests
     }
 
     [Fact]
-    public async Task VideoIoSetSpoutWithNoSpoutProviderIsRefusedAndAGpuProvidersSendSaysWhyItSendsNothing()
+    public async Task VideoIoSetSpoutSaysWhenNoProviderIsHereAndAGpuProvidersSendSaysWhyItSendsNothing()
     {
+        // Kept for the Spout package, which reads it when it registers; a node with no Spout provider now is told so.
         await using var bare = new VideoIoRig();
-        if (!OperatingSystem.IsWindows())
-            Assert.Equal("Spout is Windows only", await bare.Refused("VIDEOIO SET SPOUT OFF"));
+        Assert.Equal("Spout off (no Spout provider on this node (Spout is Windows only)) — applies at the next engine start",
+            (await bare.Ok("VIDEOIO SET SPOUT OFF")).Effect);
         await using var rig = new VideoIoRig(gpu: new GpuProvider());
         await rig.Ok("VIDEOIO SET SPOUT OFF");
         var id = VideoIoRig.IdOf(await rig.Ok("SEND ADD SPOUT Main output:op_1"));

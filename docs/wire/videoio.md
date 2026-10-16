@@ -58,8 +58,9 @@ or canvas (`SET op… width`) is held to the guard too, for the sends that tap i
 the next engine start (the runtimes read them when they load): what runs keeps running and STATE shows it (`state`, `groups`,
 `discovery`, `server`), with what the next start brings beside it (`next`); a protocol turned `OFF` takes no new work of it from
 then on, whichever verb asks (INPUT ADD, INPUT BACKUP, SEND ADD, SEND ENABLE ON, or an `ADD`/`SET` that adds or enables one:
-"OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it"), and preflight and the context go amber. `SPOUT` is refused
-on a node with no Spout provider. Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
+"OMT is off from the next engine start — VIDEOIO SET OMT ON keeps it"; a live item's backup counts), and preflight and the context
+go amber. `SPOUT` is kept for the Spout package, which reads it when it registers; on a node with no Spout provider the effect says
+so. Refused when unchanged. The settings are the node's (`NodeSettings.VideoIo`), not the show's.
 
 Generic verbs keep working: `SET md… live {"pacing":"smooth"}`, `SET sd… width 1280`, `REMOVE sd…`, `REMOVE md…`, `ADD send {…}`.
 The checks refuse a send name outside 1–48 printable characters, an enabled send whose tap is empty, does not parse or names nothing
@@ -111,8 +112,9 @@ Top level `videoio` (after `decode`):
   blacked out, `preview` when it was drawn otherwise (the desk's editor and projector views, any other consumer that holds the
   input) or under a blackout; it is told to the sender on change, and the feed not in use is told it is on nothing.
 - `ndi` / `omt` say what runs (the state, groups, discovery and server the runtime started with); `next` what `VIDEOIO SET` asked
-  for the next start. A ready runtime may still have words: NDI's configuration could not be written, so its discovery server and
-  groups are not applied.
+  for the next start. A ready runtime may still have words, and preflight shows them amber: NDI's configuration could not be
+  written, so its discovery server is not applied and this node's other NDI tools do not get its groups (its own finder and senders
+  still use them).
 - A send's `state`: `sending` (frames go out), `idle` (no receiver, `onlyWhenWatched`), `off`, `failed` (`words`: no runtime, a tap
   with nothing behind it, a refused sender, a packed target larger than this GPU's textures, a GPU protocol whose stage this node
   does not run), `starting`. `skippedUnwatched` counts frames not packed because nobody watched.

@@ -326,14 +326,14 @@ public sealed class PackUnpackTests(GlFixture gl)
     }
 
     /// <summary>The air's levels a test sets: one gain, one safe look and one hold for every output, or one per output by id.</summary>
-    private sealed class FixedLevels(float gain, SourceRef? safe = null, bool hold = false, Dictionary<string, (float Gain, SourceRef? Safe)>? per = null)
-        : IAirLevels
+    private sealed class FixedLevels(float gain, SourceRef? safe = null, bool hold = false,
+        Dictionary<string, (float Gain, SourceRef? Safe)>? per = null, HashSet<string>? holds = null) : IAirLevels
     {
         public float Gain(string outputId, long leaderNs) => per is not null && per.TryGetValue(outputId, out var p) ? p.Gain : gain;
 
         public SourceRef? Override(string outputId, long leaderNs) => per is not null && per.TryGetValue(outputId, out var p) ? p.Safe : safe;
 
-        public bool Hold(string outputId, long leaderNs) => hold;
+        public bool Hold(string outputId, long leaderNs) => holds?.Contains(outputId) ?? hold;
     }
 
     [Fact]
@@ -365,9 +365,13 @@ public sealed class PackUnpackTests(GlFixture gl)
             var passes = ImmutableArray.Create<IFramePass>(stage);
             var i = 0L;
             // One frame of the 60 Hz grid with the air as given; answers the canvas send's centre pixel (B, G, R, A).
-            byte[] Frame(Project p, IAirLevels? levels = null, bool blackout = false, SourceRef? pattern = null, int x = w / 2)
+            byte[] Frame(Project p, IAirLevels? levels = null, bool blackout = false, SourceRef? pattern = null, int x = w / 2,
+                ImmutableArray<string> patternOn = default, bool freeze = false)
             {
-                var inputs = Scene.Inputs(p) with { Passes = passes, Levels = levels, Blackout = blackout, PatternOverride = pattern };
+                var inputs = Scene.Inputs(p) with
+                {
+                    Passes = passes, Levels = levels, Blackout = blackout, PatternOverride = pattern, PatternOutputs = patternOn, Freeze = freeze,
+                };
                 i++;
                 engine.Render(inputs with { LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
                 c.Device.Finish();
@@ -412,6 +416,17 @@ public sealed class PackUnpackTests(GlFixture gl)
             var changed = project with { Canvases = [Card("#40C040")] };
             Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frame(changed, new FixedLevels(1f, hold: true)));
             Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(changed));
+            // FREEZE on op_1 while op_3 is panicked BLACK: no output shows the live show at any brightness, so neither does the send.
+            var frozenAndBlack = new FixedLevels(1f, per: new() { ["op_3"] = (0f, null) }, holds: ["op_1"]);
+            Assert.Equal([0, 0, 0, 0xFF], Frame(changed, frozenAndBlack));
+            // FREEZE on every output, then a safe look on every output: the outputs keep their frozen picture, and so does the send.
+            Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(changed));
+            Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(changed, freeze: true));
+            Assert.Equal([0x40, 0xC0, 0x40, 0xFF], Frame(project, new FixedLevels(1f, SourceRef.Solid("#FF0000")), freeze: true));
+            // A pattern on op_1 only while op_3 is black: dark; a pattern that names every output: the pattern.
+            Assert.Equal([0, 0, 0, 0xFF], Frame(changed, new FixedLevels(1f, per: new() { ["op_3"] = (0f, null) }), pattern: SourceRef.Solid("#00FF00"),
+                patternOn: ["op_1"]));
+            Assert.Equal([0x00, 0xFF, 0x00, 0xFF], Frame(changed, pattern: SourceRef.Solid("#00FF00"), patternOn: ["op_1", "op_3"]));
             Assert.Empty(c.Device.TakeErrors());
         });
     }
@@ -454,12 +469,14 @@ public sealed class PackUnpackTests(GlFixture gl)
         Assert.True(entry.Due(At(100.5)));
         Assert.False(entry.Due(At(100.7)));
         Assert.True(entry.Due(At(101.5)));
-        // A frame or two back is jitter: nothing is sent again.
+        // Back within a tenth of a second (six frames at 60) is jitter: nothing is sent again.
         Assert.False(entry.Due(At(99.5)));
-        // Time stepped back further (a leader with an earlier epoch): the grid re-arms at once, and runs on from there.
-        Assert.True(entry.Due(At(40.5)));
-        Assert.False(entry.Due(At(40.6)));
-        Assert.True(entry.Due(At(41.5)));
+        Assert.False(entry.Due(At(96.5)));
+        // Back further (a leader with an earlier epoch), even a sixth of a second: the grid re-arms at once, and runs on from there.
+        Assert.True(entry.Due(At(91.5)));
+        Assert.False(entry.Due(At(91.6)));
+        Assert.True(entry.Due(At(92.5)));
+        Assert.Equal(100_000_000, SendPlanEntry.RearmNs);
     }
 
     [Fact]
