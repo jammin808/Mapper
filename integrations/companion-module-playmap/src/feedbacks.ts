@@ -44,6 +44,8 @@ export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
 	event_pulse: ['events'],
 	slot_empty: ['live', 'playlists', 'outputs', 'projectors', 'peers', 'faults', 'index', 'show'],
 	slot_hint: ['live'],
+	slot_light: ['live', 'playlists', 'outputs', 'projectors', 'peers', 'faults', 'index', 'show', 'link'],
+	section_light: ['state', 'index', 'link'],
 	label: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
 	light: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
 	state_word: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
@@ -446,6 +448,35 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			options: liveSlotOptions(),
 			defaultStyle: { ...style('amber'), text: 'HOLD' },
 			callback: (fb) => ctx.live.hinted(ctx.live.source(fb.options.rule), num(Number(fb.options.n), 0)),
+		},
+		slot_light: {
+			type: 'boolean',
+			name: "Live: a slot's light is",
+			description: 'The light the slot shows (grey while the link is not live): a simple key wears it as its ground',
+			options: [
+				...liveSlotOptions(),
+				{ type: 'dropdown', id: 'light', label: 'Light', default: 'green', choices: LIGHTS },
+			],
+			defaultStyle: style('green'),
+			callback: (fb) => {
+				const s = slotOf(ctx, fb.options)
+				return linkLive() && s !== null && s.light === text(fb.options.light)
+			},
+		},
+		section_light: {
+			type: 'boolean',
+			name: "Section: a package section key's light is",
+			description: "The light the key shows (its hint's STATE light, else its row's; grey while the link is not live)",
+			options: [
+				{ type: 'textinput', id: 'section', label: 'Section', default: '' },
+				{ type: 'textinput', id: 'row', label: 'Row id', default: '' },
+				{ type: 'number', id: 'key', label: 'Key (0-based)', default: 0, min: 0, max: 32 },
+				{ type: 'dropdown', id: 'light', label: 'Light', default: 'green', choices: LIGHTS },
+			],
+			defaultStyle: style('green'),
+			callback: (fb) =>
+				sectionValue(ctx, text(fb.options.section), text(fb.options.row), num(Number(fb.options.key), 0)) ===
+				text(fb.options.light),
 		},
 		label: {
 			type: 'value',

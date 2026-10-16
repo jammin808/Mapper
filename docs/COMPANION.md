@@ -194,7 +194,8 @@ slot are pressed as the stronger of their hint's press and their line's; a Live 
 after the current in list order, the first when idle — not STATE's `next`, which follows the item's end action; `next` says the same
 item. The double-GO guard holds a second GO of a playlist within `min_go_ms`; the node keeps its own minimum too.
 
-**Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default) and typed values a layered key binds through
+**Feedbacks** are booleans for lights and trigger conditions (Patterns' colours by default; `section_light` and `slot_light` are a
+section key's and a Live slot's light word) and typed values a layered key binds through
 `$(this:value)` style overrides: label, light, state word, progress, time left, picture, score, any STATE path, a Live slot, a section
 key's value, the focused playlist. A score (and `cal_score`, the worst target's) is 0-100 points, higher better: a calibration
 target's `unit` says its scale, and a `px` score (lower better), like a solve's residual, reads piecewise through the node's grade
@@ -207,7 +208,9 @@ reads WHOAMI's `may`.
 
 **Presets** are fixed for a config and never change with the show; only the structure does. Template groups are keyed by entity id
 (`pl.<id>` lists a playlist's items), so a linked key follows its item through renames and reorders. Every preset is an `alternatives`
-pair — a layered key, then a simple one for a host that cannot draw it — and passes the host's sanitiser unchanged. Keys breathe with
+pair — a layered key, then a simple one for a host that cannot draw it, which wears the layered key's light as its ground through
+boolean feedbacks (an item on the air green, next or cued amber; a playlist playing green, paused or cued amber; an output's,
+projector's, machine's, section key's or Live slot's light word in its colour) — and passes the host's sanitiser unchanged. Keys breathe with
 no traffic, in Companion's own expressions: Show Mode's frame on `oscillate(2000)` while armed, the headline's mark on `blink(500)` while
 a fault stands, the Beat key on `oscillate(60000 / bpm, 'square')`, a projector's ground in `colorMix` from red to green by its score. A package's INDEX
 section becomes a preset section from its hint: for each key, a template group per press over the rows pressed at it — a row at

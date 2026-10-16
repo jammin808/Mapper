@@ -722,6 +722,83 @@ function actionsIn(value: unknown): { actionId: string; storeResult?: unknown }[
 	return out
 }
 
+void test('a simple key shows the light its layered key frames: on air green, next and cued amber, a light word in its colour', () => {
+	interface Simple {
+		type: string
+		feedbacks: { feedbackId: string; options?: Record<string, unknown>; style?: Record<string, unknown> }[]
+	}
+	const defs = presetDefinitions({}) as Record<string, { variants: Simple[] }>
+	const lit = (colour: string): Record<string, unknown> => ({
+		bgcolor: rgbOf(colour),
+		color: rgbOf(colour === 'amber' ? 'ink' : 'white'),
+	})
+	const words = (feedbackId: string, options: Record<string, unknown>): [string, Record<string, unknown>, string][] =>
+		(['green', 'amber', 'red'] as const).map((light) => [feedbackId, { ...options, light }, light])
+	const section = { section: local('section'), row: local('row'), key: local('key') }
+	const expected: Record<string, [string, Record<string, unknown>, string][]> = {
+		item_key: [
+			['item_on_air', { item: local('item') }, 'green'],
+			['item_next', { item: local('item') }, 'amber'],
+			['item_cued', { item: local('item') }, 'amber'],
+		],
+		playlist_key: [
+			['playlist_state', { playlist: local('playlist'), state: 'playing' }, 'green'],
+			['playlist_state', { playlist: local('playlist'), state: 'paused' }, 'amber'],
+			['playlist_state', { playlist: local('playlist'), state: 'cued' }, 'amber'],
+		],
+		output_key: words('output_light', { output: local('output') }),
+		projector_key: words('projector_light', { projector: local('projector') }),
+		peer_key: words('peer_light', { peer: local('peer') }),
+		section_key_instant: words('section_light', section),
+		section_key_hold: words('section_light', section),
+		section_key_double: words('section_light', section),
+		live_slot: words('slot_light', { rule: expr('$(page:pm_live)'), n: local('n') }),
+	}
+	for (const [id, lights] of Object.entries(expected)) {
+		const simple = defs[id]?.variants.find((v) => v.type === 'simple')
+		assert.ok(simple, `${id} has a simple variant`)
+		const shown = simple.feedbacks
+			.filter((f) => lights.some(([fid]) => fid === f.feedbackId))
+			.map((f) => [f.feedbackId, f.options, f.style])
+		assert.deepEqual(
+			shown,
+			lights.map(([fid, options, colour]) => [fid, options, lit(colour)]),
+			`${id} (simple) wears its light`,
+		)
+		// The light is the key's ground: a failed press and a stale link still win over it.
+		const at = (fid: string): number => simple.feedbacks.findIndex((f) => f.feedbackId === fid)
+		const last = Math.max(...lights.map(([fid]) => at(fid)))
+		assert.ok(last < at('stale'), `${id}: stale wins over the light`)
+		if (at('receipt') >= 0) assert.ok(last < at('receipt'), `${id}: a failed press wins over the light`)
+	}
+})
+
+void test('section_light and slot_light are a section key’s and a Live slot’s light as booleans, grey once the link is down', async () => {
+	const { node, m } = await linked()
+	try {
+		// The INDEX fixture: the show section's SHOW DISARM row is green, SHOW ARM grey; slot 2 of section:show is SHOW DISARM.
+		await m.place('disarm-green', 'section_light', { section: 'show', row: 'SHOW DISARM', key: 0, light: 'green' })
+		await m.place('arm-green', 'section_light', { section: 'show', row: 'SHOW ARM', key: 0, light: 'green' })
+		await m.place('slot2-green', 'slot_light', { rule: 'section:show', n: 2, light: 'green' })
+		await m.place('slot1-green', 'slot_light', { rule: 'section:show', n: 1, light: 'green' })
+		await m.place('slot2-red', 'slot_light', { rule: 'section:show', n: 2, light: 'red' })
+		await values(
+			m,
+			{ 'disarm-green': true, 'arm-green': false, 'slot2-green': true, 'slot1-green': false, 'slot2-red': false },
+			'the rows’ lights from INDEX',
+		)
+		for (const s of [...node.sessions]) s.close(1001)
+		await values(
+			m,
+			{ 'disarm-green': false, 'arm-green': false, 'slot2-green': false, 'slot1-green': false, 'slot2-red': false },
+			'no light once the link is not live',
+		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('an INDEX of 500 items in 20 playlists is variables, actions, feedbacks and presets within 100 ms (design 3.8)', async () => {
 	const big = (sig: string, trial: number): IndexJson => {
 		const doc = copy(fixture('index.json') as IndexJson)

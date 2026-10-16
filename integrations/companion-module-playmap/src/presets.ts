@@ -29,6 +29,13 @@ const expr = (value: string): ExprValue => ({ isExpression: true, value })
 const local = (name: string): ExprValue => expr(`$(local:${name})`)
 const THIS_VALUE = expr('$(this:value)')
 
+/** A light word's boolean feedback in each of its colours (green, amber, red; grey leaves the ground as it is). */
+const lightWords = (
+	feedbackId: string,
+	options: CompanionOptionValues,
+): { feedbackId: string; options: CompanionOptionValues; colour: string }[] =>
+	(['green', 'amber', 'red'] as const).map((light) => ({ feedbackId, options: { ...options, light }, colour: light }))
+
 /** How a key is pressed: at once on the down; held 0.8 s (the action runs while held); or held twice within 3 s. */
 export type PressShape = 'instant' | 'hold' | 'double'
 
@@ -66,6 +73,13 @@ interface KeySpec {
 		readonly colour: string
 	}[]
 	readonly ground?: string
+	/** The light, for a host that draws only simple keys: boolean feedbacks each colouring the ground as the layered key's frame
+	 * shows the same state through `light`. */
+	readonly lights?: readonly {
+		readonly feedbackId: string
+		readonly options: CompanionOptionValues
+		readonly colour: string
+	}[]
 	readonly press: PressShape
 	readonly action?: PresetAction
 	readonly steps?: CompanionButtonStepActions[]
@@ -375,7 +389,7 @@ function simple(spec: KeySpec): CompanionSimplePresetDefinition {
 		})
 	if (spec.press !== 'instant') text = text + (spec.press === 'double' ? ' (×2)' : ' (hold)')
 	const feedbacks: SomePresetSimpleFeedbackEntry[] = []
-	for (const g of spec.grounds ?? [])
+	for (const g of [...(spec.lights ?? []), ...(spec.grounds ?? [])])
 		feedbacks.push({
 			feedbackId: g.feedbackId,
 			options: g.options,
@@ -634,6 +648,11 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		label: { feedbackId: 'label', options: { ref: local('item') } },
 		thumb: { feedbackId: 'thumb', options: { ref: local('item'), size: thumbSize } },
 		light: { feedbackId: 'light', options: { ref: local('item') } },
+		lights: [
+			{ feedbackId: 'item_on_air', options: { item: local('item') }, colour: colourOf('item', 'air') },
+			{ feedbackId: 'item_next', options: { item: local('item') }, colour: colourOf('item', 'next') },
+			{ feedbackId: 'item_cued', options: { item: local('item') }, colour: colourOf('item', 'cued') },
+		],
 		gauge: { feedbackId: 'progress', options: { playlist: local('playlist'), item: local('item') }, ring: false },
 		press: 'instant',
 		action: { actionId: actionIdOf('PLAYLIST GO'), options: { playlist: local('playlist'), item: local('item') } },
@@ -648,6 +667,11 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		label: { feedbackId: 'label', options: { ref: local('playlist') } },
 		thumb: { feedbackId: 'thumb', options: { ref: local('playlist'), size: thumbSize } },
 		light: { feedbackId: 'light', options: { ref: local('playlist') } },
+		lights: (['playing', 'paused', 'cued'] as const).map((state) => ({
+			feedbackId: 'playlist_state',
+			options: { playlist: local('playlist'), state },
+			colour: colourOf('playlist', state),
+		})),
 		gauge: { feedbackId: 'progress', options: { playlist: local('playlist'), item: '' }, ring: false },
 		press: 'instant',
 		action: { actionId: 'go_focused', options: { playlist: local('playlist'), expect: true } },
@@ -663,6 +687,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		label: { feedbackId: 'label', options: { ref: local('output') } },
 		sub: { feedbackId: 'state_word', options: { ref: local('output') } },
 		light: { feedbackId: 'light', options: { ref: local('output') } },
+		lights: lightWords('output_light', { output: local('output') }),
 		press: 'hold',
 		action: { actionId: actionIdOf('OUTPUT IDENTIFY'), options: { output: local('output') } },
 		receipt: true,
@@ -675,6 +700,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		label: { feedbackId: 'label', options: { ref: local('projector') } },
 		sub: { feedbackId: 'state_word', options: { ref: local('projector') } },
 		light: { feedbackId: 'light', options: { ref: local('projector') } },
+		lights: lightWords('projector_light', { projector: local('projector') }),
 		gauge: { feedbackId: 'score', options: { projector: local('projector') }, ring: true, max: 100 },
 		feedbackLocals: [{ name: 'score', feedbackId: 'score', options: { projector: local('projector') } }],
 		breathe: [
@@ -707,6 +733,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		label: { feedbackId: 'label', options: { ref: local('peer') } },
 		sub: { feedbackId: 'state_word', options: { ref: local('peer') } },
 		light: { feedbackId: 'light', options: { ref: local('peer') } },
+		lights: lightWords('peer_light', { peer: local('peer') }),
 		press: 'instant',
 		receipt: false,
 	})
@@ -746,6 +773,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 		sub: { feedbackId: 'slot', options: { ...slot, field: 'sub' } },
 		thumb: { feedbackId: 'slot', options: { ...slot, field: 'thumb' } },
 		light: { feedbackId: 'slot', options: { ...slot, field: 'light' } },
+		lights: lightWords('slot_light', slot),
 		press: 'instant',
 		// An instant slot sends on the down (PANIC and GO are never held); a held one at 800 ms (twice for a double); a short press of
 		// a held one says HOLD on the release.
@@ -848,6 +876,7 @@ export function presetDefinitions(config: PlayMapConfig): CompanionPresetDefinit
 				feedbackId: 'section_value',
 				options: { section: local('section'), row: local('row'), key: local('key') },
 			},
+			lights: lightWords('section_light', { section: local('section'), row: local('row'), key: local('key') }),
 			press,
 			action: {
 				actionId: 'section_press',
