@@ -38,8 +38,9 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 - **Maps.** `LIGHT WALL` and a pixel quad from four clicks on the wall, with the edit overlay drawn through the output's warp;
   structured-light scans with a capture camera, a phone (the node serves the camera page itself, joined by a one-time invite)
   or the simulator; click-to-surface, pins, masks, lattices and 3D blends;
-  camera auto-align of projectors on a flat screen; one explainable score for every calibration, kept in a ledger with a
-  fallback. Core also solves many camera views of many projectors together into depth maps and a merged mesh.
+  camera auto-align of projectors on a flat screen, with a white match between projectors and `ALIGN SCORE`; a projector that
+  moved is re-solved from a camera's view of dots, its pins, quads and blend re-seated; one explainable score for every
+  calibration, kept in a ledger with a fallback, and a guard against a projector's own processing correcting twice. Core also solves many camera views of many projectors together into depth maps and a merged mesh.
 - **Drives LEDs.** Fixtures laid on a canvas, an output, a surface or a source sample its picture in linear light every frame
   and leave as Art-Net 4, sACN or DDP, latched with the projection; patching with an overlap check and a bandwidth guard, test
   patterns and locate, all by verb. The rig follows the air: dark under blackout, black and terminated when the node stops,
