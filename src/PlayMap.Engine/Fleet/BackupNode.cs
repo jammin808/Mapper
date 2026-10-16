@@ -32,6 +32,10 @@ public sealed record BackupOptions
 
     /// <summary>A route step's deadline (a projector that does not answer by then is "unreached").</summary>
     public TimeSpan RouteWait { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a primary that starts with hot backups waits, on its own clock, to hear them before its LED data, sends and
+    /// sound go out (one may have taken the show while it was away): six seconds, when the fleet's board calls a machine gone.</summary>
+    public TimeSpan HearBackups { get; init; } = TimeSpan.FromSeconds(6);
 }
 
 /// <summary>A takeover or a hand-back as STATE's <c>fleet.last</c> and the journal tell it.</summary>
@@ -105,6 +109,8 @@ public sealed class BackupNode : IAsyncDisposable
     private int _missingFiles;
     private int _disposed;
     private volatile bool _joiningAir;
+    private volatile bool _hearing;
+    private readonly long _hearSinceNs;
 
     /// <summary>What a stopping node says to a pull asked of it.</summary>
     internal const string StoppingWords = "the node is stopping — no pull starts";
@@ -120,6 +126,10 @@ public sealed class BackupNode : IAsyncDisposable
         _settings = setup.Settings.Fleet;
         _log = setup.Logs?.CreateLogger("PlayMap.Engine.Fleet") ?? NullLogger.Instance;
         Gains = new FenceGains(null) { Held = _settings.Role == FleetRoles.Fenced };
+        // A primary that starts with backups may have lost its show to one of them while it was away: nothing goes out beside its
+        // outputs until it has heard them (it cannot hear them without the fleet's monitor).
+        _hearing = _settings.Role == FleetRoles.Primary && !_settings.Backups.IsDefaultOrEmpty && setup.Settings.Fleet.Monitor;
+        _hearSinceNs = setup.Mono.NowNs;
         Feed.MembersChanged += OnMembersChanged;
     }
 
@@ -142,19 +152,21 @@ public sealed class BackupNode : IAsyncDisposable
     /// <summary>The last takeover, hand-back or promotion here (null before any).</summary>
     public TakeoverRecord? Last => _last;
 
-    /// <summary>What this node may put on the network beside its own outputs (its LED data, its sends): silent while it joins a
-    /// primary's mirror and while it backs one up, held black while fenced, live otherwise.</summary>
+    /// <summary>What this node may put out beside its own outputs (its LED data, its sends, its sound): silent while it joins a
+    /// primary's mirror, while it backs one up and while a primary that has just started listens for its backups; held black while
+    /// fenced; live otherwise.</summary>
     public NetworkAir Air => AirOf(_settings, _joiningAir);
 
-    /// <summary>Why this node's LED data and sends go out nowhere now ("" while they go out).</summary>
+    /// <summary>Why this node's LED data, sends and sound go out nowhere now ("" while they go out).</summary>
     public string AirWords => AirWordsOf(_settings, _joiningAir);
 
-    private static NetworkAir AirOf(FleetSettings s, bool joining) =>
-        joining && s.Role is FleetRoles.Solo or FleetRoles.Primary ? NetworkAir.Silent : FleetRoles.AirOf(s.Role);
+    private NetworkAir AirOf(FleetSettings s, bool joining) =>
+        (joining || _hearing) && s.Role is FleetRoles.Solo or FleetRoles.Primary ? NetworkAir.Silent : FleetRoles.AirOf(s.Role);
 
     private string AirWordsOf(FleetSettings s, bool joining) => AirOf(s, joining) switch
     {
         NetworkAir.Silent when s.Role == FleetRoles.Backup => $"silent: {SelfName} is a hot backup of {Label(s.Of)} — it sends at FAILOVER",
+        NetworkAir.Silent when !joining => $"silent while {SelfName} listens for its hot backup{(s.Backups.Length == 1 ? "" : "s")} ({string.Join(", ", s.Backups.Select(Label))}): one may have taken the show while it was away",
         NetworkAir.Silent => $"silent while {SelfName} joins {(_primaryName.Length > 0 ? _primaryName : "a primary")} as its hot backup",
         NetworkAir.Held => $"held black: {SelfName} is fenced ({Label(s.Of)} has the show) — FLEET BACKUP {Label(s.Of)} to mirror it",
         _ => "",
@@ -1301,6 +1313,35 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
+    /// <summary>A primary that started with hot backups puts nothing out beside its outputs until it has heard each of them, none
+    /// saying it took this node's show (one that did, under a higher epoch, fences this node in <see cref="LookAsync"/>: it then never
+    /// sent), or until its own clock has given them <see cref="BackupOptions.HearBackups"/>.</summary>
+    private void Hear(EngineCore engine)
+    {
+        if (!_hearing)
+            return;
+        var s = _settings;
+        var peers = engine.Services.FleetPeers?.Peers() ?? [];
+        var them = s.Backups.Length == 1 ? "its hot backup" : "its hot backups";
+        string words;
+        if (s.Role != FleetRoles.Primary)
+            words = "";
+        else if (s.Backups.All(b => peers.Any(p => p.Id == b && p.Heard == FleetHeard.Live && p.Health?.Facts is { } f && !(f.Role == FleetRoles.Primary && f.Of == SelfId))))
+            words = $"{SelfName} heard {them} ({string.Join(", ", s.Backups.Select(Label))}): it has the show — its LED data, sends and sound go out";
+        else if (_setup.Mono.NowNs - _hearSinceNs >= (long)_o.HearBackups.TotalNanoseconds)
+            words = string.Create(CultureInfo.InvariantCulture, $"{SelfName} did not hear {them} ({string.Join(", ", s.Backups.Select(Label))}) within {_o.HearBackups.TotalSeconds:0.#} s: it has the show — its LED data, sends and sound go out");
+        else
+            return;
+        lock (_settingsGate)
+        {
+            _hearing = false;
+            MoveAir(_settings, _joiningAir);
+        }
+        if (words.Length > 0)
+            engine.Journal.Add("fleet", words);
+        engine.FactsChanged();
+    }
+
     /// <summary>True once the node's hello names the clock port it answers on (a node that has just begun to lead says so in its next
     /// hello); false when it does not within two seconds.</summary>
     private async Task<bool> LeadsHeardAsync(string nodeId, CancellationToken ct)
@@ -1332,6 +1373,7 @@ public sealed class BackupNode : IAsyncDisposable
                 if (_engine is not { } engine || engine.Stopping)
                     continue;
                 await LookAsync(engine).ConfigureAwait(false);
+                Hear(engine);
                 await KeepFollowingAsync(engine).ConfigureAwait(false);
                 await RepullAsync(engine).ConfigureAwait(false);
                 var mirror = Mirror()?.State ?? "";
