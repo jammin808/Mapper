@@ -71,6 +71,10 @@ runs at a time, oldest first, through the worker:
   folder is swept of every partial whose job is not running — whenever a worker's end is reported, and when a worker replaced on its
   way out has gone (on Windows a killed worker's files can be deleted only then). A clean stop of the node leaves a running job
   queued for its next start.
+- **The stop.** The service closes before it stops its worker: a worker's line or end, a sweep, a line or a step that comes later
+  does nothing, and the work begun before it (a write of the queue, a recording, a plan) ends first — a recording the stop cuts
+  short leaves its job verifying, queued again at the next start. Once the stop is over nothing writes the queue or the work
+  folder.
 - **The import hook.** When an import's probe lands (an item gains its content hash), the item is planned under the project's mode.
 
 ## The governor

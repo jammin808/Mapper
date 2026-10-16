@@ -69,7 +69,12 @@ public sealed class OptimiseService : IAsyncDisposable
     private long _ledLateSteps;
     private readonly Dictionary<string, Ready> _awaiting = new(StringComparer.Ordinal);
     private readonly HashSet<string> _retrying = new(StringComparer.Ordinal);
-    private bool _disposed;
+
+    // Closed (under the gate) once the service stops: nothing starts after it, and _busy counts the work begun before it that may
+    // still write the queue or the work folder; _quiet is set when the last of it has ended.
+    private bool _closed;
+    private int _busy;
+    private readonly TaskCompletionSource _quiet = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly HashSet<string> _recording = new(StringComparer.Ordinal);
     private string _gl = "";
     private string _encoder = "";
@@ -88,7 +93,7 @@ public sealed class OptimiseService : IAsyncDisposable
         _worker = new OptimiseSupervisor(_options, log);
         _worker.Event += OnEvent;
         _worker.Exited += OnExited;
-        _worker.LetGo += SweepWork;
+        _worker.LetGo += OnLetGo;
         _worker.Stuck += OnStuck;
         _governor = new Governor(new GovernorSettings(_settings.TrickleGpuDuty, _settings.TrickleDiskMbps, _settings.PauseAfterDropS, Environment.ProcessorCount));
         SweepWork();
@@ -144,21 +149,44 @@ public sealed class OptimiseService : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(items);
         var engine = _engine ?? throw new InvalidOperationException("the optimise service is not attached");
-        var settings = engine.Store.Project.Optimise;
-        var outcomes = new List<OptimiseOutcome>();
-        foreach (var item in items)
+        if (!Enter())
+            return [.. items.Select(i => new OptimiseOutcome(i.Id, null, StoppingWords))];
+        try
         {
-            var (plan, why) = Plan(engine, item, to, quality, settings with { Mode = OptimiseMode.Auto });
-            outcomes.Add(plan is null ? new OptimiseOutcome(item.Id, null, why) : Queue(item, plan));
+            var settings = engine.Store.Project.Optimise;
+            var outcomes = new List<OptimiseOutcome>();
+            foreach (var item in items)
+            {
+                var (plan, why) = Plan(engine, item, to, quality, settings with { Mode = OptimiseMode.Auto });
+                outcomes.Add(plan is null ? new OptimiseOutcome(item.Id, null, why) : Queue(item, plan));
+            }
+            Kick();
+            return outcomes;
         }
-        Kick();
-        return outcomes;
+        finally
+        {
+            Leave();
+        }
     }
 
     /// <summary>Cancels a job (or every unfinished one): a queued job leaves the queue, a running one stops (its worker is killed)
     /// and its partial file is deleted — at once, or, while the killed worker still holds it, by the sweep once that worker has
     /// gone. Answers the jobs cancelled.</summary>
     public IReadOnlyList<string> Cancel(string jobOrAll)
+    {
+        if (!Enter())
+            return [];
+        try
+        {
+            return CancelOpen(jobOrAll);
+        }
+        finally
+        {
+            Leave();
+        }
+    }
+
+    private List<string> CancelOpen(string jobOrAll)
     {
         var cancelled = new List<string>();
         var all = string.Equals(jobOrAll, "ALL", StringComparison.OrdinalIgnoreCase);
@@ -194,6 +222,20 @@ public sealed class OptimiseService : IAsyncDisposable
 
     /// <summary>Holds (or releases) a job, or every unfinished one: answers the jobs whose hold changed.</summary>
     public IReadOnlyList<string> Hold(string jobOrAll, bool paused)
+    {
+        if (!Enter())
+            return [];
+        try
+        {
+            return HoldOpen(jobOrAll, paused);
+        }
+        finally
+        {
+            Leave();
+        }
+    }
+
+    private List<string> HoldOpen(string jobOrAll, bool paused)
     {
         var changed = new List<string>();
         var all = string.Equals(jobOrAll, "ALL", StringComparison.OrdinalIgnoreCase);
@@ -300,7 +342,7 @@ public sealed class OptimiseService : IAsyncDisposable
         var settings = snapshot.Project.Optimise;
         if (fresh.Count == 0 || settings.Mode != OptimiseMode.Auto)
             return;
-        _ = Task.Run(() =>
+        Beside(() =>
         {
             foreach (var item in fresh)
             {
@@ -312,7 +354,8 @@ public sealed class OptimiseService : IAsyncDisposable
                 }
             }
             Kick();
-        }, CancellationToken.None);
+            return Task.CompletedTask;
+        });
     }
 
     // ---- the loop -----------------------------------------------------------------------------------------------------------
@@ -351,8 +394,20 @@ public sealed class OptimiseService : IAsyncDisposable
     /// lets work run and nothing runs.</summary>
     internal void StepOnce()
     {
-        if (_engine is not { } engine)
+        if (_engine is not { } engine || !Enter())
             return;
+        try
+        {
+            Step(engine);
+        }
+        finally
+        {
+            Leave();
+        }
+    }
+
+    private void Step(EngineCore engine)
+    {
         var now = engine.Services.Mono.NowNs;
         RetryAwaiting(engine);
         long dropped = 0;
@@ -499,7 +554,21 @@ public sealed class OptimiseService : IAsyncDisposable
 
     // ---- the worker's lines ---------------------------------------------------------------------------------------------------
 
-    private void OnEvent(WorkerEvent e)
+    internal void OnEvent(WorkerEvent e)
+    {
+        if (!Enter())
+            return;
+        try
+        {
+            Take(e);
+        }
+        finally
+        {
+            Leave();
+        }
+    }
+
+    private void Take(WorkerEvent e)
     {
         switch (e.Kind)
         {
@@ -531,7 +600,7 @@ public sealed class OptimiseService : IAsyncDisposable
                     }
                 }
                 if (mine)
-                    _ = Task.Run(() => RecordAsync(e), CancellationToken.None);
+                    Beside(() => RecordAsync(e));
                 Changed();
                 break;
             case "failed":
@@ -545,7 +614,21 @@ public sealed class OptimiseService : IAsyncDisposable
         }
     }
 
-    private void OnExited(int code, bool expected)
+    internal void OnExited(int code, bool expected)
+    {
+        if (!Enter())
+            return;
+        try
+        {
+            Ended(code, expected);
+        }
+        finally
+        {
+            Leave();
+        }
+    }
+
+    private void Ended(int code, bool expected)
     {
         string? job;
         lock (_gate)
@@ -592,6 +675,21 @@ public sealed class OptimiseService : IAsyncDisposable
             Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture, $"the optimise worker stopped (exit code {code}) during {job}"), false);
         Changed();
         Kick();
+    }
+
+    /// <summary>A worker replaced on its way out has gone: what it held is swept.</summary>
+    internal void OnLetGo()
+    {
+        if (!Enter())
+            return;
+        try
+        {
+            SweepWork();
+        }
+        finally
+        {
+            Leave();
+        }
     }
 
     /// <summary>A killed worker that has not gone: the node goes on without it; what it holds is deleted once it is let go (a sweep
@@ -643,9 +741,14 @@ public sealed class OptimiseService : IAsyncDisposable
             media?.AddVerified(hash, dest, job.Name + " (" + job.To + ").mov");
             await RecordStepAsync(new Ready(job, hash, size, probe.Info, q, e.Audio, _encoder));
         }
+        catch (OperationCanceledException ex) when (_stop.IsCancellationRequested)
+        {
+            // The node is going: the job stays verifying on disk and is queued again when the node next starts.
+            _log.LogDebug(ex, "The recording of {Job} stopped with the node.", job.Id);
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Whatever stopped the recording (a disk, a probe, the node going) fails the job with its words, never leaves it verifying.
+            // Whatever else stopped the recording (a disk, a probe) fails the job with its words, never leaves it verifying.
             Finish(job.Id, JobStates.Failed, "the version could not be recorded: " + ex.Message);
         }
     }
@@ -742,7 +845,7 @@ public sealed class OptimiseService : IAsyncDisposable
                 _awaiting.Remove(r.Job.Id);
         }
         foreach (var r in retry)
-            _ = Task.Run(() => RecordStepAsync(r), CancellationToken.None);
+            Beside(() => RecordStepAsync(r));
     }
 
     private bool Verifying(string jobId)
@@ -826,18 +929,68 @@ public sealed class OptimiseService : IAsyncDisposable
         _engine?.FactsChanged();
     }
 
+    /// <summary>What a request answers once the service has stopped.</summary>
+    internal const string StoppingWords = "the node is stopping — no optimise job is queued";
+
+    /// <summary>Begins work that may write the queue or the work folder: false once the service has closed (nothing starts after
+    /// its stop). Each true is matched by one <see cref="Leave"/>.</summary>
+    private bool Enter()
+    {
+        lock (_gate)
+        {
+            if (_closed)
+                return false;
+            _busy++;
+            return true;
+        }
+    }
+
+    private void Leave()
+    {
+        lock (_gate)
+        {
+            if (--_busy == 0 && _closed)
+                _quiet.TrySetResult();
+        }
+    }
+
+    /// <summary>Work beside the caller (a recording, a plan), counted as begun from now: none once the service has closed.</summary>
+    private void Beside(Func<Task> work)
+    {
+        if (!Enter())
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await work();
+            }
+            finally
+            {
+                Leave();
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>Stops the service: closed first, so a line, a step, a worker's line or end and a sweep that come later do nothing;
+    /// then it waits for the work begun before (each write of the queue is whole, under the gate), so nothing writes the queue or
+    /// the work folder once this returns. A running job stays "encoding" on disk and is queued again when the node next starts.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
-            return;
-        _disposed = true;
+        lock (_gate)
+        {
+            if (_closed)
+                return;
+            _closed = true;
+            if (_busy == 0)
+                _quiet.TrySetResult();
+        }
         if (_engine is { } engine)
             engine.Store.Changed -= OnProjectChanged;
-        // The node is going: its worker's last words (a job it was told to stop) are not the job's end. A running job stays
-        // "encoding" on disk and is queued again when the node next starts.
+        // The node is going: its worker's last words (a job it was told to stop) are not the job's end.
         _worker.Event -= OnEvent;
         _worker.Exited -= OnExited;
-        _worker.LetGo -= SweepWork;
+        _worker.LetGo -= OnLetGo;
         await _stop.CancelAsync();
         try
         {
@@ -847,6 +1000,8 @@ public sealed class OptimiseService : IAsyncDisposable
         {
             // The loop ends on the stop it was given.
         }
+        // A recording cut short by the stop ends at once; a write in flight ends whole.
+        await _quiet.Task;
         // A worker that will not end is said before the node's journal closes; the node's stop does not wait for it.
         await _worker.DisposeAsync();
         _worker.Stuck -= OnStuck;

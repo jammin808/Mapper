@@ -222,4 +222,45 @@ public sealed class OptimiseWorkerEndTests
             End(second);
         }
     }
+
+    /// <summary>A stopped service writes nothing more: the end of its worker, the worker's last line and a replaced worker's going,
+    /// reported only now by a reader that had them on the way as the stop began, and a line or a step that come after it, leave the
+    /// queue on disk as the stop left it (the running job "encoding", queued again at the next start) and the work folder alone.</summary>
+    [Fact]
+    public async Task NothingTheServiceHearsOnceItHasStoppedWritesTheNodesFiles()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
+        var home = new NodeHome(Path.Combine(dir.FullName, "node"));
+        var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
+        store.Save([Job("ojfirst1", 1, paused: false), Job("ojnext01", 2, paused: false)]);
+        var options = new OptimiseOptions { Worker = Sleeper(), Step = TimeSpan.FromMilliseconds(100), StopGrace = TimeSpan.FromMilliseconds(500) };
+        var clip = Clip(dir);
+        await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Media = [clip] }, options: options, dir: dir);
+        await rig.Until(() => rig.Job("ojfirst1").State == JobStates.Encoding && rig.Service.View.Pid is not null, "the first job on its worker");
+        // The running job's partial, as its worker writes it.
+        var partial = store.PartialFor("ojfirst1");
+        Directory.CreateDirectory(store.Work);
+        await File.WriteAllBytesAsync(partial, [1]);
+
+        await rig.Service.DisposeAsync();
+        var stopped = await File.ReadAllBytesAsync(store.Path);
+        var jobs = rig.Service.Jobs;
+
+        rig.Service.OnExited(1, expected: false);
+        rig.Service.OnEvent(WorkerProtocol.Parse(WorkerProtocol.Failed("ojfirst1", "the clip ended early"))!);
+        rig.Service.OnLetGo();
+        Assert.Equal(OptimiseService.StoppingWords, Assert.Single(rig.Service.Request([clip], "hap", EncodeQuality.Fast)).Why);
+        Assert.Empty(rig.Service.Hold("ALL", paused: true));
+        Assert.Empty(rig.Service.Cancel("ALL"));
+        rig.Service.StepOnce();
+
+        Assert.Equal(stopped, await File.ReadAllBytesAsync(store.Path));
+        Assert.False(File.Exists(store.Path + ".new"));
+        Assert.True(File.Exists(partial));
+        Assert.Equal(jobs, rig.Service.Jobs);
+        Assert.Equal(0, rig.Service.View.Restarts);
+        var next = new JobStore(store.Folder, NullLogger.Instance).Load();
+        Assert.Equal([("ojfirst1", JobStates.Queued, 0, false), ("ojnext01", JobStates.Queued, 0, false)],
+            next.Select(j => (j.Id, j.State, j.Attempts, j.Paused)));
+    }
 }
