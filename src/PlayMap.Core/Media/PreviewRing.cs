@@ -57,9 +57,19 @@ public sealed class PreviewRingWriter : IDisposable
         MaxHeight = maxHeight;
         _slotBytes = PreviewRing.SlotBytes(maxWidth, maxHeight);
         var bytes = PreviewRing.FileBytes(maxWidth, maxHeight);
-        using (var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
-            fs.SetLength(bytes);
-        _map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, bytes, MemoryMappedFileAccess.ReadWrite);
+        // The map is made from this stream, not by reopening the path: a reopen shares the file for reading only, and on
+        // Windows that refuses every reader (they open it read-write).
+        var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        try
+        {
+            file.SetLength(bytes);
+            _map = MemoryMappedFile.CreateFromFile(file, null, bytes, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+        catch
+        {
+            file.Dispose();
+            throw;
+        }
         _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
         _view.Write(4, maxWidth);
         _view.Write(8, maxHeight);
