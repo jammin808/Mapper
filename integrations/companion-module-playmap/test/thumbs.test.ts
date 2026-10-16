@@ -307,7 +307,12 @@ void test('a THUMBS push whose ETag moved for a placed ref fetches it again with
 			'THUMBS ' + JSON.stringify({ [red.source]: `etag-${red.source}-3`, [blue.source]: `etag-${blue.source}-2` }),
 		)
 		await node.heard(sentLine(`THUMB ${red.source} 96x96 IF etag-${red.source}-2`))
+		// Its answer came before WHOAMI's on the link, and what the module does with it once read is promise work that settles within
+		// a turn. The cache is asked as the key asks it, unlinked (nothing is fetched) and with the key's own ref and size (nothing is
+		// placed again).
 		await m.instance.ask('WHOAMI')
+		await settle()
+		assert.equal(m.instance.thumbs.get('red', red.source, 96, false), repainted(red.source), 'the picture held')
 		assert.equal(m.host.feedbackValues.get('red'), repainted(red.source))
 
 		assert.deepEqual(thumbLines(node, red.source), [
