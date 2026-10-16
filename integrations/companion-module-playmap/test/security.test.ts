@@ -66,12 +66,19 @@ void test('a VERBS answer with parameters of the wrong type keeps the deck worki
 		() =>
 			'OK ' +
 			JSON.stringify([
+				// Typed rows (forms and a press, as a node with typed forms writes them), whose parameters are of the wrong type.
 				{
 					name: 'PLAYLIST GO',
 					syntax: 'PLAYLIST GO <playlist>',
 					formParams: [[{ name: 'playlist', kind: 'entity', values: 'abc' }]],
+					press: 'instant',
 				},
-				{ name: 'MASTER', syntax: 'MASTER <n>', formParams: [[{ name: 'n', kind: 'number', min: 'zero' }]] },
+				{
+					name: 'MASTER',
+					syntax: 'MASTER <n>',
+					formParams: [[{ name: 'n', kind: 'number', min: 'zero' }]],
+					press: 'instant',
+				},
 			]),
 	)
 	const m = await boot(configFor(node.webPort), { token: TOKEN })
