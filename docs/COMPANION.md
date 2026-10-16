@@ -150,7 +150,7 @@ variable definitions, the actions' and feedbacks' dropdowns and the preset struc
 structure after 3 s, while keys relabel at once through value feedbacks; a `project.index` that moved with no INDEX push following asks
 `INDEX`.
 
-**Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself or that carries no secret), with typed
+**Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself, that carries no secret and that the node answers — `CURSOR` gets no line back and its lease lapses unless sent again, so it is no key), with typed
 options from `params` — entity dropdowns from INDEX, literal choices, keyword parameters, a form chooser for a row with several — and the
 line written by the node's grammar. Every press returns its receipt as the action's result (`ok`, `stage`, `effect`, `error`) on the node's
 first reply, and lights a corner dot on its key: amber while sent or accepted — an accepted line until STATE's entries for the ids it

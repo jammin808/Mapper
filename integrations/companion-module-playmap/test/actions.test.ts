@@ -421,6 +421,29 @@ void test('a key of a generated row presses as the row’s press field says', as
 	}
 })
 
+void test('CURSOR is no key: the node answers it with no line, so no action sends it and raw refuses it unsent', async () => {
+	const node = await new FakeNode({ token: TOKEN }).start()
+	const m = await boot(configOf(node), SECRETS)
+	try {
+		await ready(m)
+		assert.ok(EXCLUDED.has('CURSOR'))
+		assert.equal(m.host.actions.has('v_cursor'), false, 'no generated action of CURSOR')
+		assert.ok(
+			!allLines().some((l) => rowOfLine(BUNDLED_VERBS, l)?.name === 'CURSOR'),
+			'no line of the module is a CURSOR',
+		)
+		const r = fields(await m.press('raw', { line: 'CURSOR op_1 0.5 0.5' }, 'key-cursor'))
+		assert.equal(r.ok, false)
+		assert.equal(r.stage, 'not-sent')
+		const after = fields(await m.press('raw', { line: 'PLAYLIST LIST' }, 'key-after'))
+		assert.equal(after.stage, 'applied')
+		assert.ok(!node.sent().some((l) => isOf(l, 'CURSOR')), 'the node never heard a CURSOR')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('test/lines.txt and test/state-paths.txt are what the module writes now', () => {
 	const read = (name: string): string => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
 	const lines = allLines()

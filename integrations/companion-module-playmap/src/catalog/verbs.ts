@@ -39,8 +39,8 @@ export interface VerbRow {
 }
 
 /** The rows the module never makes an action of: the session's own words (the module says them itself), pictures (the module asks
- * them for its keys), and every row that carries a secret or a pairing token (a deck never holds one). The node's contract test reads
- * this list. */
+ * them for its keys), every row that carries a secret or a pairing token (a deck never holds one), and a row the node answers with no
+ * line at all (a press would wait for an answer that never comes). The node's contract test reads this list. */
 export const EXCLUDED: ReadonlySet<string> = new Set([
 	'HELLO',
 	'NONCE',
@@ -65,6 +65,8 @@ export const EXCLUDED: ReadonlySet<string> = new Set([
 	'CREDENTIAL LIST',
 	'LINK PATTERNS',
 	'LINK STAGEWATCH',
+	// The node answers a cursor with no line at all and its lease lapses unless it is sent again: it is no key.
+	'CURSOR',
 ])
 
 const KINDS = new Set(['entity', 'enum', 'number', 'integer', 'text', 'json', 'time', 'ref', 'line', 'flag'])
