@@ -1166,6 +1166,15 @@ public sealed class BackupNode : IAsyncDisposable
         }
         if (from != _primaryId)
             return CommandReply.Fail($"a hand-back comes from the primary this node mirrors ({Label(_settings.Of)}), not {from}");
+        // The show is taken back only as the primary holds it: a mirror that is behind (a pull under way or failed, a file missing,
+        // the link or the clock lost since the primary read this node's health) would put another show on the air.
+        var state = Mirror()?.State ?? "not mirroring";
+        if (state != "identical")
+        {
+            var words = $"{SelfName} is not identical to {Label(from)} ({state}): it does not take the show back — FAILBACK CONFIRM on {Label(from)} again once it is";
+            _engine?.Journal.Add("refused", words, ok: false);
+            return CommandReply.Fail(words);
+        }
         // The takeover runs beside the mirror's line (it closes the link this line came on).
         Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None));
         await Task.CompletedTask.ConfigureAwait(false);
