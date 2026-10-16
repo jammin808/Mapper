@@ -268,8 +268,8 @@ public sealed partial class EngineCore
         return n;
     }
 
-    /// <summary>Master raster → where the member's render puts the same picture point: a scale between rasters when both share one
-    /// model pose; else the master's ray onto the stage, seen by the member; null when neither can say.</summary>
+    /// <summary>The master's render → where the member's render puts the same picture point: a scale between rasters when both share
+    /// one model pose; else the master's ray onto the stage, seen by the member; null when neither can say.</summary>
     private static Func<Vec2d, Vec2d?>? MasterToRender(Projector master, Projector member, Lazy<StageScene?> stage, out string? why)
     {
         why = null;
@@ -408,12 +408,27 @@ public sealed partial class EngineCore
 
     private sealed record StackFits(IReadOnlyList<((Projector Projector, Output Output, ProjectorView View) Member, StackFit? Fit)> Members, string? Why);
 
-    /// <summary>Every member but the master fitted to the master's picture (the master: no lattice).</summary>
+    /// <summary>The raster an output draws its projector's picture at (its own size, else the projector's).</summary>
+    private static (int Width, int Height) RasterOf((Projector Projector, Output Output, ProjectorView View) member) =>
+        (member.Output.Width > 0 ? member.Output.Width : member.Projector.Intrinsics.Width,
+         member.Output.Height > 0 ? member.Output.Height : member.Projector.Intrinsics.Height);
+
+    /// <summary>Every member but the master fitted to the master's picture (the master: no lattice). The master's picture is what its
+    /// output draws: the light the scan saw at one of its raster's pixels carries the picture point its whole warp (an operator's
+    /// corner pin or lattice, a lattice measured before) puts there, so each master pixel is taken back through that warp first.</summary>
     private StackFits FitStack(StackSource source, StackFitOptions options, CancellationToken ct)
     {
         // The model loads only when a member's modelled pose or optics differ from the master's.
         var scene = new Lazy<StageScene?>(() => StackScene(source.Project), LazyThreadSafetyMode.None);
         var master = source.Members[source.Master];
+        foreach (var member in source.Members)
+        {
+            var (w, h) = RasterOf(member);
+            if (member.View.Width != w || member.View.Height != h)
+                return new StackFits([], $"{member.Projector.Name} was scanned at {member.View.Width}×{member.View.Height} and its output is {w}×{h} — scan it at its output's raster");
+        }
+        var (masterWidth, masterHeight) = RasterOf(master);
+        var masterWarp = new WarpField(master.Output.Warp, null, master.Output.Measured?.Lattice);
         var list = new List<((Projector, Output, ProjectorView), StackFit?)>();
         foreach (var member in source.Members)
         {
@@ -423,12 +438,11 @@ public sealed partial class EngineCore
                 list.Add((member, null));
                 continue;
             }
-            if (MasterToRender(master.Projector, member.Projector, scene, out var why) is not { } map)
+            if (MasterToRender(master.Projector, member.Projector, scene, out var why) is not { } toRender)
                 return new StackFits([], why);
-            var width = member.Output.Width > 0 ? member.Output.Width : member.Projector.Intrinsics.Width;
-            var height = member.Output.Height > 0 ? member.Output.Height : member.Projector.Intrinsics.Height;
-            if (member.View.Width != width || member.View.Height != height)
-                return new StackFits([], $"{member.Projector.Name} was scanned at {member.View.Width}×{member.View.Height} and its output is {width}×{height} — scan it at its output's raster");
+            var map = masterWarp.IsIdentity ? toRender
+                : m => masterWarp.Invert(m.X / masterWidth, m.Y / masterHeight) is { } u ? toRender(new Vec2d(u.X * masterWidth, u.Y * masterHeight)) : null;
+            var (width, height) = RasterOf(member);
             var pairs = StackPairs.Against(master.View, member.View, map);
             // The lattice is drawn under the member's own warp (W(L(u))), and the scan saw the raw raster: where the light must leave
             // is taken back through the operator's warp, so registration holds with a corner pin or lattice on the member.

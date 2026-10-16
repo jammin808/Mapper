@@ -164,6 +164,36 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.True(after <= 0.2, $"after {after}");
     }
 
+    /// <summary>The master's picture is what its output draws: under a corner pin on the master (and another on the member), the
+    /// member lands where the master's pinned picture is, not where its raw raster is.</summary>
+    [Fact]
+    public async Task UnderACornerPinOnTheMasterTheMemberLandsOnTheMastersPinnedPicture()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        var masterPin = new OutputWarp(true, CornerPin.None with { TopLeft = new Core.Numerics.Vec2d(0.03, 0.02), BottomLeft = new Core.Numerics.Vec2d(0.02, -0.03) }, null);
+        var memberPin = new OutputWarp(true, CornerPin.None with { TopRight = new Core.Numerics.Vec2d(-0.02, 0.01) }, null);
+        var project = StackKit.Project(sim);
+        project = project with
+        {
+            Outputs = project.Outputs.Update("op00000001", o => o with { Warp = masterPin }).Update("op00000002", o => o with { Warp = memberPin }),
+        };
+        await using var rig = new ShowRig(project, s => s with { Scan = _scans });
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        var p = rig.Engine.Store.Project;
+        var o1 = p.FindOutput("op00000001")!;
+        var o2 = p.FindOutput("op00000002")!;
+        // The master is the target: its own pin stays and it takes no lattice.
+        Assert.Null(o1.Measured);
+        var master = new Core.Mapping.WarpField(o1.Warp);
+        var unfitted = StackKit.MisregistrationP95(sim, master, new Core.Mapping.WarpField(o2.Warp));
+        var after = StackKit.MisregistrationP95(sim, master, new Core.Mapping.WarpField(o2.Warp, null, o2.Measured!.Lattice));
+        log.WriteLine($"misregistration p95 against the master's pinned picture {unfitted:0.000} px with the member's pin alone, {after:0.000} px with the lattice under it");
+        Assert.True(unfitted > 2, $"the pins move the pictures apart {unfitted}");
+        Assert.True(after <= 0.2, $"after {after}");
+    }
+
     [Fact]
     public async Task AStackOfOneMadeByAGenericAddIsNeverCountedAligned()
     {
