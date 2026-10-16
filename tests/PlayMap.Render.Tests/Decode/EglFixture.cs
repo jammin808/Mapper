@@ -6,7 +6,8 @@ using PlayMap.Render.Platform;
 namespace PlayMap.Render.Tests.Decode;
 
 /// <summary>A desktop 3.3 core context on EGL with no window system (Mesa's surfaceless platform), on a thread of its own: dmabuf
-/// imports need an EGL display, which the GLX fixture does not have.</summary>
+/// imports need an EGL display, which the GLX fixture does not have. Dmabufs are Linux's: elsewhere no context is made (every test
+/// of the collection is Linux-only and skipped there), and a body handed to it fails with the words.</summary>
 public sealed class EglFixture : IDisposable
 {
     private readonly BlockingCollection<Action> _work = new();
@@ -25,7 +26,8 @@ public sealed class EglFixture : IDisposable
     {
         try
         {
-            _context = RenderContext.CreateSurfaceless(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlDialect.Core330));
+            if (OperatingSystem.IsLinux())
+                _context = RenderContext.CreateSurfaceless(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlDialect.Core330));
             _ready.SetResult();
         }
         catch (Exception ex)
@@ -35,7 +37,7 @@ public sealed class EglFixture : IDisposable
         }
         foreach (var action in _work.GetConsumingEnumerable())
             action();
-        _context.Dispose();
+        _context?.Dispose();
     }
 
     public T Run<T>(Func<RenderContext, T> body)
@@ -47,7 +49,7 @@ public sealed class EglFixture : IDisposable
         {
             try
             {
-                result = body(_context!);
+                result = body(_context ?? throw new PlatformNotSupportedException("dmabuf imports need EGL's surfaceless display, on Linux only"));
             }
             catch (Exception ex)
             {

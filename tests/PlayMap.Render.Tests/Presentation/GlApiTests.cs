@@ -7,8 +7,8 @@ namespace PlayMap.Render.Tests.Presentation;
 /// <summary>decode.glApi on a window system (Xvfb): "egl" makes the desktop context on EGL — its display imports dmabufs, so the
 /// render node's VAAPI frames can be sampled in place — and its output windows on EGL too (a shared context comes from one API);
 /// "glx" makes even an ES context on GLX; "auto" keeps a desktop context on the window system's own API (GLX under X, WGL on
-/// Windows); a word it does not know is the platform's choice, with words, on every platform. Each platform is made, read and
-/// disposed on a thread of its own.</summary>
+/// Windows); a word it does not know is the platform's choice, with words, on every platform. EGL's windowed contexts and GLX are
+/// Linux's: those tests run there only. Each platform is made, read and disposed on a thread of its own.</summary>
 public sealed class GlApiTests(ITestOutputHelper log)
 {
     private static readonly GlDeviceOptions Device = new(CheckErrors: true, DebugOutput: false);
@@ -36,7 +36,7 @@ public sealed class GlApiTests(ITestOutputHelper log)
     /// <summary>The API a desktop context comes up on when nothing else is asked: the window system's own.</summary>
     private static string NativeApi => OperatingSystem.IsWindows() ? "wgl" : OperatingSystem.IsMacOS() ? "cocoa" : "glx";
 
-    [Fact]
+    [LinuxFact]
     public void EglMakesTheDesktopContextAndItsWindowsOnEglWhoseDisplayImportsDmabufs()
     {
         OnOwnThread(() =>
@@ -68,7 +68,7 @@ public sealed class GlApiTests(ITestOutputHelper log)
         });
     }
 
-    [Fact]
+    [LinuxFact]
     public void GlxMakesEvenAnEsContextOnGlx()
     {
         OnOwnThread(() =>
