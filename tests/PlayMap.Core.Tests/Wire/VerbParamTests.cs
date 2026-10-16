@@ -141,6 +141,29 @@ public sealed class VerbParamTests
     }
 
     [Fact]
+    public void LineAndJsonTypeAParameterOnlyAsWholeWordsAndNothingFollowsOne()
+    {
+        // "<cursor,outlines,handles,lattice>" names layers, one word of them: "outlines" holds "line" inside another word.
+        var layers = VerbParams.For("OVERLAY").Single(p => p.Keyword == "LAYERS");
+        Assert.Equal((ParamKind.Text, true, "EDIT|ALL"), (layers.Kind, layers.Optional, layers.Alt));
+        // A whole word types it: "<line>", "<target line>", "<json>".
+        Assert.Equal(ParamKind.Line, VerbParams.For("DEVICE RAW").Single(p => p.Name == "line").Kind);
+        Assert.Equal(ParamKind.Line, VerbParams.For("BIND LEARN").Single(p => p.Name == "target").Kind);
+        Assert.Equal(ParamKind.Json, VerbParams.For("SET").Single(p => p.Name == "json").Kind);
+        Assert.Equal(ParamKind.Json, VerbParams.For("PLAYLIST ANCHOR").Single(p => p.Name == "json").Kind);
+        // JSON and an embedded line take the rest of the line, so no key could write a parameter after one.
+        foreach (var spec in VerbCatalog.All)
+        {
+            foreach (var form in VerbParams.Forms(spec))
+            {
+                var rest = form.Select((p, i) => (p, i)).FirstOrDefault(x => x.p.Kind is ParamKind.Json or ParamKind.Line);
+                Assert.True(rest.p is null || rest.i == form.Count - 1,
+                    $"{spec.Name}: {rest.p?.Name} takes the rest of the line, yet {string.Join(", ", form.Skip(rest.i + 1).Select(p => p.Name))} follow it");
+            }
+        }
+    }
+
+    [Fact]
     public void AControllersFormsReadAsTheyShould()
     {
         var go = VerbParams.For("PLAYLIST GO");

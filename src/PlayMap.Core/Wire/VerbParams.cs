@@ -325,9 +325,9 @@ public static class VerbParams
         var name = Name(head);
         if (min is not null && (words.Length == 1 || Numbers.Contains(name) || name == "ms"))
             return new VerbParam(words.Length == 1 ? "value" : name, ParamKind.Number, optional) { Min = min, Max = max };
-        if (text.Contains("json", StringComparison.OrdinalIgnoreCase))
+        if (HasWord(text, "json"))
             return new VerbParam(name == "json" ? "json" : name, ParamKind.Json, optional);
-        if (text.Contains("line", StringComparison.OrdinalIgnoreCase))
+        if (HasWord(text, "line"))
             return new VerbParam(name, ParamKind.Line, optional);
         if (text.Contains("unix", StringComparison.Ordinal) || (text.Contains(':', StringComparison.Ordinal) && char.IsAsciiDigit(text[0])) || name is "tc" or "hh")
             return new VerbParam(name, ParamKind.Time, optional);
@@ -342,6 +342,19 @@ public static class VerbParams
         if (Numbers.Contains(name))
             return new VerbParam(name, ParamKind.Number, optional) { Min = min, Max = max };
         return new VerbParam(name, ParamKind.Text, optional);
+    }
+
+    /// <summary>Whether <paramref name="word"/> stands in a placeholder as a word of its own ("&lt;target line&gt;", "&lt;camera
+    /// json&gt;"), never inside another ("&lt;cursor,outlines,…&gt;").</summary>
+    private static bool HasWord(string text, string word)
+    {
+        for (var at = text.IndexOf(word, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.IndexOf(word, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = at + word.Length;
+            if ((at == 0 || !char.IsAsciiLetterOrDigit(text[at - 1])) && (end == text.Length || !char.IsAsciiLetterOrDigit(text[end])))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>"0-100", "0.5-2", "-24…24" as a range; anything else none.</summary>
