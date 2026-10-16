@@ -72,8 +72,8 @@ export const EXCLUDED: ReadonlySet<string> = new Set([
 ])
 
 /** The rows that carry a secret (the node's SecretFrom: a token, a key, a password) or pair a session (a token, its proof, a new
- * token): never a key's (each is one of the rows above), and never carried inside a line either, wherever the node reads one (a
- * binding's target, a raw device line). The node's contract test finds every SecretFrom row here. */
+ * token): never at the head of a key's line (each is one of the rows above). Inside a line only a row's secret words are refused
+ * (SECRET_FROM). The node's contract test finds every SecretFrom row here. */
 export const SECRET: ReadonlySet<string> = new Set([
 	'AUTH',
 	'AUTH-PROOF',
@@ -81,6 +81,16 @@ export const SECRET: ReadonlySet<string> = new Set([
 	'CREDENTIAL SET',
 	'LINK PATTERNS',
 	'LINK STAGEWATCH',
+])
+
+/** Where each row that carries a secret holds it: the node's VerbSpec.SecretFrom, the index of a line's first secret word with the
+ * row's own name counted (`AUTH <token>` at 1, `LINK PATTERNS <host> <token>` at 3, `CREDENTIAL SET <ref> [<user>] <secret>` at 3).
+ * VERBS does not say it, so the module keeps it; the node's contract test holds these names and positions equal to its catalogue's. */
+export const SECRET_FROM: ReadonlyMap<string, number> = new Map([
+	['AUTH', 1],
+	['CREDENTIAL SET', 3],
+	['LINK PATTERNS', 3],
+	['LINK STAGEWATCH', 3],
 ])
 
 const KINDS = new Set(['entity', 'enum', 'number', 'integer', 'text', 'json', 'time', 'ref', 'line', 'flag'])

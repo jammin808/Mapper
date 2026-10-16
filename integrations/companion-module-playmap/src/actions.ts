@@ -6,7 +6,16 @@ import type {
 	JsonValue,
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
-import { BUNDLED_VERBS, EXCLUDED, SECRET, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
+import {
+	BUNDLED_VERBS,
+	EXCLUDED,
+	SECRET,
+	SECRET_FROM,
+	actionIdOf,
+	generatedRows,
+	matchRow,
+	type VerbRow,
+} from './catalog/verbs.ts'
 import { splitLine } from './link/grammar.ts'
 import { lineOf, optionIdOf, optionsOf } from './catalog/write.ts'
 import type { Ctx } from './context.ts'
@@ -191,21 +200,27 @@ const CARRIERS: ReadonlySet<string> = new Set(BUNDLED_VERBS.filter(namesCarried)
 
 const carriesLines = (row: VerbRow): boolean => CARRIERS.has(row.name) || namesCarried(row)
 
-/** Whether a line the node may read inside this text starts with a row that carries a secret or pairs (by name or alias): every
- * suffix of its words as the node's grammar splits them, and every one of its words and string literals (read as the node's JSON
- * reader reads them: comments skipped, escapes decoded, every key given twice) read as a line in turn, and so on inside each. Any
- * other word is the operator's own (a label "Record", a field "index", a device's STATUS). */
+/** Whether a line the node may read inside this text holds a secret as the node reads one (VerbCatalog.HoldsSecret): it starts with
+ * a row that has a SecretFrom (by name or alias) and has a word at or past that row's SecretFrom. The position is counted from where
+ * the row's name ends, as the node's router reads its words: on every line whose name takes its own words it is HoldsSecret's, and a
+ * name quoted as one word (`"LINK PATTERNS" <host> <token>`) holds its secret one word sooner. Every suffix of the text's words as
+ * the node's grammar splits them is read so, and every one of its words and string literals (read as the node's JSON reader reads
+ * them: comments skipped, escapes decoded, every key given twice) is read as a text in turn, and so on inside each. A row that pairs
+ * but holds no secret words (PAIRING NEW, AUTH-PROOF) carries nothing inside a line, and the node's TargetLine.Parse refuses both as a
+ * binding's target; any other word is the operator's own (a label "Auth", a field "index", a device's STATUS). */
 function carriesSecret(rows: readonly VerbRow[], text: string): boolean {
-	const kept = (ws: readonly string[], from: number): boolean => {
+	const holds = (ws: readonly string[], from: number): boolean => {
 		const m = matchRow(rows, ws, from)
-		return m !== undefined && SECRET.has(m.row.name)
+		const at = m ? SECRET_FROM.get(m.row.name) : undefined
+		if (!m || at === undefined) return false
+		return ws.length - from - m.words > at - m.row.name.split(' ').length
 	}
 	const read = new Set<string>([text])
 	const texts: string[] = [text]
 	while (texts.length > 0) {
 		const t = texts.pop() ?? ''
 		const words = splitLine(t).words
-		for (let i = 0; i < words.length; i++) if (kept(words, i)) return true
+		for (let i = 0; i < words.length; i++) if (holds(words, i)) return true
 		for (const inner of [...words, ...stringLiterals(t)]) {
 			if (read.has(inner)) continue
 			read.add(inner)
@@ -217,8 +232,9 @@ function carriesSecret(rows: readonly VerbRow[], text: string): boolean {
 
 /** The one fence every key's line passes before it is sent, whoever wrote it (a generated action, raw, a section key or Live slot
  * from INDEX): read as the node reads it, a line must start with a verb of the node, never one the module keeps to itself (the
- * session's words, secrets, pairing, a row the node answers with no line), nor carry a secret or a pairing inside it where the node
- * may read a line. What it refuses names only the outer verb, never the operator's words (a token typed as a line). */
+ * session's words, secrets, pairing, a row the node answers with no line), whatever follows; inside it, where the node may read a
+ * line, it must carry no secret (carriesSecret). What it refuses names only the outer verb, never the operator's words (a token typed
+ * as a line). */
 export function fence(
 	rows: readonly VerbRow[],
 	line: string,

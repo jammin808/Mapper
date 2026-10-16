@@ -178,15 +178,20 @@ most 10 s — red for 2 s on `ERR` with the words in `last_refusal`, and red for
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
 answer as the result; a line that is no question, or that the fence refuses, is refused naming only its verb). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
 node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it
-must start with a verb of the node, never the session's words, a picture's, a secret's or pairing's, nor carry a secret's or pairing's
-(`AUTH`, `AUTH-PROOF`, `PAIRING NEW`, `CREDENTIAL SET`, `LINK PATTERNS`, `LINK STAGEWATCH`) where the node may read a line: for a row
-whose forms take a line or JSON (`SET`, `ADD`, `BIND ADD`, `BIND LEARN`, `BIND FORGET`, `PLAYLIST ANCHOR`, `DEVICE RAW`, `FX IMPORT`,
-`FX CHECK`, read from the bundled catalogue and from the node's own), every run of its words to the end, every word, and every string
-literal of the line as the node's JSON reader reads one — comments skipped whatever quote marks they hold, escapes decoded, a key given
-twice read both times, a string cut short read to the end — is read as a line too, and so on inside each (`BIND ADD … TO AUTH …`, a
-binding's JSON `target`, `SET <binding> target /*…*/"\u004cINK …"`), while a word inside that names any other row is the operator's
-own (a label `"Record"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`); a refusal names only the outer verb,
-never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
+must start with a verb of the node, never the session's words, a picture's, a secret's or pairing's (`AUTH`, `AUTH-PROOF`,
+`PAIRING NEW`, `CREDENTIAL SET`, `LINK PATTERNS`, `LINK STAGEWATCH`), whatever follows, nor carry a secret where the node may read a
+line: for a row whose forms take a line or JSON (`SET`, `ADD`, `BIND ADD`, `BIND LEARN`, `BIND FORGET`, `PLAYLIST ANCHOR`,
+`DEVICE RAW`, `FX IMPORT`, `FX CHECK`, read from the bundled catalogue and from the node's own), every run of its words to the end,
+every word, and every string literal of the line as the node's JSON reader reads one — comments skipped whatever quote marks they hold,
+escapes decoded, a key given twice read both times, a string cut short read to the end — is read as a line too, and so on inside each
+(`BIND ADD … TO AUTH …`, a binding's JSON `target`, `SET <binding> target /*…*/"\u004cINK …"`), and refused exactly when the node's
+`VerbCatalog.HoldsSecret` would call it a line that carries a secret: it names a row with a `SecretFrom` (`AUTH` from word 1,
+`CREDENTIAL SET`, `LINK PATTERNS` and `LINK STAGEWATCH` from word 3 — the module's `SECRET_FROM`, held to the catalogue's by the
+contract test) and has a word at or past it, counted from where the row's name ends (a name quoted as one word, `"LINK PATTERNS" <host>
+<token>`, holds its token one word sooner). Any other word inside is the operator's own: a label `"Record"`, `"Auth"`,
+`"Link Patterns"` or `"Pairing new year"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`, and a pairing row, which holds no
+secret words and which the node's `TargetLine.Parse` refuses as a binding's target anyway. A refusal names only the outer verb, never
+the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
 value plus the steps sent and not yet confirmed, clamped to the range; a seek's target is its playlist's and item's, and since a
 playhead moves by itself it steers only until the first STATE written after it) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a
 surface's opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local

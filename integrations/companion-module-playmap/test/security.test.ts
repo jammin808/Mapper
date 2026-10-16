@@ -1,22 +1,34 @@
 // A node's data is data, never instructions, and a key never carries what the deck keeps to itself: a STATE nested past what a node
 // writes is dropped (no stack runs out in Companion's process); a VERBS answer whose parameters are of the wrong type keeps the deck
 // working; a line a section key, a Live slot, raw or a generated action would send passes one fence — no session word, secret or
-// pairing verb at its head, and no secret or pairing carried inside it (a run of its words, a quoted word, a string literal as the
-// node's JSON reader reads it — comments skipped, escapes decoded, a key given twice read both times — a field SET to a line), ever
-// reaches the node, while any other word inside is the operator's own — and a refusal names only the outer verb, never the
-// operator's words, whatever white space parts them (a token typed as a line stays out of every variable); a press answered after
-// destroy touches nothing of the host.
+// pairing verb at its head, and no secret carried inside it (a run of its words, a quoted word, a string literal as the node's JSON
+// reader reads it — comments skipped, escapes decoded, a key given twice read both times — a field SET to a line, each holding a word
+// at or past its row's SecretFrom), ever reaches the node, while any other word inside is the operator's own (show text that names a
+// secret's or a pairing's row and holds no secret word goes) — and a refusal names only the outer verb, never the operator's words,
+// whatever white space parts them (a token typed as a line stays out of every variable); a press answered after destroy touches
+// nothing of the host.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CompanionOptionValues } from '@companion-module/base'
 import { FakeNode, copy, fixture } from './fake-node.ts'
 import { boot, configFor, type Booted } from './harness.ts'
 import { fence } from '../src/actions.ts'
-import { BUNDLED_VERBS, EXCLUDED, SECRET, type VerbRow } from '../src/catalog/verbs.ts'
+import { BUNDLED_VERBS, EXCLUDED, SECRET, SECRET_FROM, type VerbRow } from '../src/catalog/verbs.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 /** The same token as the node reads it too, its dashes left out. */
 const BARE = 'K7QM3XWDP9RA'
+
+/** Show text whose words name a secret's or a pairing's row and hold no word at or past its SecretFrom: the node's HoldsSecret calls
+ * none of them, nor any line inside them, one that carries a secret. */
+const SHOW_TEXT = [
+	'SET sf0a1b2c3d label "Auth"',
+	'SET sf0a1b2c3d label "Link Patterns"',
+	'ADD item pl00000001 {"label":"Link Patterns"}',
+	'SET pl00000001 name "Credential Set"',
+	'SET sf0a1b2c3d label "Pairing new year"',
+	'ADD item pl00000001 {"notes":"link stagewatch timer"}',
+]
 
 interface IndexJson {
 	sig: string
@@ -232,6 +244,10 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 			['raw', { line: `SET bd0a1b2c3d target /*x*/"${link}"` }, 'SET'],
 			['raw', { line: `ADD binding /*x*/{"input":"MIDI 1","target":"${credential}"}` }, 'ADD'],
 			['raw', { line: `PLAYLIST ANCHOR pl00000001 /**/{"itemId":"${link}"}` }, 'PLAYLIST ANCHOR'],
+			// A row's secret words past its SecretFrom, whatever field holds them: "here" stands where LINK STAGEWATCH reads its key.
+			['raw', { line: 'ADD item pl00000001 {"notes":"link stagewatch timer here"}' }, 'ADD'],
+			// A two-word name quoted as one word holds its secret one word sooner, as the node's router reads it.
+			['raw', { line: `BIND ADD MIDI 1 TO "LINK PATTERNS" 10.0.0.5 ${TOKEN}` }, 'BIND ADD'],
 		]
 		for (const [actionId, options, verb] of refused) {
 			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string; error: string }
@@ -254,6 +270,11 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 			['raw', { line: 'BIND ADD {/* the "cue" key" */ "input":"MIDI 4","target":"PLAYLIST GO pl00000001"}' }],
 			['raw', { line: 'SET sf00000009 label /*x*/"Front \\u0077all"' }],
 			['raw', { line: 'ADD item pl00000001 {"label":"Record","label":"Index"}' }],
+			// Show text that names a secret's or a pairing's row and holds no word at or past its SecretFrom carries no secret.
+			...SHOW_TEXT.map((line): [string, CompanionOptionValues] => ['raw', { line }]),
+			// A pairing row holds no secret words: the node's own reading refuses it as a binding's target.
+			['raw', { line: 'BIND ADD MIDI 5 TO PAIRING NEW' }],
+			['raw', { line: 'BIND ADD MIDI 5 TO AUTH-PROOF 0a1b2c' }],
 		]
 		for (const [actionId, options] of passed) {
 			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string }
@@ -263,9 +284,11 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 		const heard = node.sent().join('\n')
 		for (const word of [TOKEN, BARE, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns', 'INK PATTERNS'])
 			assert.ok(!heard.includes(word), `the node never heard ${word}`)
+		assert.ok(!heard.includes('timer here'), 'the node never heard the words past LINK STAGEWATCH’s SecretFrom')
 		assert.ok(heard.includes('BIND ADD MIDI 1 TO PLAYLIST GO pl00000001'))
 		assert.ok(heard.includes('BLACKOUT TOGGLE'))
 		assert.ok(heard.includes('BIND ADD MIDI 3 TO STATUS'))
+		for (const line of SHOW_TEXT) assert.ok(node.sent().includes(line), `the node heard ${line}`)
 		assert.ok(!allValues(m).includes(TOKEN), 'no variable holds the token')
 	} finally {
 		await m.stop()
@@ -273,7 +296,7 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 	}
 })
 
-void test('inside a line the fence refuses only a row that carries a secret or pairs; its head keeps the whole fence', () => {
+void test('inside a line the fence refuses only a secret at or past its row’s SecretFrom; its head keeps the whole fence', () => {
 	const state = BUNDLED_VERBS.find((r) => r.name === 'STATE')
 	assert.ok(state)
 	// A node whose VERBS lists RECORD (a row the module keeps to itself) as well.
@@ -287,6 +310,17 @@ void test('inside a line the fence refuses only a row that carries a secret or p
 		'PAIRING NEW',
 	])
 	for (const name of SECRET) assert.ok(EXCLUDED.has(name), `${name} is never a key's either`)
+	// Where each row that carries a secret holds it, the row's name counted (the node's SecretFrom; its contract test holds them equal).
+	assert.deepEqual(
+		[...SECRET_FROM].sort(([a], [b]) => a.localeCompare(b)),
+		[
+			['AUTH', 1],
+			['CREDENTIAL SET', 3],
+			['LINK PATTERNS', 3],
+			['LINK STAGEWATCH', 3],
+		],
+	)
+	for (const name of SECRET_FROM.keys()) assert.ok(SECRET.has(name), `${name} is a secret's row`)
 
 	// A word inside a line that names a row the module keeps to itself but that carries no secret is the operator's own.
 	for (const line of [
@@ -302,6 +336,20 @@ void test('inside a line the fence refuses only a row that carries a secret or p
 		'ADD binding {"input":"MIDI 1","target":"RECORD ON","target":"PLAYLIST GO pl1"} // a "note',
 		'SET sf1 label /*x*/"\\u0052ecord"',
 		'PLAYLIST ANCHOR pl1 /**/{"itemId":"it1","state":"Playing"}',
+		// A secret's or a pairing's row named in show text, holding no word at or past its SecretFrom.
+		...SHOW_TEXT,
+		'SET sf1 label "auth"',
+		'SET sf1 label "Link Stagewatch"',
+		'ADD item pl1 {"label":"Credential set dv1"}',
+		// A secret's row whose secret words are not given: the line carries none.
+		'BIND ADD MIDI 1 TO AUTH',
+		'BIND ADD MIDI 1 TO LINK PATTERNS 10.0.0.5',
+		'BIND ADD MIDI 1 TO "LINK PATTERNS" 10.0.0.5',
+		'BIND ADD MIDI 1 TO CREDENTIAL SET dv1',
+		// A row that pairs holds no secret words: the node's TargetLine.Parse refuses it as a binding's target.
+		'BIND ADD MIDI 1 TO AUTH-PROOF 0a1b2c',
+		'BIND ADD MIDI 1 TO PAIRING NEW',
+		'BIND ADD {"input":"MIDI 1","target":"PAIRING NEW"}',
 	])
 		assert.deepEqual(fence(rows, line), { ok: true }, line)
 
@@ -317,9 +365,16 @@ void test('inside a line the fence refuses only a row that carries a secret or p
 		['BIND LEARN "CREDENTIAL" SET dv1 admin hunter2', 'BIND LEARN'],
 		[`BIND FORGET "AUTH" ${TOKEN}`, 'BIND FORGET'],
 		[`SET bd0a1b2c3d target "${link}"`, 'SET'],
-		['BIND ADD MIDI 1 TO AUTH-PROOF 0a1b2c', 'BIND ADD'],
-		['BIND ADD MIDI 1 TO PAIRING NEW', 'BIND ADD'],
 		['DEVICE RAW dv1 "LINK STAGEWATCH 10.0.0.6 key"', 'DEVICE RAW'],
+		// The first word at a row's SecretFrom is enough; show text holding one is refused like any line.
+		['BIND ADD MIDI 1 TO AUTH x', 'BIND ADD'],
+		['BIND ADD MIDI 1 TO CREDENTIAL SET dv1 hunter2', 'BIND ADD'],
+		['BIND ADD MIDI 1 TO LINK STAGEWATCH "" key', 'BIND ADD'],
+		['ADD item pl1 {"notes":"link stagewatch timer here"}', 'ADD'],
+		['SET sf1 label "Auth me"', 'SET'],
+		// A two-word name quoted as one word holds its secret one word sooner, as the node's router reads it.
+		[`BIND ADD MIDI 1 TO "LINK PATTERNS" 10.0.0.5 ${TOKEN}`, 'BIND ADD'],
+		[`SET bd0a1b2c3d target "\\"link patterns\\" 10.0.0.5 ${TOKEN}"`, 'SET'],
 		['ADD binding {"input":"MIDI 1","target":"link patterns 10.0.0.5 x"}', 'ADD'],
 		// JSON as the node's reader reads it: every string, a key given twice, comments skipped whatever they hold, escapes decoded.
 		[`BIND ADD {"input":"MIDI 1","target":"${link}","target":"BLACKOUT ON"}`, 'BIND ADD'],

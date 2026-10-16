@@ -117,8 +117,9 @@ public sealed partial class CompanionContractTests
     [Fact]
     public void TheModulesSecretRowsAreEveryRowThatCarriesASecretOrPairs()
     {
-        // The fence refuses a line that carries one of these inside it (a binding's target): every row the catalogue redacts a secret
-        // from, and the rows that pair a session, are in the module's SECRET set, and every name there is a row of the catalogue.
+        // The fence refuses a line that starts with one of these, and a line carried inside one (a binding's target) that holds one's
+        // secret words: every row the catalogue redacts a secret from, and the rows that pair a session, are in the module's SECRET
+        // set, every name there is a row of the catalogue, and its SECRET_FROM table is every SecretFrom row at its own position.
         var secret = SecretList().Match(Read(Module("src", "catalog", "verbs.ts")));
         Assert.True(secret.Success, "catalog/verbs.ts names its SECRET rows");
         var names = Regex.Matches(secret.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
@@ -128,6 +129,15 @@ public sealed partial class CompanionContractTests
             $"the module's SECRET rows ({string.Join(", ", names.Order(StringComparer.Ordinal))}) are the catalogue's ({string.Join(", ", expected.Order(StringComparer.Ordinal))})");
         Assert.All(names, n => Assert.True(VerbCatalog.Find(n) is { } spec && spec.Name == n, $"{n} is a row of the catalogue"));
         Assert.All(names, n => Assert.True(NotGenerated(n), $"{n} is never a key's"));
+
+        var table = SecretFromTable().Match(Read(Module("src", "catalog", "verbs.ts")));
+        Assert.True(table.Success, "catalog/verbs.ts names its SECRET_FROM rows");
+        var positions = SecretFromEntry().Matches(table.Groups[1].Value)
+            .Select(m => $"{m.Groups[1].Value}={m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
+        var catalogue = VerbCatalog.All
+            .Select(v => v.SecretFrom is int from ? $"{v.Name}={from.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : null)
+            .OfType<string>().Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(catalogue, positions);
     }
 
     [Fact]
@@ -185,6 +195,12 @@ public sealed partial class CompanionContractTests
 
     [GeneratedRegex(@"const SECRET[^=]*=\s*new Set\(\[([^\]]*)\]", RegexOptions.CultureInvariant)]
     private static partial Regex SecretList();
+
+    [GeneratedRegex(@"const SECRET_FROM[^=]*=\s*new Map\(\[(.*?)\]\)", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    private static partial Regex SecretFromTable();
+
+    [GeneratedRegex(@"\[\s*'([^']+)'\s*,\s*(\d+)\s*\]", RegexOptions.CultureInvariant)]
+    private static partial Regex SecretFromEntry();
 
     [GeneratedRegex(@"MODULE_VERSION\s*=\s*'([^']+)'", RegexOptions.CultureInvariant)]
     private static partial Regex ModuleVersion();
