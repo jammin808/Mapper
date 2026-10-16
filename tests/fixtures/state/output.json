@@ -140,7 +140,8 @@
     "items": 0,
     "missing": 0,
     "ready": true,
-    "transfers": []
+    "transfers": [],
+    "optimise": null
   },
   "stage": {
     "surfaces": 0,
@@ -202,7 +203,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "9e5a43ffac3a4826"
+    "index": "ff2558f20cd9b3ce"
   },
   "faults": [],
   "ai": {
@@ -468,5 +469,6 @@
   "align": {
     "run": null,
     "groups": []
-  }
+  },
+  "phones": []
 }
