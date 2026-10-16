@@ -339,6 +339,30 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     }
 
     [FfmpegFact]
+    public async Task AVersionWhoseItemAWaitingBlindCommitLandsIsRecordedAfterTheCommit()
+    {
+        await using var rig = OptimiseRig.Start(Show.ShowRig.OneScreen());
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 1), "Clip");
+        // A blind draft changes the item and waits for the next GO to land.
+        await rig.Ok("BLIND ON");
+        await rig.Ok($"MEDIA USE {id} SOURCE");
+        await rig.Ok("BLIND COMMIT ON GO pl_show");
+        Assert.NotNull(rig.Engine.Snapshot.Pending);
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
+        var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
+        await rig.Until(() => rig.Job(jobId).Words.StartsWith("recorded when the blind commit lands", StringComparison.Ordinal)
+                              || JobStates.IsOver(rig.Job(jobId).State), "the record's wait");
+        // The commit's guard refused the version's edit: the job waits, the file is kept, nothing is lost.
+        Assert.Equal(JobStates.Verifying, rig.Job(jobId).State);
+        Assert.Empty(rig.Engine.Store.Project.FindMedia(id)!.Versions);
+        await rig.Ok("PLAYLIST GO pl_show");
+        await rig.Until(() => JobStates.IsOver(rig.Job(jobId).State), "the job's end");
+        Assert.Equal(JobStates.Done, rig.Job(jobId).State);
+        var item = rig.Engine.Store.Project.FindMedia(id)!;
+        Assert.Equal(("source", rig.Job(jobId).Version), (item.Use, Assert.Single(item.Versions).Id));
+    }
+
+    [FfmpegFact]
     public async Task AnArmedNodeStartsNothingAndRefusesNewJobs()
     {
         await using var rig = OptimiseRig.Start();

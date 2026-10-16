@@ -179,4 +179,42 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         for (var i = 0; i < 4; i++)
             Assert.True(Pull(rig, output, buffer) < 1e-4, "the broken item sounded");
     }
+
+    [Fact]
+    public async Task WhenTheSourceDoesNotResolveTheSoundIsThePlayedVersions()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable)))
+            Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
+        // The source is on a drive that is gone; its optimised version (with the same sound) is in this node's store.
+        var sourceHash = "sha256:" + new string('a', 64);
+        var versionHash = "sha256:" + new string('b', 64);
+        var recipe = Core.Media.Optimise.Recipe.For("hap", EncodeQuality.Show);
+        var info = MediaInfo.Unknown with { DurationNs = 4_000_000_000, AudioCodec = "pcm_s16le", AudioChannels = 2, AudioRate = 48_000 };
+        var version = new MediaVersion("mv_tone", "hap", recipe.Canonical(), recipe.Key(sourceHash), versionHash, 1, info with { VideoCodec = "hap" },
+            new VersionQuality(40, 39, 3, 0), "hapenc/1", "0badc0de", 1);
+        var p = ToneShow();
+        var source = p.Media[0] with { Location = "/nowhere/unmounted/tone.mov", ContentHash = sourceHash, Versions = [version] };
+        await using var rig = new ShowRig(p with { Media = [source] }, s => s with { Media = new StoreOnly(versionHash, Tone.Value) });
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        var buffer = new float[Block * FfmpegAudioDecoder.Channels];
+        await rig.Ok("PLAYLIST GO pl_show");
+        Assert.True(await ShowRig.Eventually(() => sound.ItemId == "it_tone"), sound.Problem);
+        for (var i = 0; i < 20; i++)
+            Pull(rig, sound.Output, buffer);
+        Assert.InRange(Pull(rig, sound.Output, buffer), 0.35, 0.36);
+    }
+
+    /// <summary>A media edge whose store holds one file, by its hash; nothing else resolves.</summary>
+    private sealed class StoreOnly(string hash, string path) : IMediaBackend
+    {
+        public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) =>
+            throw new NotSupportedException("this test imports nothing");
+
+        public Core.Media.IVideoSource? Open(MediaItem item) => null;
+
+        public MediaReadiness Readiness(MediaItem item) => new(true, true, true, true, "ready");
+
+        public string? PathForHash(string contentHash) => string.Equals(contentHash, hash, StringComparison.Ordinal) ? path : null;
+    }
 }

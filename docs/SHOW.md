@@ -210,7 +210,9 @@ The on-air playlist's item (the focused playlist, the one the clip verbs drive) 
 own anchor (`AnchorTimeline`), so it follows GO, pause, seek, a rate and a panic's transport outcome as the picture does. Its gain
 is the air's sound gain — master × the darkest panic level, from the same `AirFade`s as the picture — × the playlist's volume,
 read at each service step's leader instant and applied from the next step (≤ one 10 ms block behind the picture). A decoder opens
-on a worker and is handed over on the lane's tick; an item that cannot sound says why in `STATE.show.sound.problem`. The exe's show
+on a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and
+the optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
+`STATE.show.sound.problem`. The exe's show
 part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's name); a node with no device plays the
 null output.
 

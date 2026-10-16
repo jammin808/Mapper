@@ -122,7 +122,13 @@ public sealed class AirAudio : IAsyncDisposable
         if (ContentHasher.IsValid(media.ContentHash) && _engine.Services.Media?.PathForHash(media.ContentHash) is { } stored)
             return stored;
         var folder = _engine.ProjectPath is { } project ? Path.GetDirectoryName(Path.GetFullPath(project)) : _engine.Services.ProjectFolder;
-        return MediaLibrary.ResolvePath(media, folder);
+        var path = MediaLibrary.ResolvePath(media, folder);
+        // The source first; when it does not resolve here, the version the picture plays (wp2-optimise), when that one has sound.
+        if (File.Exists(path) || _engine.Services.Media is not { } backend)
+            return path;
+        var formats = (backend as Host.MediaBackend)?.Formats ?? Core.Media.BlockFormats.Bc1 | Core.Media.BlockFormats.Bc3 | Core.Media.BlockFormats.Bc4;
+        var played = Core.Media.Optimise.VersionChoice.Played(media, formats, h => backend.PathForHash(h) is not null);
+        return !ReferenceEquals(played, media) && played.Info.AudioChannels > 0 && backend.PathForHash(played.ContentHash) is { } version ? version : path;
     }
 
     /// <summary>The focused playlist's item on the air at this instant — the incoming one from the instant it first shows, as the
