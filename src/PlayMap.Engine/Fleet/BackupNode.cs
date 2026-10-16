@@ -307,7 +307,7 @@ public sealed class BackupNode : IAsyncDisposable
                 var (joined, words) = await JoinAsync(peer, ct).ConfigureAwait(false);
                 if (!joined)
                     return CommandReply.Fail(words);
-                var kept = Persist(s => s with { Role = FleetRoles.Backup, Of = peer.Id });
+                var kept = Persist(s => s with { Role = FleetRoles.Backup, Of = peer.Id, Epoch = Math.Max(s.Epoch, Interlocked.Read(ref _primaryEpoch)) });
                 Gains.Held = false;
                 Feed.Forget();
                 _engine?.FactsChanged();
@@ -638,6 +638,7 @@ public sealed class BackupNode : IAsyncDisposable
         Interlocked.Exchange(ref _announcedRev, -1);
         Interlocked.Exchange(ref _appliedRev, -1);
         Interlocked.Exchange(ref _estimatesBefore, long.MaxValue);
+        Interlocked.Exchange(ref _primaryEpoch, 0);
         _subscribed = false;
         _mirrorWords = $"joining {peer.Name}";
         var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -809,7 +810,10 @@ public sealed class BackupNode : IAsyncDisposable
             var r = doc.RootElement;
             _group = r.TryGetProperty("group", out var g) ? g.GetString() ?? "" : "";
             if (r.TryGetProperty("epoch", out var e) && e.TryGetInt64(out var epoch))
+            {
                 Interlocked.Exchange(ref _primaryEpoch, epoch);
+                KeepPrimaryEpoch(epoch);
+            }
             if (r.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } name)
                 _primaryName = name;
             return CommandReply.NoReply();
@@ -1156,16 +1160,28 @@ public sealed class BackupNode : IAsyncDisposable
         return CommandReply.Accepted($"taking the show back from {Label(from)}");
     }
 
+    /// <summary>A backup keeps the highest epoch its primary is heard to hold (its mirror's hello, its HEALTH) in its settings: a
+    /// takeover after this node restarted, its primary silent by then, still commits an epoch above the primary's, so the primary
+    /// fences itself when it is heard again.</summary>
+    private void KeepPrimaryEpoch(long epoch)
+    {
+        if (_settings.Role == FleetRoles.Backup && epoch > _settings.Epoch)
+            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+    }
+
     // ---- What this node hears ---------------------------------------------------------------------------------------------
 
     /// <summary>The peers' health moved: a primary that took this node's show under a higher epoch fences it (or, after a hand-back,
-    /// this node joins it as its backup); a follower whose leader went quiet takes its clock from the group's new leader.</summary>
+    /// this node joins it as its backup); a follower whose leader went quiet takes its clock from the group's new leader; a backup
+    /// keeps the epoch its primary holds.</summary>
     private async Task LookAsync(EngineCore engine)
     {
         foreach (var peer in engine.Services.FleetPeers?.Peers() ?? [])
         {
             if (peer.Heard != FleetHeard.Live || peer.Health?.Facts is not { } f || peer.Id == SelfId)
                 continue;
+            if (peer.Id == _settings.Of)
+                KeepPrimaryEpoch(f.Epoch);
             // Only a node that joined this one's mirror (proved by its token), heard over its pinned certificate, can fence it.
             if (Takeover.FencedBy(SelfId, _settings.Role, _settings.Epoch, f.Role, f.Of, f.Epoch, _settings.Backups.Contains(peer.Id) && peer.Pin == "pinned")
                 && Once("fence:" + peer.Id, f.Epoch))
