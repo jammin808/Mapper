@@ -206,32 +206,35 @@ function acceptedEffect(payload: string): string {
 
 export const CONFIRM_MS = 3_000
 
-/** Two presses plus a hold: the first held press arms its control ("SURE?") for 3 s, and only a second held press within them sends.
- * Kept in the module because a preset's internal actions cannot reset a button's step. */
+/** Two presses plus a hold: the first held press arms its control for its line ("SURE?") for 3 s, and only a second held press of
+ * that same line within them sends. A press of another line (the page turned, the slot moved) arms the control anew for it. Kept in
+ * the module because a preset's internal actions cannot reset a button's step. */
 export class Confirms {
-	readonly #armed = new Map<string, ReturnType<typeof setTimeout>>()
+	readonly #armed = new Map<string, { readonly line: string; readonly timer: ReturnType<typeof setTimeout> }>()
 	readonly #changed: (controlId: string) => void
 
 	constructor(changed: (controlId: string) => void) {
 		this.#changed = changed
 	}
 
-	/** True when this press confirms (send now); false when it armed the control. */
-	press(controlId: string): boolean {
-		const timer = this.#armed.get(controlId)
-		if (timer) {
-			clearTimeout(timer)
+	/** True when this press confirms the line its control armed (send now); false when it armed the control for this line. */
+	press(controlId: string, line: string): boolean {
+		const armed = this.#armed.get(controlId)
+		if (armed) {
+			clearTimeout(armed.timer)
 			this.#armed.delete(controlId)
-			this.#changed(controlId)
-			return true
+			if (armed.line === line) {
+				this.#changed(controlId)
+				return true
+			}
 		}
-		this.#armed.set(
-			controlId,
-			setTimeout(() => {
+		this.#armed.set(controlId, {
+			line,
+			timer: setTimeout(() => {
 				this.#armed.delete(controlId)
 				this.#changed(controlId)
 			}, CONFIRM_MS),
-		)
+		})
 		this.#changed(controlId)
 		return false
 	}
@@ -241,7 +244,7 @@ export class Confirms {
 	}
 
 	clear(): void {
-		for (const t of this.#armed.values()) clearTimeout(t)
+		for (const a of this.#armed.values()) clearTimeout(a.timer)
 		this.#armed.clear()
 	}
 }

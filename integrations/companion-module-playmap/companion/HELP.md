@@ -38,7 +38,7 @@ The press shape comes from the node's vocabulary:
 
 - **At once** — PANIC, BLACKOUT, FREEZE, MASTER, GO, NEXT, PREV and every transport verb: never held, never confirmed.
 - **Held 0.8 s** — verbs that change the air at high risk (show or hide a surface …): the key says HOLD… while held.
-- **Two presses** — a projector's power: the first held press says SURE? for 3 s, the second sends.
+- **Two presses** — a projector's power: the first held press says SURE? for 3 s, the second sends. The second must be of the same line: a Live slot whose page turned in between says SURE? again and sends nothing.
 
 A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`, and red for 2 s when no answer came. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and _if_ blocks can branch on it. The `stage` is one of:
 

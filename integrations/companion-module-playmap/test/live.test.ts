@@ -699,6 +699,51 @@ void test('a deck that links to an armed show, or relinks to one, lays its slots
 	}
 })
 
+void test('a slot pressed twice confirms only the line it armed: the page turned under an armed slot arms it anew and sends nothing', async () => {
+	const doc = indexDoc()
+	const align = doc.sections.find((s) => s.section === 'align')
+	assert.ok(align)
+	// Thirty-three alignment groups: slot 1 shows the first on page 1 and the thirty-third on page 2.
+	align.rows = Array.from({ length: 33 }, (_, i) => ({
+		id: `ag${String(i + 1).padStart(8, '0')}`,
+		kind: 'align',
+		label: `Wall ${i + 1}`,
+		parent: null,
+		light: 'grey',
+		state: 'idle',
+	}))
+	const { node, m } = await linked({ index: doc, config: { min_go_ms: 0 } })
+	try {
+		const slot = { rule: 'section:align', n: 1, held: true, phase: 'hold800' }
+		await m.place('line', 'slot', { rule: 'section:align', n: 1, field: 'line' })
+		await m.place('sure', 'confirm_pending', {}, 'key-align')
+		await values(m, { line: 'ALIGN RUN ag00000001', sure: false }, 'page 1, unarmed')
+
+		const first = (await m.press('slot_press', slot, 'key-align')) as CompanionOptionValues
+		assert.equal(first.stage, 'not-sent')
+		assert.equal(first.error, 'press again within 3 s to confirm')
+		await values(m, { sure: true }, 'SURE? after the first held press')
+
+		await m.press('live_page_next', { rule: 'section:align' }, 'key-page')
+		await values(m, { line: 'ALIGN RUN ag00000033' }, 'page 2: slot 1 holds another line')
+		const second = (await m.press('slot_press', slot, 'key-align')) as CompanionOptionValues
+		assert.deepEqual(second, first, 'a line pressed once is armed, never sent')
+		assert.equal(m.instance.confirms.pending('key-align'), true, 'armed anew, for the line it shows now')
+		await values(m, { sure: true }, 'SURE? again')
+
+		await m.press('raw', { line: 'PLAYLIST LIST' }, 'key-fence')
+		await node.heard(/^@c\d+ PLAYLIST LIST$/u)
+		assert.deepEqual(
+			node.sent().filter((l) => l.startsWith('ALIGN RUN')),
+			[],
+			'no line of the slot was sent',
+		)
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('a slot is pressed as its line says: instant on the down, held at 800 ms, twice held within 3 s; a section key alike', async () => {
 	const doc = indexDoc()
 	const align = doc.sections.find((s) => s.section === 'align')

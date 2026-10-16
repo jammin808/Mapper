@@ -122,7 +122,7 @@ function generatedAction(ctx: Ctx, row: VerbRow): CompanionActionDefinition {
 		callback: async (action) => {
 			const written = lineOf(row, action.options)
 			if ('error' in written) return ctx.receipts.notSent(action.controlId, row.name, written.error)
-			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId)) return ARMED
+			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId, written.line)) return ARMED
 			const goPlaylist = GO_VERBS.has(row.name)
 				? text(action.options[optionIdOf({ name: 'playlist', kind: 'entity' }, 0)])
 				: ''
@@ -401,7 +401,7 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 					ctx.checkFeedbacks('slot_hint')
 					return notSentResult('hold this key to send it')
 				}
-				if (slot.press === 'double' && !ctx.confirms.press(action.controlId)) return ARMED
+				if (slot.press === 'double' && !ctx.confirms.press(action.controlId, slot.line)) return ARMED
 				const go = slot.line.startsWith('PLAYLIST GO ') ? (slot.line.split(' ')[2] ?? '') : ''
 				return ctx.send(slot.line, action.controlId, go ? { goPlaylist: go } : {})
 			}
@@ -461,8 +461,9 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 				return ctx.receipts.notSent(action.controlId, 'section', 'the node no longer lists this key')
 			if (!pressable(row))
 				return ctx.receipts.notSent(action.controlId, 'section', `${row.label} is turned with a value, never pressed`)
-			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId)) return ARMED
-			return ctx.send(fillHint(key.line, row), action.controlId)
+			const line = fillHint(key.line, row)
+			if (action.options.confirm === 'twice' && !ctx.confirms.press(action.controlId, line)) return ARMED
+			return ctx.send(line, action.controlId)
 		},
 	}
 	defs.ask_node = {
