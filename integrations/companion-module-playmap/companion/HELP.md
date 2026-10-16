@@ -24,7 +24,7 @@ The status says what is wrong in words:
 The presets come from the show, by id: renaming or reordering an item never orphans a linked key.
 
 - **Show** — GO, NEXT and PREV on the focused playlist (GO sends `EXPECT` the next item, so a list that moved under the key is refused, not played), BLACKOUT, FREEZE, PANIC and one per outcome, PANIC CLEAR, the countdown, Show Mode and the node's headline.
-- **Playlists** — one key per playlist, and one template group per playlist (`pl.<id>`) with a key per item: its picture, its name, its progress bar, a frame lit green on the air, amber next, grey when the show no longer has it.
+- **Playlists** — one key per playlist, and one template group per playlist (`pl.<id>`) with a key per item: its picture, its name, its progress bar, a frame lit green on the air, amber next, grey when the show no longer has it. A playlist key's picture is what is on the air, so it goes blank while the node is not linked; a picture the node could not make while the show was armed comes when it disarms.
 - **Outputs**, **Projectors** (light and calibration score ring), **Surfaces** (show or hide, held), **Fleet** (the machines this node hears).
 - **Live page** — 32 slots that fill themselves (below).
 - **Encoders** — master, rate, seek and the Live page on dials; a generator's parameters.
