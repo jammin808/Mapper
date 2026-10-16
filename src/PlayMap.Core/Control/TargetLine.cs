@@ -52,9 +52,9 @@ public sealed record TargetLine(string Text, WireLine Line, VerbSpec Spec, int V
     /// <summary>The line with one word replaced, quoted as the grammar needs.</summary>
     public string With(int index, string word)
     {
-        var words = Line.Words.Select(WireGrammar.Quote).ToArray();
-        words[index] = WireGrammar.Quote(word);
-        return string.Join(' ', words);
+        var words = Line.Words.ToArray();
+        words[index] = word;
+        return WireGrammar.Join(words);
     }
 
     /// <summary>Reads a target line; null with the reason when it cannot be one.</summary>

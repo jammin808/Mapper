@@ -81,6 +81,21 @@ public sealed class BindingLearnTests
     }
 
     [Fact]
+    public void ARewrittenTargetKeepsABracketWordOneWordAndItsJsonTailBare()
+    {
+        // A word that opens with "[" inside the line stays one word in the forms a button sends.
+        var (on, off) = Target("SURFACE SHOW \"[L]\" ON").SwitchForms!.Value;
+        Assert.Equal(("SURFACE SHOW \"[L]\" ON", "SURFACE SHOW \"[L]\" OFF"), (on, off));
+        Assert.True(Core.Wire.WireGrammar.TryParse(off, out var line, out _));
+        Assert.Equal(["SURFACE", "SHOW", "[L]", "OFF"], line.Words);
+        // JSON as the last word rides bare to the end of the line, where the verb reads it from the raw text.
+        var json = Target("SET sf_a content {\"mode\":\"uv\"}").With(1, "sf_b");
+        Assert.Equal("SET sf_b content {\"mode\":\"uv\"}", json);
+        Assert.True(Core.Wire.WireGrammar.TryParse(json, out var set, out _));
+        Assert.Equal("{\"mode\":\"uv\"}", set.RestAfter(3));
+    }
+
+    [Fact]
     public void AnAxisBindingShapesAndSendsOnlyNewValues()
     {
         var input = InputAddress.Midi(MidiFamily.Cc, 1, 48);

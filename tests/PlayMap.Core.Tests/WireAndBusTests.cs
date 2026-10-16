@@ -67,6 +67,20 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void AWordThatOpensLikeJsonIsQuotedAndStaysOneWordInTheMiddleOfALine()
+    {
+        // The grammar reads a bare "{" or "[" as JSON to the end of the line: such a word is quoted wherever it stands.
+        foreach (var word in new[] { "[L]", "{W}", "[", "{\"a\":1}", "[ left ]" })
+        {
+            var text = "DEVICE ADD " + WireGrammar.Quote(word) + " pjlink 10.0.0.20";
+            Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{text}: {error?.Reason}");
+            Assert.Equal(["DEVICE", "ADD", word, "pjlink", "10.0.0.20"], line.Words);
+        }
+        Assert.Equal("\"[L]\"", WireGrammar.Quote("[L]"));
+        Assert.Equal("L[1]", WireGrammar.Quote("L[1]"));
+    }
+
+    [Fact]
     public void PatternsClipVerbsAndTheirAliasesMatch()
     {
         foreach (var text in new[] { "VIDEO PLAY", "VT PLAY", "CLIP RESUME", "video resume" })

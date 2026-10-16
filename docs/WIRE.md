@@ -9,7 +9,7 @@ bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), and the desk.
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line. Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
+is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
 (`OK @a1 …`). A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
