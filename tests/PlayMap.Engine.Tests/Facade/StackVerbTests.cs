@@ -454,6 +454,7 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         var item = ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "stack:" + id);
         Assert.Equal(Core.Bus.Light.Amber, item.Light);
         Assert.Contains("P2 or P1 moved since S1 was aligned", item.State, StringComparison.Ordinal);
+        AsTheContext(rig.Engine, id, "amber");
         var row = Assert.Single(await new Site.SitePreflight().RunAsync(new PlayMap.Engine.PreflightContext(rig.Engine, Core.Preflight.PreflightDepth.Quick, false),
             CancellationToken.None), r => r.Id == "stack:" + id);
         Assert.Equal((Core.Bus.Light.Amber, $"STACK ALIGN {id} FROM {StackKit.Scan}"), (row.Light, row.Fix));
@@ -464,6 +465,43 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         var master = rig.Engine.Store.Project.FindProjector(StackKit.P1)!.Pose;
         await rig.Ok($"SET {StackKit.P1} pose {ProjectJson.SerializeEntity(master with { Position = master.Position + new Core.Numerics.Vec3d(0.04, 0, 0) })}");
         Assert.True(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+    }
+
+    /// <summary>STATE gives each stack its context row's light and words, so a reader of STATE (the desk's card, Companion, an
+    /// assistant) lights it as the node does: amber until aligned, green aligned within 0.5 px, amber while a member lands farther from
+    /// the master though the stack is aligned.</summary>
+    [Fact]
+    public async Task AStacksLightAndWordsInStateAreItsContextRows()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        AsTheContext(rig.Engine, id, "amber");
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        AsTheContext(rig.Engine, id, "green");
+
+        // The member's lattice lands 0.8 px from the master: the stack is still aligned, and not ready.
+        var member = rig.Engine.Store.Project.Outputs.Single(o => o.Measured is { Lattice: not null } m && m.StackId == id);
+        Assert.True((await rig.Engine.EditAsync(ShowRig.Desk, "a member lands farther", p => p with
+        {
+            Outputs = p.Outputs.Update(member.Id, o => o with { Measured = o.Measured! with { ResidualPx = 0.8 } }),
+        })).Changed);
+        var stack = Stage(rig).GetProperty("stacks")[0];
+        Assert.True(stack.GetProperty("aligned").GetBoolean());
+        Assert.Equal(0.8, stack.GetProperty("residualPx").GetDouble());
+        AsTheContext(rig.Engine, id, "amber");
+        Assert.Equal("S1: a member lands 0.80 px from the master", stack.GetProperty("words").GetString());
+    }
+
+    /// <summary>The stack's light and words in STATE are its context row's, and its light is the one named.</summary>
+    internal static void AsTheContext(EngineCore engine, string id, string light)
+    {
+        var stack = Json(engine.State().Json).GetProperty("stage").GetProperty("stacks").EnumerateArray().Single(s => s.GetProperty("id").GetString() == id);
+        var item = ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:" + id);
+        Assert.Equal(light, stack.GetProperty("light").GetString());
+        Assert.Equal(light, Core.Bus.ShowContext.LightWord(item.Light));
+        Assert.Equal(item.State, stack.GetProperty("words").GetString());
     }
 
     /// <summary>An output an alignment draws through its measured warp grid shows the canvas it was registered to: a stack lattice on it

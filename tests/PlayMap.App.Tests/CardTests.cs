@@ -299,20 +299,43 @@ public class CardTests(ITestOutputHelper output)
                 .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
             Assert.StartsWith($"on the wall ±{wallPx} px", uncertainty.Words, StringComparison.Ordinal);
 
-            // stacks: the guide's next step is amber while it names a line; a stack not yet aligned is amber, its card is the stack's
-            // and its buttons are its list and its REMOVE (the scan it aligns from is the operator's to type).
+            // stacks: the guide's next step is amber while it names a line; a stack not yet aligned is amber with the node's words, its
+            // card is the stack's and its buttons are its list, its failover and its REMOVE (the scan it aligns from is the operator's,
+            // so STACK ALIGN is no button).
             var next = stage.GetProperty("site").GetProperty("next");
             var guide = Read("facade").Single(c => c.Descriptor.Path == "stage.site.next");
             Assert.Equal(("amber", $"{next.GetProperty("step").GetString()}: {next.GetProperty("words").GetString()} — {next.GetProperty("line").GetString()}"),
                 (guide.Light, guide.Words));
             Assert.Equal(["SITE GUIDE"], guide.Actions.Select(a => a.Line ?? "").ToArray());
             var sk = stage.GetProperty("stacks")[0];
-            var stack = Read("facade").Single(c => c.Descriptor.Path == "stage.stacks.0");
+            var id = sk.GetProperty("id").GetString()!;
+            var stack = Read("facade").Single(c => c.Descriptor.Path == "stage.stacks[]");
             Assert.False(sk.GetProperty("aligned").GetBoolean());
-            Assert.Equal(("amber", sk.GetProperty("id").GetString()), (stack.Light, stack.EntityId));
-            Assert.StartsWith($"{sk.GetProperty("name").GetString()}: {sk.GetProperty("members").GetArrayLength()} on {sk.GetProperty("master").GetString()} · ",
-                stack.Words, StringComparison.Ordinal);
-            Assert.Equal(["STACK LIST", "REMOVE " + sk.GetProperty("id").GetString()], stack.Actions.Select(a => a.Line ?? "").ToArray());
+            Assert.Equal(("amber", "amber", id, "Stack · " + sk.GetProperty("name").GetString()),
+                (sk.GetProperty("light").GetString(), stack.Light, stack.EntityId, stack.Title));
+            Assert.Equal($"{sk.GetProperty("words").GetString()} · failover {sk.GetProperty("failover").GetString()}", stack.Words);
+            Assert.Equal(["STACK LIST", $"STACK FAILOVER {id} MATCH", $"STACK FAILOVER {id} HOLD", "REMOVE " + id], stack.Actions.Select(a => a.Line ?? "").ToArray());
+
+            // A second stack that has lost a member while aligned (aligned stays true; the node lights it red with the light the
+            // building is at): it has a card of its own, red, with the node's words, and its buttons name it.
+            var withLost = JsonNode.Parse(StateFixtures.Read("facade"))!.AsObject();
+            var lost = withLost["stage"]!["stacks"]![0]!.DeepClone().AsObject();
+            var twin = lost["members"]![1]!.GetValue<string>();
+            lost["id"] = "sk_back";
+            lost["name"] = "Back";
+            lost["aligned"] = true;
+            lost["degraded"] = new JsonArray(twin);
+            lost["gain"] = 0.667;
+            lost["failover"] = "match";
+            lost["light"] = "red";
+            lost["words"] = "Back lost Far twin — matched: the building at 67 %";
+            withLost["stage"]!["stacks"]!.AsArray().Add(lost);
+            var stacks = CardReader.ReadAll(CardDescriptor.BuiltIn.Where(d => d.Package == "facade" && d.Path == "stage.stacks[]"), FixtureRoot("facade", withLost));
+            Assert.Equal(new (string?, string)[] { (id, "amber"), ("sk_back", "red") }, stacks.Select(c => (c.EntityId, c.Light)).ToArray());
+            Assert.Equal(("Stack · Back", "Back lost Far twin — matched: the building at 67 % · failover match"), (stacks[1].Title, stacks[1].Words));
+            Assert.Equal(["STACK LIST", "STACK FAILOVER sk_back MATCH", "STACK FAILOVER sk_back HOLD", "REMOVE sk_back"], stacks[1].Actions.Select(a => a.Line ?? "").ToArray());
+            Assert.Contains(("Degraded", "1"), stacks[1].Fields);
+            Assert.Contains(("Gain", "0.667"), stacks[1].Fields);
         }
         // align: the measured correction is the first output's; a guarded device would have a card of its own.
         Assert.Equal("op1", Read("align").Single(c => c.Descriptor.Path == "outputs.0.measured").EntityId);

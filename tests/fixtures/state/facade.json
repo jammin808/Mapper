@@ -44,7 +44,9 @@
         "residualPx": 0,
         "failover": "hold",
         "degraded": [],
-        "gain": 1
+        "gain": 1,
+        "light": "amber",
+        "words": "Front is not aligned \u2014 STACK ALIGN sk_fixture1 FROM \u003Cscan\u003E"
       }
     ],
     "projectors": [

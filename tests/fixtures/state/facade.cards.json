@@ -162,22 +162,14 @@
   },
   {
     "title": "Stack",
-    "path": "stage.stacks.0",
+    "path": "stage.stacks[]",
     "light": [
       {
-        "if": "aligned",
-        "light": "green"
-      },
-      {
-        "light": "amber"
+        "from": "light"
       }
     ],
-    "words": "{name}: {members} on {master} \u00B7 {residualPx} px \u00B7 failover {failover}",
+    "words": "{words} \u00B7 failover {failover}",
     "fields": [
-      {
-        "label": "Name",
-        "path": "name"
-      },
       {
         "label": "Members",
         "path": "members"
@@ -191,16 +183,8 @@
         "path": "aligned"
       },
       {
-        "label": "Matched",
-        "path": "matched"
-      },
-      {
         "label": "Residual (px)",
         "path": "residualPx"
-      },
-      {
-        "label": "Failover",
-        "path": "failover"
       },
       {
         "label": "Degraded",
@@ -209,10 +193,24 @@
       {
         "label": "Gain",
         "path": "gain"
+      },
+      {
+        "label": "Matched",
+        "path": "matched"
+      },
+      {
+        "label": "Failover",
+        "path": "failover"
+      },
+      {
+        "label": "Name",
+        "path": "name"
       }
     ],
     "actions": [
       "STACK LIST",
+      "STACK FAILOVER $(id) MATCH",
+      "STACK FAILOVER $(id) HOLD",
       "REMOVE $(id)"
     ]
   }
