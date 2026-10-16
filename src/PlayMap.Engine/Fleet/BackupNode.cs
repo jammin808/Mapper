@@ -1227,6 +1227,9 @@ public sealed class BackupNode : IAsyncDisposable
                 if (_handingBackTo == peer.Id)
                 {
                     _handingBackTo = "";
+                    // The node that took the show back commits its epoch first and leads its group a moment later; a mirror is
+                    // taken only from a node that leads, so it is joined once that node's HEALTH says it does.
+                    await LeadsGroupAsync(peer.Id, _stop.Token).ConfigureAwait(false);
                     var joined = await RunAsync(engine, $"FLEET BACKUP {peer.Id}", _stop.Token).ConfigureAwait(false);
                     if (joined.Ok)
                     {
@@ -1375,6 +1378,20 @@ public sealed class BackupNode : IAsyncDisposable
         for (var i = 0; i < 100; i++)
         {
             if (FindPeer(nodeId)?.Hello.Port("sync") > 0)
+                return true;
+            if (!await Waits.DelayAsync(TimeSpan.FromMilliseconds(20), ct).ConfigureAwait(false))
+                return false;
+        }
+        return false;
+    }
+
+    /// <summary>True once the node's HEALTH says it leads its sync group; false when it does not within the join's wait.</summary>
+    private async Task<bool> LeadsGroupAsync(string nodeId, CancellationToken ct)
+    {
+        var turns = Math.Max(1, (int)(_o.JoinWait / TimeSpan.FromMilliseconds(20)));
+        for (var i = 0; i < turns; i++)
+        {
+            if (Peer(nodeId)?.Health?.Facts.SyncRole == "leader")
                 return true;
             if (!await Waits.DelayAsync(TimeSpan.FromMilliseconds(20), ct).ConfigureAwait(false))
                 return false;
