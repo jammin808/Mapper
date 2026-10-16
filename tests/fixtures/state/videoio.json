@@ -1,1 +1,147 @@
-{}
+{
+  "videoio": {
+    "ndi": {
+      "state": "ready",
+      "version": "fake 1.0",
+      "path": "/fake/ndi",
+      "words": "",
+      "link": "https://ndi.video",
+      "groups": "",
+      "discovery": "",
+      "advertisers": false,
+      "next": {
+        "state": "on",
+        "groups": "",
+        "discovery": ""
+      }
+    },
+    "omt": {
+      "state": "ready",
+      "version": "fake 1.0",
+      "vmx": "avx2",
+      "mdns": "none",
+      "server": "",
+      "words": "",
+      "next": {
+        "state": "on",
+        "server": ""
+      }
+    },
+    "spout": {
+      "state": "unavailable",
+      "version": "",
+      "senders": 0,
+      "words": "no Spout provider on this node (Spout is Windows only)"
+    },
+    "discoveredCount": 2,
+    "discovered": [
+      {
+        "uri": "ndi:FOH (Program)",
+        "proto": "ndi",
+        "name": "Program",
+        "host": "FOH",
+        "address": "10.0.0.9:5961",
+        "added": "input_2"
+      },
+      {
+        "uri": "omt:STUDIO (Cam 1)",
+        "proto": "omt",
+        "name": "Cam 1",
+        "host": "STUDIO",
+        "address": "10.0.0.5:6400",
+        "added": "input_1"
+      }
+    ],
+    "inputs": [
+      {
+        "id": "input_1",
+        "name": "Cam 1",
+        "uri": "omt:STUDIO (Cam 1)",
+        "proto": "omt",
+        "state": "ok",
+        "words": "",
+        "w": 1920,
+        "h": 1080,
+        "fps": 50,
+        "ageMs": 20,
+        "received": 30,
+        "dropped": 0,
+        "repeated": 0,
+        "using": "primary",
+        "tally": "program",
+        "onAir": true,
+        "onLoss": "hold",
+        "fallback": "",
+        "loss": "",
+        "backup": "",
+        "backupState": "",
+        "format": "uyvy",
+        "alpha": false,
+        "pacing": "latest",
+        "warm": true,
+        "mbps": 1716.1
+      },
+      {
+        "id": "input_2",
+        "name": "Program",
+        "uri": "ndi:FOH (Program)",
+        "proto": "ndi",
+        "state": "connecting",
+        "words": "connecting",
+        "w": 0,
+        "h": 0,
+        "fps": 0,
+        "ageMs": -1,
+        "received": 0,
+        "dropped": 0,
+        "repeated": 0,
+        "using": "primary",
+        "tally": "none",
+        "onAir": false,
+        "onLoss": "hold",
+        "fallback": "",
+        "loss": "",
+        "backup": "",
+        "backupState": "",
+        "format": "",
+        "alpha": false,
+        "pacing": "latest",
+        "warm": true,
+        "mbps": 0
+      }
+    ],
+    "sends": [
+      {
+        "id": "send_3",
+        "name": "Main out",
+        "proto": "omt",
+        "fullName": "FAKEHOST (Main out)",
+        "tap": "output:op_1",
+        "w": 1280,
+        "h": 720,
+        "fps": 60,
+        "format": "uyvy",
+        "state": "sending",
+        "words": "",
+        "connections": 2,
+        "tally": {
+          "program": true,
+          "preview": false
+        },
+        "sent": 0,
+        "dropped": 0,
+        "enabled": true,
+        "skippedUnwatched": 0,
+        "mbps": 0
+      }
+    ],
+    "bandwidth": {
+      "nic": "pm-fixture0",
+      "linkMbps": -1,
+      "inMbps": 1716.1,
+      "outMbps": 0,
+      "limitMbps": 700,
+      "light": "green"
+    }
+  }
+}

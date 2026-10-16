@@ -166,6 +166,9 @@ internal sealed class SourceResolver : IDisposable
                 return Canvas(source.Id) ?? _services.Black;
             case SourceKind.Playlist:
                 return Playlist(source, width, height, context);
+            case SourceKind.Media or SourceKind.Live when _provider.Route(source, _leaderNs) is { } routed:
+                // A live input's loss policy (black, or a fallback that is never live, so this does not recurse).
+                return routed.Kind is SourceKind.Media or SourceKind.Live ? Video(routed) ?? _services.Black : Resolve(routed, width, height, context);
             default:
                 return Video(source) ?? _services.Black;
         }

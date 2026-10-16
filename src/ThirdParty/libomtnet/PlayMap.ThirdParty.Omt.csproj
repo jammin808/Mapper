@@ -1,10 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- libomtnet (MIT), vendored by wp2-videoio: empty until that package lands its source here. -->
+  <!-- libomtnet (Open Media Transport, MIT; LICENSE.txt beside this file), vendored by wp2-videoio at upstream 7d29031
+       (13 Oct 2026) with the patches listed in PATCHES.md. Upstream source kept diffable: no analyzers, warnings stay warnings
+       (src/ThirdParty/Directory.Build.props). Its codec, libvmx, is native and loaded at run time. -->
   <PropertyGroup>
     <TargetFramework>$(PlayMapTfm)</TargetFramework>
-    <RootNamespace>PlayMap.ThirdParty.Omt</RootNamespace>
+    <RootNamespace>libomtnet</RootNamespace>
     <AssemblyName>PlayMap.ThirdParty.Omt</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0.20</Version>
+    <InformationalVersion>1.0.0.20+7d29031.playmap.1</InformationalVersion>
+    <NoWarn>$(NoWarn);CS0168;CS0219;CS0414;CS0649;CS0169;CS0162;CS8981;SYSLIB0006;SYSLIB0014;CA1416;CS0618</NoWarn>
   </PropertyGroup>
 
 </Project>

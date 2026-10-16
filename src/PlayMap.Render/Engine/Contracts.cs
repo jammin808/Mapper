@@ -19,8 +19,10 @@ public interface ISourceProvider
 
     /// <summary>What a playlist shows at a leader instant when that is a picture the renderer draws itself —
     /// a generator, a colour, a canvas, or <see cref="SourceRef.None"/> for black — or null when the playlist's
-    /// pictures come as frames through <see cref="Acquire"/>. Called on the render thread (possibly more than
-    /// once a frame); must not block. A provider that routes nothing keeps the default.</summary>
+    /// pictures come as frames through <see cref="Acquire"/>. For a live input (a stream media item or a live ref)
+    /// it is what the input's loss policy shows instead of its feed (black, or a fallback that is never live), or
+    /// null for the feed. Called on the render thread (possibly more than once a frame); must not block. A
+    /// provider that routes nothing keeps the default.</summary>
     SourceRef? Route(SourceRef source, long leaderNs) => null;
 
     /// <summary>The transition a playlist is in at a leader instant — the picture it leaves and the one it
