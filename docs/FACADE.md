@@ -36,6 +36,10 @@ apply), each slice timed into the import's view. The result lands as one edit, s
   named), the XML is read with no DTD and no resolver, and each scan's compressed vector is decoded with the bit-pack codec (Float
   single and double, ScaledInteger, Integer; cartesian or spherical; invalid states; colour; row and column indices). Each scan is
   moved into the file's frame by its pose. A structured scan is meshed on its own grid, one station at a time. Images are not read.
+- **Damaged and hostile files** are held to what they hold: an E57 scan's record count to the bits its section can carry (a scan
+  whose fields are all constant carries none), its offsets and XML to the file's length, and a structured grid to its records; a
+  LAS header shorter than its own fields, a count past what the file holds, or extended records past its end are refused or
+  passed over with words before anything is allocated for them.
 - **Coordinate systems** come from the argument, else the file (LAS's WKT or GeoKey projection record; E57's coordinate metadata),
   else LOCAL. A file in another EPSG system than the site's, or whose points are more than 2 km from the site's origin, is
   refused: reprojection is not done here. LAS points flagged withheld are left out.
@@ -48,7 +52,8 @@ that fails for any reason is shown failed with its words, and the files it wrote
 
 ## Control points
 
-`SITE POINTS` reads total-station files (PENZD, PNEZD, ENH, NEH; any separator; header sniffing; m, cm, mm, ft, US survey ft) into
+`SITE POINTS` reads total-station files (PENZD, PNEZD, ENH, NEH; any separator, and decimal commas in a semicolon- or tab-separated
+file; header sniffing; m, cm, mm, ft, US survey ft) into
 control points (`cp…`, σ 1 cm). A pin may take its world point from a control point (`CalibrationPin.ControlId`), and a projector's
 position prior may sit on one; both are re-derived whenever SITE POINTS or the site changes them, in the same edit. A bound pin set
 away from its point is refused with the world point it must have; a bound point moved by hand is refused (SITE POINTS moves it with

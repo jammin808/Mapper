@@ -7,7 +7,7 @@ answered "not available on this node yet" until the package routes it, and `VERB
 
 | Verb | Syntax | Words | Risk | Changes the show |
 |---|---|---|---|---|
-| — | — | (no rows of its own) | | |
+| `STACK ALIGN` | `STACK ALIGN <stack> FROM <scan> [GRID <c>x<r>]` | Fits each member's measured residual to the master's picture from a shared scan (in facade's block of the catalogue, unrouted: the calibration score's stack term names it as its fix) | review | yes |
 
 ## STATE
 
