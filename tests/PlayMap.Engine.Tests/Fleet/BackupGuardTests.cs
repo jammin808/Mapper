@@ -7,7 +7,8 @@ using PlayMap.Engine.Tests.Sync;
 namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>What keeps a hot-backup pair to one node with the show, real nodes on loopback: a hand-back is taken only by a backup whose
-/// mirror is identical; a node that has begun to stop takes no show over.</summary>
+/// mirror is identical; a node that has begun to stop takes no show over; a primary that could not hear a takeover (its fleet monitor
+/// off) takes no backup.</summary>
 public sealed class BackupGuardTests
 {
     private const long Second = SyncRig.Second;
@@ -64,6 +65,28 @@ public sealed class BackupGuardTests
         Assert.Equal("backup", backup.Engine.Services.Backup!.Role);
         Assert.Equal(("backup", 0L), (backup.Home.LoadSettings("x").Fleet.Role, backup.Home.LoadSettings("x").Fleet.Epoch));
         Assert.Equal("primary", BackupRig.Role(primary));
+    }
+
+    [Fact]
+    public async Task APrimaryThatCouldNotHearATakeoverTakesNoBackup()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await HostRig.StartAsync("FOH-A", network: true, mono: new OffsetClock(clock, 2 * Second), parts: BackupRig.Parts(time),
+            settings: s => s with { NodeId = BackupRig.PrimaryId, TrustLoopback = false, Fleet = s.Fleet with { Monitor = false } });
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        HostRig.Introduce(primary, backup);
+        Assert.True(await Eventually.TrueAsync(() => backup.Network.Hello!.Peers.Find(primary.Id)?.Hello.Port("http") > 0));
+
+        // Its fleet monitor is off: it would never hear its backup take the show, nor fence itself — two nodes would serve one show.
+        await backup.OkAsync($"CREDENTIAL SET node.{primary.Id} {HostRig.Token}");
+        var joined = await backup.RunAsync("FLEET BACKUP " + primary.Id);
+        Assert.False(joined.Ok);
+        Assert.Contains("fleet monitor is off", joined.Payload, StringComparison.Ordinal);
+        Assert.Equal("solo", BackupRig.Role(backup));
+        Assert.Equal("solo", BackupRig.Role(primary));
     }
 
     private static async Task<CommandReply> Own(HostRig rig, string text)

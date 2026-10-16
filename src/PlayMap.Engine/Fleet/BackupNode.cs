@@ -199,8 +199,8 @@ public sealed class BackupNode : IAsyncDisposable
     // ---- The primary's feed -----------------------------------------------------------------------------------------------
 
     /// <summary>SUBSCRIBE MIRROR &lt;node&gt;: a backup joins the feed. Paired only — the feed is the whole show's motion — and only on a
-    /// node that leads a sync group (the backup follows its clock there); a node that is itself a backup or fenced has no show of
-    /// its own to mirror.</summary>
+    /// node that leads a sync group (the backup follows its clock there) and hears its peers' HEALTH (its fence); a node that is itself
+    /// a backup or fenced has no show of its own to mirror.</summary>
     public PushOpen OpenMirror(IReadOnlyList<string> args, SessionInfo session, IPushSink sink)
     {
         if (!session.Paired)
@@ -212,6 +212,9 @@ public sealed class BackupNode : IAsyncDisposable
         var sync = _engine?.Services.GroupSync;
         if (sync is not { Leads: true } || sync.Settings.Group.Length == 0)
             return PushOpen.Refuse($"{SelfName} leads no sync group — SYNC LEAD <group> here first, so a backup can follow its clock");
+        // A primary fences itself on what it hears in its backups' HEALTH: one that cannot hear them would serve on beside a takeover.
+        if (_engine?.Services.FleetPeers is null)
+            return PushOpen.Refuse($"{SelfName}'s fleet monitor is off: it would not hear a takeover nor fence itself — turn it on (fleet.monitor in the node's settings) and restart it first");
         var member = new MirrorMember(session.SessionId, args[0], session.ClientName, session.RemoteAddress);
         Feed.Publish("hello", HelloLine());
         PublishProject(force: true);
