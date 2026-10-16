@@ -100,7 +100,7 @@ public sealed class BackupTests
         Assert.True((await backup.RunAsync("SET op_1 name \"Taken\"")).Ok);   // editing goes on on the new primary
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary) + "\n" + primary.Journal());
         Assert.Equal(1, BackupRig.Fleet(primary).GetProperty("epoch").GetInt64());
-        Assert.Equal(0f, primary.Engine.Services.OutputGains!.GainOf("op_1"));
+        Assert.Equal(0f, primary.Engine.Services.OutputGains!.GainOf("op_1", primary.Engine.LeaderNowNs));
         Assert.Equal(0f, primary.Engine.AirLevelsNow!.Gain("op_1", primary.Engine.LeaderNowNs));
         var fencedEdit = await primary.RunAsync("SET op_1 name Again");
         Assert.False(fencedEdit.Ok);
@@ -111,7 +111,7 @@ public sealed class BackupTests
 
         // FAILBACK: the old primary mirrors the new one, then takes its show back; the two swap roles.
         await BackupRig.BackUpAsync(backup, primary);
-        Assert.Equal(1f, primary.Engine.Services.OutputGains!.GainOf("op_1"));
+        Assert.Equal(1f, primary.Engine.Services.OutputGains!.GainOf("op_1", primary.Engine.LeaderNowNs));
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(backup).GetProperty("backups").EnumerateArray()
             .Any(b => b.GetProperty("node").GetString() == primary.Id && b.GetProperty("state").GetString() == "identical")), BackupRig.Fleet(backup).ToString());
         var back = await backup.RunAsync("FAILBACK CONFIRM");

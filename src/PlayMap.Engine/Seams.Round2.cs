@@ -58,10 +58,11 @@ public sealed class OpenShowGate : IShowGate
 }
 
 /// <summary>A degrade gain per output that the air multiplies in (a stack that lost a member dims its blend group); 1 = none.
-/// Read on the render thread: lock-free.</summary>
+/// Read on the render thread, lock-free and without allocating, at the leader instant the frame is drawn for: a fade in it is a
+/// function of that instant, as the air's own fades are.</summary>
 public interface IOutputGains
 {
-    float GainOf(string outputId);
+    float GainOf(string outputId, long leaderNs);
 }
 
 /// <summary>The calibration ledger (wp2-wall) as the packages that make results use it: align and stacks stage and accept output

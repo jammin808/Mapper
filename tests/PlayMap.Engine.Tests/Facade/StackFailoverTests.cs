@@ -28,7 +28,7 @@ public sealed class StackFailoverTests
 
     private sealed class Fence : IOutputGains
     {
-        public float GainOf(string outputId) => outputId == "op00000001" ? 0.5f : 1f;
+        public float GainOf(string outputId, long leaderNs) => outputId == "op00000001" ? 0.5f : 1f;
     }
 
     private static Output Display(string id, string projectorId) =>
@@ -90,7 +90,7 @@ public sealed class StackFailoverTests
 
         await engine.Lane.RunAsync(engine.WatchStacks);
         Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
-        Assert.Equal(0.5f, gains.GainOf("op00000001"));
+        Assert.Equal(0.5f, gains.GainOf("op00000001", engine.LeaderNowNs));
 
         // P3's display closes: a measured fault.
         outputs.Now = [.. outputs.Now.Select(h => h.OutputId == "op00000003" ? h with { Open = false } : h)];
@@ -100,13 +100,13 @@ public sealed class StackFailoverTests
         Assert.Equal(0.667, stack.GetProperty("gain").GetDouble());
         // The neighbour's fade starts where its gain is and reaches 2/3 0.5 s later; the stack's remaining members give 2/3 of its
         // light already and stay at full; the fence another part set stays multiplied in.
-        Assert.Equal(1f, gains.GainOf("op00000004"));
+        Assert.Equal(1f, gains.GainOf("op00000004", engine.LeaderNowNs));
         clock.AdvanceMs(250);
-        Assert.InRange(gains.GainOf("op00000004"), 0.82f, 0.85f);
+        Assert.InRange(gains.GainOf("op00000004", engine.LeaderNowNs), 0.82f, 0.85f);
         clock.AdvanceMs(250);
-        Assert.Equal(2f / 3, gains.GainOf("op00000004"), 4);
-        Assert.Equal(1f, gains.GainOf("op00000002"));
-        Assert.Equal(0.5f, gains.GainOf("op00000001"));
+        Assert.Equal(2f / 3, gains.GainOf("op00000004", engine.LeaderNowNs), 4);
+        Assert.Equal(1f, gains.GainOf("op00000002", engine.LeaderNowNs));
+        Assert.Equal(0.5f, gains.GainOf("op00000001", engine.LeaderNowNs));
         Assert.Equal(2f / 3, engine.AirGain("op00000004", engine.LeaderNowNs), 4);
         Assert.Equal(1f, engine.AirGain("op00000002", engine.LeaderNowNs));
 
@@ -130,13 +130,58 @@ public sealed class StackFailoverTests
         await engine.Lane.RunAsync(engine.WatchStacks);
         Assert.Equal(0, Stack(engine).GetProperty("degraded").GetArrayLength());
         Assert.Equal(1.0, Stack(engine).GetProperty("gain").GetDouble());
-        Assert.Equal(2f / 3, gains.GainOf("op00000004"), 4);
+        Assert.Equal(2f / 3, gains.GainOf("op00000004", engine.LeaderNowNs), 4);
         clock.AdvanceMs(1000);
-        Assert.Equal(5f / 6, gains.GainOf("op00000004"), 3);
+        Assert.Equal(5f / 6, gains.GainOf("op00000004", engine.LeaderNowNs), 3);
         clock.AdvanceMs(1000);
-        Assert.Equal(1f, gains.GainOf("op00000004"));
+        Assert.Equal(1f, gains.GainOf("op00000004", engine.LeaderNowNs));
         Assert.Contains(engine.Journal.Recent(20), r => r.Kind == "stack" && r.Text == "S1: P3 is back — the rest of its blend group returns to full over 2 s");
         Assert.Equal(Light.Amber, ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001").Light);
+    }
+
+    /// <summary>The degrade gain is part of the air: a frame drawn for a leader instant gets the fade at that instant, whenever it is
+    /// drawn, and a step of the leader clock (a node adopting its group's time) moves the fade's instants with it, so a dimmed
+    /// neighbour neither jumps back to full nor fades again.</summary>
+    [Fact]
+    public async Task TheDegradeGainIsAtTheFramesLeaderInstantAndMovesWithAClockStep()
+    {
+        var clock = new ManualClock(5_000_000_000);
+        var outputs = new HealthTests.Outputs { Now = [.. new[] { 1, 2, 3, 4 }.Select(i => new OutputHealth($"op0000000{i}", true, 60, 0, 4, $"DP-{i}"))] };
+        var services = new SiteExtension().Configure(EngineServices.ForTests(clock) with { Outputs = outputs });
+        await using var engine = new EngineCore(services, ThreeStack());
+        await Blended(engine);
+
+        outputs.Now = [.. outputs.Now.Select(h => h.OutputId == "op00000003" ? h with { Open = false } : h)];
+        await engine.Lane.RunAsync(engine.WatchStacks);
+        var lost = engine.LeaderNowNs;
+        // Frames drawn now for vblanks ahead: each at its own instant of the fade.
+        Assert.Equal(1f, engine.AirGain("op00000004", lost));
+        Assert.InRange(engine.AirGain("op00000004", lost + 250_000_000), 0.82f, 0.85f);
+        Assert.Equal(2f / 3, engine.AirGain("op00000004", lost + 500_000_000), 4);
+
+        // The fade has run; the leader clock steps 2 s back: the neighbour stays dimmed.
+        clock.AdvanceMs(600);
+        Assert.Equal(2f / 3, engine.AirGain("op00000004", engine.LeaderNowNs), 4);
+        var before = engine.LeaderNowNs;
+        var estimate = new ClockOffsetEstimator();
+        for (var i = 7; i >= 0; i--)
+        {
+            var t = clock.NowNs - i * 250_000_000L;
+            estimate.Add(new ClockSample(t, t - 2_000_000_000, t - 2_000_000_000, t));
+        }
+        services.Clock.Follow(estimate);
+        await engine.Lane.RunAsync(() => { });
+        Assert.Equal(-2_000_000_000, services.Clock.LastStepNs);
+        Assert.InRange(engine.LeaderNowNs - before, -2_000_000_001, -1_999_999_999);
+        Assert.Equal(2f / 3, engine.AirGain("op00000004", engine.LeaderNowNs), 4);
+        Assert.Equal(2f / 3, engine.AirGain("op00000004", engine.LeaderNowNs + 1_000_000_000), 4);
+
+        // The member back: the neighbour fades up from the step's time line, 2 s to full.
+        outputs.Now = [.. outputs.Now.Select(h => h with { Open = true })];
+        await engine.Lane.RunAsync(engine.WatchStacks);
+        var back = engine.LeaderNowNs;
+        Assert.Equal(5f / 6, engine.AirGain("op00000004", back + 1_000_000_000), 3);
+        Assert.Equal(1f, engine.AirGain("op00000004", back + 2_000_000_000));
     }
 
     [Fact]
@@ -154,7 +199,7 @@ public sealed class StackFailoverTests
         var stack = Stack(engine);
         Assert.Equal([P2], stack.GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(1.0, stack.GetProperty("gain").GetDouble());
-        Assert.Equal(1f, services.OutputGains!.GainOf("op00000004"));
+        Assert.Equal(1f, services.OutputGains!.GainOf("op00000004", engine.LeaderNowNs));
         Assert.Contains("held", ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001").State, StringComparison.Ordinal);
         var row = Assert.Single(await new SitePreflight().RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None),
             r => r.Id == "stack:sk00000001");
@@ -163,8 +208,8 @@ public sealed class StackFailoverTests
         // MATCH again: applied at once from the verb, to the neighbour; the stack's remaining members stay at full.
         await Ok(engine, "STACK FAILOVER S1 MATCH");
         clock.AdvanceMs(500);
-        Assert.Equal(2f / 3, services.OutputGains.GainOf("op00000004"), 4);
-        Assert.Equal(1f, services.OutputGains.GainOf("op00000001"));
+        Assert.Equal(2f / 3, services.OutputGains.GainOf("op00000004", engine.LeaderNowNs), 4);
+        Assert.Equal(1f, services.OutputGains.GainOf("op00000001", engine.LeaderNowNs));
         var again = await engine.HandleAsync(Parse("STACK FAILOVER S1 MATCH"), SiteRig.Desk, CancellationToken.None);
         Assert.False(again.Ok);
         Assert.Contains("would change nothing", again.Payload, StringComparison.Ordinal);
@@ -211,7 +256,7 @@ public sealed class StackFailoverTests
         Assert.All(new[] { "op00000001", "op00000002", "op00000003", "op00000004" }, o => Assert.Equal(0f, Air(o)));
         Assert.Equal([P3], Stack(engine).GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(0.667, Stack(engine).GetProperty("gain").GetDouble());
-        Assert.Equal(2f / 3, services.StackGains!.GainOf("op00000004"), 4);
+        Assert.Equal(2f / 3, services.StackGains!.GainOf("op00000004", engine.LeaderNowNs), 4);
 
         // The fence lifted (the show handed back): the neighbour at the light that remains, the stack's own members at full.
         fence.Held = false;
@@ -225,7 +270,7 @@ public sealed class StackFailoverTests
         await engine.Lane.RunAsync(engine.WatchStacks);
         clock.AdvanceMs(1000);
         Assert.Equal(0f, Air("op00000004"));
-        Assert.Equal(5f / 6, services.StackGains.GainOf("op00000004"), 3);
+        Assert.Equal(5f / 6, services.StackGains.GainOf("op00000004", engine.LeaderNowNs), 3);
         fence.Held = false;
         clock.AdvanceMs(1000);
         Assert.Equal(1f, Air("op00000004"));
@@ -267,12 +312,7 @@ public sealed class StackFailoverTests
         Assert.Equal([P3], Stack(engine).GetProperty("degraded").EnumerateArray().Select(d => d.GetString()));
         Assert.Contains(engine.Journal.Recent(20), r => r.Kind == "stack" && r.Text.StartsWith("S1 lost P3 (Third: ", StringComparison.Ordinal));
         clock.AdvanceMs(500);
-        Assert.Equal(2f / 3, services.OutputGains!.GainOf("op00000004"), 4);
-        Assert.Equal(1f, services.OutputGains.GainOf("op00000001"));
+        Assert.Equal(2f / 3, services.OutputGains!.GainOf("op00000004", engine.LeaderNowNs), 4);
+        Assert.Equal(1f, services.OutputGains.GainOf("op00000001", engine.LeaderNowNs));
     }
-}
-
-internal static class GainsExtensions
-{
-    public static float GetOf(this IOutputGains gains, string outputId) => gains.GainOf(outputId);
 }

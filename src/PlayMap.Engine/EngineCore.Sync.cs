@@ -449,8 +449,8 @@ public sealed partial class EngineCore
         TouchShow();
     }
 
-    /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane), then the levels the render
-    /// thread reads rebuilt from them.</summary>
+    /// <summary>The air's own leader instants by +Δ (show's panic and master state, kept on this lane, and the stacks' degrade fades),
+    /// then the levels the render thread reads rebuilt from them.</summary>
     private void RebaseAir(long delta)
     {
         static long At(long t, long d) => t is long.MinValue or long.MaxValue ? t : t + d;
@@ -475,6 +475,7 @@ public sealed partial class EngineCore
             _panicSteps[i] = _panicSteps[i] with { AtLeaderNs = At(_panicSteps[i].AtLeaderNs, delta) };
         for (var i = 0; i < _panicLinesDue.Count; i++)
             _panicLinesDue[i] = _panicLinesDue[i] with { AtLeaderNs = At(_panicLinesDue[i].AtLeaderNs, delta) };
+        Services.StackGains?.Rebase(delta);
         RebuildLevels();
     }
 

@@ -20,9 +20,11 @@ internal readonly record struct GainFade(float From, float To, long StartNs, lon
 
 /// <summary>
 /// The stacks' degrade gains (facade §3.9, failover MATCH): each output's gain as a fade on the leader's clock (show time, the clock
-/// every fade of the air runs on) — down in 0.5 s when a member is lost, back up over 2 s when it returns. Written on the control lane
-/// as a whole new table, only when a target changes; read by the render thread through <see cref="IOutputGains"/> lock-free and without allocating (a frozen table swapped by reference). Runtime state like
-/// BLACKOUT: never in the project, never in undo.
+/// every fade of the air runs on) — down in 0.5 s when a member is lost, back up over 2 s when it returns — read at the leader instant
+/// a frame is drawn for. Written on the control lane as a whole new table, only when a target changes or the clock steps (the fades'
+/// instants move with it, as the air's own do, so nothing jumps); read by the render thread through <see cref="IOutputGains"/>
+/// lock-free and without allocating (a frozen table swapped by reference). Runtime state like BLACKOUT: never in the project, never
+/// in undo.
 /// </summary>
 public sealed class StackGains(NetworkClock clock) : IOutputGains
 {
@@ -31,7 +33,17 @@ public sealed class StackGains(NetworkClock clock) : IOutputGains
 
     private volatile FrozenDictionary<string, GainFade> _fades = FrozenDictionary<string, GainFade>.Empty;
 
-    public float GainOf(string outputId) => _fades.TryGetValue(outputId, out var f) ? f.At(clock.NowNs) : 1f;
+    public float GainOf(string outputId, long leaderNs) => _fades.TryGetValue(outputId, out var f) ? f.At(leaderNs) : 1f;
+
+    /// <summary>The leader clock stepped by <paramref name="deltaNs"/>: every fade's start moves with it, so each output's gain
+    /// stands where it was at the step. On the lane.</summary>
+    public void Rebase(long deltaNs)
+    {
+        var was = _fades;
+        if (was.Count == 0 || deltaNs == 0)
+            return;
+        _fades = was.ToFrozenDictionary(kv => kv.Key, kv => kv.Value with { StartNs = kv.Value.StartNs + deltaNs }, StringComparer.Ordinal);
+    }
 
     /// <summary>The gain each output is heading to (1 for one not named).</summary>
     public float TargetOf(string outputId) => _fades.TryGetValue(outputId, out var f) ? f.To : 1f;
@@ -74,5 +86,5 @@ public sealed class ComposedGains(IOutputGains first, IOutputGains second) : IOu
 
     public IOutputGains Second => second;
 
-    public float GainOf(string outputId) => first.GainOf(outputId) * second.GainOf(outputId);
+    public float GainOf(string outputId, long leaderNs) => first.GainOf(outputId, leaderNs) * second.GainOf(outputId, leaderNs);
 }

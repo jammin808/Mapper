@@ -1746,5 +1746,5 @@ public sealed class FenceGains(IOutputGains? inner) : IOutputGains
         set => _held = value;
     }
 
-    public float GainOf(string outputId) => _held ? 0f : Inner?.GainOf(outputId) ?? 1f;
+    public float GainOf(string outputId, long leaderNs) => _held ? 0f : Inner?.GainOf(outputId, leaderNs) ?? 1f;
 }
