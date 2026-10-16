@@ -512,6 +512,13 @@ void test('a generated action writes the node’s grammar: phrases quoted, keywo
 				'SET sf00000009 label {"label": "Front wall"}',
 			],
 			['v_master', { value: '55', fade: '', here: false }, 'MASTER 55'],
+			// A word whose first mark opens JSON is quoted: bare, the node would read it and the rest of the line as one JSON word.
+			[
+				'v_device_add',
+				{ name: '[L]', protocol: 'pjlink', host: '10.0.0.20', projector: '', output: '' },
+				'DEVICE ADD "[L]" pjlink 10.0.0.20',
+			],
+			['v_generator_new', { kind: 'flat', name: '{W}', preset: 'warm' }, 'GENERATOR NEW flat "{W}" PRESET warm'],
 		]
 		for (const [actionId, options, line] of cases) {
 			const verb = rowOfLine(BUNDLED_VERBS, line)?.name ?? ''

@@ -1,9 +1,10 @@
 /** The line grammar the node speaks (WireGrammar): one line per command, an optional "@id " prefix, words split on spaces with
  * "double quotes" keeping a phrase whole and a backslash escaping inside them, JSON to the end of the line. */
 
-/** A word as a line needs it: bare when it has no space or quote, else quoted with backslash escapes (WireGrammar.Quote). */
+/** A word as a line needs it: bare when it has no space or quote and does not open with '{' or '[' (the node reads such a word as
+ * JSON running to the end of the line), else quoted with backslash escapes. */
 export function quote(word: string): string {
-	if (word.length > 0 && !/[\s"]/u.test(word)) return word
+	if (word.length > 0 && !/[\s"]/u.test(word) && !/^[{[]/u.test(word)) return word
 	return '"' + word.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
 }
 
