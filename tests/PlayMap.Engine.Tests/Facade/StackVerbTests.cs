@@ -135,6 +135,38 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.Equal(("ok", "green"), (measured.GetProperty("files").GetString(), measured.GetProperty("light").GetString()));
     }
 
+    /// <summary>A member still drawing the lattice another stack fitted (that stack removed) is not this stack's alignment: STACK MATCH
+    /// would write its gains beside it as this stack's and the stack would read aligned on a lattice fitted to another master's picture.
+    /// MATCH is refused with the ALIGN line until the stack fits the member itself; then it matches.</summary>
+    [Fact]
+    public async Task AMembersLatticeFromAnotherStackIsNeverTakenAsThisStacksAlignment()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        var project = StackKit.Project(sim);
+        var stale = WarpLattice.AtRest(5, 4) with { Offsets = [.. Enumerable.Repeat(new Core.Numerics.Vec2d(0.004, 0), 20)] };
+        project = project with
+        {
+            Outputs = project.Outputs.Update("op00000002", o => o with { Measured = new MeasuredCorrection(null, stale, null, null, 0.01, "sc00000009", "sk00000009", "", 1) }),
+        };
+        await using var rig = new ShowRig(project, s => s with { Scan = _scans });
+        var id = Json(await rig.Ok("STACK NEW S2 P1 P2")).GetProperty("id").GetString()!;
+        var revision = rig.Engine.Store.Current.Revision;
+
+        var refused = await rig.Refused($"STACK MATCH {id} FROM {StackKit.Scan}");
+        Assert.Contains("P2 draws the lattice stack sk00000009 fitted to its own master", refused, StringComparison.Ordinal);
+        Assert.Contains($"STACK ALIGN {id} FROM {StackKit.Scan}", refused, StringComparison.Ordinal);
+        Assert.Equal(revision, rig.Engine.Store.Current.Revision);
+        Assert.Equal("sk00000009", rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.StackId);
+        Assert.False(Stage(rig).GetProperty("stacks")[0].GetProperty("aligned").GetBoolean());
+
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        await rig.Ok($"STACK MATCH {id} FROM {StackKit.Scan}");
+        var state = Stage(rig).GetProperty("stacks")[0];
+        Assert.True(state.GetProperty("aligned").GetBoolean());
+        Assert.True(state.GetProperty("matched").GetBoolean());
+    }
+
     [Fact]
     public async Task StackMatchBringsTheMembersWhiteToTheMastersWithGainsOfAtMostOne()
     {

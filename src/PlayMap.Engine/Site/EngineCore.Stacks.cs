@@ -540,6 +540,9 @@ public sealed partial class EngineCore
         var (source, why) = await StackSourceAsync(c, Usage).ConfigureAwait(false);
         if (source is null)
             return CommandReply.Fail(why!);
+        foreach (var (pj, output, _) in source.Members)
+            if (ForeignLattice(pj, output, source.Stack) is { } other)
+                return CommandReply.Fail(ForeignLatticeWords(pj, other, source.Stack, source.Scan));
         var (match, words0) = await Task.Run(() => MatchStack(source), c.Ct).ConfigureAwait(false);
         if (match is null)
             return CommandReply.Fail(words0);
@@ -559,6 +562,8 @@ public sealed partial class EngineCore
                 var member = source.Members[j];
                 var g = match.Members[j];
                 var o = OutputOf(p, member.Projector.Id) ?? throw new EditRefusedException($"{member.Projector.Name}'s output is gone");
+                if (ForeignLattice(member.Projector, o, stack) is { } other)
+                    throw new EditRefusedException(ForeignLatticeWords(member.Projector, other, stack, source.Scan));
                 var was = o.Measured ?? new MeasuredCorrection(null, null, null, null, 0, "", "", "", 0);
                 var colour = new MeasuredColor(Math.Round(g.R, 4), Math.Round(g.G, 4), Math.Round(g.B, 4),
                     was.Color is { Gamma: > 0 } wc ? wc.Gamma : o.Blend.Gamma, was.Color is { Level: > 0 } lc ? lc.Level : 1);
@@ -605,6 +610,16 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }), words);
     }
+
+    /// <summary>The stack whose lattice a member's output draws when it is another stack's (one since removed, or the member taken out
+    /// of it), else null. Gains written beside it would mark the correction as this stack's, and this stack would read the other's
+    /// lattice — fitted to another master's picture — as its own alignment. The master's own lattice is part of the picture its members
+    /// are fitted to, whoever fitted it.</summary>
+    private static string? ForeignLattice(Projector pj, Output output, StackGroup stack) =>
+        pj.Id != stack.MasterId && output.Measured is { Lattice: not null } m && m.StackId.Length > 0 && m.StackId != stack.Id ? m.StackId : null;
+
+    private static string ForeignLatticeWords(Projector pj, string other, StackGroup stack, ScanRecord scan) =>
+        $"{pj.Name} draws the lattice stack {other} fitted to its own master — STACK ALIGN {stack.Id} FROM {scan.Id} fits it to {stack.Name}'s master first, then STACK MATCH";
 
     /// <summary>Each member's white from the scan's colour white frame (camera-linear, trimmed mean over the pixels the scan measured
     /// where the camera saw every member: the area the stack shares), matched to the master's. The white frame holds the ambient light
