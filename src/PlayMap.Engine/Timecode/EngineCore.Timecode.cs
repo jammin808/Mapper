@@ -70,11 +70,12 @@ public sealed partial class EngineCore
     /// <summary>Runs every chase once at a leader instant (the lane's tick, or a test).</summary>
     private void TickTimecode(long leaderNs)
     {
-        var p = Store.Project;
+        var shown = Store.Current;
+        var p = shown.Project;
         if (!ReferenceEquals(p, _timecodeProject))
         {
             _timecodeProject = p;
-            TimecodeSources.Reconcile(p);
+            TimecodeSources.Reconcile(shown);
             foreach (var gone in _chases.Keys.Where(k => p.FindPlaylist(k)?.Chase is null).ToList())
             {
                 _chases.Remove(gone);
@@ -436,7 +437,7 @@ public sealed partial class EngineCore
         {
             if (FindSource(args[1]) is not { } s)
                 return CommandReply.Fail($"no timecode source {args[1]}");
-            TimecodeSources.Reconcile(Store.Project);
+            TimecodeSources.Reconcile(Store.Current);
             if (sub == "RESET")
                 return TimecodeSources.Reset(s.Id) ? CommandReply.Success(effect: $"{s.Name}: its error counts start again") : CommandReply.Fail($"{s.Name} has no counts yet");
             // A chase is never left without a source (disengaged or not): its playlist is handed back first.
@@ -692,7 +693,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(r.Effect);
         // The live chase's code is judged at its jump threshold from this reply on, not from the lane's next tick (a blind draft's
         // edit leaves the live show as it is).
-        TimecodeSources.Reconcile(Store.Project);
+        TimecodeSources.Reconcile(Store.Current);
         return CommandReply.Success(effect: effect);
     }
 
@@ -768,7 +769,7 @@ public sealed partial class EngineCore
             default:
                 return CommandReply.Fail("TIMECODE INTERNAL <source> PLAY|STOP | LOCATE <tc> | RATE <0.5-2>");
         }
-        TimecodeSources.Reconcile(Store.Project);
+        TimecodeSources.Reconcile(Store.Current);
         var (ok, words) = TimecodeSources.Internal(s.Id, verb, tc, rate, Services.Mono.NowNs);
         if (ok)
             TickTimecode(LeaderNowNs);

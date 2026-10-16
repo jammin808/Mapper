@@ -12,14 +12,21 @@ public sealed class TimecodeBoard
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private long _revision = long.MinValue;
 
     /// <summary>Keeps one entry per source of the show (a source whose kind, format or window changed starts afresh), judged at the
-    /// jump thresholds its chases set.</summary>
-    public void Reconcile(Project project)
+    /// jump thresholds its chases set. The board follows the newest revision of the live show it is given: an older one changes
+    /// nothing, so a reader off the lane that took the show before a newer edit and reconciles after it (the control service's tick)
+    /// never takes away or starts afresh a source the newer show has — an internal source's place, an input's lock.</summary>
+    public void Reconcile(ProjectSnapshot snapshot)
     {
-        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var project = snapshot.Project;
         lock (_gate)
         {
+            if (snapshot.Revision < _revision)
+                return;
+            _revision = snapshot.Revision;
             foreach (var id in _entries.Keys.Where(k => project.FindTimecodeSource(k) is null).ToList())
                 _entries.Remove(id);
             foreach (var s in project.Timecode.Sources)
