@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
 import { SLOTS, fillHint } from '../src/live.ts'
+import { css, rgbOf } from '../src/palette/playmap.ts'
 import { RESULT_ACTIONS, compositeDefinitions, presetDefinitions } from '../src/presets.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
@@ -617,9 +618,12 @@ void test('every key wears the stale mark last, a press that answers a result st
 		interface Feedback {
 			feedbackId: string
 			options?: Record<string, unknown>
-			styleOverrides?: { elementId: string; elementProperty: string }[]
+			styleOverrides?: { elementId: string; elementProperty: string; override: unknown }[]
 			style?: Record<string, unknown>
 		}
+		/** What a layered feedback draws: element.property → the value it sets. */
+		const drawn = (f: Feedback | undefined): Record<string, unknown> =>
+			Object.fromEntries((f?.styleOverrides ?? []).map((o) => [`${o.elementId}.${o.elementProperty}`, o.override]))
 		interface Variant {
 			type: string
 			feedbacks: Feedback[]
@@ -632,12 +636,34 @@ void test('every key wears the stale mark last, a press that answers a result st
 			for (const v of variants) {
 				const last = v.feedbacks.at(-1)
 				assert.equal(last?.feedbackId, 'stale', `${id} (${v.type}): stale is its last feedback, so it wins`)
-				if (v.type === 'layered')
+				if (v.type === 'layered') {
 					assert.deepEqual(
 						last?.styleOverrides?.map((o) => `${o.elementId}.${o.elementProperty}`),
 						['root.opacity', 'mark.enabled'],
 						`${id}: a stale key dims and shows its mark`,
 					)
+					const stale = drawn(last)
+					assert.equal(typeof stale['root.opacity'], 'number', `${id}: a stale key's opacity is a number`)
+					assert.ok((stale['root.opacity'] as number) < 100, `${id}: a stale key is dimmed`)
+					assert.equal(stale['mark.enabled'], true, `${id}: a stale key shows its ⚠`)
+				} else
+					assert.deepEqual(
+						last?.style,
+						{ bgcolor: rgbOf('dim'), color: rgbOf('dimText') },
+						`${id} (simple): a stale key is dimmed`,
+					)
+				// A receipt feedback draws its stage: amber while pending, red when failed (layered: the corner dot; simple: the ground).
+				for (const f of v.feedbacks.filter((x) => x.feedbackId === 'receipt'))
+					if (v.type === 'layered')
+						assert.deepEqual(
+							drawn(f),
+							{ 'receipt.enabled': true, 'receipt.color': css(f.options?.stage === 'failed' ? 'red' : 'amber') },
+							`${id}: the receipt dot ${String(f.options?.stage)}`,
+						)
+					else {
+						assert.equal(f.options?.stage, 'failed', `${id} (simple): only a failed press colours the key`)
+						assert.equal(f.style?.bgcolor, rgbOf('red'), `${id} (simple): a failed press is red`)
+					}
 				const text = JSON.stringify(v.steps)
 				const answers = [...text.matchAll(/"actionId":"([^"]+)"/gu)].some(
 					([, a]) => a !== undefined && (a.startsWith('v_') || RESULT_ACTIONS.has(a)),
@@ -656,7 +682,13 @@ void test('every key wears the stale mark last, a press that answers a result st
 					v.localVariables?.some((l) => l.variableName === 'result' && l.variableType === 'simple'),
 					`${id} (${v.type}) declares its local result`,
 				)
-				if (v.type !== 'layered') continue
+				if (v.type !== 'layered') {
+					assert.ok(
+						v.feedbacks.some((f) => f.feedbackId === 'receipt' && f.options?.stage === 'failed'),
+						`${id} (simple): a failed press shows`,
+					)
+					continue
+				}
 				for (const stage of ['pending', 'failed'])
 					assert.ok(
 						v.feedbacks.some((f) => f.feedbackId === 'receipt' && f.options?.stage === stage),
