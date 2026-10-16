@@ -12,7 +12,7 @@ import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { advance, fakeChannels, settle } from './fake-channel.ts'
 import { boot, configFor, type Booted } from './harness.ts'
 import { allLines, statePaths } from './emitted.ts'
-import { PANIC_OUTCOMES, actionDefinitions, rowOfLine } from '../src/actions.ts'
+import { PANIC_OUTCOMES, actionDefinitions, fence, rowOfLine } from '../src/actions.ts'
 import { BUNDLED_VERBS, EXCLUDED, actionIdOf, generatedRows, pressOfLine, type VerbRow } from '../src/catalog/verbs.ts'
 import { lineOf, optionIdOf, optionsOf, sampleOf } from '../src/catalog/write.ts'
 import type { PlayMapConfig } from '../src/config.ts'
@@ -507,6 +507,8 @@ void test('test/lines.txt and test/state-paths.txt are what the module writes no
 				!/^CREDENTIAL /u.test(row.name),
 			`${line}: no line of the module's carries a secret`,
 		)
+		// Every line an action writes passes the fence; only the session's own lines (HELLO, PING …) are kept from keys.
+		if (!EXCLUDED.has(row.name)) assert.deepEqual(fence(BUNDLED_VERBS, line), { ok: true }, line)
 	}
 	const named = new Set(lines.map((l) => rowOfLine(BUNDLED_VERBS, l)?.name))
 	for (const row of generatedRows(BUNDLED_VERBS)) assert.ok(named.has(row.name), `${row.name} has a line in the file`)

@@ -171,33 +171,87 @@ export function rowOfLine(rows: readonly VerbRow[], line: string): VerbRow | und
 	return split.ok ? matchRow(rows, split.words)?.row : undefined
 }
 
-/** A row whose line carries another line for the node to run later (BIND ADD … TO <target line>). */
-const carriesLine = (row: VerbRow): boolean =>
-	row.formParams.some((f) => f.some((p) => p.kind === 'line' && (p.name === 'to' || p.name === 'target')))
+/** A row whose words may hold a line the node runs later, or JSON that does (a binding's target, a field SET to one): a row with a
+ * line or JSON parameter in any of its forms, and SET. */
+const carriesLines = (row: VerbRow): boolean =>
+	row.name === 'SET' || row.formParams.some((f) => f.some((p) => p.kind === 'line' || p.kind === 'json'))
+
+/** Every string a JSON word holds, walked without recursion. JSON a strict reader refuses (the node's reader takes comments and
+ * trailing commas; a text cut short) is read for every quoted run in it, closed or not, so no string in it goes unseen. */
+function stringsOf(json: string): string[] {
+	const out: string[] = []
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(json)
+	} catch {
+		for (let i = json.indexOf('"'); i >= 0;) {
+			let j = i + 1
+			let body = ''
+			while (j < json.length && json.charAt(j) !== '"') {
+				body += json.charAt(j) === '\\' ? json.slice(j, j + 2) : json.charAt(j)
+				j += json.charAt(j) === '\\' ? 2 : 1
+			}
+			try {
+				out.push(JSON.parse(`"${body}"`) as string)
+			} catch {
+				out.push(body.replace(/\\([\s\S])/gu, '$1'))
+			}
+			i = j < json.length ? json.indexOf('"', j + 1) : -1
+		}
+		return out
+	}
+	const stack: unknown[] = [parsed]
+	while (stack.length > 0) {
+		const v = stack.pop()
+		if (typeof v === 'string') out.push(v)
+		else if (v !== null && typeof v === 'object') for (const child of Object.values(v) as unknown[]) stack.push(child)
+	}
+	return out
+}
+
+/** Whether a line the node may read inside these words starts with a row the module keeps to itself (by name or alias): every
+ * suffix of the words, every word read as a line, every string of a JSON word read as a line — and each of those read so in turn. */
+function carriesKept(rows: readonly VerbRow[], words: readonly string[]): boolean {
+	const kept = (ws: readonly string[], from: number): boolean => {
+		const m = matchRow(rows, ws, from)
+		return m !== undefined && EXCLUDED.has(m.row.name)
+	}
+	const read = new Set<string>()
+	const lines: (readonly string[])[] = [words]
+	while (lines.length > 0) {
+		const ws = lines.pop() ?? []
+		for (let i = 0; i < ws.length; i++) {
+			if (kept(ws, i)) return true
+			const word = ws[i] ?? ''
+			if (read.has(word)) continue
+			read.add(word)
+			if (kept([word], 0)) return true
+			if (word.startsWith('{') || word.startsWith('['))
+				for (const text of stringsOf(word)) lines.push(splitLine(text).words)
+			else {
+				const inner = splitLine(word).words
+				if (inner.length !== 1 || inner[0] !== word) lines.push(inner)
+			}
+		}
+	}
+	return false
+}
 
 /** The one fence every key's line passes before it is sent, whoever wrote it (a generated action, raw, a section key or Live slot
- * from INDEX): a line must start with a verb of the node, never one the module keeps to itself (the session's words, secrets,
- * pairing), nor carry one inside it. What it refuses names only the verb, never the operator's words (a token typed as a line). */
+ * from INDEX): read as the node reads it, a line must start with a verb of the node, never one the module keeps to itself (the
+ * session's words, secrets, pairing, a row the node answers with no line), nor carry one inside it where the node may read a line.
+ * What it refuses names only the outer verb, never the operator's words (a token typed as a line). */
 export function fence(
 	rows: readonly VerbRow[],
 	line: string,
 ): { ok: true } | { ok: false; verb: string; error: string } {
-	const row = rowOfLine(rows, line)
+	const split = splitLine(line)
+	const row = split.ok ? matchRow(rows, split.words)?.row : undefined
 	if (!row) return { ok: false, verb: 'line', error: 'no verb of the node starts this line' }
 	if (EXCLUDED.has(row.name))
 		return { ok: false, verb: row.name, error: `${row.name} is the module's own, never sent from a key` }
-	if (carriesLine(row)) {
-		const words = line.trim().split(/\s+/u)
-		for (let i = row.name.split(' ').length; i < words.length; i++) {
-			const inner = rowOfLine(rows, words.slice(i).join(' '))
-			if (inner && EXCLUDED.has(inner.name))
-				return {
-					ok: false,
-					verb: row.name,
-					error: `${row.name} would carry ${inner.name}, which is never sent from a key`,
-				}
-		}
-	}
+	if (carriesLines(row) && carriesKept(rows, split.words))
+		return { ok: false, verb: row.name, error: `${row.name} would carry a line that is never sent from a key` }
 	return { ok: true }
 }
 

@@ -187,19 +187,21 @@ export function upperInvariant(word: string): string {
 	return out
 }
 
-/** The row a line's words name, as the node's VerbCatalog.Match finds it: its first two words upper-cased, else its first, by name
- * or alias; VT and CLIP are VIDEO and TC is TIMECODE whatever follows. `words` is how many of the line's words the name took. */
+/** The row a line's words (from `from` on) name, as the node's VerbCatalog.Match finds it: its first two words upper-cased, else its
+ * first, by name or alias; VT and CLIP are VIDEO and TC is TIMECODE whatever follows. `words` is how many words the name took. */
 export function matchRow(
 	rows: readonly VerbRow[],
 	words: readonly string[],
+	from = 0,
 ): { readonly row: VerbRow; readonly words: number } | undefined {
 	const names = byName(rows)
-	let first = upperInvariant(words[0] ?? '')
+	const count = words.length - from
+	let first = upperInvariant(words[from] ?? '')
 	if (first === 'VT' || first === 'CLIP') first = 'VIDEO'
 	else if (first === 'TC') first = 'TIMECODE'
-	const two = words.length >= 2 ? names.get(`${first} ${upperInvariant(words[1] ?? '')}`) : undefined
+	const two = count >= 2 ? names.get(`${first} ${upperInvariant(words[from + 1] ?? '')}`) : undefined
 	if (two) return { row: two, words: 2 }
-	const one = words.length >= 1 ? names.get(first) : undefined
+	const one = count >= 1 ? names.get(first) : undefined
 	return one ? { row: one, words: 1 } : undefined
 }
 

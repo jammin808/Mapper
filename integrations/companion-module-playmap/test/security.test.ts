@@ -1,8 +1,9 @@
 // A node's data is data, never instructions, and a key never carries what the deck keeps to itself: a STATE nested past what a node
 // writes is dropped (no stack runs out in Companion's process); a VERBS answer whose parameters are of the wrong type keeps the deck
 // working; a line a section key, a Live slot, raw or a generated action would send passes one fence — no session word, secret or
-// pairing verb, at its head or carried inside it, ever reaches the node — and a refusal names only the verb, never the operator's
-// words (a token typed as a line stays out of every variable); a press answered after destroy touches nothing of the host.
+// pairing verb, at its head or carried inside it (a run of its words, a quoted word, a string of its JSON, a field SET to a line),
+// ever reaches the node — and a refusal names only the outer verb, never the operator's words (a token typed as a line stays out
+// of every variable); a press answered after destroy touches nothing of the host.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CompanionOptionValues } from '@companion-module/base'
@@ -134,6 +135,75 @@ void test('no key sends a session, secret or pairing verb, at the head of its li
 		)
 		assert.ok(!allValues(m).includes(TOKEN), 'no variable holds the token')
 		assert.ok(!allValues(m).includes('hunter2'), 'no variable holds a secret')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('the fence sees inside a line the node reads as a line: quoted words, JSON strings, a field SET to a target', async () => {
+	const { node, m } = await linked()
+	try {
+		const link = `LINK PATTERNS 10.0.0.5 ${TOKEN}`
+		const credential = 'CREDENTIAL SET dv1 admin hunter2'
+		// Each is refused unsent, its refusal naming only the outer verb.
+		const refused: [string, CompanionOptionValues, string][] = [
+			['v_bind_add', { form: 1, f1_json: JSON.stringify({ input: 'MIDI 1', target: link }) }, 'BIND ADD'],
+			['raw', { line: `BIND ADD ${JSON.stringify({ input: 'MIDI 1', target: link })}` }, 'BIND ADD'],
+			[
+				'raw',
+				{ line: `BIND ADD ${JSON.stringify({ bindings: [{ input: 'MIDI 1', target: credential }] })}` },
+				'BIND ADD',
+			],
+			['raw', { line: `BIND ADD MIDI 1 TO "LINK" PATTERNS 10.0.0.5 ${TOKEN}` }, 'BIND ADD'],
+			['raw', { line: `BIND ADD MIDI 1 TO "${link}"` }, 'BIND ADD'],
+			['raw', { line: 'BIND LEARN "CREDENTIAL" SET dv1 admin hunter2' }, 'BIND LEARN'],
+			['raw', { line: `BIND FORGET "AUTH" ${TOKEN}` }, 'BIND FORGET'],
+			['raw', { line: `SET bd0a1b2c3d target "${link}"` }, 'SET'],
+			['raw', { line: `set bd0a1b2c3d target "link patterns 10.0.0.5 ${TOKEN}"` }, 'SET'],
+			['v_set', { id: 'bd0a1b2c3d', field_path: 'target', json: JSON.stringify(link) }, 'SET'],
+			// A line in a string of JSON in a string of JSON; a phrase inside a quoted phrase; an alias of a kept row.
+			[
+				'raw',
+				{
+					line: `BIND ADD ${JSON.stringify({ input: 'MIDI 1', target: `BIND ADD ${JSON.stringify({ input: 'MIDI 2', target: `AUTH ${TOKEN}` })}` })}`,
+				},
+				'BIND ADD',
+			],
+			['raw', { line: `BIND LEARN "x \\"AUTH ${TOKEN}\\""` }, 'BIND LEARN'],
+			['raw', { line: 'BIND ADD MIDI 1 TO STATUS' }, 'BIND ADD'],
+			// JSON a strict reader refuses (a comment, a trailing comma) is read for its strings all the same.
+			['raw', { line: `BIND ADD {"input":"MIDI 1", /* a note */ "target":"AUTH ${TOKEN}",}` }, 'BIND ADD'],
+			['raw', { line: `BIND ADD {"input":"MIDI 1","target":"AUTH ${TOKEN}` }, 'BIND ADD'],
+			['raw', { line: `DEVICE RAW dv0a1b2c3d "${credential}"` }, 'DEVICE RAW'],
+		]
+		for (const [actionId, options, verb] of refused) {
+			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string; error: string }
+			const what = `${actionId} ${JSON.stringify(options)}`
+			assert.equal(r.ok, false, what)
+			assert.equal(r.stage, 'not-sent', what)
+			assert.equal(r.error, `${verb} would carry a line that is never sent from a key`, what)
+		}
+		// What carries a line of the show still goes.
+		const passed: [string, CompanionOptionValues][] = [
+			['raw', { line: 'BIND ADD MIDI 1 TO PLAYLIST GO pl00000001' }],
+			['raw', { line: `BIND ADD ${JSON.stringify({ input: 'MIDI 1', target: 'PLAYLIST GO pl00000001' })}` }],
+			['v_bind_add', { form: 1, f1_json: JSON.stringify({ input: 'MIDI 2', target: 'BLACKOUT TOGGLE' }) }],
+			['raw', { line: 'BIND LEARN FROM MIDI PLAYLIST GO pl00000001' }],
+			['raw', { line: 'SET bd0a1b2c3d target "PLAYLIST GO pl00000001"' }],
+			['raw', { line: 'SET sf00000009 label {"label": "Front wall"}' }],
+		]
+		for (const [actionId, options] of passed) {
+			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string }
+			assert.equal(r.stage, 'applied', `${actionId} ${JSON.stringify(options)}`)
+		}
+		await m.instance.ask('WHOAMI')
+		const heard = node.sent().join('\n')
+		for (const word of [TOKEN, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns', 'STATUS'])
+			assert.ok(!heard.includes(word), `the node never heard ${word}`)
+		assert.ok(heard.includes('BIND ADD MIDI 1 TO PLAYLIST GO pl00000001'))
+		assert.ok(heard.includes('BLACKOUT TOGGLE'))
+		assert.ok(!allValues(m).includes(TOKEN), 'no variable holds the token')
 	} finally {
 		await m.stop()
 		await node.stop()
