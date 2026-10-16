@@ -4,8 +4,8 @@
 // pairing verb at its head, and no secret or pairing carried inside it (a run of its words, a quoted word, a string literal as the
 // node's JSON reader reads it — comments skipped, escapes decoded, a key given twice read both times — a field SET to a line), ever
 // reaches the node, while any other word inside is the operator's own — and a refusal names only the outer verb, never the
-// operator's words (a token typed as a line stays out of every variable); a press answered after destroy touches nothing of the
-// host.
+// operator's words, whatever white space parts them (a token typed as a line stays out of every variable); a press answered after
+// destroy touches nothing of the host.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CompanionOptionValues } from '@companion-module/base'
@@ -146,8 +146,16 @@ void test('no key sends a session, secret or pairing verb, at the head of its li
 			assert.equal(r.stage, 'not-sent', `${actionId} ${JSON.stringify(options)}`)
 			results.push(r)
 		}
-		// A question is refused naming only its row, or none: never the words typed as the line.
-		for (const line of [TOKEN, `${TOKEN} PLAYLIST LIST`, `AUTH ${TOKEN}`, `BIND ADD MIDI 1 TO AUTH ${TOKEN}`]) {
+		// A question is refused naming only its row, or none: never the words typed as the line, whatever white space parts them.
+		for (const line of [
+			TOKEN,
+			`${TOKEN} PLAYLIST LIST`,
+			`AUTH ${TOKEN}`,
+			`AUTH\t${TOKEN}`,
+			`LINK PATTERNS 10.0.0.5 ${TOKEN}`,
+			`LINK\u00a0PATTERNS\t10.0.0.5 ${TOKEN}`,
+			`BIND ADD MIDI 1 TO AUTH ${TOKEN}`,
+		]) {
 			const r = (await m.press('ask_node', { line }, 'key-ask')) as { ok: boolean; error: string }
 			assert.equal(r.ok, false, line)
 			results.push(r)
