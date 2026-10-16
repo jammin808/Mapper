@@ -79,8 +79,13 @@ jobs:
       - name: FFmpeg 9.0 shared libraries
         shell: pwsh
         run: |
+          # FFmpeg 9.0.2 (GPL, shared libraries) as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by its
+          # hash. The release is a month's last build, which that project keeps for two years; a daily build is kept for 14 days
+          # and "latest" is rebuilt every day, so neither can carry a hash.
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip" -OutFile ff.zip
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-shared-9.0.zip" -OutFile ff.zip
+          $hash = (Get-FileHash ff.zip -Algorithm SHA256).Hash
+          if ($hash -ne '3DA6C7B60BB9CCD73EC5B5E815BA804A0879EB362BA0E3BEEBCE50174C022696') { throw "ff.zip is not the pinned build ($hash)" }
           Expand-Archive ff.zip -DestinationPath ff
           Move-Item (Get-ChildItem ff -Directory | Select-Object -First 1).FullName .ffmpeg
       - name: OpenGL 3.3 in software (Mesa llvmpipe)
