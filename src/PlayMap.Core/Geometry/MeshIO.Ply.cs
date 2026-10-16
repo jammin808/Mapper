@@ -33,14 +33,19 @@ public static partial class MeshIO
     /// type; 8-bit kept, 16-bit and 0..1 floats scaled), s t / u v / texture_u texture_v, and the face list
     /// vertex_indices (or vertex_index), fan-triangulated. Other elements and properties are read past. A file
     /// with no faces is a point cloud.</summary>
-    public static GeometryFile ReadPly(Stream stream)
+    public static GeometryFile ReadPly(Stream stream) => ReadPly(stream, GeometryReadOptions.AsStored);
+
+    /// <summary>Reads PLY placed by <paramref name="options"/>: positions are kept in double as read (a double property keeps its
+    /// precision) and rebased before they are narrowed to float.</summary>
+    public static GeometryFile ReadPly(Stream stream, GeometryReadOptions options)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(options);
         var (format, elements) = ReadPlyHeader(stream);
         IPlyValues values = format == PlyFormat.Ascii ? new PlyAscii(stream) : new PlyBinary(stream, format == PlyFormat.BinaryBigEndian);
         try
         {
-            return ReadPlyBody(elements, values);
+            return ReadPlyBody(elements, values, options);
         }
         finally
         {
@@ -119,9 +124,9 @@ public static partial class MeshIO
         _ => throw new FormatException($"Unknown PLY type '{s}'."),
     };
 
-    private static GeometryFile ReadPlyBody(List<PlyElement> elements, IPlyValues values)
+    private static GeometryFile ReadPlyBody(List<PlyElement> elements, IPlyValues values, GeometryReadOptions options)
     {
-        float[] pos = [];
+        double[] raw = [];
         float[] nor = [];
         float[] uv = [];
         int[] col = [];
@@ -135,7 +140,7 @@ public static partial class MeshIO
                 vertexCount = checked((int)e.Count);
                 var roles = e.Properties.Select(p => VertexRole(p.Name)).ToArray();
                 bool Has(params int[] r) => r.All(x => roles.Contains(x));
-                pos = new float[vertexCount * 3];
+                raw = new double[vertexCount * 3];
                 nor = Has(3, 4, 5) ? new float[vertexCount * 3] : [];
                 uv = Has(9, 10) ? new float[vertexCount * 2] : [];
                 col = Has(6, 7, 8) ? new int[vertexCount] : [];
@@ -155,7 +160,7 @@ public static partial class MeshIO
                         switch (roles[k])
                         {
                             case >= 0 and <= 2:
-                                pos[i * 3 + roles[k]] = (float)v;
+                                raw[i * 3 + roles[k]] = v;
                                 break;
                             case >= 3 and <= 5 when nor.Length > 0:
                                 nor[i * 3 + roles[k] - 3] = (float)v;
@@ -210,17 +215,42 @@ public static partial class MeshIO
                             values.Read(p.Type);
             }
         }
+        var frame = options.Resolve(RawPoints(raw, vertexCount));
+        var pos = new float[vertexCount * 3];
+        for (var i = 0; i < vertexCount; i++)
+        {
+            var p = options.Apply(new Vec3d(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]), frame);
+            pos[i * 3] = (float)p.X;
+            pos[i * 3 + 1] = (float)p.Y;
+            pos[i * 3 + 2] = (float)p.Z;
+            if (frame is not null && nor.Length > 0)
+            {
+                var n = options.ApplyDirection(new Vec3d(nor[i * 3], nor[i * 3 + 1], nor[i * 3 + 2]), frame);
+                nor[i * 3] = (float)n.X;
+                nor[i * 3 + 1] = (float)n.Y;
+                nor[i * 3 + 2] = (float)n.Z;
+            }
+        }
         if (idx.Count > 0)
-            return new GeometryFile(new MeshData(pos, nor, uv, [.. idx]), null, col);
+            return new GeometryFile(new MeshData(pos, nor, uv, [.. idx]), null, col) { Site = frame };
         var pts = new Vec3d[vertexCount];
         var nrm = nor.Length > 0 ? new Vec3d[vertexCount] : null;
         for (var i = 0; i < vertexCount; i++)
         {
-            pts[i] = new Vec3d(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+            // A cloud keeps the double value: rebased as read, or the float the file was narrowed to as before.
+            pts[i] = frame is null
+                ? new Vec3d(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2])
+                : options.Apply(new Vec3d(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]), frame);
             if (nrm is not null)
                 nrm[i] = new Vec3d(nor[i * 3], nor[i * 3 + 1], nor[i * 3 + 2]);
         }
-        return new GeometryFile(null, new PointCloud(pts, nrm, col.Length > 0 ? col : null), []);
+        return new GeometryFile(null, new PointCloud(pts, nrm, col.Length > 0 ? col : null), []) { Site = frame };
+    }
+
+    private static IEnumerable<Vec3d> RawPoints(double[] raw, int count)
+    {
+        for (var i = 0; i < count; i++)
+            yield return new Vec3d(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]);
     }
 
     private static void SkipList(IPlyValues values, PlyProperty p)
