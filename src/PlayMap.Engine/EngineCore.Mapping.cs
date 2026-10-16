@@ -295,6 +295,9 @@ public sealed partial class EngineCore
     /// stage with it when it is not there yet; one undoable edit. Answers the surface's id.</summary>
     private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
+        // wp2-multiscan: ON <projector>, and a scan of many views, are answered there.
+        if (await ScanSurfaceMultiscanAsync(args, line, session, ct).ConfigureAwait(false) is { } multiscan)
+            return multiscan;
         const string Syntax = "SCAN SURFACE <scan> <x> <y> [<name>] — x and y from 0 to 1 across and down the scan's smart-scan picture — or SCAN SURFACE <scan> REGION <region> [<name>]";
         var byRegion = args.Count >= 3 && args[1].Equals("REGION", StringComparison.OrdinalIgnoreCase);
         double x = 0, y = 0;

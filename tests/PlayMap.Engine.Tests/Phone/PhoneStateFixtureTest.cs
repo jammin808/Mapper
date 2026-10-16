@@ -41,6 +41,45 @@ public sealed partial class PhoneStateFixtureTest
         },
         new JsonObject
         {
+            ["title"] = "Scan view",
+            ["path"] = "scan.views.0",
+            ["light"] = new JsonArray(Rule("if", "words", "amber"), new JsonObject { ["light"] = "green" }),
+            ["words"] = "{id} · {state} · {rmsPx} px over {tracks} tracks",
+            ["fields"] = new JsonArray(Field("View", "id"), Field("Camera", "camera"), Field("State", "state"), Field("RMS px", "rmsPx"),
+                Field("Tracks", "tracks"), Field("Paired by", "pairing"), Field("Exposure", "exposure")),
+            ["actions"] = new JsonArray("SCAN VIEWS $(scan)", "SCAN DROP $(scan) $(id)", "SCAN SOLVE $(scan)"),
+        },
+        new JsonObject
+        {
+            ["title"] = "Scan coverage",
+            ["path"] = "scan.coverage.0",
+            ["light"] = new JsonArray(new JsonObject { ["light"] = "green" }),
+            ["words"] = "{projector}: seen {seen}, twice {twice}",
+            ["fields"] = new JsonArray(Field("Projector", "projector"), Field("Seen", "seen"), Field("Seen twice", "twice")),
+            ["actions"] = new JsonArray("SCAN VIEWS $(scan)"),
+        },
+        new JsonObject
+        {
+            ["title"] = "Scan region",
+            ["path"] = "scan.regions.0",
+            ["light"] = new JsonArray(new JsonObject { ["light"] = "green" }),
+            ["words"] = "{label} · lit by {projectors}",
+            ["fields"] = new JsonArray(Field("Region", "id"), Field("Name", "label"), Field("Projector", "projector"), Field("Projectors", "projectors"),
+                Field("Confidence", "confidence")),
+            ["actions"] = new JsonArray("SCAN SURFACE $(scan) REGION $(id)", "SCAN SUGGEST $(scan)"),
+        },
+        new JsonObject
+        {
+            ["title"] = "Surface suggestion",
+            ["path"] = "scan.suggestions.0",
+            ["light"] = new JsonArray(Rule("if", "measured", "amber"), new JsonObject { ["light"] = "grey" }),
+            ["words"] = "{label} · {state}",
+            ["fields"] = new JsonArray(Field("Name", "label"), Field("Kind", "kind"), Field("Confidence", "confidence"), Field("Reasons", "reasons"),
+                Field("Measured", "measured"), Field("Proposals", "proposals"), Field("State", "state")),
+            ["actions"] = new JsonArray("APPROVE $(proposal)", "REJECT $(proposal)", "SCAN SUGGEST $(scan) ASSISTANT"),
+        },
+        new JsonObject
+        {
             ["title"] = "Scan pairing",
             ["path"] = "scan.pairing",
             ["light"] = new JsonArray(Rule("if", "timingDisagrees", "amber"), new JsonObject { ["light"] = "green" }),
@@ -61,7 +100,7 @@ public sealed partial class PhoneStateFixtureTest
 
     /// <summary>The phone keys of STATE (phones, scan.pairing), ids random per run numbered in order of appearance and the clock's
     /// and the link's measured numbers fixed.</summary>
-    private static string Fixture(JsonElement state)
+    private static string Fixture(JsonElement state, JsonElement multi)
     {
         var phones = JsonNode.Parse(state.GetProperty("phones").GetRawText())!.AsArray();
         foreach (var p in phones)
@@ -71,10 +110,14 @@ public sealed partial class PhoneStateFixtureTest
             foreach (var key in new[] { "rttMs", "offsetMs", "uncertaintyMs", "uploadMBps" })
                 p["link"]![key] = 0;
         }
+        var scan = new JsonObject { ["pairing"] = JsonNode.Parse(state.GetProperty("scan").GetProperty("pairing").GetRawText()) };
+        // The multi-view keys come from their own scenario: measured numbers and the reasons' words (they carry numbers) made stable.
+        foreach (var key in new[] { "view", "views", "coverage", "regions", "suggestions" })
+            scan[key] = Stable(JsonNode.Parse(multi.GetProperty(key).GetRawText()));
         var root = new JsonObject
         {
             ["phones"] = phones,
-            ["scan"] = new JsonObject { ["pairing"] = JsonNode.Parse(state.GetProperty("scan").GetProperty("pairing").GetRawText()) },
+            ["scan"] = scan,
         };
         var text = root.ToJsonString(Indented);
         var seen = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -88,6 +131,48 @@ public sealed partial class PhoneStateFixtureTest
             return stable;
         });
         return text + "\n";
+    }
+
+    /// <summary>Measured numbers to 0 and a list of words to one word, all through: what is kept is the shape.</summary>
+    private static JsonNode? Stable(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var (key, value) in o.ToList())
+                {
+                    o[key] = key == "reasons" ? new JsonArray("reason")
+                        : value is JsonValue v && v.TryGetValue<double>(out _) ? 0
+                        : Stable(value?.DeepClone());
+                }
+                return o;
+            case JsonArray a:
+                for (var i = 0; i < a.Count; i++)
+                    a[i] = a[i] is JsonValue v && v.TryGetValue<double>(out _) ? 0 : Stable(a[i]?.DeepClone());
+                return a;
+            default:
+                return node;
+        }
+    }
+
+    /// <summary>STATE.scan of a multi-view scan with suggestions: two views INTO one scan of the simulator's multi-view scene, then
+    /// SCAN SUGGEST.</summary>
+    private static async Task<JsonElement> MultiViewScanStateAsync()
+    {
+        var rig = new OpsRig(project: MultiViewScanKit.Project());
+        try
+        {
+            var line = $"SCAN START {MultiViewScanKit.Camera} {MultiViewScanKit.Pj1} {MultiViewScanKit.Pj2}";
+            var id = await MultiViewScanKit.ScanAsync(rig, line);
+            await MultiViewScanKit.ScanAsync(rig, line + " INTO " + id);
+            await rig.Ok("SCAN SUGGEST " + id);
+            return rig.State().GetProperty("scan");
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
     }
 
     private static JsonNode? At(JsonNode? node, string path)
@@ -126,7 +211,7 @@ public sealed partial class PhoneStateFixtureTest
         Assert.Equal(1, pairing.GetProperty("caught").GetInt32());
         Assert.True(pairing.GetProperty("rollingRejects").GetInt32() >= 1);
 
-        var fixture = Fixture(state);
+        var fixture = Fixture(state, await MultiViewScanStateAsync());
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
@@ -145,7 +230,9 @@ public sealed partial class PhoneStateFixtureTest
                 Assert.True(at.AsObject().ContainsKey(field!["path"]!.GetValue<string>()), $"{card["title"]}: {field["path"]}");
             foreach (var action in card["actions"]!.AsArray())
             {
-                Assert.True(WireGrammar.TryParse(action!.GetValue<string>().Replace("$(id)", "ph00000001", StringComparison.Ordinal), out var line, out _));
+                var text = action!.GetValue<string>().Replace("$(id)", "ph00000001", StringComparison.Ordinal)
+                    .Replace("$(scan)", "sc00000001", StringComparison.Ordinal).Replace("$(proposal)", "ap1", StringComparison.Ordinal);
+                Assert.True(WireGrammar.TryParse(text, out var line, out _), text);
                 Assert.NotNull(VerbCatalog.Match(line!));
             }
         }

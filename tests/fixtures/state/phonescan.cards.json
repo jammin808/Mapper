@@ -104,6 +104,167 @@
     ]
   },
   {
+    "title": "Scan view",
+    "path": "scan.views.0",
+    "light": [
+      {
+        "if": "words",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{id} \u00B7 {state} \u00B7 {rmsPx} px over {tracks} tracks",
+    "fields": [
+      {
+        "label": "View",
+        "path": "id"
+      },
+      {
+        "label": "Camera",
+        "path": "camera"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "RMS px",
+        "path": "rmsPx"
+      },
+      {
+        "label": "Tracks",
+        "path": "tracks"
+      },
+      {
+        "label": "Paired by",
+        "path": "pairing"
+      },
+      {
+        "label": "Exposure",
+        "path": "exposure"
+      }
+    ],
+    "actions": [
+      "SCAN VIEWS $(scan)",
+      "SCAN DROP $(scan) $(id)",
+      "SCAN SOLVE $(scan)"
+    ]
+  },
+  {
+    "title": "Scan coverage",
+    "path": "scan.coverage.0",
+    "light": [
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{projector}: seen {seen}, twice {twice}",
+    "fields": [
+      {
+        "label": "Projector",
+        "path": "projector"
+      },
+      {
+        "label": "Seen",
+        "path": "seen"
+      },
+      {
+        "label": "Seen twice",
+        "path": "twice"
+      }
+    ],
+    "actions": [
+      "SCAN VIEWS $(scan)"
+    ]
+  },
+  {
+    "title": "Scan region",
+    "path": "scan.regions.0",
+    "light": [
+      {
+        "light": "green"
+      }
+    ],
+    "words": "{label} \u00B7 lit by {projectors}",
+    "fields": [
+      {
+        "label": "Region",
+        "path": "id"
+      },
+      {
+        "label": "Name",
+        "path": "label"
+      },
+      {
+        "label": "Projector",
+        "path": "projector"
+      },
+      {
+        "label": "Projectors",
+        "path": "projectors"
+      },
+      {
+        "label": "Confidence",
+        "path": "confidence"
+      }
+    ],
+    "actions": [
+      "SCAN SURFACE $(scan) REGION $(id)",
+      "SCAN SUGGEST $(scan)"
+    ]
+  },
+  {
+    "title": "Surface suggestion",
+    "path": "scan.suggestions.0",
+    "light": [
+      {
+        "if": "measured",
+        "light": "amber"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{label} \u00B7 {state}",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "label"
+      },
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "Confidence",
+        "path": "confidence"
+      },
+      {
+        "label": "Reasons",
+        "path": "reasons"
+      },
+      {
+        "label": "Measured",
+        "path": "measured"
+      },
+      {
+        "label": "Proposals",
+        "path": "proposals"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      }
+    ],
+    "actions": [
+      "APPROVE $(proposal)",
+      "REJECT $(proposal)",
+      "SCAN SUGGEST $(scan) ASSISTANT"
+    ]
+  },
+  {
     "title": "Scan pairing",
     "path": "scan.pairing",
     "light": [

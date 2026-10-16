@@ -477,11 +477,15 @@ public static class VerbCatalog
         V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
         V2("DEVICE NATIVE", "DEVICE NATIVE <device>", "A projector's own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard", VerbCategory.Device, VerbRisk.Low, false),
 
-        // The phone as a scan camera, fully local (wp2-phonescan; many views into one scan are wp2-multiscan's).
+        // The phone as a scan camera, fully local; many views into one scan (wp2-phonescan, wp2-multiscan).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V2("PHONE LIST", "PHONE LIST", "Phones paired with this node and what their cameras can do", VerbCategory.Scan, VerbRisk.Low, false),
         V2("PHONE FORGET", "PHONE FORGET <phone>|ALL", "Forgets a phone's key and disconnects it", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
-        V2("SCAN NEXT", "SCAN NEXT", "The pattern a scan's camera waits on goes up again and is asked for afresh (a phone that was bumped or lost its view)", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
+        V2("SCAN NEXT", "SCAN NEXT", "A folder camera in manual mode takes the picture of the pattern on the glass; any other camera has the pattern it waits on put up again and asked for afresh (a phone that was bumped or lost its view)", VerbCategory.Scan, VerbRisk.Review, true) with { Show = ShowClass.Setup },
+        V2("SCAN SUGGEST", "SCAN SUGGEST <scan> [ASSISTANT]", "Measured surface suggestions for a scan with their reasons, each queued as proposals only a person's APPROVE runs (SCAN SURFACE, and SURFACE QUAD for a plane); ASSISTANT: names and ranking from the node's assistant, from text only", VerbCategory.Scan, VerbRisk.Low, false),
+        V2("SCAN SOLVE", "SCAN SOLVE <scan> [HOLD <projector>…]", "Solves every projector, view and camera of a scan together (projector-anchored bundle adjustment); HOLD keeps those projectors at their stage poses", VerbCategory.Scan, VerbRisk.Review, true),
+        V2("SCAN VIEWS", "SCAN VIEWS <scan>", "A scan's views with their residuals, tracks, pairing and state, and its coverage per projector", VerbCategory.Scan, VerbRisk.Low, false),
+        V2("SCAN DROP", "SCAN DROP <scan> <view>", "Drops a view from a scan and solves the rest again", VerbCategory.Scan, VerbRisk.Review, true),
 
         // On-wall editing and the quad path (wp2-wall).
         V2("LIGHT WALL", "LIGHT WALL <display>|#<n>|<output> [AS <name>] [THROW <ratio>]", "First light in one line: an output full screen on that display as a projector, with the edit overlay and the wall cursor on", VerbCategory.Mapping, VerbRisk.High, true) with { Show = ShowClass.Layout },

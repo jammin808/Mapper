@@ -2,6 +2,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Scan.MultiView;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -11,7 +12,10 @@ namespace PlayMap.Engine.Scanning;
 /// or 320 × 240 for the bare "sim" camera); each scanned projector gets a true device of its own: the first where
 /// the scene puts its projector, the others swung around the scene's centre, 20° a step to alternate sides, each at
 /// the model projector's raster and lens shift with the scene's throw ratio, aimed so its image centres on the
-/// scene. The model's projectors are only priors: the scan finds the truth.
+/// scene. The model's projectors are only priors: the scan finds the truth. The "wall-and-cylinder-views" scene is the
+/// multi-view one (<see cref="MultiViewScenes.WallAndCylinder"/>): two projectors fixed where that scene hangs them (projector j
+/// is its projector j mod 2) and a phone that stands at the scene's view (n mod 3) for a scan's n-th view, so views INTO one scan
+/// see the same projectors from other places.
 /// </summary>
 public sealed class SimulatedRig
 {
@@ -20,7 +24,10 @@ public sealed class SimulatedRig
 
     public const string DefaultScene = "floor-and-box";
 
-    public static readonly IReadOnlyList<string> SceneNames = ["floor-and-box", "wall-and-cylinder", "stepped-facade"];
+    /// <summary>The multi-view scene: the same projectors, the phone at another place for each view of a scan.</summary>
+    public const string ViewsScene = "wall-and-cylinder-views";
+
+    public static readonly IReadOnlyList<string> SceneNames = ["floor-and-box", "wall-and-cylinder", "stepped-facade", ViewsScene];
 
     private const double StepDegrees = 20;
 
@@ -28,11 +35,25 @@ public sealed class SimulatedRig
     private readonly Vec3d _target;
     private readonly SimDevice[] _projectors;
 
-    public SimulatedRig(string scene, int cameraWidth, int cameraHeight, IReadOnlyList<Intrinsics> projectorPriors)
+    /// <param name="view">The scan's view this rig takes (the multi-view scene's phone place).</param>
+    /// <param name="slots">Each scanned projector's place in the project (the multi-view scene hangs the project's projector k where it
+    /// hangs its own projector k mod 2); null: their order here.</param>
+    public SimulatedRig(string scene, int cameraWidth, int cameraHeight, IReadOnlyList<Intrinsics> projectorPriors, int view = 0,
+        IReadOnlyList<int>? slots = null)
     {
         ArgumentNullException.ThrowIfNull(projectorPriors);
+        ArgumentOutOfRangeException.ThrowIfNegative(view);
         SceneName = SceneNames.Contains(scene, StringComparer.Ordinal) ? scene : DefaultScene;
         var first = projectorPriors.Count > 0 ? projectorPriors[0] : Intrinsics.FromThrowRatio(256, 160, 1.25);
+        if (SceneName == ViewsScene)
+        {
+            var many = MultiViewScenes.WallAndCylinder(first.Width, first.Height, cameraWidth, cameraHeight);
+            var at = many.Views[view % many.Views.Length];
+            _scene = new SimScene(many.Name, many.Mesh, many.Albedo, many.Colour, many.Projectors[0].Device, new SimDevice(many.Phone, many.PhoneLens, at.Pose));
+            _projectors = [.. projectorPriors.Select((_, j) => many.Projectors[Math.Max(0, slots?[j] ?? j) % many.Projectors.Length].Device)];
+            _target = Vec3d.Zero;
+            return;
+        }
         _scene = Build(SceneName, first.Width, first.Height, cameraWidth, cameraHeight);
         var axis = new Ray(_scene.Projector.Pose.Position, _scene.Projector.Pose.Forward);
         _target = new MeshRaycaster(_scene.Mesh).Cast(axis)?.Point ?? axis.At(3);
@@ -68,11 +89,11 @@ public sealed class SimulatedRig
 
     /// <summary>A simulator for projector <paramref name="index"/> showing <paramref name="plan"/> (at that
     /// projector's raster).</summary>
-    public ScanSimulator Simulator(int index, ScanPlan plan)
+    public ScanSimulator Simulator(int index, ScanPlan plan, SimDevice? camera = null, ulong seed = 0)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        var scene = _scene with { Projector = _projectors[index] };
-        return new ScanSimulator(new SimGeometry(scene), plan, new SimOptions { Seed = (ulong)index + 1 });
+        var scene = _scene with { Projector = _projectors[index], Camera = camera ?? _scene.Camera };
+        return new ScanSimulator(new SimGeometry(scene), plan, new SimOptions { Seed = seed * 1000 + (ulong)index + 1 });
     }
 
     /// <summary>The distance between the surfaces the true camera sees at two of its pixels, or null where it sees

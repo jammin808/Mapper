@@ -52,7 +52,7 @@ internal sealed class PhoneExtension : IEngineExtension
         {
             Phones = _hub,
             PhoneDoor = (session, ct) => PhoneDoors.FindAsync(network.HttpPort, bind, session, ct),
-            PreflightChecks = [.. services.PreflightChecks, new PhonePreflight()],
+            PreflightChecks = [.. services.PreflightChecks, new PhonePreflight(), new ScanDataPreflight()],
         };
     }
 
@@ -105,8 +105,47 @@ internal sealed class PhonePreflight : IPreflightCheck
     private static string Quote(string name) => name.Contains(' ', StringComparison.Ordinal) ? "\"" + name.Replace("\"", "", StringComparison.Ordinal) + "\"" : name;
 }
 
-/// <summary>INDEX section "scan": one row per phone camera with its connection as the light, and a preset per phone — the picture
-/// again (SCAN NEXT), cancel the scan, the phones' list.</summary>
+/// <summary>Preflight's scan-data rows (wp2-multiscan): each scan the stage depends on — its mesh on the stage, or a projector's current
+/// calibration from it — is on disk (its
+/// folder's scan.json beside the project), so its projectors' placement can be re-solved, a view added or a surface made after a
+/// restart. Green when it is; amber, with the line that scans those projectors again, when it is not.</summary>
+internal sealed class ScanDataPreflight : IPreflightCheck
+{
+    public string Section => "scan";
+
+    public PreflightDepth MinDepth => PreflightDepth.Quick;
+
+    public TimeSpan Budget => TimeSpan.FromSeconds(1);
+
+    public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var engine = context.Engine;
+        var node = engine.Services.Settings.NodeId;
+        var project = engine.Store.Project;
+        var folder = engine.ProjectFolderForFiles;
+        var rows = new List<PreflightRow>();
+        // What the stage depends on: a scan whose mesh is on it, or one a projector's current calibration came from.
+        var placedFrom = project.Stage.Projectors.Select(p => project.FindCalibration(p.CalibrationId)?.ScanId).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        foreach (var scan in project.Stage.Scans.Where(s => s.Kind == ScanKind.StructuredLight && (s.MeshId is not null || placedFrom.Contains(s.Id))))
+        {
+            var placed = scan.ProjectorIds.Select(id => project.FindProjector(id)?.Name).OfType<string>().ToList();
+            var on = folder is not null && scan.DataPath.Length > 0 && File.Exists(Path.Combine(folder, scan.DataPath, "scan.json"));
+            var again = string.Create(CultureInfo.InvariantCulture, $"SCAN START {scan.CameraId ?? "<camera>"} {string.Join(' ', scan.ProjectorIds)}");
+            rows.Add(on
+                ? new PreflightRow("scan:" + scan.Id, node, Section, scan.Name, Light.Green, "on disk",
+                    $"{scan.DataPath} holds what {string.Join(", ", placed)} {(placed.Count == 1 ? "was" : "were")} placed from", null)
+                : new PreflightRow("scan:" + scan.Id, node, Section, scan.Name, Light.Amber, "not on disk",
+                    $"{(scan.DataPath.Length > 0 ? scan.DataPath + "/scan.json is missing" : "it was kept in memory by a node that has stopped")}: " +
+                    $"{string.Join(", ", placed)} cannot be re-solved, given a view or made into surfaces from it — scan again", again));
+        }
+        return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
+    }
+}
+
+/// <summary>INDEX section "scan": one row per phone camera with its connection as the light, one per surface suggestion waiting for a
+/// person (its row id the proposal that approves it), and a preset per phone — the picture again (SCAN NEXT), cancel the scan, the
+/// phones' list.</summary>
 internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "scan";
@@ -136,6 +175,21 @@ internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
             w.WriteString("light", facts is not { Connected: true } ? "grey" : running ? "amber" : "green");
             w.WriteString("state", facts is not { Connected: true } ? "not connected" : running ? "scanning" : "ready");
             w.WriteEndObject();
+        }
+        // The surface suggestions waiting for a person (wp2-multiscan): one row each, under its scan, with the line that approves it.
+        if (engine.Services.Scan is Scanning.ScanRunner runner)
+        {
+            foreach (var (s, _) in runner.Waiting())
+            {
+                w.WriteStartObject();
+                w.WriteString("id", s.Proposals.FirstOrDefault() ?? s.Id);
+                w.WriteString("kind", "suggestion");
+                w.WriteString("label", s.Label);
+                w.WriteString("parent", s.RegionId);
+                w.WriteString("light", "amber");
+                w.WriteString("state", "waits for a person — APPROVE " + (s.Proposals.FirstOrDefault() ?? s.Id));
+                w.WriteEndObject();
+            }
         }
         w.WriteEndArray();
     }
