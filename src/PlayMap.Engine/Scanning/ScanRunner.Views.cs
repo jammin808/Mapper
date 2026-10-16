@@ -514,13 +514,13 @@ public sealed partial class ScanRunner
             return _suggestions.GetValueOrDefault(scanId, []);
     }
 
-    /// <summary>The suggestions waiting for a person, every scan's, with the state of their proposals now.</summary>
-    public IReadOnlyList<(ScanSuggestion Suggestion, string State)> Waiting()
+    /// <summary>The suggestions waiting for a person, every scan's, each with its scan and the state of its proposals now.</summary>
+    public IReadOnlyList<(string ScanId, ScanSuggestion Suggestion, string State)> Waiting()
     {
-        List<ScanSuggestion> all;
+        List<(string ScanId, ScanSuggestion Suggestion)> all;
         lock (_gate)
-            all = [.. _suggestions.Values.SelectMany(s => s)];
-        return [.. all.Select(s => (s, StateOf(s))).Where(x => x.Item2 == "pending")];
+            all = [.. _suggestions.SelectMany(kv => kv.Value.Select(s => (kv.Key, s)))];
+        return [.. all.Select(x => (x.ScanId, x.Suggestion, StateOf(x.Suggestion))).Where(x => x.Item3 == "pending")];
     }
 
     /// <summary>A suggestion's state from its proposals: "pending" while one waits, "approved" once one ran, "rejected" when every one

@@ -99,7 +99,7 @@ the one it lacks; a folder with no view.json is a view whose write never finishe
 - Preflight section `scan`: each structured-light scan the stage depends on (its mesh on the stage, or a projector's current
   calibration from it) — green "on disk", amber
   "not on disk" with the fix `SCAN START <camera> <projectors…>` when its folder's scan.json is gone.
-- INDEX section `scan`: a row per suggestion waiting (kind `suggestion`, id the proposal that approves it, amber).
+- INDEX section `scan`: a row per suggestion waiting (kind `suggestion`, id the proposal that approves it, parent its scan, amber).
 - `SCAN APPLY` of a multi-view scan scores each projector by the joint solve: dense fit over its tracks, the decoded share of its
   views, the views that saw it; when a view disagrees with the rest the dense fit's term is `where:<view>`, fix
   `SCAN DROP <scan> <view>`.

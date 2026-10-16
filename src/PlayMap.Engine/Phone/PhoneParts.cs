@@ -179,13 +179,13 @@ internal sealed class PhoneIndex(EngineCore engine) : IIndexContributor
         // The surface suggestions waiting for a person (wp2-multiscan): one row each, under its scan, with the line that approves it.
         if (engine.Services.Scan is Scanning.ScanRunner runner)
         {
-            foreach (var (s, _) in runner.Waiting())
+            foreach (var (scan, s, _) in runner.Waiting())
             {
                 w.WriteStartObject();
                 w.WriteString("id", s.Proposals.FirstOrDefault() ?? s.Id);
                 w.WriteString("kind", "suggestion");
                 w.WriteString("label", s.Label);
-                w.WriteString("parent", s.RegionId);
+                w.WriteString("parent", scan);
                 w.WriteString("light", "amber");
                 w.WriteString("state", "waits for a person — APPROVE " + (s.Proposals.FirstOrDefault() ?? s.Id));
                 w.WriteEndObject();
