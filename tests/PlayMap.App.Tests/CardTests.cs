@@ -148,7 +148,8 @@ public class CardTests(ITestOutputHelper output)
 
     /// <summary>A card's actions read apart (two lines that differ after a placeholder — set and clear — never share a label), and
     /// no action line carries a value only its package's fixture holds: a group, a node, a leader or an id comes from the card's
-    /// STATE through a placeholder, so a button on a real node never acts on the fixture's.</summary>
+    /// STATE through a placeholder, so a button on a real node never acts on the fixture's; nor a slot of its row's syntax left for
+    /// the operator to fill, which a button cannot ask for.</summary>
     [Fact]
     public void ACardsActionsReadApartAndTakeTheirValuesFromStateNotFromAFixture()
     {
@@ -171,6 +172,9 @@ public class CardTests(ITestOutputHelper output)
                 var keywords = Keywords(spec);
                 foreach (var word in bare.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => values.Contains(w) && !keywords.Contains(w)))
                     problems.Add($"{d.Package} '{d.Title}': '{a.Line}' carries '{word}', a value of its fixture");
+                // A word written as its row's slot ("<scan>") is a value only the operator gives: a button would send it as it is.
+                foreach (var slot in bare.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length > 2 && w[0] == '<' && w[^1] == '>'))
+                    problems.Add($"{d.Package} '{d.Title}': '{a.Line}' leaves {slot} for the operator to give");
             }
         }
         Assert.True(problems.Count == 0, string.Join("\n", problems));
@@ -251,10 +255,11 @@ public class CardTests(ITestOutputHelper output)
         Assert.Empty(CardReader.Read(d, Root("""{"y":{}}""")));
     }
 
-    /// <summary>The descriptors new to the desk read their fixtures as their packages mean them: the hot backup's (a light from a
-    /// state with its own words per light, a fixed light, one fixture per node), facade's and align's blocks owned by a list element
-    /// (their actions name the element, their cards sit in its inspector), multiscan's lines naming the scan they sit in, the decode
-    /// path's words and fields past the sixth, the frame lock's words as lights, videoio's per-element cards.</summary>
+    /// <summary>The descriptors new to the desk read their fixtures as their packages mean them: the hot backup's (a light from a state
+    /// with its own words per light, a fixed light, one fixture per node), facade's and align's blocks owned by a list element (their
+    /// actions name the element, their cards sit in its inspector), the facade guide's next step and a stack, multiscan's lines naming the
+    /// scan they sit in, the decode path's words and fields past the sixth, the frame lock's words as lights, videoio's per-element
+    /// cards.</summary>
     [Fact]
     public void TheNewPackagesCardsReadTheirFixturesAsTheyMeanThem()
     {
@@ -282,10 +287,33 @@ public class CardTests(ITestOutputHelper output)
         Assert.Equal("grey", Read("backup", "fenced").Single(c => c.Descriptor.Path == "fleet.routes").Light);
 
         // facade: the uncertainty block is the first projector's — its actions name it and its card sits in its inspector.
-        var uncertainty = Read("facade").Single(c => c.Descriptor.Path == "stage.projectors.0.uncertainty");
-        Assert.Equal(("amber", "pj_fixture1"), (uncertainty.Light, uncertainty.EntityId));
-        Assert.Equal("PROJECTOR SOLVE pj_fixture1", uncertainty.Actions[0].Line);
-        Assert.StartsWith("on the wall ±0.781 px", uncertainty.Words, StringComparison.Ordinal);
+        using (var doc = JsonDocument.Parse(StateFixtures.Read("facade")))
+        {
+            var stage = doc.RootElement.GetProperty("stage");
+            var first = stage.GetProperty("projectors")[0];
+            var pj = first.GetProperty("id").GetString();
+            var uncertainty = Read("facade").Single(c => c.Descriptor.Path == "stage.projectors.0.uncertainty");
+            Assert.Equal(("amber", pj), (uncertainty.Light, uncertainty.EntityId));
+            Assert.Equal("PROJECTOR SOLVE " + pj, uncertainty.Actions[0].Line);
+            var wallPx = Math.Round(first.GetProperty("uncertainty").GetProperty("wallPx").GetDouble(), 3)
+                .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            Assert.StartsWith($"on the wall ±{wallPx} px", uncertainty.Words, StringComparison.Ordinal);
+
+            // stacks: the guide's next step is amber while it names a line; a stack not yet aligned is amber, its card is the stack's
+            // and its buttons are its list and its REMOVE (the scan it aligns from is the operator's to type).
+            var next = stage.GetProperty("site").GetProperty("next");
+            var guide = Read("facade").Single(c => c.Descriptor.Path == "stage.site.next");
+            Assert.Equal(("amber", $"{next.GetProperty("step").GetString()}: {next.GetProperty("words").GetString()} — {next.GetProperty("line").GetString()}"),
+                (guide.Light, guide.Words));
+            Assert.Equal(["SITE GUIDE"], guide.Actions.Select(a => a.Line ?? "").ToArray());
+            var sk = stage.GetProperty("stacks")[0];
+            var stack = Read("facade").Single(c => c.Descriptor.Path == "stage.stacks.0");
+            Assert.False(sk.GetProperty("aligned").GetBoolean());
+            Assert.Equal(("amber", sk.GetProperty("id").GetString()), (stack.Light, stack.EntityId));
+            Assert.StartsWith($"{sk.GetProperty("name").GetString()}: {sk.GetProperty("members").GetArrayLength()} on {sk.GetProperty("master").GetString()} · ",
+                stack.Words, StringComparison.Ordinal);
+            Assert.Equal(["STACK LIST", "REMOVE " + sk.GetProperty("id").GetString()], stack.Actions.Select(a => a.Line ?? "").ToArray());
+        }
         // align: the measured correction is the first output's; a guarded device would have a card of its own.
         Assert.Equal("op1", Read("align").Single(c => c.Descriptor.Path == "outputs.0.measured").EntityId);
         var guard = CardDescriptor.BuiltIn.Single(d => d.Package == "align" && d.Path == "align.devices[]");

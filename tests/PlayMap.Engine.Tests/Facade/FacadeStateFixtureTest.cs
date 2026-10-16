@@ -72,7 +72,9 @@ public sealed partial class FacadeStateFixtureTest
             ["words"] = "{name}: {members} on {master} · {residualPx} px · failover {failover}",
             ["fields"] = new JsonArray(Field("Name", "name"), Field("Members", "members"), Field("Master", "master"), Field("Aligned", "aligned"),
                 Field("Matched", "matched"), Field("Residual (px)", "residualPx"), Field("Failover", "failover"), Field("Degraded", "degraded"), Field("Gain", "gain")),
-            ["actions"] = new JsonArray("STACK LIST", "STACK ALIGN $(id) FROM <scan>", "STACK MATCH $(id) FROM <scan>", "REMOVE $(id)"),
+            // The scan a stack is aligned or matched from is the operator's choice, never a value its card holds: STACK ALIGN and
+            // STACK MATCH are typed lines, not buttons.
+            ["actions"] = new JsonArray("STACK LIST", "REMOVE $(id)"),
         },
     ];
 

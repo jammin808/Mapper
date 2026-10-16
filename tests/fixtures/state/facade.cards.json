@@ -213,8 +213,6 @@
     ],
     "actions": [
       "STACK LIST",
-      "STACK ALIGN $(id) FROM \u003Cscan\u003E",
-      "STACK MATCH $(id) FROM \u003Cscan\u003E",
       "REMOVE $(id)"
     ]
   }
