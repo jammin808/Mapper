@@ -290,6 +290,45 @@ public sealed class HostStopTests
         Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Who, r.Line) == ("refused", EngineCore.StoppingWords, ShowRig.Desk.ClientName, "BLACKOUT ON"));
     }
 
+    /// <summary>An off-lane line's document edit waits for the lane: when its turn comes after the stop began, it is refused with the
+    /// words and the project stands — an edit handed to the lane directly (<see cref="EngineCore.EditAsync"/>) and an off-lane verb's
+    /// edit (DEVICE ADD) alike. The node's own edit still applies.</summary>
+    [Fact]
+    public async Task AnOffLaneEditWaitingForTheLaneWhenTheStopBeginsIsRefusedWithTheWordsAndChangesNothing()
+    {
+        await using var rig = new ShowRig();
+        var engine = rig.Engine;
+        var revision = engine.Store.Current.Revision;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busy = engine.Lane.RunAsync(() =>
+        {
+            entered.SetResult();
+            release.Wait();
+        });
+        await entered.Task;
+
+        // Both passed their door before the stop; their edits wait behind the lane's work.
+        var edit = engine.EditAsync(ShowRig.Desk, "rename", p => p with { Name = "Renamed" });
+        var device = rig.Run("DEVICE ADD Left pjlink 10.0.0.31");
+        var own = engine.EditAsync(EngineCore.SystemSession, "node's own", p => p with { Name = "The node's own" });
+        Assert.False(edit.IsCompleted || device.IsCompleted || own.IsCompleted);
+
+        engine.BeginStop();
+        release.Set();
+        await busy;
+        var refused = await edit;
+        var reply = await device;
+        await own;
+
+        Assert.Equal((false, EngineCore.StoppingWords), (refused.Changed, refused.Effect));
+        Assert.Equal((false, EngineCore.StoppingWords), (reply.Ok, reply.Payload));
+        Assert.Empty(engine.Store.Project.Stage.Devices);
+        // Only the node's own edit landed.
+        Assert.Equal((revision + 1, "The node's own"), (engine.Store.Current.Revision, engine.Store.Project.Name));
+        Assert.Contains(engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Line) == ("refused", EngineCore.StoppingWords, "DEVICE ADD Left pjlink 10.0.0.31"));
+    }
+
     [Fact]
     public async Task AnAssistantsHighRiskLineOverMcpIsRefusedWithTheWordsOnceTheStopBeginsNotQueuedForAPerson()
     {

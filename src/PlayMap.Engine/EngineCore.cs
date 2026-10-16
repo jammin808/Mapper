@@ -150,15 +150,21 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     internal ProjectStore Edits => _lineStore ?? Store;
 
     /// <summary>An off-lane verb's document edit: posted to the lane, applied to the session's blind draft or the live store, answered
-    /// with the store's own result (refusals included).</summary>
+    /// with the store's own result (refusals included). An edit whose turn on the lane comes once the node has begun to stop is
+    /// refused with <see cref="StoppingWords"/> and changes nothing, unless it is the node's own.</summary>
     public Task<EditResult> EditAsync(SessionInfo session, string label, Func<Project, Project> edit, string? coalesceKey = null)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return _lane.RunAsync(() => EditsFor(session).Apply(label, edit, coalesceKey));
+        return _lane.RunAsync(() => RefusedAsStopping(session)
+            ? EditResult.Refused(StoppingWords, Store.Current.Revision)
+            : EditsFor(session).Apply(label, edit, coalesceKey));
     }
 
-    /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).</summary>
-    private ProjectStore EditsFor(SessionInfo session) => DraftOf(session) ?? Store;
+    /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).
+    /// Once the node has begun to stop there is none for a line from outside the node: the line passed the door before the stop, but
+    /// its edit waited for the lane, and it is refused with <see cref="StoppingWords"/> there.</summary>
+    private ProjectStore EditsFor(SessionInfo session) =>
+        RefusedAsStopping(session) ? throw new EditRefusedException(StoppingWords) : DraftOf(session) ?? Store;
 
     /// <summary>The blind draft a session's document edits go to, or null for the live store: the show's (wp2-blind), or a test's
     /// stand-in for it.</summary>
@@ -169,9 +175,12 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
 
     /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
-    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live).</summary>
+    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live); refused with
+    /// <see cref="StoppingWords"/>, as <see cref="EditsFor"/> is, once the node has begun to stop.</summary>
     private T EditsInto<T>(SessionInfo session, Func<T> handler)
     {
+        if (RefusedAsStopping(session))
+            throw new EditRefusedException(StoppingWords);
         _lineStore = DraftOf(session);
         try
         {
