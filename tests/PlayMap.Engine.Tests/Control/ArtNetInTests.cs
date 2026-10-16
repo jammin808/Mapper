@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
@@ -22,15 +23,17 @@ public sealed class ArtNetInTests
         from.SendTo(packet, SocketFlags.None, new IPEndPoint(IPAddress.Parse(to), ArtNet.Port));
 
     /// <summary>Sends <paramref name="perWindow"/> packets for each slot of <paramref name="bytes"/>, writes the bytes this thread
-    /// allocated over each window, and answers the sends refused. Compiled fully optimised before it first runs, and never inlined:
-    /// the windows are never where the runtime compiles the loop that counts them (a tier-0 loop is recompiled on stack, on this
-    /// thread, and that compile can grow the runtime's cast cache or box a static here).</summary>
+    /// allocated and the methods the runtime compiled on it over each window, and answers the sends refused. Compiled fully
+    /// optimised before it first runs, and never inlined: the windows are never where the runtime compiles the loop that counts
+    /// them (a tier-0 loop is recompiled on stack, on this thread, and that compile can grow the runtime's cast cache or box a
+    /// static here).</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
-    private static int SendCounting(ArtNetEndpoint endpoint, ReadOnlySpan<byte> packet, SocketAddress to, long[] bytes, int perWindow)
+    private static int SendCounting(ArtNetEndpoint endpoint, ReadOnlySpan<byte> packet, SocketAddress to, long[] bytes, long[] compiled, int perWindow)
     {
         var refused = 0;
         for (var k = 0; k < bytes.Length; k++)
         {
+            var jitted = JitInfo.GetCompiledMethodCount(currentThread: true);
             var before = GC.GetAllocatedBytesForCurrentThread();
             for (var i = 0; i < perWindow; i++)
             {
@@ -38,6 +41,7 @@ public sealed class ArtNetInTests
                     refused++;
             }
             bytes[k] = GC.GetAllocatedBytesForCurrentThread() - before;
+            compiled[k] = JitInfo.GetCompiledMethodCount(currentThread: true) - jitted;
         }
         return refused;
     }
@@ -73,8 +77,9 @@ public sealed class ArtNetInTests
         var packet = new byte[530];
         var n = ArtNet.WriteDmx(packet, 1, 0, new byte[512]);
         BindSocketSends();
-        SendCounting(endpoint, packet.AsSpan(0, n), to, new long[1], 200);
+        SendCounting(endpoint, packet.AsSpan(0, n), to, new long[1], new long[1], 200);
         var perThousand = new long[10];
+        var compiled = new long[10];
         var refused = 0;
         Exception? thrown = null;
         var thread = Environment.CurrentManagedThreadId;
@@ -86,13 +91,14 @@ public sealed class ArtNetInTests
         AppDomain.CurrentDomain.FirstChanceException += seen;
         try
         {
-            refused = SendCounting(endpoint, packet.AsSpan(0, n), to, perThousand, 1000);
+            refused = SendCounting(endpoint, packet.AsSpan(0, n), to, perThousand, compiled, 1000);
         }
         finally
         {
             AppDomain.CurrentDomain.FirstChanceException -= seen;
         }
-        Assert.True(perThousand.All(b => b == 0), $"bytes per thousand sends: {string.Join(' ', perThousand)}; {refused} refused; "
+        Assert.True(perThousand.All(b => b == 0), $"bytes per thousand sends: {string.Join(' ', perThousand)}; methods compiled on this "
+            + $"thread meanwhile: {string.Join(' ', compiled)}; {refused} refused; "
             + (thrown is null ? "nothing thrown on this thread" : $"{thrown.GetType().Name}: {thrown.Message}"));
         Assert.True(endpoint.IsOpen);
         Assert.Null(endpoint.Problem);
