@@ -30,4 +30,10 @@
     <PackageReference Include="BCnEncoder.Net" Version="2.3.0" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-d3d11">
+    <!-- ANGLE (BSD) for the Windows tests of the DXGI flip path: the same package the desk's exe carries, so the loader finds
+         av_libglesv2 beside the test assembly exactly as it does beside PlayMap.exe. No binary is added to the repository. -->
+    <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
+  </ItemGroup>
+
 </Project>

@@ -83,7 +83,7 @@ public sealed class PresentStateTests
         Assert.Equal(JsonValueKind.Null, group.GetProperty("refused").ValueKind);
 
         var machine = s.GetProperty("machine").GetProperty("present");
-        Assert.Equal(["api", "adapter", "path", "experimental", "why", "resets", "presentMsP95", "dialect", "context"],
+        Assert.Equal(["api", "adapter", "path", "experimental", "why", "resets", "presentMsP95", "dialect", "context", "asked", "kept", "fuse"],
             machine.EnumerateObject().Select(p => p.Name));
         Assert.Equal("core330", machine.GetProperty("dialect").GetString());
     }

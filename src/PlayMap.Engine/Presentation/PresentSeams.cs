@@ -8,7 +8,14 @@ namespace PlayMap.Engine.Presentation;
 /// experimental, why it is not what was asked, device resets, the time a frame spends presenting (95th percentile, the pacing
 /// window's wait for the vblank included), and the context's dialect and windowing API.</summary>
 public sealed record MachinePresentView(string Api, string Adapter, string Path, bool Experimental, string Why, long Resets,
-    double PresentMsP95, string Dialect, string Context);
+    double PresentMsP95, string Dialect, string Context)
+{
+    /// <summary>The DXGI start's fuse is still armed (its outputs have not reached their first settled frames yet).</summary>
+    public bool FuseArmed { get; init; }
+
+    /// <summary>Every display output of a DXGI start reached its first settled frames (the fuse may go).</summary>
+    public bool FirstFrames { get; init; }
+}
 
 /// <summary>One output's presentation for STATE and OUTPUT STATS: its numbers (taken on the render thread) and whether a presenter
 /// shows it now.</summary>
@@ -25,6 +32,9 @@ public interface IPresentBackend
 
     /// <summary>Zeroes the named outputs' counters (all when null) on the render thread; answers the totals that were there.</summary>
     Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct);
+
+    /// <summary>Control lane: deletes this start's fuse once its outputs reached their first settled frames; true when it went now.</summary>
+    bool ConfirmFirstFrames() => false;
 }
 
 /// <summary>One output's place in the frame lock for STATE: its state, the reason word of its last refusal or fall-out, the words,

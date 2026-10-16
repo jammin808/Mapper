@@ -194,7 +194,14 @@
       "resets": 0,
       "presentMsP95": 0.21,
       "dialect": "core330",
-      "context": "glx"
+      "context": "glx",
+      "asked": "auto",
+      "kept": false,
+      "fuse": {
+        "state": "clear",
+        "attempt": 0,
+        "at": 0
+      }
     },
     "gl": "glx"
   },

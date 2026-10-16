@@ -65,7 +65,14 @@ internal sealed class ScriptedOutputs : IOutputBackend, IPresentBackend, IFrameL
 
     public IReadOnlyList<OutputPresentView> Present() => [.. Clocks.Select(c => new OutputPresentView(c.Key, c.Value.Snapshot(NowNs)))];
 
-    public MachinePresentView Machine() => new("gl", "scripted", "gl", false, "", 0, 0.2, "core330", "glx");
+    public MachinePresentView MachineView { get; set; } = new("gl", "scripted", "gl", false, "", 0, 0.2, "core330", "glx");
+
+    public MachinePresentView Machine() => MachineView;
+
+    /// <summary>What ConfirmFirstFrames does (null: nothing to confirm).</summary>
+    public Func<bool>? FirstFramesUp { get; set; }
+
+    public bool ConfirmFirstFrames() => FirstFramesUp is { } up && up();
 
     public Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct)
     {

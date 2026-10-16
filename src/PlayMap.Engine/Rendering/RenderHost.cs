@@ -29,6 +29,10 @@ public sealed record RenderHostOptions
     /// <summary>The platform asked for: the present path and the GL dialect (NodeSettings.Present), or no window system at all.</summary>
     public PlatformRequest Platform { get; init; } = PlatformRequest.Default;
 
+    /// <summary>The present fuse this start armed (the DXGI path, explicit); the host deletes it once every display output reached its
+    /// first settled frames (null: no fuse — a GL start, or a test).</summary>
+    public Presentation.PresentFuse? Fuse { get; init; }
+
     /// <summary>The framelock tier (null: this machine's — NVAPI on Windows, none elsewhere). The host owns and disposes it.</summary>
     public Func<IFrameLockDriver>? FrameLock { get; init; }
 
@@ -239,11 +243,18 @@ public sealed partial class RenderHost : IRenderHost
     {
         ArgumentNullException.ThrowIfNull(request);
         var log = request.Logs.CreateLogger("PlayMap.Render");
-        var present = request.Settings.Present;
+        // The node home's settings, not the run's: PRESENT PATH saved them for this start.
+        var present = request.Home.LoadSettings(request.Settings.Name).Present;
+        var fuse = new PresentFuse(request.Home.Folder, () => request.Wall.UnixMs);
+        var (path, fuseWords) = PresentChoice.Decide(present.Path, fuse.Read());
+        var armed = path == "dxgi" && OperatingSystem.IsWindows() && !request.Options.Headless;
+        if (armed)
+            fuse.Arm("dxgi");
         var host = TryCreate(RenderHostOptions.Default with
         {
             Windows = !request.Options.Headless,
-            Platform = new PlatformRequest(present.Path, present.Dialect),
+            Platform = new PlatformRequest(path, present.Dialect) { Words = fuseWords },
+            Fuse = armed ? fuse : null,
             FrameLockAuto = !string.Equals(present.FrameLock, "off", StringComparison.OrdinalIgnoreCase),
             SwapGroup = (uint)Math.Max(1, present.SwapGroup),
             SwapBarrier = (uint)Math.Max(0, present.SwapBarrier),
@@ -730,6 +741,8 @@ public sealed partial class RenderHost : IRenderHost
                     h.Display = display;
                 moved |= before != (h.Open, h.Dropped > 0, h.Fps > 0);
             }
+            if (!_firstFrames && _platform?.Path == PresentPath.DxgiFlip)
+                _firstFrames = FirstFramesReached();
         }
         return moved;
     }

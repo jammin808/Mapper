@@ -11,6 +11,12 @@ namespace PlayMap.Engine.Rendering;
 /// lock (<see cref="IFrameLockBackend"/>), both published from the render thread and read from any thread.</summary>
 public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
 {
+    /// <summary>Settled frames every display output presents before a DXGI start counts as up (its fuse goes).</summary>
+    private const int FuseFrames = 120;
+
+    private volatile bool _firstFrames;
+    private volatile bool _fuseCleared;
+
     partial void ComposeOutput(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
     {
         // The output's frame inputs are the host's own (the show time of the vblank, chosen in Frame); nothing to add.
@@ -56,9 +62,39 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         }
         var dialect = platform?.Context is { } c ? GlDialects.Word(c.Dialect) : "";
         // A headless node, or a platform with no window system, presents nothing: its outputs are offscreen.
-        var path = _options.Windows && platform?.Path == PresentPath.GlWindow ? "gl" : "offscreen";
-        return new MachinePresentView("gl", _rendererName, path, false, platform?.Words ?? "", 0, Math.Round(p95, 2), dialect,
-            platform?.Api ?? "");
+        var dxgi = platform?.Path == PresentPath.DxgiFlip;
+        var path = dxgi ? "dxgi" : _options.Windows && platform?.Path == PresentPath.GlWindow ? "gl" : "offscreen";
+        var adapter = platform is { Adapter.Length: > 0 } ? platform.Adapter : _rendererName;
+        return new MachinePresentView(dxgi ? "d3d11" : "gl", adapter, path, dxgi, platform?.Words ?? "", 0, Math.Round(p95, 2), dialect,
+            platform?.Api ?? "")
+        {
+            FuseArmed = _options.Fuse is not null && !_fuseCleared,
+            FirstFrames = _firstFrames,
+        };
+    }
+
+    /// <summary>Every display output of the DXGI start has presented 120 frames on a settled clock (render thread, under the health
+    /// gate): what the fuse waits for.</summary>
+    private bool FirstFramesReached()
+    {
+        var any = false;
+        foreach (var h in _health)
+        {
+            if (!h.Open)
+                continue;
+            if (!h.HasPresent || h.Present.Presented < FuseFrames || !h.Present.Settled)
+                return false;
+            any = true;
+        }
+        return any;
+    }
+
+    public bool ConfirmFirstFrames()
+    {
+        if (!_firstFrames || _fuseCleared || _options.Fuse is not { } fuse)
+            return false;
+        _fuseCleared = true;
+        return fuse.Clear();
     }
 
     public async Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct)

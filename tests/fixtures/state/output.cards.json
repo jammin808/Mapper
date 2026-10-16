@@ -144,8 +144,18 @@
     "words": "machine.present.why",
     "fields": [
       {
-        "label": "API",
-        "path": "machine.present.api",
+        "label": "Path",
+        "path": "machine.present.path",
+        "unit": ""
+      },
+      {
+        "label": "Asked",
+        "path": "machine.present.asked",
+        "unit": ""
+      },
+      {
+        "label": "Fuse",
+        "path": "machine.present.fuse.state",
         "unit": ""
       },
       {
@@ -154,18 +164,8 @@
         "unit": ""
       },
       {
-        "label": "Path",
-        "path": "machine.present.path",
-        "unit": ""
-      },
-      {
         "label": "Dialect",
         "path": "machine.present.dialect",
-        "unit": ""
-      },
-      {
-        "label": "Context",
-        "path": "machine.present.context",
         "unit": ""
       },
       {
@@ -178,6 +178,14 @@
       {
         "label": "Stats",
         "line": "OUTPUT STATS ALL"
+      },
+      {
+        "label": "Reset",
+        "line": "PRESENT RESET"
+      },
+      {
+        "label": "OpenGL",
+        "line": "PRESENT PATH GL"
       }
     ]
   }

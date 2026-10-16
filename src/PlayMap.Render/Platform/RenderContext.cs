@@ -147,6 +147,29 @@ public sealed class RenderContext : IDisposable
         }
     }
 
+    /// <summary>A context another platform made current on this thread with no window (ANGLE on a Direct3D 11 device): the GL
+    /// device on its proc loader, made current again through <paramref name="owner"/>, which the context disposes last.</summary>
+    internal static RenderContext Adopt(ISurfacelessContext owner, Func<string, nint> proc, GlDeviceOptions options, string api)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(proc);
+        ArgumentNullException.ThrowIfNull(options);
+        var gl = GL.GetApi(AliasLoader.Wrap(proc));
+        try
+        {
+            var device = new GlDevice(gl, options);
+            var words = device.Dialect != options.Dialect
+                ? $"asked for {GlDialects.Word(options.Dialect)}, the driver gave {GlDialects.Word(device.Dialect)}"
+                : "";
+            return new RenderContext(null, owner, gl, device, api, eglWindows: false, words);
+        }
+        catch
+        {
+            gl.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>Makes a window under the hint gate; on EGL the creation API is set for this window only and put back after.</summary>
     internal static IWindow MakeWindow(WindowOptions options, bool egl)
     {
@@ -177,8 +200,8 @@ public sealed class RenderContext : IDisposable
     {
         if (_window is not null)
             _window.MakeCurrent();
-        else if (OperatingSystem.IsLinux() && _surfaceless is EglSurfacelessContext egl)
-            egl.MakeCurrent();
+        else if (_surfaceless is ISurfacelessContext owned)
+            owned.MakeCurrent();
     }
 
     /// <summary>The displays the platform reports: index, name, bounds in desktop pixels and refresh rate (none surfaceless).</summary>
@@ -210,6 +233,12 @@ public sealed class RenderContext : IDisposable
         _surfaceless?.Dispose();
         _disposed = true;
     }
+}
+
+/// <summary>A context with no window that can be made current again on its thread (EGL surfaceless, ANGLE on a D3D11 device).</summary>
+internal interface ISurfacelessContext : IDisposable
+{
+    void MakeCurrent();
 }
 
 /// <summary>A display: its platform index, name, desktop bounds and refresh rate (0 = unknown).</summary>

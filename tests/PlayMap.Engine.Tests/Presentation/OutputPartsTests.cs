@@ -216,9 +216,9 @@ public sealed class OutputFixtureTests
                  ("Latency", "sync.latencyMs", "ms"), ("Refused", "sync.lock.refused.words", "")],
                 [("Apply", "SYNC APPLY"), ("Leave", "SYNC LEAVE"), ("Rejoin", "SYNC REJOIN")]),
             Card("Present path", "machine.present", null, "machine.present.why",
-                [("API", "machine.present.api", ""), ("Adapter", "machine.present.adapter", ""), ("Path", "machine.present.path", ""),
-                 ("Dialect", "machine.present.dialect", ""), ("Context", "machine.present.context", ""), ("Present p95", "machine.present.presentMsP95", "ms")],
-                [("Stats", "OUTPUT STATS ALL")]),
+                [("Path", "machine.present.path", ""), ("Asked", "machine.present.asked", ""), ("Fuse", "machine.present.fuse.state", ""),
+                 ("Adapter", "machine.present.adapter", ""), ("Dialect", "machine.present.dialect", ""), ("Present p95", "machine.present.presentMsP95", "ms")],
+                [("Stats", "OUTPUT STATS ALL"), ("Reset", "PRESENT RESET"), ("OpenGL", "PRESENT PATH GL")]),
         };
         return cards.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
     }

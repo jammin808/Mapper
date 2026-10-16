@@ -35,6 +35,7 @@ public sealed class OutputPresentCheck : IPreflightCheck
         var applied = lockBackend?.Intent.Apply ?? false;
         var held = lockBackend?.HeldOut ?? [];
         var rows = new List<PreflightRow>();
+        rows.Add(PathRow(node, engine));
         foreach (var o in engine.Store.Project.Outputs.Where(o => o.Enabled))
         {
             rows.Add(PresentRow(node, o, present?.FirstOrDefault(v => v.OutputId == o.Id)));
@@ -42,6 +43,24 @@ public sealed class OutputPresentCheck : IPreflightCheck
                 rows.Add(row);
         }
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
+    }
+
+    /// <summary>The node's present path: amber with PRESENT RESET while a fuse a DXGI start left is blown (OpenGL until it is cleared);
+    /// amber with the words while the path is not the one asked (a DXGI start that stopped, a dialect that fell back); green otherwise,
+    /// saying whether the path is the experimental DXGI one.</summary>
+    private static PreflightRow PathRow(string node, EngineCore engine)
+    {
+        const string Id = "outputs.present-path";
+        var machine = (engine.Services.Outputs as IPresentBackend)?.Machine();
+        if (engine.Services.PresentNode?.FuseNow is { } fuse && !(machine?.FuseArmed ?? false))
+            return new PreflightRow(Id, node, "outputs", "Present path", Light.Amber, "fuse blown",
+                PresentChoice.Decide("dxgi", fuse).Words, "PRESENT RESET");
+        if (machine is null)
+            return new PreflightRow(Id, node, "outputs", "Present path", Light.Grey, "no render host", "this node draws nothing", null);
+        if (machine.Why.Length > 0)
+            return new PreflightRow(Id, node, "outputs", "Present path", Light.Amber, machine.Path, machine.Why, null);
+        return new PreflightRow(Id, node, "outputs", "Present path", Light.Green, machine.Path,
+            machine.Experimental ? "DXGI flip model (experimental this round)" : "as asked", null);
     }
 
     private static PreflightRow PresentRow(string node, Output o, OutputPresentView? view)

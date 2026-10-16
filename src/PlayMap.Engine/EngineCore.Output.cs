@@ -30,6 +30,7 @@ public sealed partial class EngineCore
     {
         routes.Lane("OUTPUT STATS", c => OutputStats(c.Args));
         routes.OffLane("PRESENT RESET", c => PresentResetAsync(c.Args, c.Session, c.Ct));
+        routes.Lane("PRESENT PATH", c => PresentPathVerb(c.Args, c.Session));
         routes.OffLane("SYNC APPLY", c => SyncApplyAsync(c.Args, c.Ct));
         routes.OffLane("SYNC LEAVE", c => SyncLeaveAsync(c.Args, c.Ct));
         routes.OffLane("SYNC REJOIN", c => SyncRejoinAsync(c.Args, c.Ct));
@@ -38,8 +39,64 @@ public sealed partial class EngineCore
 
     partial void TickOutput(long leaderNs)
     {
-        // Presentation and the lock run on the render thread; the lane has nothing to do between lines.
+        // Presentation and the lock run on the render thread; the lane only lets a DXGI start's fuse go once its outputs are up.
+        if (PresentBackend is { } backend && backend.ConfirmFirstFrames())
+        {
+            Services.PresentNode?.RefreshFuse();
+            Journal.Add("present", "the DXGI path reached its first settled frames on every display: its fuse is cleared", ok: true);
+            FactsChanged();
+        }
     }
+
+    /// <summary>A fuse left by a DXGI start that never got its outputs up (not the one this start armed and is still waiting on).</summary>
+    private FuseState? BlownFuse =>
+        Services.PresentNode?.FuseNow is { } f && !(PresentBackend?.Machine().FuseArmed ?? false) ? f : null;
+
+    /// <summary>PRESENT PATH AUTO|DXGI|GL: the path the render host starts its outputs on from its next start, kept on the node. A no-op
+    /// is refused; DXGI is refused where it cannot run (not Windows), and asking it again with a blown fuse clears the fuse.</summary>
+    private CommandReply PresentPathVerb(List<string> args, SessionInfo session)
+    {
+        if (args.Count != 1 || PresentChoice.Normalise(args[0]) is var word && !args[0].Trim().Equals(word, StringComparison.OrdinalIgnoreCase))
+            return CommandReply.Fail("PRESENT PATH AUTO|DXGI|GL");
+        if (Services.PresentNode is not { } node)
+            return CommandReply.Fail("this node keeps no settings (it has no node home): PRESENT PATH has nowhere to keep the path");
+        if (word == "dxgi" && !OperatingSystem.IsWindows())
+            return CommandReply.Fail($"the DXGI path is Windows only (this node runs {RuntimeName()}): outputs present through OpenGL");
+        var saved = node.Saved;
+        var current = PresentChoice.Normalise(saved.Path);
+        var blown = BlownFuse;
+        if (current == word && !(word == "dxgi" && blown is not null))
+            return CommandReply.Fail($"PRESENT PATH is already {word.ToUpperInvariant()} (from the render host's next start)");
+        var cleared = false;
+        if (current != word)
+            node.Save(saved with { Path = word });
+        if (word == "dxgi" && blown is not null)
+        {
+            cleared = node.Fuse.Clear();
+            node.RefreshFuse();
+        }
+        var words = word switch
+        {
+            "dxgi" => "outputs present on the DXGI flip model from the render host's next start (experimental: a start that does not reach its first frames falls back to OpenGL)",
+            "gl" => "outputs present through OpenGL from the render host's next start",
+            _ => "outputs present through OpenGL from the render host's next start (AUTO is OpenGL on every platform this round)",
+        };
+        Journal.Add("present", $"present path {current} → {word}{(cleared ? " (fuse cleared)" : "")}", session.ClientName);
+        FactsChanged();
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("asked", word);
+            w.WriteString("was", current);
+            w.WriteString("applies", "next start");
+            w.WriteBoolean("experimental", word == "dxgi");
+            w.WriteBoolean("fuseCleared", cleared);
+            w.WriteString("words", words);
+            w.WriteEndObject();
+        }), words);
+    }
+
+    private static string RuntimeName() => OperatingSystem.IsLinux() ? "Linux" : OperatingSystem.IsMacOS() ? "macOS" : "this platform";
 
     // ---- verbs ------------------------------------------------------------------------------------------
 
@@ -83,17 +140,31 @@ public sealed partial class EngineCore
 
     private async Task<CommandReply> PresentResetAsync(List<string> args, SessionInfo session, CancellationToken ct)
     {
+        // A whole-node reset also lets a blown present fuse go: the next start tries the asked path again.
+        const string FuseWords = "the present fuse is cleared: the DXGI path is tried again at the render host's next start";
+        var fuseCleared = false;
+        if ((args.Count == 0 || args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase)) && BlownFuse is not null && Services.PresentNode is { } node)
+        {
+            fuseCleared = node.Fuse.Clear();
+            node.RefreshFuse();
+            Journal.Add("present", FuseWords, session.ClientName);
+            FactsChanged();
+        }
         if (PresentBackend is not { } backend)
-            return CommandReply.Fail("no render host on this node: nothing is presented");
+            return fuseCleared ? CommandReply.Success("[]", FuseWords) : CommandReply.Fail("no render host on this node: nothing is presented");
         var targets = OutputTargets(args, out var refused);
         if (targets is null)
             return refused!;
         var views = backend.Present().ToDictionary(v => v.OutputId, StringComparer.Ordinal);
         var ids = targets.Where(o => views.TryGetValue(o.Id, out var v) && v.Present.Presented > 0).Select(o => o.Id).ToList();
         if (ids.Count == 0)
+        {
+            if (fuseCleared)
+                return CommandReply.Success("[]", FuseWords);
             return CommandReply.Fail(targets.Count == 1
                 ? $"nothing to reset: {targets[0].Name} has presented nothing since its counters last started"
                 : "nothing to reset: no output has presented since its counters last started");
+        }
         var before = await backend.ResetAsync(ids, ct).ConfigureAwait(false);
         foreach (var v in before)
             Journal.Add("present", string.Create(CultureInfo.InvariantCulture,
@@ -114,7 +185,7 @@ public sealed partial class EngineCore
                 w.WriteEndObject();
             }
             w.WriteEndArray();
-        }), $"reset {before.Count} output{(before.Count == 1 ? "" : "s")}");
+        }), $"reset {before.Count} output{(before.Count == 1 ? "" : "s")}{(fuseCleared ? "; " + FuseWords : "")}");
     }
 
     /// <summary>NodeSettings.Present.FrameLock "off": this node's outputs free-run, measured, and never join a lock.</summary>
@@ -412,6 +483,22 @@ public sealed partial class EngineCore
         w.WriteNumber("presentMsP95", m.PresentMsP95);
         w.WriteString("dialect", m.Dialect);
         w.WriteString("context", m.Context);
+        WritePathAndFuse(w, m.FuseArmed);
+        w.WriteEndObject();
+    }
+
+    /// <summary>In <c>machine.present</c>: <c>asked</c> (the path the next start takes, as kept on the node) and <c>fuse</c>: clear, armed (this DXGI start waits
+    /// for its outputs' first settled frames) or blown (a DXGI start never got its outputs up: OpenGL until PRESENT RESET or PRESENT
+    /// PATH DXGI), with the attempts and when.</summary>
+    private void WritePathAndFuse(Utf8JsonWriter w, bool armed)
+    {
+        w.WriteString("asked", PresentChoice.Normalise(Services.PresentNode?.Saved.Path ?? Services.Settings.Present.Path));
+        w.WriteBoolean("kept", Services.PresentNode is not null);
+        var fuse = Services.PresentNode?.FuseNow;
+        w.WriteStartObject("fuse");
+        w.WriteString("state", armed ? "armed" : fuse is null ? "clear" : "blown");
+        w.WriteNumber("attempt", fuse?.Attempt ?? 0);
+        w.WriteNumber("at", fuse?.AtUnixMs ?? 0);
         w.WriteEndObject();
     }
 

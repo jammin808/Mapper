@@ -4,7 +4,7 @@ using PlayMap.Render.Timing;
 namespace PlayMap.Render.Platform;
 
 /// <summary>How an output's picture reaches its display: offscreen (no window: previews, health and scans only), a GL window
-/// (a shared context that draws the finished picture and swaps), or a DXGI flip-model swap chain (Windows, next round).</summary>
+/// (a shared context that draws the finished picture and swaps), or a DXGI flip-model swap chain (Windows, experimental this round).</summary>
 public enum PresentPath
 {
     Offscreen,
@@ -28,6 +28,10 @@ public enum PresentProblem
 /// just after the vertical blank it waited for), and the problem when it did not queue.</summary>
 public readonly record struct PresentResult(bool Queued, long ReturnedNs, PresentProblem Problem)
 {
+    /// <summary>The platform's own number for this present (DXGI's present count, which wraps through 0; unused where the platform numbers none), which its
+    /// display statistics name when the present is shown.</summary>
+    public uint PresentCount { get; init; }
+
     public static PresentResult Done(long returnedNs) => new(true, returnedNs, PresentProblem.None);
 }
 
