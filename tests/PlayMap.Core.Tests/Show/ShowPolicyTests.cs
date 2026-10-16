@@ -267,6 +267,41 @@ public sealed class ShowPolicyTests
         Assert.Equal(cls, ShowPolicy.ClassOf(VerbCatalog.Match(line)!.Value.Spec, line));
     }
 
+    /// <summary>A send is content wherever it is changed — by its own verbs or a generic edit of its id or kind, as LOCK AREA content
+    /// locks it — so stopping one is never refused through one verb and allowed through another. A live input's library edits are
+    /// content, its repairs a device's (an operator's, armed), the node's video settings set-up.</summary>
+    [Theory]
+    [InlineData("SEND ADD OMT Main output:op_1", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND ENABLE sd00000001 ON", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND ENABLE sd00000001 OFF", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND REMOVE sd00000001", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SET sd00000001 enabled false", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("REMOVE sd00000001", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("ADD send {\"name\":\"Main\",\"protocol\":\"omt\",\"tap\":\"output:op_1\"}", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT ADD \"omt:STUDIO (Cam 1)\"", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT FALLBACK md00000001 BLACK", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT BACKUP md00000001 \"omt:STUDIO (Cam 2)\"", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT SWITCH md00000001 BACKUP", ShowClass.DeviceSafe, ShowVerdict.Allow)]
+    [InlineData("INPUT RECONNECT md00000001", ShowClass.DeviceSafe, ShowVerdict.Allow)]
+    [InlineData("VIDEOIO SET OMT OFF", ShowClass.Setup, ShowVerdict.Refuse)]
+    public void EveryLineThatChangesASendOrALiveInputHasItsClassWhicheverVerbSaysIt(string text, ShowClass cls, ShowVerdict operatorArmed)
+    {
+        var line = Line(text);
+        Assert.Equal(cls, ShowPolicy.ClassOf(VerbCatalog.Match(line)!.Value.Spec, line));
+        Assert.Equal(operatorArmed, Decide(text, ShowRole.Operator, true).Verdict);
+    }
+
+    [Fact]
+    public void AnArmedOperatorStopsASendByAnyVerbAndARemoteByNone()
+    {
+        foreach (var text in new[] { "SEND ENABLE sd00000001 OFF", "SET sd00000001 enabled false", "SEND REMOVE sd00000001", "REMOVE sd00000001" })
+        {
+            Assert.Equal(ShowVerdict.Allow, Decide(text, ShowRole.Operator, true).Verdict);
+            Assert.Equal(ShowVerdict.Refuse, Decide(text, ShowRole.Remote, true).Verdict);
+            Assert.Equal(ShowVerdict.Propose, Decide(text, ShowRole.Assistant, true).Verdict);
+        }
+    }
+
     [Fact]
     public void AnAllowedLineAllocatesNothing()
     {
