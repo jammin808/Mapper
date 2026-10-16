@@ -1,10 +1,11 @@
 // A node's data is data, never instructions, and a key never carries what the deck keeps to itself: a STATE nested past what a node
 // writes is dropped (no stack runs out in Companion's process); a VERBS answer whose parameters are of the wrong type keeps the deck
 // working; a line a section key, a Live slot, raw or a generated action would send passes one fence — no session word, secret or
-// pairing verb at its head, and no secret or pairing carried inside it (a run of its words, a quoted word, a string of its JSON, a
-// field SET to a line), ever reaches the node, while any other word inside is the operator's own — and a refusal names only the
-// outer verb, never the operator's words (a token typed as a line stays out of every variable); a press answered after destroy
-// touches nothing of the host.
+// pairing verb at its head, and no secret or pairing carried inside it (a run of its words, a quoted word, a string literal as the
+// node's JSON reader reads it — comments skipped, escapes decoded, a key given twice read both times — a field SET to a line), ever
+// reaches the node, while any other word inside is the operator's own — and a refusal names only the outer verb, never the
+// operator's words (a token typed as a line stays out of every variable); a press answered after destroy touches nothing of the
+// host.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CompanionOptionValues } from '@companion-module/base'
@@ -14,6 +15,8 @@ import { fence } from '../src/actions.ts'
 import { BUNDLED_VERBS, EXCLUDED, SECRET, type VerbRow } from '../src/catalog/verbs.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
+/** The same token as the node reads it too, its dashes left out. */
+const BARE = 'K7QM3XWDP9RA'
 
 interface IndexJson {
 	sig: string
@@ -201,6 +204,26 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 			['raw', { line: `BIND ADD {"input":"MIDI 1", /* a note */ "target":"AUTH ${TOKEN}",}` }, 'BIND ADD'],
 			['raw', { line: `BIND ADD {"input":"MIDI 1","target":"AUTH ${TOKEN}` }, 'BIND ADD'],
 			['raw', { line: `DEVICE RAW dv0a1b2c3d "${credential}"` }, 'DEVICE RAW'],
+			// JSON read as the node's reader reads it: a key given twice (each is read), a comment holding one or an odd number of
+			// quote marks (skipped, never pairing the marks after it), an escape decoded, a value after a leading comment.
+			['raw', { line: `BIND ADD {"input":"MIDI 1","target":"${link}","target":"BLACKOUT ON"}` }, 'BIND ADD'],
+			[
+				'v_bind_add',
+				{ form: 1, f1_json: `{"input":"MIDI 2","target":"${credential}","target":"BLACKOUT ON"}` },
+				'BIND ADD',
+			],
+			[
+				'raw',
+				{ line: `ADD binding {"input":"MIDI 2","target":"${credential}","target":"PLAYLIST GO pl00000001"}` },
+				'ADD',
+			],
+			['raw', { line: `BIND ADD {"input":"MIDI 1", /* " */ "target":"${link}"}` }, 'BIND ADD'],
+			['raw', { line: `BIND ADD {/* the "cue" key" */ "input":"MIDI 1","target":"${link}"}` }, 'BIND ADD'],
+			['raw', { line: `BIND ADD {/* 12" */ "input":"osc /x","target":"AUTH ${BARE}"}` }, 'BIND ADD'],
+			['v_set', { id: 'bd0a1b2c3d', field_path: 'target', json: `"\\u004cINK PATTERNS 10.0.0.5 ${TOKEN}"` }, 'SET'],
+			['raw', { line: `SET bd0a1b2c3d target /*x*/"${link}"` }, 'SET'],
+			['raw', { line: `ADD binding /*x*/{"input":"MIDI 1","target":"${credential}"}` }, 'ADD'],
+			['raw', { line: `PLAYLIST ANCHOR pl00000001 /**/{"itemId":"${link}"}` }, 'PLAYLIST ANCHOR'],
 		]
 		for (const [actionId, options, verb] of refused) {
 			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string; error: string }
@@ -219,6 +242,10 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 			['raw', { line: 'SET sf00000009 label {"label": "Front wall"}' }],
 			// A session word inside a line carries no secret: the node's own reading refuses it as a target if it must.
 			['raw', { line: 'BIND ADD MIDI 3 TO STATUS' }],
+			// A comment, a quote mark in it, a key given twice and an escape carry nothing of a secret here.
+			['raw', { line: 'BIND ADD {/* the "cue" key" */ "input":"MIDI 4","target":"PLAYLIST GO pl00000001"}' }],
+			['raw', { line: 'SET sf00000009 label /*x*/"Front \\u0077all"' }],
+			['raw', { line: 'ADD item pl00000001 {"label":"Record","label":"Index"}' }],
 		]
 		for (const [actionId, options] of passed) {
 			const r = (await m.press(actionId, options, 'key-inside')) as { ok: boolean; stage: string }
@@ -226,7 +253,7 @@ void test('the fence sees inside a line the node reads as a line: quoted words, 
 		}
 		await m.instance.ask('WHOAMI')
 		const heard = node.sent().join('\n')
-		for (const word of [TOKEN, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns'])
+		for (const word of [TOKEN, BARE, 'hunter2', 'CREDENTIAL', 'LINK PATTERNS', 'link patterns', 'INK PATTERNS'])
 			assert.ok(!heard.includes(word), `the node never heard ${word}`)
 		assert.ok(heard.includes('BIND ADD MIDI 1 TO PLAYLIST GO pl00000001'))
 		assert.ok(heard.includes('BLACKOUT TOGGLE'))
@@ -263,6 +290,10 @@ void test('inside a line the fence refuses only a row that carries a secret or p
 		'BIND LEARN FROM MIDI "SUBSCRIBE" INDEX',
 		'SET bd0a1b2c3d target "CREDENTIAL LIST"',
 		'BIND ADD {"input":"MIDI 1","target":"VERBS"}',
+		'BIND ADD {/* the "cue" key" */ "input":"MIDI 1","target":"PLAYLIST GO pl1"}',
+		'ADD binding {"input":"MIDI 1","target":"RECORD ON","target":"PLAYLIST GO pl1"} // a "note',
+		'SET sf1 label /*x*/"\\u0052ecord"',
+		'PLAYLIST ANCHOR pl1 /**/{"itemId":"it1","state":"Playing"}',
 	])
 		assert.deepEqual(fence(rows, line), { ok: true }, line)
 
@@ -282,6 +313,22 @@ void test('inside a line the fence refuses only a row that carries a secret or p
 		['BIND ADD MIDI 1 TO PAIRING NEW', 'BIND ADD'],
 		['DEVICE RAW dv1 "LINK STAGEWATCH 10.0.0.6 key"', 'DEVICE RAW'],
 		['ADD binding {"input":"MIDI 1","target":"link patterns 10.0.0.5 x"}', 'ADD'],
+		// JSON as the node's reader reads it: every string, a key given twice, comments skipped whatever they hold, escapes decoded.
+		[`BIND ADD {"input":"MIDI 1","target":"${link}","target":"BLACKOUT ON"}`, 'BIND ADD'],
+		['BIND ADD {"input":"MIDI 2","target":"CREDENTIAL SET dv1 admin hunter2","target":"PLAYLIST GO pl1"}', 'BIND ADD'],
+		['ADD binding {"input":"MIDI 2","target":"CREDENTIAL SET dv1 admin hunter2","target":"PLAYLIST GO pl1"}', 'ADD'],
+		[`BIND ADD {"input":"MIDI 1", /* " */ "target":"${link}"}`, 'BIND ADD'],
+		[`BIND ADD {/* the "cue" key" */ "input":"MIDI 1","target":"${link}"}`, 'BIND ADD'],
+		[`BIND ADD {/* 12" */ "input":"osc /x","target":"AUTH ${BARE}"}`, 'BIND ADD'],
+		[`BIND ADD {"input":"MIDI 1", // a "note"\n"target":"AUTH ${BARE}"}`, 'BIND ADD'],
+		[`BIND ADD {"input":"MIDI 1","target":"\\u0041UTH ${BARE}"}`, 'BIND ADD'],
+		[`SET bd0a1b2c3d target "\\u004cINK PATTERNS 10.0.0.5 ${TOKEN}"`, 'SET'],
+		[`SET bd0a1b2c3d target /*x*/"${link}"`, 'SET'],
+		[`SET bd0a1b2c3d target /*x*/ "\\u004cINK\\u0020PATTERNS 10.0.0.5 ${TOKEN}"`, 'SET'],
+		['ADD binding /*x*/{"input":"MIDI 1","target":"CREDENTIAL SET dv1 admin hunter2"}', 'ADD'],
+		[`ADD binding // "\n{"input":"MIDI 1","target":"${link}"}`, 'ADD'],
+		[`PLAYLIST ANCHOR pl1 /**/{"itemId":"${link}"}`, 'PLAYLIST ANCHOR'],
+		[`FX IMPORT {"name":"x","note":"${link}"}`, 'FX IMPORT'],
 	] as const)
 		assert.deepEqual(
 			fence(rows, line),

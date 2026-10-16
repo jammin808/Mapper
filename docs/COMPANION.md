@@ -178,9 +178,12 @@ answer as the result; a line that is no question, or that the fence refuses, is 
 node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it
 must start with a verb of the node, never the session's words, a picture's, a secret's or pairing's, nor carry a secret's or pairing's
 (`AUTH`, `AUTH-PROOF`, `PAIRING NEW`, `CREDENTIAL SET`, `LINK PATTERNS`, `LINK STAGEWATCH`) where the node may read a line: for a row
-with a line or JSON parameter, and `SET`, every run of its words to the end, every word and every string of its JSON is read as a line
-too (`BIND ADD … TO AUTH …`, a binding's JSON `target`, `SET <binding> target "LINK …"`), while a word inside that names any other row
-is the operator's own (a label `"Record"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`); a refusal names only the outer verb,
+whose forms take a line or JSON (`SET`, `ADD`, `BIND ADD`, `BIND LEARN`, `BIND FORGET`, `PLAYLIST ANCHOR`, `DEVICE RAW`, `FX IMPORT`,
+`FX CHECK`, read from the bundled catalogue and from the node's own), every run of its words to the end, every word, and every string
+literal of the line as the node's JSON reader reads one — comments skipped whatever quote marks they hold, escapes decoded, a key given
+twice read both times, a string cut short read to the end — is read as a line too, and so on inside each (`BIND ADD … TO AUTH …`, a
+binding's JSON `target`, `SET <binding> target /*…*/"\u004cINK …"`), while a word inside that names any other row is the operator's
+own (a label `"Record"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`); a refusal names only the outer verb,
 never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
 value plus the steps sent and not yet confirmed, clamped to the range; a seek's target is its playlist's and item's, and since a
 playhead moves by itself it steers only until the first STATE written after it) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a

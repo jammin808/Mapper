@@ -6,7 +6,7 @@ import type {
 	JsonValue,
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
-import { EXCLUDED, SECRET, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
+import { BUNDLED_VERBS, EXCLUDED, SECRET, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
 import { splitLine } from './link/grammar.ts'
 import { lineOf, optionIdOf, optionsOf } from './catalog/write.ts'
 import type { Ctx } from './context.ts'
@@ -15,7 +15,7 @@ import { liveSlotOptions, slotOf } from './feedbacks.ts'
 import type { PressResult } from './guards.ts'
 import { RULES, fillHint } from './live.ts'
 import { P, at, num } from './state/paths.ts'
-import { parseNode } from './json.ts'
+import { parseNode, stringLiterals } from './json.ts'
 import { Lines } from './lines.ts'
 import { pressable } from './state/index-doc.ts'
 
@@ -171,68 +171,45 @@ export function rowOfLine(rows: readonly VerbRow[], line: string): VerbRow | und
 	return split.ok ? matchRow(rows, split.words)?.row : undefined
 }
 
-/** A row whose words may hold a line the node runs later, or JSON that does (a binding's target, a field SET to one): a row with a
- * line or JSON parameter in any of its forms, and SET. */
-const carriesLines = (row: VerbRow): boolean =>
-	row.name === 'SET' || row.formParams.some((f) => f.some((p) => p.kind === 'line' || p.kind === 'json'))
+/** Whether a placeholder of a form says `line` or `json` as a word of its own: `<target line>`, `<json>`, `<camera json>` (VIEW),
+ * `<path>|<json>` (FX IMPORT); `<input words>`, `<field.path>` and `<cursor,outlines,…>` do not. */
+const namesLineOrJson = (form: string): boolean =>
+	[...form.matchAll(/<([^<>]*)>/gu)].some((m) =>
+		(m[1] ?? '').split(/[^a-z]+/u).some((w) => w === 'line' || w === 'json'),
+	)
 
-/** Every string a JSON word holds, walked without recursion. JSON a strict reader refuses (the node's reader takes comments and
- * trailing commas; a text cut short) is read for every quoted run in it, closed or not, so no string in it goes unseen. */
-function stringsOf(json: string): string[] {
-	const out: string[] = []
-	let parsed: unknown
-	try {
-		parsed = JSON.parse(json)
-	} catch {
-		for (let i = json.indexOf('"'); i >= 0;) {
-			let j = i + 1
-			let body = ''
-			while (j < json.length && json.charAt(j) !== '"') {
-				body += json.charAt(j) === '\\' ? json.slice(j, j + 2) : json.charAt(j)
-				j += json.charAt(j) === '\\' ? 2 : 1
-			}
-			try {
-				out.push(JSON.parse(`"${body}"`) as string)
-			} catch {
-				out.push(body.replace(/\\([\s\S])/gu, '$1'))
-			}
-			i = j < json.length ? json.indexOf('"', j + 1) : -1
-		}
-		return out
-	}
-	const stack: unknown[] = [parsed]
-	while (stack.length > 0) {
-		const v = stack.pop()
-		if (typeof v === 'string') out.push(v)
-		else if (v !== null && typeof v === 'object') for (const child of Object.values(v) as unknown[]) stack.push(child)
-	}
-	return out
-}
+/** Whether a row's words may hold a line the node runs later, or JSON it reads from the rest of the line (a binding's target, a
+ * field SET to one, a raw device line): a line or JSON parameter in any of its forms, or a form or alternative that names one. */
+const namesCarried = (row: VerbRow): boolean =>
+	row.formParams.some((f) => f.some((p) => p.kind === 'line' || p.kind === 'json' || namesLineOrJson(p.alt ?? ''))) ||
+	[row.syntax, ...row.forms].some(namesLineOrJson)
 
-/** Whether a line the node may read inside these words starts with a row that carries a secret or pairs (by name or alias): every
- * suffix of the words, every word read as a line, every string of a JSON word read as a line — and each of those read so in turn.
- * Any other word is the operator's own (a label "Record", a field "index", a device's STATUS). */
-function carriesSecret(rows: readonly VerbRow[], words: readonly string[]): boolean {
+/** The rows of the catalogue this module was built with that carry a line or JSON, by name, all derived from its forms (SET, ADD,
+ * PLAYLIST ANCHOR, BIND ADD, BIND LEARN, BIND FORGET, DEVICE RAW, FX IMPORT, FX CHECK, and VIEW and PRESENCE, which a key never
+ * sends at all): a node's VERBS that writes one of them otherwise never narrows the fence. None is added by hand. */
+const CARRIERS: ReadonlySet<string> = new Set(BUNDLED_VERBS.filter(namesCarried).map((r) => r.name))
+
+const carriesLines = (row: VerbRow): boolean => CARRIERS.has(row.name) || namesCarried(row)
+
+/** Whether a line the node may read inside this text starts with a row that carries a secret or pairs (by name or alias): every
+ * suffix of its words as the node's grammar splits them, and every one of its words and string literals (read as the node's JSON
+ * reader reads them: comments skipped, escapes decoded, every key given twice) read as a line in turn, and so on inside each. Any
+ * other word is the operator's own (a label "Record", a field "index", a device's STATUS). */
+function carriesSecret(rows: readonly VerbRow[], text: string): boolean {
 	const kept = (ws: readonly string[], from: number): boolean => {
 		const m = matchRow(rows, ws, from)
 		return m !== undefined && SECRET.has(m.row.name)
 	}
-	const read = new Set<string>()
-	const lines: (readonly string[])[] = [words]
-	while (lines.length > 0) {
-		const ws = lines.pop() ?? []
-		for (let i = 0; i < ws.length; i++) {
-			if (kept(ws, i)) return true
-			const word = ws[i] ?? ''
-			if (read.has(word)) continue
-			read.add(word)
-			if (kept([word], 0)) return true
-			if (word.startsWith('{') || word.startsWith('['))
-				for (const text of stringsOf(word)) lines.push(splitLine(text).words)
-			else {
-				const inner = splitLine(word).words
-				if (inner.length !== 1 || inner[0] !== word) lines.push(inner)
-			}
+	const read = new Set<string>([text])
+	const texts: string[] = [text]
+	while (texts.length > 0) {
+		const t = texts.pop() ?? ''
+		const words = splitLine(t).words
+		for (let i = 0; i < words.length; i++) if (kept(words, i)) return true
+		for (const inner of [...words, ...stringLiterals(t)]) {
+			if (read.has(inner)) continue
+			read.add(inner)
+			texts.push(inner)
 		}
 	}
 	return false
@@ -251,7 +228,7 @@ export function fence(
 	if (!row) return { ok: false, verb: 'line', error: 'no verb of the node starts this line' }
 	if (EXCLUDED.has(row.name) || SECRET.has(row.name))
 		return { ok: false, verb: row.name, error: `${row.name} is the module's own, never sent from a key` }
-	if (carriesLines(row) && carriesSecret(rows, split.words))
+	if (carriesLines(row) && carriesSecret(rows, line))
 		return { ok: false, verb: row.name, error: `${row.name} would carry a line that is never sent from a key` }
 	return { ok: true }
 }
