@@ -114,7 +114,8 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 - the **rows** read in one order, whatever order the reports arrive in: the leader's own outputs in its project's order, then each
   member's by node id, in the order its `SUBSCRIBE ANCHORS` named them (its project's; one it did not name, by hash). The
   **reference** output is the first heard in that order — the leader's first output, else the first member's; entries unheard
-  for 5 s read "not heard";
+  for 5 s read "not heard". A lead starts the board again: the reports it heard go, and the names and order a member gave (its
+  latest subscription's, while it holds two) stay for as long as it is subscribed, whenever the lead lands beside its subscription;
 - the **phase** of each output against the reference, each one's vblank nearest a common leader instant along its own period,
   wrapped into (−P/2, P/2]; its **uncertainty** is both members' clock uncertainty, so a 210 µs uncertainty is never shown as
   a 12 µs phase;

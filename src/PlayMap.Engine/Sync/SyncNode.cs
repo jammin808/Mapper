@@ -70,7 +70,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private readonly Lock _dueGate = new();
     private readonly Lock _persistGate = new();
 
-    /// <summary>A leader's watch offers its own outputs to the board, and a lead resets the board, one at a time.</summary>
+    /// <summary>A leader's watch offering its own outputs, a lead's restart of the board and a member's naming, one at a time.</summary>
     private readonly Lock _boardGate = new();
     private readonly Queue<DueAir> _due = new();
     private readonly List<Task> _work = [];
@@ -309,16 +309,30 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         if (node.Length > 0 && !session.Paired && !(FindPeer(node) is { } peer && peer.Id == node && SameAddress(peer.Address, NormalText(session.RemoteAddress))))
             return PushOpen.Refuse($"SUBSCRIBE ANCHORS {node}: no PlayMap node {node} is heard from {session.RemoteAddress} — name no node to read the feed");
         var outputs = args.Skip(1).ToImmutableArray();
-        if (node.Length > 0)
-            Board.Name(node, outputs);
         var member = new AnchorMember(session.SessionId, node, session.ClientName, session.RemoteAddress, outputs);
         var sub = Feed.Subscribe(member, sink);
+        NameMember(node);
         return PushOpen.Open(new Ended(() =>
         {
             sub.Dispose();
-            if (node.Length > 0 && !Feed.Members.Any(m => m.Node == node))
-                Board.Unname(node);
+            NameMember(node);
         }));
+    }
+
+    /// <summary>The board's names for a member node are its subscription's (the latest of that node's, when it has two), none once it
+    /// has none. Read from the feed after the subscription changed, under the board's gate, so the last of a node's opens and ends
+    /// to take the gate leaves the names of the subscriptions the feed holds, whatever order they came in.</summary>
+    private void NameMember(string node)
+    {
+        if (node.Length == 0)
+            return;
+        lock (_boardGate)
+        {
+            if (Feed.Members.LastOrDefault(m => m.Node == node) is { } member)
+                Board.Name(node, member.Outputs);
+            else
+                Board.Unname(node);
+        }
     }
 
     private sealed class Ended(Action end) : IDisposable
@@ -798,17 +812,15 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         return [.. outputs.Select(v => v.OutputId).OrderBy(Index)];
     }
 
-    /// <summary>The board starts again (a lead): its entries and names go, the members it has are named again, and this node's own
-    /// outputs are offered afresh on the next watch. Under the gate a watch's pass offers under, so no output of this node's is ever
-    /// on the board without its name and place.</summary>
+    /// <summary>The board starts again (a lead): the reports it heard go, the names its nodes gave stay, and this node's own outputs
+    /// are offered afresh on the next watch. Under the gate a watch's pass offers under, so a pass is wholly before the restart or
+    /// wholly after it.</summary>
     private void ResetBoard()
     {
         lock (_boardGate)
         {
-            Board.Clear();
+            Board.Restart();
             _lastSent.Clear();
-            foreach (var m in Feed.Members)
-                Board.Name(m.Node, m.Outputs);
         }
     }
 

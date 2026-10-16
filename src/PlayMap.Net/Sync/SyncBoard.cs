@@ -95,7 +95,7 @@ public sealed class SyncBoard
 
     /// <summary>Gives a node's outputs their ids for the board's rows (an unnamed one reads "#" and its hash in hex) and their order,
     /// its project's: the node's rows read in this order, and the leader's first heard is the group's reference. A later call gives
-    /// the node's order afresh; an id given stays until the node is unnamed or the board cleared.</summary>
+    /// the node's order afresh; an id given stays until the node is unnamed (a restart keeps it).</summary>
     public void Name(string nodeId, params IReadOnlyList<string> outputIds)
     {
         ArgumentNullException.ThrowIfNull(nodeId);
@@ -164,15 +164,13 @@ public sealed class SyncBoard
         }
     }
 
-    /// <summary>Forgets every entry and name (a node that stops leading).</summary>
-    public void Clear()
+    /// <summary>Starts the board again (a lead): every report heard is forgotten. The names and orders the nodes gave stay, each
+    /// node's until it is unnamed (a member's subscription ended), so a member subscribed across a lead keeps its outputs' ids and
+    /// places whenever the lead lands.</summary>
+    public void Restart()
     {
         lock (_gate)
-        {
             _entries.Clear();
-            _names.Clear();
-            _order.Clear();
-        }
     }
 
     /// <summary>The picture at a leader instant (phases are compared there) and a local monotonic instant (what is heard).

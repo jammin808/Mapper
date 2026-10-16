@@ -206,6 +206,34 @@ public sealed class SyncBoardTests
         Assert.All(heard.Pairs, pair => Assert.Equal((x, "1a2b3c4d"), (pair.A, pair.ANode)));
     }
 
+    /// <summary>A restart (a lead) forgets every report heard; the names and order each node gave stay until that node is unnamed, so
+    /// a member subscribed across the lead reads by its ids in its order whenever the lead lands.</summary>
+    [Fact]
+    public void ARestartForgetsTheReportsAndKeepsEachNodesNamesAndOrderUntilItIsUnnamed()
+    {
+        var board = new SyncBoard();
+        board.Name("0badc0de", "op_1");
+        board.Name("9f8e7d6c", "op_b", "op_a");
+        (VblankReport Report, bool Local)[] reports =
+            [(Report(Member, "op_a", P60Ps, T), false), (Report(Leader, "op_1", P60Ps, T), true), (Report(Member, "op_b", P60Ps, T), false)];
+        foreach (var (r, local) in reports)
+            Assert.True(board.Offer(r, 0, local));
+        board.Restart();
+        Assert.Equal(SyncPicture.Empty, board.Picture(T, 0));
+
+        // Heard again from the first report of each (a lead starts the reports afresh): the ids and places given before the restart.
+        foreach (var (r, local) in reports)
+            Assert.True(board.Offer(r, 0, local));
+        Assert.Equal(["0badc0de/op_1", "9f8e7d6c/op_b", "9f8e7d6c/op_a"], board.Picture(T, 0).Outputs.Select(o => o.Node + "/" + o.Output));
+
+        // Unnamed (its subscription ended), the member's outputs read by hash, in hash order.
+        board.Unname("9f8e7d6c");
+        var hashed = new[] { "op_a", "op_b" }.Select(VblankReport.HashId).Order()
+            .Select(h => "9f8e7d6c/#" + h.ToString("x8", System.Globalization.CultureInfo.InvariantCulture));
+        string[] rows = ["0badc0de/op_1", .. hashed];
+        Assert.Equal(rows, board.Picture(T, 0).Outputs.Select(o => o.Node + "/" + o.Output));
+    }
+
     [Fact]
     public void AnOlderReportIsRefusedAnUnheardOneGreysAndARestartedMemberCountsAgain()
     {
