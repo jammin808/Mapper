@@ -17,7 +17,8 @@ public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, 
 /// <summary>SURVEY IMPORT and SURVEY LIST. The lane checks the line and the node and answers accepted at once; a worker reads,
 /// places, thins, decimates and writes (<see cref="SurveyImporter"/>); the lane then applies the result as one edit — the mesh asset,
 /// a surface over all of it, the survey with its provenance and, when the site was unset, the site the import picked — so one UNDO
-/// takes the whole import back. One import runs at a time; a stopping node starts none, and one running stops at its next step.
+/// takes the whole import back, on the live stage (a session holding a blind draft is refused: heavy work is never staged). One
+/// import runs at a time; a stopping node starts none, and one running stops at its next step.
 /// While it runs, STATE.stage.surveys shows it "importing n %"; a failure is shown "failed: …" until the next import.</summary>
 public sealed partial class EngineCore
 {
@@ -65,6 +66,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(Usage);
         if (Stopping)
             return CommandReply.Fail("the node is stopping — no survey import starts");
+        // Heavy work is never staged (blind edit's rule), and an import's model lands on the stage: from a session with a draft it
+        // would write the stage behind the draft's back.
+        if (OwnsDraft(call.Session) || DraftForTests?.Invoke(call.Session) is not null)
+            return CommandReply.Fail("a survey import is heavy work and is not staged in a blind draft: its model lands on the stage — BLIND COMMIT or BLIND DISCARD first");
         var path = args[0];
         string? crs = null;
         double unit = 1, voxel = SurveyDefaultVoxelM;
@@ -126,13 +131,22 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no file {path} on this machine");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the survey's mesh and cloud are written beside it");
-        var site = Edits.Project.Stage.Site;
+        var site = Store.Project.Stage.Site;
         if (crs is not null && site.IsSet && crs.StartsWith("EPSG:", StringComparison.Ordinal) && site.Crs.StartsWith("EPSG:", StringComparison.Ordinal)
             && !string.Equals(crs, site.Crs, StringComparison.Ordinal))
             return CommandReply.Fail($"the file is in {crs} but the site is in {site.Crs} — reproject it in your survey software, or import it in the site's system");
         if (name.Length == 0)
             name = Path.GetFileNameWithoutExtension(path);
-        var id = Edits.Project.NewId(Ids.Survey);
+        var id = Store.Project.NewId(Ids.Survey);
+        // A lock that holds the stage (LOCK AREA mapping, or the show armed) would refuse the import's edit at its end: it is refused
+        // before the file is read, with the lock's words.
+        var live = Store.Project;
+        var probe = live.WithStage(st => st with
+        {
+            Surveys = st.Surveys.Add(new SurveySource(id, name, format, path, "", "", 0, 0, null, "", 0, 0, SurveyState.Importing, 0, "")),
+        });
+        if (Store.Guard?.Invoke(live, probe) is { } locked)
+            return CommandReply.Fail(locked);
         SurveyJobView view;
         lock (_surveyGate)
         {
@@ -261,7 +275,8 @@ public sealed partial class EngineCore
             var meshId = "";
             var surfaceId = "";
             var surveyId = request.Id;
-            var r = EditsFor(session).Apply($"survey {request.Name}", p =>
+            // Live, as the line was decided when it was accepted (it is refused from a session with a blind draft).
+            var r = Store.Apply($"survey {request.Name}", p =>
             {
                 var site = p.Stage.Site;
                 if (request.SiteAtStart.IsSet ? site != request.SiteAtStart : site.IsSet)

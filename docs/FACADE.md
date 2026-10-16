@@ -40,7 +40,9 @@ apply), each slice timed into the import's view. The result lands as one edit, s
   else LOCAL. A file in another EPSG system than the site's, or whose points are more than 2 km from the site's origin, is
   refused: reprojection is not done here. LAS points flagged withheld are left out.
 
-A stopping node starts no import, and one running stops at its next step, unapplied. An import that fails for any reason is shown
+A stopping node starts no import, and one running stops at its next step, unapplied. The import's model lands on the live stage: a
+lock that holds the stage refuses it before the file is read, and so does a session that holds a blind draft (heavy work is never
+staged). An import that fails for any reason is shown
 failed with its words, and the files it wrote are removed; file names are never reused.
 
 ## Control points
@@ -73,6 +75,19 @@ axis and across it (m), and the zoom (%); STATE carries the calibration score's 
 zoom held).
 
 The recommended path at a facade: the lens prior from the datasheet → 8–15 pins on control points → solve, wall px read first.
+
+A re-solve is a solve: `CALIBRATION RESOLVE` from pins runs this same solve (priors, the lens lock asked again, the bound-pin check)
+and keeps the locks it answers with the result; from a camera, the optics are held and a position prior joins the dots as rows,
+weighed against their 0.3 px noise (docs/CALIBRATION.md).
+
+## Show Mode, blind edit and the group
+
+The site's queries (`SITE`, `SITE CHECK`, `SURVEY LIST`) run for everyone. Its edits (`SITE ORIGIN`, `SITE MAINS`, `SITE POINTS`,
+`PROJECTOR PRIOR`, a generic edit of a control point or a survey) are mapping: refused while armed for a person, proposed by an
+assistant, and held by `LOCK AREA mapping` and by a lock on the point or survey itself. From the session that holds the blind draft
+they run into the draft and say "staged" until `BLIND COMMIT` lands them. `SURVEY IMPORT` is heavy work: refused while armed, and
+never staged. A sync group shares none of them: each node keeps its own site. A survey is no media: the show's media, preflight's
+media rows and the optimiser never see its files.
 
 ## Scans bridge into the stage as placed
 

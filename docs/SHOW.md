@@ -28,7 +28,7 @@ approval of an assistant's line is **approved**; fleet and sync peers are **peer
 lines) is the **system**; an unpaired client only observes.
 
 **Classes** come from the catalogue (`VerbSpec.Show`); a generic edit (`SET`, `ADD`, `REMOVE`, `MOVE`, `NUDGE`) is classed by the
-id it names (`op` layout; `sf pj ms cm sc mk pn vp` mapping; `cv ly gn fx sd` content; `pl it` playlists; `md` media; `dv` device;
+id it names (`op` layout; `sf pj ms cm sc mk pn vp cp sv` mapping; `cv ly gn fx sd` content; `pl it` playlists; `md` media; `dv` device;
 an unknown prefix counts as mapping, the cautious side).
 
 **The armed table** (A runs, R refused with words, P waits for a person):

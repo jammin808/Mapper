@@ -80,7 +80,7 @@ public sealed partial class EngineCore
         int added = 0, updated = 0;
         var setSite = false;
         var siteCrs = "";
-        var r = await EditAsync(call.Session, $"control points from {Path.GetFileName(path)}", p =>
+        var (r, staged) = await EditStagedAsync(call.Session, $"control points from {Path.GetFileName(path)}", p =>
         {
             ids.Clear();
             added = 0;
@@ -127,6 +127,7 @@ public sealed partial class EngineCore
         var words = string.Create(SiteInv, $"{added} control point{(added == 1 ? "" : "s")} added, {updated} moved, from {Path.GetFileName(path)} ({read.Order.ToString().ToUpperInvariant()} from the {read.OrderFrom})")
             + (read.Skipped.Count > 0 ? string.Create(SiteInv, $"; {read.Skipped.Count} line{(read.Skipped.Count == 1 ? "" : "s")} skipped") : "")
             + (setSite ? $"; the site is {siteCrs} at the points' centre" : "");
+        words = Staged(staged, words);
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
@@ -147,10 +148,20 @@ public sealed partial class EngineCore
             w.WriteEndArray();
             w.WriteString("order", read.Order.ToString().ToUpperInvariant());
             w.WriteString("orderFrom", read.OrderFrom);
+            w.WriteBoolean("staged", staged);
             w.WriteString("words", words);
             w.WriteEndObject();
         }), words);
     }
+
+    /// <summary>An off-lane line's document edit applied as <see cref="EditAsync"/> applies it (where its gate decided), and whether
+    /// that was the session's blind draft.</summary>
+    private Task<(EditResult Result, bool Staged)> EditStagedAsync(SessionInfo session, string label, Func<Project, Project> edit) =>
+        _lane.RunAsync(() =>
+        {
+            var store = EditsFor(session);
+            return (store.Apply(label, edit), !ReferenceEquals(store, Store));
+        });
 
     /// <summary>The model SITE CHECK measures: a surface, a survey's surfaces (or its thinned cloud when it has no mesh), or every
     /// visible surface on a mesh; its nearest-point function and its name; null with the reason.</summary>

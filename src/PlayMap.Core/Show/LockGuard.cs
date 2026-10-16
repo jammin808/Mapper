@@ -219,6 +219,8 @@ public static class ShowEntities
         Ids.Generator => p.FindGenerator(id),
         Ids.Canvas => p.FindCanvas(id),
         Ids.Device => p.FindDevice(id),
+        Ids.ControlPoint => p.Stage.Controls.Find(id),
+        Ids.Survey => p.Stage.Surveys.Find(id),
         _ => null,
     };
 
@@ -229,7 +231,7 @@ public static class ShowEntities
             p.FindOutput(id), p.FindSurface(id), p.FindProjector(id), p.FindMesh(id), p.FindMedia(id), p.FindPlaylist(id), p.FindGenerator(id),
             p.FindCanvas(id), p.FindDevice(id), p.FindSend(id), p.Stage.Cameras.Find(id), p.Stage.Viewpoints.Find(id), p.Stage.Scans.Find(id),
             p.FindBinding(id), p.FindControlSurface(id), p.FindTimecodeSource(id), p.FindGeneratorPreset(id), p.FindStack(id), p.FindAlign(id),
-            p.FindCalibration(id),
+            p.FindCalibration(id), p.Stage.Controls.Find(id), p.Stage.Surveys.Find(id),
         ];
         var hit = Array.Find(lists, x => x is not null);
         if (hit is not null)
@@ -261,6 +263,8 @@ public static class ShowEntities
         Canvas c => (c.Name, "canvas"),
         Layer l => (l.Name, "layer"),
         DeviceLink d => (d.Name, "device"),
+        ControlPoint c => (c.Name, "control point"),
+        SurveySource v => (v.Name, "survey"),
         IEntity e => (e.Id, "entity"),
         _ => ("?", "entity"),
     };

@@ -83,7 +83,8 @@ public sealed partial class EngineCore
         if (!r.Changed)
             return FromEdit(r);
         var words = PriorWords(Edits.Project, after);
-        var said = words.Length > 0 ? $"{pj.Name}: {words}" : $"{pj.Name}: no priors";
+        var staged = EditingBlind;
+        var said = Staged(staged, words.Length > 0 ? $"{pj.Name}: {words}" : $"{pj.Name}: no priors");
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
@@ -105,6 +106,7 @@ public sealed partial class EngineCore
             w.WriteString("controlId", after.ControlId);
             w.WriteNumber("positionSigmaM", after.Position is null ? 0 : after.PositionSigmaM);
             w.WriteEndObject();
+            w.WriteBoolean("staged", staged);
             w.WriteString("words", said);
             w.WriteEndObject();
         }), said);

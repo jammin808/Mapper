@@ -48,6 +48,9 @@ public sealed partial class EngineCore
         return null;
     }
 
+    /// <summary>A site edit's words as its reply says them: from a blind draft, staged — the stage takes it when the draft lands.</summary>
+    private static string Staged(bool staged, string words) => staged ? $"staged in the blind draft: {words} — on the stage {WhenLanded}" : words;
+
     private static bool TryNumber(string word, out double value) =>
         double.TryParse(word, NumberStyles.Float, SiteInv, out value) && double.IsFinite(value);
 
@@ -93,12 +96,14 @@ public sealed partial class EngineCore
         var r = Edits.Apply("site origin", p => p.WithStage(st => Core.Site.ControlBinding.Rebind(move.Apply(st) with { Site = after })));
         if (!r.Changed)
             return FromEdit(r);
+        var staged = EditingBlind;
         var moved = move.IsNone ? Vec3d.Zero : move.T;
         var scans = Edits.Project.Stage.Scans.Length;
         var words = before.IsSet
             ? string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage moved by {moved.X:0.###} {moved.Y:0.###} {moved.Z:0.###} m so every grid position is kept")
               + (scans > 0 && !move.IsNone ? string.Create(SiteInv, $"; the {scans} scan{(scans == 1 ? "" : "s")} taken before keep{(scans == 1 ? "s" : "")} the old frame's points — scan again before using them") : "")
             : string.Create(SiteInv, $"site origin {e:0.###} {n:0.###} {h:0.###} {crs}; the stage's coordinates are now relative to it (nothing moved)");
+        words = Staged(staged, words);
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
@@ -114,6 +119,7 @@ public sealed partial class EngineCore
             w.WriteNumberValue(Math.Round(moved.Y, 6));
             w.WriteNumberValue(Math.Round(moved.Z, 6));
             w.WriteEndArray();
+            w.WriteBoolean("staged", staged);
             w.WriteString("words", words);
             w.WriteEndObject();
         }), words);
@@ -127,13 +133,15 @@ public sealed partial class EngineCore
         if (site.MainsHz == hz)
             return CommandReply.Fail($"the mains are {hz} Hz already — this would change nothing");
         var r = Edits.Apply($"site mains {hz} Hz", p => p.WithStage(st => st with { Site = st.Site with { MainsHz = hz } }));
+        var staged = EditingBlind;
         return r.Changed
             ? CommandReply.Success(JsonOut(w =>
             {
                 w.WriteStartObject();
                 w.WriteNumber("mainsHz", hz);
+                w.WriteBoolean("staged", staged);
                 w.WriteEndObject();
-            }), $"mains {hz} Hz")
+            }), Staged(staged, $"mains {hz} Hz"))
             : FromEdit(r);
     }
 }
