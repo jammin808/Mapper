@@ -26,6 +26,7 @@ public sealed class CatalogueTests
         "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
         "SITE GUIDE", "PLAN LIGHT", "STACK NEW", "STACK MATCH", "STACK FAILOVER", "STACK LIST", // wp2-facade: the guide, the light plan and stacks are wp2-stacks'
         "DECODE PROBE", // wp2-zerocopy: the direct-sampling proof harness is next round
+        "FLEET SUCCESSION", // wp2-backup: automatic takeover and succession are next round (FLEET PROMOTE is the press)
     ];
 
     /// <summary>Rows a package added inside its own block for what it ships (PLAN §2.2), beyond SPINE §4.3's.</summary>

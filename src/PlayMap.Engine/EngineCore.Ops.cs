@@ -27,9 +27,13 @@ public sealed partial class EngineCore
     /// ask the assistant, never touch a secret.</summary>
     private static bool IsAssistantTransport(SessionInfo session) => session.Transport is "assistant" or "mcp" or "approval";
 
-    /// <summary>Where the scan and mesh files go: beside the saved project, else the node's project folder.</summary>
+    /// <summary>Where the scan and mesh files go: beside the saved project, else the node's project folder, else the folder a hot
+    /// backup keeps its primary's show files in.</summary>
     internal string? ProjectFolderForFiles =>
-        _projectPath is { } path ? Path.GetDirectoryName(path) : Services.ProjectFolder;
+        _projectPath is { } path ? Path.GetDirectoryName(path) : Services.ProjectFolder ?? _filesFolder;
+
+    /// <summary>The folder a hot backup with no project folder of its own keeps the files its primary's show names beside it.</summary>
+    private volatile string? _filesFolder;
 
     /// <summary>True with the answer under way when the line is an operations verb; false sends it to the router.</summary>
     private bool TryOps(WireLine line, SessionInfo session, CancellationToken ct, out Task<CommandReply> reply)

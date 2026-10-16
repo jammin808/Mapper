@@ -78,8 +78,10 @@ A send (`VideoSend`, id `sd…`) taps one point of the pipeline — `output:<id>
   its size — a BGRA frame is RGB, which the runtime converts by its own rule, so it carries no tag), and an idle sender releases what
   it holds after 200 ms. Receivers
   and tally are refreshed every 250 ms. The node's sends are held to a **bandwidth guard** at `SEND ADD`, `SEND ENABLE ON` and any edit of a send.
-- **Stopping.** A send that stops (disabled, removed, its tap gone, the node stopping) sends one black frame of its last shape
-  before its sender closes, as a stopped output and the LED rig go dark: most receivers keep a lost source's last frame. A send
+- **Stopping.** A send that stops (disabled, removed, its tap gone, the node stopping, the node fenced) sends one black frame of its last shape
+  before its sender closes, as a stopped output and the LED rig go dark: most receivers keep a lost source's last frame. A hot
+  backup makes no sender for its sends (`standby`) until FAILOVER, nor does a primary that has started with hot backups until it
+  has heard them: only the node with the show is on the network under the show's send names (docs/FLEET.md). A send
   made again under its own name (a new size or format) hands over with no black between. Once the node has begun to stop no
   receiver or sender starts, and the render thread drawing on while the hub closes under it offers its frames to senders that let
   them go: nothing throws and no fault is journalled.

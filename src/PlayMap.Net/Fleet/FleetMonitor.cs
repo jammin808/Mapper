@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -32,7 +33,8 @@ public sealed record FleetMonitorOptions
 /// appears when its first record arrives; its liveness is the silence since its last record on the injected clock — stale at 3 s,
 /// gone at 6 s — and a gone machine stays, red, until it is heard again or the node restarts. A subscription that ends is dialled
 /// again after 0.5 s, doubling to 8 s while nothing is heard (on the same clock). <see cref="Changed"/> is raised when what a board
-/// shows moved — a light, a headline, a name, a liveness — never for a record that says the same.</summary>
+/// shows moved — a light, a headline, a name, a liveness — or the peer's place in a hot-backup pair or a sync group (its epoch, its
+/// mirror's state, its group), never for a record that says the same.</summary>
 public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
 {
     private readonly FleetMonitorOptions _o;
@@ -274,13 +276,16 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
             Changed?.Invoke();
     }
 
-    /// <summary>What a board shows of a record: lights, names, headline, role, build, revision, links between machines.</summary>
-    private static string Projection(HealthRecord r)
+    /// <summary>What a node is told on when a peer's record moves: what a board shows of it (lights, names, headline, role, build,
+    /// revision, links between machines) and the peer's place in a hot-backup pair and a sync group (its epoch, its mirror's state, its
+    /// group), which STATE's backups, the fence and the follow of a group's new leader read.</summary>
+    internal static string Projection(HealthRecord r)
     {
         var f = r.Facts;
         var sb = new StringBuilder();
         sb.Append(f.Name).Append('|').Append(ShowContext.LightWord(r.Light)).Append('|').Append(r.Headline).Append('|').Append(f.Role).Append('|')
-            .Append(f.Of).Append('|').Append(f.Build).Append('|').Append(f.Rev).Append('|').Append(f.SyncRole).Append('|').Append(f.SyncLeader);
+            .Append(f.Of).Append('|').Append(f.Build).Append('|').Append(f.Rev).Append('|').Append(f.SyncRole).Append('|').Append(f.SyncLeader)
+            .Append('|').Append(f.Epoch.ToString(CultureInfo.InvariantCulture)).Append('|').Append(f.Mirror).Append('|').Append(f.SyncGroup);
         foreach (var o in f.Outputs)
             sb.Append('|').Append(o.Id).Append(':').Append(o.Name).Append(':').Append(ShowContext.LightWord(r.LightOf(o)));
         foreach (var p in f.Projectors)

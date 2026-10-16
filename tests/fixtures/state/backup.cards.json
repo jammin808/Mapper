@@ -1,0 +1,123 @@
+[
+  {
+    "title": "Hot backup",
+    "path": "fleet.mirror",
+    "light": [
+      {
+        "from": "state",
+        "green": "identical",
+        "red": "lost"
+      }
+    ],
+    "words": "{words}",
+    "fields": [
+      {
+        "label": "Of",
+        "path": "name"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Revision",
+        "path": "rev"
+      },
+      {
+        "label": "Behind",
+        "path": "behindRev"
+      }
+    ],
+    "actions": [
+      "FAILOVER",
+      "FLEET SOLO",
+      "PREFLIGHT QUICK"
+    ]
+  },
+  {
+    "title": "Backups",
+    "path": "fleet.backups",
+    "light": [
+      {
+        "from": "0.light"
+      }
+    ],
+    "words": "{count} hot backups",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "0.name"
+      },
+      {
+        "label": "State",
+        "path": "0.state"
+      },
+      {
+        "label": "Words",
+        "path": "0.words"
+      }
+    ],
+    "actions": [
+      "FLEET FOCUS $(node)",
+      "FLEET ROUTE TEST"
+    ]
+  },
+  {
+    "title": "Last takeover",
+    "path": "fleet.last",
+    "light": [
+      {
+        "fixed": "green"
+      }
+    ],
+    "words": "{words}",
+    "fields": [
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "Id",
+        "path": "id"
+      },
+      {
+        "label": "At",
+        "path": "at"
+      }
+    ],
+    "actions": [
+      "FAILBACK CONFIRM"
+    ]
+  },
+  {
+    "title": "Routes",
+    "path": "fleet.routes",
+    "light": [
+      {
+        "fixed": "grey"
+      }
+    ],
+    "words": "{count} routes",
+    "fields": [
+      {
+        "label": "Output",
+        "path": "0.output"
+      },
+      {
+        "label": "Device",
+        "path": "0.device"
+      },
+      {
+        "label": "Primary input",
+        "path": "0.input"
+      },
+      {
+        "label": "Backup input",
+        "path": "0.backupInput"
+      }
+    ],
+    "actions": [
+      "FLEET ROUTE TEST"
+    ]
+  }
+]

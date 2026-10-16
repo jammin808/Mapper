@@ -102,6 +102,14 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   instant so fades start on the same frames; `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` take the same path. Each member
   answers each line with `SYNC RECEIPT`, and the leader journals the receipts. Members report each output's vblank to the
   leader (PMVB on UDP 9942), whose board measures phase, slip and rate against a reference (docs/SYNC.md).
+- A hot backup follows its primary's group as a member and takes every other playlist's anchor and the air lines the group
+  does not carry through the primary's mirror, each at the primary's leader instant, so it draws the same frame for the same
+  instant (docs/FLEET.md). `FAILOVER` commits the next **epoch** (one past every epoch heard), keeps it before the node serves,
+  and freezes the clock's mapping into the node's own time line (`NetworkClock.Promote`): show time continues with no step and
+  the node leads the group. A primary that hears its backup serve its show under a higher epoch **fences** itself: its outputs
+  held black, its clients' edits refused, its clock following the new primary. Only the node that has the show sends
+  LED data, video sends and its sound beside its outputs; a primary that starts with backups sends none of them until it has heard
+  them, so an old primary that comes back after a takeover fences itself having sent nothing.
 - The render loop predicts its next vblank, maps it to leader time plus the node's air latency (the largest input lag of its
   enabled outputs, raised to a sync group's; a host-wide display-latency setting when no output names one) and asks
   `FrameSelector` which frame to show; a faster output presents the picture drawn whole frames earlier from its delay ring, so

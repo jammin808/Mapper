@@ -168,6 +168,15 @@ public sealed partial class EngineCore
             run.Memory = ChaseMemory.Start;
             return DisengagedView(list, sources, run, reading.Text, autoJump);
         }
+        if (FleetRole.Role == Core.Fleet.FleetRoles.Backup)
+        {
+            // A hot backup's transports are its primary's: the primary's chase moves the anchors the mirror brings here, so this
+            // node's own chase reads its code and moves nothing (it starts afresh when FAILOVER makes the show this node's).
+            Playback.Guard(list, null, leaderNs);
+            run.Memory = ChaseMemory.Start;
+            return new ChaseView(list.Id, sources, run.Active, true, ChaseState.Disengaged, reading.Text, Playback.Lane(list.Id)?.ItemId, 0, 0,
+                $"the primary chases — {list.Name} takes its transports from the mirror until FAILOVER", run.LastJump, autoJump);
+        }
         var regions = RegionsOf(list, format, run);
         var line = reading.Line is { } l ? l with { AtNs = Services.Clock.ToLeader(l.AtNs) } : (TcLine?)null;
         var before = run.Memory.State;

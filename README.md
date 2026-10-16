@@ -95,15 +95,17 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   web port, the show's index, its events and key pictures; the node announces itself over mDNS.
 - **Listens.** One sound input analysed into levels, bands, a spectrum and onsets; a beat clock by tap, by number or by
   detection.
-- **Watches the fleet.** Each machine's health with lights by evidence, and a board of every PlayMap machine in the shape of
-  Patterns' Eye.
+- **Watches the fleet, and stands by.** Each machine's health with lights by evidence, and a board of every PlayMap machine in
+  the shape of Patterns' Eye. A hot backup mirrors its primary's show, files, clock and air and draws its frame to the byte;
+  `FAILOVER` takes the air over by epoch with no step in show time and switches the projectors' inputs, and the old primary hears
+  the epoch and fences itself; only the node with the show drives the LED rig, the network sends and the sound.
 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it.
 
 **In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); the
-Companion module; projector stacks and the facade guide; a hot backup that takes over the air; and the desk's controls for
-show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
+Companion module; projector stacks and the facade guide; and the desk's controls for show safety, locks, blind edit, the
+sync board, effects and the rest, which today run over the wire.
 
 ## What it is made of
 

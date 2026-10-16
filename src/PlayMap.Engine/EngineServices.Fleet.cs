@@ -15,6 +15,9 @@ public sealed partial record EngineServices
 
     public HealthHub? HealthHub { get; init; }
 
+    /// <summary>The hot backup: the mirror feed, the backup's link, the takeover and the fence (wp2-backup).</summary>
+    public BackupNode? Backup { get; init; }
+
     /// <summary>HEALTH's once-a-second push and the board's liveness run on this clock (a test injects its own).</summary>
     public TimeProvider FleetTime { get; init; } = TimeProvider.System;
 }

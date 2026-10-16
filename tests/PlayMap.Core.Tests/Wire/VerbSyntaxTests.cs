@@ -27,7 +27,8 @@ public sealed class VerbSyntaxTests
             "SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]", "SCAN SURFACE <scan> REGION <id> [ON <projector>] [<name>]",
         ], Forms("SCAN SURFACE"));
         Assert.Equal(["LINK PATTERNS <host[:port]>|OFF [<token>]", "LINK PATTERNS FOLLOW-BLACKOUT ON|OFF"], Forms("LINK PATTERNS"));
-        Assert.Equal(["FLEET SUCCESSION <node> [<node>…]", "FLEET SUCCESSION OFF"], Forms("FLEET SUCCESSION"));
+        Assert.Equal(["FLEET ROUTE <output> DEVICE <device> <input> <backup input>", "FLEET ROUTE <output> NONE", "FLEET ROUTE TEST"], Forms("FLEET ROUTE"));
+        Assert.Equal(["MIRROR HELLO|PROJECT|AIR|HANDBACK <json>", "MIRROR ANCHOR <playlist> <json>"], Forms("MIRROR"));
         Assert.Equal(6, Forms("SHOW SET").Count);
         Assert.Equal("SHOW SET COMMIT-LEAD <ms>", Forms("SHOW SET")[4]);
         // A pipe inside <…> or […] is a choice, not a form.
@@ -54,7 +55,7 @@ public sealed class VerbSyntaxTests
     [InlineData("UNLOCK AREA mapping")]
     [InlineData("SHOW SET REMOTE-VIEW-ONLY ON")]
     [InlineData("SHOW SET MINGO 300 ARMED")]
-    [InlineData("FLEET SUCCESSION OFF")]
+    [InlineData("FLEET ROUTE op_1 NONE")]
     [InlineData("EYE FOCUS op_1")]
     [InlineData("FX BIND sf1 opacity audio:bass")]
     [InlineData("TC CHASE pl1 tc1")]

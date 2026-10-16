@@ -50,9 +50,11 @@ internal sealed class AudioExtension(ExtensionSetup setup) : IEngineExtension
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Keeps the machine's audio choices for the next start through the network host, the settings file's one writer; a
+    /// write that fails throws, as the file's own write did.</summary>
     private void SaveNode(PlayMap.Core.Bus.AudioNodeSettings audio)
     {
-        var current = setup.Home.LoadSettings(setup.Settings.Name);
-        setup.Home.SaveSettings(current with { Audio = audio });
+        if (setup.Network.PersistSettings(s => s with { Audio = audio }) is { Length: > 0 } failed)
+            throw new IOException(failed);
     }
 }

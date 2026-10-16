@@ -76,6 +76,14 @@ public sealed class MeasuredLibrary
         }
     }
 
+    /// <summary>Reads what the project names again though it names the same files (a file has landed or changed since); any thread.</summary>
+    public void Reload(Project project, string? folder)
+    {
+        lock (_gate)
+            _wanted = "";
+        Refresh(project, folder);
+    }
+
     private static string KeyOf(MeasuredCorrection m) => string.Create(CultureInfo.InvariantCulture,
         $"{m.Warp?.File}|{m.Warp?.Hash}|{m.Blend?.File}|{m.Blend?.Hash}|{m.Color?.GainR}|{m.Color?.GainG}|{m.Color?.GainB}|{m.Color?.Level}|{m.Color?.Gamma}");
 

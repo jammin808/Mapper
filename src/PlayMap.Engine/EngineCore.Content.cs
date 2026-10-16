@@ -438,6 +438,13 @@ public sealed partial class EngineCore
 
     private CommandReply MediaFetch(List<string> args, CancellationToken ct)
     {
+        // A live input, a page or an embed is received or rendered, never a file to copy (its location is not said: it may carry a
+        // password).
+        if (args.Count > 0 && Store.Project.FindMedia(args[0]) is { IsFile: false } live)
+            return CommandReply.Fail($"{live.Name} is {(live.Kind == MediaKind.Stream ? "a live input: it is received from the network" : "no file: it is rendered from its address")}, never fetched");
+        // With the fleet part, pulls go with the peer's proof over its pinned HTTPS; VERSION fetches one optimised version (wp2-backup).
+        if (FleetFetch(args) is { } fleet)
+            return fleet;
         if (args.Count < 1)
             return CommandReply.Fail("MEDIA FETCH <media>|ALL [FROM <node>]");
         string? from = null;

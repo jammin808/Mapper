@@ -20,7 +20,7 @@ public sealed class SyncExtension(ExtensionSetup setup, SyncNodeOptions? options
     public EngineServices Configure(EngineServices services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        var node = new SyncNode(setup.Network, setup.Home, setup.Wall, setup.Settings.Sync, setup.Logs.CreateLogger("PlayMap.Engine.Sync"), options);
+        var node = new SyncNode(setup.Network, setup.Wall, setup.Settings.Sync, setup.Logs.CreateLogger("PlayMap.Engine.Sync"), options);
         _node = node;
         return services with
         {

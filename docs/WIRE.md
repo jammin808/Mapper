@@ -54,6 +54,7 @@ The router journals who did what and the transports fence by it. The transport i
 | `assistant` | a line the node's own assistant ran (`ASK`) |
 | `approval` | a line a person approved, on this node (`APPROVE`) or on a Stagewatch approval desk (§11), run through the node's own checks |
 | `patterns`, `stagewatch` | the links this node dials itself: the Patterns desk's blackout fact, a Stagewatch operator's screen command |
+| `fleet` | a line a hot backup takes from its primary's mirror link (`MIRROR …` only; the primary's own gate decided it, docs/wire/backup.md) |
 | `sync` | a line a sync group's member runs from its leader's anchor feed: the leader's anchors (`PLAYLIST ANCHOR`) and air lines (`PANIC`, `PANIC CLEAR`, `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM`, `PREFLIGHT`; any other is refused), a peer to the show's gate |
 | `system` | the node's own work: a panic's shutter and effects lines, a scan's record |
 
@@ -245,7 +246,8 @@ between nodes), `GET /api/media` (manifest), `GET /api/thumb?ref=<media:…|gene
 (a key's picture, with an ETag), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s, `{"cmd":"…","id":"…"}`
 commands with receipts, `{"cmd":"ping","t":…}` → pong, and `{"type":"push","topic":…,"line":…}` frames for a package's
 topic; with the subprotocol `playmap.lines.v1` it is the line wire instead, docs/wire/companion.md), `GET /tls`,
-`GET /tls.cer`, `/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in
+`GET /tls.cer`, `/mcp` (Model Context Protocol), `/mirror` (a hot backup's pulls of its primary's show and files, let in by the
+pairing proof in place of the token, docs/wire/backup.md). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in
 a URL. Outside `/api`, two reads need no token: `GET /health` (this machine's health record; as a WebSocket, every record as
 it is published) and `GET /fleet` (the fleet board), docs/wire/fleet.md.
 
@@ -300,12 +302,13 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   waits for a person.
 - **The door.** A verb that changes something, or a paired-only query (`PRESENCE`, `THUMB`, the board's focus and lens),
   needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and the
-  node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode and the GO fence, docs/SHOW.md),
-  then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
+  node's own: `ERR <VERB>: this line is node-to-node only`. Then the fleet's door (a hot backup or a fenced node refuses a
+  client's line that would change the show it mirrors, with the way out — docs/wire/backup.md), then the show's gate (Show Mode
+  and the GO fence, docs/SHOW.md), then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
   gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
   the wall's cursor board as it arrives, stamped then, never queued behind edits.
 - **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
-  fleet; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,
+  fleet; MIRROR <node> — backup, a primary's show to its hot backup, paired only; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,
   the only session a receipt is taken from) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's
   lines (what it says while it opens comes after the OK). An unknown topic is refused with the list this node serves.
   In-order lines are bounded per session; a reader too slow for a topic gets `<TOPIC> overflow — …` once and the topic ends
@@ -317,7 +320,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
-  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
+  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`, `epoch`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `scan` — `pairing`, `view`,
   `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `machine.present` — after
@@ -336,7 +339,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [control and timecode](wire/control.md) ·
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
-  [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) ·
+  [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [backup](wire/backup.md) ·
+  [phonescan](wire/phonescan.md) ·
   [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
   camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own) ·
   [d3d11](wire/d3d11.md) (`PRESENT PATH AUTO|DXGI|GL` from the render host's next start, DXGI explicit and experimental, the
@@ -346,4 +350,4 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   kept in the node's settings; `PRESENT PATH` and `DECODE POLICY` are set-up lines, refused while the show is armed).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
   answers "not available on this node yet" (stacks' `STACK ALIGN` waits unrouted in facade's block, its other rows come with
-  it): [backup](wire/backup.md) · [stacks](wire/stacks.md).
+  it): [stacks](wire/stacks.md).

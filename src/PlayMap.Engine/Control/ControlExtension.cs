@@ -46,19 +46,12 @@ public sealed class ControlExtension : IEngineExtension
         };
     }
 
-    /// <summary>Writes the control settings into the node's settings file (read fresh, so nothing else in it is lost).</summary>
+    /// <summary>Keeps the control settings for the next start through the network host, the settings file's one writer (it reads
+    /// the file fresh under its own lock, so nothing else in it is lost); null, or the words of a failure.</summary>
     private string? Persist(ControlSettings settings)
     {
-        try
-        {
-            var current = _setup.Home.LoadSettings(_setup.Settings.Name);
-            _setup.Home.SaveSettings(current with { Control = settings });
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return ex.Message;
-        }
+        var failed = _setup.Network.PersistSettings(s => s with { Control = settings });
+        return failed.Length == 0 ? null : failed;
     }
 
     public Task StartAsync(EngineCore engine, CancellationToken ct) => _service?.AttachAsync(engine) ?? Task.CompletedTask;

@@ -69,6 +69,7 @@
       "rejoins": 0,
       "time": "clock",
       "refused": null
-    }
+    },
+    "epoch": 0
   }
 }

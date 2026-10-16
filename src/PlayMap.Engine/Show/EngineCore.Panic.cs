@@ -51,8 +51,10 @@ public sealed partial class EngineCore
     /// <summary>The leader instant the lane's last tick saw: every panic step and line due by then has run (any thread).</summary>
     internal long ShowTickedNs => Volatile.Read(ref _showTickedNs);
 
-    /// <summary>The air's sound gain at a leader instant (master × panic), from the same fades as the picture.</summary>
-    public float AirAudioGain(long leaderNs) => _levels?.AudioGain(leaderNs) ?? 1f;
+    /// <summary>The air's sound gain at a leader instant (master × panic), from the same fades as the picture; 0 while the node's
+    /// fleet role keeps what it puts out beside its outputs off (a hot backup's sound would double its primary's, a fenced node's
+    /// belongs to a show it no longer holds).</summary>
+    public float AirAudioGain(long leaderNs) => NetworkAir == Core.Fleet.NetworkAir.Live ? _levels?.AudioGain(leaderNs) ?? 1f : 0f;
 
     /// <summary>An output's picture gain at a leader instant (master × panic × degrade).</summary>
     public float AirGain(string outputId, long leaderNs) => _levels?.Gain(outputId, leaderNs) ?? 1f;

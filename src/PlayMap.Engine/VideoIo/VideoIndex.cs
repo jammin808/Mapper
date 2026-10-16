@@ -75,7 +75,7 @@ internal sealed class SendsIndex(EngineCore engine) : IIndexContributor
             w.WriteString("kind", "send");
             w.WriteString("label", send.Name);
             w.WriteString("parent", SendShape.TryTap(send.Tap, out var kind, out var target, out _, out _) && kind != SendTapKind.Source ? target : "");
-            w.WriteString("light", state switch { "failed" => "red", "sending" or "idle" => "green", _ => "grey" });
+            w.WriteString("light", state switch { "failed" => "red", "sending" or "idle" or "standby" => "green", _ => "grey" });
             w.WriteString("state", state);
             w.WriteEndObject();
         }

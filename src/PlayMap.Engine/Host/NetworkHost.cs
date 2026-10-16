@@ -427,6 +427,16 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         }
     }
 
+    /// <summary>Where this node's clock asks its leader now, as "address:port" ("" unless it follows).</summary>
+    public string FollowedClock => _role == "follower" ? _sync.Snapshot.Leader : "";
+
+    /// <summary>Where a follow of <paramref name="nodeId"/> would ask its clock now, by the clock port its latest hello names, as
+    /// "address:port" ("" when it is not heard).</summary>
+    public string ClockOf(string nodeId) =>
+        FindPeer(nodeId) is { } peer && IPAddress.TryParse(peer.Address, out var ip)
+            ? new IPEndPoint(ip, peer.Hello.Port("sync") is > 0 and var port ? port : ShowBusConstants.PlayMapSyncPort).ToString()
+            : "";
+
     public async Task<string> FollowAsync(string group, string nodeId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -504,7 +514,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         lock (_settingsGate)
         {
             var token = Pairing.NewToken();
-            var stored = _stored with { Token = token };
+            // Read fresh: another part's keys kept since this run began (a sync role, the fleet's epoch) are written back with it.
+            var stored = Fresh() with { Token = token };
             try
             {
                 _o.Home.SaveSettings(stored);
@@ -520,6 +531,28 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         }
         Journal("network", "a new pairing token: every paired peer pairs again");
         return $"a new pairing token is in this node's settings ({_o.Home.SettingsPath}) and its Network drawer — every paired peer pairs again with it";
+    }
+
+    /// <summary>Keeps a change of the node's settings for the next start, as the one writer of its settings file: the edit is made
+    /// to the stored and the running settings under one lock and written, so a later link or token change writes it back with its
+    /// own. Answers "" or the words of a failure (the running settings hold the change either way).</summary>
+    public string PersistSettings(Func<NodeSettings, NodeSettings> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        lock (_settingsGate)
+        {
+            _running = edit(_running);
+            try
+            {
+                _stored = edit(Fresh());
+                _o.Home.SaveSettings(_stored);
+                return "";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return "the node's settings could not be written: " + ex.Message;
+            }
+        }
     }
 
     public bool Mcp => _web?.ServesMcp ?? false;
@@ -841,10 +874,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         lock (_settingsGate)
         {
-            _stored = edit(_stored);
             _running = edit(_running);
             try
             {
+                _stored = edit(Fresh());
                 _o.Home.SaveSettings(_stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -853,6 +886,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             }
         }
     }
+
+    /// <summary>The settings as the file holds them now (another part may have kept its own keys since this run began), or the stored
+    /// ones when the file is gone. Under the settings lock.</summary>
+    private NodeSettings Fresh() => File.Exists(_o.Home.SettingsPath) ? _o.Home.LoadSettings(_stored.Name) : _stored;
 
     private void Fault(string part, string words)
     {

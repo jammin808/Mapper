@@ -20,6 +20,10 @@ public sealed record FleetSettings
 
     public long Epoch { get; init; }
 
+    /// <summary>The nodes that joined this node's mirror as hot backups, proved by its token: the only ones whose word in HEALTH can
+    /// fence it.</summary>
+    public System.Collections.Immutable.ImmutableArray<string> Backups { get; init; } = [];
+
     /// <summary>What a fenced node's outputs show: black | close.</summary>
     public string FencedOutputs { get; init; } = "black";
 

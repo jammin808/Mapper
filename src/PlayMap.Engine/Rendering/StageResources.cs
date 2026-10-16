@@ -165,6 +165,14 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
 
     // ---- any thread -----------------------------------------------------------------------------------
 
+    /// <summary>Builds the tables again for the snapshot in hand (a file they read has landed since): the render thread takes them at
+    /// its next frame.</summary>
+    public void Rebuild()
+    {
+        if (Volatile.Read(ref _wanted) is not null)
+            Signal(ref _buildSignalled, _buildWake);
+    }
+
     /// <summary>Completes once tables for the revision (or a later one) are published with every mesh tried.</summary>
     public Task WhenSettledAsync(long revision)
     {

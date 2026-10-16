@@ -41,8 +41,10 @@ read lock-free by the lane and the render thread.
   playlists keep switching their own items at the anchored instants. STATE `sync.freewheelS`, the journal ("FOH (0badc0de)
   went quiet: free-wheeling on the last estimate"), the event `sync.leader.lost`, the context's red light. The next estimate
   ends it.
-- **Promote.** `NetworkClock.Promote()` freezes the mapping at now into a fixed offset: a backup that takes over continues its
-  leader's time line with no jump (wp2-backup calls it), and a later `Lead()` keeps that line.
+- **Promote.** `NetworkClock.Promote()` freezes the mapping at now into a fixed offset: a backup that takes over (`FAILOVER`) or a
+  member promoted (`FLEET PROMOTE`) continues its leader's time line with no jump, and a later `Lead()` keeps that line. A member
+  whose leader is silent follows the member that leads its group under a higher epoch, and a leader that comes back steps down to
+  it (docs/FLEET.md).
 - **One line at a time.** A step waiting for the lane is replaced by a later correction, `Lead` or `Promote` (a stale step is never
   taken), and the "never backwards" floor belongs to one time line, so a reader still on the old mapping cannot hold the new line
   up. The exchange starts its estimate over when an answer's offset is further from the kept samples' best than both round trips
@@ -126,7 +128,7 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 - **STATE `sync`** gains SPINE §9's keys: `group`, `feed` (live|connecting|lost|off), `slewing`, `steps`, `freewheelS`,
   `outputs[]` (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`; `mixedRate` per pair),
-  `verdict`, `words` (`SYNC STATUS` answers the same object). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
+  `verdict`, `words` (`SYNC STATUS` answers the same object), and the fleet's `epoch` (docs/FLEET.md). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
   not the clocks' raw difference.
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running

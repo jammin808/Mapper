@@ -1,8 +1,8 @@
 # wp2-fleet on the wire
 
 What machine health, the fleet board and the context's order for Patterns' Eye add to the wire. Every row below is routed (VERBS
-marks it `"available"`). The hot-backup rows after them in the catalogue (`FLEET BACKUP`, `FAILOVER`, `MIRROR` …) are not built:
-they answer "… is not available on this node yet".
+marks it `"available"`). The hot-backup rows after them in the catalogue (`FLEET BACKUP`, `FAILOVER`, `MIRROR` …) are in
+[backup.md](backup.md).
 
 ## Verbs
 
@@ -27,9 +27,9 @@ every machine, output and projector". `FLEET FOCUS self` names this node's own m
 
 ## Replies
 
-- `HEALTH` — `{"v":1,"node","name","at","role","of","epoch","build","light","headline","outputs":[{"id","name","light","open","fps",
+- `HEALTH` — `{"v":1,"node","name","at","role","of","epoch","mirror","build","light","headline","outputs":[{"id","name","light","open","fps",
   "dropped","missed60s","path"}],"projectors":[{"id","name","light","words","output"}],"render":{"renderer","path","resets"},
-  "cpuPct","memMb","memFreeMb","diskFreeGb","gpuPct","gpuTempC","netMbps","uptimeS","sync":{"role","leader","uncertaintyMs",
+  "cpuPct","memMb","memFreeMb","diskFreeGb","gpuPct","gpuTempC","netMbps","uptimeS","sync":{"role","leader","group","uncertaintyMs",
   "freewheelS"},"devices":{"total","green","amber","red"},"media":{"items","missing"},"watchdog":{"laneMs","renderMs"},"rev",
   "categories":[{"name","light","words"}]}`. Categories, always all eleven in this order: outputs, render, cpu, memory, disk, gpu,
   network, sync, devices, media, watchdog. A number not measured is −1 and its category grey with words that say why ("GPU load
@@ -64,15 +64,15 @@ Top level, after `show`: `fleet` then `eye`.
 ```jsonc
 "fleet": {"role":"solo","epoch":0,"state":"serving","of":null,"backups":[],"mirror":null,"succession":[],"alarm":null,"last":null,
           "nodes":[{"id":"9f8e7d6c","name":"FOH-B","role":"backup","light":"amber","headline":"…","heard":"live|stale|gone","build":"…","rev":12}],
-          "light":"red","headline":"3 machines · 3 outputs · 1 red · 2 amber — FOH-C: gone quiet 7 s"},
+          "light":"red","headline":"3 machines · 3 outputs · 1 red · 2 amber — FOH-C: gone quiet 7 s","routes":[],"routeTest":null},
 "eye":   {"headline":"…","worst":"machine:c0ffee00","worstLight":"red","worstWords":"FOH-C: gone quiet 7 s",
           "counts":{"green":2,"amber":2,"red":1,"grey":1,"things":6,"links":5},"focus":"machine:c0ffee00","lens":"problems",
           "problems":["machine:c0ffee00","machine:9f8e7d6c","output:9f8e7d6c:op_1"]}
 ```
 
 `nodes` are the other machines this node hears (this node is STATE itself); `light` and `headline` are the whole fleet's, this node
-included. `role`, `epoch`, `state` and `of` are read from the node's fleet settings; `backups`, `mirror`, `alarm` and `last` belong
-to hot backup, which is not built, and read empty. The fixture is `tests/fixtures/state/fleet.json`, its cards
+included. `role`, `epoch`, `state` and `of` are the node's place in a hot-backup pair as it keeps it; `backups`, `mirror`, `alarm` and `last` belong
+to the hot backup and are described in [backup.md](backup.md). The fixture is `tests/fixtures/state/fleet.json`, its cards
 `fleet.cards.json`. STATE.peers and the context's peers carry each PlayMap peer's own light and headline from its HEALTH.
 
 ## The context (Show Bus §6) for Patterns' Eye
@@ -103,6 +103,6 @@ refused (changed, or not the hello's) with the pin file to edit; one grey row wh
 ## Next
 
 The metrics ring and `FLEET AT` replay, the `/fleet` page, webhooks and syslog, GPU temperatures through NVML, the hello's
-`role`/`epoch` fields, and hot backup and failover (the `FLEET BACKUP` … rows). Patterns' side (P1 the "PlayMap" kind's words,
+`role`/`epoch` fields. Patterns' side (P1 the "PlayMap" kind's words,
 P2 reading every peer's context with the `context` cap, P3 picture things on the Video band) is a patch with tests, not applied
 (docs/FLEET.md).

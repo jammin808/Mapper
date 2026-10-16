@@ -53,6 +53,10 @@ public sealed class ShowPolicyTests
         { ShowClass.Network, "LINK PATTERNS OFF", "RRPRAA" },
         { ShowClass.Fleet, "FAILBACK", "RRPRAA" },
         { ShowClass.Fleet, "FAILOVER", "AAPRAA" },
+        { ShowClass.Fleet, "FLEET PROMOTE", "ARPRAA" },
+        { ShowClass.Fleet, "MIRROR PROJECT {}", "ARPRAA" },
+        { ShowClass.Network, "FLEET BACKUP 0badc0de", "RRPRAA" },
+        { ShowClass.Network, "FLEET SOLO", "RRPRAA" },
         { ShowClass.Admin, "CREDENTIAL SET dv00000001 secret", "ARRRRA" },
         { ShowClass.Assistant, "APPROVE ap1", "AAPRAA" },
     };

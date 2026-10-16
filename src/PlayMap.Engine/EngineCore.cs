@@ -325,7 +325,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         CommandReply? refused = null;
         ProjectStore? lineStore = null;
-        GateLine(spec, line, session, ref refused, ref lineStore);
+        GateFleet(spec, line, session, ref refused);
+        if (refused is null)
+            GateLine(spec, line, session, ref refused, ref lineStore);
         return refused;
     }
 

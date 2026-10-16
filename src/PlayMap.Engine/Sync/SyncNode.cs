@@ -53,7 +53,6 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         new[] { "PANIC", "PANIC CLEAR", "BLACKOUT", "MASTER", "SHOW ARM", "SHOW DISARM", "PREFLIGHT" }.ToFrozenSet(StringComparer.Ordinal);
 
     private readonly NetworkHost _network;
-    private readonly NodeHome _home;
     private readonly ShowWallClock _wall;
     private readonly ILogger _log;
     private readonly SyncNodeOptions _o;
@@ -106,10 +105,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// <summary>A lock record a member's armed show holds back, asked again on each watch.</summary>
     private sealed record LockWish(LockRecord Record);
 
-    public SyncNode(NetworkHost network, NodeHome home, ShowWallClock wall, SyncSettings settings, ILogger? log = null, SyncNodeOptions? options = null)
+    public SyncNode(NetworkHost network, ShowWallClock wall, SyncSettings settings, ILogger? log = null, SyncNodeOptions? options = null)
     {
         _network = network ?? throw new ArgumentNullException(nameof(network));
-        _home = home ?? throw new ArgumentNullException(nameof(home));
         _wall = wall ?? throw new ArgumentNullException(nameof(wall));
         _settings = settings ?? SyncSettings.Default;
         _log = log ?? NullLogger.Instance;
@@ -243,10 +241,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         try
         {
             var peer = FindPeer(args[1]);
-            // Following the same leader again is a no-op while it is heard and its feed is live; a leader that went quiet (or came
-            // back on another port) is followed afresh.
+            // Following the same leader again is a no-op while it is heard, its feed is live and the clock asks the port its hello
+            // names; a leader that went quiet, or whose clock answers on another port now, is followed afresh.
             if (Role == "follower" && peer is not null && peer.Id == _settings.Leader && string.Equals(group, _settings.Group, StringComparison.Ordinal)
-                && !Clock.IsHolding && FeedWord == "live")
+                && !Clock.IsHolding && FeedWord == "live" && string.Equals(_network.FollowedClock, _network.ClockOf(peer.Id), StringComparison.Ordinal))
                 return CommandReply.Fail($"already following {peer.Name} ({peer.Id}) for {group}");
             string words;
             var was = _joining;
@@ -906,27 +904,17 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         while (await Waits.DelayAsync(_o.WatchEvery, ct).ConfigureAwait(false));
     }
 
-    /// <summary>Writes the sync settings into the node's file (kept for the next start); answers "" or the words of a failure.</summary>
+    /// <summary>Keeps the sync settings for the next start through the network host, the settings file's one writer (it reads the
+    /// file fresh under its own lock, so a link, the pairing token or the fleet's role and epoch written beside this change are never
+    /// lost, nor is this change by theirs); answers "" or the words of a failure (the change holds for this run either way).</summary>
     private string Persist(Func<SyncSettings, SyncSettings> edit)
     {
         lock (_persistGate)
         {
             var next = edit(_settings);
             _settings = next;
-            try
-            {
-                // Read fresh, so nothing else the file holds is lost; a file that is gone is not made again here (that would make a
-                // new identity and token).
-                if (!File.Exists(_home.SettingsPath))
-                    return " — not kept for the next start (the node's settings file is gone)";
-                var stored = _home.LoadSettings(_network.Settings.Name);
-                _home.SaveSettings(stored with { Sync = next });
-                return "";
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return " — not kept for the next start (the node's settings could not be written: " + ex.Message + ")";
-            }
+            var failed = _network.PersistSettings(s => s with { Sync = next });
+            return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
         }
     }
 
