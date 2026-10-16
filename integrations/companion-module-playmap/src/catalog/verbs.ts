@@ -26,6 +26,8 @@ export interface VerbRow {
 	readonly show: string
 	readonly available: boolean
 	readonly pairedOnly: boolean
+	/** Other names the node reads as this row (Patterns' words: EYE for FLEET, VIDEO RESUME for VIDEO PLAY …). */
+	readonly aliases: readonly string[]
 	readonly forms: readonly string[]
 	readonly formParams: readonly (readonly VerbParam[])[]
 	/** How a key sends it: at once, held to confirm, or pressed twice. */
@@ -146,6 +148,7 @@ export function readVerbs(json: unknown): VerbRow[] {
 			show: typeof o.show === 'string' ? o.show : '',
 			available: o.available !== false,
 			pairedOnly: o.pairedOnly === true,
+			aliases: Array.isArray(o.aliases) ? o.aliases.filter((a): a is string => typeof a === 'string') : [],
 			forms: Array.isArray(o.forms) ? o.forms.filter((f): f is string => typeof f === 'string') : [o.syntax],
 			formParams: formParams.length > 0 ? formParams : [[]],
 			press: o.press === 'hold' || o.press === 'double' ? o.press : 'instant',
@@ -153,6 +156,51 @@ export function readVerbs(json: unknown): VerbRow[] {
 		})
 	}
 	return rows
+}
+
+/** Each catalogue's rows by every name the node reads them by: a row's name, then its aliases, a later row's taking a name an
+ * earlier one had (VerbCatalog's ByName). */
+const BY_NAME = new WeakMap<readonly VerbRow[], ReadonlyMap<string, VerbRow>>()
+
+function byName(rows: readonly VerbRow[]): ReadonlyMap<string, VerbRow> {
+	let map = BY_NAME.get(rows)
+	if (!map) {
+		const built = new Map<string, VerbRow>()
+		for (const row of rows) {
+			built.set(row.name, row)
+			for (const alias of row.aliases) built.set(alias, row)
+		}
+		map = built
+		BY_NAME.set(rows, map)
+	}
+	return map
+}
+
+/** A word upper-cased as the node does it (ToUpperInvariant): each mark by its own single upper-case mark, a mark whose upper case is
+ * several marks (ß, ﬁ) kept as it is. */
+export function upperInvariant(word: string): string {
+	let out = ''
+	for (const c of word) {
+		const u = c.toUpperCase()
+		out += [...u].length === 1 ? u : c
+	}
+	return out
+}
+
+/** The row a line's words name, as the node's VerbCatalog.Match finds it: its first two words upper-cased, else its first, by name
+ * or alias; VT and CLIP are VIDEO and TC is TIMECODE whatever follows. `words` is how many of the line's words the name took. */
+export function matchRow(
+	rows: readonly VerbRow[],
+	words: readonly string[],
+): { readonly row: VerbRow; readonly words: number } | undefined {
+	const names = byName(rows)
+	let first = upperInvariant(words[0] ?? '')
+	if (first === 'VT' || first === 'CLIP') first = 'VIDEO'
+	else if (first === 'TC') first = 'TIMECODE'
+	const two = words.length >= 2 ? names.get(`${first} ${upperInvariant(words[1] ?? '')}`) : undefined
+	if (two) return { row: two, words: 2 }
+	const one = words.length >= 1 ? names.get(first) : undefined
+	return one ? { row: one, words: 1 } : undefined
 }
 
 /** The catalogue this module was built with (the node's VERBS at merge; a node answers its own at connect). */

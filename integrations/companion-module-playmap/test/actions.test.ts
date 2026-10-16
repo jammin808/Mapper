@@ -444,6 +444,50 @@ void test('CURSOR is no key: the node answers it with no line, so no action send
 	}
 })
 
+void test('a line names its row as the node reads it: by name or alias, VT and CLIP as VIDEO, TC as TIMECODE; an alias is its row', async () => {
+	// Every alias VERBS lists resolves to its row, alone or with a word after it.
+	let aliases = 0
+	for (const row of BUNDLED_VERBS)
+		for (const alias of row.aliases) {
+			aliases++
+			assert.equal(rowOfLine(BUNDLED_VERBS, alias)?.name, row.name, alias)
+			assert.equal(rowOfLine(BUNDLED_VERBS, `${alias} x0a1b2c3d`)?.name, row.name, `${alias} x0a1b2c3d`)
+		}
+	assert.ok(aliases > 20, `${aliases} aliases`)
+	for (const [line, name] of [
+		['VT PLAY', 'VIDEO PLAY'],
+		['clip pause', 'VIDEO PAUSE'],
+		['VT RESUME', 'VIDEO PLAY'],
+		['TC STATUS', 'TIMECODE STATUS'],
+		['EYE NEXT', 'FLEET NEXT'],
+		['"PLAYLIST GO" pl0a1b2c3d', 'PLAYLIST GO'],
+	] as const)
+		assert.equal(rowOfLine(BUNDLED_VERBS, line)?.name, name, line)
+
+	const node = await new FakeNode({ token: TOKEN }).start()
+	node.handlers.set('EYE', () => 'OK {"eyes":[]}')
+	const m = await boot(configOf(node), SECRETS)
+	try {
+		await ready(m)
+		// Patterns' words are sent as typed: the node reads them as their rows.
+		for (const line of ['EYE NEXT', 'VT PLAY', 'IDENTIFY op_1', 'TC STATUS']) {
+			const r = fields(await m.press('raw', { line }, 'key-alias'))
+			assert.equal(r.stage, 'applied', line)
+			assert.equal(lastOf(node, line), line, line)
+		}
+		assert.deepEqual(fields(await m.press('ask_node', { line: 'EYE' }, 'key-ask')), { ok: true, reply: { eyes: [] } })
+		// An alias of a row the deck keeps to itself is that row, and refused as it is.
+		const status = fields(await m.press('raw', { line: 'STATUS' }, 'key-status'))
+		assert.equal(status.stage, 'not-sent')
+		assert.equal(status.error, "STATE is the module's own, never sent from a key")
+		await m.press('raw', { line: 'PLAYLIST LIST' }, 'key-after')
+		assert.ok(!node.sent().some((l) => isOf(l, 'STATUS')), 'STATUS never reached the node')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('test/lines.txt and test/state-paths.txt are what the module writes now', () => {
 	const read = (name: string): string => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
 	const lines = allLines()

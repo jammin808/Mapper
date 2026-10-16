@@ -6,7 +6,8 @@ import type {
 	JsonValue,
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
-import { EXCLUDED, actionIdOf, generatedRows, type VerbRow } from './catalog/verbs.ts'
+import { EXCLUDED, actionIdOf, generatedRows, matchRow, type VerbRow } from './catalog/verbs.ts'
+import { splitLine } from './link/grammar.ts'
 import { lineOf, optionIdOf, optionsOf } from './catalog/write.ts'
 import type { Ctx } from './context.ts'
 import type { EncoderTarget } from './encoders.ts'
@@ -163,12 +164,11 @@ function generatedAction(ctx: Ctx, row: VerbRow): CompanionActionDefinition {
 	}
 }
 
-/** The verb a line names (its first two words when the catalogue has them, else its first). */
+/** The verb a line names, as the node reads it: the line split by the node's grammar, then its row by name or alias (matchRow). A
+ * line the node cannot split names none. */
 export function rowOfLine(rows: readonly VerbRow[], line: string): VerbRow | undefined {
-	const words = line.trim().split(/\s+/u)
-	const two = `${words[0] ?? ''} ${words[1] ?? ''}`.toUpperCase()
-	const one = (words[0] ?? '').toUpperCase()
-	return rows.find((r) => r.name === two) ?? rows.find((r) => r.name === one)
+	const split = splitLine(line)
+	return split.ok ? matchRow(rows, split.words)?.row : undefined
 }
 
 /** A row whose line carries another line for the node to run later (BIND ADD … TO <target line>). */

@@ -156,8 +156,9 @@ line written by the node's grammar. Every press returns its receipt as the actio
 first reply, and lights a corner dot on its key: amber while sent or accepted — an accepted line until STATE's entries for the ids it
 names move (or, naming none, until STATE moves past it), at most 10 s — red for 2 s on `ERR` with the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
-answer as the result). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence: it must start with
-a verb of the node, never the session's words, a secret's or pairing's, nor carry one (`BIND ADD … TO AUTH …`); a refusal names only
+answer as the result). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
+node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it
+must start with a verb of the node, never the session's words, a secret's or pairing's, nor carry one (`BIND ADD … TO AUTH …`); a refusal names only
 the verb, never the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE
 value plus the steps sent and not yet confirmed, clamped to the range) or `GENERATOR SET … BY`, `DEVICE LENS … BY` and a surface's
 opacity by `NUDGE` (relative); turns within 30 ms are one line. A preset's press stores its receipt in the key's local variable `result`,
