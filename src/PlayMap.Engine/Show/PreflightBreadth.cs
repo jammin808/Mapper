@@ -53,7 +53,9 @@ public sealed class MappingCheck : IPreflightCheck
 }
 
 /// <summary>The show clock: this node's role and, following, the uncertainty of its leader time (under 1 ms green, under 4 ms amber,
-/// else red); a playlist that follows a sync group while this node leads or follows none is amber with the line that leads it.</summary>
+/// else red); a playlist that follows a sync group while this node leads or follows none is amber with the line that leads it. On
+/// a node that runs the sync part's own check (its "sync" rows judge a follower's leader time against the group's bound), a
+/// follower's clock is those rows' alone, so one report never gives the clock two lights.</summary>
 public sealed class ClockCheck : IPreflightCheck
 {
     public string Section => "clock";
@@ -68,6 +70,8 @@ public sealed class ClockCheck : IPreflightCheck
         var e = context.Engine;
         var node = e.Services.Settings.Name;
         var sync = e.Services.Network.Sync();
+        if (sync.Role == "follower" && e.PreflightChecks.Any(c => c.Section == "sync"))
+            return Task.FromResult<IReadOnlyList<PreflightRow>>([]);
         var groups = e.Store.Project.Playlists.Select(l => l.SyncGroup).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         var ms = sync.OffsetMs.ToString("0.00", CultureInfo.InvariantCulture);
         PreflightRow row = sync.Role switch

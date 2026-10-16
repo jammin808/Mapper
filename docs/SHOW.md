@@ -246,7 +246,7 @@ The node's own checks:
 | disk | free space on the media volume | red under twice the largest file, amber under 10 GB | — |
 | safety | armed; every SAFE plan's look in the show; the default plan; double-GO protection on; no panic in force; no plan for an output the show lost; no blind draft left open | grey in rehearsal (amber with EXPECT-ARMED), red a missing look or a panic in force, amber MinGo off, a stray plan or an open draft | `SHOW ARM`, `PANIC SET <op> BLACK`, `SHOW SET MINGO 300`, `PANIC CLEAR` |
 | mapping | each projector an enabled output shows, through the calibration ledger: its grade and a fallback | red not solved or failed, amber C or no fallback | `PROJECTOR SOLVE <pj>`, `CALIBRATION FALLBACK <pj>`, `CALIBRATION ACCEPT <pj>` |
-| clock | the show clock: role and, following, the uncertainty of the leader's time | green < 1 ms, amber < 4 ms, red beyond; amber when a playlist names a sync group this node leads or follows none | `SYNC FOLLOW <group> <leader>`, `SYNC LEAD <group>` |
+| clock | the show clock: role and, following, the uncertainty of the leader's time (on a follower with the sync part, its own `sync` rows judge it: one light per report) | green < 1 ms, amber < 4 ms, red beyond; amber when a playlist names a sync group this node leads or follows none | `SYNC FOLLOW <group> <leader>`, `SYNC LEAD <group>` |
 | links | Patterns and Stagewatch: heard and paired | grey not linked, red linked but not heard, amber heard but not paired (its token is a secret: no line) | `LINK PATTERNS <host>`, `LINK STAGEWATCH <host>` |
 
 Every package adds its own checks (`EngineServices.PreflightChecks`). Every row of this node's checks names this node. When the

@@ -71,6 +71,24 @@ public sealed class SyncPreflightTests
     }
 
     [Fact]
+    public async Task AFollowersShowClockHasOneVerdictInAReport()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, 5 * Second));
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.GroupAsync(leader, follower);
+
+        // The leader time's uncertainty is the sync part's to judge on a follower (its group's bound): show's own clock row yields
+        // to it, so one report never gives the clock two lights.
+        var rows = (await PreflightAsync(follower)).GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(["sync:clock"], rows.Where(r => r.GetProperty("section").GetString() == "clock" || r.GetProperty("id").GetString() == "sync:clock")
+            .Select(r => r.GetProperty("id").GetString()));
+
+        // A node that leads keeps show's row: the group follows its clock.
+        Assert.Equal("leads", Row(await PreflightAsync(leader), "clock:sync").GetProperty("value").GetString());
+    }
+
+    [Fact]
     public async Task ALeadersOwnOddRateIsRedWithTheLineThatSetsIt()
     {
         var clock = new ManualClock(1_000 * Second);

@@ -130,9 +130,10 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running
   output hears it.
-- **Preflight** (section `sync`): a follower's leader heard (red with `SYNC FOLLOW <group> <leader>`), its clock uncertainty
-  under ± 4 ms, its feed live; a leader's rates (red on a mixed rate, with `SET <output> refreshHz <rate>` for its own odd
-  output, or the member's node and the line to run there — output ids repeat across nodes) and its members; a solo node grey.
+- **Preflight** (section `sync`): a follower's leader heard (red with `SYNC FOLLOW <group> <leader>`), its clock uncertainty under
+  ± 4 ms, its feed live (show's own `clock` row yields a follower's clock to these rows, so the clock has one light per report); a
+  leader's rates (red on a mixed rate, with `SET <output> refreshHz <rate>` for its own odd output, or the member's node and the
+  line to run there — output ids repeat across nodes) and its members; a solo node grey.
 - **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`.
 
 ## Verified here, next
