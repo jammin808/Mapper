@@ -45,11 +45,11 @@ void test('a token proves itself by HMAC over the line channel; the token never 
 })
 
 void test("the proof is the node's: HMAC-SHA256(normalised token, nonce + name), lowercase hex", () => {
-	// Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck") on the node.
-	assert.equal(
-		authProof('K7QM-3XWD-P9RA', '00112233445566778899aabbccddeeff', 'Companion:FOH deck'),
-		authProof('k7qm3xwdp9ra', '00112233445566778899aabbccddeeff', 'Companion:FOH deck'),
-	)
+	// Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck") on the node: the node's tests pin the
+	// same answer.
+	const known = 'b07c009ef4196cc819f65ae7b624f6f7eff03ea67f0d73b99a634e8579fa1d3d'
+	assert.equal(authProof('K7QM-3XWD-P9RA', '00112233445566778899aabbccddeeff', 'Companion:FOH deck'), known)
+	assert.equal(authProof('k7qm 3xwd-p9ra', '00112233445566778899aabbccddeeff', 'Companion:FOH deck'), known)
 	assert.match(authProof('K7QM-3XWD-P9RA', 'ab', 'x'), /^[0-9a-f]{64}$/u)
 })
 

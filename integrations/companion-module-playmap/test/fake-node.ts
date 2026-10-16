@@ -4,11 +4,10 @@
 // answer a verb its own way.
 import { createServer as createHttpServer, type IncomingMessage, type Server } from 'node:http'
 import { createServer as createTcpServer, type Server as TcpServer, type Socket } from 'node:net'
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { authProof, normaliseToken } from '../src/link/pairing.ts'
 import { readLine } from '../src/link/grammar.ts'
 
 export const fixture = (name: string): unknown =>
@@ -44,6 +43,24 @@ interface Session {
 }
 
 type Handler = (line: string, words: string[]) => string | null | undefined
+
+/** A token as the node keeps it (Pairing.Normalise): dashes and whitespace removed, upper-cased. The fake's own, not the module's. */
+function nodeToken(token: string | undefined): string {
+	return [...(token ?? '')]
+		.filter((c) => c !== '-' && !/\s/u.test(c))
+		.join('')
+		.toUpperCase()
+}
+
+/** The node's check of AUTH-PROOF (Pairing.Verify): HMAC-SHA256(key = the normalised token, message = nonce + the HELLO name),
+ * written here and not taken from the module, so a proof the module gets wrong is refused here as the node refuses it. */
+function proofIsRight(token: string | undefined, nonce: string, name: string, proofHex: string | undefined): boolean {
+	if (!proofHex || !/^[0-9a-fA-F]{64}$/u.test(proofHex)) return false
+	const expected = createHmac('sha256', Buffer.from(nodeToken(token), 'utf8'))
+		.update(Buffer.from(nonce + name, 'utf8'))
+		.digest()
+	return timingSafeEqual(Buffer.from(proofHex, 'hex'), expected)
+}
 
 export class FakeNode {
 	readonly options: FakeNodeOptions
@@ -229,7 +246,7 @@ export class FakeNode {
 	}
 
 	#open(session: Session): void {
-		if (normaliseToken(this.options.token).length > 0) {
+		if (nodeToken(this.options.token).length > 0) {
 			session.nonce = randomBytes(16).toString('hex')
 			session.send(`NONCE ${session.nonce}`)
 		} else session.paired = true
@@ -264,9 +281,9 @@ export class FakeNode {
 			return
 		}
 		if (verb === 'AUTH-PROOF') {
-			const right = authProof(this.options.token ?? '', session.nonce, session.name)
+			const right = proofIsRight(this.options.token, session.nonce, session.name, words[1])
 			session.nonce = randomBytes(16).toString('hex')
-			if (words[1] === right) {
+			if (right) {
 				session.paired = true
 				ok('paired')
 				session.send('STATE ' + JSON.stringify(this.state))
