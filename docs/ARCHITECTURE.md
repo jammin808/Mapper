@@ -173,9 +173,10 @@ levels and the cursor board lock-free; effect compiles (on a shared second conte
 polls and machine sampling run off it.
 
 Backends: a platform seam (`IGpuPlatform`, one `IOutputPresenter` per output) over OpenGL 3.3 core or OpenGL ES 3.00
-through Silk.NET — GLFW windows, EGL, or EGL surfaceless with no window system (testable headless on Mesa). A
-Direct3D 11 flip-model presenter (waitable swap chains, `GetFrameStatistics`, D3D11VA zero-copy) is the next path on
-Windows; asked for today (`dxgi`), the node runs GL and says so (docs/ROADMAP.md).
+through Silk.NET — GLFW windows (on GLX, or on EGL by `decode.glApi`), or EGL surfaceless with no window system (testable
+headless on Mesa) — and, on Windows, the Direct3D 11 flip model (`PRESENT PATH DXGI`, experimental; AUTO is GL): ANGLE on
+PlayMap's own device, waitable swap chains, `GetFrameStatistics` as vblank truth. Decoders share that device under its one
+lock, which the render loop holds around each frame (docs/OUTPUT.md, docs/DECODE.md).
 
 ## 6. Mapping pipeline
 
