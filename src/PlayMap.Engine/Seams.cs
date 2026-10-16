@@ -78,7 +78,8 @@ public interface IRenderHost : IOutputBackend, IScanDisplay, IAsyncDisposable
     void Start(EngineCore engine);
 }
 
-/// <summary>A scan's progress for STATE.scan.</summary>
+/// <summary>A scan's progress for STATE.scan: its state, the projector being scanned, patterns shown of all, the decode quality in
+/// percent (0–100) and its words.</summary>
 public sealed record ScanProgress(string State, string? ProjectorId, int Pattern, int Of, double Quality, string Words);
 
 /// <summary>The scan runner as the engine's verbs see it.</summary>

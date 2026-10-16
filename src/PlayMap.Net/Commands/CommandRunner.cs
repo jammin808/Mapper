@@ -92,13 +92,14 @@ public sealed class CommandRunner(IWireEndpoint endpoint, ShowWallClock wall, IL
     public static bool TryStamp(string word, out long t1) =>
         long.TryParse(word, NumberStyles.None, CultureInfo.InvariantCulture, out t1) && t1 > 0;
 
-    /// <summary>The wire line for a reply, or null when the reply is silent. An accepted (not yet applied) verb
-    /// answers <c>OK @a1 {"stage":"accepted","effect":"…"}</c> (Show Bus §3).</summary>
+    /// <summary>The wire line for a reply, or null when the reply is silent and its line carried no request id: a line that carries
+    /// one is always answered (a silent verb, a cursor's, with a bare <c>OK @a1</c>), since its sender waits for that id. An accepted
+    /// (not yet applied) verb answers <c>OK @a1 {"stage":"accepted","effect":"…"}</c> (Show Bus §3).</summary>
     public static string? WireLineFor(string? requestId, CommandReply reply)
     {
         ArgumentNullException.ThrowIfNull(reply);
         if (reply.Silent)
-            return null;
+            return requestId is null ? null : WireGrammar.Ok(requestId);
         if (!reply.Ok)
             return WireGrammar.Err(requestId, reply.Payload ?? "refused");
         if (reply.Applied)

@@ -23,7 +23,8 @@ BIND ADD MIDI MSC 127 GO TO PLAYLIST NEXT Show
 
 The value word rides as a whole word: `*` the shaped value, `*%` a percentage, `#*` an item number. A target that cannot be bound
 is refused with the reason — a query (it would change nothing), a session or approval verb, anything that carries a secret,
-another binding verb. A binding to a high-risk line is itself high risk: an assistant's `BIND ADD … TO BLACKOUT ON` needs a person.
+another binding verb. A binding to a high-risk line is itself high risk: an assistant's `BIND ADD … TO BLACKOUT ON` needs a
+person; so does a line that carries more lines than are worth reading (256 at every depth together), however low each of them is.
 
 `BIND ADD` keeps any other binding on the same input and says so ("also bound to bd…"), so one fader may drive several targets on
 purpose. `BIND LEARN [FROM <surface>|MIDI|OSC|ARTNET|SACN] <target>` binds the next control that moves, and **replaces** what that input

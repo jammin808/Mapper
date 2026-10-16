@@ -10,8 +10,11 @@ namespace PlayMap.Engine.Companion;
 
 /// <summary>INDEX as a controller reads it: the show's structure, its <see cref="Sig"/> (what a deck's layout depends on: the ids
 /// and kinds of every listed entity, each item's source kind, each generator's parameter names, each section's row ids and kinds
-/// and its preset hint) and its <see cref="Labels"/> (the names and labels shown on keys). A rename moves only the labels.</summary>
-public sealed record IndexDocument(string Json, string Sig, string Labels, long Revision);
+/// and its preset hint), its <see cref="Labels"/> (the names and labels shown on keys), its <see cref="Lights"/> (each section
+/// row's light and state, which move with the show, not the project) and its <see cref="Data"/> (everything the document lists,
+/// values and all: an item's or a surface's source, a projector's output and device, an output's enabled, a loop, a length). A
+/// rename moves only the labels; a source changed for another of its kind moves only the data.</summary>
+public sealed record IndexDocument(string Json, string Sig, string Labels, long Revision, string Lights, string Data);
 
 /// <summary>Writes INDEX from a project, the published snapshot and every package's section (<see cref="IIndexContributor"/>):
 /// playlists and their items, surfaces, projectors, outputs, devices, generators, canvases, the media count, then each section's
@@ -26,11 +29,12 @@ public static class IndexWriter
         ArgumentNullException.ThrowIfNull(sections);
         var sig = new StringBuilder();
         var labels = new StringBuilder();
+        var lights = new StringBuilder();
         var body = new ArrayBufferWriter<byte>(4096);
         using (var w = new Utf8JsonWriter(body))
         {
             w.WriteStartObject();
-            WriteBody(w, project, snapshot, sections.OrderBy(s => s.Section, StringComparer.Ordinal).ToList(), sig, labels);
+            WriteBody(w, project, snapshot, sections.OrderBy(s => s.Section, StringComparer.Ordinal).ToList(), sig, labels, lights);
             w.WriteEndObject();
         }
         var sigHex = Hash(sig);
@@ -39,14 +43,14 @@ public static class IndexWriter
         var head = string.Create(CultureInfo.InvariantCulture, $"{{\"v\":{Version},\"revision\":{revision},\"sig\":\"{sigHex}\",\"labels\":\"{labelsHex}\"");
         var rest = Encoding.UTF8.GetString(body.WrittenSpan);
         var json = rest.Length > 2 ? head + "," + rest[1..] : head + "}";
-        return new IndexDocument(json, sigHex, labelsHex, revision);
+        return new IndexDocument(json, sigHex, labelsHex, revision, Hash(lights), Convert.ToHexStringLower(SHA256.HashData(body.WrittenSpan))[..16]);
     }
 
     private static string Hash(StringBuilder text) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
 
     private static void WriteBody(Utf8JsonWriter w, Project project, EngineSnapshot snapshot, List<IIndexContributor> sections,
-        StringBuilder sig, StringBuilder labels)
+        StringBuilder sig, StringBuilder labels, StringBuilder lights)
     {
         // A project read from a file is not trusted to hold each id once: the first wins, and INDEX (STATE's project.index) never throws.
         var lengths = new Dictionary<string, MediaItem>(project.Media.Length, StringComparer.Ordinal);
@@ -203,14 +207,14 @@ public static class IndexWriter
 
         w.WriteStartArray("sections");
         foreach (var section in sections)
-            WriteSection(w, section, project, snapshot, sig, labels);
+            WriteSection(w, section, project, snapshot, sig, labels, lights);
         w.WriteEndArray();
     }
 
     /// <summary>One package's section: its key, its preset hint (data the module builds presets from) and its rows. A section that
     /// faults writes no rows rather than taking INDEX down.</summary>
     private static void WriteSection(Utf8JsonWriter w, IIndexContributor section, Project project, EngineSnapshot snapshot,
-        StringBuilder sig, StringBuilder labels)
+        StringBuilder sig, StringBuilder labels, StringBuilder lights)
     {
         var hint = section.Hint;
         sig.Append("section|").Append(section.Section).Append('|').Append(hint.RowKind).Append('\n');
@@ -246,6 +250,8 @@ public static class IndexWriter
             {
                 sig.Append("row|").Append(Text(row, "id")).Append('|').Append(Text(row, "kind")).Append('|').Append(Text(row, "parent")).Append('\n');
                 labels.Append("row|").Append(Text(row, "label")).Append('\n');
+                lights.Append(section.Section).Append('|').Append(Text(row, "id")).Append('|').Append(Text(row, "light")).Append('|')
+                    .Append(Text(row, "state")).Append('\n');
             }
             w.WritePropertyName("rows");
             doc.RootElement.WriteTo(w);

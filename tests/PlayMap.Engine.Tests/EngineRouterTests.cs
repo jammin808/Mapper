@@ -91,6 +91,21 @@ public sealed class EngineRouterTests
     }
 
     [Fact]
+    public async Task ALineWithARequestIdIsNoFactButAVerbAndIsAnswered()
+    {
+        await using var rig = new Rig();
+        // Patterns' facts carry no request id: one that does is a request, read as a verb (as the transports tell a fact).
+        var live = await rig.Run("@a1 LIVE 0");
+        Assert.False(live.Silent);
+        Assert.False(live.Ok);
+        Assert.Contains("unknown verb 'LIVE'", live.Payload, StringComparison.Ordinal);
+        var black = await rig.Run("@a2 BLACKOUT 1");
+        Assert.False(black.Silent);
+        Assert.True(black.Ok, black.Payload);
+        Assert.Equal((true, false), (rig.Engine.Air.Blackout, rig.Engine.Air.PatternsBlackout));
+    }
+
+    [Fact]
     public async Task ClipVerbsMeanWhatTheyMeanOnAPatternsDesk()
     {
         await using var rig = new Rig();

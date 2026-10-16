@@ -78,7 +78,7 @@ public static class OscAddressMap
         if (message.Args.Length == 0 && words.Count == verbWords + segments.Length - used && spec.Syntax.Contains("|TOGGLE", StringComparison.Ordinal)
             && !words.Skip(verbWords).Any(w => w.Equals("ON", StringComparison.OrdinalIgnoreCase) || w.Equals("OFF", StringComparison.OrdinalIgnoreCase)))
             words.Add("TOGGLE");
-        return new OscRoute(OscRouteKind.Lines, [string.Join(' ', words.Select(WireGrammar.Quote))], null, "");
+        return new OscRoute(OscRouteKind.Lines, [WireGrammar.Join(words)], null, "");
     }
 
     /// <summary>An argument as a line word: strings as given, integers and floats invariant (a float32 at its own precision).</summary>

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
 using PlayMap.Net.Wire;
 
@@ -158,6 +159,23 @@ public class WireServerTests
         var verbs = endpoint.Lines.Select(l => l.Line.Verb).ToList();
         Assert.Equal(["BLACKOUT", "LIVE", "DECK", "LOOK"], verbs);
         Assert.All(endpoint.Lines, l => Assert.Equal("patterns-device", l.Session.Transport));
+    }
+
+    [Fact]
+    public async Task ALineWithARequestIdIsAlwaysAnsweredEvenByAVerbThatAnswersNothing()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        // A cursor's stream is never answered; a cursor's line that carries a request id is, since its sender waits for that id. Replies
+        // come in order, so the first reply heard is the asked line's.
+        await c.SendAsync("CURSOR op_1 0.5 0.5");
+        Assert.Equal("OK @c", await c.AskAsync("@c CURSOR op_1 0.5 0.5"));
+        // A fact's shape with a request id is no fact: the endpoint is asked it as a line, and it is answered.
+        Assert.Equal("OK @l", await c.AskAsync("@l LIVE 0"));
+        Assert.Equal(("LIVE", "l"), (endpoint.Lines.Last().Line.Verb, endpoint.Lines.Last().Line.RequestId));
+        Assert.Null(CommandRunner.WireLineFor(null, CommandReply.NoReply()));
+        Assert.Equal("OK @x", CommandRunner.WireLineFor("x", CommandReply.NoReply()));
     }
 
     [Fact]

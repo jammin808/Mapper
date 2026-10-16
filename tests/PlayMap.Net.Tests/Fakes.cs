@@ -145,6 +145,8 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
                 throw new InvalidOperationException("the fake endpoint faults on BOOM");
             case "LIVE" or "DECK" or "LOOK":
                 return ValueTask.FromResult(CommandReply.NoReply("fact"));
+            case "CURSOR":
+                return ValueTask.FromResult(CommandReply.NoReply());
             default:
                 return ValueTask.FromResult(CommandReply.Fail("unknown word '" + line.Word(0) + "'"));
         }

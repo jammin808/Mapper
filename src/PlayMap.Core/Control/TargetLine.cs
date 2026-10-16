@@ -52,9 +52,9 @@ public sealed record TargetLine(string Text, WireLine Line, VerbSpec Spec, int V
     /// <summary>The line with one word replaced, quoted as the grammar needs.</summary>
     public string With(int index, string word)
     {
-        var words = Line.Words.Select(WireGrammar.Quote).ToArray();
-        words[index] = WireGrammar.Quote(word);
-        return string.Join(' ', words);
+        var words = Line.Words.ToArray();
+        words[index] = word;
+        return WireGrammar.Join(words);
     }
 
     /// <summary>Reads a target line; null with the reason when it cannot be one.</summary>
@@ -78,7 +78,11 @@ public sealed record TargetLine(string Text, WireLine Line, VerbSpec Spec, int V
         }
         if (VerbCatalog.Match(line) is not { } m)
         {
-            why = $"'{line.Word(0)}' is no verb — HELP lists the vocabulary";
+            // Only a bare word is echoed: a quoted phrase or JSON may hold a line and its token, which no refusal repeats.
+            var first = line.Word(0);
+            why = string.Equals(WireGrammar.Quote(first), first, StringComparison.Ordinal)
+                ? $"'{first}' is no verb — HELP lists the vocabulary"
+                : "the target's first word is a quoted phrase or JSON, never a verb — HELP lists the vocabulary";
             return null;
         }
         var spec = m.Spec;

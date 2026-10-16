@@ -10,8 +10,9 @@ bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync grou
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line. Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
-(`OK @a1 …`). A refused verb says why; a verb that would change nothing is refused ("already playing").
+is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
+(`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
+every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
 transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
@@ -44,7 +45,7 @@ The router journals who did what and the transports fence by it. The transport i
 |---|---|
 | `desk` | a TCP line-wire session that said `HELLO PlayMapDesk` **and** proved the node's token on that connection, from this machine or an address the node lists as a desk (`Companion.DeskAddresses`); on a node that asks no token, only this machine's. The name alone makes no desk |
 | `stagewatch` | a line-wire session that said `HELLO Stagewatch` (Stagewatch's VT link) |
-| `companion` | a line-wire session that said `HELLO Companion` or `HELLO Companion:<label>` (a controller) |
+| `companion` | a line-wire session that said `HELLO Companion` or `HELLO Companion:<label>` (a controller; the Companion module, `integrations/companion-module-playmap`, says `HELLO Companion:<connection label> module=<version>` on the `/ws` line channel, proves the token and numbers every line `@c<n>`, docs/wire/companion.md) |
 | `patterns-device` | a line-wire session that never said HELLO from an address on the trusted list (a Patterns "Lines" device) |
 | `wire` | any other session on TCP 9941 |
 | `ws` | any other session on the `/ws` line channel, and the screens' WebSocket |
@@ -78,7 +79,8 @@ The router journals who did what and the transports fence by it. The transport i
    (`BLACKOUT 1`, `LIVE 0`, `LOOK …`, `DECK p n`…; no request id; `BLACKOUT` only as `0` or `1`) are taken as facts
    and never answered (`BLACKOUT 1` blacks the node out when *Follow Patterns' blackout* is on —
    `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF`). A fact line from a session that is not paired is dropped, unanswered:
-   only a paired or trusted peer's facts reach the air.
+   only a paired or trusted peer's facts reach the air. A line with a request id is no fact: it is read as a verb and
+   answered (`@a1 LIVE 0` is refused as an unknown verb).
 7. Limits: 64 connections, 16 per address; a started line must end within 10 s; one writer per connection,
    replies in order (≤ 256 queued, then closed), pushes latest-wins.
 
@@ -108,7 +110,8 @@ as raw substrings):
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6,"pins":12}],"scans":1},
  "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
    "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
-   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…"},
+   "state":"done"},{"id":"pj…","name":"Right","progress":0.03,"state":"scanning"}],"regions":[],"projector":"pj…","pairing":null,
+   "view":"v1","views":[],"coverage":[],"suggestions":[]},
  "sync":{"role":"follower","leader":"9f8e7d6c","offsetMs":0.21,"rttMs":0.35,"driftPpm":3.2,"groups":["show"]},
  "links":{"patterns":{"state":"live","host":"10.0.0.5:9697","paired":true,"detail":"VT 2:28","clip":"VT 2:28"},
    "stagewatch":{"state":"live","host":"10.0.0.6:9924","paired":true,"detail":"following Stagewatch at 10.0.0.6:9924",
@@ -165,8 +168,11 @@ These are the keys every node writes; the packages' keys follow at the end of th
   `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
   `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
-  first projector's smart scan. A scan of many views adds the view being taken, the scan's views, the coverage per projector,
-  each region's projectors and the surface suggestions waiting for a person (docs/wire/multiscan.md). The smart scan, the
+  first projector's smart scan. `pairing` is a phone camera's frame pairing (docs/wire/phonescan.md; null for any other camera);
+  `view` is the view being taken, `views` the scan's views, `coverage` each projector's, each region names its projectors, and
+  `suggestions` are the surfaces waiting for a person (docs/wire/multiscan.md). A scan backend other than the node's scan runner
+  writes the same keys in the same order — its state as the stage too, null where it knows nothing (an id, the pairing, the view)
+  and empty lists. The smart scan, the
   confidence and the camera's live picture are preview views (`VIEW <view> SHOW scan:<id>:smart|confidence`,
   `VIEW <view> SHOW camera:<id>`; see Previews).
 - `solve` is the running or last `BLEND SOLVE` (null before the first): `{"id":"bs1","kind":"blend","state":"running",
@@ -232,7 +238,15 @@ These are the keys every node writes; the packages' keys follow at the end of th
   keeps the line whole and an approval runs that (a proposal approved on the desk runs from the node's own record,
   never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
-  refused wherever it arrives.
+  refused wherever it arrives. A verb's secret words are counted from where its name ends, as its arguments are: a
+  two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does. A line
+  carried inside another is shown the same way wherever the node writes the outer one down, however deep it rides — a binding's
+  target after any `TO` or in `BIND LEARN`'s words, every string literal of a JSON argument (read as the node's JSON reader reads
+  it: comments skipped, escapes decoded, a key given twice read each time, one cut short read to the end), a word that reads as
+  a line whatever white space or quote parts its words (`SET bd… target "…"`) — so a refused `BIND ADD … TO LINK PATTERNS
+  10.0.0.5 <token>` is journalled as `BIND ADD … TO LINK PATTERNS 10.0.0.5 ‹secret›`, everything from the first secret word on
+  kept back. A line is read so in one pass over its words, the longest the wire reads at once. A binding's target refused as no
+  verb names its first word only when it is a bare word, never a quoted phrase or JSON that may hold a token.
 - `SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [ON <projector>] [<name>]` of a suggested region (`ON`: what that projector lights of
   it); it answers the surface's id. `SCAN SUGGEST <scan>` queues a scan's measured regions as such lines on the node's own

@@ -112,7 +112,7 @@ internal sealed class CalibrationIndex(EngineCore engine) : IIndexContributor
 
     public IndexPresetHint Hint { get; } = new("Calibration", "projector",
     [
-        new IndexKey("Re-solve", "CALIBRATION RESOLVE $(id)", "calibration.grade", "instant"),
+        new IndexKey("Re-solve", "CALIBRATION RESOLVE $(id)", "calibration.grade", "hold"),
         new IndexKey("Fallback", "CALIBRATION FALLBACK $(id)", "calibration.fallback", "hold"),
         new IndexKey("History", "CALIBRATION HISTORY $(id)", null, "instant"),
     ]);

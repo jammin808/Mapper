@@ -276,7 +276,9 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
   receipts, `PING t1` → `OK PONG t1 t2 t3`, `CONTEXT`, the VIDEO verbs with Patterns' meaning, and the rest of
   the vocabulary. STATE carries Patterns' `video` row (positionMs, lengthMs, rate, seq…) so **Stagewatch's VT link
   drives PlayMap by pointing it at PlayMap's host and port**. Patterns' Interactive "Lines" devices can drive it
-  too: their `KEY VALUE` fact lines (BLACKOUT 1, LIVE 0…) are read as facts, never answered.
+  too: their `KEY VALUE` fact lines (BLACKOUT 1, LIVE 0…) carry no request id and are read as facts, never answered; a
+  line with a request id is a request, read as a verb and always answered (`OK @a1` from a verb that otherwise answers
+  nothing).
 - **HTTP/WS/HTTPS** on 9940: `/api/state`, `/api/context`, `/api/project`, `/api/cmd`, `/api/verbs`,
   `/api/media/<hash>` (range transfers between nodes), `/api/thumb`, `/ws` (state frames with v/seq/id; with the
   subprotocol `playmap.lines.v1`, the line wire itself), `/tls`, `/tls.cer`, `/mcp` (Model Context Protocol:

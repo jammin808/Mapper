@@ -145,7 +145,8 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
   line to run there — output ids repeat across nodes) and its members; a solo node grey. The reference's rate is the group's
   and the odd output is the first at another rate in the board's order, so a tie (one output at each rate) goes to the leader's
   first output in its project, and the same outputs give the same row and line whatever order their reports came in.
-- **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`.
+- **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`; a node in no group lists the
+  section with no rows.
 
 ## Verified here, next
 

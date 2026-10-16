@@ -19,7 +19,7 @@ picture), so a quad stays on its feature when the output's warp or raster change
 | `HANDLE NEXT` / `HANDLE PREV` | `HANDLE NEXT` | the next (previous) handle on the wall: each visible quad's corners, then its nodes, wrapping across quads | low | yes |
 | `HANDLE NUDGE` | `HANDLE NUDGE <dx> <dy> [PX\|RASTER]` | as `SURFACE CORNER … BY` on the selected handle | review | yes |
 | `OVERLAY` | `OVERLAY ON\|OFF\|TOGGLE\|KEEP [ON <output>\|ALL] [LAYERS <cursor,outlines,handles,lattice>\|EDIT\|ALL]` | JSON `{on, outputs, layers, words}`; `KEEP` renews the lease silently (it lapses `NodeSettings.Wall.OverlayLeaseMs`, 15 s, after the last); `names` and `pins` refused with words (not drawn yet) | review | yes |
-| `CURSOR` | `CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb]`, `CURSOR OFF` | silent OK; 0–1 across the output, up to 8 trail points; one cursor per session, at most `MaxCursors` (8), each lapsing `CursorLeaseMs` (3 s) after its last line; no journal, no undo | low | yes |
+| `CURSOR` | `CURSOR <output> <x> <y> [TRAIL <x> <y>…] [COLOR #rrggbb]`, `CURSOR OFF` | silent OK (a line with a request id is answered `OK @id`); 0–1 across the output, up to 8 trail points; one cursor per session, at most `MaxCursors` (8), each lapsing `CursorLeaseMs` (3 s) after its last line; no journal, no undo | low | yes |
 | `CALIBRATION STATUS` | `CALIBRATION STATUS [<projector>\|<output>\|ALL]` | JSON `{task, targets:[…]}`, each target as STATE | low | no |
 | `CALIBRATION HISTORY` | `CALIBRATION HISTORY <projector>\|<output> [<n>]` | JSON `{target, name, count, snapshots:[{id, name, at, source, score, grade, words, verifiedP95, who, parent, scan, delta:{mm, deg, wallPx}, current, fallback, staged, pinned}]}`, newest first; the delta is from the result before (−1 for the oldest) | low | no |
 | `CALIBRATION SAVE` | `CALIBRATION SAVE <projector>\|<output>\|ALL [AS <name>]` | JSON `{snapshots, words}`: the calibration as it stands kept as a pinned result (never pruned) | review | yes |
@@ -66,7 +66,7 @@ period, p95 over the last 300 moves (−1 before the first). Unknown numbers are
 - Events: `calibration.staged` (a re-solve or a ledger record staged a result), `calibration.recalled`.
 - Preflight section `calibration`: each projector an output shows — red F (fix: `CALIBRATION FALLBACK`), amber C, a staged result
   (`CALIBRATION ACCEPT <snapshot>`) or no fallback (`CALIBRATION ACCEPT <projector>`), green otherwise.
-- INDEX section `calibration`: a row per projector (light from its grade, state "A 0.2"); keys Re-solve, Fallback (hold), History.
+- INDEX section `calibration`: a row per projector (light from its grade, state "A 0.2"); keys Re-solve (held, as its row is), Fallback (hold), History.
 
 ## Papers note
 

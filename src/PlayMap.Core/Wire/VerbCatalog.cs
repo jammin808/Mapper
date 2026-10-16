@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Text;
 
 namespace PlayMap.Core.Wire;
 
@@ -529,14 +530,158 @@ public static class VerbCatalog
 
     /// <summary>The line as it may be written down or shown: a verb's secret words (<see cref="VerbSpec.SecretFrom"/>)
     /// are replaced by one marker, so a journal row, a log, a proposal on a desk or a reply never holds a token, a
-    /// key or a password. Only the line itself, kept where it runs, carries them.</summary>
+    /// key or a password; and so are the secret words of every line it carries — the lines after a binding's TO (or after
+    /// BIND LEARN's words) to its end, every string literal of a JSON argument, a word that reads as a line (SET's value) — at
+    /// any depth a line may carry lines. Read in one pass over the line's words and once over each word that carries a line, so
+    /// the longest line the wire reads is written down at once. Only the line itself, kept where it runs, carries them.</summary>
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        if (Match(line) is not { Spec.SecretFrom: int from } || line.Count <= from)
+        return Redacted(line, 0);
+    }
+
+    /// <summary>How many words deep a line may ride inside words (a quoted phrase or a JSON string holding a line whose word holds
+    /// another) before such a word is shown as the marker whole. Each such word is escaped in the one around it, so the longest line
+    /// the wire reads nests far fewer.</summary>
+    private const int MaxShownNesting = 32;
+
+    private static string Redacted(WireLine line, int nesting)
+    {
+        if (SecretAt(line) is int from)
+            return line.Count <= from ? line.Raw : WireGrammar.Join([.. line.Words.Take(from), SecretMarker]);
+        if (Match(line) is not { } m || line.Count <= m.Words)
             return line.Raw;
-        var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
-        return string.Join(' ', kept) + " " + SecretMarker;
+        // The lines it carries to its end: every word from the first secret word any of them holds is kept back.
+        var cut = m.Spec.EmbedsLine && CarriedSecretAt(line, m.Spec, m.Words) is int at ? at : line.Count;
+        // Each word before that which carries a line of its own: a JSON argument's strings, or a phrase that reads as a line.
+        string[]? words = null;
+        for (var i = m.Words; i < cut; i++)
+        {
+            var word = line.Word(i);
+            var shown = word.Length > 0 && word[0] is '{' or '[' ? RedactedJson(word, nesting) : RedactedText(word, nesting);
+            if (shown is null)
+                continue;
+            words ??= [.. line.Words];
+            words[i] = shown;
+        }
+        if (cut < line.Count)
+            return WireGrammar.Join([.. (words ?? line.Words).Take(cut), SecretMarker]);
+        return words is null ? line.Raw : WireGrammar.Join(words);
+    }
+
+    /// <summary>Where the first secret word is that a line carried to this line's end holds — after a binding's TO, after BIND LEARN's
+    /// optional FROM &lt;x&gt;, and so on inside each carried line, however deep — as <see cref="HoldsSecret"/> reads that carried line;
+    /// null when none holds one. Every carried line is a run of this line's last words, so each place one may start is read once,
+    /// in word order, and every TO is marked once.</summary>
+    private static int? CarriedSecretAt(WireLine line, VerbSpec spec, int verbWords)
+    {
+        var count = line.Count;
+        var starts = new bool[count];
+        var marked = count;
+        int? first = null;
+        Carry(spec, 0, verbWords);
+        for (var s = verbWords; s < count; s++)
+        {
+            if (!starts[s] || MatchAt(line, s) is not { } c)
+                continue;
+            if (c.Spec.SecretFrom is int from && s + c.Words + from - c.Spec.WordCount is var secret && secret < count)
+                first = Math.Min(first ?? secret, secret);
+            if (c.Spec.EmbedsLine)
+                Carry(c.Spec, s, c.Words);
+        }
+        return first;
+
+        // The starts a carrying line at `at` gives: the words after each TO of a binding, else after an optional FROM <x>. A JSON
+        // argument carries its lines in its strings, which the caller reads word by word.
+        void Carry(VerbSpec carrier, int at, int words)
+        {
+            var args = at + words;
+            if (args >= count || line.Word(args).StartsWith('{'))
+                return;
+            if (!BindsTo(carrier))
+            {
+                var after = string.Equals(line.WordUpper(args), "FROM", StringComparison.Ordinal) ? args + 2 : args;
+                if (after < count)
+                    starts[after] = true;
+                return;
+            }
+            // Every TO from `marked` on has been marked by an earlier binding.
+            for (var i = args; i < Math.Min(marked, count - 1); i++)
+                if (string.Equals(line.WordUpper(i), "TO", StringComparison.Ordinal))
+                    starts[i + 1] = true;
+            marked = Math.Min(marked, args);
+        }
+    }
+
+    /// <summary>A text that reads as a line holding secret words, as it may be shown; null when it is no such line. A line nested past
+    /// <see cref="MaxShownNesting"/> is shown as the marker whole.</summary>
+    private static string? RedactedText(string text, int nesting)
+    {
+        // A line of two words or more is parted by white space or by a quoted phrase's closing quote.
+        if (!text.Any(c => char.IsWhiteSpace(c) || c == '"') || !WireGrammar.TryParse(text, out var inner, out _) || inner.RequestId is not null)
+            return null;
+        if (nesting >= MaxShownNesting)
+            return inner.Count > 1 ? SecretMarker : null;
+        var shown = Redacted(inner, nesting + 1);
+        return string.Equals(shown, inner.Raw, StringComparison.Ordinal) ? null : shown;
+    }
+
+    /// <summary>A JSON argument with every string literal in it that reads as a line holding secret words shown without them; null when
+    /// it holds none. Its literals are read as the node's JSON reader reads them — comments skipped, escapes decoded, a key given twice
+    /// read each time — and one cut short is read to the end; the rest of the argument is kept as it came.</summary>
+    private static string? RedactedJson(string json, int nesting)
+    {
+        StringBuilder? shown = null;
+        var value = new StringBuilder();
+        var copied = 0;
+        var i = 0;
+        while (i < json.Length)
+        {
+            var c = json[i];
+            if (c == '/' && i + 1 < json.Length && json[i + 1] is '/' or '*')
+            {
+                var end = json[i + 1] == '/' ? json.IndexOf('\n', i + 2) : json.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? json.Length : end + (json[i + 1] == '/' ? 1 : 2);
+                continue;
+            }
+            if (c != '"')
+            {
+                i++;
+                continue;
+            }
+            var start = i++;
+            value.Clear();
+            while (i < json.Length && json[i] != '"')
+                i = json[i] == '\\' && i + 1 < json.Length ? Unescape(json, i, value) : Append(value, json[i], i);
+            i = Math.Min(i + 1, json.Length);
+            if (RedactedText(value.ToString(), nesting) is not { } text)
+                continue;
+            shown ??= new StringBuilder(json.Length);
+            shown.Append(json, copied, start - copied).Append('"')
+                .Append(System.Text.Json.JsonEncodedText.Encode(text, System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping).Value).Append('"');
+            copied = i;
+        }
+        return shown?.Append(json, copied, json.Length - copied).ToString();
+    }
+
+    private static int Append(StringBuilder value, char c, int at)
+    {
+        value.Append(c);
+        return at + 1;
+    }
+
+    /// <summary>One JSON escape at <paramref name="at"/> (a backslash) decoded into <paramref name="value"/>; where it reads on.</summary>
+    private static int Unescape(string json, int at, StringBuilder value)
+    {
+        var e = json[at + 1];
+        if (e == 'u' && at + 6 <= json.Length
+            && int.TryParse(json.AsSpan(at + 2, 4), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out var code))
+        {
+            value.Append((char)code);
+            return at + 6;
+        }
+        value.Append(e switch { 'n' => '\n', 'r' => '\r', 't' => '\t', 'b' => '\b', 'f' => '\f', _ => e });
+        return at + 2;
     }
 
     /// <summary>A line's text as it may be shown (<see cref="Redacted(WireLine)"/>); a text that does not read as a
@@ -547,17 +692,22 @@ public static class VerbCatalog
     /// <summary>A line's risk: its verb's, set by the first <see cref="VerbSpec.RiskWhen"/> its words match (only upward on a
     /// line that moves the air, a transport, a panic or a projector's power), raised to high by the words that make it so
     /// (<see cref="VerbSpec.HighFor"/>), and for a verb that carries another line, at least that line's risk. High for a line no
-    /// verb names. It decides who must approve an assistant's line, never what an armed node refuses.</summary>
+    /// verb names, and for one that carries more lines than are worth reading (<see cref="MaxCarriedReadings"/>). It decides who must approve an assistant's line, never what an armed node refuses.</summary>
     public static VerbRisk RiskOf(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return RiskOf(line, 0);
+        var readings = MaxCarriedReadings;
+        return RiskOf(line, 0, ref readings);
     }
 
     /// <summary>How deep lines may carry lines before the carried one counts as high (a line binding a line that binds a line).</summary>
     private const int MaxEmbedding = 4;
 
-    private static VerbRisk RiskOf(WireLine line, int depth)
+    /// <summary>How many carried lines a line's risk reads, at every depth together, before the line counts as high: no binding a person
+    /// writes comes near it, and a line made of bindings carrying bindings waits for a person instead of being read on and on.</summary>
+    private const int MaxCarriedReadings = 256;
+
+    private static VerbRisk RiskOf(WireLine line, int depth, ref int readings)
     {
         if (Match(line) is not { } m)
             return VerbRisk.High;
@@ -578,10 +728,10 @@ public static class VerbCatalog
             return risk;
         foreach (var carried in CarriedReadings(spec, line, m.Words))
         {
-            if (carried is null)
+            if (carried is null || --readings < 0)
                 return VerbRisk.High;
             if (Match(carried) is not null)
-                risk = Max(risk, depth >= MaxEmbedding ? VerbRisk.High : RiskOf(carried, depth + 1));
+                risk = Max(risk, depth >= MaxEmbedding ? VerbRisk.High : RiskOf(carried, depth + 1, ref readings));
         }
         return risk;
     }
@@ -684,7 +834,17 @@ public static class VerbCatalog
     public static bool HoldsSecret(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return Match(line) is { Spec.SecretFrom: int from } && line.Count > from;
+        return SecretAt(line) is int from && line.Count > from;
+    }
+
+    /// <summary>The word a matched line's secret starts at: its verb's <see cref="VerbSpec.SecretFrom"/> counted from where the verb's
+    /// name ends in this line, as the router reads its arguments (a two-word name quoted as one word takes one word); null for a verb
+    /// with no secret words.</summary>
+    private static int? SecretAt(WireLine line)
+    {
+        if (Match(line) is not { } m || m.Spec.SecretFrom is not int from)
+            return null;
+        return m.Words + from - m.Spec.Name.Split(' ').Length;
     }
 
     /// <summary>True when a line's secret words are the marker a shown copy carries: a copy taken from a desk or a
@@ -692,7 +852,7 @@ public static class VerbCatalog
     public static bool IsShownCopy(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        if (Match(line) is not { Spec.SecretFrom: int from })
+        if (SecretAt(line) is not int from)
             return false;
         for (var i = from; i < line.Count; i++)
             if (string.Equals(line.Word(i), SecretMarker, StringComparison.Ordinal))
@@ -706,14 +866,20 @@ public static class VerbCatalog
     public static (VerbSpec Spec, int Words)? Match(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        var first = line.WordUpper(0);
+        return MatchAt(line, 0);
+    }
+
+    /// <summary>The verb the line's words from <paramref name="at"/> name, as <see cref="Match"/> reads a line's first words.</summary>
+    private static (VerbSpec Spec, int Words)? MatchAt(WireLine line, int at)
+    {
+        var first = line.WordUpper(at);
         if (first is "VT" or "CLIP")
             first = "VIDEO";
         else if (first is "TC")
             first = "TIMECODE";
-        if (line.Count >= 2 && ByName.TryGetValue(first + " " + line.WordUpper(1), out var two))
+        if (line.Count >= at + 2 && ByName.TryGetValue(first + " " + line.WordUpper(at + 1), out var two))
             return (two, 2);
-        if (line.Count >= 1 && ByName.TryGetValue(first, out var one))
+        if (line.Count >= at + 1 && ByName.TryGetValue(first, out var one))
             return (one, 1);
         return null;
     }
