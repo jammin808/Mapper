@@ -229,14 +229,19 @@ public sealed partial class EngineCore
         }, sv.Name + "'s cloud");
     }
 
-    /// <summary>SITE CHECK [&lt;surface&gt;|&lt;survey&gt;]: every enabled control point's distance to the model, its light, and the fit; kept
-    /// for the site's context item and preflight until the project changes. Off the lane: the meshes load and the distances are
-    /// measured on a worker.</summary>
+    /// <summary>SITE CHECK [&lt;surface&gt;|&lt;survey&gt;]: every enabled control point's distance to the model, its light, and the fit — of the
+    /// session's own project (a blind draft's session measures what it staged); the live stage's measure is kept for the site's
+    /// context item and preflight until the project changes. Off the lane: the meshes load and the distances are measured on a
+    /// worker.</summary>
     private async Task<CommandReply> SiteCheckAsync(VerbCall call)
     {
         if (call.Args.Count > 1)
             return CommandReply.Fail("SITE CHECK [<surface>|<survey>]");
-        var snap = Store.Current;
+        var (snap, live) = await _lane.RunAsync(() =>
+        {
+            var store = EditsFor(call.Session);
+            return (store.Current, ReferenceEquals(store, Store));
+        }).ConfigureAwait(false);
         var word = call.Args.Count == 1 ? call.Args[0] : null;
         if (snap.Project.Stage.Controls.Length == 0)
             return CommandReply.Fail("the project has no control points — SITE POINTS <path> imports them");
@@ -244,6 +249,8 @@ public sealed partial class EngineCore
         if (outcome.Why is { } why)
             return CommandReply.Fail(why);
         var result = outcome.Result!;
+        if (!live)
+            return CommandReply.Success(JsonOut(w => WriteSiteCheck(w, result)), "in the blind draft: " + result.Words);
         Volatile.Write(ref _siteCheck, new SiteCheckFact(snap.Revision, result.Light, result.Words, result));
         FactsChanged();
         return CommandReply.Success(JsonOut(w => WriteSiteCheck(w, result)), result.Words);

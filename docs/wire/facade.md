@@ -28,7 +28,9 @@ row of its reply carries `priorsUsed` and `locked`.
 `PROJECTOR PRIOR` and a generic edit of a `cp…` or `sv…` are mapping (refused while armed for a person, proposed by an assistant);
 `SURVEY IMPORT` is heavy work (refused while armed but for the node itself). From the session that holds the blind draft the mapping
 lines run into the draft: `staged` is true and the words begin "staged in the blind draft:", while STATE, `PROJECT GET` and the air
-keep the live site until `BLIND COMMIT` lands it. A sync group shares none of them: each node keeps its own site.
+keep the live site until `BLIND COMMIT` lands it; that session's `SITE` and `SITE CHECK` read the draft (the words of a draft's check
+begin "in the blind draft:", and the `site` context item and preflight never take it). A sync group shares none of them: each node
+keeps its own site.
 
 `STACK ALIGN` stays in the catalogue unrouted (the calibration score's stack term names it); `SITE GUIDE`, `PLAN LIGHT` and the other
 `STACK` verbs are wp2-stacks'.

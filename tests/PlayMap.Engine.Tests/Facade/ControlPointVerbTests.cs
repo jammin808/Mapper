@@ -79,6 +79,27 @@ public sealed class ControlPointVerbTests
     }
 
     [Fact]
+    public async Task SiteCheckFromADraftMeasuresTheDraftAndLeavesTheLiveCheckAlone()
+    {
+        await using var rig = await Surveyed();
+        var draft = new ProjectStore(rig.Engine.Store.Project);
+        rig.Engine.DraftForTests = s => s.SessionId == SiteRig.Desk.SessionId ? draft : null;
+        var staged = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")}"));
+        Assert.True(staged.GetProperty("staged").GetBoolean());
+        Assert.Equal(14, draft.Project.Stage.Controls.Length);
+        Assert.Empty(rig.Engine.Store.Project.Stage.Controls);
+
+        // The draft's session measures what it staged: the draft's points on the draft's model.
+        var check = SiteRig.Json(await rig.Ok("SITE CHECK"));
+        Assert.Equal("green", check.GetProperty("light").GetString());
+        Assert.Equal(14, check.GetProperty("points").GetArrayLength());
+        // The live stage has no points: the site's context item and preflight never take the draft's measure as the stage's.
+        Assert.Null(rig.Engine.LastSiteCheck);
+        rig.Engine.DraftForTests = null;
+        Assert.Contains("no control points", await rig.Refused("SITE CHECK"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ABoundPinAndPriorFollowTheirPoint()
     {
         await using var rig = await Surveyed();

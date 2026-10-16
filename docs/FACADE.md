@@ -86,8 +86,9 @@ weighed against their 0.3 px noise (docs/CALIBRATION.md).
 The site's queries (`SITE`, `SITE CHECK`, `SURVEY LIST`) run for everyone. Its edits (`SITE ORIGIN`, `SITE MAINS`, `SITE POINTS`,
 `PROJECTOR PRIOR`, a generic edit of a control point or a survey) are mapping: refused while armed for a person, proposed by an
 assistant, and held by `LOCK AREA mapping` and by a lock on the point or survey itself. From the session that holds the blind draft
-they run into the draft and say "staged" until `BLIND COMMIT` lands them. `SURVEY IMPORT` is heavy work: refused while armed, and
-never staged. A sync group shares none of them: each node keeps its own site. A survey is no media: the show's media, preflight's
+they run into the draft and say "staged" until `BLIND COMMIT` lands them, and its `SITE` and `SITE CHECK` read the draft (a draft's
+check is never taken as the stage's by the context or preflight). `SURVEY IMPORT` is heavy work: refused while armed, and never
+staged. A sync group shares none of them: each node keeps its own site. A survey is no media: the show's media, preflight's
 media rows and the optimiser never see its files.
 
 ## Scans bridge into the stage as placed
