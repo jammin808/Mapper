@@ -475,8 +475,6 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 				this.events.restarted()
 				return since(0)
 			}
-			// A node heard to start again is replayed from its first: that, not a later STATE's seq, is where it was first heard.
-			this.events.heard(seq)
 			this.#takeAll((Array.isArray(o.events) ? o.events : []).map(readEvent).filter((e) => e !== null))
 			return true
 		}

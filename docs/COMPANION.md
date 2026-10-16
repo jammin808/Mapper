@@ -153,7 +153,8 @@ having taken none, from the node's `events.seq` when it first heard it, 0 includ
 raised while the link was down, never moves it); events pushed while the replay is in flight wait for it — at most the node's ring of 256: one more
 lets go of what waits and asks the replay again from the last seq taken — a replay the node does not answer is asked again (three
 tries, 2 s apart) and one the link drops leaves them untaken, so the last seq never passes a gap; a node whose newest seq is below it
-started again and is replayed from its first. An `EVENTS overflow` line replays the same way. An event is kept bounded whatever a push
+started again and is replayed from its first, and from its first again after a replay the link lost (no later STATE's seq moves
+that). An `EVENTS overflow` line replays the same way. An event is kept bounded whatever a push
 holds: its kind and each text at most 1 KiB, plain values only, at most 32 fields.
 
 **STATE and INDEX.** STATE is read through one table of paths (`src/state/paths.ts`); the node's contract test finds every one of them in

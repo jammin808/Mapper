@@ -57,25 +57,27 @@ export function readEvent(json: unknown): NodeEvent | null {
  * what is left of its window. */
 export class EventLog {
 	lastSeq = 0
-	/** The node's events.seq when this deck first heard it: a deck that took no event yet replays from it after a drop. Taken once,
-	 * so a later greeting STATE, whose seq counts the events raised while the link was down, never moves a replay past them. */
+	/** The node's events.seq when this deck first heard it (0 for a node seen to start again): a deck that took no event yet replays
+	 * from it after a drop. Taken once, so a later STATE, whose seq counts the events raised while the link was down, never moves a
+	 * replay past them. */
 	baseline = 0
 	#baselineTaken = false
 	last: NodeEvent | null = null
 	readonly #recent: NodeEvent[] = []
 
-	/** The node's events.seq, from STATE or from where an answered replay started: the baseline when none is taken yet. */
+	/** The node's events.seq, from STATE: the baseline when none is taken yet. */
 	heard(seq: number): void {
 		if (this.#baselineTaken) return
 		this.#baselineTaken = true
 		this.baseline = seq
 	}
 
-	/** The node's newest seq is below the last one heard: the node started again and numbers its events afresh. */
+	/** The node's newest seq is below the last one heard: the node started again and numbers its events afresh, so it is replayed
+	 * from its first. The baseline is taken at 0, so no later STATE moves it, even when that replay is lost with the link. */
 	restarted(): void {
 		this.lastSeq = 0
 		this.baseline = 0
-		this.#baselineTaken = false
+		this.#baselineTaken = true
 		this.last = null
 		this.#recent.length = 0
 	}

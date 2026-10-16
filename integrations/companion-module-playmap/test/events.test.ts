@@ -2,8 +2,8 @@
 // node's own words) follow it — and an event_pulse feedback is true for hold_ms after an event whose kind matches (exactly, or by a
 // "fault.*" prefix) and, when it names a ref, one of whose fields is that ref, timed by the node's clock; an event at or below the
 // last seq heard is never taken again; after a drop the re-paired link asks EVENTS SINCE the last seq heard and takes what it missed,
-// whatever the node pushes meanwhile (a deck that took none, from the node's events.seq when it first heard it, 0 too); an EVENTS
-// overflow is replayed and the subscription opened again, never left a silent gap. A replay holds at most the node's ring of pushed
+// whatever the node pushes meanwhile (a deck that took none, from the node's events.seq when it first heard it, 0 too; a node seen
+// to start again, from its first, even after that replay is lost with the link); an EVENTS overflow is replayed and the subscription opened again, never left a silent gap. A replay holds at most the node's ring of pushed
 // events, and an event keeps at most 1 KiB of each text.
 // The hold's end on the node's clock runs on fake timers (the one such test in this file).
 import test from 'node:test'
@@ -333,6 +333,59 @@ void test('a node that started again numbers its events afresh: the re-paired li
 		await seqHeard(m, 5, 'the events raised during the second drop')
 		assert.deepEqual(asked, ['412', '0', '3'])
 		assert.deepEqual(taken(m), [1, 2, 3, 4, 5])
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
+void test('a node seen to start again is replayed from its first even when that replay is lost: no later STATE moves where it starts', async () => {
+	const state = copy(fixture('state.json')) as { events: { seq: number } }
+	state.events.seq = 0
+	const node = await new FakeNode({ state }).start()
+	const ring: Record<string, unknown>[] = []
+	const asked: string[] = []
+	let loseFromStart = false
+	serveRing(node, ring, asked)
+	const served = node.handlers.get('EVENTS SINCE')
+	node.handlers.set('EVENTS SINCE', (line, words) => {
+		if (!(loseFromStart && words[2] === '0')) return served?.(line, words)
+		loseFromStart = false
+		asked.push(words[2] ?? '')
+		// Not answered: the link drops, and while it is down the started-again node raises event 3, which its next greeting counts.
+		ring.push(eventJson(3, node.now(), 'item.start', { words: 'Show: Blue started' }))
+		node.state = { ...state, events: { seq: 3 } }
+		setImmediate(() => {
+			for (const s of [...node.sessions]) s.close(1001)
+		})
+		return null
+	})
+	const m = await boot(configFor(node.webPort), {}, { random: () => 0 })
+	try {
+		await m.host.until(() => m.instance.linked(), 'linked')
+		await node.heard('SUBSCRIBE EVENTS')
+		node.push(eventLine(412, node.now(), 'item.end', { item: SHOW.red, words: 'Show: Red ended' }))
+		await seqHeard(m, 412, 'the pushed event')
+
+		// The node starts again while the link is down and raises events 1 and 2. The re-pair's replay from 412 sees it started
+		// again; its replay from the start is lost with the link.
+		for (const s of [...node.sessions]) s.close(1001)
+		await m.host.until(() => m.host.variables.get('link') !== 'live', 'the link down')
+		ring.push(
+			eventJson(1, node.now(), 'show.armed', { words: 'Show armed' }),
+			eventJson(2, node.now(), 'fault.raised', { ref: 'op_1', words: 'Output 1 lost its display' }),
+		)
+		node.state = { ...state, events: { seq: 2 } }
+		loseFromStart = true
+
+		await seqHeard(m, 3, 'every event of the started-again node, once a replay from its first is answered')
+		assert.deepEqual(
+			asked,
+			['412', '0', '0'],
+			'the next pairing asks from the start again, never from its greeting’s seq',
+		)
+		assert.deepEqual(taken(m), [1, 2, 3])
+		assert.equal(m.host.variables.get('event_last'), 'Show: Blue started')
 	} finally {
 		await m.stop()
 		await node.stop()
