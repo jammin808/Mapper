@@ -99,7 +99,7 @@ public sealed class BackupNode : IAsyncDisposable
     private int _followTurns;
     private int _projectTurns;
     private int _filesTurns;
-    private int _showMissing;
+    private volatile string[] _showMissing = [];
     private readonly SemaphoreSlim _showGate = new(1, 1);
     private readonly ConcurrentDictionary<string, string> _showHere = new(StringComparer.Ordinal);
     private CancellationTokenSource? _joining;
@@ -950,7 +950,7 @@ public sealed class BackupNode : IAsyncDisposable
         var files = ShowFiles.Of(project);
         if (files.Count == 0)
         {
-            Volatile.Write(ref _showMissing, 0);
+            _showMissing = [];
             return 0;
         }
         await _showGate.WaitAsync(ct).ConfigureAwait(false);
@@ -958,14 +958,14 @@ public sealed class BackupNode : IAsyncDisposable
         {
             var folder = engine.MirrorFilesFolder(Path.Combine(_setup.Home.Folder, "mirror", _primaryId));
             var landed = 0;
-            var missing = 0;
+            var missing = new List<string>();
             foreach (var f in files)
             {
                 if (engine.Stopping)
                     break;
                 if (Align.AlignArchive.Resolve(folder, f.Path) is not { } destination)
                 {
-                    missing++;
+                    missing.Add(f.Path);
                     continue;
                 }
                 if (await HereAsync(destination, f.Hash, ct).ConfigureAwait(false))
@@ -979,11 +979,11 @@ public sealed class BackupNode : IAsyncDisposable
                 }
                 else
                 {
-                    missing++;
+                    missing.Add(f.Path);
                     engine.Journal.Add("refused", $"{f.Path} could not be pulled from {_primaryName}: {words}", ok: false);
                 }
             }
-            Volatile.Write(ref _showMissing, missing);
+            _showMissing = [.. missing];
             return landed;
         }
         finally
@@ -1465,7 +1465,7 @@ public sealed class BackupNode : IAsyncDisposable
     /// that land are read at once (the show was applied without them).</summary>
     private async Task RepullShowFilesAsync(EngineCore engine)
     {
-        if (Volatile.Read(ref _showMissing) == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
+        if (_showMissing.Length == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
         {
             _filesTurns = 0;
             return;
@@ -1538,7 +1538,7 @@ public sealed class BackupNode : IAsyncDisposable
         else if (MissingHere() is var missing && missing > 0)
             (state, words) = Volatile.Read(ref _missingFiles) > 0
                 ? ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {missing} file{(missing == 1 ? "" : "s")} from {_primaryName}"))
-                : ("different", string.Create(CultureInfo.InvariantCulture, $"{missing} file{(missing == 1 ? "" : "s")} the show names could not be pulled from {_primaryName} — PREFLIGHT names the line that fetches {(missing == 1 ? "it" : "them")}"));
+                : ("different", string.Create(CultureInfo.InvariantCulture, $"{missing} file{(missing == 1 ? "" : "s")} the show names could not be pulled from {_primaryName} — PREFLIGHT names {(missing == 1 ? "it" : "them")}, and the line that fetches a media file"));
         else if (!OnPrimaryLine())
             (state, words) = ("joining", $"waiting for this node's clock to read {_primaryName}'s time line");
         else if (_engine?.Services.GroupSync is not { FeedWord: "live" })
@@ -1548,12 +1548,16 @@ public sealed class BackupNode : IAsyncDisposable
         return new MirrorView(_settings.Of, _primaryName, state, applied, behind, words);
     }
 
+    /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
+    /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror is live.</summary>
+    public IReadOnlyList<string> MissingShowFiles => _showMissing;
+
     /// <summary>The files and optimised versions the show names that this node does not hold (verified, by hash).</summary>
     private int MissingHere()
     {
         if (_engine is not { } engine || engine.Services.Media is not { } store)
             return 0;
-        var n = Volatile.Read(ref _showMissing);
+        var n = _showMissing.Length;
         foreach (var m in engine.Store.Project.Media)
         {
             if (m.IsFile && ContentHasher.IsValid(m.ContentHash) && store.PathForHash(m.ContentHash) is null)

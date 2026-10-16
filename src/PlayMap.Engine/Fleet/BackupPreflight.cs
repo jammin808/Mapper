@@ -39,13 +39,13 @@ internal sealed class BackupPreflight : IPreflightCheck
                 rows.Add(new PreflightRow("backup:mirror", node, Section, "Mirror of " + (mirror?.Name is { Length: > 0 } n ? n : role.Of),
                     state switch { "identical" => Light.Green, "lost" => Light.Red, _ => Light.Amber }, state, mirror?.Words ?? "",
                     state == "lost" ? $"FLEET BACKUP {role.Of}" : null));
-                var missing = Missing(engine, project);
+                var missing = Missing(engine, project, backup.MissingShowFiles);
                 rows.Add(missing.Count == 0
                     ? new PreflightRow("backup:files", node, Section, "Files and versions", Light.Green, "all here", "every file and optimised version the show names is here, verified by its hash", null)
                     : new PreflightRow("backup:files", node, Section, "Files and versions", Light.Amber,
                         missing.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " missing",
                         $"{string.Join(", ", missing.Take(3).Select(m => m.Words))}{(missing.Count > 3 ? " …" : "")} — the backup cannot play what the primary plays",
-                        missing[0].Fix(role.Of)));
+                        missing.Select(m => m.Fix(role.Of)).FirstOrDefault(f => f is not null)));
                 break;
             default:
                 foreach (var m in backup.Feed.Members)
@@ -84,17 +84,20 @@ internal sealed class BackupPreflight : IPreflightCheck
         return rows;
     }
 
+    /// <summary>A missing media file or version (fetched by its line), or a file the show names beside its folder (<paramref name="MediaId"/>
+    /// "": the mirror asks for it again itself; no line fetches it).</summary>
     private sealed record MissingFile(string MediaId, string? VersionId, string Words)
     {
-        public string Fix(string of) => VersionId is null ? $"MEDIA FETCH {MediaId} FROM {of}" : $"MEDIA FETCH {MediaId} VERSION {VersionId} FROM {of}";
+        public string? Fix(string of) => MediaId.Length == 0 ? null
+            : VersionId is null ? $"MEDIA FETCH {MediaId} FROM {of}" : $"MEDIA FETCH {MediaId} VERSION {VersionId} FROM {of}";
     }
 
-    private static List<MissingFile> Missing(EngineCore engine, Project project)
+    private static List<MissingFile> Missing(EngineCore engine, Project project, IReadOnlyList<string> showFiles)
     {
         var store = engine.Services.Media;
         var list = new List<MissingFile>();
         if (store is null)
-            return list;
+            return [.. showFiles.Select(Beside)];
         foreach (var m in project.Media.Where(m => m.IsFile))
         {
             if (ContentHasher.IsValid(m.ContentHash) && store.PathForHash(m.ContentHash) is null)
@@ -102,6 +105,9 @@ internal sealed class BackupPreflight : IPreflightCheck
             foreach (var v in m.Versions.Where(v => ContentHasher.IsValid(v.ContentHash) && store.PathForHash(v.ContentHash) is null))
                 list.Add(new MissingFile(m.Id, v.Id, $"{m.Name} {v.Id} ({v.To})"));
         }
+        list.AddRange(showFiles.Select(Beside));
         return list;
     }
+
+    private static MissingFile Beside(string path) => new("", null, path + " (beside the show; asked for again every 2 s)");
 }

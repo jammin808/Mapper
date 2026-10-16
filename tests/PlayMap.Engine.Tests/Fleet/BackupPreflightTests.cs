@@ -12,8 +12,9 @@ using PlayMap.Engine.Tests.Sync;
 namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>Preflight's backup rows and INDEX's fleet section with faults injected: an optimised version no machine holds leaves the
-/// backup's files amber with the line that fetches it; a route whose projector does not answer is red with FLEET ROUTE TEST; the
-/// primary lists its backup; the backup's INDEX offers FAILOVER lit by its mirror; a solo node says it has no hot backup.</summary>
+/// backup's files amber with the line that fetches it, and a mesh the show names beside it that the primary does not hold is counted
+/// and named there too; a route whose projector does not answer is red with FLEET ROUTE TEST; the primary lists its backup; the
+/// backup's INDEX offers FAILOVER lit by its mirror; a solo node says it has no hot backup.</summary>
 public sealed class BackupPreflightTests
 {
     private const long Second = SyncRig.Second;
@@ -50,11 +51,14 @@ public sealed class BackupPreflightTests
         var solo = Assert.Single(await Rows(primary));
         Assert.Equal((Light.Grey, "none"), (solo.Light, solo.Value));
 
-        // A version whose file no machine holds (the fault), and a route to a projector that does not answer (the other).
+        // A version whose file no machine holds and a mesh file beside the show the primary does not hold (the faults), and a route
+        // to a projector that does not answer (the other).
         var item = new MediaItem("md_clip", "Clip", MediaKind.Video, "/nowhere/clip.mp4", "", 10, MediaInfo.Unknown, []);
         var version = new MediaVersion("mv_1", "hap-q", "{}", "ok:" + new string('0', 32), "sha256:" + new string('3', 64), 100, MediaInfo.Unknown,
             VersionQuality.None, "hapenc/1", BackupRig.PrimaryId, 1);
-        await SyncRig.OpenShowAsync(primary, SyncRig.Show() with { Media = [item with { Versions = [version] }] });
+        var gone = new MeshAsset("ms00000009", "Gone", MeshOrigin.Imported, "meshes/ms00000009-gone.ply", "sha256:" + new string('9', 64), "", ParamSet.Empty, 8, 12);
+        var show = SyncRig.Show();
+        await SyncRig.OpenShowAsync(primary, show with { Media = [item with { Versions = [version] }], Stage = show.Stage with { Meshes = [gone] } });
         var dv = await primary.OkAsync($"DEVICE ADD P1 pjlink 127.0.0.1:{ClosedPort().ToString(CultureInfo.InvariantCulture)}");
         await primary.OkAsync($"FLEET ROUTE op_1 DEVICE {dv} 31 32");
         await primary.OkAsync("SYNC LEAD show");
@@ -65,8 +69,9 @@ public sealed class BackupPreflightTests
 
         var rows = await Rows(backup);
         var files = rows.Single(r => r.Id == "backup:files");
-        Assert.Equal((Light.Amber, "1 missing"), (files.Light, files.Value));
+        Assert.Equal((Light.Amber, "2 missing"), (files.Light, files.Value));
         Assert.Equal("MEDIA FETCH md_clip VERSION mv_1 FROM 0badc0de", files.Fix);
+        Assert.Contains("meshes/ms00000009-gone.ply", files.Note, StringComparison.Ordinal);
         var mirror = rows.Single(r => r.Id == "backup:mirror");
         Assert.Equal(("different", Light.Amber), (mirror.Value, mirror.Light));
         Assert.Contains("could not be pulled from FOH-A", mirror.Note, StringComparison.Ordinal);
