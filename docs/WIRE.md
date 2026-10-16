@@ -221,7 +221,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
   keeps the line whole and an approval runs that (a proposal approved on the desk runs from the node's own record,
   never the desk's copy). A line an assistant writes with a secret in it — over MCP or through `ASK` — never runs on
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
-  refused wherever it arrives.
+  refused wherever it arrives. A verb's secret words are counted from where its name ends, as its arguments are: a
+  two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does.
 - `SCAN SURFACE <scan> <x> <y> [<name>]` makes a surface of what is at x, y on the smart scan (0–1), or
   `SCAN SURFACE <scan> REGION <region> [<name>]` of a suggested region; it answers the surface's id.
 

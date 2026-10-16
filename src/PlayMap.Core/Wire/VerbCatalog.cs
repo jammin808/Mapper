@@ -534,7 +534,7 @@ public static class VerbCatalog
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        if (Match(line) is not { Spec.SecretFrom: int from } || line.Count <= from)
+        if (SecretAt(line) is not int from || line.Count <= from)
             return line.Raw;
         var kept = line.Words.Take(from).Select(w => w.Length == 0 || w.Contains(' ', StringComparison.Ordinal) || w.Contains('"', StringComparison.Ordinal) ? "\"" + w.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : w);
         return string.Join(' ', kept) + " " + SecretMarker;
@@ -685,7 +685,17 @@ public static class VerbCatalog
     public static bool HoldsSecret(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return Match(line) is { Spec.SecretFrom: int from } && line.Count > from;
+        return SecretAt(line) is int from && line.Count > from;
+    }
+
+    /// <summary>The word a matched line's secret starts at: its verb's <see cref="VerbSpec.SecretFrom"/> counted from where the verb's
+    /// name ends in this line, as the router reads its arguments (a two-word name quoted as one word takes one word); null for a verb
+    /// with no secret words.</summary>
+    private static int? SecretAt(WireLine line)
+    {
+        if (Match(line) is not { } m || m.Spec.SecretFrom is not int from)
+            return null;
+        return m.Words + from - m.Spec.Name.Split(' ').Length;
     }
 
     /// <summary>True when a line's secret words are the marker a shown copy carries: a copy taken from a desk or a
@@ -693,7 +703,7 @@ public static class VerbCatalog
     public static bool IsShownCopy(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
-        if (Match(line) is not { Spec.SecretFrom: int from })
+        if (SecretAt(line) is not int from)
             return false;
         for (var i = from; i < line.Count; i++)
             if (string.Equals(line.Word(i), SecretMarker, StringComparison.Ordinal))

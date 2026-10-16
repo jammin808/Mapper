@@ -34,6 +34,13 @@ public class WireAndBusTests
         Assert.Equal("CREDENTIAL SET pj1 \u2039secret\u203a", Shown("CREDENTIAL SET pj1 admin hunter2"));
         Assert.Equal("AUTH \u2039secret\u203a", Shown("AUTH abcdef"));
         Assert.DoesNotContain("hunter2", Shown("@r1 CREDENTIAL SET pj1 admin hunter2"), StringComparison.Ordinal);
+        // A two-word name quoted as one word is still the verb, its arguments start one word sooner, and so does its secret.
+        Assert.Equal("\"LINK PATTERNS\" 10.0.0.5 \u2039secret\u203a", Shown("\"LINK PATTERNS\" 10.0.0.5 s3cr3t-token"));
+        Assert.Equal("\"credential set\" pj1 \u2039secret\u203a", Shown("\"credential set\" pj1 admin hunter2"));
+        Assert.True(WireGrammar.TryParse("\"LINK PATTERNS\" 10.0.0.5 s3cr3t-token", out var quoted, out _));
+        Assert.True(VerbCatalog.HoldsSecret(quoted));
+        Assert.True(WireGrammar.TryParse("\"LINK PATTERNS\" 10.0.0.5", out var unkeyed, out _));
+        Assert.False(VerbCatalog.HoldsSecret(unkeyed));
         // A line without its secret, and every other verb, is written as it came.
         Assert.Equal("LINK PATTERNS 10.0.0.5", Shown("LINK PATTERNS 10.0.0.5"));
         Assert.Equal("BLACKOUT ON", Shown("BLACKOUT ON"));
