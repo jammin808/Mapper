@@ -55,6 +55,24 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+      # The Companion module (integrations/companion-module-playmap): its type check, lint and tests — the e2e test against this
+      # job's Release engine — then Companion's own module check. It runs whatever the .NET suites said.
+      - name: Node for the Companion module
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.20.0"
+          cache: npm
+          cache-dependency-path: integrations/companion-module-playmap/package-lock.json
+      - name: The Companion module (npm ci, npm test, npm run check)
+        if: ${{ !cancelled() }}
+        working-directory: integrations/companion-module-playmap
+        env:
+          PLAYMAP_ENGINE: ${{ github.workspace }}/tools/PlayMap.Node/bin/Release/net10.0/PlayMap.Node.dll
+        run: |
+          npm ci
+          npm test
+          npm run check
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
