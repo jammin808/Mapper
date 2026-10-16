@@ -8,16 +8,22 @@ import { boot, configFor } from './harness.ts'
 import { authProof } from '../src/link/pairing.ts'
 import { Words } from '../src/words.ts'
 import { parseAddress, type PlayMapConfig } from '../src/config.ts'
+import { MODULE_VERSION } from '../src/version.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
+
+/** The HELLO a connection labelled `label` says, whole, at this module's version. */
+function helloOf(label: string): RegExp {
+	const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+	return new RegExp(`^@c\\d+ HELLO ${literal(`Companion:${label}`)} module=${literal(MODULE_VERSION)}$`, 'u')
+}
 
 void test('a token proves itself by HMAC over the line channel; the token never crosses the wire', async () => {
 	const node = await new FakeNode({ token: TOKEN }).start()
 	const m = await boot(configFor(node.webPort), { token: 'k7qm 3xwd-p9ra' })
 	try {
 		await m.host.until(() => m.host.status?.status === InstanceStatus.Ok, 'status ok')
-		const hello = await node.heard(/HELLO Companion:FOH deck module=1\.0\.0$/u)
-		assert.match(hello, /^@c\d+ HELLO /u)
+		await node.heard(helloOf('FOH deck'))
 		const proof = await node.heard('AUTH-PROOF')
 		assert.match(proof, /^@c\d+ AUTH-PROOF [0-9a-f]{64}$/u)
 		assert.ok(!node.lines.some((l) => l.includes('K7QM') || l.includes('k7qm')), 'the token never rides a line')
@@ -26,7 +32,7 @@ void test('a token proves itself by HMAC over the line channel; the token never 
 			'VERBS',
 			'SUBSCRIBE INDEX',
 			'SUBSCRIBE EVENTS',
-			'PRESENCE {"kind":"companion","module":"1.0.0"',
+			`PRESENCE {"kind":"companion","module":"${MODULE_VERSION}"`,
 		])
 			await node.heard(line)
 		await m.host.until(() => m.host.variables.get('node_name') === 'Test node', 'node_name from STATE')
