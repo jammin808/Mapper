@@ -75,8 +75,9 @@ public sealed partial class EngineCore
 
         var rules = p.Show.Rules;
         // The panic lands at its AT instant (now when none is given), PanicLeadMs ahead on the show clock, so a group's members
-        // fade on the same frames.
-        var start = at!.Value + rules.PanicLeadMs * NsPerMs;
+        // fade on the same frames. A member's panic from its sync leader carries the leader's lead in its AT: it adds none of its own.
+        var lead = c.Session.Transport == LeaderTransport ? 0 : rules.PanicLeadMs;
+        var start = at!.Value + lead * NsPerMs;
         var notes = new List<string>();
         var entries = new List<OutputPanicAir>();
         foreach (var o in fresh)

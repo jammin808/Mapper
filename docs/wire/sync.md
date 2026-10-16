@@ -68,7 +68,8 @@ Name, Stage, AppliedLeaderNs, Words)` per member — `applied`, `refused`, `acce
 `silent` (no answer within 2 s, or 10 s for a report: one deadline for every member of the send); an applied receipt's `Words` is
 the member's report for `PREFLIGHT … WAIT`, else what the line did there. The leader's own `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` are already fanned out by the
 sync part when they run (from the journal's verb rows; `HERE` and a panic line naming outputs stay local; a panic's `AT <unix ms>` goes
-as `AT +<ms>`): a package must not send them through `SendAsync` again.
+as `AT +<ms>`, with the leader's `PANIC-LEAD` added, and a member adds no lead of its own): a package must not send them through
+`SendAsync` again.
 
 ## PMVB (member → leader, UDP, the clock-sync port)
 

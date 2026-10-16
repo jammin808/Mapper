@@ -377,9 +377,10 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
 
     /// <summary>The air line a leader's own line becomes for its members (BLACKOUT TOGGLE as the state it left; a panic's AT &lt;unix ms&gt;
     /// as AT +&lt;ms&gt; from the line's instant, read on this node's wall clock <paramref name="wallUnixMs"/>, so every member lands on the
-    /// leader's instant whatever its own wall clock says), or null when it stays here: not an air verb, HERE, a line that names
-    /// outputs (ON …: they are this node's outputs), or a malformed line.</summary>
-    public static string? FanoutLine(string text, bool blackoutNow, long wallUnixMs)
+    /// leader's instant whatever its own wall clock says; a panic's AT carries this node's <paramref name="panicLeadMs"/> too, which a
+    /// member adds to no lead of its own, so the group fades on the leader's frames), or null when it stays here: not an air verb,
+    /// HERE, a line that names outputs (ON …: they are this node's outputs), or a malformed line.</summary>
+    public static string? FanoutLine(string text, bool blackoutNow, long wallUnixMs, int panicLeadMs = 0)
     {
         if (!WireGrammar.TryParse(text, out var line, out _) || VerbCatalog.Match(line) is not { } m || !AirVerbs.Contains(m.Spec.Name))
             return null;
@@ -389,12 +390,25 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             return null;
         if (m.Spec.Name == "BLACKOUT")
             return blackoutNow ? "BLACKOUT ON" : "BLACKOUT OFF";
+        var lead = m.Spec.Name == "PANIC" ? Math.Max(0, panicLeadMs) : 0;
+        var at = false;
         for (var i = 0; i < words.Count - 1; i++)
         {
-            if (words[i].Equals("AT", StringComparison.OrdinalIgnoreCase)
-                && long.TryParse(words[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var unix))
-                words[i + 1] = "+" + Math.Max(0, unix - wallUnixMs).ToString(CultureInfo.InvariantCulture);
+            if (!words[i].Equals("AT", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (long.TryParse(words[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var unix))
+            {
+                words[i + 1] = "+" + (Math.Max(0, unix - wallUnixMs) + lead).ToString(CultureInfo.InvariantCulture);
+                at = true;
+            }
+            else if (words[i + 1].StartsWith('+') && double.TryParse(words[i + 1].AsSpan(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var ms))
+            {
+                words[i + 1] = "+" + (ms + lead).ToString("0.######", CultureInfo.InvariantCulture);
+                at = true;
+            }
         }
+        if (lead > 0 && !at)
+            words.AddRange(["AT", "+" + lead.ToString(CultureInfo.InvariantCulture)]);
         return string.Join(' ', words);
     }
 
@@ -640,7 +654,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private string LeaderLabel => _leaderName.Length > 0 ? $"{_leaderName} ({_settings.Leader})" : _settings.Leader;
 
     /// <summary>Who the leader's lines run as here: a peer of the show (its own gate decides), named after the leader.</summary>
-    private SessionInfo LeaderSession => new("sync:" + _settings.Leader, "sync", _leaderAddress, false, $"{(_leaderName.Length > 0 ? _leaderName : "the leader")} (sync leader)", true);
+    private SessionInfo LeaderSession => new("sync:" + _settings.Leader, EngineCore.LeaderTransport, _leaderAddress, false, $"{(_leaderName.Length > 0 ? _leaderName : "the leader")} (sync leader)", true);
 
     // ---- The board ---------------------------------------------------------------------------------------------------------
 

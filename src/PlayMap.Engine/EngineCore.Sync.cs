@@ -145,6 +145,9 @@ public sealed partial class EngineCore
     private long _syncSteps;
     private long _lockOffered = long.MinValue;
 
+    /// <summary>The transport of the session a member runs its sync leader's lines as (a peer of the show).</summary>
+    internal const string LeaderTransport = "sync";
+
     partial void RouteSync(VerbRoutes routes)
     {
         // Every engine takes its clock's steps on this lane, with the rebase, whether or not the sync part is in.
@@ -454,7 +457,7 @@ public sealed partial class EngineCore
         // Sent with no member too: the feed keeps it as its kind's latest for a member that joins (or comes back) later.
         if (row.Kind != "verb" || !row.Ok || row.Line is null || Services.GroupSync is not { Leads: true } sync)
             return;
-        if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout, Services.Wall.UnixMs) is not { } text)
+        if (Sync.SyncNode.FanoutLine(row.Line, _air.Blackout, Services.Wall.UnixMs, Store.Project.Show.Rules.PanicLeadMs) is not { } text)
             return;
         var at = LeaderNowNs;
         // Pushed here, in the order this session's lines ran (the journal's row is written before the line is answered); only the

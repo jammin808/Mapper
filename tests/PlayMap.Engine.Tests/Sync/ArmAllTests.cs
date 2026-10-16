@@ -194,6 +194,41 @@ public sealed class ArmAllTests
     }
 
     [Fact]
+    public async Task AMemberLandsTheLeadersPanicAtTheLeadersLeadAndItsOwnAtItsOwn()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead));
+        await using var stage = await StartAsync("Stage", StageId, clock);
+        await GroupAsync(leader, stage);
+        await leader.OkAsync("SHOW SET PANIC-LEAD 200");
+        await stage.OkAsync("SHOW SET PANIC-LEAD 40");
+        var events = Listen(leader, stage);
+        var now = leader.Engine.LeaderNowNs;
+        const long Ms = 1_000_000;
+
+        // The leader's lead is the group's: each member fades on the leader's frames, whatever lead its own show keeps.
+        await leader.OkAsync("PANIC FADE 1000");
+        Assert.True(await Eventually.TrueAsync(() => events[1].Any(e => e.Kind == "panic")), stage.Journal());
+        Assert.Equal(now + 200 * Ms, Assert.Single(events[0], e => e.Kind == "panic").AtLeaderNs);
+        Assert.Equal(now + 200 * Ms, Assert.Single(events[1], e => e.Kind == "panic").AtLeaderNs);
+
+        // A panic at an instant of its own lands that far ahead of it, the leader's lead still the group's.
+        await leader.OkAsync("PANIC CLEAR FADE 0");
+        Assert.True(await Eventually.TrueAsync(() => events[1].Any(e => e.Kind == "panic.clear")), stage.Journal());
+        await leader.OkAsync("PANIC FADE 1000 AT +500");
+        Assert.True(await Eventually.TrueAsync(() => events[1].Count(e => e.Kind == "panic") == 2), stage.Journal());
+        Assert.Equal([now + 200 * Ms, now + 700 * Ms], events[0].Where(e => e.Kind == "panic").Select(e => e.AtLeaderNs));
+        Assert.Equal([now + 200 * Ms, now + 700 * Ms], events[1].Where(e => e.Kind == "panic").Select(e => e.AtLeaderNs));
+
+        // The member's own panic, from its own desk, keeps its own lead.
+        await leader.OkAsync("PANIC CLEAR FADE 0");
+        Assert.True(await Eventually.TrueAsync(() => events[1].Count(e => e.Kind == "panic.clear") == 2), stage.Journal());
+        await stage.OkAsync("PANIC FADE 1000");
+        Assert.True(await Eventually.TrueAsync(() => events[1].Count(e => e.Kind == "panic") == 3), stage.Journal());
+        Assert.Equal(now + 40 * Ms, events[1].Last(e => e.Kind == "panic").AtLeaderNs);
+    }
+
+    [Fact]
     public void AReceiptCarriesTheMembersReportOnlyForALineThatAsksForItAndOnlyWhileItFitsOneLine()
     {
         static WireLine Line(string text)

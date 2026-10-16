@@ -125,7 +125,8 @@ refuses is never dropped: it is journalled with the refusal's words (`ok:false`)
 inside it (HARD, the second press).
 `PANIC <outcome>` overrides every plan; `ON <output>…` names outputs; `FADE <ms>` sets the fade; `AT +<ms>|<unix ms>` lands the
 panic at an instant on the show clock (its transport outcome at that fade's end, its shutter and effects lines sent when the
-instant comes); `SHOW SET PANIC-LEAD <ms>` lands every panic that far ahead so a group fades on the same frames.
+instant comes); `SHOW SET PANIC-LEAD <ms>` lands every panic that far ahead so a group fades on the same frames: a group's
+leader sends its lead in the panic's `AT` and a member adds none of its own, so every member lands on the leader's instant.
 
 **The second press** while any fade of the first is running is the hard stop: every panicked output black at once, every transport
 it shows paused, `hard:true`. A press after every fade has settled changes nothing and says so.

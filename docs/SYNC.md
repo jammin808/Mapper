@@ -68,8 +68,9 @@ in order:
 - **`ANCHOR <group> @air {"feed","seq","line","leaderNs"}`**: the group's air. On a leader, `PANIC`, `PANIC CLEAR`, `BLACKOUT` (a toggle
   is sent as the state it left) and `MASTER` go to every member as they ran here (`HERE` keeps a line local, and so does a panic
   line that names outputs: they are this node's). A panic's `AT <unix ms>` goes as `AT +<ms>` from the line's instant, read on the
-  leader's wall clock. Show's `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` use the same path through `IFleetFanout`, once per
-  line, at the instant the leader's own half ran. A member runs `PANIC`, `PANIC CLEAR`,
+  leader's wall clock, and a panic carries the leader's `PANIC-LEAD` in its `AT` (`PANIC FADE 1000 AT +200`): a member adds no
+  lead of its own, so the group fades on the leader's frames. Show's `SHOW ARM|DISARM ALL` and `PREFLIGHT ALL` use the same path
+  through `IFleetFanout`, once per line, at the instant the leader's own half ran. A member runs `PANIC`, `PANIC CLEAR`,
   `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM` and `PREFLIGHT` from its leader and refuses anything else with words. A
   `PREFLIGHT` runs beside the feed (a later air line is never held behind its checks); for `PREFLIGHT QUICK WAIT` the member's
   receipt carries its finished report, and the leader waits up to 10 s for it (a member's checks run under their own budgets). A lane

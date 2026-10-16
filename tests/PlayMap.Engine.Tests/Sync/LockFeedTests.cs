@@ -118,4 +118,17 @@ public sealed class FanoutLineTests
     [InlineData("PANIC AT +250", false, "PANIC AT +250")]
     public void OnlyTheAirVerbsGoAndHereKeepsALineLocal(string line, bool blackoutNow, string? sent) =>
         Assert.Equal(sent, SyncNode.FanoutLine(line, blackoutNow, 1_760_000_000_000));
+
+    /// <summary>A panic goes with the leader's lead in its AT (a member adds none of its own); a clear and the master have no lead.</summary>
+    [Theory]
+    [InlineData("PANIC FADE 1000", 200, "PANIC FADE 1000 AT +200")]
+    [InlineData("PANIC FADE 1000", 0, "PANIC FADE 1000")]
+    [InlineData("PANIC SAFE AT 1760000030000", 200, "PANIC SAFE AT +30200")]
+    [InlineData("PANIC AT +250", 200, "PANIC AT +450")]
+    [InlineData("PANIC AT +0.5", 40, "PANIC AT +40.5")]
+    [InlineData("PANIC CLEAR FADE 500", 200, "PANIC CLEAR FADE 500")]
+    [InlineData("PANIC OFF FADE 0", 200, "PANIC OFF FADE 0")]
+    [InlineData("MASTER 50 FADE 1000", 200, "MASTER 50 FADE 1000")]
+    public void APanicCarriesTheLeadersLeadInItsAt(string line, int panicLeadMs, string sent) =>
+        Assert.Equal(sent, SyncNode.FanoutLine(line, false, 1_760_000_000_000, panicLeadMs));
 }
