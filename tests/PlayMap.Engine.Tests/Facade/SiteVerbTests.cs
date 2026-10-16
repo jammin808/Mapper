@@ -85,6 +85,31 @@ public sealed class SiteVerbTests
     }
 
     [Fact]
+    public async Task AMoveCarriesTheLedFixturesPlacedInTheWorldAndLeavesTheFlatOnes()
+    {
+        var p = Stage();
+        LedFixture Fixture(string id, LedSpace space, Vec3d at) => new(id, id, "builtin:grb", space, space == LedSpace.World ? "" : "cv_main",
+            Transform3.Identity with { Position = at, Rotation = new Vec3d(0, 0.3, 0) },
+            new LedLayout(LedShape.Line, 10, 1, new Vec3d(2, 0, 0), LedStart.TopLeft, false, false, []), null, LedSampling.Point, 0, LedColor.Neutral,
+            true, false, false, "#FFFFFF", []);
+        p = p with { Leds = p.Leds with { Fixtures = [Fixture("lf_world1", LedSpace.World, new Vec3d(1.5, 2.5, -0.5)), Fixture("lf_flat1", LedSpace.Canvas, new Vec3d(100, 50, 0))] } };
+        await using var rig = new SiteRig(p);
+        await rig.Ok("SITE ORIGIN 512340 5401230 110 CRS EPSG:25832");
+        var before = rig.Engine.Store.Project;
+        var strip = Core.Led.LedLayouts.Placed(before.Leds.Fixtures[0]);
+        await rig.Ok("SITE ORIGIN 512360.5 5401221.25 108 ROTATE 15");
+        var after = rig.Engine.Store.Project;
+        // Every pixel of the strip keeps its grid position, as the surfaces and projectors around it do.
+        var moved = Core.Led.LedLayouts.Placed(after.Leds.Fixtures[0]);
+        for (var i = 0; i < strip.Length; i++)
+            Assert.True((after.Stage.Site.ToGrid(moved[i]) - before.Stage.Site.ToGrid(strip[i])).Length < 1e-9, $"pixel {i}: {moved[i]} vs {strip[i]}");
+        // A fixture on a canvas is placed in the canvas's pixels, which no site moves.
+        Assert.Equal(before.Leds.Fixtures[1], after.Leds.Fixtures[1]);
+        await rig.Ok("UNDO");
+        Assert.Equal(before.Leds, rig.Engine.Store.Project.Leds);
+    }
+
+    [Fact]
     public async Task MainsAndWordsTheSiteRefuses()
     {
         await using var rig = new SiteRig();

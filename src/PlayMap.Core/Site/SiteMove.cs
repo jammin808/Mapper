@@ -6,8 +6,9 @@ namespace PlayMap.Core.Site;
 
 /// <summary>A rigid move of the stage, x ↦ R·x + t (R a rotation, in double): what a change of the site frame does to everything
 /// placed in stage coordinates, so every grid position stays where it is. Projectors, cameras and viewpoints keep their optics;
-/// their poses, the pins' world points, the surfaces' placements, the projectors' position priors and the calibration ledger's
-/// poses move together, so every pin's reprojection is unchanged. Mesh files are never rewritten: surfaces carry the move.</summary>
+/// their poses, the pins' world points, the surfaces' placements, the projectors' position priors, the calibration ledger's poses
+/// and the LED fixtures placed in the world move together, so every pin's reprojection is unchanged. Mesh files are never
+/// rewritten: surfaces carry the move.</summary>
 public readonly record struct StageMove(Mat3d R, Vec3d T)
 {
     public static readonly StageMove None = new(Mat3d.Identity, Vec3d.Zero);
@@ -44,6 +45,26 @@ public readonly record struct StageMove(Mat3d R, Vec3d T)
     {
         var self = this;
         return [.. pins.Select(p => p with { World = self.Apply(p.World) })];
+    }
+
+    /// <summary>The project with everything placed in stage coordinates moved: the stage, and the LED fixtures placed in the world
+    /// (a fixture on a canvas, an output, a source or a surface is placed in that, which carries it).</summary>
+    public Project Apply(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        if (IsNone)
+            return project;
+        var self = this;
+        var moved = project.WithStage(st => self.Apply(st));
+        return project.Leds.Fixtures.Any(f => f.Space == LedSpace.World)
+            ? moved with
+            {
+                Leds = moved.Leds with
+                {
+                    Fixtures = [.. moved.Leds.Fixtures.Select(f => f.Space == LedSpace.World ? f with { Placement = self.Apply(f.Placement) } : f)],
+                },
+            }
+            : moved;
     }
 
     /// <summary>The stage with everything placed in it moved.</summary>

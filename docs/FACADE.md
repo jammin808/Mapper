@@ -13,7 +13,7 @@ is at most 2 km across. Earth curvature (0.8 mm at 100 m) is ignored.
 
 The first georeferenced import, or the first control points, set the frame at their centre rounded to 10 m; `SITE ORIGIN` sets it by
 hand. Moving the frame moves the stage with it in one edit (surfaces, projectors, cameras, viewpoints, pins, priors, the calibration
-ledger's poses), so grid positions and every pin's reprojection are kept; scans taken before keep their own frame's points (the
+ledger's poses, LED fixtures placed in the world), so grid positions and every pin's reprojection are kept; scans taken before keep their own frame's points (the
 words say so). Setting the first frame moves nothing: the stage's coordinates are taken as relative to it. Moving a site from one
 EPSG system to another is refused (that is a reprojection).
 

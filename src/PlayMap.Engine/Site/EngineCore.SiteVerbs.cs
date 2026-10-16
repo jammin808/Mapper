@@ -93,7 +93,7 @@ public sealed partial class EngineCore
         if (before.IsSet && after == before)
             return CommandReply.Fail(string.Create(SiteInv, $"the site is at {e:0.###} {n:0.###} {h:0.###} ({crs}) already — this would change nothing"));
         var move = before.IsSet ? StageMove.Between(before, after) : StageMove.None;
-        var r = Edits.Apply("site origin", p => p.WithStage(st => Core.Site.ControlBinding.Rebind(move.Apply(st) with { Site = after })));
+        var r = Edits.Apply("site origin", p => move.Apply(p).WithStage(st => Core.Site.ControlBinding.Rebind(st with { Site = after })));
         if (!r.Changed)
             return FromEdit(r);
         var staged = EditingBlind;
