@@ -109,21 +109,33 @@ jobs:
         shell: pwsh
         run: |
           # A test runs in testhost.exe beside its assembly or in dotnet.exe; Windows looks for opengl32.dll beside the exe first.
+          # Both DLLs reach every test project's Release output: a missing DLL, no test project or a project with no output fails
+          # here, never as a suite that ran on GDI's OpenGL 1.1.
           $ErrorActionPreference = 'Stop'
-          foreach ($dir in Get-ChildItem tests/*/bin/Release/net10.0 -Directory) { Copy-Item mesa/*.dll $dir.FullName }
-          Copy-Item mesa/*.dll (Split-Path (Get-Command dotnet).Source)
+          $dlls = 'opengl32.dll', 'libgallium_wgl.dll' | ForEach-Object { (Get-Item "mesa/$_").FullName }
+          $projects = @(Get-ChildItem tests/*/*.csproj)
+          if ($projects.Count -eq 0) { throw 'no test project matches tests/*/*.csproj' }
+          foreach ($project in $projects) {
+            $dir = Join-Path $project.DirectoryName 'bin/Release/net10.0'
+            if (-not (Test-Path $dir -PathType Container)) { throw "$($project.BaseName) has no Release output at $dir" }
+            Copy-Item $dlls $dir
+          }
+          Copy-Item $dlls (Split-Path (Get-Command dotnet).Source)
       - name: Test (every project to its end; one crash hides no other result)
         shell: pwsh
         run: |
           # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs.
+          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file.
           $failed = @()
-          foreach ($project in Get-ChildItem tests/*/*.csproj) {
+          $projects = @(Get-ChildItem tests/*/*.csproj)
+          if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
+          foreach ($project in $projects) {
             $name = $project.BaseName
             Write-Host "::group::$name"
             dotnet test $project.FullName -c Release --no-build --logger "trx;LogFileName=$name.trx" `
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
             if ($LASTEXITCODE -ne 0) { $failed += $name }
+            elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
             Write-Host "::endgroup::"
           }
           # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end.
