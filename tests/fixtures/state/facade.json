@@ -2,7 +2,7 @@
   "stage": {
     "site": {
       "crs": "EPSG:25832",
-      "name": "",
+      "name": "ETRS89 / UTM zone 32N",
       "origin": [
         512340,
         5401230,
@@ -10,7 +10,13 @@
       ],
       "rotationDeg": 0,
       "gridScale": 1,
-      "mainsHz": 50
+      "mainsHz": 50,
+      "next": {
+        "step": "solve",
+        "state": "waiting",
+        "words": "Solve Far twin from its pins",
+        "line": "PROJECTOR SOLVE pj_fixture1"
+      }
     },
     "controls": 14,
     "surveys": [
@@ -24,16 +30,40 @@
         "mesh": "ms_fixture1"
       }
     ],
+    "stacks": [
+      {
+        "id": "sk_fixture1",
+        "name": "Front",
+        "members": [
+          "pj_fixture2",
+          "pj_fixture1"
+        ],
+        "master": "pj_fixture2",
+        "aligned": false,
+        "matched": false,
+        "residualPx": 0,
+        "failover": "hold",
+        "degraded": [],
+        "gain": 1
+      }
+    ],
     "projectors": [
       {
-        "id": "pj_fixture1",
+        "id": "pj_fixture2",
         "uncertainty": {
           "wallPx": 0.781,
           "axisM": 0.021,
           "focalPct": 0,
           "weak": "position"
         },
-        "priors": "TR 3.02 \u00B12 %"
+        "priors": "TR 3.02 \u00B12 %",
+        "stack": "sk_fixture1"
+      },
+      {
+        "id": "pj_fixture1",
+        "uncertainty": null,
+        "priors": "",
+        "stack": "sk_fixture1"
       }
     ]
   }

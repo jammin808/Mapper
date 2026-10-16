@@ -94,7 +94,7 @@ public sealed partial class EngineCore
             {
                 var c = new Vec3d(read.Points.Average(x => x.Grid.X), read.Points.Average(x => x.Grid.Y), read.Points.Average(x => x.Grid.Z));
                 static double Round(double v) => Math.Round(v / GeometryReadOptions.OriginRoundingM, MidpointRounding.AwayFromZero) * GeometryReadOptions.OriginRoundingM;
-                site = new SiteFrame(crs ?? "LOCAL", "", new Vec3d(Round(c.X), Round(c.Y), Round(c.Z)), 0, 1, site.MainsHz);
+                site = new SiteFrame(crs ?? "LOCAL", Core.Geometry.CrsInfo.NameOf(crs), new Vec3d(Round(c.X), Round(c.Y), Round(c.Z)), 0, 1, site.MainsHz);
             }
             var controls = p.Stage.Controls;
             var taken = new HashSet<string>(p.AllIds(), StringComparer.Ordinal);
