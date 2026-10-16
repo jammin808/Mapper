@@ -161,6 +161,54 @@ public class GateOrderTests
         Assert.Equal("Rename · locked", remove.MenuLabel);
     }
 
+    /// <summary>A stack is a show entity: locked, a line that changes it (its failover, its REMOVE) is greyed with the words the node
+    /// refuses it with, and its list is still read; under a mapping lock its failover is the mapping, held as the node holds it.</summary>
+    [AvaloniaFact]
+    public async Task AStacksLinesMeetTheLocksAsTheNodeHoldsThem()
+    {
+        var project = Link.DemoProject.Create();
+        var stack = new StackGroup("sk_front", "Front", [project.Stage.Projectors[0].Id, project.Stage.Projectors[1].Id], project.Stage.Projectors[0].Id,
+            StackFailover.Hold);
+        project = project.WithStage(st => st with { Stacks = [stack] });
+        await using var desk = new DeskHarness(project: project);
+        StateFixtures.Load(desk.Link, "show");
+        await desk.Session.SendAsync("PANIC CLEAR", Ct);
+        await desk.Session.SendAsync("SHOW DISARM", Ct);
+        await desk.Session.SendAsync("UNLOCK ALL", Ct);
+        Assert.True((await desk.Session.SendAsync("LOCK " + stack.Id, Ct)).Ok);
+        DeskHarness.Pump();
+        var gate = desk.Session.GateWords;
+        await using var engine = Engine(desk.Link.CurrentProject);
+        Assert.True((await Run(engine, "LOCK " + stack.Id)).Ok);
+
+        var held = LockGuard.EntityWords(desk.Main.ShowModule.Strip.Show.ExplicitLocks.Single(), stack);
+        Assert.StartsWith("Front (stack) is locked by ", held, StringComparison.Ordinal);
+        foreach (var line in new[] { $"STACK FAILOVER {stack.Id} MATCH", $"REMOVE {stack.Id}" })
+        {
+            Assert.Equal(held, gate(line));
+            var refused = await Run(engine, line);
+            Assert.False(refused.Ok, line);
+            Assert.StartsWith("Front (stack) is locked by ", refused.Payload, StringComparison.Ordinal);
+            Assert.EndsWith($"— UNLOCK {stack.Id} first", refused.Payload, StringComparison.Ordinal);
+        }
+        Assert.Null(gate("STACK LIST"));
+        Assert.True((await Run(engine, "STACK LIST")).Ok);
+        Assert.Equal(StackFailover.Hold, engine.Store.Project.FindStack(stack.Id)!.Failover);
+
+        // Under a mapping lock a stack's failover is the mapping: the desk's words are the lock's, as the node's are.
+        await desk.Session.SendAsync("UNLOCK ALL", Ct);
+        await desk.Session.SendAsync("LOCK AREA mapping", Ct);
+        DeskHarness.Pump();
+        var failover = $"STACK FAILOVER {stack.Id} MATCH";
+        Assert.Equal(LockGuard.AreaWords(desk.Main.ShowModule.Strip.Show.ExplicitLocks.Single()), gate(failover));
+        Assert.True((await Run(engine, "UNLOCK ALL")).Ok);
+        Assert.True((await Run(engine, "LOCK AREA mapping")).Ok);
+        var area = await Run(engine, failover);
+        Assert.False(area.Ok);
+        Assert.StartsWith("mapping is locked by ", area.Payload, StringComparison.Ordinal);
+        Assert.Equal(StackFailover.Hold, engine.Store.Project.FindStack(stack.Id)!.Failover);
+    }
+
     [AvaloniaFact]
     public async Task TheNetworkLockSaysTheSameWordsOnTheDeskAndTheNode()
     {

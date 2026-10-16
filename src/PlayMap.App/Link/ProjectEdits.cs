@@ -80,6 +80,8 @@ public static class ProjectEdits
             return p.WithStage(x => x with { Viewpoints = x.Viewpoints.RemoveId(id) });
         if (s.Scans.IndexOfId(id) >= 0)
             return p.WithStage(x => x with { Scans = x.Scans.RemoveId(id) });
+        if (s.Stacks.IndexOfId(id) >= 0)
+            return p.WithStage(x => x with { Stacks = x.Stacks.RemoveId(id) });
         if (p.Outputs.IndexOfId(id) >= 0)
             return p with { Outputs = p.Outputs.RemoveId(id) };
         foreach (var o in p.Outputs)

@@ -13,10 +13,11 @@ public sealed class DeskHarness : IAsyncDisposable
 {
     /// <param name="setup">Prepares the fake engine before the desk attaches (a node without some verbs, a fixture).</param>
     /// <param name="nowMs">The desk's own clock for the Esc guard (null: the machine's).</param>
-    public DeskHarness(Action<FakeEngineLink>? setup = null, Func<long>? nowMs = null)
+    /// <param name="project">The show the fake engine opens (the demo show when null).</param>
+    public DeskHarness(Action<FakeEngineLink>? setup = null, Func<long>? nowMs = null, PlayMap.Core.Model.Project? project = null)
     {
         Clock = new ManualClock(1_000_000_000);
-        Link = new FakeEngineLink(clock: Clock);
+        Link = new FakeEngineLink(project, clock: Clock);
         setup?.Invoke(Link);
         Session = new DeskSession(a => Dispatcher.UIThread.Post(a));
         Main = new MainViewModel(Session, nowMs: nowMs);
