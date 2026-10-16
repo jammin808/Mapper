@@ -82,8 +82,8 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   detection.
 - **Watches the fleet, and stands by.** Each machine's health with lights by evidence, and a board of every PlayMap machine in
   the shape of Patterns' Eye. A hot backup mirrors its primary's show, files, clock and air and draws its frame to the byte;
-  `FAILOVER` takes the show over by epoch with no step in show time, fences the old primary and switches the projectors' inputs;
-  only the node with the show drives the LED rig and the network sends.
+  `FAILOVER` takes the air over by epoch with no step in show time and switches the projectors' inputs, and the old primary hears
+  the epoch and fences itself; only the node with the show drives the LED rig, the network sends and the sound.
 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it; the multi-view solve is Core's alone so far.

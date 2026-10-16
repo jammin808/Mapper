@@ -64,7 +64,8 @@ to 8 s while nothing is heard. A changed certificate is refused and shown red wi
 `keys/fleet-pins.json` beside the node's own): removing the machine's line pins its new certificate on its next record — the file
 is read again whenever it changes, with no restart, and a pin set afterwards never writes the removed line back. The monitor keeps at most 64 machines (twice its subscriptions, at least 64): when it is
 full, a machine it dialled and never heard (on no board) is let go to make room; a machine the board shows is never let go. The board changes (and STATE moves) only when what it shows moved — a light, a
-headline, a liveness — never for a record that says the same.
+headline, a liveness — or a peer's place in a hot-backup pair or a sync group (its epoch, its mirror's state, its group), never for a
+record that says the same.
 
 ## The board
 
@@ -99,8 +100,9 @@ instant — to the byte (`BackupRenderTests`: two render hosts on llvmpipe, play
 panic fade). The output stage's dither is seeded by the show frame, so it does not break that.
 
 **Joining.** `FLEET BACKUP <primary> [HOT]` on the machine that stands by. The primary must lead a sync group (its clock is the
-backup's); the backup proves the primary's pairing token, kept in its credential store as `node.<primary id>` (`CREDENTIAL SET
-node.0badc0de <token>`), and subscribes to the primary's **mirror** (`SUBSCRIBE MIRROR <node>`, paired only):
+backup's) and hear its peers' HEALTH (its fleet monitor on: what it hears there is its fence); the backup proves the primary's
+pairing token, kept in its credential store as `node.<primary id>` (`CREDENTIAL SET node.0badc0de <token>`), and subscribes to the
+primary's **mirror** (`SUBSCRIBE MIRROR <node>`, paired only):
 
 - the show: the primary announces each revision; the backup pulls the show from `/mirror/project` and applies it as one mirror edit
   (past the implicit locks an armed show adds; the primary's own gate already decided the edit);
@@ -111,7 +113,7 @@ node.0badc0de <token>`), and subscribes to the primary's **mirror** (`SUBSCRIBE 
   project's, else `mirror/<primary id>` in the node's home), each checked against the hash the show names, before the show that
   names them is applied: the backup's stage loads the primary's mesh from its first frame, and a file that lands later is read at
   once;
-- the clock, the group's anchors and the group's air: the backup follows the primary's sync group (`SYNC FOLLOW`, wp2-sync's feed);
+- the clock, the group's anchors and the group's air: the backup follows the primary's sync group (`SYNC FOLLOW`, docs/SYNC.md);
 - every other playlist's anchor, and the air lines the group's feed does not carry (`FREEZE`, `PATTERN`, a panic or blackout `ON`
   outputs or `HERE`), through the backup's own `MIRROR` verb (session "fleet"), each at the primary's leader instant.
 
@@ -129,22 +131,27 @@ in the fleet's pin file after the first proved answer; a changed certificate is 
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
-pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. A client's edit on a backup is refused with the way
-out ("FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to make this node the show"); queries, panic, Show Mode, the node's
-own administration, a fetch of a file by hash and the fleet's verbs stay; no blind draft is begun or landed on a backup, and
-`FLEET BACKUP` waits while the node holds one. A pull that fails is asked again from the watch while the primary's revision is ahead
-or a file the show names is missing. A follower whose clock asks a port its leader no longer answers on (the leader's hello names
-another since it led again) follows afresh. A node that has begun to stop starts no pull, no join and no takeover step, and its
-mirror and pulls end with it.
+pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. The backup keeps the highest epoch its primary is
+heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup restarted, its primary silent by
+then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B mirrors FOH-A — send it to FOH-A
+(10.0.0.21), or FAILOVER to make this node the show"); queries, panic, Show Mode, the node's own administration, a fetch of a file
+by hash and the fleet's verbs stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node holds
+one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
+follower whose clock asks a port its leader no longer answers on (the leader's hello names another since it led again) follows
+afresh. A node that has begun to stop starts no pull, no join and no takeover step, and its mirror and pulls end with it.
 
-**What goes out beside the outputs.** An LED rig's nodes and universes are shared by every machine that drives them, and a send is
-received by its name, so only the node that has the show puts them on the network. A hot backup's LED sender stops with no black
-frame (the primary's frames are the rig's) and its sends are not made, though the mirrored show has both — STATE says `standby` for
-each LED node and send, green, with why; `FLEET BACKUP` turns a node silent before the primary's show lands. FAILOVER makes the new
-primary send from its next frame, on the show clock's grid. A fenced node's outputs are held black; its LED sends one black frame
-(sACN terminates its universes) and stops, and its sends go dark with one black frame and close (`held`); `FAILBACK` swaps the two
-nodes again (`BackupNetworkAirTests`). With an LED strip and a send configured the backup's picture stays the primary's to the byte:
-both read the output's final pixels, and the dither is the show frame's.
+**What goes out beside the outputs.** An LED rig's nodes and universes are shared by every machine that drives them, a send is
+received by its name, and the sound reaches the room's one system — none of them switched by a projector's input — so only the node
+that has the show puts them out. A hot backup's LED sender stops with no black frame (the primary's frames are the rig's), its sends
+are not made, though the mirrored show has both, and its sound is silent — STATE says `standby` for each LED node and send, green,
+with why, and `show.sound.gain` 0; `FLEET BACKUP` turns a node silent before the primary's show lands. FAILOVER makes the new
+primary send from its next frame, on the show clock's grid, and sound from its next service step. A fenced node's outputs are held
+black; its LED sends one black frame (sACN terminates its universes) and stops, its sends go dark with one black frame and close
+(`held`), and its sound is silent; `FAILBACK` swaps the two nodes again (`BackupNetworkAirTests`). A primary that starts with hot
+backups (a restart, a crash) keeps all three silent until it has heard each backup, none saying it took the show, or its own clock
+has given them six seconds (when the board calls a machine gone): a backup that took the show while it was away fences it first, so
+it never sent at all; its outputs open as before (`BackupRestartTests`). With an LED strip and a send configured the backup's
+picture stays the primary's to the byte: both read the output's final pixels, and the dither is the show frame's.
 
 **Taking over.** `FAILOVER` on the backup:
 
@@ -157,13 +164,19 @@ both read the output's final pixels, and the dither is the show frame's.
 4. journals the trail ("takeover tk… of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → P1 32
    observed → serving → complete in 40 ms"), raises `fleet.takeover`, and serves: editing goes on.
 
-The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** — only from a node that
-joined its mirror (proved by its token; the node keeps that list) and is heard over its pinned certificate, so no other machine's word
-can black it out (`FLEET FENCE`, node to
-node): its outputs are held black from the next frame (a gain of 0 multiplied into the air), its clients' edits are refused, its clock
-follows the new primary, the role is kept across a restart, and it never takes the show back by itself. `FLEET BACKUP <new primary>`
-there makes it the new primary's backup; `FAILBACK CONFIRM` on the new primary then hands the show back (the original takes it under
-the next epoch, its routes switch to its own input) and the two swap roles. `FLEET SOLO` ends a backup's or a fence's role.
+A takeover is refused on a node that has begun to stop (it would switch the projectors to itself and go), and while another node is
+heard serving the primary's show — a primary's other backup took it ("FOH-B took FOH-A's show already (epoch 1) — FLEET BACKUP FOH-B
+to mirror it"): two primaries of one show never come of two presses.
+
+The old primary hears the new epoch in the backup's HEALTH (role primary, taken from it) and **fences itself** — only from a node
+that joined its mirror (proved by its token; the node keeps that list) and is heard over its pinned certificate, so no other
+machine's word can black it out (`FLEET FENCE`, node to node): its outputs are held black from the next frame (a gain of 0
+multiplied into the air), its clients' edits are refused, its clock follows the new primary, the role is kept across a restart, and
+it never takes the show back by itself. `FLEET BACKUP <new primary>` there makes it the new primary's backup; `FAILBACK CONFIRM` on
+the new primary then hands the show back (the original takes it under the next epoch, its routes switch to its own input, and only
+while its own mirror is identical — else it refuses, journalled, and the new primary serves on) and the two swap roles: the node
+that handed the show back joins the original's mirror once the original's HEALTH says it leads its group. `FLEET SOLO` ends a
+backup's or a fence's role.
 
 **Controller death.** A sync group's leader that dies leaves its followers free-wheeling on their last estimate: their playlists switch
 items at the instants they computed, and the context says "leader gone — FLEET PROMOTE on the node that should lead". `FLEET PROMOTE`
@@ -178,11 +191,12 @@ a succession list are not built: a takeover and a promotion are a person's press
 ## Preflight and INDEX
 
 Preflight's `fleet` section: every expected machine heard (known before a restart, in the show's fleet plan, or heard now), every
-pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the line
-that fetches a missing one); on a primary, each backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE
-TEST`); a fenced node red with `FLEET BACKUP <new primary>`. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses,
-RESET, and a key per machine with its light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node
-that took a show over, FLEET PROMOTE on a follower (red while its leader is silent), and a key per backup of a primary.
+pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the
+line that fetches a missing one), and every file beside the show (named; the mirror asks for it again itself); on a primary, each
+backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE TEST`); a fenced node red with `FLEET BACKUP
+<new primary>`. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses, RESET, and a key per machine with its
+light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node that took a show over, FLEET PROMOTE
+on a follower (red while its leader is silent), and a key per backup of a primary.
 
 ## Threads
 

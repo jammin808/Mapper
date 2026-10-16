@@ -108,7 +108,8 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   and freezes the clock's mapping into the node's own time line (`NetworkClock.Promote`): show time continues with no step and
   the node leads the group. A primary that hears its backup serve its show under a higher epoch **fences** itself: its outputs
   held black, its clients' edits refused, its clock following the new primary. Only the node that has the show sends
-  LED data and video sends beside its outputs.
+  LED data, video sends and its sound beside its outputs; a primary that starts with backups sends none of them until it has heard
+  them, so an old primary that comes back after a takeover fences itself having sent nothing.
 - The render loop predicts its next vblank, maps it to leader time (plus a host-wide display-latency setting, 0 by
   default) and asks `FrameSelector` which frame to show; while an output is frame-locked (`SYNC APPLY`) the instant is the
   lock anchor's time of the pacer's next count, the same integers on every node that holds the anchor. No node integrates a

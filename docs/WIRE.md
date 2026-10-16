@@ -54,6 +54,7 @@ The router journals who did what and the transports fence by it. The transport i
 | `assistant` | a line the node's own assistant ran (`ASK`) |
 | `approval` | a line a person approved, on this node (`APPROVE`) or on a Stagewatch approval desk (§11), run through the node's own checks |
 | `patterns`, `stagewatch` | the links this node dials itself: the Patterns desk's blackout fact, a Stagewatch operator's screen command |
+| `fleet` | a line a hot backup takes from its primary's mirror link (`MIRROR …` only; the primary's own gate decided it, docs/wire/backup.md) |
 | `sync` | a line a sync group's member runs from its leader's anchor feed: the leader's anchors (`PLAYLIST ANCHOR`) and air lines (`PANIC`, `PANIC CLEAR`, `BLACKOUT`, `MASTER`, `SHOW ARM`, `SHOW DISARM`, `PREFLIGHT`; any other is refused), a peer to the show's gate |
 | `system` | the node's own work: a panic's shutter and effects lines, a scan's record |
 
@@ -241,7 +242,8 @@ between nodes), `GET /api/media` (manifest), `GET /api/thumb?ref=<media:…|gene
 (a key's picture, with an ETag), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s, `{"cmd":"…","id":"…"}`
 commands with receipts, `{"cmd":"ping","t":…}` → pong, and `{"type":"push","topic":…,"line":…}` frames for a package's
 topic; with the subprotocol `playmap.lines.v1` it is the line wire instead, docs/wire/companion.md), `GET /tls`,
-`GET /tls.cer`, `/mcp` (Model Context Protocol). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in
+`GET /tls.cer`, `/mcp` (Model Context Protocol), `/mirror` (a hot backup's pulls of its primary's show and files, let in by the
+pairing proof in place of the token, docs/wire/backup.md). The token rides in `X-PlayMap-Token` or `Authorization: Bearer`, never in
 a URL. Outside `/api`, two reads need no token: `GET /health` (this machine's health record; as a WebSocket, every record as
 it is published) and `GET /fleet` (the fleet board), docs/wire/fleet.md.
 

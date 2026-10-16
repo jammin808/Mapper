@@ -18,15 +18,18 @@ marks it `"available"`). The design is in [../FLEET.md](../FLEET.md) ("The hot b
 | `MEDIA FETCH` (VERSION) | `MEDIA FETCH <media> VERSION <version> [FROM <node>]` | One optimised version of a clip, by its hash, from a peer that holds it, with the peer's proof over its pinned HTTPS | low | yes |
 
 `SUBSCRIBE MIRROR <node>` opens the mirror feed on a primary: paired only (it carries the whole show's motion), refused on a node that
-leads no sync group ("FOH-A leads no sync group — SYNC LEAD <group> here first, so a backup can follow its clock") and on a backup or a
-fenced node. The feed pushes, latest of each key first to a new subscriber, then in order:
+leads no sync group ("FOH-A leads no sync group — SYNC LEAD <group> here first, so a backup can follow its clock"), on a node whose
+fleet monitor is off ("FOH-A's fleet monitor is off: it would not hear a takeover nor fence itself — turn it on (fleet.monitor in the
+node's settings) and restart it first") and on a backup or a fenced node. The feed pushes, latest of each key first to a new subscriber, then in order:
 
 - `MIRROR HELLO {"proto":1,"node","name","epoch","group","feed"}`;
 - `MIRROR PROJECT {"rev":<revision>}` on every revision (the backup pulls the show itself);
 - `MIRROR ANCHOR <playlist> <anchor json>` on every transport change of any playlist (the anchor JSON of `PLAYLIST ANCHOR`);
 - `MIRROR AIR {"feed","seq","line","leaderNs"}` for each of the primary's own air lines (PANIC, PANIC CLEAR, BLACKOUT, MASTER, FREEZE,
   PATTERN) that the sync group's feed does not carry; the backup runs it pinned to that leader instant, once per (feed, seq);
-- `MIRROR HANDBACK {"from","epoch"}` to one backup, on FAILBACK.
+- `MIRROR HANDBACK {"from","epoch"}` to one backup, on FAILBACK; the backup takes the show back only while its own mirror is
+  identical, else it refuses, journalled: "FOH-A is not identical to FOH-B (lost): it does not take the show back — FAILBACK CONFIRM
+  on FOH-B again once it is".
 
 The backup hands each line to its own `MIRROR` verb with the session `fleet:<primary>` (transport "fleet"); `MIRROR` and `FLEET FENCE`
 from any other transport are refused "this line is node-to-node only".
@@ -38,8 +41,10 @@ FAILOVER runs on a hot backup (FLEET BACKUP <primary> first)"; "FOH-A does not m
 FAILBACK"; "FOH-A is not identical to FOH-B yet (its mirror is resyncing) — FAILBACK waits for it"; "FOH-B leads show already";
 "Op 1's route is that already"; "the primary's input and the backup's are both 31: a takeover would switch nothing"; "Desk holds a
 blind draft here: it would land over FOH-A's show — BLIND DISCARD (or BLIND COMMIT) first"; "Cam 1 is a live input: it is received
-from the network, never fetched"; on a node that has begun to stop, a pull asked of it by its own line: "the node is stopping — no
-pull starts".
+from the network, never fetched"; "FOH-B took FOH-A's show already (epoch 1) — FLEET BACKUP FOH-B to mirror it" (a FAILOVER on a
+primary's other backup); on a node that has begun to stop, a pull asked of it by its own line: "the node is stopping — no pull
+starts", and a takeover or a join, by a hand-back or its own line: "the node is stopping — it takes no show over and joins no
+mirror".
 
 On a backup a client's line that would change the show is refused "FOH-B mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to
 make this node the show"; on a fenced node "fenced: FOH-B has the show (epoch 8) — FLEET BACKUP FOH-B to mirror it". Queries, panic,
@@ -84,7 +89,9 @@ state on a backup), `of` (the primary a backup mirrors, the node a primary took 
 `sync.epoch` is the node's epoch. On a hot backup each `led.nodes[]` row whose machine master is on says `state` `standby` (green in
 the context and INDEX) and each enabled `videoio.sends[]` says `standby`, both with the words why ("silent: FOH-B is a hot backup of
 FOH-A — it sends at FAILOVER"); on a fenced node both say `held` ("held black: FOH-A is fenced (FOH-B has the show) — FLEET BACKUP
-FOH-B to mirror it"). HEALTH adds `mirror` (the backup's state) and `sync.group`. The fixture is
+FOH-B to mirror it"); on a primary that has just started with hot backups both say `standby` until it has heard them ("silent while
+FOH-A listens for its hot backup (FOH-B): one may have taken the show while it was away"). `show.sound.gain` is 0 on each of them.
+HEALTH adds `mirror` (the backup's state) and `sync.group`; a node is told at once when a peer's epoch, mirror or group moves. The fixture is
 `tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER), its cards `backup.cards.json`.
 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
@@ -97,7 +104,8 @@ and is heard over its pinned certificate.
 ## Preflight and INDEX
 
 Preflight section `backup`: on a backup, `backup:mirror` (green identical; `FLEET BACKUP <primary>` when lost) and `backup:files` (amber
-with the first missing file's line: `MEDIA FETCH <media> VERSION <version> FROM <primary>`); on a primary, `backup:<node>` per backup;
+with the first missing media file's line: `MEDIA FETCH <media> VERSION <version> FROM <primary>`; it names each file beside the show
+that could not be pulled too, which no line fetches: the mirror asks for it again itself); on a primary, `backup:<node>` per backup;
 `route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else one grey row. INDEX section
 `fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`, `FLEET PROMOTE` (red while the leader is
 silent), and `FLEET FOCUS machine:<node>` per backup.
@@ -106,5 +114,6 @@ silent), and `FLEET FOCUS machine:<node>` per backup.
 
 WIRE.md lists these rows and `SUBSCRIBE MIRROR`; ARCHITECTURE §4 has the promoted clock, the fence and the epoch; ROADMAP R4.1 is
 built for a manual takeover. Next round: automatic takeover on silence, `FLEET SUCCESSION`, HOLD, WARM and COLD backups, project
-deltas, frame keys, the router step, `FLEET FENCE` sent over the wire, the pending blind commit carried to the backup with its
-instant (a landing reaches the backup as the revision after it lands), and the 10 s identical window before FAILBACK.
+deltas, frame keys, the router step, `FLEET FENCE` sent over the wire, the sACN lower-priority backup, the pending blind commit carried
+to the backup with its instant (a landing reaches the backup as the revision after it lands), and the 10 s identical window before
+FAILBACK.

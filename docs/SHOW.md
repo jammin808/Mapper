@@ -209,13 +209,14 @@ refused within the commit lead of its instant ("the draft is landing now … —
 
 The on-air playlist's item (the focused playlist, the one the clip verbs drive) plays through one `AudioOut` slaved to the item's
 own anchor (`AnchorTimeline`), so it follows GO, pause, seek, a rate and a panic's transport outcome as the picture does. Its gain
-is the air's sound gain — master × the darkest panic level, from the same `AirFade`s as the picture — × the playlist's volume,
-read at each service step's leader instant and applied from the next step (≤ one 10 ms block behind the picture). A decoder opens
-on a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and
-the optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
-`STATE.show.sound.problem`. The exe's show
-part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's name); a node with no device plays the
-null output.
+is the air's sound gain — master × the darkest panic level, from the same `AirFade`s as the picture — × the playlist's volume, read
+at each service step's leader instant and applied from the next step (≤ one 10 ms block behind the picture). The gain is 0 while the
+node's place in a hot-backup pair keeps what it puts out beside its outputs silent — a hot backup, a fenced node, a primary that has
+just started and listens for its backups (docs/FLEET.md) — and the node with the show sounds from its next step. A decoder opens on
+a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and the
+optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
+`STATE.show.sound.problem`. The exe's show part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's
+name); a node with no device plays the null output.
 
 ## Transitions on a manual GO
 
