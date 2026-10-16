@@ -30,6 +30,27 @@ public sealed class GpuSurface
     public DmaBufPlane[] Planes { get; } = new DmaBufPlane[4];
     public int PlaneCount { get; set; }
     public bool Persistent { get; set; }
+
+    /// <summary>The source whose decoder made it (what an import failure is reported against, IGpuShare.ReportImportFailure).</summary>
+    public string SourceKey { get; set; } = "";
+
+    /// <summary>Who holds the picture alive (the producer's pooled slot); null for a surface nothing reference-counts.</summary>
+    public IGpuSurfaceOwner? Owner { get; set; }
+
+    /// <summary>One more hold on the picture: a renderer that recorded a read of it keeps it until that read completed on the GPU,
+    /// past the lease that carried it. Pair every call with <see cref="Release"/>.</summary>
+    public void Retain() => Owner?.Retain(this);
+
+    /// <summary>Lets go of one hold; the producer reuses the picture when the last hold (the lease's included) is gone.</summary>
+    public void Release() => Owner?.Release(this);
+}
+
+/// <summary>The producer side of a <see cref="GpuSurface"/>'s holds: the picture goes back to its decoder only when every hold —
+/// the lease's and each renderer's read — has been released. Thread-safe; allocation-free.</summary>
+public interface IGpuSurfaceOwner
+{
+    void Retain(GpuSurface surface);
+    void Release(GpuSurface surface);
 }
 
 /// <summary>The renderer's device as decoders and texture-share inputs see it: what it can import, the D3D11 device to decode
