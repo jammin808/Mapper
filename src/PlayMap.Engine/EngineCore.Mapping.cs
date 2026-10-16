@@ -294,6 +294,9 @@ public sealed partial class EngineCore
     /// stage with it when it is not there yet; one undoable edit. Answers the surface's id.</summary>
     private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
+        // wp2-multiscan: ON <projector>, and a scan of many views, are answered there.
+        if (await ScanSurfaceMultiscanAsync(args, line, session, ct).ConfigureAwait(false) is { } multiscan)
+            return multiscan;
         const string Syntax = "SCAN SURFACE <scan> <x> <y> [<name>] — x and y from 0 to 1 across and down the scan's smart-scan picture — or SCAN SURFACE <scan> REGION <region> [<name>]";
         var byRegion = args.Count >= 3 && args[1].Equals("REGION", StringComparison.OrdinalIgnoreCase);
         double x = 0, y = 0;
@@ -359,7 +362,8 @@ public sealed partial class EngineCore
         {
             string surfaceId = "";
             var paths = 0;
-            var r = EditsFor(session).Apply($"surface {name} from {scan.Name}", p =>
+            var store = EditsFor(session);
+            var r = store.Apply($"surface {name} from {scan.Name}", p =>
             {
                 var current = p.Stage.Scans.Find(scan.Id) ?? throw new EditRefusedException($"no scan {scan.Id}");
                 var asset = ScanMesh(p, current) ?? written ?? throw new EditRefusedException($"{scan.Name}'s mesh is not on the stage");
@@ -385,8 +389,8 @@ public sealed partial class EngineCore
                 });
             });
             return r.Changed
-                ? CommandReply.Success(surfaceId, string.Create(CultureInfo.InvariantCulture,
-                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}"))
+                ? CommandReply.Success(surfaceId, StagedSurface(store, string.Create(CultureInfo.InvariantCulture,
+                    $"made surface {name} ({surfaceId}): {faces.Length:N0} triangles of {scan.Name}, outlined by {paths} mask path{(paths == 1 ? "" : "s")}")))
                 : FromEdit(r);
         }).ConfigureAwait(false);
     }

@@ -125,7 +125,7 @@ public sealed partial class EngineCore
             "WARP RESET" => WarpReset(args),
             "WARP NODE" => WarpNode(args),
 
-            "SCAN START" => ScanStart(args, ct),
+            "SCAN START" => ScanStart(args, session, ct),
             "SCAN STATUS" => CommandReply.Success(ScanStatusJson()),
             "SCAN CANCEL" => Services.Scan.Cancel() ? CommandReply.Success(effect: "scan cancelled") : CommandReply.Fail("no scan is running"),
             "SCAN APPLY" => ScanApply(args),

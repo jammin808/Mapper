@@ -310,10 +310,23 @@ public sealed partial class EngineCore
 
     private CommandReply BlendSolve(List<string> args) => SolveBlend(args);
 
-    private CommandReply ScanStart(List<string> args, CancellationToken ct)
+    private CommandReply ScanStart(List<string> args, SessionInfo session, CancellationToken ct)
     {
         if (args.Count < 1)
-            return CommandReply.Fail("SCAN START <camera> [<projector>…] [MODE FAST|ROBUST|DIFFICULT]");
+            return CommandReply.Fail("SCAN START <camera>|phone:<phone> [<projector>…] [MODE FAST|ROBUST|DIFFICULT] [INTO <scan>]");
+        // A scan lights the outputs and lands its record on the live stage: from the blind draft's session it is refused, never staged.
+        if (FromDraft(session))
+            return NotStaged("SCAN START", "a scan lights the outputs and is recorded on the live stage");
+        // wp2-multiscan: INTO adds a view to a scan; phone:<id> names a phone's camera rig.
+        string? into = null;
+        var ii = args.FindIndex(a => a.Equals("INTO", StringComparison.OrdinalIgnoreCase));
+        if (ii >= 0)
+        {
+            if (ii + 1 >= args.Count)
+                return CommandReply.Fail("INTO takes the scan the view is added to");
+            into = args[ii + 1];
+            args.RemoveRange(ii, 2);
+        }
         var mode = "robust";
         var mi = args.FindIndex(a => a.Equals("MODE", StringComparison.OrdinalIgnoreCase));
         if (mi >= 0)
@@ -326,7 +339,7 @@ public sealed partial class EngineCore
                 return CommandReply.Fail("MODE takes FAST, ROBUST or DIFFICULT");
         }
         var p = Store.Project;
-        var camera = p.Stage.Cameras.Find(args[0]);
+        var camera = Scanning.ScanCameras.Find(p, args[0]);
         var simulated = camera is null && args[0].Equals(Scanning.SimulatedRig.CameraId, StringComparison.OrdinalIgnoreCase);
         if (camera is null && !simulated)
             return CommandReply.Fail($"no camera {args[0]} (\"{Scanning.SimulatedRig.CameraId}\" scans the simulator)");
@@ -338,7 +351,10 @@ public sealed partial class EngineCore
                 return CommandReply.Fail($"no projector {id}");
         if (Services.Scan.Current is { State: not ("done" or "failed" or "cancelled") })
             return CommandReply.Fail("a scan is already running — SCAN CANCEL stops it");
-        var task = Services.Scan.StartAsync(camera?.Id ?? Scanning.SimulatedRig.CameraId, projectors, mode, ct);
+        var task = Services.Scan is Scanning.ScanRunner runner
+            ? runner.StartAsync(camera?.Id ?? Scanning.SimulatedRig.CameraId, projectors, mode, into, ct)
+            : into is null ? Services.Scan.StartAsync(camera?.Id ?? Scanning.SimulatedRig.CameraId, projectors, mode, ct)
+            : Task.FromException<string>(new InvalidOperationException("this node's scans take no views INTO them"));
         if (task.IsFaulted)
             return CommandReply.Fail(task.Exception?.InnerException?.Message ?? "the scan did not start");
         _ = task.ContinueWith(t => _lane.Post(() =>

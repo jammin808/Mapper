@@ -132,6 +132,34 @@ moment a scan drives the phone, so a scan's cues are the only ones it sees.
   reaching its staged result, and failing with the phone's words when it is gone; the verbs, the preflight row, INDEX; the ticket and key in no STATE, context, journal or project.
 - Simulator: a camera hunting 1 % a frame with no white or black decodes ≥ 90 % of the locked pixels and holds the pose within twice
   the locked thresholds.
+- The closed browser loop (`PhoneScanE2ETests`, with `PLAYMAP_E2E=1`): a real node with its render host on Xvfb, the real page
+  in Chromium, its camera a track made from the simulator's scene lit by what the node's output really shows (30 frames a second,
+  120 ms late, gamma-encoded, stamped with when each was taken). The Android profile (manual exposure honoured) locks and places
+  the projector within 10 mm, 0.25°, 0.6 % of throw (measured: under a millimetre), and a second view from 35 cm aside joins the
+  scan INTO it, both solved together under half a pixel; the iOS profile (no controls, auto-exposure hunting ±3 %) completes with
+  brightness kept steady. Each projector's run takes about 400 camera frames — under 15 s at 30 fps.
 - **Lab only**: real phones (Chrome Android's exposure lock, iOS Safari's steady behaviour and its motion permission, lens
-  switching, rolling-shutter timing, turning the phone, Wi-Fi), the certificate click-through, motion sensors. **Next** (wp2-multiscan): views INTO a scan, the multi-view solve, safe
-  suggestions, the Folder camera, the closed browser loop.
+  switching, rolling-shutter timing, turning the phone, Wi-Fi), the certificate click-through, motion sensors.
+
+## Running the tests
+
+The phone's tests run with the Engine suite. The closed browser loop (`PhoneScanE2ETests`) runs only with `PLAYMAP_E2E=1` and
+takes a few minutes: it needs a display (Xvfb, `DISPLAY`), node 22 or later, Playwright (`npm ci` in `tests/e2e/phonescan`, or
+installed globally) and its Chromium (`PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers` when unset); without them its tests are
+skipped with the reason. The Folder camera's tests read their photos through FFmpeg 9 (`PLAYMAP_FFMPEG_DIR`, `/opt/ffmpeg9/lib`
+when unset) and are skipped with the reason where it is missing.
+
+## Many views, surfaces, the folder
+
+A phone (or any camera) can stand in more places: `SCAN START phone:<id> … INTO <scan>` adds a view and every view is solved
+together (`docs/SCAN-MULTIVIEW.md`, `docs/wire/multiscan.md`). Scans keep their views on disk and work after a restart.
+`SCAN SUGGEST` offers the measured regions as surfaces with their reasons, each a proposal on the node's own list that only a
+person's `APPROVE` runs (an assistant, asked with `ASSISTANT`, sees text descriptors only and may only name and rank them).
+
+The **Folder camera** (a camera rig of kind Folder) is a tethered camera or a person shooting into a folder: in tether mode each new
+image after a pattern goes up is that pattern's picture once it has bytes and its size stands still (a file the tool has made but not
+yet filled is waited for); in manual mode `SCAN NEXT` takes the newest. Photos carry the tags too: a
+photo of another pattern is refused ("photo 17 shows pattern 16: re-shoot") and the scan waits; photos of another size than the
+camera rig's fail the scan at the first one with the size to shoot. JPEG, PNG and TIFF (16-bit as
+gray16) are read through the user's FFmpeg; RAW is refused with what to do. Verified with a fake tether writing the simulator's
+pictures (the projector within 1 cm, 0.25°, 0.6 % of throw), a wrong photo refused, a manual run through `SCAN NEXT`, a 16-bit TIFF.

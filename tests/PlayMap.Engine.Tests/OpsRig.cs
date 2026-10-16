@@ -27,13 +27,15 @@ internal sealed class OpsRig : IAsyncDisposable
     private readonly IAsyncDisposable _ops;
     private int _disposed;
 
+    /// <param name="display">The outputs a real scan shows its patterns on (null: none — the simulator scans).</param>
+    /// <param name="services">A test's own parts on top of the rig's (a camera re-solve's display and camera).</param>
     public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null,
-        ScanRunnerOptions? scan = null)
+        ScanRunnerOptions? scan = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? services = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
-        Scanner = new ScanRunner(null, scan);
+        Scanner = new ScanRunner(display, scan);
         Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,
@@ -51,17 +53,18 @@ internal sealed class OpsRig : IAsyncDisposable
                 return Model;
             },
         });
-        var services = EngineServices.ForTests(MonoClock.Instance);
-        services = services with
+        var parts = EngineServices.ForTests(MonoClock.Instance);
+        parts = parts with
         {
             // A node id of its own: the preview rings are files every process of this user shares.
-            Settings = services.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8] },
+            Settings = parts.Settings with { NodeId = Guid.NewGuid().ToString("N")[..8] },
             Scan = Scanner,
             ProjectFolder = Folder,
             JournalPath = Path.Combine(Folder, "journal.jsonl"),
             NetworkControl = network,
         };
-        Engine = new EngineCore(services with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
+        parts = services?.Invoke(parts) ?? parts;
+        Engine = new EngineCore(parts with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
         _ops = OpsServices.Attach(Engine);
     }
 

@@ -35,8 +35,18 @@ public sealed record ScanPairing(string Mode, int Sites, int RollingRejects, int
 public sealed partial class ScanRunner
 {
     private readonly Lock _cueGate = new();
+
+    /// <summary>The cued camera a scan drives now (null between scans).</summary>
+    private ICuedScanCamera? _cuedCamera;
     private Func<Task>? _cueNext;
     private bool _nextAsked;
+
+    /// <summary>SCAN NEXT for a camera a person releases by hand (a manual folder camera): it takes the picture of the pattern on the
+    /// glass now. False when the scan's camera is not one waiting so.</summary>
+    public bool TakeByHand() => Volatile.Read(ref _cuedCamera)?.TakeNow() == true;
+
+    /// <summary>Whether the scan's camera is released by hand (SCAN NEXT takes its picture, never shows its pattern again).</summary>
+    public bool CameraByHand => Volatile.Read(ref _cuedCamera)?.ByHand == true;
 
     /// <summary>SCAN NEXT: the wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for
     /// afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. False when no scan waits
@@ -72,9 +82,10 @@ public sealed partial class ScanRunner
     {
         while (true)
         {
+            camera.Arm();
             var present = await show(ct).ConfigureAwait(false);
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            wait.CancelAfter(_options.PatternTimeout);
+            wait.CancelAfter(camera.Patience ?? _options.PatternTimeout);
             lock (_cueGate)
             {
                 _cueNext = wait.CancelAsync;
@@ -197,9 +208,15 @@ public sealed partial class ScanRunner
                 $"locate frame {k + 1}", ct).ConfigureAwait(false);
             (w, h) = Size(frame, w, h);
             // The rig's optics are for the raster its camera joined with: pictures of another size would be solved against the wrong ones.
+            // A phone joins again to give its rig its size; a folder's photos are shot at the size its rig was set up for.
             if ((w, h) != rigRaster)
+            {
+                var fix = camera is FolderCamera
+                    ? string.Create(CultureInfo.InvariantCulture, $"shoot at {rigRaster.Width}×{rigRaster.Height}, the size its camera rig was set up for (its optics are for that picture)")
+                    : "join it again so the rig takes its picture size";
                 throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                    $"{camera.Name} sends {w}×{h} pictures, but its camera rig is {rigRaster.Width}×{rigRaster.Height}: join it again so the rig takes its picture size"));
+                    $"{camera.Name} sends {w}×{h} pictures, but its camera rig is {rigRaster.Width}×{rigRaster.Height}: {fix}"));
+            }
             locate[k] = frame.Gray;
             views?.CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
         }

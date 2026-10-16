@@ -6,9 +6,9 @@ camera's own optics are solved **together**, in one frame, anchored on the proje
 gets a **dense depth map** on its own raster, so curved plaster, a column or a sculpture needs nothing special; the
 projectors' meshes are joined into one stage mesh, and the scan reports how much of each projector's light the views saw.
 
-This is the Core of it (`src/PlayMap.Core/Scan/MultiView/`): pure computation, no engine hooks, no verbs, no STATE. No verb
-drives it yet: the catalogue's `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` and the `INTO` form of `SCAN START` are the engine's
-side, still to come; a node answers the three "not available on this node yet".
+The Core of it (`src/PlayMap.Core/Scan/MultiView/`) is pure computation. The engine drives it (`src/PlayMap.Engine/Scanning/`,
+"In the engine" below): `SCAN START … INTO <scan>` adds a view, and `SCAN SOLVE`, `SCAN VIEWS`, `SCAN DROP`, `SCAN SURFACE … ON`
+and `SCAN SUGGEST` work on the views a scan keeps.
 
 ## Why anchor on the projectors
 
@@ -163,12 +163,51 @@ registered to the world on its track points (as registering a scan to a surveyed
 | HOLD | bit-identical | every held field bit for bit, and every solved point of a held projector's tracks on its stage ray (back onto its own pixel within 10⁻⁶ px); with both held, every view within 0.06 mm and 0.001° |
 | regions | each surface once, every projector that lights it | the wall one region [pj1, pj2] (0.1 mm RMS, planar); the cylinder's side one curved region [pj1, pj2] holding all 5 317 and 4 065 of the two projectors' side cells; the floor two pieces (the cylinder's shadow cuts the lit strip), each [pj1, pj2] |
 
-## Wire
+## In the engine
 
-None yet: this is Core. The engine's side is to route `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` through
-`MultiViewCalibration.Solve`, `Influence` and `DropView`, keep the tracks and depth maps under the scan's folder, fill the scan's
-score terms (`dense-rms`, `decoded`, `views`) from `MultiViewResult`, `ProjectorDepthMap` and `CoverageMap`, and give `SCAN
-SURFACE … ON <projector>` and STATE's regions (with `projectors`) from `ProjectorRegions`.
+- **A view per run.** Every scan keeps each run as a view: the camera and its optics as they were, each projector's decode, how
+  its pictures were paired. `SCAN START <camera> … INTO <scan>` takes another view of a scan this node holds and solves every view
+  together (`MultiViewScan`): the projectors' priors from the model at the raster the patterns were shown at (their locks honoured),
+  one rig per camera, each view's dense pairs to start from, the tracks.
+- **The frame.** With nothing held, the joint solve is carried onto the scan's own frame by its first view: that camera keeps the
+  place the scan's last solve gave it, and its mean distance to its projectors (so the scale is the first solve's — metric when it
+  was). Adding a view therefore moves nothing already placed beyond what the new view corrects. `SCAN SOLVE <scan> HOLD <projector>…`
+  holds those projectors at their stage poses instead: the solve is then in the stage's frame (metric with two held). Each view
+  keeps the site frame its place is in: after `SITE ORIGIN` moved the stage, the anchor's place (or a warm drop's frame) is carried
+  by that move first, so the next view, solve or drop lands in the stage's frame now (`docs/MAPPING.md`).
+- **Latency.** A view through a streaming camera keeps the latency its own white flashes measured for each projector (`SCAN VIEWS`,
+  STATE); the scan's latency for a projector is its newest view's.
+- **A bad view.** Every joint solve measures each view's influence; the view whose removal halves the residual (when it is at least
+  0.1 px) is named in `SCAN VIEWS` (`disagreeing`), in the solve's words, and in `SCAN APPLY`'s score: the dense fit's fix is
+  `SCAN DROP <scan> <view>`. `SCAN DROP` solves the rest warm from the last solve; the view stays in the folder, marked dropped.
+  A view the solve leaves out (it saw too little of the light) is listed "left out" with the solve's words; the same solve of the
+  same views leaves it out again, so `SCAN SOLVE` of them is refused as changing nothing, with those words.
+- **What SCAN APPLY reads.** The merged mesh (each surface once), every projector at the model's raster, the first view's camera
+  (the rig's solved optics there), and the planar regions as plane suggestions.
+- **Regions.** Per projector on its own raster, joined across projectors; STATE lists each with `projector` (whose smart scan places
+  it) and `projectors` (all that light it). `SCAN SURFACE … REGION <region> ON <projector>` keeps the merged mesh's triangles of
+  the region that projector lights (their centre on a cell of its part whose own depth agrees). A single-view scan's regions list
+  the solved projectors whose picture holds a fifth of their points.
+- **On disk.** `scans/<id>/views/<view>/` (view.json and one `.pmcm` decode per projector), `multiview.json`, `depth/<projector>.bin`.
+  After a restart the scan reads back whole: INTO, SOLVE, DROP, SURFACE, SUGGEST and APPLY work on it as before. A view whose
+  view.json or every decode does not read is listed "unreadable" with the words why; it takes no part in a solve (whose words
+  say so) and its folder is never written over. A view missing one projector's decode takes part with the others and names
+  the decode it lacks.
+- **Suggestions.** `SCAN SUGGEST` ranks the measured regions (flatness, area, the projectors that light them) and queues each
+  one's lines — its `SCAN SURFACE … REGION`, and a `SURFACE QUAD` for a plane — on the node's own approval list, one batch each;
+  only a person's `APPROVE` runs one. An assistant asked to name them gets text descriptors only and answers through one naming
+  tool. While a scan's suggestions are made no solve or view lands on it, and none is made while it takes a view or is solved;
+  a solve withdraws the ones still waiting, since they name the regions of the solve they came from.
+- **While a view is taken.** STATE.scan is the scan with the views, coverage and regions it has and the view being taken; a view
+  that fails or is cancelled leaves the scan as it was.
+- **The cameras.** A view comes through any scan camera: a capture device or stream (its latency measured by white flashes), a
+  phone (paired by the tags its pictures show), or a folder a tethered camera or a person shoots into (docs/PHONESCAN.md).
+
+Measured through the engine (simulator, `tests/PlayMap.Engine.Tests/Phone/MultiViewScanTests.cs`): the same scene, priors and three
+views as Core's, each view a `SCAN START … INTO` — every projector within 5 mm, 0.05° and 0.2 % of throw after registering the track
+points to the scene (as Core's bar is measured), the phone's focal length within 0.5 %, residual under 0.5 px, each projector seen
+over 90 %. A fourth view taken with the phone knocked 2 px between its projectors' runs raises the residual tenfold and is named;
+dropping it brings it back under half a pixel.
 
 ## Next
 

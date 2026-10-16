@@ -10,14 +10,14 @@ The phone as a local scan camera (`docs/PHONESCAN.md`). A phone joins through an
 | `PHONE INVITE` | `PHONE INVITE [<name>] [FOR <minutes 1-60>]` | To the asking session only: JSON `{name, url, qr:{size, modules}, fingerprint, expiresUnixMs}`. `url` is `https://<address>:<port>/scan/#t=<ticket>` — the ticket (20 random bytes, 32 base32 letters) rides only in the fragment, which a browser never sends; `qr.modules` is the URL as a QR code (byte mode, level M, versions 1–10), row-major, most significant bit first, base64; `fingerprint` is the short fingerprint of the certificate the web port really serves (read by a TLS handshake to the port), for the person to compare with the phone's warning. The address is this machine's on the asking session's subnet, else its first private address. Default life `NodeSettings.Phone.InviteMinutes` (10). Refused for the `assistant`, `mcp` and `approval` transports, from another machine on any transport but the web port's (`http`, `ws`: the line wire is not encrypted), when phones are off (`phone.enabled`), when the web port serves no https ("turn on encrypted connections first"), for `FOR` outside 1–60 and for a name over 40 characters. Under the name of a Phone rig whose phone this node no longer knows (forgotten, or its first join never finished), the invite pairs that rig again: the phone takes its phone id. The journal keeps `PHONE INVITE "<name>" → invite issued, expires HH:mm UTC`, never the link | high | yes |
 | `PHONE LIST` | `PHONE LIST` | JSON `{phones:[…]}`, each as STATE | low | no |
 | `PHONE FORGET` | `PHONE FORGET <phone>\|ALL` | JSON `{forgotten:[ids]}`: the key no longer opens anything and the phone's socket closes ("was forgotten"); its camera rig stays in the project. Refused "no such phone <id>" / "no phone is paired with this node" | review | yes |
-| `SCAN NEXT` | `SCAN NEXT` | The wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. The journal keeps `asked: the waited pattern goes up again for the camera`; refused "no scan is waiting for a picture" | review | yes |
+| `SCAN NEXT` | `SCAN NEXT` | The wait on the pattern a cued camera is asked for now ends, and the pattern goes up again and is asked for afresh (a phone that was bumped or lost its view) — unless the camera's answer was already on its way. The journal keeps `asked: the waited pattern goes up again for the camera`; a manual Folder camera takes its picture instead (`docs/wire/multiscan.md`); refused "no scan is waiting for a picture" | review | yes |
 
 `SCAN START <camera>` through a Phone rig runs the lock-step capture (below). `ALIGN RUN` on a group whose camera is a Phone rig
 opens it through the same hub (align's `AlignRunnerOptions.OpenCamera`): the run reads pictures one `still` cue at a time; a
 phone that is not connected fails the run with "<name> is not connected — open the invite on the phone (PHONE INVITE makes one)".
 
-`INTO`, and the rows `SCAN SUGGEST`, `SCAN SOLVE`, `SCAN VIEWS`, `SCAN DROP`, are wp2-multiscan's (W3): trimmed from this block
-(Assistant.Tests `CatalogueTests.TrimmedRows`), for it to add back.
+`SCAN START phone:<id>` names a phone's rig by its phone. `INTO`, `SCAN SUGGEST`, `SCAN SOLVE`, `SCAN VIEWS` and `SCAN DROP` (rows of
+this block) are described in `docs/wire/multiscan.md`.
 
 ## The phone's own socket: `/scan/ws`, `playmap.camera.v1`
 

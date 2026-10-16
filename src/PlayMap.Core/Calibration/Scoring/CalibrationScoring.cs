@@ -12,6 +12,12 @@ public sealed record ScanScoreInputs(string TargetId, double DenseRmsPx, int Poi
 {
     /// <summary>The camera that scanned, for the fix lines ("" when none is known).</summary>
     public string CameraId { get; init; } = "";
+
+    /// <summary>The scan, and the view of it that disagrees with the rest ("" when none does): the dense fit's fix drops that view
+    /// (wp2-multiscan).</summary>
+    public string ScanId { get; init; } = "";
+
+    public string DropView { get; init; } = "";
 }
 
 /// <summary>What a camera alignment measured, for its score: the share of the canvas its outputs cover, the seam
@@ -170,6 +176,8 @@ public static class CalibrationScoring
         };
         if (s.Views >= 2)
             terms[2] = terms[2] with { Words = string.Create(CultureInfo.InvariantCulture, $"{s.Views} views") };
+        if (s.DropView.Length > 0 && s.ScanId.Length > 0)
+            terms[0] = terms[0] with { Where = s.DropView, Fix = $"SCAN DROP {s.ScanId} {s.DropView}", Hint = "that view disagrees with the others: the camera moved during it" };
         return Compose(terms, "px", failed, failed ? double.PositiveInfinity : s.DenseRmsPx, 0, s.DecodedShare, "scan");
     }
 

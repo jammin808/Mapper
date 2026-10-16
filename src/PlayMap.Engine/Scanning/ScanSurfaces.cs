@@ -16,9 +16,17 @@ namespace PlayMap.Engine.Scanning;
 public sealed record ScanGeometry(PointCloud Cloud, ImageRgb8 Image, MeshData Mesh, int[] VertexCells, DeviceView Camera, DeviceView Projector);
 
 /// <summary>A surface the scan suggests, for the desk's review: where it is on the smart-scan picture (0–1 across
-/// and down), what it looks like, how sure the suggestion is, and its mask on the camera's grid.</summary>
+/// and down), what it looks like, how sure the suggestion is, and its mask on the camera's grid (a multi-view scan's: on the depth
+/// grid of <see cref="Projector"/>, whose smart scan places it).</summary>
 public sealed record ScanRegion(string Id, string Label, ImmutableArray<string> Tags, double X, double Y, double W, double H, double Confidence,
-    SegmentationMask Mask);
+    SegmentationMask Mask)
+{
+    /// <summary>The projector whose smart scan the box is on (null: the scan's first projector).</summary>
+    public string? Projector { get; init; }
+
+    /// <summary>Every projector that lights the region (empty when not measured per projector).</summary>
+    public ImmutableArray<string> Projectors { get; init; } = [];
+}
 
 /// <summary>
 /// The scan's surfaces for people: suggested regions with no click (the cloud's surfaces as its depth and crease
@@ -63,6 +71,47 @@ public static class ScanSurfaces
                 rect.X, rect.Y, rect.W, rect.H, Math.Round(Math.Clamp(p.Confidence, 0, 1), 3), p.Mask));
         }
         return regions;
+    }
+
+    /// <summary>The regions with every solved projector that lights them: one lights a region when at least a fifth of the region's
+    /// points fall in its picture, in front of it (wp2-multiscan: regions no longer refer to the first projector alone).</summary>
+    public static IReadOnlyList<ScanRegion> LitBy(IReadOnlyList<ScanRegion> regions, ScanGeometry? g, ScanSolution solution)
+    {
+        ArgumentNullException.ThrowIfNull(regions);
+        ArgumentNullException.ThrowIfNull(solution);
+        if (g is null)
+            return regions;
+        var devices = solution.Projectors.Where(p => p.Solved).Select(p => (p.ProjectorId, View: new DeviceView(p.Intrinsics, p.Lens, p.Pose))).ToList();
+        var list = new List<ScanRegion>();
+        foreach (var r in regions)
+        {
+            var points = 0;
+            var lit = new int[devices.Count];
+            for (var i = 0; i < r.Mask.Coverage.Length; i++)
+            {
+                if (r.Mask.Coverage[i] < 128 || !PointCloud.IsValid(g.Cloud.Points[i]))
+                    continue;
+                points++;
+                for (var d = 0; d < devices.Count; d++)
+                {
+                    var k = devices[d].View.Intrinsics;
+                    if (devices[d].View.Project(g.Cloud.Points[i]) is { } q && q.X >= 0 && q.Y >= 0 && q.X < k.Width && q.Y < k.Height)
+                        lit[d]++;
+                }
+            }
+            var by = devices.Where((_, d) => points > 0 && lit[d] >= 0.2 * points).Select(x => x.ProjectorId).ToImmutableArray();
+            list.Add(r with { Projector = devices.FirstOrDefault().ProjectorId, Projectors = by });
+        }
+        return list;
+    }
+
+    /// <summary>The camera pixel that sees what <paramref name="projector"/> lights at (x, y) on its smart scan (0–1): as
+    /// <see cref="CameraPixelAt"/> with that projector in place of the first.</summary>
+    public static Vec2d? CameraPixelAt(ScanGeometry g, DeviceView projector, double x, double y)
+    {
+        ArgumentNullException.ThrowIfNull(g);
+        ArgumentNullException.ThrowIfNull(projector);
+        return CameraPixelAt(g with { Projector = projector }, x, y);
     }
 
     /// <summary>Where a mask lies on the smart scan: its points seen by the first projector, normalised, the 2nd to
