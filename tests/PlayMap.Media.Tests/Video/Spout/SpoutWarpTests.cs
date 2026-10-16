@@ -80,6 +80,37 @@ public sealed class SpoutWarpTests(ITestOutputHelper output)
         Assert.Contains("\"send\":\"sd_ci\"", SpoutDataWriter.Read(kernel.OpenMap(SpoutNames.DataMap(name))!.Bytes), StringComparison.Ordinal);
     }
 
+    /// <summary>Looking for a sender that is not there (a receiver waiting for it, discovery reading a stale name) is a question to
+    /// the kernel, not an exception: none is thrown on this thread.</summary>
+    [WindowsFact]
+    [Trait("Category", "Windows")]
+    [SupportedOSPlatform("windows")]
+    public void LookingForAnAbsentSenderThrowsNothing()
+    {
+        var kernel = new Win32SpoutKernel();
+        var name = "PlayMap absent " + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var thread = Environment.CurrentManagedThreadId;
+        var thrown = 0;
+        void Count(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+        {
+            if (Environment.CurrentManagedThreadId == thread)
+                Interlocked.Increment(ref thrown);
+        }
+        AppDomain.CurrentDomain.FirstChanceException += Count;
+        try
+        {
+            Assert.Null(kernel.OpenMap(name));
+            using var receiver = new SpoutReceiver(kernel, new FakeSpoutGpu(), name);
+            Assert.Equal(ReceiveStep.Absent, receiver.Step());
+            Assert.Equal(ReceiveStep.Absent, receiver.Step());
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= Count;
+        }
+        Assert.Equal(0, thrown);
+    }
+
     [Fact]
     [Trait("Category", "Windows")]
     [SupportedOSPlatform("windows")]
