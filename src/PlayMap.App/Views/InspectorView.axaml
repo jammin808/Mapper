@@ -363,6 +363,9 @@
             <TextBlock Text="{Binding Current.EditRefusal, FallbackValue=''}" TextWrapping="Wrap" MaxWidth="280" />
           </StackPanel>
         </Border>
+        <!-- An object locked by its own flag is unlocked here, outside its greyed fields. -->
+        <ContentControl x:Name="InspectorUnlock" Content="{Binding Current.Unlock, FallbackValue={x:Null}}" ContentTemplate="{StaticResource ActionText}"
+                        IsVisible="{Binding Current.ShowsUnlock, FallbackValue=False}" />
         <ContentControl x:Name="InspectorFields" Content="{Binding Current}" IsEnabled="{Binding Current.IsEditable, FallbackValue=True}" />
         <!-- The modules' sections for this object (cards, effect slots…), each drawn by its registered view. -->
         <ItemsControl x:Name="InspectorSections" ItemsSource="{Binding Sections}" />

@@ -108,7 +108,18 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
     {
         Session = session;
         Id = id;
+        Unlock = DeskAction.Send(session, "inspector.unlock", "Unlock", () => VerbText.Set(Id, "locked", "false"), isEnabled: () => IsFlagLocked)
+            .Look("unlock");
     }
+
+    /// <summary>Clears the object's own Locked flag (SET &lt;id&gt; locked false). It sits beside the refusal's words, outside the
+    /// greyed fields, so a surface or projector locked by its own flag is unlocked from its own inspector.</summary>
+    public DeskAction Unlock { get; }
+
+    /// <summary>The object's own Locked flag is set (surfaces and projectors carry one) and holds its fields: Unlock shows.</summary>
+    public bool ShowsUnlock => IsFlagLocked && !IsEditable;
+
+    private bool IsFlagLocked => Session.Project is { } p && (p.Stage.Surfaces.Find(Id) is { Locked: true } || p.Stage.Projectors.Find(Id) is { Locked: true });
 
     protected DeskSession Session { get; }
 
@@ -163,7 +174,8 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
             if (ok)
             {
                 Actions.RefreshAll();
-                Raise(nameof(EditRefusal), nameof(IsEditable));
+                Unlock.Refresh();
+                Raise(nameof(EditRefusal), nameof(IsEditable), nameof(ShowsUnlock));
             }
             return ok;
         }
