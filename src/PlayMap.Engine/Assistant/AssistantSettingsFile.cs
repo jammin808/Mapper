@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlayMap.Assistant;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Assistant;
 
@@ -48,8 +49,6 @@ public static class AssistantSettingsFile
     {
         ArgumentNullException.ThrowIfNull(settings);
         var path = PathIn(home);
-        var temp = path + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings.Normalised(), Json));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteAllText(path, JsonSerializer.Serialize(settings.Normalised(), Json));
     }
 }

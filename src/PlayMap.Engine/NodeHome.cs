@@ -5,6 +5,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Playback;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine;
 
@@ -142,9 +143,7 @@ public sealed class NodeHome
 
     public void SaveSettings(NodeSettings settings)
     {
-        var temp = SettingsPath + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings, Json));
-        File.Move(temp, SettingsPath, overwrite: true);
+        DurableFile.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, Json));
     }
 }
 
@@ -187,9 +186,7 @@ public sealed record RecoveryRecord(
 
     public void Save(string path)
     {
-        var temp = path + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteAllText(path, JsonSerializer.Serialize(this, Json));
     }
 
     public static RecoveryRecord? Load(string path)

@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Media;
 
@@ -207,7 +208,7 @@ public sealed class HashCache : IDisposable
                 Directory.CreateDirectory(dir);
             var temp = File + ".tmp";
             await System.IO.File.WriteAllTextAsync(temp, JsonSerializer.Serialize(doc, Json), cancellationToken).ConfigureAwait(false);
-            System.IO.File.Move(temp, File, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, File);
         }
         finally
         {

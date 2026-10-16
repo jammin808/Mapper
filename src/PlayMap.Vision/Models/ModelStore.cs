@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Vision;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Vision.Models;
 
@@ -203,7 +204,7 @@ public sealed class ModelStore : IDisposable
     {
         var tmp = path + ".tmp";
         File.WriteAllBytes(tmp, bytes.ToArray());
-        File.Move(tmp, path, overwrite: true);
+        DurableFile.MoveIntoPlace(tmp, path);
     }
 
     // ---- installed ----
@@ -478,7 +479,7 @@ public sealed class ModelStore : IDisposable
             File.Delete(partial);
             return new FileOutcome(received, true, "checksum mismatch (expected " + expected + ", got " + actual + "); the download was discarded");
         }
-        File.Move(partial, final, overwrite: true);
+        DurableFile.MoveIntoPlace(partial, final);
         return new FileOutcome(received, true, null);
     }
 

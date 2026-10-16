@@ -4,6 +4,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Site;
 
@@ -279,7 +280,7 @@ internal static class SurveyImporter
             string hash;
             using (var read = File.OpenRead(temp))
                 hash = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(read));
-            File.Move(temp, full, overwrite: false);
+            DurableFile.MoveIntoPlace(temp, full, overwrite: false);
             return hash;
         }
         finally

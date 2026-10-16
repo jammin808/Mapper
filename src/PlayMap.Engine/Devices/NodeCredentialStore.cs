@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using PlayMap.Devices.Model;
 using PlayMap.Net.Tls;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Devices;
 
@@ -145,11 +146,10 @@ public sealed class NodeCredentialStore : ICredentialStore
             using (var f = new FileStream(temp, options))
             {
                 f.Write(bytes);
-                f.Flush(flushToDisk: true);
             }
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            File.Move(temp, _path, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, _path);
             Problem = "";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)

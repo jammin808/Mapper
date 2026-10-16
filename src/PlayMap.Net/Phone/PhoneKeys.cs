@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Phone;
 
@@ -160,6 +161,6 @@ public sealed class PhoneKeys
             w.WriteEndArray();
             w.WriteEndObject();
         }
-        File.Move(temp, _path, overwrite: true);
+        DurableFile.MoveIntoPlace(temp, _path);
     }
 }

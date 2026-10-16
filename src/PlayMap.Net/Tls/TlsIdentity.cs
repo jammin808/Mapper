@@ -6,6 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Tls;
 
@@ -186,11 +187,10 @@ public sealed class TlsIdentity : IDisposable
         using (var f = new FileStream(temp, options))
         {
             f.Write(bytes);
-            f.Flush(flushToDisk: true);
         }
         if (privateFile && !OperatingSystem.IsWindows())
             File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        File.Move(temp, path, overwrite: true);
+        DurableFile.MoveIntoPlace(temp, path);
     }
 
     /// <summary>A key TLS can use on this platform: a key container on Windows (SChannel cannot use an ephemeral
