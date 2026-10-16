@@ -232,8 +232,9 @@ or a generator stays.
 
 **Tests.** `npm test` (Node 22) type-checks, lints and runs the module through `@companion-module/host`'s `InstanceWrapper` — Companion's own
 host layer — against a fake node in Node, and against `tools/PlayMap.Node engine --headless` itself (`e2e-engine.test.ts`). The node holds
-its side in `CompanionContractTests`: `verbs.json` is VERBS, every line in `test/lines.txt` parses and fits its row, every path in
-`test/state-paths.txt` is in a STATE the engine wrote, one version, one line protocol, Patterns' palette byte for byte.
+its side in `CompanionContractTests`: `verbs.json` is VERBS, every line in `test/lines.txt` and every section key and Live slot line in
+`test/section-lines.txt` (filled by the module from the INDEX fixture, a sample row for a section with none) parses and fits its row,
+the module's secret rows are every row that carries a secret or pairs, every path in `test/state-paths.txt` is in a STATE the engine wrote, one version, one line protocol, Patterns' palette byte for byte.
 `CompanionModuleFixtureTests` writes the module's STATE and INDEX fixtures from the engine (`PLAYMAP_WRITE_FIXTURES=1`), as the verbs
 test writes `verbs.json`.
 

@@ -10,8 +10,9 @@ namespace PlayMap.Net.Tests.Companion;
 
 /// <summary>The contracts between the node and its Companion module (integrations/companion-module-playmap), held from the node's
 /// side: the module's verbs.json is VERBS as the catalogue writes it (PLAYMAP_WRITE_FIXTURES=1 rewrites it); every line the module
-/// can send (test/lines.txt, written by the module's own generator and checked current by its tests), and every section key line it
-/// fills from the node's INDEX, parses and fits a typed form of its row; every
+/// can send (test/lines.txt, written by the module's own generator and checked current by its tests), and every section key and Live
+/// slot line it fills from the node's INDEX (test/section-lines.txt, written the same way), parses and fits a typed form of its row;
+/// the rows the module never carries inside a line are every row that carries a secret or pairs; every
 /// STATE path the module reads (test/state-paths.txt) is in a STATE the node wrote; the module's version is one number in its
 /// package, manifest and code; its line protocol is the node's; its palette is Patterns', byte for byte.</summary>
 public sealed partial class CompanionContractTests
@@ -73,50 +74,16 @@ public sealed partial class CompanionContractTests
         Assert.True(unexercised.Count == 0, "rows the module generates an action for but writes no line of: " + string.Join(", ", unexercised));
     }
 
-    /// <summary>Sample row ids for a section the fixture's show has no rows of, by the hint's row kind.</summary>
-    private static readonly Dictionary<string, string> SampleRowIds = new(StringComparer.Ordinal)
-    {
-        ["align"] = "Front wall", ["projector"] = "pj0a1b2c3d", ["fx"] = "fx0a1b2c3d", ["output"] = "op0a1b2c3d", ["chase"] = "pl0a1b2c3d", ["lednode"] = "ln0a1b2c3d",
-    };
-
     [Fact]
     public void EverySectionKeyLineTheModuleFillsFitsItsRow()
     {
-        // The module sends a section key's line as the node's INDEX hint says, the row's id in for "$(id)" (quoted when it holds a
-        // space; a hint that is "$(id)" alone is the row's own line), for every row but an encoder's, which a dial turns with its
-        // value: each such line fills a typed form of its row.
-        using var index = JsonDocument.Parse(Read(Module("test", "fixtures", "index.json")));
-        var refused = new List<string>();
-        var lines = 0;
-        foreach (var section in index.RootElement.GetProperty("sections").EnumerateArray())
-        {
-            var hint = section.GetProperty("hint");
-            var kind = hint.GetProperty("rowKind").GetString()!;
-            var ids = section.GetProperty("rows").EnumerateArray().Where(r => r.GetProperty("kind").GetString() != "encoder")
-                .Select(r => r.GetProperty("id").GetString()!).ToList();
-            if (ids.Count == 0)
-            {
-                // A section whose key lines name no row ("SCAN NEXT") needs no sample row id.
-                var named = hint.GetProperty("keys").EnumerateArray()
-                    .Any(k => k.TryGetProperty("line", out var l) && l.GetString()?.Contains("$(id)", StringComparison.Ordinal) == true);
-                Assert.True(SampleRowIds.TryGetValue(kind, out var sample) || !named,
-                    $"section {section.GetProperty("section")} has no rows and no sample id for its row kind '{kind}'");
-                ids.Add(sample ?? "");
-            }
-            foreach (var key in hint.GetProperty("keys").EnumerateArray())
-            {
-                if (!key.TryGetProperty("line", out var template) || template.GetString() is not { Length: > 0 } t)
-                    continue;
-                foreach (var id in ids)
-                {
-                    var text = t.Trim() == "$(id)" ? id : t.Replace("$(id)", Quote(id), StringComparison.Ordinal);
-                    lines++;
-                    if (Refusal(text) is { } why)
-                        refused.Add($"'{text}' ({section.GetProperty("section")}): {why}");
-                }
-            }
-        }
-        Assert.True(lines > 20, $"the fixture's sections hint section keys ({lines} lines)");
+        // test/section-lines.txt is every line the module sends from a section key or a Live slot for the node's INDEX fixture, filled
+        // by the module's own fillHint (a row's id quoted when it holds a space; a hint that is "$(id)" alone is the row's own line),
+        // for every row but an encoder's, with a sample row for a section that has none: each such line fills a typed form of its row.
+        var lines = Read(Module("test", "section-lines.txt")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(lines.Length > 20, $"the module writes the section keys' lines ({lines.Length})");
+        Assert.Contains("ALIGN RUN \"Front wall\"", lines);
+        var refused = lines.Select(text => Refusal(text) is { } why ? $"'{text}': {why}" : null).OfType<string>().ToList();
         Assert.True(refused.Count == 0, "section key lines that fill no typed form of their row:\n" + string.Join("\n", refused));
     }
 
@@ -137,12 +104,6 @@ public sealed partial class CompanionContractTests
         return VerbCatalog.HoldsSecret(line) ? "carries a secret" : null;
     }
 
-    /// <summary>A word as the module's grammar quotes it: as it stands unless empty or holding a space or a quote mark.</summary>
-    private static string Quote(string word) =>
-        word.Length > 0 && !word.Any(c => char.IsWhiteSpace(c) || c == '"')
-            ? word
-            : "\"" + word.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
-
     /// <summary>The rows the module never makes an action of (it says them itself, or they carry a secret): the same list as the
     /// module's catalog/verbs.ts EXCLUDED.</summary>
     private static bool NotGenerated(string name)
@@ -151,6 +112,22 @@ public sealed partial class CompanionContractTests
         Assert.True(excluded.Success, "catalog/verbs.ts names its EXCLUDED rows");
         var names = Regex.Matches(excluded.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
         return names.Contains(name) || (VerbCatalog.Find(name) is { SecretFrom: not null });
+    }
+
+    [Fact]
+    public void TheModulesSecretRowsAreEveryRowThatCarriesASecretOrPairs()
+    {
+        // The fence refuses a line that carries one of these inside it (a binding's target): every row the catalogue redacts a secret
+        // from, and the rows that pair a session, are in the module's SECRET set, and every name there is a row of the catalogue.
+        var secret = SecretList().Match(Read(Module("src", "catalog", "verbs.ts")));
+        Assert.True(secret.Success, "catalog/verbs.ts names its SECRET rows");
+        var names = Regex.Matches(secret.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var expected = VerbCatalog.All.Where(v => v.SecretFrom is not null).Select(v => v.Name)
+            .Concat(["AUTH-PROOF", "PAIRING NEW"]).ToHashSet(StringComparer.Ordinal);
+        Assert.True(expected.SetEquals(names),
+            $"the module's SECRET rows ({string.Join(", ", names.Order(StringComparer.Ordinal))}) are the catalogue's ({string.Join(", ", expected.Order(StringComparer.Ordinal))})");
+        Assert.All(names, n => Assert.True(VerbCatalog.Find(n) is { } spec && spec.Name == n, $"{n} is a row of the catalogue"));
+        Assert.All(names, n => Assert.True(NotGenerated(n), $"{n} is never a key's"));
     }
 
     [Fact]
@@ -205,6 +182,9 @@ public sealed partial class CompanionContractTests
 
     [GeneratedRegex(@"EXCLUDED[^=]*=\s*new Set\(\[([^\]]*)\]", RegexOptions.CultureInvariant)]
     private static partial Regex ExcludedList();
+
+    [GeneratedRegex(@"const SECRET[^=]*=\s*new Set\(\[([^\]]*)\]", RegexOptions.CultureInvariant)]
+    private static partial Regex SecretList();
 
     [GeneratedRegex(@"MODULE_VERSION\s*=\s*'([^']+)'", RegexOptions.CultureInvariant)]
     private static partial Regex ModuleVersion();

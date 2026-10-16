@@ -115,7 +115,8 @@ adds nothing to the node's wire.
   `VERBS`, `SUBSCRIBE INDEX`, `SUBSCRIBE EVENTS`, `EVENTS SINCE <seq>` after a drop, `SUBSCRIBE THUMBS <ref>…` (the refs its keys show,
   at most 128), `THUMB <ref> <n>x<n> [IF <etag>]` (again when the show disarms, for one refused while armed), `INDEX` (when
   `project.index` moved and no push came within 500 ms), and the lines its actions write. Every line it can send is in
-  `test/lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends exceeds 64 KiB.
+  `test/lines.txt`, and every line a section key or Live slot sends for the INDEX fixture in `test/section-lines.txt`, which
+  `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends exceeds 64 KiB.
 - **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
   and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
   `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the

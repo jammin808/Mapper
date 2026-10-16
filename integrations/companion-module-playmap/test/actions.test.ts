@@ -11,7 +11,7 @@ import type { CompanionOptionValues, JsonValue } from '@companion-module/base'
 import { FakeNode, SHOW, copy, fixture } from './fake-node.ts'
 import { advance, fakeChannels, settle } from './fake-channel.ts'
 import { boot, configFor, type Booted } from './harness.ts'
-import { allLines, statePaths } from './emitted.ts'
+import { allLines, sectionLines, statePaths } from './emitted.ts'
 import { PANIC_OUTCOMES, actionDefinitions, fence, rowOfLine } from '../src/actions.ts'
 import { BUNDLED_VERBS, EXCLUDED, actionIdOf, generatedRows, pressOfLine, type VerbRow } from '../src/catalog/verbs.ts'
 import { lineOf, optionIdOf, optionsOf, sampleOf } from '../src/catalog/write.ts'
@@ -542,10 +542,24 @@ void test('a line names its row as the node reads it: by name or alias, VT and C
 	}
 })
 
-void test('test/lines.txt and test/state-paths.txt are what the module writes now', () => {
+void test('test/lines.txt, test/section-lines.txt and test/state-paths.txt are what the module writes now', () => {
 	const read = (name: string): string => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
 	const lines = allLines()
 	assert.equal(read('lines.txt'), lines.join('\n') + '\n', 'npm run lines writes test/lines.txt again')
+	// The section keys' and Live slots' lines, as the module fills them from the INDEX fixture (a sample row for a section with none).
+	const sectioned = sectionLines()
+	assert.equal(
+		read('section-lines.txt'),
+		sectioned.join('\n') + '\n',
+		'npm run lines writes test/section-lines.txt again',
+	)
+	assert.ok(sectioned.includes('ALIGN RUN "Front wall"'), 'an id with a space is quoted, one word')
+	assert.ok(
+		sectioned.includes('PANIC CLEAR') && sectioned.includes('STING Bloom'),
+		'a row that is its line, and a row by id',
+	)
+	assert.ok(!sectioned.includes('MASTER'), 'an encoder row is never sent bare')
+	for (const line of sectioned) assert.deepEqual(fence(BUNDLED_VERBS, line), { ok: true }, line)
 	assert.equal(
 		read('state-paths.txt'),
 		statePaths().join('\n') + '\n',
