@@ -175,6 +175,19 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void ThePairingProofHasAKnownAnswer()
+    {
+        // The vector the Companion module pins too: HMAC-SHA256(key = "K7QM3XWDP9RA", message = nonce + name), lowercase hex.
+        Assert.Equal("b07c009ef4196cc819f65ae7b624f6f7eff03ea67f0d73b99a634e8579fa1d3d",
+            Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck"));
+        Assert.True(Pairing.Verify("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck",
+            "b07c009ef4196cc819f65ae7b624f6f7eff03ea67f0d73b99a634e8579fa1d3d"));
+        // The order is nonce then name: the other order is another proof.
+        Assert.NotEqual(Pairing.Proof("K7QM-3XWD-P9RA", "00112233445566778899aabbccddeeff", "Companion:FOH deck"),
+            Pairing.Proof("K7QM-3XWD-P9RA", "Companion:FOH deck", "00112233445566778899aabbccddeeff"));
+    }
+
+    [Fact]
     public void LivenessAndRedialFollowTheContract()
     {
         Assert.Equal(PeerLiveness.Live, Liveness.Of(5999));
