@@ -125,7 +125,7 @@ neither runs nor waits for a person; what it holds for a person goes to the node
 `integrations/companion-module-playmap` is the Companion 5.1 connection (`jammin808-playmap`, TypeScript on `@companion-module/base`
 2.2.1, Node 22). It is the one part of this repository with a licence of its own, the owner's decision for it alone: its source is MIT
 (Bitfocus requires that of a module's source) and its packaged form GPL-3.0-only, the most restrictive Companion's tools accept.
-`companion/HELP.md` is the operator's page; this is how it works.
+`companion/HELP.md` is the operator's page and its `README.md` says how it is built, tested and packaged; this is how it works.
 
 **The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
 link and refusing another — a refusal's status and words included — and never falling back to plain TCP), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token

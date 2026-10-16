@@ -129,7 +129,7 @@ adds nothing to the node's wire.
 - **The web port's rules hold**: it sends no `Origin`; a refused upgrade's JSON `error` is shown as the node wrote it; a node that asks for
   a token is paired by proof, so the Host rule for tokenless admission does not apply to it.
 
-**Papers note** (for the integration docs pass): WIRE.md's controllers section names the module as the line channel's client and its
-`@c<n>` ids; ROADMAP marks R3.4 (the Companion module) built; README lists `integrations/companion-module-playmap` with `npm test`;
-SHOWBUS-NODE.md's Companion row points at the module. CI wants a job for the module's `npm ci && npm test` (Node 22) after the solution
-builds, since `e2e-engine.test.ts` runs `tools/PlayMap.Node`.
+**Papers note.** WIRE.md's transport table names the module as the line channel's client and its `@c<n>` ids; ROADMAP has R3.4 (the
+Companion module) built; README lists `integrations/companion-module-playmap`; SHOWBUS-NODE.md's Companion row points at the module;
+the module's own README says how it is built, tested and packaged. CI's Linux job runs `npm ci`, `npm test` (Node 22, `e2e-engine.test.ts`
+against the job's Release `tools/PlayMap.Node`) and `npm run check` after the .NET suites.
