@@ -28,8 +28,10 @@ jobs:
           Xvfb :99 -screen 0 1920x1080x24 &
       - name: FFmpeg 9.0 shared libraries
         run: |
+          # The Windows job's FFmpeg 9.0.2 build for linux64, pinned by its hash the same way (see there).
           mkdir -p .ffmpeg
-          curl -sSL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
+          curl -sSfL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-shared-9.0.tar.xz"
+          echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
           tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
       - name: Restore
