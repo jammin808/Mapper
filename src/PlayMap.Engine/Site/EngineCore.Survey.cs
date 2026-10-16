@@ -157,7 +157,7 @@ public sealed partial class EngineCore
             _surveyShown = 0;
         }
         var request = new SurveyRequest(id, name, path, format, unit, zUp ?? format != SurveyFormat.Gltf, crs ?? "", voxel, decimate,
-            SurveyDefaultMaxErrorM, site, folder);
+            SurveyDefaultMaxErrorM, site, folder, live.Id);
         var session = call.Session;
         // Its own thread below the lane's priority, never the pool's: the replies every other line awaits continue on the pool.
         var task = Task.Factory.StartNew(() => RunSurvey(request, session), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
@@ -278,6 +278,12 @@ public sealed partial class EngineCore
             // Live, as the line was decided when it was accepted (it is refused from a session with a blind draft).
             var r = Store.Apply($"survey {request.Name}", p =>
             {
+                // The mesh and cloud were written beside the project the import was asked for: another project, or this one saved
+                // into another folder, would name files that are not beside it.
+                if (p.Id != request.ProjectId)
+                    throw new EditRefusedException("another project was opened while the survey was read — import it again into that project");
+                if (!string.Equals(ProjectFolderForFiles, request.ProjectFolder, StringComparison.Ordinal))
+                    throw new EditRefusedException("the project was saved into another folder while the survey was read — its files are beside the old one; import it again");
                 var site = p.Stage.Site;
                 if (request.SiteAtStart.IsSet ? site != request.SiteAtStart : site.IsSet)
                     throw new EditRefusedException("the site changed while the survey was read — import it again");

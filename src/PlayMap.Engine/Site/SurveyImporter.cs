@@ -9,9 +9,9 @@ namespace PlayMap.Engine.Site;
 
 /// <summary>What a SURVEY IMPORT was asked: the file, its format, how to read it (units, axis), the coordinate system, the voxel for
 /// clouds, the triangle budget (0: no decimation) and deviation limit for meshes, the site frame as it stood when accepted (unset:
-/// the import picks one), and the folder the files are written in.</summary>
+/// the import picks one), the project it was asked for and the folder beside it the files are written in.</summary>
 internal sealed record SurveyRequest(string Id, string Name, string Path, SurveyFormat Format, double UnitScale, bool ZUp, string Crs,
-    double VoxelM, int Decimate, double MaxErrorM, SiteFrame SiteAtStart, string ProjectFolder);
+    double VoxelM, int Decimate, double MaxErrorM, SiteFrame SiteAtStart, string ProjectFolder, string ProjectId);
 
 /// <summary>What an import made: the mesh (stage coordinates) and its file, the thinned cloud's file (grid coordinates), the counts
 /// read, the deviation decimation measured, the frame the stage coordinates are in, and the words.</summary>
