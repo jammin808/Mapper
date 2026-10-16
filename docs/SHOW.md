@@ -181,6 +181,10 @@ that also changed live since `BLIND ON`.
 | `NEXT [<pl>]` | the playlist's next switch (the focused playlist when none is named), read again until it lands: a GO on the playlist pins it to the GO's own switch, a clip verb moves it with the lane; refused "nothing ends on Show — use ON GO or AT" |
 | `ON GO [<pl>]` | the next accepted GO, NEXT, PREV, VIDEO PLAY or RESTART (on that playlist): its own start instant |
 
+On a sync group's member, the leader's GO on a playlist of the group reaches it as that playlist's anchor: an anchor that sets it
+playing on another item than the one on the air here at its instant, or from a standstill, is a GO here — it lands an `ON GO`
+commit on its instant and pins a `NEXT` commit to the switch it makes, as on the leader.
+
 The commit is published as (root, leader instant) in the engine's snapshot, so the render thread draws the new root **from the
 boundary's frame on** — the same frame on every node holding it — and the lane promotes it on the tick that reaches it. A step of
 the show clock (SYNC.md) moves a waiting commit's instant with the air, so it lands neither early nor late. Exact to the frame

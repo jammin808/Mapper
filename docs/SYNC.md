@@ -63,7 +63,9 @@ in order:
   index, item, state, media and leader instants, rate, in/out, loop, seq). A follower adopts each **through its own
   `PLAYLIST ANCHOR`** (session `sync`, the peer role, its own gate), for the playlist of that id in the group, or else every
   playlist of the group here when the leader has shown one playlist for the group and the group has one here (projects made apart);
-  otherwise the anchor is not taken and the journal says so once. Nothing is adopted until the follower's clock reads this
+  otherwise the anchor is not taken and the journal says so once. An anchor that sets the playlist playing on another item than
+  the one on the air here at its instant, or from a standstill, is the leader's GO here too: a blind commit waiting for a GO, or for
+  the playlist's next switch, lands on its instant as on the leader. Nothing is adopted until the follower's clock reads this
   leader's time line: lines wait for an estimate heard since the follow (or the feed's connection) began, and for any step to be
   taken.
 - **`ANCHOR <group> @air {"feed","seq","line","leaderNs"}`**: the group's air. On a leader, `PANIC`, `PANIC CLEAR`, `BLACKOUT` (a toggle

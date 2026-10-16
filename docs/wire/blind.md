@@ -23,7 +23,8 @@ the rows are in show's block of the catalogue). Every row below is routed (VERBS
 BLIND DISCARD cancels the commit". Armed, a remote may not open a draft, and a remote's commit is not landed while armed; an
 assistant may open and read one, and its `BLIND COMMIT` is refused (a person lands it). MCP and HTTP calls cannot open a draft (it
 needs a lasting connection). A GO (`PLAYLIST GO|NEXT|PREV`, `VIDEO PLAY|RESTART`) lands a waiting `ON GO` commit at the GO's own
-instant; a `PLAYLIST GO|NEXT|PREV` pins a waiting `NEXT` commit to the switch it makes. `SHOW DISARM ALL` is the desk's only.
+instant; a `PLAYLIST GO|NEXT|PREV` pins a waiting `NEXT` commit to the switch it makes (on a group's member, the leader's GO in
+the playlist's anchor does both). `SHOW DISARM ALL` is the desk's only.
 
 ## Replies
 

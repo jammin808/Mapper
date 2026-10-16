@@ -5,6 +5,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Playback;
 
 namespace PlayMap.Engine;
 
@@ -64,13 +65,36 @@ public sealed partial class EngineCore
                 r.GetProperty("rate").GetDouble(), r.GetProperty("running").GetBoolean());
             var clip = new ClipTransport(itemId ?? "", state, anchor, r.GetProperty("inNs").GetInt64(), r.GetProperty("outNs").GetInt64(),
                 r.GetProperty("loop").GetBoolean(), r.GetProperty("seq").GetInt64());
+            var moved = IsAdoptedGo(Playback.Lane(list.Id), index, clip, out var switches) ? BlindOnGo(list.Id, anchor.LeaderNs, switches) : null;
             var (ok, words) = Playback.Adopt(list, index, clip, LeaderNowNs);
+            if (!ok)
+                BlindGoRefused(moved);
             return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
             return CommandReply.Fail("the anchor JSON is not one this node reads: " + ex.Message.Split('.')[0]);
         }
+    }
+
+    /// <summary>Whether the leader's anchor is a GO here: it sets the playlist playing, from its instant, on an item other than the one
+    /// this node has on the air then (<paramref name="switches"/>: the GO switches the item, as a PLAYLIST GO, NEXT or PREV does), or
+    /// on the same item that was not playing here then (a PLAY that resumes it). The leader's own GO lands a blind commit waiting for
+    /// a GO, or for the playlist's next switch, on that instant; its anchor does the same on a member, whose desk gives no GO there.
+    /// A scheduled switch the member's own playlist makes too is no GO: the item it brings is already the one on the air here.</summary>
+    private static bool IsAdoptedGo(PlaylistPlayback? lane, int index, ClipTransport clip, out bool switches)
+    {
+        switches = false;
+        if (clip.State != TransportState.Playing || !clip.Anchor.Running)
+            return false;
+        if (lane is null || lane.IsIdle)
+        {
+            switches = true;
+            return true;
+        }
+        var at = clip.Anchor.LeaderNs;
+        switches = PlaybackLanes.OnAirIndex(lane, at) != index;
+        return switches || lane.At(at).Clip.State != TransportState.Playing;
     }
 
     /// <summary>Publishes anchors for synced playlists whose transport moved (called on the lane after every
