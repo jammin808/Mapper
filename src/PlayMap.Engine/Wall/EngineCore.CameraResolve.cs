@@ -99,8 +99,8 @@ public sealed partial class EngineCore
             }
             else
             {
-                camera = (Services.WallCamera ?? DefaultWallCamera)(rig)
-                    ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot re-solve through yet");
+                camera = (Services.WallCamera ?? (r => ScanCameras.Open(this, r)))(rig)
+                    ?? throw new InvalidOperationException($"{rig.Name} is a {rig.SourceKind.ToString().ToLowerInvariant()} camera, which this node cannot open");
                 if (!await camera.OpenAsync(cts.Token).ConfigureAwait(false))
                     throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
                 showing = true;
@@ -212,8 +212,6 @@ public sealed partial class EngineCore
             EndCalibrationTask(cts);
         }
     }
-
-    private static IScanCamera? DefaultWallCamera(CameraRig rig) => CaptureCamera.OptionsFor(rig) is { } options ? new CaptureCamera(options) : null;
 
     /// <summary>A projector's dots at its output's raster and the frame that shows them; the dots are answered in the projector's own
     /// (intrinsic) raster, where its pose lives.</summary>

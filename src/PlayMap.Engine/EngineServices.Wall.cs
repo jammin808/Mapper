@@ -12,6 +12,6 @@ public sealed partial record EngineServices
     /// <summary>Where a camera re-solve puts its dots (the render host); null: only a simulated camera re-solves.</summary>
     public IScanDisplay? WallDisplay { get; init; }
 
-    /// <summary>Opens a real camera for a camera re-solve (null: the capture camera its rig names).</summary>
+    /// <summary>Opens a real camera for a camera re-solve (null: the camera its rig is — a phone through the node's phone hub, else a capture device or a stream).</summary>
     public Func<CameraRig, Scanning.IScanCamera?>? WallCamera { get; init; }
 }

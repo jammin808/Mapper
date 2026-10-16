@@ -2,6 +2,14 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
+using PlayMap.Engine.Phone;
+using PlayMap.Engine.Scanning;
+using PlayMap.Engine.Tests.Phone;
+using PlayMap.Engine.Wall;
+using PlayMap.Net.Http;
+using PlayMap.Net.Phone;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Wall;
@@ -176,5 +184,116 @@ public sealed class ResolveCameraTests(ITestOutputHelper output)
         Assert.True(r.Changed);
         Assert.Contains("no surface", await rig.Refused("CALIBRATION RESOLVE pj_test1 CAMERA cm_sim"), StringComparison.Ordinal);
         Assert.Contains("CAMERA takes a camera", await rig.Refused("CALIBRATION RESOLVE pj_test1 CAMERA"), StringComparison.Ordinal);
+    }
+    /// <summary>The wall's outputs as a display: the frame on each output now, each present stamped on the monotonic clock the phone's
+    /// pictures are.</summary>
+    private sealed class WallGlass : IScanDisplay
+    {
+        private readonly Lock _gate = new();
+        private readonly byte[]?[] _frames = new byte[]?[3];
+
+        public byte[]?[] Frames
+        {
+            get
+            {
+                lock (_gate)
+                    return [.. _frames];
+            }
+        }
+
+        public Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct)
+        {
+            var j = int.Parse(outputId.AsSpan("op_test".Length), System.Globalization.CultureInfo.InvariantCulture) - 1;
+            lock (_gate)
+                _frames[j] = gray8.Span.IndexOfAnyExcept((byte)0) < 0 ? null : gray8.ToArray();
+            return Task.FromResult(MonoClock.Instance.NowNs);
+        }
+
+        public void Release()
+        {
+            lock (_gate)
+                Array.Clear(_frames);
+        }
+    }
+
+    [Fact]
+    public async Task APhoneRigOpensThroughTheHubAndReachesTheResolve()
+    {
+        var folder = Directory.CreateTempSubdirectory("playmap-phoneresolve-").FullName;
+        var p = CameraStage.With(WallRig.ProjectorsWithPins(3, noisePx: 0.1));
+        p = p.WithStage(st => st with { Projectors = [.. st.Projectors.Select((pj, n) => pj with { Pose = WallRig.TruePose(n) })] });
+        var glass = new WallGlass();
+        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node" });
+        var services = EngineServices.ForTests(MonoClock.Instance) with
+        {
+            ProjectFolder = folder,
+            Phones = hub,
+            PhoneDoor = (_, _) => Task.FromResult(new PhoneDoor(new Uri("https://192.168.1.44:8443"), "1a2b 3c4d", "")),
+            WallDisplay = glass,
+        };
+        var engine = new EngineCore(services, p);
+        engine.AttachPhones(hub);
+        var host = new HttpHost(services.Settings, engine, services.Wall, new HttpHostOptions { Port = 0, Modules = [hub.Module], Mcp = false });
+        FakePhone? phone = null;
+        try
+        {
+            await host.StartAsync();
+            async Task<CommandReply> Run(string line)
+            {
+                Assert.True(WireGrammar.TryParse(line, out var parsed, out var error), error?.Reason);
+                return await engine.HandleAsync(parsed!, WallRig.Desk, CancellationToken.None);
+            }
+            foreach (var pj in engine.Store.Project.Stage.Projectors)
+                engine.SimulatedStage.Knock(pj, Vec3d.Zero, Vec3d.Zero);
+            engine.SimulatedStage.Knock(engine.Store.Project.FindProjector("pj_test2")!, new Vec3d(0, 16.0 / 2880, 0), Vec3d.Zero);
+
+            // The phone sees the wall as the stage simulator draws it, lit by what the outputs show, the projectors where they truly stand.
+            StageSimulator? sim = null;
+            long generation = 0;
+            CameraFrame Still()
+            {
+                sim ??= new StageSimulator(StageWorld.Of(engine.Store.Project, engine.Meshes)!, new SimDevice(CameraStage.CameraOptics, LensDistortion.None, CameraStage.CameraPose),
+                    [.. engine.Store.Project.Stage.Projectors.Select(engine.SimulatedStage.TruthOf)]);
+                var picture = sim.Capture(glass.Frames);
+                return new CameraFrame(picture, CameraStage.CameraWidth, CameraStage.CameraHeight, MonoClock.Instance.NowNs, Interlocked.Increment(ref generation));
+            }
+            var invite = await Run("PHONE INVITE Pixel 8");
+            Assert.True(invite.Ok, invite.Payload);
+            var ticket = new Uri(WallRig.Json(invite.Payload!).GetProperty("url").GetString()!).Fragment["#t=".Length..];
+            phone = new FakePhone(ct => Task.Run(Still, ct), CameraStage.CameraWidth, CameraStage.CameraHeight);
+            await phone.JoinAsync(host.Port, ticket);
+            var rigId = phone.Rig;
+            // The phone stands where the room camera would, placed and calibrated.
+            var edit = await engine.EditAsync(WallRig.Desk, "the phone placed", q => q.WithStage(st => st with
+            {
+                Cameras = st.Cameras.Update(rigId, c => c with { Intrinsics = CameraStage.CameraOptics, Lens = LensDistortion.None, Pose = CameraStage.CameraPose, Calibrated = true }),
+            }));
+            Assert.True(edit.Changed);
+
+            var r = await Run($"CALIBRATION RESOLVE ALL CAMERA {rigId}");
+            Assert.True(r.Ok, r.Payload);
+            var reply = WallRig.Json(r.Payload!);
+            output.WriteLine(reply.GetProperty("words").GetString());
+            var rows = reply.GetProperty("projectors");
+            Assert.Equal("pj_test2", Assert.Single(rows.EnumerateArray()).GetProperty("id").GetString());
+            Assert.True(rows[0].GetProperty("applied").GetBoolean(), rows[0].GetProperty("why").GetString());
+            Assert.True(phone.Stills >= 5, $"{phone.Stills} stills");
+        }
+        finally
+        {
+            if (phone is not null)
+                await phone.DisposeAsync();
+            await host.DisposeAsync();
+            await hub.DisposeAsync();
+            await engine.DisposeAsync();
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A file still held: the temp folder is the OS's to clear.
+            }
+        }
     }
 }
