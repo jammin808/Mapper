@@ -310,7 +310,22 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             };
             var result = await Task.Run(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
-            Finish(setup, started, result, captures, colour, black);
+            AlignVerifyResult? verify = null;
+            if (result.Ok)
+            {
+                // The verify pass: the canvas's dots through the new warps, seen by the camera (a simulated projector that drifts after
+                // the scan is seen where it drifted to).
+                var verifier = shooter;
+                if (IsSimulated(setup.Rig) && MultiProjectorSim.Drifts(setup.Rig?.Source))
+                {
+                    var rasters = outputs.Select(o => (o.Width, o.Height)).ToList();
+                    var (cw, ch) = setup.Rig is { Intrinsics: { Width: > 0, Height: > 0 } k } ? (k.Width, k.Height) : (_options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
+                    verifier = new SimShooter(await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch, drifted: true), ct).ConfigureAwait(false));
+                }
+                verify = await AlignVerify.RunAsync(verifier, specs, result, black, captures,
+                    p => Step(setup, p.Step, p.Output, 0.95, -1, p.Words, outputs.Count), ct, only?.ToHashSet()).ConfigureAwait(false);
+            }
+            Finish(setup, started, result, captures, colour, black, verify);
         }
         catch (OperationCanceledException)
         {
@@ -383,7 +398,8 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             [.. outputs.Select(o => o with { Light = state == "failed" ? "red" : "grey" })], null));
     }
 
-    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour, CameraShot black)
+    private void Finish(AlignRunSetup setup, long started, AlignSolveResult result, IReadOnlyList<AlignCapture> captures, AlignColour? colour, CameraShot black,
+        AlignVerifyResult? verify)
     {
         if (!result.Ok)
         {
@@ -395,8 +411,10 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         var files = new List<(string Name, byte[] Bytes)>();
         var outs = ImmutableArray.CreateBuilder<AlignRunOutput>(result.Outputs.Length);
         var uniformity = double.IsFinite(result.WhiteP5OverP95) ? Math.Max(0, 1 - result.WhiteP5OverP95) : -1;
-        var score = RoutableFixes(CalibrationScoring.ForAlign(new AlignScoreInputs(setup.Group.Id, result.CoverageShare, result.SeamPx, -1, uniformity, -1)),
-            setup.Group);
+        var stack = verify is { Stack: true };
+        var seam = verify is { SeamP95Px: >= 0 } v ? v.SeamP95Px : result.SeamPx;
+        var score = RoutableFixes(CalibrationScoring.ForAlign(new AlignScoreInputs(setup.Group.Id, result.CoverageShare, stack ? -1 : seam, stack ? seam : -1,
+            uniformity, -1)), setup.Group);
         for (var j = 0; j < result.Outputs.Length; j++)
         {
             var o = result.Outputs[j];
@@ -422,10 +440,11 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
         }
         files.Add(("black.bin", AlignCaptureFile.WriteBlack(black)));
         var words = string.Create(CultureInfo.InvariantCulture, $"staged {score.Grade} {score.Value:0}: ") + result.Words
+            + (verify is null ? "" : "; " + verify.Words)
             + (colour is null ? "" : "; colour: " + colour.Words)
             + string.Create(CultureInfo.InvariantCulture, $" — ALIGN ACCEPT {setup.RunId} applies it");
         var record = new AlignRunRecord(setup.RunId, setup.Group.Id, "staged", started, finished, setup.Rig?.Id ?? "sim", setup.Fit.ToString().ToLowerInvariant(),
-            words, outs.ToImmutable(), score, result.SeamPx, result.CoverageShare, result.WhiteP5OverP95, result.Planar?.RmsPx ?? double.NaN);
+            words, outs.ToImmutable(), score, seam, result.CoverageShare, result.WhiteP5OverP95, result.Planar?.RmsPx ?? double.NaN);
         if (!TryArchive(setup, record, files))
         {
             Fail(setup, started, "failed", $"the run's files could not be written under {dataPath} — check the project folder");
@@ -441,9 +460,18 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
     /// becomes the group's own uniformity raised to 1 for the next run, or no line when it is 1 already.</summary>
     internal static QualityScore RoutableFixes(QualityScore score, AlignGroup group) => score with
     {
-        Terms = [.. score.Terms.Select(t => t.Code == ScoreTermCodes.Uniformity
-            ? t with { Fix = group.Options.Uniformity < 1 ? $"SET {group.Id} options.uniformity 1" : "" }
-            : t)],
+        Terms = [.. score.Terms.Select(t => t.Code switch
+        {
+            ScoreTermCodes.Uniformity => t with { Fix = group.Options.Uniformity < 1 ? $"SET {group.Id} options.uniformity 1" : "" },
+            ScoreTermCodes.Coverage => t with
+            {
+                Fix = group.Target.CameraCorners.IsDefaultOrEmpty ? $"ALIGN RUN {group.Id} FIT INSIDE" : $"ALIGN CORNERS {group.Id} CLEAR",
+                Hint = group.Target.CameraCorners.IsDefaultOrEmpty ? "the canvas is bigger than the outputs reach: lower the margin, or move the projectors"
+                    : "the corners clicked reach past what the outputs light: the canvas follows the outputs again without them",
+            },
+            ScoreTermCodes.StackConvergence or ScoreTermCodes.Seam => t with { Fix = $"ALIGN RUN {group.Id}" },
+            _ => t,
+        })],
     };
 
     private bool TryArchive(AlignRunSetup setup, AlignRunRecord record, IReadOnlyList<(string Name, byte[] Bytes)> files)

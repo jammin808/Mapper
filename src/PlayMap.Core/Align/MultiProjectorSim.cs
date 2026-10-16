@@ -263,7 +263,7 @@ public sealed class MultiProjectorSim
             var zoom = 1 + 0.003 * j;
             var k = k0 with { Fx = k0.Fx * zoom, Fy = k0.Fy * zoom };
             // Turning the lens by angle a moves the picture by about f·a pixels: 0.8 px across and 0.4 px down per member.
-            var turn = new Vec3d(-0.4 * j / k.Fy, 0.8 * j / k.Fx, 0.5 * j * Math.PI / 180);
+            var turn = new Vec3d(-0.4 * j / k.Fy, (0.8 * j + o.Shifts.GetValueOrDefault(j)) / k.Fx, 0.5 * j * Math.PI / 180);
             var r = first.Pose.CameraToWorld * Mat3d.FromRotationVector(turn);
             projectors.Add(first with
             {
@@ -279,9 +279,11 @@ public sealed class MultiProjectorSim
     /// <summary>A layout named the way a simulated camera's source names it: "[flat-screen|bulged-screen|curved-screen]:tile&lt;c&gt;x&lt;r&gt;[:o&lt;pct&gt;]"
     /// or "…:stack&lt;n&gt;", with ":k&lt;kelvin&gt;,…" (each projector's colour temperature), ":lvl&lt;level&gt;,…" (its light, 0–1) and
     /// ":autoexposure" (a camera that sets its own exposure) and ":shift&lt;n&gt;=&lt;px&gt;" (projector n, from 1, knocked so its picture moves
-    /// that many of its pixels across); anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
+    /// that many of its pixels across); ":drift&lt;n&gt;=&lt;px&gt;" moves it that much only in the simulator built <paramref name="drifted"/>
+    /// (the picture after the scan: a projector that drifted while the run went on); anything else is a row of <paramref name="rasters"/>.Count tiles on a flat screen. The rasters are the
     /// projectors' own, in order; the camera's raster is given.</summary>
-    public static MultiProjectorSim FromSource(string source, IReadOnlyList<(int Width, int Height)> rasters, int cameraWidth, int cameraHeight)
+    public static MultiProjectorSim FromSource(string source, IReadOnlyList<(int Width, int Height)> rasters, int cameraWidth, int cameraHeight,
+        bool drifted = false)
     {
         ArgumentNullException.ThrowIfNull(rasters);
         var n = Math.Max(1, rasters.Count);
@@ -318,10 +320,27 @@ public sealed class MultiProjectorSim
             else if (p.StartsWith("shift", StringComparison.Ordinal) && p[5..].Split('=') is [var who, var px]
                 && int.TryParse(who, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n1) && n1 >= 1
                 && double.TryParse(px, NumberStyles.Float, CultureInfo.InvariantCulture, out var by) && Math.Abs(by) <= 200)
-                layout = layout with { Shifts = new Dictionary<int, double>(layout.Shifts) { [n1 - 1] = by } };
+                layout = layout with { Shifts = Add(layout.Shifts, n1 - 1, by) };
+            else if (p.StartsWith("drift", StringComparison.Ordinal) && p[5..].Split('=') is [var whom, var dpx]
+                && int.TryParse(whom, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n2) && n2 >= 1
+                && double.TryParse(dpx, NumberStyles.Float, CultureInfo.InvariantCulture, out var drift) && Math.Abs(drift) <= 200)
+            {
+                if (drifted)
+                    layout = layout with { Shifts = Add(layout.Shifts, n2 - 1, drift) };
+            }
         }
         return stack > 0 ? Stack(stack, layout) : Tiles(columns, rows, layout);
     }
+
+    private static Dictionary<int, double> Add(IReadOnlyDictionary<int, double> shifts, int index, double px)
+    {
+        var d = new Dictionary<int, double>(shifts);
+        d[index] = d.GetValueOrDefault(index) + px;
+        return d;
+    }
+
+    /// <summary>True when a source names a projector that drifts after the scan (":drift&lt;n&gt;=&lt;px&gt;").</summary>
+    public static bool Drifts(string? source) => (source ?? "").Contains(":drift", StringComparison.OrdinalIgnoreCase);
 
     private static List<double>? Numbers(string list)
     {

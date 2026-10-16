@@ -472,10 +472,11 @@ public static class VerbCatalog
         V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
-        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN PLAN, SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
+        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass and ALIGN SCORE).
         V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN RUN", "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ, and with COLOR WHITE each white matched) with its score; ONLY scans those outputs again and keeps the others; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("ALIGN STATUS", "ALIGN STATUS", "The running or last run", VerbCategory.Align, VerbRisk.Low, false),
+        V2("ALIGN SCORE", "ALIGN SCORE <run>|<group>", "A run's score and every term with its words and fix", VerbCategory.Align, VerbRisk.Low, false),
         V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run; the outputs are the show's again", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
         V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>|<group>", "Applies a staged run to its outputs as one edit; the corrections they had become their fallbacks", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN REVERT", "ALIGN REVERT <group>", "Back to each output's fallback correction", VerbCategory.Align, VerbRisk.Review, true),

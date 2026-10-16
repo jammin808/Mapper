@@ -47,6 +47,7 @@ public sealed partial class EngineCore
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));
         routes.Lane("ALIGN STATUS", _ => CommandReply.Success(JsonOut(w => WriteAlignRun(w, AlignBackend.View))));
+        routes.Lane("ALIGN SCORE", AlignScore);
         routes.Lane("ALIGN CANCEL", AlignCancel);
         routes.OffLane("ALIGN ACCEPT", c => AlignGate(c) is { } refused ? Task.FromResult(refused) : AlignAcceptAsync(c));
         routes.Lane("ALIGN REVERT", AlignGuarded(AlignRevert));
@@ -317,7 +318,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail(ex.Message);
         }
         var shots = Core.Align.AlignSequence.Shots([.. outputs.Where((_, j) => only.IsEmpty || only.Contains(j)).Select(o => new Core.Align.AlignOutputSpec(o.Id, o.Name,
-            o.Width, o.Height, Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0);
+            o.Width, o.Height, Core.Align.ProjectorPrior.Unknown(o.Width, o.Height)))]) + (colour ? Core.Align.AlignSequence.ColourShots(outputs.Count) : 0)
+            + Core.Align.AlignVerify.Shots(only.IsEmpty ? outputs.Count : only.Length);
         var words = string.Create(CultureInfo.InvariantCulture,
             $"{runId} measures {group.Name} through {group.CameraId} ({shots} pictures, FIT {fit.ToString().ToUpperInvariant()}); nothing changes on the air until ALIGN ACCEPT {runId}");
         return new CommandReply(true, JsonOut(w =>
@@ -330,6 +332,66 @@ public sealed partial class EngineCore
             w.WriteString("words", words);
             w.WriteEndObject();
         }), words, Applied: false);
+    }
+
+    /// <summary>ALIGN SCORE &lt;run&gt;|&lt;group&gt;: a run's score and every term with its words, value, light and fix — a run by id, or a group's
+    /// staged run, else the run its outputs stand on.</summary>
+    private CommandReply AlignScore(VerbCall c)
+    {
+        if (c.Args.Count != 1)
+            return CommandReply.Fail("ALIGN SCORE <run>|<group>");
+        var p = Store.Project;
+        var word = c.Args[0];
+        string runId;
+        if (AlignArchive.IsRunId(word))
+        {
+            runId = word;
+        }
+        else if (AlignNamed(p, word) is { } group)
+        {
+            var standing = group.OutputIds.Select(id => p.FindOutput(id)?.Measured?.RunId ?? "").Distinct(StringComparer.Ordinal).ToList();
+            runId = AlignBackend.View is { State: "staged" } v && v.GroupId == group.Id ? v.Id
+                : standing.Count == 1 && standing[0].Length > 0 ? standing[0]
+                : "";
+            if (runId.Length == 0)
+                return CommandReply.Fail($"{group.Name} has no run to score — ALIGN RUN {group.Id}");
+        }
+        else
+        {
+            return CommandReply.Fail($"no run or alignment group {word}");
+        }
+        if ((AlignBackend.Finished(runId) ?? AlignArchive.Load(ProjectFolderForFiles, runId)) is not { } record)
+            return CommandReply.Fail($"{runId} is neither held by this node nor beside the project");
+        var score = record.Score;
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("run", record.Id);
+            w.WriteString("group", record.GroupId);
+            w.WriteString("state", record.State);
+            w.WriteNumber("score", score.Value);
+            w.WriteString("unit", score.Unit);
+            w.WriteString("grade", score.Grade);
+            w.WriteNumber("seamPx", Math.Round(record.SeamPx, 3));
+            w.WriteNumber("coverage", Math.Round(record.CoverageShare, 4));
+            w.WriteStartArray("terms");
+            foreach (var t in score.Terms)
+            {
+                w.WriteStartObject();
+                w.WriteString("code", t.Code);
+                w.WriteString("words", t.Words);
+                w.WriteNumber("value", Math.Round(t.Value, 4));
+                w.WriteString("unit", t.Unit);
+                w.WriteNumber("penalty", Math.Round(t.Penalty, 3));
+                w.WriteString("light", t.Light);
+                w.WriteString("fix", t.Fix);
+                w.WriteString("hint", t.Hint);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteString("words", score.Words);
+            w.WriteEndObject();
+        }), score.Words);
     }
 
     private CommandReply AlignCancel(VerbCall c)
