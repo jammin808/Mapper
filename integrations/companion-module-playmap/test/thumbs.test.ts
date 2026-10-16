@@ -3,7 +3,8 @@
 // Every key with that ref and size shows the held picture at once and nothing is asked again; the cache keeps the 256 shown last.
 // The refs placed keys show are told to the node with one SUBSCRIBE THUMBS a debounce after they change: a key that leaves drops
 // its ref, and the last one leaving tells the node to watch none. A THUMBS push whose ETag moved for a placed ref fetches it again
-// with IF <the ETag held>, after a relink too; a refused THUMB leaves the key without a picture and the module running.
+// with IF <the ETag held>, after a relink too; a refused THUMB leaves the key without a picture and the module running. A key on an
+// item shows its source as INDEX has it now.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isDeepStrictEqual } from 'node:util'
@@ -503,5 +504,28 @@ void test('a picture of another type, or heavier than a key’s picture can be, 
 		assert.equal(thumbs.get('h0', ref(0), 96, false), '', 'the first shown went first')
 	} finally {
 		thumbs.clear()
+	}
+})
+
+void test("an item key's picture follows its item's source when INDEX moves it", async () => {
+	const { node, m } = await linked()
+	try {
+		const { red } = items()
+		await m.place('red', 'thumb', { ref: red.id, size: 96 })
+		await values(m, { red: pictureOf(red.source) }, "Red's picture")
+
+		// The item's source changes on the node (and its label with it): INDEX says so, and the key shows the new source's picture.
+		const doc = copy(fixture('index.json') as IndexJson & { labels: string })
+		const item = doc.playlists.find((p) => p.id === SHOW.playlist)?.items.find((i) => i.id === red.id)
+		assert.ok(item)
+		item.source = 'color:#00FF00'
+		item.label = 'Green'
+		doc.labels = 'feedc0de12345678'
+		node.pushIndex(doc)
+		await values(m, { red: pictureOf('color:#00FF00') }, "the new source's picture")
+		assert.deepEqual(thumbLines(node, 'color:#00FF00'), ['THUMB color:#00FF00 96x96'])
+	} finally {
+		await m.stop()
+		await node.stop()
 	}
 })

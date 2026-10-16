@@ -49,7 +49,7 @@ export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
 	state_word: ['playlists', 'outputs', 'projectors', 'peers', 'devices', 'index', 'link'],
 	progress: ['playlists', 'clock'],
 	remaining: ['playlists', 'clock'],
-	thumb: ['thumbs', 'playlists'],
+	thumb: ['thumbs', 'playlists', 'index'],
 	score: ['projectors', 'calibration'],
 	state_path: ['state'],
 	slot: ['live', 'playlists', 'outputs', 'projectors', 'peers', 'faults', 'index', 'show', 'thumbs'],
