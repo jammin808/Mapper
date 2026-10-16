@@ -75,6 +75,12 @@ public sealed class BackupRulesTests
             Assert.Null(Refused("FAILOVER", "desk", role));
             Assert.Null(Refused("FLEET SOLO", "desk", role));
             Assert.Null(Refused("FLEET BACKUP 0badc0de", "desk", role));
+            // No draft is begun or landed over the primary's show; one left from before may be let go.
+            Assert.Equal("mirrors", Refused("BLIND ON", "desk", role));
+            Assert.Equal("mirrors", Refused("BLIND COMMIT", "desk", role));
+            Assert.Null(Refused("BLIND DISCARD", "desk", role));
+            Assert.Null(Refused("BLIND OFF", "desk", role));
+            Assert.Null(Refused("BLIND DIFF", "desk", role));
             // The mirror, the group's feed and the node itself are never refused here.
             Assert.Null(Refused("PLAYLIST GO pl1", "fleet", role));
             Assert.Null(Refused("BLACKOUT ON", "sync", role));

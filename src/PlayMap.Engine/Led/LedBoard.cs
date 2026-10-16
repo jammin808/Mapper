@@ -1,4 +1,5 @@
 using PlayMap.Core.Bus;
+using PlayMap.Core.Fleet;
 using PlayMap.Core.Led;
 using PlayMap.Core.Model;
 using PlayMap.Render.Led;
@@ -8,7 +9,7 @@ namespace PlayMap.Engine.Led;
 /// <summary>The engine's side of LED output: the plan of the published rig (rebuilt when the rig, a canvas, an output or a surface
 /// changes — reference equality — and handed to the sender as a program), the rig's live air (level, test, locate: machine-local,
 /// journalled, never an undo step), the machine master, the render host's pass, and the sender. Any thread reads; the lane writes
-/// the live air and the master.</summary>
+/// the live air and the master. The sender sends while the machine master is on and the node's fleet role lets it (<see cref="Air"/>).</summary>
 internal sealed class LedBoard
 {
     private readonly Lock _gate = new();
@@ -19,14 +20,22 @@ internal sealed class LedBoard
     private volatile LedLive _live = LedLive.Initial;
     private volatile LedPass? _pass;
     private volatile bool _master;
+    private volatile NetworkAir _air;
     private string _settingsProblem = "";
 
-    public LedBoard(EngineServices services)
+    public LedBoard(EngineServices services, NetworkAir air)
     {
         _services = services;
         _master = services.Settings.Led.Output;
-        services.LedOutput?.SetMaster(_master, blackFirst: false);
+        // A node that starts as a backup or fenced sends nothing from its first frame.
+        _air = air;
+        services.LedOutput?.SetMaster(Sends, blackFirst: false);
     }
+
+    /// <summary>What the node's fleet role lets it send (live, silent as a hot backup, held black while fenced).</summary>
+    public NetworkAir Air => _air;
+
+    private bool Sends => _master && _air == NetworkAir.Live;
 
     /// <summary>The sender (null: this node sends no LED data).</summary>
     public ILedOutput? Output => _services.LedOutput;
@@ -100,12 +109,30 @@ internal sealed class LedBoard
             _live = edit(_live);
     }
 
-    /// <summary>Turns the machine master on or off (off sends one black frame first unless held) and writes it to the settings file.</summary>
+    /// <summary>Turns the machine master on or off (off sends one black frame first unless held) and writes it to the settings file.
+    /// While the fleet role keeps the node silent or held, the master is kept and the sender stays stopped.</summary>
     public void SetMaster(bool on, bool hold)
     {
-        _master = on;
-        Output?.SetMaster(on, blackFirst: !hold);
+        lock (_gate)
+        {
+            _master = on;
+            if (_air == NetworkAir.Live)
+                Output?.SetMaster(on, blackFirst: !hold);
+        }
         var settings = _services.Settings.Led with { Output = on };
         _settingsProblem = _services.LedPersist?.Invoke(settings) ?? "";
+    }
+
+    /// <summary>The node's fleet role moved: a hot backup's sender stops with no black frame (its primary's frames are the rig's), a
+    /// fenced node's sends one black frame and stops, and a node that has the show again sends from its next frame.</summary>
+    public void SetAir(NetworkAir air)
+    {
+        lock (_gate)
+        {
+            var was = Sends;
+            _air = air;
+            if (Sends != was)
+                Output?.SetMaster(Sends, blackFirst: air == NetworkAir.Held);
+        }
     }
 }

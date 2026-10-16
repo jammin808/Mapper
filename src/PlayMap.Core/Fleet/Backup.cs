@@ -15,6 +15,32 @@ public static class FleetRoles
     public const string Fenced = "fenced";
 
     public static bool IsKnown(string role) => role is Solo or Primary or Backup or Fenced;
+
+    /// <summary>What a node in <paramref name="role"/> may put on the network beside its own outputs.</summary>
+    public static NetworkAir AirOf(string role) => role switch
+    {
+        Backup => NetworkAir.Silent,
+        Fenced => NetworkAir.Held,
+        _ => NetworkAir.Live,
+    };
+}
+
+/// <summary>What a node may put on the network beside its own outputs — its LED rig's data and its video sends — as its place in a
+/// hot-backup pair decides. The rig's nodes and universes are shared by every machine that drives them, and a send is received by
+/// name, so only the node that has the show sends; its own outputs (windows routed by the projectors' inputs) are the fleet's air
+/// gain's to decide.</summary>
+public enum NetworkAir
+{
+    /// <summary>The node has the show (solo or primary): its LED data and sends go out.</summary>
+    Live,
+
+    /// <summary>A hot backup: nothing goes out (its primary's picture is on the rig and the network; the backup's would fight it), and
+    /// nothing goes black as it begins (the primary's frames are the rig's). FAILOVER makes it <see cref="Live"/>.</summary>
+    Silent,
+
+    /// <summary>Fenced: held black — what it sent goes black once, as a stopped LED output or send does, then nothing goes out (the
+    /// new primary drives the rig and the network).</summary>
+    Held,
 }
 
 /// <summary>The takeover's rules, pure: the epoch a takeover commits, and when a node that hears another must stand aside.</summary>
@@ -77,6 +103,10 @@ public static class BackupGate
         // The fleet's own verbs, and a fetch of a file by its hash (it edits no show: the mirror's missing file is fetched this way).
         if (spec.Category == VerbCategory.Fleet || spec.Name == "MEDIA FETCH")
             return null;
+        // A draft lands over the show it was made on: a mirror's show is its primary's, so no draft is begun or landed here (one left
+        // from before may still be let go).
+        if (spec.Name is "BLIND ON" or "BLIND COMMIT")
+            return words;
         return Kept.Contains(ShowPolicy.ClassOf(spec, line)) ? null : words;
     }
 }

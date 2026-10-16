@@ -94,12 +94,20 @@ public sealed class BackupNode : IAsyncDisposable
     private long _lastPublishedRev = long.MinValue;
     private int _followTurns;
     private int _projectTurns;
+    private int _filesTurns;
+    private int _showMissing;
+    private readonly SemaphoreSlim _showGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, string> _showHere = new(StringComparer.Ordinal);
     private CancellationTokenSource? _joining;
     private readonly SemaphoreSlim _pullGate = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _groupPeers = new(StringComparer.Ordinal);
     private volatile string _groupOf = "";
     private int _missingFiles;
     private int _disposed;
+    private volatile bool _joiningAir;
+
+    /// <summary>What a stopping node says to a pull asked of it.</summary>
+    internal const string StoppingWords = "the node is stopping — no pull starts";
 
     /// <summary>Air lines remembered by (feed, seq) so a line handed again on a new subscription is not run twice.</summary>
     private const int AirRemembered = 1024;
@@ -133,6 +141,28 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>The last takeover, hand-back or promotion here (null before any).</summary>
     public TakeoverRecord? Last => _last;
+
+    /// <summary>What this node may put on the network beside its own outputs (its LED data, its sends): silent while it joins a
+    /// primary's mirror and while it backs one up, held black while fenced, live otherwise.</summary>
+    public NetworkAir Air => AirOf(_settings, _joiningAir);
+
+    /// <summary>Why this node's LED data and sends go out nowhere now ("" while they go out).</summary>
+    public string AirWords => AirWordsOf(_settings, _joiningAir);
+
+    private static NetworkAir AirOf(FleetSettings s, bool joining) =>
+        joining && s.Role is FleetRoles.Solo or FleetRoles.Primary ? NetworkAir.Silent : FleetRoles.AirOf(s.Role);
+
+    private string AirWordsOf(FleetSettings s, bool joining) => AirOf(s, joining) switch
+    {
+        NetworkAir.Silent when s.Role == FleetRoles.Backup => $"silent: {SelfName} is a hot backup of {Label(s.Of)} — it sends at FAILOVER",
+        NetworkAir.Silent => $"silent while {SelfName} joins {(_primaryName.Length > 0 ? _primaryName : "a primary")} as its hot backup",
+        NetworkAir.Held => $"held black: {SelfName} is fenced ({Label(s.Of)} has the show) — FLEET BACKUP {Label(s.Of)} to mirror it",
+        _ => "",
+    };
+
+    /// <summary>Hands the engine what the node may send beside its outputs for <paramref name="s"/>: the LED sender and the sends move
+    /// before the role is read anywhere, so STATE never names a role whose network air has not moved yet.</summary>
+    private void MoveAir(FleetSettings s, bool joining) => _engine?.SetNetworkAir(AirOf(s, joining), AirWordsOf(s, joining));
 
     private NetworkClock Clock => _setup.Network.Clock;
 
@@ -267,14 +297,27 @@ public sealed class BackupNode : IAsyncDisposable
                 return CommandReply.Fail($"{SelfName} is a primary with {others} backup{(others == 1 ? "" : "s")} — FLEET SOLO on them first");
             if (peer.Liveness != PeerLiveness.Live)
                 return CommandReply.Fail($"{peer.Name} has gone quiet on the show network — it can be backed up once it is heard again");
-            var (joined, words) = await JoinAsync(peer, ct).ConfigureAwait(false);
-            if (!joined)
-                return CommandReply.Fail(words);
-            var kept = Persist(s => s with { Role = FleetRoles.Backup, Of = peer.Id });
-            Gains.Held = false;
-            Feed.Forget();
-            _engine?.FactsChanged();
-            return CommandReply.Accepted($"joining {peer.Name} ({peer.Id}) as a hot backup: its show, clock, transports and air mirrored here{words}{kept}");
+            if (_engine?.BlindOwnerName is { } owner)
+                return CommandReply.Fail($"{owner} holds a blind draft here: it would land over {peer.Name}'s show — BLIND DISCARD (or BLIND COMMIT) first");
+            // The primary's show may land here before the answer does: from the first line on, this node's LED data and sends are silent.
+            _joiningAir = true;
+            MoveAir(_settings, joining: true);
+            try
+            {
+                var (joined, words) = await JoinAsync(peer, ct).ConfigureAwait(false);
+                if (!joined)
+                    return CommandReply.Fail(words);
+                var kept = Persist(s => s with { Role = FleetRoles.Backup, Of = peer.Id });
+                Gains.Held = false;
+                Feed.Forget();
+                _engine?.FactsChanged();
+                return CommandReply.Accepted($"joining {peer.Name} ({peer.Id}) as a hot backup: its show, clock, transports and air mirrored here{words}{kept}");
+            }
+            finally
+            {
+                _joiningAir = false;
+                MoveAir(_settings, joining: false);
+            }
         }
         finally
         {
@@ -337,6 +380,8 @@ public sealed class BackupNode : IAsyncDisposable
         if (_settings.Role != FleetRoles.Primary || _settings.Of.Length == 0)
             return CommandReply.Fail($"{SelfName} took the show from no node — FAILBACK runs on the node that took over, to hand it back");
         var original = _settings.Of;
+        if (_engine?.BlindOwnerName is { } owner)
+            return CommandReply.Fail($"{owner} holds a blind draft here: BLIND COMMIT or BLIND DISCARD it before the show goes back to {Label(original)}");
         if (!Feed.Members.Any(m => m.Node == original))
             return CommandReply.Fail($"{Label(original)} does not mirror {SelfName} — FLEET BACKUP {SelfName} on {Label(original)} first, then FAILBACK");
         var health = Peer(original)?.Health?.Facts;
@@ -373,8 +418,9 @@ public sealed class BackupNode : IAsyncDisposable
             if (_settings.Role is FleetRoles.Fenced or FleetRoles.Backup)
                 return CommandReply.Fail($"{SelfName} does not hold the show (it is {_settings.Role})");
             var by = args[1];
-            var kept = Persist(s => s with { Role = FleetRoles.Fenced, Of = by, Epoch = epoch });
+            // The outputs are held before the role says fenced: whoever reads the fence reads it on the air already.
             Gains.Held = true;
+            var kept = Persist(s => s with { Role = FleetRoles.Fenced, Of = by, Epoch = epoch });
             Feed.Forget();
             var at = _setup.Wall.UnixMs;
             var words = string.Create(CultureInfo.InvariantCulture, $"fenced: {Label(by)} has the show since {Clock24(at)} (epoch {epoch}) — outputs held black; FLEET BACKUP {Label(by)} to mirror it");
@@ -461,7 +507,7 @@ public sealed class BackupNode : IAsyncDisposable
             var kept = Persist(s => s with { Role = FleetRoles.Primary, Of = from, Epoch = epoch });
             trail.Add(string.Create(CultureInfo.InvariantCulture, $"epoch {epoch} committed{kept}"));
             if (kept.Length > 0)
-                engine.Journal.Add("fault", $"the takeover's epoch {epoch} is not kept for the next start{kept}: after a restart this node would not know it took the show", ok: false);
+                engine.Journal.Add("fault", $"the takeover's epoch {epoch}{kept}: after a restart this node would not know it took the show", ok: false);
             var group = _group.Length > 0 ? _group : engine.Services.GroupSync?.Settings.Group ?? "";
             // The primary's air lines still waiting for their instants are the show's: they land on the lane's tick as planned.
             await StopMirrorAsync(keepDue: true).ConfigureAwait(false);
@@ -665,7 +711,8 @@ public sealed class BackupNode : IAsyncDisposable
     {
         await foreach (var text in lines.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
-            if (!ReferenceEquals(_lines, lines) || _engine is not { } engine)
+            // A stopping node runs no more of its primary's lines (the router would refuse them anyway).
+            if (!ReferenceEquals(_lines, lines) || _engine is not { } engine || engine.Stopping)
                 return;
             if (!WireGrammar.TryParse(text, out var line, out _))
                 continue;
@@ -746,7 +793,7 @@ public sealed class BackupNode : IAsyncDisposable
             case "ANCHOR" when call.Args.Count >= 3:
                 return await engine.AdoptMirrorAnchorAsync(call.Args[1], call.Line.RestAfter(3)).ConfigureAwait(false);
             case "AIR":
-                return Air(call.Line.RestAfter(2));
+                return AirLine(call.Line.RestAfter(2));
             case "HANDBACK":
                 return await HandbackAsync(call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
             default:
@@ -798,10 +845,14 @@ public sealed class BackupNode : IAsyncDisposable
         {
             var (servedRev, body) = await puller.ProjectAsync(ct).ConfigureAwait(false);
             var project = ProjectJson.Deserialize(body);
+            // The files the show names beside it land before the show does, so its stage is the primary's from its first frame.
+            var landed = await PullShowFilesAsync(engine, puller, project, ct).ConfigureAwait(false);
             var label = string.Create(CultureInfo.InvariantCulture, $"mirrored {_primaryName} rev {servedRev}");
             var result = await engine.MirrorEditAsync(label, _ => project).ConfigureAwait(false);
             if (!result.Changed && !result.Effect.EndsWith("nothing to change", StringComparison.Ordinal))
                 return CommandReply.Fail($"{_primaryName}'s show (rev {servedRev}) could not be applied here: {result.Effect}");
+            if (landed > 0)
+                engine.ShowFilesLanded();
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
             Background(PullFilesAsync(engine, _stop.Token));
@@ -829,7 +880,7 @@ public sealed class BackupNode : IAsyncDisposable
         await _pullGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_puller is not { } puller || _setup.Media is not MediaBackend store)
+            if (_puller is not { } puller || _setup.Media is not MediaBackend store || engine.Stopping)
                 return;
             var project = engine.Store.Project;
             var wanted = project.Media.Where(m => m.IsFile && ContentHasher.IsValid(m.ContentHash))
@@ -842,6 +893,8 @@ public sealed class BackupNode : IAsyncDisposable
             Interlocked.Exchange(ref _missingFiles, wanted.Count);
             foreach (var f in wanted)
             {
+                if (engine.Stopping)
+                    break;
                 var (ok, words) = await PullOneAsync(puller, _primaryName, store, f.Hash, f.Size, f.Name, ct).ConfigureAwait(false);
                 engine.Journal.Add(ok ? "media" : "refused", words, ok: ok);
                 Interlocked.Decrement(ref _missingFiles);
@@ -853,6 +906,74 @@ public sealed class BackupNode : IAsyncDisposable
             Interlocked.Exchange(ref _missingFiles, 0);
             _pullGate.Release();
         }
+    }
+
+    /// <summary>The files a show names beside its project folder (meshes, measured maps, survey clouds — <see cref="ShowFiles"/>),
+    /// each pulled from the primary by its key into this node's folder for them when it is not here as the show names it, verified
+    /// before it lands. One run at a time; answers how many landed (what could not be pulled is counted for the mirror's state and
+    /// asked again by the watch).</summary>
+    private async Task<int> PullShowFilesAsync(EngineCore engine, MirrorPuller puller, Project project, CancellationToken ct)
+    {
+        var files = ShowFiles.Of(project);
+        if (files.Count == 0)
+        {
+            Volatile.Write(ref _showMissing, 0);
+            return 0;
+        }
+        await _showGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var folder = engine.MirrorFilesFolder(Path.Combine(_setup.Home.Folder, "mirror", _primaryId));
+            var landed = 0;
+            var missing = 0;
+            foreach (var f in files)
+            {
+                if (engine.Stopping)
+                    break;
+                if (Align.AlignArchive.Resolve(folder, f.Path) is not { } destination)
+                {
+                    missing++;
+                    continue;
+                }
+                if (await HereAsync(destination, f.Hash, ct).ConfigureAwait(false))
+                    continue;
+                var (ok, words) = await puller.ShowFileAsync(f.Key, destination, f.Hash, ct).ConfigureAwait(false);
+                if (ok)
+                {
+                    _showHere[destination] = f.Hash;
+                    landed++;
+                    engine.Journal.Add("media", $"{f.Path} pulled from {_primaryName} with proof{(puller.Tls ? " over HTTPS" : "")} and verified");
+                }
+                else
+                {
+                    missing++;
+                    engine.Journal.Add("refused", $"{f.Path} could not be pulled from {_primaryName}: {words}", ok: false);
+                }
+            }
+            Volatile.Write(ref _showMissing, missing);
+            return landed;
+        }
+        finally
+        {
+            _showGate.Release();
+        }
+    }
+
+    /// <summary>True when the file is here as the show names it (checked once by its SHA-256, then remembered for this run).</summary>
+    private async Task<bool> HereAsync(string path, string hash, CancellationToken ct)
+    {
+        if (!File.Exists(path))
+            return false;
+        if (hash.Length == 0 || (_showHere.TryGetValue(path, out var known) && string.Equals(known, hash, StringComparison.Ordinal)))
+            return true;
+        string hex;
+        var stream = File.OpenRead(path);
+        await using (stream.ConfigureAwait(false))
+            hex = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct).ConfigureAwait(false));
+        if (!ShowFiles.Matches(hex, hash))
+            return false;
+        _showHere[path] = hash;
+        return true;
     }
 
     private static async Task<(bool Ok, string Words)> PullOneAsync(MirrorPuller puller, string from, MediaBackend store, string hash, long size, string name, CancellationToken ct)
@@ -907,6 +1028,8 @@ public sealed class BackupNode : IAsyncDisposable
     {
         if (_engine is not { } engine || _setup.Media is not MediaBackend store)
             return CommandReply.Fail("no media store on this node");
+        if (engine.Stopping)
+            return CommandReply.Fail(StoppingWords);
         List<ShowBusPeer> peers;
         if (from is not null)
         {
@@ -926,6 +1049,8 @@ public sealed class BackupNode : IAsyncDisposable
         {
             foreach (var f in files)
             {
+                if (engine.Stopping)
+                    break;
                 var said = "";
                 foreach (var peer in peers)
                 {
@@ -954,7 +1079,7 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>An air line of the primary's, kept once by (feed, seq) and run at its leader instant by the lane's tick.</summary>
-    private CommandReply Air(string json)
+    private CommandReply AirLine(string json)
     {
         string feed, text;
         long seq, at;
@@ -1187,7 +1312,8 @@ public sealed class BackupNode : IAsyncDisposable
         {
             try
             {
-                if (_engine is not { } engine)
+                // A node that has begun to stop takes no new step: no fence, no join, no follow, no pull.
+                if (_engine is not { } engine || engine.Stopping)
                     continue;
                 await LookAsync(engine).ConfigureAwait(false);
                 await KeepFollowingAsync(engine).ConfigureAwait(false);
@@ -1212,13 +1338,17 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>A backup whose show is here and whose mirror is live but whose sync part does not follow the primary's group (a follow
-    /// that found no clock port yet, a group that moved) follows it again, about once a second (the watch's own task alone counts its turns).</summary>
+    /// that found no clock port yet, a group that moved, a clock port that moved since) follows it again, about once a second (the watch's
+    /// own task alone counts its turns).</summary>
     private async Task KeepFollowingAsync(EngineCore engine)
     {
         if (_settings.Role != FleetRoles.Backup || !_subscribed || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
             || engine.Services.GroupSync is not { } sync)
             return;
-        if (sync.Role == "follower" && sync.Settings.Leader == _primaryId && string.Equals(sync.Settings.Group, _group, StringComparison.Ordinal))
+        // Following the primary's group with the clock asking the port its hello names now: nothing to do. A clock that asks a port
+        // the primary no longer answers on (its hello was read before it led again) is followed afresh.
+        if (sync.Role == "follower" && sync.Settings.Leader == _primaryId && string.Equals(sync.Settings.Group, _group, StringComparison.Ordinal)
+            && string.Equals(_setup.Network.FollowedClock, _setup.Network.ClockOf(_primaryId), StringComparison.Ordinal))
             return;
         // Paced in the watch's own turns (real time, whatever the show clock does): about once a second.
         if (++_followTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(1) / _o.WatchEvery)))
@@ -1236,6 +1366,7 @@ public sealed class BackupNode : IAsyncDisposable
         if (_link is null || !_subscribed || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
         {
             _projectTurns = 0;
+            await RepullShowFilesAsync(engine).ConfigureAwait(false);
             return;
         }
         if (++_projectTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(2) / _o.WatchEvery)))
@@ -1246,6 +1377,30 @@ public sealed class BackupNode : IAsyncDisposable
             await engine.HandleAsync(line, FleetSession, _stop.Token).ConfigureAwait(false);
     }
 
+    /// <summary>Files the show names that could not be pulled are asked again about every two seconds while the mirror is live; any
+    /// that land are read at once (the show was applied without them).</summary>
+    private async Task RepullShowFilesAsync(EngineCore engine)
+    {
+        if (Volatile.Read(ref _showMissing) == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
+        {
+            _filesTurns = 0;
+            return;
+        }
+        if (++_filesTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(2) / _o.WatchEvery)))
+            return;
+        _filesTurns = 0;
+        try
+        {
+            if (await PullShowFilesAsync(engine, puller, engine.Store.Project, _stop.Token).ConfigureAwait(false) > 0)
+                engine.ShowFilesLanded();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException && !_stop.IsCancellationRequested)
+        {
+            // The primary or the disk did not answer this time: the files stay counted missing and are asked again.
+            _log.LogInformation(ex, "The show's files could not be pulled this time.");
+        }
+    }
+
     /// <summary>A backup role kept from before a restart: the mirror is joined again once the primary is heard on the show network.</summary>
     private async Task RestoreAsync(CancellationToken ct)
     {
@@ -1253,7 +1408,7 @@ public sealed class BackupNode : IAsyncDisposable
         _mirrorWords = $"waiting to hear {of} on the show network";
         do
         {
-            if (_settings.Role != FleetRoles.Backup || _settings.Of != of || _link is not null)
+            if (_settings.Role != FleetRoles.Backup || _settings.Of != of || _link is not null || _engine?.Stopping == true)
                 return;
             if (FindPeer(of) is { Liveness: PeerLiveness.Live } peer)
             {
@@ -1314,7 +1469,7 @@ public sealed class BackupNode : IAsyncDisposable
     {
         if (_engine is not { } engine || engine.Services.Media is not { } store)
             return 0;
-        var n = 0;
+        var n = Volatile.Read(ref _showMissing);
         foreach (var m in engine.Store.Project.Media)
         {
             if (m.IsFile && ContentHasher.IsValid(m.ContentHash) && store.PathForHash(m.ContentHash) is null)
@@ -1389,16 +1544,20 @@ public sealed class BackupNode : IAsyncDisposable
     private static bool IsIdWord(string s) => s.Length is > 0 and <= 64 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
     /// <summary>Keeps a change of the fleet settings for the next start, through the network host (the settings file's one writer);
-    /// answers "" or the words of a failure (the change holds for this run either way).</summary>
+    /// answers "" or the words of a failure (the change holds for this run either way). A new role moves what the node sends beside its
+    /// outputs first (<see cref="Air"/>), then the role is the node's.</summary>
     private string Persist(Func<FleetSettings, FleetSettings> edit)
     {
+        string failed;
         lock (_settingsGate)
         {
             var next = edit(_settings);
+            if (next.Role != _settings.Role)
+                MoveAir(next, _joiningAir);
             _settings = next;
-            var failed = _setup.Network.PersistSettings(s => s with { Fleet = next });
-            return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
+            failed = _setup.Network.PersistSettings(s => s with { Fleet = next });
         }
+        return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
     }
 
     private async Task StopMirrorAsync(bool keepDue = false)
@@ -1461,6 +1620,7 @@ public sealed class BackupNode : IAsyncDisposable
         {
             _changes.Dispose();
             _pullGate.Dispose();
+            _showGate.Dispose();
         }
         _stop.Dispose();
     }

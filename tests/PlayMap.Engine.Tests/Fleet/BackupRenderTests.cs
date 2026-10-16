@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
+using PlayMap.Core.Led;
+using PlayMap.Core.Media;
 using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Model;
+using PlayMap.Core.Numerics;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
@@ -16,7 +19,8 @@ namespace PlayMap.Engine.Tests.Fleet;
 /// <summary>The hot backup's picture, two real nodes each with a render host on llvmpipe: the primary plays a clip whose optimised
 /// HAP Q version it holds; the backup pulls the show, the clip and the version by hash, plays the same version (STATE.decode's codec),
 /// and its output read back is byte-equal to the primary's at the same leader instants — playing, under a blackout, and through a
-/// panic fade.</summary>
+/// panic fade. The show has an LED strip sampling the output and a send of it: the primary samples and packs every frame (both read
+/// the output's final pixels, dither and all), the silent backup neither, and the pictures stay byte-equal.</summary>
 [Collection("render host")]
 public sealed class BackupRenderTests(ITestOutputHelper log)
 {
@@ -70,6 +74,22 @@ public sealed class BackupRenderTests(ITestOutputHelper log)
         }
     }
 
+    /// <summary>One 16-pixel strip across the output's middle row, patched to a DDP bar on this machine.</summary>
+    private static LedRig Strip(string output)
+    {
+        const string Node = "ln00000001";
+        return new LedRig
+        {
+            Nodes = [new LedNode(Node, "Bar", LedProtocol.Ddp, "127.0.0.1", 0, true, 0, 0, LedSync.Latch, 510, "#FFFFFF")],
+            Fixtures =
+            [
+                new LedFixture("lf00000001", "Strip", "builtin:rgb", LedSpace.Output, output, Transform3.Identity with { Position = new Vec3d(0, 24, 0) },
+                    new LedLayout(LedShape.Line, 16, 1, new Vec3d(63, 0, 0), LedStart.TopLeft, false, false, []), new LedPatch(Node, 0, 1),
+                    LedSampling.Point, 0, LedColor.Neutral, true, false, false, "#FF8800", []),
+            ],
+        };
+    }
+
     private static string? Codec(HostRig rig, string media) =>
         rig.State().GetProperty("decode").GetProperty("sources").EnumerateArray()
             .Where(s => s.GetProperty("media").GetString() == media).Select(s => s.GetProperty("codec").GetString()).FirstOrDefault();
@@ -85,13 +105,18 @@ public sealed class BackupRenderTests(ITestOutputHelper log)
             var clock = new ManualClock(1_000 * Second);
             var time = new ManualTime();
             var parts = BackupRig.Parts(time) with { RenderHost = RenderHost.ForNode };
-            await using var primary = await HostRig.StartAsync("FOH-A", network: true, mono: new OffsetClock(clock, 2 * Second), parts: parts,
-                settings: s => s with { NodeId = BackupRig.PrimaryId, TrustLoopback = false });
-            await using var backup = await HostRig.StartAsync("FOH-B", network: true, mono: clock, parts: parts,
-                settings: s => s with { NodeId = BackupRig.BackupId, TrustLoopback = false });
+            var ledA = new RecordingLed();
+            var ledB = new RecordingLed();
+            using var ndiA = new VideoIo.FakeVideoProvider(LiveProtocol.Ndi, clock);
+            using var ndiB = new VideoIo.FakeVideoProvider(LiveProtocol.Ndi, clock);
+            await using var primary = await HostRig.StartAsync("FOH-A", network: true, mono: new OffsetClock(clock, 2 * Second), parts: NetworkEdges.With(parts, ledA, ndiA),
+                settings: s => s with { NodeId = BackupRig.PrimaryId, TrustLoopback = false, Led = s.Led with { Output = true } });
+            await using var backup = await HostRig.StartAsync("FOH-B", network: true, mono: clock, parts: NetworkEdges.With(parts, ledB, ndiB),
+                settings: s => s with { NodeId = BackupRig.BackupId, TrustLoopback = false, Led = s.Led with { Output = true } });
             var show = Pictures.HostRig.WithOutputs(Pictures.HostRig.Screen("op_1", SourceRef.Playlist("pl_show"), 64, 48)) with
             {
                 Playlists = [new Playlist("pl_show", "Show", [], false, "show")],
+                Leds = Strip("op_1"),
             };
             await SyncRig.OpenShowAsync(primary, show);
 
@@ -111,6 +136,7 @@ public sealed class BackupRenderTests(ITestOutputHelper log)
                     Playlists = [p.Playlists[0] with { Items = [PlaylistItem.For("it_a", SourceRef.Media(clip), "Counted") with { DurationNs = 3 * Second }] }],
                 };
             });
+            await primary.OkAsync("SEND ADD NDI Main output:op_1 ALWAYS");
             await primary.OkAsync("SYNC LEAD show");
             await BackupRig.MeetAsync(primary, backup);
             await BackupRig.BackUpAsync(primary, backup);
@@ -154,6 +180,13 @@ public sealed class BackupRenderTests(ITestOutputHelper log)
                 Assert.True(pa.AsSpan().SequenceEqual(pb), $"+{ms} ms into the panic fade the two outputs differ");
             }
             Assert.Equal((0, 0, 0), Pictures.HostRig.At((await BothAt(clock, panicked + 1_200_000_000, primary, backup, _ => true)).A, 64, 32, 30));
+
+            // All the while the primary sampled its LED strip and packed its send from the same final pixels; the backup did neither.
+            Assert.True(primary.Engine.Led.Pass?.Frames > 0, "the primary's LED pass sampled nothing");
+            Assert.True(Assert.Single(ndiA.Sinks).Frames.Count > 0, "the primary's send carried no frame");
+            Assert.Equal(0, backup.Engine.Led.Pass?.Frames ?? 0);
+            Assert.Empty(ndiB.Sinks);
+            Assert.False(ledB.Master);
         }
         finally
         {

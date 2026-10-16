@@ -117,7 +117,8 @@ public sealed class BackupTests
         var back = await backup.RunAsync("FAILBACK CONFIRM");
         Assert.True(back.Ok, back.Payload);
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "primary" && BackupRig.MirrorState(backup) == "identical", 15000),
-            BackupRig.Fleet(primary) + "\n" + BackupRig.Fleet(backup) + "\n" + backup.Journal());
+            BackupRig.Fleet(primary) + "\n" + BackupRig.Fleet(backup) + "\n" + primary.State().GetProperty("sync") + "\n" + backup.State().GetProperty("sync")
+            + $"\nA answers on {primary.Network.SyncPort}, B on {backup.Network.SyncPort}; B hears A's clock on {backup.Network.Hello!.Peers.Find(primary.Id)?.Hello.Port("sync")} from {backup.Network.Hello!.Peers.Find(primary.Id)?.Hello.Name} ({backup.Network.Hello!.Peers.Find(primary.Id)?.Liveness}); hello ports A {primary.Network.HelloPort} B {backup.Network.HelloPort}\n" + backup.Journal() + "\n---\n" + primary.Journal());
         Assert.Equal(2, BackupRig.Fleet(primary).GetProperty("epoch").GetInt64());
         Assert.Equal(("backup", primary.Id), (BackupRig.Role(backup), BackupRig.Fleet(backup).GetProperty("of").GetString()));
         Assert.Equal("failback", BackupRig.Fleet(backup).GetProperty("last").GetProperty("kind").GetString());

@@ -27,6 +27,12 @@ internal sealed class SendSlot
 
     /// <summary>The size or rate change the hub made to fit the format ("1918 → 1916 …"), or "".</summary>
     public string Fitted { get; set; } = "";
+
+    /// <summary>"standby" while the node is a hot backup, "held" while it is fenced, "" while its fleet role lets it send.</summary>
+    public string Standby { get; set; } = "";
+
+    /// <summary>Why the node's fleet role keeps it from sending, in STATE's words ("" while it sends).</summary>
+    public string StandbyWords { get; set; } = "";
 }
 
 /// <summary>The node's network video: every live input of the project received once (a warm receiver per input, lent to the renderer,
@@ -518,10 +524,23 @@ public sealed class VideoIoHub : IDisposable
                 _sends[send.Id] = slot;
             }
             slot.Send = send;
+            slot.Standby = "";
+            slot.StandbyWords = "";
             if (!send.Enabled)
             {
                 CloseSink(slot);
                 slot.Problem = "";
+                slot.Plan = null;
+                continue;
+            }
+            if (_engine.NetworkAir != Core.Fleet.NetworkAir.Live)
+            {
+                // Only the node that has the show sends: a hot backup's sender is not made until FAILOVER, a fenced node's goes dark
+                // (one black frame, as a stopped send does) and closes. Receivers find a send by its name.
+                CloseSink(slot);
+                slot.Problem = "";
+                slot.Standby = _engine.NetworkAir == Core.Fleet.NetworkAir.Held ? "held" : "standby";
+                slot.StandbyWords = _engine.NetworkAirWords;
                 slot.Plan = null;
                 continue;
             }

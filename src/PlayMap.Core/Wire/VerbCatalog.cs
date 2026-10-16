@@ -142,7 +142,7 @@ public static class VerbCatalog
         V("CONTEXT", "CONTEXT", "Show Bus §6 context: light, headline, items, commands, peers", VerbCategory.Session, VerbRisk.Low, false),
         V("HELP", "HELP [<verb>]", "The vocabulary, or one verb's syntax", VerbCategory.Session, VerbRisk.Low, false),
         V("VERBS", "VERBS", "The vocabulary as JSON (name, syntax, words, risk, mutates)", VerbCategory.Session, VerbRisk.Low, false),
-        V("SUBSCRIBE", "SUBSCRIBE STATE|CONTEXT|PROJECT|INDEX|EVENTS|ANCHORS|HEALTH|OFF | SUBSCRIBE THUMBS [<ref>…]", "Pushes STATE (and the other topics) on change, latest wins; EVENTS in order", VerbCategory.Session, VerbRisk.Low, false),
+        V("SUBSCRIBE", "SUBSCRIBE STATE|CONTEXT|PROJECT|INDEX|EVENTS|ANCHORS|HEALTH|OFF | SUBSCRIBE THUMBS [<ref>…] | SUBSCRIBE MIRROR <node>", "Pushes STATE (and the other topics) on change, latest wins; EVENTS in order; MIRROR (paired only) is a primary's show to its hot backup", VerbCategory.Session, VerbRisk.Low, false),
 
         // Transport — Patterns' clip verbs, on the focused playlist (or ON <playlist>).
         V("VIDEO PLAY", "VIDEO PLAY [ON <playlist>] [AT +<ms>|<unix ms>] [EXPECT <item>|#<n>]", "Plays on from where the clip holds (EXPECT refuses if the item changed under the key)", VerbCategory.Transport, VerbRisk.High, true, "VIDEO RESUME"),

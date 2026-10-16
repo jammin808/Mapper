@@ -17,6 +17,31 @@ public sealed partial class EngineCore
     /// <summary>This node's role, primary and epoch as the backup part keeps them (the settings' when the part is not in).</summary>
     internal FleetSettings FleetRole => Services.Backup?.Settings ?? Services.Settings.Fleet;
 
+    /// <summary>What this node may put on the network beside its own outputs now — its LED data, its video sends — for its fleet role,
+    /// and the words STATE says when that is nothing (live without the fleet's part).</summary>
+    private volatile NetworkAirNow? _networkAir;
+
+    private sealed record NetworkAirNow(NetworkAir Air, string Words);
+
+    private NetworkAirNow NetworkAirFact => _networkAir ??= Services.Backup is { } b ? new(b.Air, b.AirWords) : new(NetworkAir.Live, "");
+
+    internal NetworkAir NetworkAir => NetworkAirFact.Air;
+
+    internal string NetworkAirWords => NetworkAirFact.Words;
+
+    /// <summary>The fleet role moves what the node may send (the backup part, before the role is the node's): the LED sender and the
+    /// sends take it at once — a backup's go silent with no black frame, a fenced node's go black once and then silent, the new
+    /// primary's start on the show clock's grid.</summary>
+    internal void SetNetworkAir(NetworkAir air, string words)
+    {
+        var moved = NetworkAirFact.Air != air;
+        _networkAir = new NetworkAirNow(air, words);
+        if (moved)
+            Led.SetAir(air);
+        VideoIoMade?.Reconcile(Store.Project);
+        FactsChanged();
+    }
+
     private void RouteBackup(VerbRoutes routes)
     {
         if (Services.Backup is not { } backup)
@@ -135,6 +160,37 @@ public sealed partial class EngineCore
         if (wanted.Count == 0)
             return CommandReply.Fail(all ? "nothing is missing" : $"no media {words[0]}");
         return backup.FetchMedia(wanted, from);
+    }
+
+    // ---- The files the show names beside it ---------------------------------------------------------------------------------
+
+    /// <summary>A file the live show names beside its project folder, by its mirror key, for a backup's pull: its full path when the
+    /// show names it, it lies inside the folder and it is here; null otherwise (nothing the show does not name is ever served).</summary>
+    internal string? ShowFilePath(string key)
+    {
+        var file = ShowFiles.Of(Store.Project).FirstOrDefault(f => string.Equals(f.Key, key, StringComparison.Ordinal));
+        return file is not null && Align.AlignArchive.Resolve(ProjectFolderForFiles, file.Path) is { } path && File.Exists(path) ? path : null;
+    }
+
+    /// <summary>The folder the show's files go to on a hot backup: its own project's (or the node's), else
+    /// <paramref name="fallback"/>, made and kept for this run.</summary>
+    internal string MirrorFilesFolder(string fallback)
+    {
+        if (ProjectFolderForFiles is { } folder)
+            return folder;
+        Directory.CreateDirectory(fallback);
+        _filesFolder = fallback;
+        return fallback;
+    }
+
+    /// <summary>Files the show names landed after the show did (a backup's late pull): meshes that failed to load are read again, the
+    /// measured maps are read again, and the render host builds its stage tables again for the show in hand.</summary>
+    internal void ShowFilesLanded()
+    {
+        Meshes.ForgetFailed();
+        AlignFiles.Reload(Store.Project, ProjectFolderForFiles);
+        (Services.Outputs as Rendering.RenderHost)?.Stage?.Rebuild();
+        FactsChanged();
     }
 
     // ---- Routes -------------------------------------------------------------------------------------------------------------

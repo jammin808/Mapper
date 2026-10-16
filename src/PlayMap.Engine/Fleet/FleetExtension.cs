@@ -64,7 +64,10 @@ public sealed class FleetExtension : IEngineExtension
         }
         setup.Network.AddWebModule(new HealthWebModule(_hub, () => _engine is { } e ? HealthJson.Write(e.HealthNow()) : "{}", _options.HealthFeeds));
         setup.Network.AddWebModule(new FleetWebModule(() => _engine is { } e ? e.FleetBoardJson() : "{}"));
-        Mirror = new MirrorWebModule(() => _engine is { } e ? Swap(e.ProjectJson()) : (-1, "{}"), setup.Media.PathForHash, () => setup.Wall.UnixMs);
+        Mirror = new MirrorWebModule(() => _engine is { } e ? Swap(e.ProjectJson()) : (-1, "{}"), setup.Media.PathForHash, () => setup.Wall.UnixMs)
+        {
+            ShowFileForKey = key => _engine?.ShowFilePath(key),
+        };
         setup.Network.AddWebModule(Mirror);
         _backup.Web = Mirror;
     }

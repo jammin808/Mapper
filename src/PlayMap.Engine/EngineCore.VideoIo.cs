@@ -936,6 +936,8 @@ public sealed partial class EngineCore
             return ("off", "");
         if (slot is null)
             return ("starting", "");
+        if (slot.Standby.Length > 0)
+            return (slot.Standby, slot.StandbyWords);
         if (slot.Problem.Length > 0)
             return ("failed", slot.Problem);
         if (slot.Plan is { Refused.Length: > 0 } refused)
@@ -1039,10 +1041,11 @@ public sealed partial class EngineCore
             if (!slot.Send.Enabled)
                 continue;
             var (state, stateWords) = SendState(slot.Send, slot);
-            var sendLight = state switch { "failed" => Light.Red, "sending" or "idle" => Light.Green, _ => Light.Grey };
+            // A hot backup's send waits for FAILOVER: that is its healthy state.
+            var sendLight = state switch { "failed" => Light.Red, "sending" or "idle" or "standby" => Light.Green, _ => Light.Grey };
             var receivers = slot.Sink?.Connections ?? 0;
             items.Add(new ContextItem("send:" + slot.Send.Id, "send", slot.Send.Name, sendLight,
-                state == "failed" ? stateWords : $"{receivers} receiver{(receivers == 1 ? "" : "s")}" + (slot.Sink?.Tally.Program == true ? " · on program" : "")));
+                state is "failed" or "standby" or "held" ? stateWords : $"{receivers} receiver{(receivers == 1 ? "" : "s")}" + (slot.Sink?.Tally.Program == true ? " · on program" : "")));
             if (SendShape.TryTap(slot.Send.Tap, out var kind, out var target, out _, out _) && kind == SendTapKind.Output)
                 links.Add(new ContextLink("output:" + target, "send:" + slot.Send.Id, ContextLinkKinds.Sends, sendLight));
         }

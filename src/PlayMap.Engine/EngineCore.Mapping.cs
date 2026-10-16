@@ -88,9 +88,8 @@ public sealed partial class EngineCore
     /// maps at once (while the project's blend inputs are still the ones solved).</summary>
     public event Action<BlendSolveResult>? BlendSolved;
 
-    /// <summary>The folder a project's relative mesh paths are read from: the open project file's, else the
-    /// node's project folder.</summary>
-    private string? MeshFolder() => _projectPath is { } path ? Path.GetDirectoryName(path) : Services.ProjectFolder;
+    /// <summary>The folder a project's relative mesh paths are read from: the one its files are written to.</summary>
+    private string? MeshFolder() => ProjectFolderForFiles;
 
     /// <summary>A finished scan's solve: in memory, or read back from its folder (and then kept); null when neither.</summary>
     private Scanning.ScanOutcome? OutcomeOf(ScanRecord scan)

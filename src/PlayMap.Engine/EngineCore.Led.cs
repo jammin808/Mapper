@@ -19,8 +19,26 @@ public sealed partial class EngineCore
 
     private LedBoard? _ledBoard;
 
-    /// <summary>The engine's side of LED output.</summary>
-    internal LedBoard Led => _ledBoard ??= new LedBoard(Services);
+    /// <summary>The engine's side of LED output: one board, whichever thread asks first (the lane, the render thread, the fleet's
+    /// role change) makes it.</summary>
+    internal LedBoard Led
+    {
+        get
+        {
+            if (Volatile.Read(ref _ledBoard) is { } board)
+                return board;
+            lock (_ledGate)
+            {
+                if (_ledBoard is { } made)
+                    return made;
+                var fresh = new LedBoard(Services, NetworkAir);
+                Volatile.Write(ref _ledBoard, fresh);
+                return fresh;
+            }
+        }
+    }
+
+    private readonly Lock _ledGate = new();
 
     partial void RouteLed(VerbRoutes routes)
     {
@@ -760,6 +778,7 @@ public sealed partial class EngineCore
             var universes = np?.Rows ?? 0;
             var (state, why) = !n.Enabled ? ("disabled", "this node is off in the show — LED OUTPUT ON " + n.Id)
                 : Led.Output is null ? ("off", Led.HasRenderer ? "this node has no LED output" : "no renderer on this node — LED output needs the GPU")
+                : Led.Master && Led.Air != Core.Fleet.NetworkAir.Live ? (Led.Air == Core.Fleet.NetworkAir.Held ? "held" : "standby", NetworkAirWords)
                 : view?.Output != true ? ("off", "this machine does not send LED data — LED OUTPUT ON")
                 : plan.Refused.Length > 0 ? ("refused", plan.Refused)
                 : universes == 0 ? ("idle", np?.Why is { Length: > 0 } w ? w : "nothing is patched to it")
@@ -891,6 +910,8 @@ public sealed partial class EngineCore
                 "unreachable" or "refused" => Led.Master ? Light.Red : Light.Grey,
                 "late" => Light.Amber,
                 "sending" => air.Length > 0 ? Light.Amber : Light.Green,
+                // A hot backup's rig is ready to send at FAILOVER: that is its healthy state.
+                "standby" => Light.Green,
                 _ => Light.Grey,
             };
             var words = r.State == "sending"

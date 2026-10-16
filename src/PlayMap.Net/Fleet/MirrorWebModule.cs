@@ -9,14 +9,17 @@ namespace PlayMap.Net.Fleet;
 
 /// <summary><c>/mirror</c>: what a hot backup pulls from its primary — <c>GET /mirror/project</c> (the show as compact JSON, its
 /// revision in <c>X-PlayMap-Rev</c>) and <c>GET /mirror/media/&lt;sha256&gt;</c> (a file this node holds verified, by its content hash,
-/// in ranges). Each request carries the pairing proof of <see cref="PullProof"/> (the token's HMAC over a fresh nonce, the scheme and
+/// in ranges) and <c>GET /mirror/file/&lt;kind&gt;/&lt;id&gt;</c> (a file the live show names beside its project folder — a mesh, a measured
+/// map, a survey's cloud — by the key <see cref="ShowFiles"/> gives it; nothing the show does not name). Each request carries the pairing proof of <see cref="PullProof"/> (the token's HMAC over a fresh nonce, the scheme and
 /// the request, never the token), checked here in fixed time with each nonce taken once within a minute of this node's clock; from an
-/// address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules included). From another machine a pull must come over HTTPS (the peer pins this
-/// node's certificate by the hello's fingerprint). Only GET and HEAD.</summary>
+/// address the node trusts, or on a node that asks no token, the node's own gate decides (its Origin and host rules included); a
+/// request with a proof that names an Origin (a browser's) is refused. From another machine a pull must come over HTTPS (the peer pins
+/// this node's certificate by the hello's fingerprint). Only GET and HEAD.</summary>
 public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<string, string?> fileForHash, Func<long> unixMs) : IWebModule
 {
     public const string ProjectPath = "/mirror/project";
     public const string MediaPath = "/mirror/media/";
+    public const string FilePath = "/mirror/file/";
 
     /// <summary>Nonces remembered at most (the oldest forgotten first; a forgotten one is outside the window by then at any sane rate).</summary>
     private const int NoncesKept = 8192;
@@ -36,6 +39,10 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
 
     /// <summary>Pulls served over HTTPS.</summary>
     public long OverHttps => Interlocked.Read(ref _overHttps);
+
+    /// <summary>The full path of a file the live show names beside its folder, by its key ("mesh/me_1"), or null when the show names
+    /// no such file, it lies outside the folder or it is not here.</summary>
+    public Func<string, string?>? ShowFileForKey { get; init; }
 
     public string Name => "mirror";
 
@@ -57,6 +64,9 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
             words = "";
             return WebAdmission.Defer;
         }
+        // A pull with a proof is a node's, never a page's: a request a browser sent (it names its page's Origin) is refused here.
+        if (request.Headers.Origin.Count > 0)
+            return Refuse(out words, "a mirror pull comes from a PlayMap node, never from a web page");
         var nonce = request.Headers[PullProof.NonceHeader].ToString();
         var proof = request.Headers[PullProof.ProofHeader].ToString();
         if (nonce.Length == 0 || proof.Length == 0)
@@ -128,5 +138,13 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
                 return Results.Text("this node holds no verified file with that SHA-256", "text/plain; charset=utf-8", statusCode: StatusCodes.Status404NotFound);
             return Results.File(path, "application/octet-stream", enableRangeProcessing: true);
         });
+        routes.MapMethods(FilePath + "{kind}/{id}", ["GET", "HEAD"], (HttpContext context, string kind, string id) =>
+        {
+            if (!IsKeyWord(kind) || !IsKeyWord(id) || ShowFileForKey?.Invoke(kind + "/" + id) is not { } path || !File.Exists(path))
+                return Results.Text("the show names no such file beside it here", "text/plain; charset=utf-8", statusCode: StatusCodes.Status404NotFound);
+            return Results.File(path, "application/octet-stream", enableRangeProcessing: true);
+        });
     }
+
+    private static bool IsKeyWord(string s) => s.Length is > 0 and <= 64 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
 }

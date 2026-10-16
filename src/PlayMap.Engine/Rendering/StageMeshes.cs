@@ -65,6 +65,17 @@ public sealed class StageMeshes
         return id => stage.Meshes.Find(id) is { } asset ? Get(asset) : null;
     }
 
+    /// <summary>Forgets every load that failed (a file missing then), so the next build reads the file again: a file that has landed
+    /// since (a backup's pull) is read; one still missing fails again with its reason.</summary>
+    public void ForgetFailed()
+    {
+        lock (_gate)
+        {
+            foreach (var id in _entries.Where(e => e.Value.Load.IsValueCreated && e.Value.Load.Value.Mesh is null).Select(e => e.Key).ToList())
+                _entries.Remove(id);
+        }
+    }
+
     /// <summary>Lets go of the meshes of assets the stage no longer has.</summary>
     public void Retain(Stage stage)
     {

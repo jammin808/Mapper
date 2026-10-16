@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Core.Fleet;
@@ -124,6 +125,58 @@ public sealed class MirrorPuller : IDisposable
         if (result.Outcome is MediaPullOutcome.Verified or MediaPullOutcome.AlreadyHere)
             PinFirstUse();
         return result;
+    }
+
+    /// <summary>One file the show names beside its project folder, by its key, into <paramref name="destination"/> (written beside and
+    /// moved over once its SHA-256 is the one the show names, <see cref="ShowFiles.Matches"/>); answers whether it landed and, when it
+    /// did not, why.</summary>
+    public async Task<(bool Landed, string Words)> ShowFileAsync(string key, string destination, string hash, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(hash);
+        if (Refusal.Length > 0)
+            return (false, Refusal);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(Base, MirrorWebModule.FilePath + key));
+        Sign(request);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            return (false, $"{_source.Name} answered {(int)response.StatusCode}: {Short(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false))}");
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var temp = destination + ".pulling";
+        try
+        {
+            string hex;
+            using (var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None);
+                await using (file.ConfigureAwait(false))
+                {
+                    var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    await using (body.ConfigureAwait(false))
+                    {
+                        var buffer = new byte[1 << 20];
+                        int n;
+                        while ((n = await body.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                        {
+                            sha.AppendData(buffer, 0, n);
+                            await file.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+                        }
+                    }
+                }
+                hex = Convert.ToHexStringLower(sha.GetHashAndReset());
+            }
+            if (!ShowFiles.Matches(hex, hash))
+                return (false, "what came is not the file the show names (its hash differs)");
+            File.Move(temp, destination, overwrite: true);
+            PinFirstUse();
+            return (true, "");
+        }
+        finally
+        {
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
     }
 
     /// <summary>The pairing proof on a request: a fresh nonce and the HMAC of the token over it and the request; nothing when the
