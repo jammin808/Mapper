@@ -20,7 +20,6 @@ public sealed partial class EngineCore
         routes.Lane("SURVEY IMPORT", SurveyImport);
         routes.Lane("SURVEY LIST", _ => SurveyList());
         routes.Lane("PROJECTOR PRIOR", c => ProjectorPrior(c.Args));
-        routes.OffLane("PROJECTOR SOLVE", ProjectorSolveAsync);
         routes.Lane("SITE GUIDE", SiteGuideQuery);
         RouteStacks(routes);
     }

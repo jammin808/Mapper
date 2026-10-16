@@ -10,16 +10,17 @@ using PlayMap.Engine.Devices;
 
 namespace PlayMap.Engine;
 
-/// <summary>The operations verbs — projector control, credentials, the assistant — whose work waits on a projector,
-/// a model or a person rather than the lane alone. They are answered off the lane: what they change in the project
-/// still goes through the lane (and the store), but a projector's reply or a model's answer is awaited where it
-/// holds nobody else up, so their receipts are facts (the projector observed it; the model answered) rather than
-/// "accepted". Pairing, refusals, faults and the journal follow the router's own rules.</summary>
+/// <summary>The operations verbs — projector control, credentials, the assistant, and the first round's two solvers (SCAN SURFACE,
+/// PROJECTOR SOLVE) — whose work waits on a projector, a model, a person or a long computation rather than the lane alone. They are
+/// answered off the lane: what they change in the project still goes through the lane (and the store), but a projector's reply, a
+/// model's answer or a solve is awaited where it holds nobody else up, so their receipts are facts (the projector observed it; the
+/// model answered; the solve was applied) rather than "accepted". Pairing, refusals, faults and the journal follow the router's own
+/// rules.</summary>
 public sealed partial class EngineCore
 {
     /// <summary>The first round's operations verbs; a round-2 row goes through its package's route (or is not available yet).</summary>
     private static readonly FrozenSet<string> OpsVerbs = VerbCatalog.All
-        .Where(v => v.Round == 1 && (v.Category is VerbCategory.Device or VerbCategory.Assistant || v.Name == "SCAN SURFACE"))
+        .Where(v => v.Round == 1 && (v.Category is VerbCategory.Device or VerbCategory.Assistant || v.Name is "SCAN SURFACE" or "PROJECTOR SOLVE"))
         .Select(v => v.Name)
         .ToFrozenSet(StringComparer.Ordinal);
 
@@ -57,6 +58,7 @@ public sealed partial class EngineCore
                 {
                     VerbCategory.Device => await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
                     VerbCategory.Assistant => await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
+                    _ when spec.Name == "PROJECTOR SOLVE" => await ProjectorSolveAsync(new VerbCall(spec, args, line, session, ct)).ConfigureAwait(false),
                     _ => await ScanSurfaceAsync(args, line, session, ct).ConfigureAwait(false),
                 };
         }
