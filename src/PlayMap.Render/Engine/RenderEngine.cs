@@ -64,9 +64,18 @@ public sealed class RenderEngine : IDisposable
         public double RenderMs;
         public GpuTexture? IdentifyCard;
         public GeneratorContext IdentifyKey;
+        /// <summary>Whole frames the output's picture is held back to light with the slowest display, and what is left over (ms).</summary>
+        public int DelayFrames;
+        public double ResidualMs;
+        /// <summary>The pictures the delay holds (d + 1 of the output's size; none at 0).</summary>
+        public readonly DelayRing<RenderTarget> Ring = new();
+        /// <summary>The picture presented this frame (the ring's tail, or the finished picture with no delay).</summary>
+        public GpuTexture? Shown;
+        public RenderTarget? ShownTarget;
 
         public void Dispose()
         {
+            Ring.Dispose();
             Final?.Dispose();
             Projector?.Dispose();
             Timer?.Dispose();
@@ -192,9 +201,25 @@ public sealed class RenderEngine : IDisposable
         }
     }
 
-    /// <summary>An output's finished picture (8-bit, top row first), or null before it was drawn.</summary>
+    /// <summary>An output's finished picture this frame (8-bit, top row first) — what a pass that taps the output (a send, an LED
+    /// map) reads, whatever delay its display has; null before it was drawn.</summary>
     public GpuTexture? OutputPicture(string outputId) =>
         _outputs.TryGetValue(outputId, out var st) && st.HasPicture ? st.Final?.Color : null;
+
+    /// <summary>An output's picture as it went to its display this frame: with a delay, the one drawn that many frames ago — what the
+    /// previews show; null before it was drawn.</summary>
+    public GpuTexture? PresentedPicture(string outputId) =>
+        _outputs.TryGetValue(outputId, out var st) && st.HasPicture ? st.Shown ?? st.Final?.Color : null;
+
+    /// <summary>Holds an output's picture back whole frames (per-output latency: the faster displays wait for the slowest), with the
+    /// residual its clock reports. Render thread; the ring's pictures are made at its next frame when the delay changes.</summary>
+    public void SetDelay(string outputId, int frames, double residualMs)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(frames);
+        var st = State(outputId);
+        st.DelayFrames = Math.Min(frames, LatencyPlan.MaxDelayFrames);
+        st.ResidualMs = residualMs;
+    }
 
     /// <summary>Reads an output's finished picture back synchronously as BGRA (tests and snapshots only).</summary>
     public bool ReadOutput(string outputId, Span<byte> bgra)
@@ -202,6 +227,16 @@ public sealed class RenderEngine : IDisposable
         if (!_outputs.TryGetValue(outputId, out var st) || st.Final is null || !st.HasPicture)
             return false;
         Device.ReadPixels(st.Final, bgra);
+        return true;
+    }
+
+    /// <summary>Reads back the picture an output presented this frame (its delay ring's tail; the finished picture with no delay),
+    /// BGRA, synchronously (tests only).</summary>
+    public bool ReadPresented(string outputId, Span<byte> bgra)
+    {
+        if (!_outputs.TryGetValue(outputId, out var st) || st.ShownTarget is null || !st.HasPicture)
+            return false;
+        Device.ReadPixels(st.ShownTarget, bgra);
         return true;
     }
 
@@ -311,12 +346,23 @@ public sealed class RenderEngine : IDisposable
         foreach (var pass in _passes)
             pass.FrameEnd(in passFrame);
 
+        // The delay rings: each output's finished picture goes in, the one drawn d frames ago comes out (a scan's raw frame is never
+        // delayed: its present stamp is the frame's own).
+        for (var i = 0; i < outputs.Length; i++)
+        {
+            if (outputs[i].Enabled && _outputs.TryGetValue(outputs[i].Id, out var st) && st.LastFrame == Frame && st.Final is not null)
+            {
+                st.ShownTarget = Delayed(st);
+                st.Shown = st.ShownTarget.Color;
+            }
+        }
+
         var presentStart = MonoClock.Instance.NowNs;
         foreach (var id in _paceOrder)
         {
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null || st.Final is null)
                 continue;
-            var presented = st.Window.Present(st.Final.Color);
+            var presented = st.Window.Present(st.Shown ?? st.Final.Color);
             if (presented.Queued)
                 st.Pacer.OnPresented(presented.ReturnedNs);
             st.Clock.OnPresented(in presented);
@@ -529,7 +575,7 @@ public sealed class RenderEngine : IDisposable
         }
         else
         {
-            var picture = request.OutputId is { } id ? OutputPicture(id) : null;
+            var picture = request.OutputId is { } id ? PresentedPicture(id) : null;
             var d = Device;
             d.BindTarget(pv.Target);
             d.SetBlend(BlendMode.Opaque);
@@ -623,6 +669,40 @@ public sealed class RenderEngine : IDisposable
             _outputs[outputId] = st;
         }
         return st;
+    }
+
+    /// <summary>A ring let go makes nothing (a static maker: nothing is captured, so the frame path allocates no closure).</summary>
+    private static RenderTarget NoPicture() => throw new InvalidOperationException("a ring with no delay makes no pictures");
+
+    /// <summary>The picture an output shows this frame through its delay ring (the finished one itself with no delay or a raw frame).</summary>
+    private RenderTarget Delayed(OutputState st)
+    {
+        var final = st.Final!;
+        st.Clock.DelayFrames = st.DelayFrames;
+        st.Clock.LatencyResidualMs = st.ResidualMs;
+        if (st.DelayFrames == 0 || st.Raw)
+        {
+            if (st.DelayFrames == 0 && st.Ring.Delay > 0)
+                st.Ring.Configure(0, NoPicture);
+            // A raw frame breaks the sequence: what the ring held from before it is never shown after it.
+            st.Ring.Restart();
+            return final;
+        }
+        var resized = st.Ring.First is { } held && (held.Width != final.Width || held.Height != final.Height);
+        if (st.Ring.Delay != st.DelayFrames || resized)
+        {
+            var (w, h) = (final.Width, final.Height);
+            st.Ring.Configure(st.DelayFrames, () => Device.CreateRenderTarget(w, h, TextureFormat.Rgba8), remake: true);
+        }
+        var head = st.Ring.Next();
+        var d = Device;
+        d.BindTarget(head);
+        d.SetBlend(BlendMode.Opaque);
+        var blit = d.Program("blit");
+        blit.Set("uSrc", 0, 0, 1, 1);
+        d.BindSampler(blit, "uTex", 0, final.Color);
+        d.DrawFullscreen(blit);
+        return st.Ring.Presented();
     }
 
     private void EnsureFinal(OutputState st, int width, int height)

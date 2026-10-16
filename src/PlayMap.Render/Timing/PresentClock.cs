@@ -114,6 +114,16 @@ public sealed class PresentClock
     private ulong _nextId;
     private ulong _expected;
     private bool _began;
+    private bool _display;
+    private uint _lastSync;
+    private ulong _sync;
+    private uint _lastQueued;
+    private ulong _queued;
+    private uint _lastShownPresent;
+    private ulong _shownPresent;
+    private uint _lastShown;
+    private ulong _shownRefresh;
+    private bool _haveShown;
 
     public PresentClock(double nominalHz, bool measured, PresentPath path)
     {
@@ -134,13 +144,16 @@ public sealed class PresentClock
 
     public double NominalHz => Vblank.NominalHz;
 
-    /// <summary>Whole frames this output's picture is held back to line up with slower displays (0 this round).</summary>
+    /// <summary>Whole frames this output's picture is held back to line up with slower displays (the latency plan's).</summary>
     public int DelayFrames { get; set; }
+
+    /// <summary>What the whole-frame delay leaves over, ms (|residual| ≤ half a frame).</summary>
+    public double LatencyResidualMs { get; set; }
 
     /// <summary>Switches between measured and nominal (the pacing output changed): the fit starts again; the ledger keeps counting.</summary>
     public void SetMeasured(bool measured)
     {
-        if (measured == Measured)
+        if (measured == Measured || _display)
             return;
         Measured = measured;
         Vblank = new VblankClock(Vblank.NominalHz) { FixedPeriod = !measured };
@@ -163,6 +176,14 @@ public sealed class PresentClock
         if (!result.Queued)
         {
             Ledger.OnHeld();
+            return;
+        }
+        if (_display)
+        {
+            // The display's statistics time this output: the present is recorded under the platform's own number, meant for the
+            // refresh after the one in progress, and shown when the statistics name it.
+            var pid = Unwrap(result.PresentCount, ref _lastQueued, ref _queued);
+            Ledger.OnPresent(pid, Vblank.HasPhase ? Vblank.IndexAt(result.ReturnedNs) + 1 : 0);
             return;
         }
         var id = ++_nextId;
@@ -189,6 +210,69 @@ public sealed class PresentClock
             Ledger.OnShown(id, Vblank.LastIndex, t);
     }
 
+    /// <summary>Whether the display's own statistics time this output (DXGI's frame statistics), rather than swap returns.</summary>
+    public bool DisplayTimed => _display;
+
+    /// <summary>The display's statistics (DXGI): present <paramref name="presentCount"/> was first shown at refresh
+    /// <paramref name="presentRefreshCount"/>; the newest vblank was refresh <paramref name="syncRefreshCount"/> at
+    /// <paramref name="syncNs"/> on the monotonic clock. The first statistics switch the clock to display timing (the fit starts again
+    /// in the display's refresh numbering, measured); 32-bit counters are unwrapped with unsigned differences.</summary>
+    public void OnDisplayStatistics(uint presentCount, uint presentRefreshCount, uint syncRefreshCount, long syncNs)
+    {
+        if (!_display)
+        {
+            _display = true;
+            Measured = true;
+            Vblank = new VblankClock(Vblank.NominalHz);
+            _lastSync = syncRefreshCount;
+            _sync = syncRefreshCount;
+            // Both present numberings start at the same 64-bit value: the newest queued and the last shown are the same 32-bit
+            // counter read at different times (the shown one lags), each unwrapped on its own.
+            _lastQueued = presentCount;
+            _queued = presentCount;
+            _lastShownPresent = presentCount;
+            _shownPresent = presentCount;
+            _haveShown = false;
+        }
+        var k = Unwrap(syncRefreshCount, ref _lastSync, ref _sync);
+        Vblank.Add(k, syncNs);
+        if (_haveShown && presentRefreshCount == _lastShown)
+            return;
+        var refresh = _haveShown ? _shownRefresh + (ulong)(uint)(presentRefreshCount - _lastShown) : k - (ulong)(uint)(syncRefreshCount - presentRefreshCount);
+        _lastShown = presentRefreshCount;
+        _shownRefresh = refresh;
+        _haveShown = true;
+        var pid = Unwrap(presentCount, ref _lastShownPresent, ref _shownPresent);
+        Ledger.OnShown(pid, refresh, Vblank.TimeOf(refresh));
+    }
+
+    /// <summary>The display said its statistics are disjoint (a mode change): the fit starts again; the ledger keeps counting.</summary>
+    public void OnDisplayDisjoint()
+    {
+        Vblank.Disjoint();
+        _haveShown = false;
+    }
+
+    /// <summary>The display's statistics stopped moving while presents are taken: the clock goes back to timing swap returns (no
+    /// display evidence) until statistics move again.</summary>
+    public void OnDisplayStale()
+    {
+        if (!_display)
+            return;
+        _display = false;
+        Vblank = new VblankClock(Vblank.NominalHz) { FixedPeriod = !Measured };
+        _began = false;
+        _haveShown = false;
+    }
+
+    /// <summary>A 32-bit counter read again: the 64-bit count moved by the unsigned difference since the last read.</summary>
+    private static ulong Unwrap(uint now, ref uint last, ref ulong total)
+    {
+        total += (uint)(now - last);
+        last = now;
+        return total;
+    }
+
     /// <summary>Zeroes the counters and starts the fit again (PRESENT RESET); answers the totals that were there.</summary>
     public PresentSnapshot Reset(long nowNs)
     {
@@ -196,6 +280,7 @@ public sealed class PresentClock
         Ledger.Reset();
         Vblank = new VblankClock(Vblank.NominalHz) { FixedPeriod = !Measured };
         _began = false;
+        _haveShown = false;
         _nextId = 0;
         return before;
     }
@@ -212,7 +297,7 @@ public sealed class PresentClock
         var age = Ledger.LastShownNs < 0 ? 0 : (nowNs - Ledger.LastShownNs) / 1e6;
         return new PresentSnapshot(Path, mode, ModeEvidence.None, Measured, Measured ? Vblank.RefreshHz : Vblank.NominalHz, Vblank.NominalHz,
             Measured ? Vblank.Ppm : 0, Measured && Vblank.Settled, Ledger.Presented, Ledger.MissedVblanks, Ledger.Missed60s(nowNs),
-            Ledger.Glitches, Ledger.Repeats, Ledger.Held, Ledger.MissedIn(nowNs, 10), Ledger.RefreshesIn(nowNs, 10), DelayFrames, 0,
+            Ledger.Glitches, Ledger.Repeats, Ledger.Held, Ledger.MissedIn(nowNs, 10), Ledger.RefreshesIn(nowNs, 10), DelayFrames, LatencyResidualMs,
             Math.Max(0, age), Vblank.LastVblankNs);
     }
 }

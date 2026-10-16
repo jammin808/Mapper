@@ -1,20 +1,23 @@
 # Outputs: presenting, measuring, locking
 
-How a PlayMap node gets its outputs' pictures to the displays, how it knows what the displays really showed, and how outputs on
-one or many machines share one vblank. The wire's side is in `docs/wire/output.md`.
+How a PlayMap node gets its outputs' pictures to the displays, how it knows what the displays really showed, how outputs with
+different input lags light the same picture at the same instant, and how outputs on one or many machines share one vblank. The
+wire's side is in `docs/wire/output.md` and `docs/wire/d3d11.md`.
 
 ## The platform and the presenters
 
 The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Platform`) from the node's settings
 (`NodeSettings.Present`: `path` auto|gl|dxgi, `dialect` auto|core330|es300, `frameLock` auto|off, `swapGroup`, `swapBarrier`):
 
-- **GL** (every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
+- **GL** (what `auto` is on every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
   (`IOutputPresenter`; the GL window, `OutputWindow`, is the first). The renderer draws every pass offscreen in the primary
   context; a presenter only shows the output's finished picture and swaps.
+- **DXGI** (Windows, experimental, only on an explicit `PRESENT PATH DXGI`): see *The DXGI flip path* below. Off Windows `dxgi`
+  is refused by the verb and, asked through the settings file, runs GL with `machine.present.why` saying "the DXGI path is
+  Windows only".
 - **Dialect.** `core330` is desktop GLSL 3.30 core (the default). `es300` is OpenGL ES 3.00: on Linux the context is made through
   GLFW on **EGL**, and when EGL refuses it is made on GLX and `machine.present.why` says so. A node with no window system can render
-  on EGL's **surfaceless** platform (no presenters; every output offscreen). `"dxgi"` is not a path this build presents on: it runs
-  GL and says so.
+  on EGL's **surfaceless** platform (no presenters; every output offscreen).
 - **Program sources carry no `#version`**: the device writes the dialect's header (`#version 300 es` plus precision lines for
   float, int and every sampler kind). Every program in `ShaderLibrary` compiles and links on both dialects (tested on Mesa's ES 3.2,
   which compiles `#version 300 es`).
@@ -25,8 +28,68 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
   synchronous read swaps on the CPU and the streamed read-back refuses with words).
 - **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
-- The platform hands decoders its **device share** (`IGpuShare`: OpenGL, nothing imported directly this round) through
-  `IMediaBackend.UseGpu`.
+- The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID on the DXGI
+  one; nothing imported directly this round) through `IMediaBackend.UseGpu`.
+
+## The DXGI flip path
+
+`AnglePlatform` (`src/PlayMap.Render/Platform/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
+stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `programs`) in `machine.present.why` while the node
+runs GL:
+
+1. **Adapter and device.** `CreateDXGIFactory2`; the adapter whose outputs include the primary display (else the first; WARP on the
+   CI runner); `D3D11CreateDevice` at feature level 11.1/11.0 with BGRA (and video, where the driver has it) support;
+   `ID3D10Multithread` protection on, so decoders may share the device.
+2. **ANGLE** (BSD), loaded at run time by the single name `av_libglesv2` — the file Avalonia.Angle.Windows.Natives puts beside the
+   exe; PlayMap adds no binary. Its EGL entry points are resolved from that handle by the names the library exports them under
+   (`eglFoo` as `EGL_Foo`).
+3. **Three extension lists**, the refusal naming the first missing one and its list: client (`EGL_EXT_platform_base`,
+   `EGL_EXT_platform_device`, `EGL_EXT_device_query`, `EGL_ANGLE_device_creation`, `EGL_ANGLE_device_creation_d3d11`), device
+   (`EGL_ANGLE_device_d3d11`), display (`EGL_ANGLE_d3d_texture_client_buffer`, `EGL_KHR_surfaceless_context`).
+4. **The context**: `eglCreateDeviceANGLE` on our device, the display on it (verified: the display's device is ours, else "ANGLE made
+   its own device"), an ES 3.0 context current with no surface, adopted as the renderer's (`RenderContext.Adopt`); every program
+   is translated inside the start (a program ANGLE refuses is the `programs` stage's words and a GL start). ANGLE keeps pipeline
+   state on the device's immediate context, so nothing else issues immediate-context work on it from another thread: sharers open
+   what they need by share handle on a device of their own (Spout does).
+5. **One window and swap chain per display output** (`DxgiOutputWindow`): a borderless top-most popup over the monitor (transitions
+   off, the cursor hidden), a waitable `FLIP_DISCARD` swap chain (three B8G8R8A8 buffers, no scaling, no tearing, frame latency 1),
+   Alt+Enter and window changes left to PlayMap; a swap chain that lands on another display than its monitor is refused with words.
+   The nominal refresh is the active path's (`QueryDisplayConfig`: the target mode's `vSyncFreq`, else the path's `refreshRate`).
+6. **Buffer 0 wrapped once per swap chain** as ANGLE's pbuffer (`eglCreatePbufferFromClientBuffer`, `EGL_D3D_TEXTURE_ANGLE`): the
+   flip model renames buffer 0's storage on each present, so the same texture comes back; the cache holds exactly one wrapper and
+   says so if a different texture comes back without a resize. The picture is drawn into it rows as they are (that surface runs top
+   first, as PlayMap's targets do).
+7. **Present**: `glFlush` then `Present1(1, DO_NOT_WAIT)` — a full queue holds the previous picture one refresh (counted, never a
+   block, never a tear); occluded and device-removed come back as the result's problem. The pacing output waits on its waitable
+   object after it presents (pumping window messages, at most three periods), so the next frame starts just after the vblank as a
+   GL swap returns; every other output presents only when its waitable is already signalled, and a count it took for a present that
+   did not queue is kept for its next present rather than lost.
+8. **Statistics**: after every output presented, `GetFrameStatistics` once per swap chain. The first statistics switch the output's
+   clock to display timing — `SyncRefreshCount` and `SyncQPCTime` (QPC to ns as `(q / f)·10⁹ + (q % f)·10⁹ / f`, which never
+   overflows) feed the fit, and the ledger is told which refresh first showed which present (32-bit counters unwrapped with unsigned
+   differences); disjoint statistics restart the fit; statistics that stop moving for two periods send the clock back to swap
+   returns and ask the compositor nudge, which calls `DwmFlush` on its own thread at most once a second — never on the render thread.
+
+**The fuse.** Before a DXGI start the render host writes `<node home>/playmap.present.fuse` (`{"path","attempt","at"}`); the lane
+deletes it once every open display output has presented 120 frames and the pacing one's clock has settled (with no display open,
+once 120 frames were drawn), and an orderly stop deletes it too. A start that fell back to GL in-process leaves it blown. A fuse still there at the next start (a crash or a
+hang before the outputs came up) makes that start GL, with words naming the attempts and when; `machine.present.fuse` says `clear`,
+`armed` (this start waits for its outputs) or `blown`; the preflight's present-path row is amber with `PRESENT RESET`, which clears
+it, as asking any path again with `PRESENT PATH` does. **`PRESENT PATH AUTO|DXGI|GL`** keeps the path on the node for the render host's next start;
+`machine.present.asked` is what the next start asks, `path` what this one runs, `experimental` true on DXGI.
+
+## Per-output latency
+
+`Output.LatencyMs` is the display's input lag (0–500 ms). The node's **air latency** is the largest of its enabled outputs' (raised
+to a sync group's through `IPresentBackend.SetGroupAirLatency`, never lowered; with none named, the configured display latency):
+every frame is drawn for the instant its light leaves the slowest display. Each faster output presents the picture drawn
+`d = round((L_air − L_o) / T_o)` frames ago, from a **delay ring** of `d + 1` pictures of its size (indices swapped; the pictures are
+made only when the delay changes, so a warm frame allocates nothing). Two outputs of 17 and 50 ms at 60 Hz: the first waits 2
+frames, 0.33 ms left over; the node's air is 50 ms. A scan's raw frame is never delayed (its present stamp is the frame's own).
+Previews show what was presented (`RenderEngine.PresentedPicture`); the finished picture — what sends, LED maps and snapshots
+read (`OutputPicture`) — is the frame's own. After a scan's raw frame the ring starts again (nothing from before it is shown after it). STATE:
+`outputs[].present.delayFrames`, `latencyResidualMs` (|residual| ≤ half a frame), `machine.present.airLatencyMs`, `latencyWords`.
+At most six frames: an input lag that would need more is refused with the words.
 
 ## Vblank truth and the present ledger
 
@@ -85,7 +148,9 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 
 ## Preflight, INDEX, context
 
-- **Preflight** (section `outputs`): per enabled output a present row (green; amber past the late budget, with what to do; grey
+- **Preflight** (section `outputs`): the node's present-path row (amber with `PRESENT RESET` while a DXGI start's fuse is blown;
+  amber with the words while the path is not the one asked; green, saying when it is the experimental DXGI path), then per enabled
+  output a present row (green; amber past the late budget, with what to do; grey
   before anything was presented) and, while the lock is applied, a lock row: green locked, amber joining, amber held out of a
   group that applied the lock (fix `SYNC REJOIN <output>`), amber free after a refused join (fix `SYNC APPLY`, once what refused
   it is put right), red fell out (fix `SYNC REJOIN <output>`).
@@ -106,9 +171,17 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   (`GlCapsTests.OnTheTestsCoreContextEveryBlockFamilyReadsTrue`, `ShaderConventionTests.EveryProgramCompilesAndLinksOnCore33`);
   the leg runs with those two filtered out until they read the fixture's dialect, and it is not yet a step of the CI workflow.
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
+- **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
+  STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the
+  layout and vtable-slot goldens of every hand-declared structure and COM method (against the mingw-w64 headers), and the ANGLE
+  loader's file and every entry point it resolves against the package's PE export table. The delay ring on the real renderer.
+- **On the Windows CI job (WARP, no GPU)**: the device on WARP, ANGLE's context with every program translated, a flip-model swap
+  chain on a window, 120 presents with buffer 0 wrapped once, the frame statistics read, and the frame read back from buffer 0 top
+  row first (`DxgiWarpPresenterTests`, Category=Windows).
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
-  CI job it says why it has no board ("no NVIDIA driver on this machine").
-- **Next round**: 10-bit output, device-lost rebuild, the PresentMon proof, the DRS stop-gap, scanline sampling; `SYNC MARKS`,
+  CI job it says why it has no board ("no NVIDIA driver on this machine"). The DXGI path on a real GPU and display (lab).
+- **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);
+  10-bit output, device-lost rebuild (the DXGI path's included), the DRS stop-gap, scanline sampling; `SYNC MARKS`,
   `SYNC CERTIFY`, `SYNC REPORT`, the frame code and certificate, `LATENCY MEASURE`; the IGCL and GLX swap-group tiers; the board
   helper; the D3D12 present barrier; HDR; macOS. The ES leg as a CI step (once the two spine tests read the fixture's dialect), and
   OML sync control on Linux.

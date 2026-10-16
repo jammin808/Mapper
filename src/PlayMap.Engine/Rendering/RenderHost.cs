@@ -29,6 +29,10 @@ public sealed record RenderHostOptions
     /// <summary>The platform asked for: the present path and the GL dialect (NodeSettings.Present), or no window system at all.</summary>
     public PlatformRequest Platform { get; init; } = PlatformRequest.Default;
 
+    /// <summary>The present fuse this start armed (the DXGI path, explicit); the host deletes it once every display output reached its
+    /// first settled frames (null: no fuse — a GL start, or a test).</summary>
+    public Presentation.PresentFuse? Fuse { get; init; }
+
     /// <summary>The framelock tier (null: this machine's — NVAPI on Windows, none elsewhere). The host owns and disposes it.</summary>
     public Func<IFrameLockDriver>? FrameLock { get; init; }
 
@@ -45,8 +49,9 @@ public sealed record RenderHostOptions
 
     public StageResourceOptions Stage { get; init; } = StageResourceOptions.Default;
 
-    /// <summary>The displays' measured latency, added to the predicted vertical blank: the leader instant a
-    /// frame is drawn for is when its light leaves the lens.</summary>
+    /// <summary>The displays' latency when no output names its own (<c>Output.LatencyMs</c> all 0), added to the predicted vertical
+    /// blank: the leader instant a frame is drawn for is when its light leaves the lens. Outputs that name theirs give the node's air
+    /// latency instead (the largest), and the faster ones wait whole frames for it (RenderHost.Output.cs).</summary>
     public long DisplayLatencyNs { get; init; }
 
     /// <summary>The loop's rate while no window paces it (0 = the project's frame rate).</summary>
@@ -239,11 +244,18 @@ public sealed partial class RenderHost : IRenderHost
     {
         ArgumentNullException.ThrowIfNull(request);
         var log = request.Logs.CreateLogger("PlayMap.Render");
-        var present = request.Settings.Present;
+        // The node home's settings, not the run's: PRESENT PATH saved them for this start.
+        var present = request.Home.LoadSettings(request.Settings.Name).Present;
+        var fuse = new PresentFuse(request.Home.Folder, () => request.Wall.UnixMs);
+        var (path, fuseWords) = PresentChoice.Decide(present.Path, fuse.Read());
+        var armed = path == "dxgi" && OperatingSystem.IsWindows() && !request.Options.Headless;
+        if (armed)
+            fuse.Arm("dxgi");
         var host = TryCreate(RenderHostOptions.Default with
         {
             Windows = !request.Options.Headless,
-            Platform = new PlatformRequest(present.Path, present.Dialect),
+            Platform = new PlatformRequest(path, present.Dialect) { Words = fuseWords },
+            Fuse = armed ? fuse : null,
             FrameLockAuto = !string.Equals(present.FrameLock, "off", StringComparison.OrdinalIgnoreCase),
             SwapGroup = (uint)Math.Max(1, present.SwapGroup),
             SwapBarrier = (uint)Math.Max(0, present.SwapBarrier),
@@ -465,6 +477,7 @@ public sealed partial class RenderHost : IRenderHost
         try
         {
             _platform = GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
+            _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
             _context = _platform.Context;
             _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
             _renderer.WarmUp();
@@ -569,13 +582,13 @@ public sealed partial class RenderHost : IRenderHost
         long leaderNs;
         if (_lock.TryNextLeaderNs(windows.Pacer, out var lockedNs))
         {
-            leaderNs = lockedNs + _options.DisplayLatencyNs;
+            leaderNs = lockedNs + AirLatencyNs(project);
         }
         else
         {
             var next = windows.Pacer is { } pacing ? renderer.NextVblankNs(pacing, monoNow) : null;
             var lead = next is { } n ? Math.Max(0, n - monoNow) : 0;
-            leaderNs = engine.LeaderNowNs + lead + _options.DisplayLatencyNs;
+            leaderNs = engine.LeaderNowNs + lead + AirLatencyNs(project);
         }
         var inputs = new FrameInputs
         {
@@ -649,6 +662,7 @@ public sealed partial class RenderHost : IRenderHost
     private void ProjectChanged(EngineCore engine, Project project)
     {
         _headless.Sync(project);
+        PlanLatency(project);
         if (_options.Windows)
         {
             RefreshDisplays();
@@ -730,6 +744,8 @@ public sealed partial class RenderHost : IRenderHost
                     h.Display = display;
                 moved |= before != (h.Open, h.Dropped > 0, h.Fps > 0);
             }
+            if (!_firstFrames && _dxgiUp)
+                _firstFrames = FirstFramesUp(windows.Pacer, renderer.Frame);
         }
         return moved;
     }
@@ -831,6 +847,12 @@ public sealed partial class RenderHost : IRenderHost
         }
         _wake.Set();
         await _exited.Task.ConfigureAwait(false);
+        // An orderly stop of a DXGI start is no crash: the fuse it armed goes, whether or not its outputs reached their first frames.
+        if (_dxgiUp && !_fuseCleared && _options.Fuse is { } fuse)
+        {
+            _fuseCleared = true;
+            fuse.Clear();
+        }
         if (_stage is not null)
             await _stage.DisposeAsync().ConfigureAwait(false);
         // The render thread has exited: nothing raises the signal any more.
