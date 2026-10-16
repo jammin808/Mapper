@@ -58,8 +58,9 @@ the ladder: its frames come from its receiver, which no FFmpeg decoder of this n
 
 - **At open.** VAAPI surfaces are sampled in place or not at all (no one-copy rung): `gpu-copy` on Linux means copy-back. D3D11
   takes one GPU copy until direct sampling is proven on the driver (the proof harness is next round) or `DECODE POLICY DIRECT
-  FORCE`. A renderer whose device imports nothing (GLX, or a software GL) opens every clip on copy-back with the renderer's words
-  ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context").
+  FORCE`. A renderer whose device imports nothing (GLX, WGL, or a software GL) opens every clip on copy-back with the renderer's
+  words ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context",
+  "the render context is WGL: zero-copy on Windows needs the Direct3D 11 output path (PRESENT PATH DXGI)").
 - **At run time** (`SurfaceLadder`, one per decoder) a source steps down — keeping its queue, while the renderer holds the last
   picture — when the renderer could not import a frame (it reports the failure to the share against the source's key; the decode
   thread reads it before its next map), when the renderer's device changes under it (its context was rebuilt: it steps to
