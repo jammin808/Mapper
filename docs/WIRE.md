@@ -202,7 +202,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
   `DEVICE POWER|SHUTTER|INPUT|FREEZE|PATTERN|LENS|RAW <device> …`, `DEVICE PREPARE <device>` and
   `DEVICE IDENTIFY <device>` answer with the projector's own receipt: refused, unreached or rejected is `ERR` with
   the words; sent or accepted is `OK` not yet applied; observed (a read-back confirmed it) is applied. Anything that
-  changes what leaves a lens is high risk. `DEVICE DISCOVER [SWEEP <address>]` runs the PJLink search.
+  changes what leaves a lens is high risk. `DEVICE DISCOVER [SWEEP <address>]` runs the PJLink search. `DEVICE NATIVE <device>`
+  reads the projector's own geometry and edge blend now, queries only (Panasonic; other protocols answer where to look), with
+  the `DEVICE RAW` line that turns off what fights a measured correction (docs/ALIGN.md).
 - `CREDENTIAL SET <ref> [<user>] <secret>` keeps a secret in the node's credential store (a link's reference is its
   own id; the assistant's key is `assistant`), `CREDENTIAL CLEAR <ref>` forgets one, `CREDENTIAL LIST` names the
   references. Like `AUTH`, a credential line is taken from this machine only, never from an assistant, never
@@ -256,7 +258,9 @@ token at its upgrade, so there a host that is not the node's is refused.
 ## Previews (VIEW)
 
 The desk's pictures of the node come through the same wire: `VIEW <view> SHOW <what> [<w>x<h>]`, where
-`<what>` is `editor`, `output:<id>`, `projector:<id>` (the stage as that projector lights it, at its raster),
+`<what>` is `editor`, `output:<id>`, `projector:<id>` (what the projector puts on the wall: the stage as it lights it, at its
+raster's aspect, through the lens lookup of the first enabled output that drives it, before that output's warp, mask, blend
+and trim, black where it lights nothing),
 `camera:<id>` or `scan:<id>:smart|confidence`; `VIEW <view> CAMERA {"intrinsics":…,"pose":…}` moves an editor
 view's eye (the project's own JSON; optional `"content":false`, `"selected":[ids]`); `VIEW <view> KEEP` renews it;
 `VIEW <view> HIDE` lets it go; `VIEW <view> SHOW editor DRAFT` is the editor's view of the blind draft (the air when no
@@ -294,7 +298,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and the
   node's own: `ERR <VERB>: this line is node-to-node only`. Then the show's gate (Show Mode and the GO fence, docs/SHOW.md),
   then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
-  gesture (a drag, a nudge) is journalled once per gesture by its owner.
+  gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
+  the wall's cursor board as it arrives, stamped then, never queued behind edits.
 - **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
   fleet; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,
   the only session a receipt is taken from) beside STATE, CONTEXT and PROJECT: `OK subscribed <topic>`, then the topic's
@@ -311,6 +316,10 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage.projectors[]` — `grade`, `quads`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
+  Inside the packages' own objects: `air.overlay.cursorP95Ms` is how late a cursor move is drawn (p95 over the last 300 moves,
+  −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
+  without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
+  device's last read of its projector's own geometry and blend, with its light, words and fix (docs/wire/resolve.md).
   `null` means the node has none; an unknown number is `-1` and grey, never `0`. `tests/fixtures/state/main.json` is the
   whole STATE; each package's fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it. The
   fixtures of the packages in the last list below are their plans: no node writes their keys.
@@ -318,8 +327,9 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [output](wire/output.md) · [decode](wire/decode.md) · [optimise](wire/optimise.md) · [control and timecode](wire/control.md) ·
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
-  [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) · [multiview](wire/multiview.md) (Core only: no verb, no STATE).
+  [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) ·
+  [multiview](wire/multiview.md) (Core only: no verb, no STATE).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
-  answers "not available on this node yet" (stacks, resolve and multiscan have no rows of their own):
+  answers "not available on this node yet" (stacks and multiscan have no rows of their own):
   [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) · [videoio](wire/videoio.md) ·
-  [facade](wire/facade.md) · [stacks](wire/stacks.md) · [resolve](wire/resolve.md) · [multiscan](wire/multiscan.md).
+  [facade](wire/facade.md) · [stacks](wire/stacks.md) · [multiscan](wire/multiscan.md).

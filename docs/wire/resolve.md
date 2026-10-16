@@ -1,7 +1,8 @@
 # wp2-resolve on the wire
 
-wp2-resolve continues wp2-wall and wp2-align: its rows live in their catalogue blocks and their papers
-(`docs/wire/wall.md`, `docs/wire/align.md`); this file says which rows and keys are its own.
+Re-solving the projector that moved (`docs/CALIBRATION.md`) and align's rescan of one output, white match, verify pass, score
+and double-correction guard (`docs/ALIGN.md`). wp2-resolve continues wp2-wall and wp2-align: its rows live in their catalogue
+blocks and their pages (`docs/wire/wall.md`, `docs/wire/align.md`); this page says which forms, rows and keys are its own.
 
 ## Verbs
 
@@ -11,8 +12,6 @@ wp2-resolve continues wp2-wall and wp2-align: its rows live in their catalogue b
 | `ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR\|ALL] [FIT INSIDE\|CORNERS] [COLOR OFF\|WHITE]` | `ONLY`, the `COLOR` step and `COLOR WHITE`; every run ends with the verify pass and says its pictures and pattern time |
 | `ALIGN SCORE <run>\|<group>` | a run's score with every term's words, value, light and fix |
 | `DEVICE NATIVE <device>` | a projector's own geometry and edge blend read live (Panasonic), queries only, with the `DEVICE RAW` line that turns off what fights a measured correction |
-
-`ALIGN PLAN` (the dry run) is not in the catalogue (next round).
 
 ## STATE
 
@@ -35,22 +34,13 @@ wp2-resolve continues wp2-wall and wp2-align: its rows live in their catalogue b
 `wall.resolveDotSpacing` (64 projector px) and `wall.resolveFrameMs` (100: one dot pattern's hold on the wall, which a camera
 re-solve's pattern time counts by).
 
-## Papers note
+## Not in the catalogue
 
-For the integration docs pass:
+`ALIGN PLAN` (the dry run) and `OVERLAY GRID` have no row; every row above is routed and answered.
 
-- `WIRE.md`: the rows above (`CALIBRATION RESOLVE … CAMERA`, `ALIGN RUN … ONLY`/`COLOR`, `ALIGN SCORE`, `DEVICE NATIVE`), the
-  STATE keys above, the context and preflight rows; `ALIGN PLAN` stays out of the catalogue (next round).
-- `MAPPING.md`: re-solving only the projector that moved from a camera (`docs/CALIBRATION.md`: jittered dots, consensus matching,
-  attribution, a pose-only solve from the stage, verification; pins and pixel quads carried along, the auto-blend solved again);
-  the projector VIEW through its output's lens lookup on black; for flat screens (`docs/ALIGN.md`): `ONLY`, the white match, the
-  verify pass and the score.
-- `ARCHITECTURE.md`: `DotCheck`, `MotionAttribution`, `Reseat2D` and `StageSimulator` in Core; the camera re-solve in the engine
-  shows its dots through the align display shooter (no scan-runner hunk was needed); `AlignVerify`, `ColourMatch` and
-  `AlignCaptureFile` in Core; `Devices/Native` reads a projector's own processing; the render host measures cursor latency and
-  witnesses the first content through the facts signal; `PreviewRequest.ProjectorId`.
-- `ROADMAP.md`: the camera re-solve (QUICK rung: pose only), re-seating, the cursor's latency, the first map, the projector view
-  with its lens, the white match, ONLY, the score with its verify pass and the double-correction guard done (simulator-verified;
-  a real camera, projectors and a Panasonic's words are a lab check). Next round: the LENS, CODED and DENSE rungs, a camera re-solve
-  when the camera moved, a stored reference look, the drift monitor, lens read-back triggers, FULL colour, curved screens,
-  `INativeProcessing` with snapshot, neutral and restore, `ALIGN PLAN`, overlay names and the grid.
+## Next
+
+The LENS, CODED and DENSE rungs of a camera re-solve (a mover whose pose alone does not fit), re-solving the camera when it
+moved, a stored reference look, the drift monitor, lens read-back triggers and before/after on the wall; FULL colour (the
+primaries matched, not only white) and curved screens; a snapshot, neutral and restore of a projector's own processing, and its
+read on protocols other than Panasonic's; overlay names and pins, and the grid.
