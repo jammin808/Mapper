@@ -129,7 +129,7 @@ internal static class SampleShow
     /// <summary>The STATE example from docs/WIRE.md.</summary>
     public const string StateJson =
         """
-        {"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.1.0","at":1760101234567,
+        {"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.2.0","at":1760101234567,
          "light":"green","headline":"Show · Intro 0:42 left · 3 outputs green · synced to FOH (0.2 ms)",
          "air":{"blackout":false,"frozen":false,"pattern":null,"identify":false},
          "video":{"file":"intro.mp4","role":"playlist","tag":"Show","position":62,"length":210,"remaining":148,

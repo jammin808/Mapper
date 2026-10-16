@@ -6,7 +6,7 @@
   <!-- F1: the shortcut table itself (the same one that handles the keys), and the desk's three ideas. -->
   <Border Background="#C0080A0C">
     <Border Classes="panel" Width="860" MaxHeight="760" Padding="22" HorizontalAlignment="Center" VerticalAlignment="Center">
-      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="10">
         <Grid ColumnDefinitions="*,Auto">
           <TextBlock Classes="h1" Text="Shortcuts" FontSize="20" />
           <Button Grid.Column="1" Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Close  (F1 or Esc)">
@@ -31,6 +31,11 @@
           </ItemsControl>
         </ScrollViewer>
         <TextBlock Grid.Row="3" Classes="faint" Text="While you type in a field, only F1, Esc, Ctrl+S and the workspace and drawer keys act; every other key is the field's." />
+        <!-- About: this desk's build, selectable so it can be copied into a report. -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10">
+          <TextBlock Classes="faint" Text="About" VerticalAlignment="Center" />
+          <SelectableTextBlock x:Name="AboutBuild" Classes="mono" Text="{x:Static vm:DeskAbout.Build}" VerticalAlignment="Center" />
+        </StackPanel>
       </Grid>
     </Border>
   </Border>

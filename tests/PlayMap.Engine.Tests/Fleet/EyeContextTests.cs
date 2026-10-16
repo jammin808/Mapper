@@ -83,7 +83,7 @@ public sealed class EyeContextTests
         var machine = items[1];
         Assert.Equal(Light.Red, machine.Light);
         Assert.Contains("solo", machine.State, StringComparison.Ordinal);
-        Assert.Contains("build " + StateWriter.Version, machine.State, StringComparison.Ordinal);
+        Assert.Contains("build " + HealthTests.TestBuild.Informational, machine.State, StringComparison.Ordinal);
         Assert.Contains("test", machine.State, StringComparison.Ordinal);
     }
 

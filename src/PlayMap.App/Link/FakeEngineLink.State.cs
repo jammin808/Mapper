@@ -153,7 +153,7 @@ public sealed partial class FakeEngineLink
             w.WriteString("id", NodeId);
             w.WriteString("t", "playmap");
             w.WriteString("name", NodeName);
-            w.WriteString("version", "0.1.0");
+            w.WriteString("version", Core.BuildInfo.Current.Version);
             w.WriteNumber("at", 1_760_000_000_000 + now / 1_000_000);
             var focused = _focused is null ? null : project.FindPlaylist(_focused);
             var fc = focused is null ? null : CursorOf(focused.Id);

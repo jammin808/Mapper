@@ -56,7 +56,8 @@ public sealed record HttpHostOptions
 
     public ILoggerFactory? LoggerFactory { get; init; }
 
-    public string Version { get; init; } = "0.1.0";
+    /// <summary>The version MCP's server info names: the build's whole identity (<see cref="Core.BuildInfo.Informational"/>).</summary>
+    public string Version { get; init; } = Core.BuildInfo.Current.Informational;
 
     /// <summary>Parts that serve pages and sockets under their own path (the phone's /scan); each admits its own requests before the
     /// token gate (open, its own credential, refused, or deferred to the gate).</summary>

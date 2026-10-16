@@ -161,7 +161,7 @@ void test("the STATE fixture becomes the node, show, air, focus, fault, bank and
 			{
 				node_name: 'Test node',
 				node_id: '0badc0de',
-				node_version: '0.1.0',
+				node_version: '0.2.0',
 				link: 'live',
 				light: 'red',
 				headline: 'Show · playing Red, 0:09 left · outputs not measured',

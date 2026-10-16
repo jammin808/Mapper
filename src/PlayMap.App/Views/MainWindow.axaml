@@ -5,7 +5,7 @@
         xmlns:views="using:PlayMap.App.Views"
         x:Class="PlayMap.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="{Binding ProjectName, StringFormat='PlayMap · {0}'}"
+        Title="{Binding ProjectName, StringFormat={x:Static vm:DeskAbout.TitleFormat}}"
         Width="1600" Height="960" MinWidth="1100" MinHeight="680">
   <Grid RowDefinitions="Auto,*,Auto">
 

@@ -45,12 +45,17 @@ public sealed class HealthTests
         }
     }
 
+    /// <summary>The build a fleet test's node reports: a numbered build of this tree's product version, the same on every run and
+    /// machine, so the goldens that carry a machine's words (the context, the board) do not move with the build that runs them.</summary>
+    internal static readonly Core.BuildInfo TestBuild = new(Core.BuildInfo.Current.Version, 17, "0a1b2c3");
+
     internal static EngineServices Services(ManualTime time, IOutputBackend? outputs = null, IMachineSampler? sampler = null) =>
         EngineServices.ForTests(new ManualClock(5_000_000_000)) with
         {
             Outputs = outputs ?? new Outputs(),
             Machine = sampler,
             FleetTime = time,
+            Build = TestBuild,
         };
 
     private static async Task<CommandReply> Run(EngineCore engine, string line)
