@@ -384,22 +384,30 @@ export function actionDefinitions(ctx: Ctx): CompanionActionDefinitions {
 			const slot = slotOf(ctx, action.options)
 			const phase = text(action.options.phase) || 'press'
 			const instant = slot?.press === 'instant'
-			// Each part of the preset's press does one thing, so an instant slot is sent once, on the down.
-			if (phase === 'down' && !instant) return notSentResult('a held slot is sent when held')
-			if ((phase === 'up' || phase === 'hold800') && instant)
-				return notSentResult('an instant slot is sent on the down')
-			if (!slot?.line) return notSentResult('this slot sends nothing')
-			const held = phase === 'hold800' || (phase === 'press' && action.options.held === true)
-			if (!instant && !held) {
-				const rule = ctx.live.source(action.options.rule)
-				const n = num(Number(action.options.n), 0)
-				ctx.live.hint(rule, n, () => ctx.checkFeedbacks('slot_hint'))
-				ctx.checkFeedbacks('slot_hint')
-				return notSentResult('hold this key to send it')
+			// Each part of the preset's press does one thing, so an instant slot is sent once, on the down. A part that does nothing
+			// for this slot answers the control's last result unchanged, so what the preset stores from each part stays the press's.
+			if ((phase === 'down' && !instant) || ((phase === 'up' || phase === 'hold800') && instant))
+				return (
+					ctx.slotResults.get(action.controlId) ??
+					notSentResult(instant ? 'an instant slot is sent on the down' : 'a held slot is sent when held')
+				)
+			const pressed = async (): Promise<PressResult> => {
+				if (!slot?.line) return notSentResult('this slot sends nothing')
+				const held = phase === 'hold800' || (phase === 'press' && action.options.held === true)
+				if (!instant && !held) {
+					const rule = ctx.live.source(action.options.rule)
+					const n = num(Number(action.options.n), 0)
+					ctx.live.hint(rule, n, () => ctx.checkFeedbacks('slot_hint'))
+					ctx.checkFeedbacks('slot_hint')
+					return notSentResult('hold this key to send it')
+				}
+				if (slot.press === 'double' && !ctx.confirms.press(action.controlId)) return ARMED
+				const go = slot.line.startsWith('PLAYLIST GO ') ? (slot.line.split(' ')[2] ?? '') : ''
+				return ctx.send(slot.line, action.controlId, go ? { goPlaylist: go } : {})
 			}
-			if (slot.press === 'double' && !ctx.confirms.press(action.controlId)) return ARMED
-			const go = slot.line.startsWith('PLAYLIST GO ') ? (slot.line.split(' ')[2] ?? '') : ''
-			return ctx.send(slot.line, action.controlId, go ? { goPlaylist: go } : {})
+			const result = await pressed()
+			ctx.slotResults.set(action.controlId, result)
+			return result
 		},
 	}
 	defs.live_source = {

@@ -117,6 +117,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 	config: PlayMapConfig = {}
 	#secrets: PlayMapSecrets = {}
 	verbs: readonly VerbRow[] = BUNDLED_VERBS
+	readonly slotResults = new Map<string, PressResult>()
 	readonly events = new EventLog()
 	readonly receipts = new Receipts(() => this.#touch('receipts'))
 	readonly confirms = new Confirms(() => this.#touch('confirm'))

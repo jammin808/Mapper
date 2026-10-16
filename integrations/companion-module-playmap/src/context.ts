@@ -29,6 +29,8 @@ export interface Ctx {
 	readonly thumbs: Thumbs
 	readonly live: LivePage
 	readonly verbs: readonly VerbRow[]
+	/** Each control's last Live slot press result: a part of the press that does nothing for its slot answers it unchanged. */
+	readonly slotResults: Map<string, PressResult>
 	link(): LinkState
 	linked(): boolean
 	/** The node's clock now (this machine's plus the PING offset). */

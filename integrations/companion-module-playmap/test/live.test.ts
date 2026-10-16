@@ -717,10 +717,12 @@ void test('a slot is pressed as its line says: instant on the down, held at 800 
 			}
 		const sent = (): string[] => node.sent().filter((l) => /^(PLAYLIST GO|OUTPUT IDENTIFY|ALIGN RUN)/u.test(l))
 
-		// An instant slot (a GO): sent on the down, once; its release and its 800 ms do nothing.
-		assert.equal((await press('', 'down')).stage, 'applied')
-		assert.equal((await press('', 'up')).stage, 'not-sent')
-		assert.equal((await press('', 'hold800')).stage, 'not-sent')
+		// An instant slot (a GO): sent on the down, once; its release and its 800 ms do nothing, and answer the down's result, so
+		// the result a preset stores on each part of the press stays the press's answer.
+		const down = await press('', 'down')
+		assert.equal(down.stage, 'applied')
+		assert.deepEqual(await press('', 'up'), down)
+		assert.deepEqual(await press('', 'hold800'), down)
 		assert.deepEqual(sent(), [`PLAYLIST GO ${SHOW.playlist} ${SHOW.intro}`])
 
 		// A held slot (an output's identify): nothing on the down, HOLD on a short press's release, sent at 800 ms.
