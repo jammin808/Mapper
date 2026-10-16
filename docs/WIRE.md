@@ -310,7 +310,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
 - **Events.** Show events (`item.start`, `item.end`, `air.blackout`, `air.freeze`, and each package's) carry the show-clock
   instant they happened at; companion's `EVENTS` topic serves them.
 - **STATE.** New keys are appended at the end of their object, in this order:
-  top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
+  top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`; `show` — `sound`
@@ -324,12 +324,13 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   whole STATE; each package's fixture is `tests/fixtures/state/<package>.json`, with its card descriptor beside it. The
   fixtures of the packages in the last list below are their plans: no node writes their keys.
 - **Each package's rows and keys**: [show](wire/show.md) · [blind](wire/blind.md) · [sync](wire/sync.md) ·
-  [output](wire/output.md) · [decode](wire/decode.md) · [optimise](wire/optimise.md) · [control and timecode](wire/control.md) ·
+  [output](wire/output.md) · [decode](wire/decode.md) · [optimise](wire/optimise.md) · [videoio](wire/videoio.md) ·
+  [control and timecode](wire/control.md) ·
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [phonescan](wire/phonescan.md) ·
   [multiview](wire/multiview.md) (Core only: no verb, no STATE).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
   answers "not available on this node yet" (stacks and multiscan have no rows of their own):
-  [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) · [videoio](wire/videoio.md) ·
+  [backup](wire/backup.md) · [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) ·
   [facade](wire/facade.md) · [stacks](wire/stacks.md) · [multiscan](wire/multiscan.md).

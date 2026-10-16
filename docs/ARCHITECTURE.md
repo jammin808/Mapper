@@ -4,12 +4,12 @@ PlayMap is two things in one portable exe:
 
 1. **A player / render node.** Standalone, it plays anything FFmpeg decodes (H.264/HEVC/AV1/VP9/ProRes/DNxHR/
    NotchLC…), the HAP family block-compressed on the GPU, stills, image sequences, network streams, generators (test
-   patterns, 2D and raymarched 3D fractals, a GPU particle field, reactive scenes) and live inputs, through chains of
-   ISF effects, from any number of independent playlists, a playlist chasing timecode if asked; in a sync group it
-   follows one leader's show clock, transports and air, so every node draws the frame for the same show instant; and it
-   makes HAP versions of clips it decodes on the CPU in the background. On the Show Bus it is a node of the Patterns
-   ecosystem: Patterns (and Stagewatch, controllers, and an AI through MCP) can see everything it is doing and drive
-   everything it can do.
+   patterns, 2D and raymarched 3D fractals, a GPU particle field, reactive scenes) and live inputs over NDI and OMT,
+   through chains of ISF effects, from any number of independent playlists, a playlist chasing timecode if asked; it sends
+   any output, canvas or source back out over NDI and OMT; in a sync group it follows one leader's show clock, transports
+   and air, so every node draws the frame for the same show instant; and it makes HAP versions of clips it decodes on the
+   CPU in the background. On the Show Bus it is a node of the Patterns ecosystem: Patterns (and Stagewatch, controllers,
+   and an AI through MCP) can see everything it is doing and drive everything it can do.
 2. **A 3D projection-mapping suite.** Scan an object, a room or a building with structured light (a capture camera, or
    the scan simulator) and/or put a LiDAR or photogrammetry model on the stage; get projector poses, a mesh and surfaces
    in minutes; click an object to make it a surface; play media through the warped 3D mesh with automatic blends;
@@ -51,13 +51,13 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 | Module | References | Holds |
 |---|---|---|
 | `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver, pose solver), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, colour match and verify pass, the calibration score, the camera re-solve's dot check, motion attribution and re-seating, the stage simulator, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
-| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
-| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), sound out (`AudioOut`: OpenAL Soft, slaved to a timeline), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back) |
+| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL, or EGL surfaceless) with a presenter per output, its vblank clock and present ledger, the frame-lock tiers; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, the send stage (network video packed on the GPU, read back through a fenced ring) and the unpack of packed network layouts, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
+| `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi, `PlayMap.ThirdParty.Omt` (libomtnet, vendored under `src/ThirdParty`, outside the analyzers' fences) | probe, decode (hw: D3D11VA/VAAPI/CUDA/VideoToolbox; sw fallback), the HAP parser and its Snappy stage on a worker pool, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), sound out (`AudioOut`: OpenAL Soft, slaved to a timeline), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back), OMT and NDI receivers and senders (libomtnet and libvmx vendored; NDI's runtime loaded from the user's install) |
 | `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and its follower, the sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
 | `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), a read of a projector's own geometry and edge blend (`Native`), the machine's MIDI ports (ALSA sequencer, WinMM) |
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
-| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, output windows, preview shared memory, scan runner, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
+| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
 | `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
@@ -134,8 +134,10 @@ Per frame, on the engine's render thread (one GL context, all outputs). Blackout
 
 1. **Sources**: upload the frame each visible video source has for its media time (planes → textures,
    YUV→RGB in the shader with the frame's matrix/range/transfer; HAP blocks as BC textures through the `hap` pass);
-   render generators whose parameters or time changed; Stagewatch timer views. A playlist item's picture goes through
-   its effect chain while its playlist shows it, each side of a transition before the mix.
+   render generators whose parameters or time changed; Stagewatch timer views; a live input's newest frame from its one
+   receiver (UYVY, UYVA, P216 and PA16 unpacked by `video.unpack`), or what its loss policy shows while its feed is lost
+   (docs/VIDEO.md). A playlist item's picture goes through its effect chain while its playlist shows it, each side of a
+   transition before the mix.
 2. **Canvases**: each layer's picture through its effect chain, composited into canvas render targets
    (normal/add/multiply/screen, opacity).
 3. **Surfaces**: a chained surface's content is made once a frame at one size (the largest projector raster) through
@@ -152,8 +154,10 @@ Per frame, on the engine's render thread (one GL context, all outputs). Blackout
    (linear light, through the inverse gamma — or align's measured blend and pedestal through the output's measured γ),
    colour trim, dither, and last the air's gain (master × panic), so 0 is black. Then the identify card and the edit
    overlay (outlines, handles, lattices, cursors, through the output's warp; nothing while armed or on a black air).
-6. **LEDs**: once every output is drawn, each LED fixture samples its canvas, output, surface or source in linear light and
-   its DMX slots are made on the GPU, read back behind fences, never waited on (docs/LED.md).
+6. **LEDs and sends**: once every output is drawn, each LED fixture samples its canvas, output, surface or source in linear
+   light and its DMX slots are made on the GPU, read back behind fences, never waited on (docs/LED.md); then each send due on
+   the leader-time grid taps an output's final picture, a canvas or a source (what the air does to the show applied to a
+   canvas or source), is packed on the GPU and read back behind fences into its sender, never waited on (docs/VIDEO.md).
 7. **Present** through the output's presenter; its vblank clock and present ledger record which refresh showed each
    picture (missed vblanks, held and late presents; docs/OUTPUT.md).
 8. **Previews**: requested views (desk viewports, output thumbnails) are rendered to targets and read back

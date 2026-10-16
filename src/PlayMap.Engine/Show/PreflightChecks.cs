@@ -177,7 +177,8 @@ public sealed class MediaCheck : IPreflightCheck
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
 
-    /// <summary>The media ids the show uses: playlist items, layers, surfaces, outputs and the panic plans' safe looks.</summary>
+    /// <summary>The media ids the show uses: playlist items, layers, surfaces, outputs, the panic plans' safe looks, what an enabled
+    /// send taps, and the fallback a live input the show uses shows on loss.</summary>
     public static HashSet<string> UsedMedia(Project p)
     {
         ArgumentNullException.ThrowIfNull(p);
@@ -201,6 +202,18 @@ public sealed class MediaCheck : IPreflightCheck
         {
             if (plan.SafeLook is { } look)
                 Add(look);
+        }
+        foreach (var send in p.Sends)
+        {
+            if (send.Enabled && VideoIo.SendShape.TryTap(send.Tap, out var kind, out _, out var tapped, out _)
+                && kind == PlayMap.Render.Passes.SendTapKind.Source && tapped is not null)
+                Add(tapped);
+        }
+        // A live input's fallback shows on the air when its feed is lost (a fallback is never itself live).
+        foreach (var m in p.Media)
+        {
+            if (used.Contains(m.Id) && VideoIo.Fallbacks.Of(m) is { } fallback)
+                Add(fallback);
         }
         return used;
     }

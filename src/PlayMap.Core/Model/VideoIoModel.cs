@@ -45,7 +45,8 @@ public sealed record VideoSend(string Id, string Name, SendProtocol Protocol, st
     public int RateDivider { get; init; } = 1;
     /// <summary>The name other apps see; "" = "PlayMap &lt;node&gt; - &lt;name&gt;" (Spout) or the protocol's own "HOST (name)".</summary>
     public string PublishedName { get; init; } = "";
-    /// <summary>Blackout and freeze apply to canvas and source taps too.</summary>
+    /// <summary>A canvas or source tap takes what the air does to the outputs that show the show: blackout, the pattern, the safe
+    /// look, holds and the air's gain.</summary>
     public bool FollowAir { get; init; } = true;
     /// <summary>OMT sender quality; NDI refuses anything but "default".</summary>
     public string Quality { get; init; } = "default";

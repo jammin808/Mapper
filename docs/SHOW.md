@@ -246,7 +246,7 @@ The node's own checks:
 | Section | Row | Light | Fix |
 |---|---|---|---|
 | outputs | each enabled display output: its display present (or a free one when it names none) | red when absent | `SET <op> displayKey "<present>"`, or `OUTPUT ENABLE <op> OFF` |
-| media | each file the show uses (the panic plans' safe looks included): present, readable, verified | red missing or unreadable, amber unverified | `MEDIA FETCH <md>` |
+| media | each file the show uses (the panic plans' safe looks, what an enabled send taps and a live input's fallback included): present, readable, verified | red missing or unreadable, amber unverified | `MEDIA FETCH <md>` |
 | devices | each projector link: answers, on, shutter open | red unreachable or in standby, amber shutter closed | `DEVICE POWER <dv> ON`, `DEVICE SHUTTER <dv> OPEN` |
 | disk | free space on the media volume | red under twice the largest file, amber under 10 GB | — |
 | safety | armed; every SAFE plan's look in the show; the default plan; double-GO protection on; no panic in force; no plan for an output the show lost; no blind draft left open | grey in rehearsal (amber with EXPECT-ARMED), red a missing look or a panic in force, amber MinGo off, a stray plan or an open draft | `SHOW ARM`, `PANIC SET <op> BLACK`, `SHOW SET MINGO 300`, `PANIC CLEAR` |
