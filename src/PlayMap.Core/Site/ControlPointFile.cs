@@ -16,7 +16,8 @@ public sealed record ControlSkip(int Line, string Why);
 /// <summary>What a control file gave: the points, the lines it skipped, the order it read them in and how it knew.</summary>
 public sealed record ControlRead(IReadOnlyList<ControlRow> Points, IReadOnlyList<ControlSkip> Skipped, ControlOrder Order, string OrderFrom);
 
-/// <summary>Total-station control-point files: comma, semicolon, tab or whitespace separated; numbers culture-invariant; the order
+/// <summary>Total-station control-point files: comma, semicolon, tab or whitespace separated (a semicolon- or tab-separated line may
+/// write decimal commas); numbers culture-invariant; the order
 /// from the argument, else from a header naming the columns ("Point", "Easting", "Northing", "Elev", "Code"), else PENZD. Units
 /// scale the coordinates to metres (m, cm, mm, ft, usft). A name used twice is refused with both line numbers.</summary>
 public static class ControlPointFile
@@ -41,16 +42,26 @@ public static class ControlPointFile
         _ => null,
     };
 
-    private static readonly char[] Separators = [',', ';', '\t'];
+    private static readonly char[] StrongSeparators = [';', '\t'];
 
+    /// <summary>A line's fields: split at semicolons or tabs when it has any — an export that separates with semicolons writes its
+    /// decimals with commas, so a comma there is part of a number — else at commas, else at spaces.</summary>
     private static string[] Fields(string line)
     {
-        var parts = line.IndexOfAny(Separators) >= 0 ? line.Split(Separators) : line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var parts = line.IndexOfAny(StrongSeparators) >= 0 ? line.Split(StrongSeparators)
+            : line.Contains(',', StringComparison.Ordinal) ? line.Split(',')
+            : line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return [.. parts.Select(p => p.Trim().Trim('"'))];
     }
 
-    private static bool Num(string s, out double v) =>
-        double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && double.IsFinite(v);
+    /// <summary>A number, culture-invariant: a decimal point, or a decimal comma when the field has one comma and no point (a field
+    /// only keeps a comma in a semicolon- or tab-separated line).</summary>
+    private static bool Num(string s, out double v)
+    {
+        if (s.Contains(',', StringComparison.Ordinal) && !s.Contains('.', StringComparison.Ordinal) && s.IndexOf(',') == s.LastIndexOf(','))
+            s = s.Replace(',', '.');
+        return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && double.IsFinite(v);
+    }
 
     private static readonly string[] EastWords = ["e", "x", "east", "easting", "eastings", "e(m)"];
     private static readonly string[] NorthWords = ["n", "y", "north", "northing", "northings", "n(m)"];

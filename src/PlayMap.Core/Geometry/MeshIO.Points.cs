@@ -6,7 +6,8 @@ namespace PlayMap.Core.Geometry;
 
 public static partial class MeshIO
 {
-    /// <summary>Reads XYZ / PTS text points: one point a line, separated by spaces, tabs, commas or semicolons.
+    /// <summary>Reads XYZ / PTS text points: one point a line, separated by spaces, tabs, commas or semicolons (a line separated
+    /// by semicolons or tabs may write decimal commas).
     /// Columns: x y z, then by count — 4: intensity; 6: r g b (integers) or nx ny nz; 7: intensity r g b (PTS);
     /// 9: r g b nx ny nz or nx ny nz r g b. A PTS count line, header lines and comments are skipped. Intensity
     /// is not kept.</summary>
@@ -19,6 +20,9 @@ public static partial class MeshIO
         Span<Range> tok = stackalloc Range[16];
         Span<double> v = stackalloc double[16];
         ReadOnlySpan<char> separators = [' ', '\t', ',', ';'];
+        // An export that separates with semicolons or tabs writes decimal commas: there a comma is part of a number, never a column.
+        ReadOnlySpan<char> strongSeparators = [' ', '\t', ';'];
+        Span<char> number = stackalloc char[64];
         int? columns = null;
         var colourAt = -1;
         var normalAt = -1;
@@ -28,13 +32,14 @@ public static partial class MeshIO
             var span = line.AsSpan().Trim();
             if (span.IsEmpty || span[0] == '#' || span.StartsWith("//", StringComparison.Ordinal))
                 continue;
-            var n = Split(span, tok, separators);
+            var strong = span.ContainsAny(';', '\t');
+            var n = Split(span, tok, strong ? strongSeparators : separators);
             // A lone number is a PTS count line; fewer than three is not a point.
             if (n < 3)
                 continue;
             var numeric = true;
             for (var k = 0; k < n && numeric; k++)
-                numeric = TryNumber(span[tok[k]], out v[k]);
+                numeric = strong ? TryDecimalComma(span[tok[k]], number, out v[k]) : TryNumber(span[tok[k]], out v[k]);
             if (!numeric)
                 continue;
             if (columns is null)
@@ -51,6 +56,17 @@ public static partial class MeshIO
                 nrm.Add(new Vec3d(v[normalAt], v[normalAt + 1], v[normalAt + 2]));
         }
         return new PointCloud([.. pts], normalAt >= 0 ? [.. nrm] : null, colourAt >= 0 ? [.. col] : null);
+    }
+
+    /// <summary>A number written with a decimal point or a decimal comma (one comma, no point), culture-invariant.</summary>
+    private static bool TryDecimalComma(ReadOnlySpan<char> s, Span<char> scratch, out double value)
+    {
+        var comma = s.IndexOf(',');
+        if (comma < 0 || s.Contains('.') || s.LastIndexOf(',') != comma || s.Length > scratch.Length)
+            return TryNumber(s, out value);
+        s.CopyTo(scratch);
+        scratch[comma] = '.';
+        return TryNumber(scratch[..s.Length], out value);
     }
 
     /// <summary>Where colour and normal columns sit, judged from the first point's column count and whether

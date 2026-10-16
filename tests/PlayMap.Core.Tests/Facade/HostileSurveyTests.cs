@@ -2,12 +2,14 @@ using System.Buffers.Binary;
 using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Site;
 
 namespace PlayMap.Core.Tests.Facade;
 
 /// <summary>The survey readers against damaged and hostile files: every count and offset a header or the XML declares is held to what
 /// the file can hold before anything is allocated for it, so a file of a few kilobytes is refused with words (a
-/// <see cref="FormatException"/>) instead of claiming gigabytes, looping without end or failing with an arithmetic fault.</summary>
+/// <see cref="FormatException"/>) instead of claiming gigabytes, looping without end or failing with an arithmetic fault; and the
+/// text readers read a semicolon-separated export with decimal commas as the numbers it holds, never as twice as many columns.</summary>
 public sealed class HostileSurveyTests
 {
     private static Vec3d[] Line(int n) => [.. Enumerable.Range(0, n).Select(i => new Vec3d(i * 0.1, 10, 1 + i * 0.01))];
@@ -109,5 +111,27 @@ public sealed class HostileSurveyTests
         var points = new Vec3d[64];
         Assert.Equal(20, source.Read(points, new int[64], CancellationToken.None));
         Assert.Equal(new Vec3d(512_019, 5_401_019, 100), points[19]);
+    }
+
+    [Fact]
+    public void ASemicolonControlFileWithDecimalCommasReadsItsNumbers()
+    {
+        const string Text = "Point;Easting;Northing;Height;Code\nCP1;512345,123;5401234,567;112,400;corner\nCP2;512350,5;5401236;113;door\n";
+        var read = ControlPointFile.Parse(new StringReader(Text));
+        Assert.Equal(ControlOrder.Penzd, read.Order);
+        Assert.Empty(read.Skipped);
+        Assert.Equal(2, read.Points.Count);
+        Assert.Equal(new Vec3d(512_345.123, 5_401_234.567, 112.4), read.Points[0].Grid);
+        Assert.Equal("corner", read.Points[0].Code);
+        Assert.Equal(new Vec3d(512_350.5, 5_401_236, 113), read.Points[1].Grid);
+    }
+
+    [Fact]
+    public void ASemicolonPointFileWithDecimalCommasReadsItsNumbers()
+    {
+        var cloud = MeshIO.ReadXyz(new StringReader("512345,123;5401234,567;112,400\n512346,5;5401235;113\n"));
+        Assert.Equal(2, cloud.Count);
+        Assert.Equal(new Vec3d(512_345.123, 5_401_234.567, 112.4), cloud.Points[0]);
+        Assert.Equal(new Vec3d(512_346.5, 5_401_235, 113), cloud.Points[1]);
     }
 }
