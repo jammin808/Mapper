@@ -90,6 +90,7 @@
         "tracks": 0,
         "pairing": "simulated",
         "exposure": "simulated",
+        "latencies": [],
         "words": ""
       },
       {
@@ -105,6 +106,7 @@
         "tracks": 0,
         "pairing": "simulated",
         "exposure": "simulated",
+        "latencies": [],
         "words": ""
       }
     ],
