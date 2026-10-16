@@ -477,7 +477,12 @@ public static class MultiViewCalibration
             var mine = byView[i];
             var byProjector = mine.Where(k => ok[k]).GroupBy(k => trackSource[obs[k].Track].ProjectorId, StringComparer.Ordinal)
                 .ToImmutableDictionary(g => g.Key, g => Rms(g.Select(k => res[k])), StringComparer.Ordinal);
-            return new SolvedView(v.Id, v.RigId, PoseOf(s.VR[i], s.VC[i]), Rms(mine.Where(k => ok[k]).Select(k => res[k])), mine.Count, mine.Count(k => ok[k]))
+            // A view the solve left where it started (the gauge's fixed view) keeps the pose it came with: a rotation vector's
+            // round trip through its matrix is exact only to the last bits, and a warm start keeps the previous solve's frame itself.
+            var pose = start.Views.TryGetValue(v.Id, out var was) && s.VR[i] == was.CameraToWorld && s.VC[i] == was.Position
+                ? was
+                : PoseOf(s.VR[i], s.VC[i]);
+            return new SolvedView(v.Id, v.RigId, pose, Rms(mine.Where(k => ok[k]).Select(k => res[k])), mine.Count, mine.Count(k => ok[k]))
             {
                 RmsByProjector = byProjector,
             };

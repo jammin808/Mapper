@@ -28,8 +28,10 @@ jobs:
           Xvfb :99 -screen 0 1920x1080x24 &
       - name: FFmpeg 9.0 shared libraries
         run: |
+          # The Windows job's FFmpeg 9.0.2 build for linux64, pinned by its hash the same way (see there).
           mkdir -p .ffmpeg
-          curl -sSL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
+          curl -sSfL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-shared-9.0.tar.xz"
+          echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
           tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
       - name: Restore
@@ -55,6 +57,24 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+      # The Companion module (integrations/companion-module-playmap): its type check, lint and tests — the e2e test against this
+      # job's Release engine — then Companion's own module check. It runs whatever the .NET suites said.
+      - name: Node for the Companion module
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.20.0"
+          cache: npm
+          cache-dependency-path: integrations/companion-module-playmap/package-lock.json
+      - name: The Companion module (npm ci, npm test, npm run check)
+        if: ${{ !cancelled() }}
+        working-directory: integrations/companion-module-playmap
+        env:
+          PLAYMAP_ENGINE: ${{ github.workspace }}/tools/PlayMap.Node/bin/Release/net10.0/PlayMap.Node.dll
+        run: |
+          npm ci
+          npm test
+          npm run check
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
@@ -63,31 +83,98 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
 
-  # The Windows build: the exe the show machine runs. Its runner has no GPU and no audio endpoint; it builds
-  # everything and runs the suites that need neither.
+  # The Windows build: the exe the show machine runs, and every suite to its end on a runner with no GPU and no audio
+  # endpoint. Each project's exit code is checked on its own line: a multi-line pwsh step otherwise answers only its last
+  # command's, and a failed suite before it would read as green.
   windows:
     runs-on: windows-latest
+    env:
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
+      GALLIUM_DRIVER: llvmpipe
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
+      - name: FFmpeg 9.0 shared libraries
+        shell: pwsh
+        run: |
+          # FFmpeg 9.0.2 (GPL, shared libraries) as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by its
+          # hash. The release is a month's last build, which that project keeps for two years; a daily build is kept for 14 days
+          # and "latest" is rebuilt every day, so neither can carry a hash.
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-shared-9.0.zip" -OutFile ff.zip
+          $hash = (Get-FileHash ff.zip -Algorithm SHA256).Hash
+          if ($hash -ne '3DA6C7B60BB9CCD73EC5B5E815BA804A0879EB362BA0E3BEEBCE50174C022696') { throw "ff.zip is not the pinned build ($hash)" }
+          Expand-Archive ff.zip -DestinationPath ff
+          Move-Item (Get-ChildItem ff -Directory | Select-Object -First 1).FullName .ffmpeg
+      - name: OpenGL 3.3 in software (Mesa llvmpipe)
+        shell: pwsh
+        run: |
+          # The runner has no GPU, and Windows' own opengl32 is GDI's OpenGL 1.1. Mesa 25.2.5 (MIT licence,
+          # https://docs.mesa3d.org/license.html), as built for Windows by mesa-dist-win (https://github.com/pal1000/mesa-dist-win),
+          # pinned by its hash; its opengl32.dll and the llvmpipe driver it loads go beside the test hosts after the build.
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/25.2.5/mesa3d-25.2.5-release-msvc.7z" -OutFile mesa.7z
+          $hash = (Get-FileHash mesa.7z -Algorithm SHA256).Hash
+          if ($hash -ne '24B082CD3B66115A7DDB355E69FA0332DD22C751A392AB61EA3F5C9F6C912B88') { throw "mesa.7z is not the pinned build ($hash)" }
+          7z e mesa.7z -omesa x64/opengl32.dll x64/libgallium_wgl.dll | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z could not extract Mesa ($LASTEXITCODE)" }
+          Get-ChildItem mesa
       - name: Restore
         run: dotnet restore
       - name: Build
         run: dotnet build -c Release --no-restore
-      - name: Test (no GPU, no FFmpeg)
+      - name: OpenGL beside the test hosts
+        shell: pwsh
         run: |
-          dotnet test tests/PlayMap.Core.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Engine.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Net.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Devices.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Assistant.Tests -c Release --no-build
-          dotnet test tests/PlayMap.Vision.Tests -c Release --no-build
-      - name: Test the Windows-only code (no GPU; WARP and the D3D11 paths)
+          # A test runs in testhost.exe beside its assembly or in dotnet.exe; Windows looks for opengl32.dll beside the exe first.
+          # Both DLLs reach every test project's Release output: a missing DLL, no test project or a project with no output fails
+          # here, never as a suite that ran on GDI's OpenGL 1.1.
+          $ErrorActionPreference = 'Stop'
+          $dlls = 'opengl32.dll', 'libgallium_wgl.dll' | ForEach-Object { (Get-Item "mesa/$_").FullName }
+          $projects = @(Get-ChildItem tests/*/*.csproj)
+          if ($projects.Count -eq 0) { throw 'no test project matches tests/*/*.csproj' }
+          foreach ($project in $projects) {
+            $dir = Join-Path $project.DirectoryName 'bin/Release/net10.0'
+            if (-not (Test-Path $dir -PathType Container)) { throw "$($project.BaseName) has no Release output at $dir" }
+            Copy-Item $dlls $dir
+          }
+          Copy-Item $dlls (Split-Path (Get-Command dotnet).Source)
+      - name: Test (every project to its end; one crash hides no other result)
+        shell: pwsh
         run: |
-          dotnet test tests/PlayMap.Render.Tests -c Release --no-build --filter Category=Windows
-          dotnet test tests/PlayMap.Media.Tests -c Release --no-build --filter Category=Windows
+          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
+          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file.
+          $failed = @()
+          $projects = @(Get-ChildItem tests/*/*.csproj)
+          if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
+          foreach ($project in $projects) {
+            $name = $project.BaseName
+            Write-Host "::group::$name"
+            dotnet test $project.FullName -c Release --no-build --logger "trx;LogFileName=$name.trx" `
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+            if ($LASTEXITCODE -ne 0) { $failed += $name }
+            elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
+            Write-Host "::endgroup::"
+          }
+          # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end.
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          foreach ($trx in Get-ChildItem tests/*/TestResults/*.trx) {
+            foreach ($hit in Select-Xml -Path $trx.FullName -XPath "//t:UnitTestResult[@outcome='Failed']" -Namespace $ns) {
+              $message = ($hit.Node.Output.ErrorInfo.Message -split "`n" | Select-Object -First 4) -join ' | '
+              Write-Host "FAILED $($trx.BaseName): $($hit.Node.testName) :: $message"
+            }
+          }
+          if ($failed.Count -gt 0) { Write-Host "::error::failed: $($failed -join ' ')"; exit 1 }
+          exit 0
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-windows
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore
       - name: Publish the portable exe
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
       - name: Upload the exe

@@ -44,11 +44,13 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     {
         await using var rig = await PhoneScanRig.StartAsync();
         await using var phone = await rig.JoinAsync();
-        // Pattern indices: late pictures on three, a rolling-shutter mix on one, a dropped upload on one, a lie on one.
+        // Pattern indices: late pictures on three, a rolling-shutter mix on one, a dropped upload on one, a lie on one, and one cue
+        // left unanswered past the scan's patience (shown again, then answered).
         phone.Late.UnionWith([3, 10, 20]);
         phone.Half.Add(12);
         phone.DropUpload.Add(15);
         phone.Lie.Add(25);
+        phone.Unanswered.Add(7);
 
         var started = await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE ROBUST");
         Assert.True(started.Ok, started.Payload);
@@ -66,11 +68,14 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         Assert.Equal("locked", pairing.GetProperty("exposure").GetString());
         Assert.Equal(0, pairing.GetProperty("timingDisagrees").GetInt32());
         Assert.True(phone.RollingSeen >= 1);
-        // Lock-step: every picture after the probe went up only once the phone had answered the cue before it (show s, counted from
-        // 1 with the probe first, goes with cue s − 1).
+        // Lock-step: every new picture after the probe went up only once the phone had answered the cue before it (picture s, counted
+        // from 1 with the probe first, goes with cue s − 1). A picture shown again because its cue went unanswered within the scan's
+        // patience (a phone slow on a loaded machine) is a retake of that cue, not a step on: it is counted among the retakes.
         var answered = rig.Display.AnsweredAtShow;
         for (var i = 1; i < answered.Count; i++)
-            Assert.True(answered[i] >= i - 1, $"show {i + 1} went up with {answered[i]} cues answered");
+            Assert.True(answered[i] >= i - 1, $"picture {i + 1} went up with {answered[i]} cues answered");
+        Assert.True(rig.Display.ShownAgain >= 1, "the unanswered cue's picture was shown again");
+        Assert.True(pairing.GetProperty("retakes").GetInt32() >= 2 + rig.Display.ShownAgain, "each picture shown again is a retake");
         Assert.True(rig.Display.Released >= 1, "the outputs were given back");
         var record = rig.Engine.Store.Project.Stage.Scans[0];
         Assert.Equal(phone.Rig, record.CameraId);

@@ -32,6 +32,7 @@ public sealed partial class EngineCore
             : runner.Next() ? CommandReply.Success(effect: "asked: the waited pattern goes up again for the camera")
             : CommandReply.Fail("no scan is waiting for a picture"));
         routes.Index(new PhoneIndex(this));
+        routes.Index(new SuggestionIndex(this));
         RouteMultiscan(routes);
     }
 

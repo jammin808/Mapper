@@ -14,7 +14,8 @@ namespace PlayMap.Render.Tests.Decode;
 /// per plane (R8 + GR88, R16 + GR32 — the DRM fourccs), convert to the same RGB16F picture as the CPU upload of the same bytes,
 /// bit for bit. The importer holds each surface until its fence passes and never more than two; an import that fails keeps the
 /// last picture, reports the failure against the frame's source and says why. The export half (EGL_MESA_image_dma_buf_export,
-/// a GL texture exported as a dmabuf and imported back) runs where the display offers it, else the test says it is absent.</summary>
+/// a GL texture exported as a dmabuf and imported back) runs where the display offers it, else the test says it is absent. Dmabufs,
+/// memfds and EGL's surfaceless display are Linux's: elsewhere every test is skipped with the words.</summary>
 [Collection("egl")]
 public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper log)
 {
@@ -127,7 +128,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         return px;
     }
 
-    [Theory]
+    [LinuxTheory]
+    [Trait("Category", "Linux")]
     [InlineData(1918, 1078, 2048, 256, false)]
     [InlineData(1920, 1080, 2048, 0, false)]
     [InlineData(1280, 720, 2816, 512, true)]
@@ -165,7 +167,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void TheRendererNeverHoldsMoreThanTwoSurfacesAndHoldsTheLastPictureWhenBothAreInFlight()
     {
         using var frame = Make(320, 180, 512, 0, false, 99);
@@ -189,7 +192,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void AFailedImportKeepsTheLastPictureReportsTheSourceAndSaysWhy()
     {
         using var frame = Make(256, 144, 256, 0, false, 5);
@@ -231,7 +235,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void TheShareOfThisEglDisplayImportsThePlaneFormatsAndSaysWhyZeroCopyIsNotReady()
     {
         egl.Run(ctx =>
@@ -258,7 +263,8 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void ATextureExportedAsADmabufImportsBackUnchangedWhereMesaExportsIt()
     {
         egl.Run(ctx =>

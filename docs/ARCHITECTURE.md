@@ -41,7 +41,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   doors and parts close in reverse, the recovery record is written and the journal flushed.
 - A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
-  closes, and after two minutes with nothing to do (docs/OPTIMISE.md).
+  closes, and after two minutes with nothing to do; every wait on it is bounded, so a killed worker that a driver holds is
+  journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
   pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees.
@@ -284,7 +285,9 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
   receipts, `PING t1` → `OK PONG t1 t2 t3`, `CONTEXT`, the VIDEO verbs with Patterns' meaning, and the rest of
   the vocabulary. STATE carries Patterns' `video` row (positionMs, lengthMs, rate, seq…) so **Stagewatch's VT link
   drives PlayMap by pointing it at PlayMap's host and port**. Patterns' Interactive "Lines" devices can drive it
-  too: their `KEY VALUE` fact lines (BLACKOUT 1, LIVE 0…) are read as facts, never answered.
+  too: their `KEY VALUE` fact lines (BLACKOUT 1, LIVE 0…) carry no request id and are read as facts, never answered; a
+  line with a request id is a request, read as a verb and always answered (`OK @a1` from a verb that otherwise answers
+  nothing).
 - **HTTP/WS/HTTPS** on 9940: `/api/state`, `/api/context`, `/api/project`, `/api/cmd`, `/api/verbs`,
   `/api/media/<hash>` (range transfers between nodes), `/api/thumb`, `/ws` (state frames with v/seq/id; with the
   subprotocol `playmap.lines.v1`, the line wire itself), `/tls`, `/tls.cer`, `/mcp` (Model Context Protocol:

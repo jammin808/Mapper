@@ -57,9 +57,10 @@ public static class PressShapes
 
 /// <summary>Typed parameters for every row of the catalogue and every alternative of its syntax, read through <see cref="VerbSyntax"/>
 /// (the one reader of a row's syntax) with overrides by row name where the syntax's words alone say too little; and each row's press
-/// shape: Panic, Air and Transport rows fire at once (a show's emergency and its GO are never held), otherwise a high-risk row is held
-/// to confirm and a projector's power is pressed twice. VERBS and /api/verbs carry both, so a controller builds its actions from
-/// data.</summary>
+/// shape: a show's GO, NEXT and PREV, a playlist's PLAY and PAUSE, BLACKOUT, FREEZE and PANIC fire at once (never confirmed); a
+/// projector's power, a project opened or made, a scan started and a proposal approved are pressed twice; every other high-risk row
+/// (lifting a panic, a stop, a seek, the master among them), and a review row that puts a picture over the air, is held to confirm;
+/// the rest fire at once. VERBS and /api/verbs carry both, so a controller builds its actions from data.</summary>
 public static class VerbParams
 {
     private static readonly ConditionalWeakTable<VerbSpec, IReadOnlyList<IReadOnlyList<VerbParam>>> Made = new();
@@ -71,6 +72,21 @@ public static class VerbParams
         ["scan"] = "sc", ["mask"] = "mk", ["viewpoint"] = "vp", ["pin"] = "pn", ["send"] = "sd", ["fixture"] = "lf", ["stack"] = "sk",
         ["survey"] = "sv", ["binding"] = "bd", ["slot"] = "fx", ["asset"] = "fa", ["snapshot"] = "cs", ["control"] = "ct",
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The rows a key fires at once whatever their risk: a show's GO, NEXT and PREV, a playlist's PLAY and PAUSE, the
+    /// blackout, the freeze and the panic. VerbParamTests finds each in the catalogue.</summary>
+    private static readonly FrozenSet<string> NeverHeld = new[]
+    {
+        "PLAYLIST GO", "PLAYLIST NEXT", "PLAYLIST PREV", "VIDEO PLAY", "VIDEO PAUSE", "BLACKOUT", "FREEZE", "PANIC",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>Review rows that put a picture over the air (an output's or a projector's identify): held like a high-risk row.</summary>
+    private static readonly FrozenSet<string> HeldReview = new[] { "OUTPUT IDENTIFY", "DEVICE IDENTIFY" }.ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>Rows that replace the show or start what a key cannot take back (a project opened or made, a scan, an assistant's
+    /// line approved): pressed twice, like a projector's power.</summary>
+    private static readonly FrozenSet<string> PressedTwice =
+        new[] { "PROJECT OPEN", "PROJECT NEW", "SCAN START", "APPROVE" }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> AnyEntity = new[] { "id", "entity", "owner", "target" }.ToFrozenSet(StringComparer.Ordinal);
 
@@ -108,6 +124,49 @@ public static class VerbParams
                 ],
             ],
             ["EVENTS"] = [[new VerbParam("since", ParamKind.Integer, Optional: true) { Keyword = "SINCE", Min = 0 }]],
+            // "AT …" is VIDEO PLAY's: a lead ("+500") or a unix ms.
+            ["VIDEO RESTART"] =
+            [
+                [
+                    new VerbParam("on", ParamKind.Entity, Optional: true) { Keyword = "ON", Prefix = "pl" },
+                    new VerbParam("at", ParamKind.Time, Optional: true) { Keyword = "AT", Alt = "<unix ms>" },
+                    new VerbParam("expect", ParamKind.Entity, Optional: true) { Keyword = "EXPECT", Prefix = "it", Alt = "#<n>" },
+                ],
+            ],
+            // A cursor's trail is pairs of numbers on the wall; its colour is one word, "#" and six hex digits.
+            ["CURSOR"] =
+            [
+                [
+                    new VerbParam("output", ParamKind.Entity) { Prefix = "op" },
+                    new VerbParam("x", ParamKind.Number) { Min = -0.5, Max = 1.5 },
+                    new VerbParam("y", ParamKind.Number) { Min = -0.5, Max = 1.5 },
+                    new VerbParam("trail", ParamKind.Number, Optional: true) { Keyword = "TRAIL", Min = -0.5, Max = 1.5, Repeats = true },
+                    new VerbParam("color", ParamKind.Text, Optional: true) { Keyword = "COLOR", Alt = "#<rrggbb>" },
+                ],
+                [new VerbParam("off", ParamKind.Enum) { Values = ["OFF"] }],
+            ],
+            // A send's size and rate are each one word in its shape ("1920x1080", "@50"); its tap is a picture source.
+            ["SEND ADD"] =
+            [
+                [
+                    new VerbParam("kind", ParamKind.Enum) { Values = ["NDI", "OMT", "SPOUT"] },
+                    new VerbParam("name", ParamKind.Text),
+                    new VerbParam("tap", ParamKind.Ref) { Values = ["output:", "prewarp:", "canvas:", "source:"] },
+                    new VerbParam("size", ParamKind.Text, Optional: true) { Alt = "<w>x<h>" },
+                    new VerbParam("fps", ParamKind.Text, Optional: true) { Alt = "@<fps>" },
+                    new VerbParam("format", ParamKind.Enum, Optional: true) { Values = ["UYVY", "UYVA", "P216", "PA16", "BGRA8"] },
+                    new VerbParam("quality", ParamKind.Enum, Optional: true) { Keyword = "QUALITY", Values = ["LOW", "MEDIUM", "HIGH"] },
+                    new VerbParam("always", ParamKind.Flag, Optional: true) { Values = ["ALWAYS"] },
+                ],
+            ],
+            // A HELLO's name is the rest of the line before " module=" (Pairing.HelloName), spaces and all.
+            ["HELLO"] =
+            [
+                [
+                    new VerbParam("name", ParamKind.Text) { Repeats = true },
+                    new VerbParam("module", ParamKind.Text, Optional: true) { Alt = "module=<version>" },
+                ],
+            ],
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>The rows that have an override.</summary>
@@ -130,11 +189,11 @@ public static class VerbParams
     public static string Press(VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
-        if (spec.Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport)
+        if (NeverHeld.Contains(spec.Name))
             return PressShapes.Instant;
-        if (spec.Show == ShowClass.DevicePower)
+        if (spec.Show == ShowClass.DevicePower || PressedTwice.Contains(spec.Name))
             return PressShapes.Double;
-        return spec.Risk == VerbRisk.High ? PressShapes.Hold : PressShapes.Instant;
+        return spec.Risk == VerbRisk.High || HeldReview.Contains(spec.Name) ? PressShapes.Hold : PressShapes.Instant;
     }
 
     /// <summary>A form's parameters: its tokens after the verb, an optional group's as optional.</summary>
@@ -159,6 +218,16 @@ public static class VerbParams
                 continue;
             }
             var placeholder = VerbSyntax.IsPlaceholder(t);
+            if (optional && !placeholder && !t.Contains('|', StringComparison.Ordinal) && IsWord(t) && i + 1 < tokens.Count && IsChoice(tokens[i + 1]))
+            {
+                // "[MODE FAST|ROBUST]" is one choice its keyword introduces: neither word is sent without the other.
+                into.Add(new VerbParam(t.ToLowerInvariant(), ParamKind.Enum, Optional: true)
+                {
+                    Keyword = t,
+                    Values = tokens[++i].Split('|', StringSplitOptions.RemoveEmptyEntries),
+                });
+                continue;
+            }
             if (!placeholder && !t.Contains('|', StringComparison.Ordinal) && IsWord(t) && i + 1 < tokens.Count
                 && VerbSyntax.IsPlaceholder(tokens[i + 1]) && tokens[i + 1][0] != '[')
             {
@@ -180,6 +249,11 @@ public static class VerbParams
 
     private static bool IsWord(string t) => t.Length > 0 && t.All(c => char.IsAsciiLetterUpper(c) || c == '-' || char.IsAsciiDigit(c));
 
+    /// <summary>"FAST|ROBUST", "1|1+2|3-4", "hap|hap-q": two or more literal words.</summary>
+    private static bool IsChoice(string t) =>
+        t.Contains('|', StringComparison.Ordinal) && !VerbSyntax.IsPlaceholder(t) && t[0] != '['
+        && t.Split('|').All(w => w.Length > 0 && w.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '+' or ',' or '.' or '_'));
+
     private static string ChoiceName(string[] words) =>
         words.Length == 1 ? words[0].ToLowerInvariant()
         : words.Contains("ON") && words.Contains("OFF") ? "state"
@@ -191,13 +265,39 @@ public static class VerbParams
         var alternatives = SplitTop(token, '|');
         var first = alternatives[0];
         var alt = alternatives.Count > 1 ? string.Join("|", alternatives.Skip(1)) : null;
-        var repeats = token.Contains('…', StringComparison.Ordinal);
+        var repeats = Repeating(first);
         var open = first.IndexOf('<', StringComparison.Ordinal);
         var inner = open >= 0 ? Inside(first, open) : first.Trim('…', '[', ']');
         var p = Typed(inner, optional);
         if (first.StartsWith('+'))
             p = p with { Kind = ParamKind.Time };
         return p with { Alt = alt ?? p.Alt, Repeats = repeats };
+    }
+
+    /// <summary>"&lt;output&gt;…": the value repeats, a word each. A "…" inside a placeholder ("&lt;-1…1&gt;", "&lt;host,…&gt;") or
+    /// inside a part of its own word ("&lt;source&gt;[,&lt;backup&gt;…]") is one word's range or list; a bare "…" repeats nothing.</summary>
+    private static bool Repeating(string first)
+    {
+        var angle = 0;
+        var square = 0;
+        var placeholder = false;
+        foreach (var c in first)
+        {
+            if (c == '<')
+            {
+                angle++;
+                placeholder = true;
+            }
+            else if (c == '>' && angle > 0)
+                angle--;
+            else if (angle == 0 && c == '[')
+                square++;
+            else if (angle == 0 && c == ']' && square > 0)
+                square--;
+            else if (c == '…' && angle == 0 && square == 0 && placeholder)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>The text inside the angle brackets that open at <paramref name="open"/> (nested brackets kept).</summary>
@@ -233,9 +333,9 @@ public static class VerbParams
         var name = Name(head);
         if (min is not null && (words.Length == 1 || Numbers.Contains(name) || name == "ms"))
             return new VerbParam(words.Length == 1 ? "value" : name, ParamKind.Number, optional) { Min = min, Max = max };
-        if (text.Contains("json", StringComparison.OrdinalIgnoreCase))
+        if (HasWord(text, "json"))
             return new VerbParam(name == "json" ? "json" : name, ParamKind.Json, optional);
-        if (text.Contains("line", StringComparison.OrdinalIgnoreCase))
+        if (HasWord(text, "line"))
             return new VerbParam(name, ParamKind.Line, optional);
         if (text.Contains("unix", StringComparison.Ordinal) || (text.Contains(':', StringComparison.Ordinal) && char.IsAsciiDigit(text[0])) || name is "tc" or "hh")
             return new VerbParam(name, ParamKind.Time, optional);
@@ -250,6 +350,19 @@ public static class VerbParams
         if (Numbers.Contains(name))
             return new VerbParam(name, ParamKind.Number, optional) { Min = min, Max = max };
         return new VerbParam(name, ParamKind.Text, optional);
+    }
+
+    /// <summary>Whether <paramref name="word"/> stands in a placeholder as a word of its own ("&lt;target line&gt;", "&lt;camera
+    /// json&gt;"), never inside another ("&lt;cursor,outlines,…&gt;").</summary>
+    private static bool HasWord(string text, string word)
+    {
+        for (var at = text.IndexOf(word, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.IndexOf(word, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = at + word.Length;
+            if ((at == 0 || !char.IsAsciiLetterOrDigit(text[at - 1])) && (end == text.Length || !char.IsAsciiLetterOrDigit(text[end])))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>"0-100", "0.5-2", "-24…24" as a range; anything else none.</summary>

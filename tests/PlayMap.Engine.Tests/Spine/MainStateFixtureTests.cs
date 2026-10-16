@@ -28,7 +28,7 @@ public sealed class MainStateFixtureTests
         project["path"] = null;
         if (root["solve"] is JsonObject solve)
             solve["id"] = "bs_fixture";
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]

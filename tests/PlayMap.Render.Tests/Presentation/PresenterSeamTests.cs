@@ -133,11 +133,10 @@ public sealed class PresenterSeamTests(GlFixture gl)
         });
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void ASurfacelessPlatformRefusesPresentersWithWords()
     {
-        if (!OperatingSystem.IsLinux())
-            return;
         using var platform = GpuPlatforms.Create(PlatformRequest.Default with { Surfaceless = true }, new GlDeviceOptions(true, false));
         Assert.Equal("gl-surfaceless", platform.Name);
         Assert.Equal(PresentPath.Offscreen, platform.Path);
@@ -149,11 +148,10 @@ public sealed class PresenterSeamTests(GlFixture gl)
         Assert.Equal("", platform.Words);
     }
 
-    [Fact]
+    [LinuxFact]
+    [Trait("Category", "Linux")]
     public void ASurfacelessContextGoingLeavesAnotherOnTheSameDisplayWorking()
     {
-        if (!OperatingSystem.IsLinux())
-            return;
         // Every surfaceless context shares the process's one EGL display: the second one going (on its own thread) must not
         // terminate the display under the first.
         using var first = RenderContext.CreateSurfaceless(new GlDeviceOptions(true, false));
@@ -181,12 +179,13 @@ public sealed class PresenterSeamTests(GlFixture gl)
         Assert.Empty(d.TakeErrors());
     }
 
+    /// <summary>Unknown path and dialect words are every platform's: made surfaceless where the platform has it (EGL, Linux), else on
+    /// the window system's hidden context.</summary>
     [Fact]
     public void SettingsWordsThePlatformDoesNotKnowAreSaidNotIgnored()
     {
-        if (!OperatingSystem.IsLinux())
-            return;
-        using var platform = GpuPlatforms.Create(new PlatformRequest("warp", "gles9", Surfaceless: true), new GlDeviceOptions(true, false));
+        using var platform = GpuPlatforms.Create(new PlatformRequest("warp", "gles9", Surfaceless: OperatingSystem.IsLinux()),
+            new GlDeviceOptions(true, false));
         Assert.Equal(GlDialect.Core330, platform.Context.Dialect);
         Assert.Contains("present path 'warp' is none of auto, gl, dxgi", platform.Words, StringComparison.Ordinal);
         Assert.Contains("GL dialect 'gles9' is none of auto, core330, es300", platform.Words, StringComparison.Ordinal);
@@ -204,7 +203,11 @@ public sealed class PresenterSeamTests(GlFixture gl)
                 using var platform = GpuPlatforms.Create(new PlatformRequest(Dialect: "es300"), new GlDeviceOptions(true, true));
                 var c = platform.Context;
                 Assert.Equal(GlDialect.Es300, c.Dialect);
-                Assert.True(c.Api == "egl" || platform.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {platform.Words}");
+                // On Linux ES is made on EGL (or on GLX, saying so); elsewhere the window system's own API makes it and has nothing to say.
+                if (OperatingSystem.IsLinux())
+                    Assert.True(c.Api == "egl" || platform.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {platform.Words}");
+                else
+                    Assert.Equal((OperatingSystem.IsWindows() ? "wgl" : "cocoa", ""), (c.Api, platform.Words));
                 var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
                 using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
                 using (var window = platform.CreatePresenter(new OutputPresenterOptions("ES output", null, false, 64, 36, VSync: false)))

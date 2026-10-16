@@ -134,9 +134,9 @@ internal sealed class LedIndex(EngineCore engine) : IIndexContributor
 
     public IndexPresetHint Hint { get; } = new("LED", "lednode",
     [
-        new IndexKey("On", "LED OUTPUT ON $(id)", "led.node", "instant"),
-        new IndexKey("Off", "LED OUTPUT OFF $(id)", "led.node", "instant"),
-        new IndexKey("Test", "LED TEST CHASE ON $(id)", "led.test", "instant"),
+        new IndexKey("On", "LED OUTPUT ON $(id)", "led.node", "hold"),
+        new IndexKey("Off", "LED OUTPUT OFF $(id)", "led.node", "hold"),
+        new IndexKey("Test", "LED TEST CHASE ON $(id)", "led.test", "hold"),
         new IndexKey("Level +", "LED LEVEL BY 5", "led.level", "hold"),
         new IndexKey("Level −", "LED LEVEL BY -5", "led.level", "hold"),
     ]);

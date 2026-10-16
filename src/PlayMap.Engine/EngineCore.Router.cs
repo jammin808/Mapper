@@ -158,11 +158,12 @@ public sealed partial class EngineCore
     }
 
     /// <summary>A Patterns fact line ("BLACKOUT 1", "LIVE 0", "DECK 3 12"): taken in, never answered. Told
-    /// apart from PlayMap's own verbs by its value — PlayMap's BLACKOUT takes ON/OFF/TOGGLE, a fact 0/1.</summary>
+    /// apart from PlayMap's own verbs by its value — PlayMap's BLACKOUT takes ON/OFF/TOGGLE, a fact 0/1 — and by
+    /// carrying no request id (as the transports tell a fact): a line with one is a request, read as a verb and answered.</summary>
     private bool TryFact(WireLine line, out CommandReply reply)
     {
         reply = CommandReply.NoReply();
-        if (line.Count < 2 || !PatternsFacts.Contains(line.Verb))
+        if (line.RequestId is not null || line.Count < 2 || !PatternsFacts.Contains(line.Verb))
             return false;
         var value = line.Word(1);
         var numeric = value.All(c => char.IsAsciiDigit(c) || c == '.' || c == '-');

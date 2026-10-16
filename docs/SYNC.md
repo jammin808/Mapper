@@ -137,7 +137,8 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
   ± 4 ms, its feed live (show's own `clock` row yields a follower's clock to these rows, so the clock has one light per report); a
   leader's rates (red on a mixed rate, with `SET <output> refreshHz <rate>` for its own odd output, or the member's node and the
   line to run there — output ids repeat across nodes) and its members; a solo node grey.
-- **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`.
+- **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`; a node in no group lists the
+  section with no rows.
 
 ## Verified here, next
 

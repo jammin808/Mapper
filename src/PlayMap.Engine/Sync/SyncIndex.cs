@@ -5,8 +5,8 @@ using PlayMap.Core.Model;
 namespace PlayMap.Engine.Sync;
 
 /// <summary>INDEX's sync section: the group this node is in, lit by its verdict (the leader's board) or by the follower's link, with
-/// a key that asks for the group's status.</summary>
-public sealed class SyncIndex(EngineCore engine, SyncNode sync) : IIndexContributor
+/// a key that asks for the group's status; no rows on a node without the sync part or in no group.</summary>
+public sealed class SyncIndex(EngineCore engine) : IIndexContributor
 {
     private static readonly IndexPresetHint PresetHint = new("Sync", "sync",
     [
@@ -21,6 +21,11 @@ public sealed class SyncIndex(EngineCore engine, SyncNode sync) : IIndexContribu
     {
         ArgumentNullException.ThrowIfNull(w);
         w.WriteStartArray();
+        if (engine.Services.GroupSync is not { } sync)
+        {
+            w.WriteEndArray();
+            return;
+        }
         var group = sync.Settings.Group;
         if (group.Length > 0 && sync.Settings.Role != "solo")
         {

@@ -14,7 +14,7 @@ namespace PlayMap.Engine.Tests.Facade;
 /// action is a line of the catalogue.</summary>
 public sealed partial class FacadeStateFixtureTest
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Indented = FixtureJson.Indented;
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 

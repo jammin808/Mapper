@@ -176,7 +176,7 @@ internal sealed class WebSocketSession(
             var t3 = runner.Wall.UnixMs;
             return Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{{\"type\":\"pong\",\"t\":{t},\"t2\":{readAt},\"t3\":{t3}}}"));
         }
-        var text = args.Count == 0 ? verb : verb + " " + string.Join(' ', args.Select(WireGrammar.Quote));
+        var text = args.Count == 0 ? verb : verb + " " + WireGrammar.Join(args);
         if (!WireGrammar.TryParse(text, out var line, out var error))
             return Encoding.UTF8.GetBytes(CommandRunner.ReceiptJson(id, CommandReply.Fail(error!.Reason)));
         if (line.Verb == "SUBSCRIBE" && line.Count > 1 && Subscribe(line) is { } subscribed)

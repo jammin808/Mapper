@@ -40,7 +40,8 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         }
     }
 
-    /// <summary>A surfaceless GL platform whose device other threads share through a lock.</summary>
+    /// <summary>A GL platform whose device other threads share through a lock: on a surfaceless context where the platform has one
+    /// (EGL, Linux), else on the window system's hidden context.</summary>
     private sealed class SharedDevicePlatform : IGpuPlatform
     {
         private readonly GlPlatform _gl;
@@ -110,12 +111,14 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
     [Fact]
     public async Task TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound()
     {
+        // The device lock is every platform's: the shared device wears this machine's own GL context, surfaceless where there is one.
         SharedDevicePlatform? made = null;
+        var surfaceless = OperatingSystem.IsLinux();
         var options = RenderHostOptions.Default with
         {
             Windows = false,
-            Platform = new PlatformRequest("dxgi", Surfaceless: true),
-            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(RenderContext.CreateSurfaceless(o))),
+            Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
         };
         await using var rig = HostRig.Start(HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#336699"), 64, 36)), options: options);
         Assert.NotNull(made);

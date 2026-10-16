@@ -201,6 +201,29 @@ public class HttpHostTests
     }
 
     [Fact]
+    public async Task AWebSocketCommandsArgumentsAreWordsAndItsLastJsonRidesBare()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { BeatEvery = TimeSpan.FromSeconds(30) });
+        using var ws = new ClientWebSocket();
+        await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + host.Port + "/ws"), CancellationToken.None);
+        await ReceiveAsync(ws);
+
+        // A word that opens with "[" in the middle of the line stays one word.
+        await SendAsync(ws, "{\"cmd\":\"DEVICE ADD\",\"args\":[\"[L]\",\"pjlink\",\"10.0.0.20\"],\"id\":\"w1\"}");
+        await ReceiveUntilAsync(ws, m => m.Contains("\"id\":\"w1\"", StringComparison.Ordinal));
+        // JSON as the last argument rides bare, so the verb reads it from the line's raw text.
+        await SendAsync(ws, "{\"cmd\":\"SET\",\"args\":[\"sf_a\",\"content\",{\"mode\":\"uv\"}],\"id\":\"w2\"}");
+        await ReceiveUntilAsync(ws, m => m.Contains("\"id\":\"w2\"", StringComparison.Ordinal));
+
+        var lines = endpoint.Lines.Select(l => l.Line).ToList();
+        Assert.Equal(["DEVICE", "ADD", "[L]", "pjlink", "10.0.0.20"], lines[0].Words);
+        Assert.Equal(["SET", "sf_a", "content", "{\"mode\":\"uv\"}"], lines[1].Words);
+        Assert.Equal("{\"mode\":\"uv\"}", lines[1].RestAfter(3));
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt()
     {
         // The node publishes its change before it answers the line, so the sender may put the frame on the socket

@@ -7,6 +7,7 @@ using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Tc;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Audio;
 using PlayMap.Engine.Playback;
 using PlayMap.Engine.Tests.Control;
@@ -236,7 +237,7 @@ public sealed class LtcThroughCaptureHubTests
             await using var rig = await ControlRig.StartAsync(TimecodeEngineTests.Show(), service: true,
                 with: WithAudio((r, s) => (audio, seen) = (r, s), true, (FileAudioInputs.Prefix, new FileAudioInputs())));
             using var runtime = audio!;
-            await rig.Ok($"TIMECODE SOURCE ADD FOH LTC \"file:{path}:2\"");
+            await rig.Ok($"TIMECODE SOURCE ADD FOH LTC {WireGrammar.Quote($"file:{path}:2")}");
             await rig.Ok("TIMECODE CHASE Show FOH");
             // The chase and its source are read from one STATE, and the lane at that instant: a source's state is judged when STATE
             // is read (no code for 2.5 frames is a dropout), and the file's blocks arrive on a timer a loaded machine runs late.

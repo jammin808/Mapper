@@ -11,6 +11,7 @@ namespace PlayMap.Engine.Tests.Sync;
 /// it also lands at once; on a network a switch lands when the line runs there); a dead leader leaves the
 /// follower free-wheeling and switching its next item at the anchored instant; a restarted follower follows again, its
 /// follow-blackout switch kept; HERE keeps a line on the leader.</summary>
+[Collection(SyncTimingsCollection.Name)]
 public sealed class AnchorFeedTests(ITestOutputHelper output)
 {
     private const long Second = SyncRig.Second;
@@ -202,4 +203,12 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
         var now = rig.Engine.LeaderNowNs;
         Assert.True(await Eventually.TrueAsync(() => rig.Engine.ShowTickedNs >= now), "the lane did not tick");
     }
+}
+
+/// <summary>The group's timings (how soon a follower adopts its leader's GO, against the 4× ceiling of the design's bar) run alone,
+/// after every parallel test: a time measured beside the whole suite measures the suite.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class SyncTimingsCollection
+{
+    public const string Name = "Sync timings";
 }

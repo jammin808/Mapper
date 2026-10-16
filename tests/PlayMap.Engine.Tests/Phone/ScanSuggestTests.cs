@@ -33,6 +33,33 @@ public sealed partial class ScanSuggestTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ASuggestionsLinesParseAsTheirRowsAndReadBackWordForWordThroughTheGrammarsWriter()
+    {
+        // The lines a suggestion queues are the text a person's APPROVE runs: each parses as its row (SCAN SURFACE of the region ON its
+        // main projector with the name; SURFACE QUAD in raster pixels AS the name), holds no secret (it is journalled as it came), and
+        // written again by the grammar's writer reads back as the same words — names with spaces, hyphens, apostrophes and digits.
+        var descriptor = new SuggestionDescriptor("rg1", "plane", 4.05, 2.4, 9, 1.2, [new SuggestionProjector("Left", 99), new SuggestionProjector("Right", 88)], "Wall");
+        foreach (var name in new[] { "Front wall", "Stage-left riser", "Lou's arch", "Wall 2" })
+        {
+            var c = new SuggestionCandidate(descriptor, name, 0.96, ["flat"], ["pj00000001", "pj00000002"], "pj00000001",
+                [new(10, 20), new(110.5, 20), new(110, 80), new(10, 80)]);
+            var lines = ScanSuggestions.Lines("sc00000001", c, name);
+            Assert.Equal(["SCAN SURFACE", "SURFACE QUAD"], lines.Select(l => WireGrammar.TryParse(l, out var x, out _) ? VerbCatalog.Match(x)?.Spec.Name : null));
+            Assert.Equal($"SCAN SURFACE sc00000001 REGION rg1 ON pj00000001 {name}", lines[0]);
+            Assert.EndsWith(" RASTER AS " + name, lines[1], StringComparison.Ordinal);
+            foreach (var text in lines)
+            {
+                Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{text}: {error?.Reason}");
+                Assert.Null(line.RequestId);
+                Assert.False(VerbCatalog.HoldsSecret(line));
+                Assert.Equal(text, VerbCatalog.Redacted(line));
+                Assert.True(WireGrammar.TryParse(WireGrammar.Join(line.Words), out var again, out _));
+                Assert.Equal(line.Words, again.Words);
+            }
+        }
+    }
+
+    [Fact]
     public async Task EverySuggestionWaitsForAPersonAndTheAssistantSeesTextAlone()
     {
         var model = new ScriptedModel();

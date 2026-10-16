@@ -46,6 +46,8 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             // The free part of the arena moves with the moment.
             if (platform["blocks"] is JsonObject b)
                 b["arenaFreeMb"] = 255;
+            // The fixture is written on Linux under X: this machine's own binding words read as GLX's.
+            HostRig.DecodeBindingAsFixture(platform);
         }
         if (node["platform"]?["hapLayers4k60"] is JsonObject layers)
         {
@@ -67,7 +69,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
                 hap["stageMsP95"] = 0;
         }
         var root = new JsonObject { ["decode"] = node };
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>What the desk's generic card template renders for STATE.decode: title, STATE path, light, words, fields, verb lines.</summary>
@@ -203,7 +205,7 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             var fixture = Normalise(decode);
             var path = FixturePath("decode.json");
             var cardsPath = FixturePath("decode.cards.json");
-            var cards = JsonNode.Parse(Cards)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+            var cards = JsonNode.Parse(Cards)!.ToJsonString(FixtureJson.Indented) + "\n";
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             {
                 await File.WriteAllTextAsync(path, fixture);

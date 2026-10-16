@@ -38,10 +38,12 @@ public class OpenAlLibraryTests
     [Fact]
     public void WhenNoOpenAlLoadsTheLoadSaysWhichNamesItTriedAndTheDeviceOutputIsTheNullOneWithThoseWords()
     {
-        var failed = OpenAlLibrary.Load(["libplaymap-no-openal.so", "libc.so.6"]);
+        // A name that is nowhere, and a library every machine of the platform loads that is not OpenAL.
+        var other = OperatingSystem.IsWindows() ? "kernel32.dll" : "libc.so.6";
+        var failed = OpenAlLibrary.Load(["libplaymap-no-openal.so", other]);
         Assert.Equal(0, failed.Handle);
         Assert.Null(failed.Alc);
-        Assert.Equal("no OpenAL library loads (libplaymap-no-openal.so not found, libc.so.6 is not OpenAL)", failed.Words);
+        Assert.Equal($"no OpenAL library loads (libplaymap-no-openal.so not found, {other} is not OpenAL)", failed.Words);
 
         using var output = AudioOut.OpenDevice(null, failed);
         Assert.Equal(AudioOutMode.Null, output.Mode);

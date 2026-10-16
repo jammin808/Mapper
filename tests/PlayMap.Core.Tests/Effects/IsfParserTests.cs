@@ -70,7 +70,8 @@ public sealed class IsfParserTests
         Assert.True(doc.HistoryDependent);
         Assert.True(doc.ReadsAudio);
         Assert.Equal(26, doc.BodyLine);
-        Assert.StartsWith("\nvoid main()", doc.Body, StringComparison.Ordinal);
+        // The body starts at the line break after the comment, the file's own (a checkout on Windows writes this file's lines with CRLF).
+        Assert.StartsWith((Full.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n") + "void main()", doc.Body, StringComparison.Ordinal);
     }
 
     [Fact]

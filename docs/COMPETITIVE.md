@@ -35,7 +35,7 @@ Five design ideas we have not found combined in one product:
 - **Output smoothness:** OpenGL 3.3 core or ES 3.00 and one render thread; each output measures its vblanks and presents. No D3D11 flip-model; the frame-lock machine is built, but its NVAPI tier is compile-only and joins no swap group.
 - **Codecs:** the HAP family decodes on the GPU and clips optimise to HAP on import, but hardware decode of other codecs copies frames back to system memory.
 - **Video IO:** no NDI, Spout, OMT or capture-card SDKs.
-- **Control:** OSC, MIDI, Art-Net and sACN input with bindings, and timecode chase, are built; no Companion module yet (the node's side is built), no MIDI out or OSCQuery.
+- **Control:** OSC, MIDI, Art-Net and sACN input with bindings, timecode chase and the Companion module are built; no MIDI out or OSCQuery.
 - **Show floor:** Show Mode, locks, panic, blind edit, preflight and fleet health are built; no redundancy.
 - **Creative breadth:** ISF effect chains, audio reactivity and LED pixel mapping are built; no FFGL, laser output or export.
 - **Adoption:** no importers from other tools, no signed installer, no reference hardware list, no support offer, and one maintainer.

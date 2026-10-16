@@ -7,7 +7,7 @@ namespace PlayMap.Engine.Fleet;
 /// <summary>INDEX's fleet section (wp2-backup): the keys a deck shows for this node's place in a hot-backup pair, each row's id the line
 /// its key sends — FAILOVER on a backup (lit by its mirror: green identical, amber joining or resyncing, red lost), FAILBACK CONFIRM on a
 /// node that took a show over, FLEET PROMOTE on a sync follower (red while its leader is silent), and each backup of a primary with its
-/// state. Written from published state only.</summary>
+/// state. Written from published state only; a node without the backup part lists the section with no rows.</summary>
 internal sealed class BackupIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "fleet";

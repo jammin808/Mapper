@@ -2,6 +2,13 @@ using PlayMap.Core.Wire;
 
 namespace PlayMap.Net.Companion;
 
+/// <summary>The controllers' line protocol: WHOAMI's and the announcement's <c>proto</c>, and the number the Companion module knows
+/// (its <c>KNOWN_LINE_PROTOCOL</c>; a node speaking a higher one tells the module to update).</summary>
+public static class Controllers
+{
+    public const int LineProtocol = 1;
+}
+
 /// <summary>The controllers on the line wire as the node keeps them (STATE.clients, the context's client items, WHOAMI): the wire
 /// and WebSocket sessions say who said HELLO, over which channel, and when they leave. The engine implements it beside its
 /// endpoint; an endpoint that does not keeps no table.</summary>

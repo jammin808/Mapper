@@ -96,6 +96,11 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 - **Takes control.** OSC, MIDI, Art-Net and sACN bound to wire lines, with curves, ranges, pick-up and feedback; a playlist
   chases LTC, MTC, Art-Net timecode or an internal generator; Companion and other controllers get the full line wire over the
   web port, the show's index, its events and key pictures; the node announces itself over mDNS.
+- **Puts the show on a Stream Deck.** The Companion 5.1 module (`integrations/companion-module-playmap`) pairs over the
+  node's own line wire by proof, the token never on the network, and builds its buttons from the node's verbs, its
+  feedbacks and variables from STATE and its presets from every section of the node's index, so a new package reaches the
+  deck without a new module. A risky line's key is held or pressed twice, never fired at a touch, and a key lights because
+  the node says so, never because it was pressed.
 - **Listens.** One sound input analysed into levels, bands, a spectrum and onsets; a beat clock by tap, by number or by
   detection.
 - **Watches the fleet, and stands by.** Each machine's health with lights by evidence, and a board of every PlayMap machine in
@@ -106,9 +111,8 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
 context report it.
 
-**In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); the
-Companion module; and the desk's controls for show safety, locks, blind edit, the sync board, effects and the rest, which
-today run over the wire.
+**In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); and the
+desk's controls for show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
 
 ## What it is made of
 
@@ -180,7 +184,9 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`). On Ubuntu 24.04,
+libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both (`.github/workflows/build.yml`), on Linux and on Windows; a test whose
+subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows) carries
+that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words. On Ubuntu 24.04,
 `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack (PulseAudio with a
 virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints the
 variables to export.

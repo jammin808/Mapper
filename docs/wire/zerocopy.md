@@ -37,7 +37,8 @@ Added to wp2-decode's `decode` block (new keys at the end of each object):
   rung it passed and why, then the renderer's words when it opened below the top. `busMbPerFrame` is what crosses the bus per frame
   (a copied-back frame twice, a software frame once, a zero-copy frame 0); `surfaces` and `vramMb` are a zero-copy decoder's pool.
 - `platform.zeroCopy` is `ready` when the renderer's device imports decoder surfaces (a GPU's render node and dmabuf imports, or the
-  D3D11 share made with video support and multithread protection); `why` says why not. `platform.gl` is the context's binding:
+  D3D11 share made with video support and multithread protection); `why` says why not, in the platform's own terms (a GL context
+  on Windows names the Direct3D 11 output path, `PRESENT PATH DXGI`, as the way to zero-copy). `platform.gl` is the context's binding:
   `angle` on the DXGI platform; on Linux a desktop context is `glx` unless `decode.glApi` is `egl`. `staging` is `persistent` when the context has an upload arena (`arenaWords` says why not).
 - `light` is amber when a clip of 4K or more decodes on the CPU ("1 clip at 4K decodes on the CPU: Intro (hw-copy-back)").
 

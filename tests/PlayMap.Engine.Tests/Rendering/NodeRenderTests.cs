@@ -49,6 +49,15 @@ public sealed class NodeRenderTests
         {
             Environment.SetEnvironmentVariable("DISPLAY", null);
             Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", null);
+            if (!OperatingSystem.IsLinux())
+            {
+                // DISPLAY and WAYLAND_DISPLAY name Linux's display servers: elsewhere the window system needs neither, and a
+                // node renders without them.
+                await using var rendering = await NodeRig.StartAsync("GL", parts: WithRender);
+                Assert.NotNull(rendering.Host.Render);
+                Assert.Empty(rendering.State().GetProperty("faults").EnumerateArray());
+                return;
+            }
             await using (var headless = await NodeRig.StartAsync("No GL", parts: WithRender))
             {
                 Assert.Null(headless.Host.Render);
