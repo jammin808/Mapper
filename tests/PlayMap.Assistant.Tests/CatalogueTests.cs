@@ -163,6 +163,24 @@ public sealed class CatalogueTests
         Assert.All(commands.Skip(firstOther), c => Assert.False(VerbCatalog.All.First(v => v.Syntax == c.Verb).Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport or ShowClass.Show));
     }
 
+    /// <summary>The Eye keeps a node's first 64 commands: every command that moves a panic, the air, a transport or Show Mode is among
+    /// them, and the set-up lines of the present path and the decode policy come after them all.</summary>
+    [Fact]
+    public void EveryCommandThatMovesTheShowIsInTheEyesFirst64AndTheGpuSetUpLinesFollow()
+    {
+        static bool Moves(ContextCommand c) =>
+            VerbCatalog.All.First(v => v.Syntax == c.Verb).Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport or ShowClass.Show;
+        var commands = ShowContext.CommandsFromCatalog();
+        var moving = commands.Count(Moves);
+        Assert.True(moving <= 64, $"{moving} commands move the show; the Eye keeps 64");
+        Assert.All(commands.Take(moving), c => Assert.True(Moves(c), c.Verb));
+        foreach (var name in new[] { "PRESENT PATH", "PRESENT RESET", "DECODE POLICY" })
+        {
+            var at = commands.ToList().FindIndex(c => c.Verb == VerbCatalog.Find(name)!.Syntax);
+            Assert.True(at >= moving, $"{name} at {at}, among the {moving} that move the show");
+        }
+    }
+
     /// <summary>A word that satisfies a required token: the first of a literal choice, any word for a placeholder.</summary>
     private static string Sample(string token) => VerbSyntax.IsPlaceholder(token) ? "x1" : token.Split('|')[0];
 
