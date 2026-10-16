@@ -238,25 +238,25 @@ public sealed class FxVerbTests
             await File.WriteAllTextAsync(Path.ChangeExtension(fs, ".vs"), "varying vec2 left;\nvoid main() { isf_vertShaderInit(); left = isf_FragNormCoord; }\n");
             await File.WriteAllBytesAsync(Path.Combine(folder, "card.png"), [0x89, 0x50, 0x4E, 0x47]);
             await using var engine = new EngineCore(EngineServices.ForTests());
-            using var reply = JsonDocument.Parse(await Ok(engine, $"FX IMPORT \"{fs}\""));
+            using var reply = JsonDocument.Parse(await Ok(engine, $"FX IMPORT {WireGrammar.Quote(fs)}"));
             var asset = engine.Store.Project.FxAssets.Single();
             Assert.Equal(("Shift", fs), (asset.Name, asset.Path));
             Assert.Contains("isf_FragNormCoord", asset.VertexSource, StringComparison.Ordinal);
             Assert.Equal(Convert.ToBase64String([0x89, 0x50, 0x4E, 0x47]), asset.Images["card"]);
-            Assert.Contains("no file", await Refused(engine, $"FX IMPORT \"{Path.Combine(folder, "none.fs")}\""), StringComparison.Ordinal);
+            Assert.Contains("no file", await Refused(engine, $"FX IMPORT {WireGrammar.Quote(Path.Combine(folder, "none.fs"))}"), StringComparison.Ordinal);
 
             // A file's imports stay inside its folder and are pictures: no import carries another file of the machine into the show.
             var inner = Directory.CreateDirectory(Path.Combine(folder, "inner")).FullName;
             var escape = Path.Combine(inner, "Escape.fs");
             await File.WriteAllTextAsync(escape, "/*{ \"IMPORTED\": { \"card\": { \"PATH\": \"../card.png\" } } }*/\nvoid main() { gl_FragColor = IMG_THIS_PIXEL(card); }\n");
-            Assert.Contains("Escape.fs imports ../card.png, which is outside its folder", await Refused(engine, $"FX IMPORT \"{escape}\""), StringComparison.Ordinal);
+            Assert.Contains("Escape.fs imports ../card.png, which is outside its folder", await Refused(engine, $"FX IMPORT {WireGrammar.Quote(escape)}"), StringComparison.Ordinal);
             var rooted = Path.Combine(inner, "Rooted.fs");
             await File.WriteAllTextAsync(rooted, "/*{ \"IMPORTED\": { \"card\": { \"PATH\": " + JsonSerializer.Serialize(Path.Combine(folder, "card.png")) + " } } }*/\nvoid main() { gl_FragColor = IMG_THIS_PIXEL(card); }\n");
-            Assert.Contains("which is outside its folder", await Refused(engine, $"FX IMPORT \"{rooted}\""), StringComparison.Ordinal);
+            Assert.Contains("which is outside its folder", await Refused(engine, $"FX IMPORT {WireGrammar.Quote(rooted)}"), StringComparison.Ordinal);
             await File.WriteAllTextAsync(Path.Combine(inner, "notes.png"), "not a picture");
             var text = Path.Combine(inner, "Text.fs");
             await File.WriteAllTextAsync(text, "/*{ \"IMPORTED\": { \"card\": { \"PATH\": \"notes.png\" } } }*/\nvoid main() { gl_FragColor = IMG_THIS_PIXEL(card); }\n");
-            Assert.Contains("Text.fs imports notes.png, which is not a PNG or JPEG file", await Refused(engine, $"FX IMPORT \"{text}\""), StringComparison.Ordinal);
+            Assert.Contains("Text.fs imports notes.png, which is not a PNG or JPEG file", await Refused(engine, $"FX IMPORT {WireGrammar.Quote(text)}"), StringComparison.Ordinal);
             Assert.Single(engine.Store.Project.FxAssets);
         }
         finally
