@@ -53,10 +53,12 @@ a show plays: one stream, GPU ≤ 15 %"); absent otherwise.
 
 ## Preflight
 
-Section `optimise`: amber for each video the show plays at 4K or larger (what outputs and surfaces show, through playlists, canvases
+Section `optimise`: amber for each video the show plays at 4K or more (what outputs and surfaces show, through playlists, canvases
 and generators' inputs, what enabled LED fixtures sample, what enabled sends tap, and the fallback of a live input the show plays)
-that this node decodes on the CPU (what plays here is not a
-HAP codec), with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none.
+that this node decodes on the CPU, with the fix `MEDIA OPTIMISE <media> TO hap-q`; one green row when there is none. The clips and
+their path are the decode section's (`decode.cpu-4k:<media>`): the version played here is not a HAP codec, it is of the 4K class
+(3840 × 2000 pixels or more: a DCI or cropped UHD frame counts), and its frames come through system memory (a clip the decoder
+serves zero-copy is not one), so both sections name the same clips.
 
 ## Not in the catalogue
 

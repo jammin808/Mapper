@@ -15,7 +15,7 @@ namespace PlayMap.Engine.Tests.Fleet;
 /// as FLEET and EYE STATUS answer it, in Patterns' EyeJson shape.</summary>
 public sealed class FleetStateFixtureTests
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Indented = FixtureJson.Indented;
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 

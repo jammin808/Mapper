@@ -397,9 +397,13 @@ public sealed unsafe partial class GlDevice
     /// <summary>Draws a texture over the default framebuffer of the context current now (an output window's),
     /// flipping it so its top row is the screen's top. Raw calls: the window's context has its own state,
     /// which this sets in full; the device's cached state (its own context's) is untouched.</summary>
-    internal void DrawPresent(uint windowVao, GpuTexture texture, int width, int height)
+    internal void DrawPresent(uint windowVao, GpuTexture texture, int width, int height) => DrawPresent(windowVao, texture, width, height, flipY: true);
+
+    /// <summary>As <see cref="DrawPresent(uint, GpuTexture, int, int)"/>; <paramref name="flipY"/> false copies rows as they are, for a
+    /// default framebuffer whose rows already run top first (ANGLE's surface on a Direct3D 11 back buffer).</summary>
+    internal void DrawPresent(uint windowVao, GpuTexture texture, int width, int height, bool flipY)
     {
-        var program = Program("present");
+        var program = Program(flipY ? "present" : "blit");
         _gl.BindFramebuffer(GLEnum.Framebuffer, 0);
         _gl.Viewport(0, 0, (uint)width, (uint)height);
         _gl.Disable(GLEnum.Blend);
@@ -407,6 +411,8 @@ public sealed unsafe partial class GlDevice
         _gl.Disable(GLEnum.CullFace);
         _gl.UseProgram(program.Id);
         _gl.Uniform1(_gl.GetUniformLocation(program.Id, "uTex"), 0);
+        if (!flipY)
+            _gl.Uniform4(_gl.GetUniformLocation(program.Id, "uSrc"), 0f, 0f, 1f, 1f);
         _gl.ActiveTexture(GLEnum.Texture0);
         _gl.BindTexture(GLEnum.Texture2D, texture.Id);
         _gl.BindVertexArray(windowVao);

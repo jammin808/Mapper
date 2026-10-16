@@ -335,8 +335,7 @@ public static class VerbCatalog
 
         // The decode-path ladder and hardware imports (wp2-zerocopy, decode's continuation).
         V2("DECODE STATUS", "DECODE STATUS", "This node's decode paths: zero-copy ready, direct sampling proven, and every open decoder's path, why and cost", VerbCategory.Media, VerbRisk.Low, false),
-        V2("DECODE POLICY", "DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]", "The best path decoders opened from now on may take (open ones keep theirs); DIRECT needs a proof unless FORCE", VerbCategory.Media, VerbRisk.Review, true) with { Show = ShowClass.Setup, RiskWhen = [new(-1, "FORCE", VerbRisk.High)] },
-        V2("DECODE PROBE", "DECODE PROBE [<media>|ALL] [DIRECT]", "Decodes clips by every path and compares the pictures; DIRECT writes the direct-sampling proof for this driver", VerbCategory.Media, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
+        V2("DECODE POLICY", "DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]", "The best path decoders opened from now on may take (open ones keep theirs); DIRECT on a D3D11 renderer needs a proof unless FORCE", VerbCategory.Media, VerbRisk.Review, true) with { Show = ShowClass.Setup, RiskWhen = [new(-1, "FORCE", VerbRisk.High)] },
 
         // Optimise on import (wp2-optimise).
         V2("MEDIA OPTIMISE", "MEDIA OPTIMISE <media>…|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL]", "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs", VerbCategory.Media, VerbRisk.Review, true, "MEDIA OPTIMIZE") with { Show = ShowClass.Heavy, RiskWhen = [new(0, "CANCEL", VerbRisk.Low), new(0, "PAUSE", VerbRisk.Low), new(0, "RESUME", VerbRisk.Low)] },

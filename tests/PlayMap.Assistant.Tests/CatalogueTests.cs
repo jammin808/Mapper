@@ -25,6 +25,7 @@ public sealed class CatalogueTests
         "MEDIA ESTIMATE", "MEDIA VERSION", // wp2-optimise: estimates and removing a version (with the lossless rewriter) are next round
         "SYNC LATENCY", // wp2-sync: the group's air latency waits for the per-output latency ring (next round)
         "SITE GUIDE", "PLAN LIGHT", "STACK NEW", "STACK MATCH", "STACK FAILOVER", "STACK LIST", // wp2-facade: the guide, the light plan and stacks are wp2-stacks'
+        "DECODE PROBE", // wp2-zerocopy: the direct-sampling proof harness is next round
         "FLEET SUCCESSION", // wp2-backup: automatic takeover and succession are next round (FLEET PROMOTE is the press)
     ];
 
@@ -161,6 +162,24 @@ public sealed class CatalogueTests
         Assert.StartsWith("PANIC ", commands[0].Verb, StringComparison.Ordinal);
         var firstOther = commands.ToList().FindIndex(c => VerbCatalog.All.First(v => v.Syntax == c.Verb).Show is not (ShowClass.Panic or ShowClass.Air or ShowClass.Transport or ShowClass.Show));
         Assert.All(commands.Skip(firstOther), c => Assert.False(VerbCatalog.All.First(v => v.Syntax == c.Verb).Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport or ShowClass.Show));
+    }
+
+    /// <summary>The Eye keeps a node's first 64 commands: every command that moves a panic, the air, a transport or Show Mode is among
+    /// them, and the set-up lines of the present path and the decode policy come after them all.</summary>
+    [Fact]
+    public void EveryCommandThatMovesTheShowIsInTheEyesFirst64AndTheGpuSetUpLinesFollow()
+    {
+        static bool Moves(ContextCommand c) =>
+            VerbCatalog.All.First(v => v.Syntax == c.Verb).Show is ShowClass.Panic or ShowClass.Air or ShowClass.Transport or ShowClass.Show;
+        var commands = ShowContext.CommandsFromCatalog();
+        var moving = commands.Count(Moves);
+        Assert.True(moving <= 64, $"{moving} commands move the show; the Eye keeps 64");
+        Assert.All(commands.Take(moving), c => Assert.True(Moves(c), c.Verb));
+        foreach (var name in new[] { "PRESENT PATH", "PRESENT RESET", "DECODE POLICY" })
+        {
+            var at = commands.ToList().FindIndex(c => c.Verb == VerbCatalog.Find(name)!.Syntax);
+            Assert.True(at >= moving, $"{name} at {at}, among the {moving} that move the show");
+        }
     }
 
     /// <summary>A word that satisfies a required token: the first of a literal choice, any word for a placeholder.</summary>

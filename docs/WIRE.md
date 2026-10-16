@@ -337,7 +337,10 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`, `epoch`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage` — `site`, `controls`, `surveys`; `stage.projectors[]` — `uncertainty`, `priors`, `grade`, `quads`; `scan` — `pairing`, `view`,
-  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `project` — `index`.
+  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `machine.present` — after
+  output's keys, `asked`, `kept`, `fuse` (`state` clear, armed or blown, `attempt`, `at`), `airLatencyMs`, `latencyWords`; `decode.platform` —
+  after decode's keys, `api`, `describe`, `gl`, `zeroCopy`, `direct`, `why`; `decode.platform.blocks` — `arenaWords`; `decode.sources[]` — `device`, `gpuCopies`, `width`, `height`,
+  `surfaces`, `vramMb`, `importMsP95`; `decode` — `policy`, `forced`; `project` — `index`.
   Inside the packages' own objects: `air.overlay.cursorP95Ms` is how late a cursor move is drawn (p95 over the last 300 moves,
   −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
   without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
@@ -351,9 +354,14 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   [companion](wire/companion.md) · [fx](wire/fx.md) ·
   [audio](wire/audio.md) · [content](wire/content.md) · [led](wire/led.md) · [wall](wire/wall.md) · [align](wire/align.md) ·
   [resolve](wire/resolve.md) (its forms of wall's and align's rows) · [fleet](wire/fleet.md) · [backup](wire/backup.md) ·
-  [phonescan](wire/phonescan.md) · [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint
-  solve, suggestions, the folder camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no
-  STATE of its own).
+  [phonescan](wire/phonescan.md) ·
+  [facade](wire/facade.md) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
+  camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own) ·
+  [d3d11](wire/d3d11.md) (`PRESENT PATH AUTO|DXGI|GL` from the render host's next start, DXGI explicit and experimental, the
+  present fuse that `PRESENT RESET` clears; Spout's lines through videoio's rows; each output's `latencyMs` and the node's air
+  latency) · [zerocopy](wire/zerocopy.md) (`DECODE STATUS`, the `decode` object STATE carries with each source's path — the path its
+  latest frame came by — and why; `DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]` for decoders opened from now on,
+  kept in the node's settings; `PRESENT PATH` and `DECODE POLICY` are set-up lines, refused while the show is armed).
 - **Rows not yet answered.** These pages are generated from the catalogue for packages still to land; every row they list
   answers "not available on this node yet" (stacks' `STACK ALIGN` waits unrouted in facade's block, its other rows come with
-  it): [d3d11](wire/d3d11.md) · [zerocopy](wire/zerocopy.md) · [stacks](wire/stacks.md).
+  it): [stacks](wire/stacks.md).

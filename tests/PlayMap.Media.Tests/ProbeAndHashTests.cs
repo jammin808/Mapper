@@ -140,10 +140,15 @@ public class ProbeAndHashTests
         var path = TestMedia.Clip("h264_long.mp4");
         var hash = await ContentHasher.ComputeAsync(path);
         Assert.True(ContentHasher.IsValid(hash));
-        var psi = new ProcessStartInfo("sha256sum") { RedirectStandardOutput = true, UseShellExecute = false };
-        psi.ArgumentList.Add(path);
+        // The file goes in on standard input: sha256sum then names no file, and a name with a backslash (a Windows path) cannot
+        // make it mark its line with one.
+        var psi = new ProcessStartInfo("sha256sum") { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
         using var p = Process.Start(psi)!;
-        var line = await p.StandardOutput.ReadToEndAsync();
+        var reading = p.StandardOutput.ReadToEndAsync();
+        await using (var file = File.OpenRead(path))
+            await file.CopyToAsync(p.StandardInput.BaseStream);
+        p.StandardInput.Close();
+        var line = await reading;
         await p.WaitForExitAsync();
         Assert.Equal("sha256:" + line.Split(' ')[0], hash);
     }

@@ -23,6 +23,18 @@ it.
 
 ### wp2-d3d11
 
+- ANGLE (BSD-3-Clause, © 2018 The ANGLE Project Authors): `av_libglesv2.dll`, the file the desk's Avalonia.Angle.Windows.Natives
+  package (2.1.27548.20260419) puts beside the exe, is loaded at run time by the DXGI present path; PlayMap adds no ANGLE binary of
+  its own. Its licence ships in that package (`LICENSE`); the notice it asks for: "Copyright 2018 The ANGLE Project Authors. All
+  rights reserved." with the BSD-3-Clause conditions and disclaimer. The render tests reference the same package so the loader
+  finds the file beside the test assembly.
+- The Direct3D 11, DXGI, user32 and display-configuration structure layouts and COM vtable slots in
+  `src/PlayMap.Render/Platform/Windows` and `src/PlayMap.Media/Video/Spout` follow the Windows SDK's published declarations; the
+  test goldens were taken from the mingw-w64 headers (public domain / ZPL; read at test time where installed, nothing copied).
+- Spout 2 (BSD-2-Clause, © Lynn Jarvis and the Spout contributors): PlayMap's Spout code speaks its protocol (the shared-memory
+  names and layouts, the frame counter and access lock order) written from the published protocol; no Spout source or binary is
+  shipped or linked.
+
 ### wp2-decode
 
 Nothing shipped: the HAP second stage is PlayMap's own code. Test-only packages (never in the exe):

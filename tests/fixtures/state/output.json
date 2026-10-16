@@ -198,7 +198,16 @@
       "resets": 0,
       "presentMsP95": 0.21,
       "dialect": "core330",
-      "context": "glx"
+      "context": "glx",
+      "asked": "auto",
+      "kept": false,
+      "fuse": {
+        "state": "clear",
+        "attempt": 0,
+        "at": 0
+      },
+      "airLatencyMs": 33,
+      "latencyWords": ""
     },
     "gl": "glx"
   },
@@ -288,15 +297,24 @@
         "bc4": true,
         "bc7": true,
         "bc6h": true,
-        "staging": "copy",
-        "arenaMb": 0,
-        "arenaFreeMb": 0
+        "staging": "persistent",
+        "arenaMb": 256,
+        "arenaFreeMb": 256,
+        "arenaWords": ""
       },
       "hapLayers4k60": null,
       "light": "green",
-      "words": "no decoders open"
+      "words": "no decoders open",
+      "api": "opengl",
+      "describe": "OpenGL through GLX: no zero-copy imports",
+      "gl": "glx",
+      "zeroCopy": "unavailable",
+      "direct": "n/a",
+      "why": "the render context is GLX: dmabuf imports need an EGL context (an ES or surfaceless context, or Wayland)"
     },
-    "sources": []
+    "sources": [],
+    "policy": "auto",
+    "forced": false
   },
   "videoio": {
     "ndi": {

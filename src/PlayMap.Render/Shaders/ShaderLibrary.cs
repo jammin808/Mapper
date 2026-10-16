@@ -121,6 +121,8 @@ public static partial class ShaderLibrary
         uniform vec2 uMatrix;
         uniform int uTransfer;
         uniform int uWide;
+        uniform vec2 uCrop;   // visible ÷ coded size: (1, 1) unless the planes carry padding rows or columns (decoder surfaces)
+        uniform vec2 uMaxUv;  // the last visible chroma texel's centre ÷ coded chroma size: chroma never filters into the padding
         out vec4 oColor;
 
         vec3 pqToLinear(vec3 e) {
@@ -152,9 +154,11 @@ public static partial class ShaderLibrary
         }
 
         void main() {
-            float y = texture(uY, vUv).r * uCodeScale;
-            vec2 c = uPlanes == 2 ? texture(uU, vUv).rg * uCodeScale
-                                  : vec2(texture(uU, vUv).r, texture(uV, vUv).r) * uCodeScale;
+            vec2 uvY = vUv * uCrop;
+            vec2 uvC = min(vUv * uCrop, uMaxUv);
+            float y = texture(uY, uvY).r * uCodeScale;
+            vec2 c = uPlanes == 2 ? texture(uU, uvC).rg * uCodeScale
+                                  : vec2(texture(uU, uvC).r, texture(uV, uvC).r) * uCodeScale;
             float Y = (y - uRange.x) * uRange.y;
             vec2 C = (c - uRange.z) * uRange.w;
             float kr = uMatrix.x;

@@ -114,7 +114,7 @@ public sealed class ContentFixtureTests
     {
         var root = JsonNode.Parse(stateJson)!.AsObject();
         var fixture = new JsonObject { ["content"] = root["content"]!.DeepClone() };
-        return fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return fixture.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class ContentFixtureTests
             Assert.Equal(("faulted", "live", "red"), (g["gn_waves"].GetProperty("state").GetString(), g["gn_waves"].GetProperty("time").GetString(),
                 g["gn_waves"].GetProperty("light").GetString()));
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "content.json");
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "content.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")

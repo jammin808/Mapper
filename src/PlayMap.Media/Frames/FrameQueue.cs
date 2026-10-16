@@ -357,6 +357,19 @@ internal sealed class FrameQueue : IDisposable
         }
     }
 
+    /// <summary>Lets go of every queued frame and has the producer make them again from the play head (the memory they are in is
+    /// going away).</summary>
+    public void Refill()
+    {
+        lock (_gate)
+        {
+            if (_closed)
+                return;
+            RequestSeek(_hasConsumer ? _consumer : _windowStart);
+        }
+        _wake();
+    }
+
     /// <summary>Releases every frame and refuses new ones (the source is closing).</summary>
     public void Close()
     {

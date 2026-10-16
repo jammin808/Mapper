@@ -29,10 +29,33 @@
       {
         "label": "Staging",
         "path": "decode.platform.blocks.staging"
+      },
+      {
+        "label": "Upload arena MB",
+        "path": "decode.platform.blocks.arenaMb"
+      },
+      {
+        "label": "Zero-copy",
+        "path": "decode.platform.zeroCopy"
+      },
+      {
+        "label": "Why not",
+        "path": "decode.platform.why"
+      },
+      {
+        "label": "Direct sampling",
+        "path": "decode.platform.direct"
+      },
+      {
+        "label": "Policy",
+        "path": "decode.policy"
       }
     ],
     "actions": [
-      "PREFLIGHT QUICK"
+      "PREFLIGHT QUICK",
+      "DECODE STATUS",
+      "DECODE POLICY AUTO",
+      "DECODE POLICY SOFTWARE"
     ]
   },
   {
@@ -50,6 +73,14 @@
       {
         "label": "Path",
         "path": "path"
+      },
+      {
+        "label": "Device",
+        "path": "device"
+      },
+      {
+        "label": "Zero-copy",
+        "path": "zeroCopy"
       },
       {
         "label": "Decode ms p95",

@@ -5,8 +5,9 @@ using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Tests.Presentation;
 
-/// <summary>One OpenGL ES 3.0 context for the ES leg, owned by a thread of its own: made through EGL's surfaceless platform (Mesa
-/// offers OpenGL ES 3.2 here, which compiles "#version 300 es"), so it needs no window system.</summary>
+/// <summary>One OpenGL ES 3.0 context for the ES leg, owned by a thread of its own: on Linux made through EGL's surfaceless platform
+/// (Mesa offers OpenGL ES 3.2 here, which compiles "#version 300 es"), so it needs no window system; elsewhere, where there is no
+/// surfaceless platform, a hidden ES context made through the window system.</summary>
 public sealed class EsFixture : IDisposable
 {
     private readonly BlockingCollection<Action> _work = new();
@@ -25,7 +26,8 @@ public sealed class EsFixture : IDisposable
     {
         try
         {
-            _context = RenderContext.CreateSurfaceless(new GlDeviceOptions(CheckErrors: true, DebugOutput: true, Dialect: GlDialect.Es300));
+            var options = new GlDeviceOptions(CheckErrors: true, DebugOutput: true, Dialect: GlDialect.Es300);
+            _context = OperatingSystem.IsLinux() ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
             _ready.SetResult();
         }
         catch (Exception ex)

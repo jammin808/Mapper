@@ -282,3 +282,93 @@ public sealed class PresentLedgerTests
         Assert.Contains("50 Hz target · offscreen · 2 missed in 60 s", snap.Words(), StringComparison.Ordinal);
     }
 }
+
+/// <summary>The clock timed by the display's own statistics (DXGI): the first statistics switch it to display timing in the display's
+/// refresh numbering; a present shown later than the refresh it was meant for is a glitch with its missed vblanks; 32-bit counters wrap
+/// with unsigned differences; disjoint statistics restart the fit and stale ones go back to swap returns.</summary>
+public sealed class DisplayStatisticsClockTests
+{
+    private const long Period = 16_666_667;
+
+    [Fact]
+    public void StatisticsTimeTheClockAndCountALatePresentAcrossTheCounterWrap()
+    {
+        var clock = new PresentClock(60, measured: true, PresentPath.DxgiFlip);
+        Assert.False(clock.DisplayTimed);
+        // Counters 10 below the u32 wrap; vblank k at t0 + k·T.
+        var sync = uint.MaxValue - 10;
+        var present = uint.MaxValue - 5;
+        const long T0 = 1_000_000_000;
+        clock.OnDisplayStatistics(present, sync, sync, T0);
+        Assert.True(clock.DisplayTimed);
+        Assert.True(clock.Measured);
+        long t = T0;
+        for (var f = 1; f <= 60; f++)
+        {
+            t += Period;
+            present++;
+            sync++;
+            // The present is queued just after the vblank before the one it is meant for.
+            clock.OnPresented(PresentResult.Done(t - Period + 1_000_000) with { PresentCount = present });
+            // Frame 40 is shown one refresh late (the previous picture stayed up one more vblank).
+            var shownAt = f == 40 ? sync + 1 : sync;
+            if (f == 40)
+            {
+                sync++;
+                t += Period;
+            }
+            clock.OnDisplayStatistics(present, shownAt, sync, t);
+        }
+        Assert.True(sync < 100, "the refresh counter wrapped");
+        var s = clock.Snapshot(t);
+        Assert.Equal(60, s.Presented);
+        Assert.Equal(1, s.Glitches);
+        Assert.Equal(1, s.MissedVblanks);
+        Assert.True(s.Settled);
+        Assert.InRange(s.RefreshHz, 59.99, 60.01);
+
+        // Disjoint (a mode change): the fit restarts, the ledger keeps its counts.
+        clock.OnDisplayDisjoint();
+        Assert.False(clock.Vblank.HasPhase);
+        Assert.Equal(1, clock.Snapshot(t).Glitches);
+
+        // Stale statistics: back to swap returns, no longer display timed.
+        clock.OnDisplayStale();
+        Assert.False(clock.DisplayTimed);
+        clock.OnPresented(PresentResult.Done(t + Period));
+        Assert.Equal(61, clock.Snapshot(t + Period).Presented);
+    }
+}
+
+/// <summary>The statistics name the last present the display showed, which lags the newest queued one: the two counts are unwrapped
+/// apart, so a shown present is matched with the one queued under its number and a lag of one or two presents is no glitch.</summary>
+public sealed class LaggingStatisticsTests
+{
+    private const long Period = 16_666_667;
+
+    [Fact]
+    public void AShownCountBehindTheQueuedOneMatchesItsOwnPresent()
+    {
+        var clock = new PresentClock(60, measured: true, PresentPath.DxgiFlip);
+        var sync = uint.MaxValue - 20;
+        var queued = uint.MaxValue - 30;
+        long t = 1_000_000_000;
+        clock.OnDisplayStatistics(queued, sync, sync, t);
+        for (var f = 1; f <= 90; f++)
+        {
+            t += Period;
+            sync++;
+            queued++;
+            clock.OnPresented(PresentResult.Done(t - Period + 1_000_000) with { PresentCount = queued });
+            // The display shows the present queued one frame before, at the refresh it was meant for.
+            if (f >= 2)
+                clock.OnDisplayStatistics(queued - 1, sync - 1, sync, t);
+        }
+        var s = clock.Snapshot(t);
+        Assert.Equal(90, s.Presented);
+        Assert.Equal(0, s.Glitches);
+        Assert.Equal(0, s.MissedVblanks);
+        Assert.Equal(0, clock.Ledger.Discarded);
+        Assert.True(clock.Ledger.Shown >= 88);
+    }
+}

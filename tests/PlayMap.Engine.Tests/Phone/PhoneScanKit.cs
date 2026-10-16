@@ -15,13 +15,14 @@ using PlayMap.Net.Phone;
 namespace PlayMap.Engine.Tests.Phone;
 
 /// <summary>A scan display that keeps what it shows: the picture on the glass now and the one before (what a late camera still
-/// sees), each present stamped on the monotonic clock; whether the outputs were given back; for each show, how many cues the phone
-/// had answered by then (lock-step: never fewer than the cues before the one this show goes with); and the largest share of a shown
-/// picture at full white or at full black.</summary>
+/// sees), each present stamped on the monotonic clock; whether the outputs were given back; for each new picture (a picture shown
+/// again while the camera is waited on is not one), how many cues the phone had answered by then (lock-step: never fewer than the
+/// cues before the one this picture goes with); and the largest share of a shown picture at full white or at full black.</summary>
 internal sealed class GlassDisplay : IScanDisplay
 {
     private readonly Lock _gate = new();
     private readonly List<int> _answeredAtShow = [];
+    private int _shownAgain;
     private byte[] _now = [];
     private byte[] _before = [];
     private int _shown;
@@ -37,6 +38,16 @@ internal sealed class GlassDisplay : IScanDisplay
         {
             lock (_gate)
                 return [.. _answeredAtShow];
+        }
+    }
+
+    /// <summary>How many times the picture on the glass was shown again (a cue not answered within the scan's patience, retaken).</summary>
+    public int ShownAgain
+    {
+        get
+        {
+            lock (_gate)
+                return _shownAgain;
         }
     }
 
@@ -70,9 +81,13 @@ internal sealed class GlassDisplay : IScanDisplay
         var black = raster.Count(v => v == 0) / (double)raster.Length;
         lock (_gate)
         {
+            var again = raster.AsSpan().SequenceEqual(_now);
             _before = _now;
             _now = raster;
-            _answeredAtShow.Add(Answered?.Invoke() ?? 0);
+            if (again)
+                _shownAgain++;
+            else
+                _answeredAtShow.Add(Answered?.Invoke() ?? 0);
             _fullest = Math.Max(_fullest, Math.Max(white, black));
         }
         Interlocked.Increment(ref _shown);
@@ -90,7 +105,7 @@ internal sealed class GlassDisplay : IScanDisplay
 /// page's grid rule; a retake of the frame just taken is compared with the one before it) and agree; then it says seen and uploads
 /// the second as PMF1. Faults are injected by pattern index: a late camera (its first pictures still show the pattern before), a
 /// rolling-shutter mix (top half the new pattern, bottom the old), a dropped upload (seen said, picture never sent), a lie (seen
-/// said at once with a picture of the old pattern); by cue count: a phone that goes silent or hangs up, whose motion sensor fires,
+/// said at once with a picture of the old pattern), a cue left unanswered past the scan's patience; by cue count: a phone that goes silent or hangs up, whose motion sensor fires,
 /// or whose camera is nudged a few pixels.
 /// </summary>
 internal sealed class FakePhone : IAsyncDisposable
@@ -167,6 +182,10 @@ internal sealed class FakePhone : IAsyncDisposable
     private int _locateZero;
 
     public HashSet<int> Lie { get; } = [];
+
+    /// <summary>Patterns whose first cue the phone leaves unanswered, as a phone too slow for the scan's patience: the scan shows the
+    /// pattern again and the phone answers that.</summary>
+    public HashSet<int> Unanswered { get; } = [];
 
     /// <summary>After this many cues the phone stops answering (its socket stays open).</summary>
     public int SilentAfter { get; set; } = int.MaxValue;
@@ -404,6 +423,8 @@ internal sealed class FakePhone : IAsyncDisposable
         var minChange = m.GetProperty("minChange").GetDouble();
         var retake = m.GetProperty("retake").GetInt32();
         var key = $"{kind}:{m.GetProperty("projector").GetString()}:{index}";
+        if (kind == "pattern" && retake == 0 && Unanswered.Remove(index))
+            return;
         if (kind == "still")
         {
             Interlocked.Increment(ref _stills);

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using PlayMap.Devices.Midi;
 
@@ -76,7 +77,14 @@ public sealed class MidiInputTests
         Assert.Equal("alsa-seq", alsa.Name);
         if (File.Exists("/dev/snd/seq"))
             return;
-        Assert.Equal("no ALSA sequencer: /dev/snd/seq is missing (load the snd-seq module, or this machine has no sound devices)", alsa.Unavailable);
+        // The reason is this machine's: without the ALSA library (Windows, a machine with no sound stack) it says so; with it, the
+        // sequencer device is what is missing.
+        var library = NativeLibrary.TryLoad("libasound.so.2", out var handle);
+        if (library)
+            NativeLibrary.Free(handle);
+        Assert.Equal(library
+            ? "no ALSA sequencer: /dev/snd/seq is missing (load the snd-seq module, or this machine has no sound devices)"
+            : "no ALSA library (libasound.so.2) on this machine — MIDI input needs it", alsa.Unavailable);
         Assert.Empty(alsa.Ports());
         var refused = Assert.Throws<Core.Control.Midi.MidiUnavailableException>(() =>
             alsa.OpenInput(new Core.Control.Midi.MidiPortInfo("20:0", "x", true), new NullReceiver()));

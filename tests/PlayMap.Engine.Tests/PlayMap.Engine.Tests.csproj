@@ -52,4 +52,9 @@
     <Compile Include="..\PlayMap.Core.Tests\Facade\LasTestWriter.cs" Link="Facade\LasTestWriter.cs" />
   </ItemGroup>
 
+  <!-- Spout's fake kernel and GPU, shared with the media tests rather than copied. -->
+  <ItemGroup Label="wp2-d3d11">
+    <Compile Include="..\PlayMap.Media.Tests\Video\Spout\FakeSpout.cs" Link="VideoIo\FakeSpout.cs" />
+  </ItemGroup>
+
 </Project>

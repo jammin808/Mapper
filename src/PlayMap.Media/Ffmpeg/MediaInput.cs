@@ -1,6 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
+using PlayMap.Core.Media;
+using PlayMap.Core.Media.Decode;
+using PlayMap.Media.Hw;
 
 namespace PlayMap.Media.Ffmpeg;
 
@@ -69,6 +72,17 @@ public sealed record DecoderOptions
     /// <summary>Live input: slice threads only and the low-delay flag, so a frame leaves the decoder as soon as
     /// its packet arrives (frame threads hold one frame per thread).</summary>
     public bool LowDelay { get; init; }
+
+    /// <summary>The renderer's device (wp2-output's share; wp2-d3d11's on Windows) for a decoder whose frames go to the renderer:
+    /// a zero-copy device is made on it when <see cref="Ceiling"/> allows. Null: frames come back to system memory, as for every
+    /// CPU consumer (scan cameras, thumbnails, the probe).</summary>
+    public IGpuShare? Gpu { get; init; }
+
+    /// <summary>The best rung of the ladder this decoder may take (the policy's and the platform's choice, DecodeLadder.Choose).</summary>
+    public DecodePath Ceiling { get; init; } = DecodePath.HwDirect;
+
+    /// <summary>Frames queued ahead on a zero-copy path (each holds a decoder surface).</summary>
+    public int QueueFramesHw { get; init; } = 8;
 
     public static readonly DecoderOptions Default = new();
 }
@@ -251,16 +265,21 @@ internal sealed unsafe class StreamDecoder : IDisposable
     private AVBufferRef* _hwDevice;
     private AVFrame* _transfer;
 
-    private StreamDecoder(AVCodecContext* ctx, AVBufferRef* hwDevice, AVPixelFormat hwFormat, string name, string why)
+    private StreamDecoder(AVCodecContext* ctx, AVBufferRef* hwDevice, AVPixelFormat hwFormat, string name, string why, DecodePath zeroCopy)
     {
         _ctx = ctx;
         _hwDevice = hwDevice;
         HardwareFormat = hwFormat;
         Name = name;
         Why = why;
+        ZeroCopy = hwDevice is null ? DecodePath.Software : zeroCopy;
         if (hwDevice is not null)
             _transfer = ffmpeg.av_frame_alloc();
     }
+
+    /// <summary>The rung the decoder opened on: HwDirect or HwGpuCopy when its device is the renderer's (its surfaces import without
+    /// leaving the GPU), HwCopyBack for any other device, Software without one.</summary>
+    public DecodePath ZeroCopy { get; }
 
     public AVCodecContext* Context => _ctx;
 
@@ -306,12 +325,21 @@ internal sealed unsafe class StreamDecoder : IDisposable
             throw new MediaOpenException(MediaProblem.DecodeFailed, "FFmpeg could not allocate a decoder context");
         AVBufferRef* device = null;
         var hwFormat = AVPixelFormat.AV_PIX_FMT_NONE;
+        var rung = DecodePath.HwCopyBack;
         try
         {
             FfmpegUtil.Check(ffmpeg.avcodec_parameters_to_context(ctx, par), "decoder parameters");
             ctx->pkt_timebase = stream->time_base;
             if (par->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO && options.AllowHardware)
-                device = TryHardware(codec, ctx, options, out hwFormat, out why);
+            {
+                device = TryZeroCopy(codec, ctx, options, out hwFormat, out rung, ref why);
+                if (device is null)
+                {
+                    device = TryHardware(codec, ctx, options, out hwFormat, out var platformWhy);
+                    why = Words(why, platformWhy);
+                    rung = DecodePath.HwCopyBack;
+                }
+            }
             if (options.LowDelay)
             {
                 ctx->flags |= ffmpeg.AV_CODEC_FLAG_LOW_DELAY;
@@ -336,14 +364,14 @@ internal sealed unsafe class StreamDecoder : IDisposable
                 ffmpeg.av_buffer_unref(&ctx->hw_device_ctx);
                 ffmpeg.av_buffer_unref(&device);
                 ffmpeg.avcodec_free_context(&ctx);
-                return Open(stream, options with { AllowHardware = false }, Words(why, refused));
+                return Open(stream, options with { AllowHardware = false, Gpu = null }, Words(why, refused));
             }
             if (r < 0)
                 throw new MediaOpenException(MediaProblem.DecodeFailed, $"the {FfmpegUtil.Text(codec->name)} decoder refused the stream: {FfmpegUtil.ErrorText(r)}");
             var name = FfmpegUtil.Text(codec->name);
             if (device is not null)
                 name += " (" + ffmpeg.av_hwdevice_get_type_name(((AVHWDeviceContext*)device->data)->type) + ")";
-            return new StreamDecoder(ctx, device, hwFormat, name, why);
+            return new StreamDecoder(ctx, device, hwFormat, name, why, rung);
         }
         catch
         {
@@ -420,6 +448,77 @@ internal sealed unsafe class StreamDecoder : IDisposable
             if (r < 0)
                 return (0, AVPixelFormat.AV_PIX_FMT_NONE, $"{typeName}: no device ({FfmpegUtil.ErrorText(r)})");
             return ((nint)device, config->pix_fmt, "");
+        }
+    }
+
+    /// <summary>The zero-copy rung: a device on the renderer's own GPU when the ceiling allows one (VAAPI on the share's render node
+    /// on Linux; D3D11VA on the share's device on Windows), with enough surfaces for the queue, the decoder's references and what
+    /// the renderer holds. Null, with the words added to <paramref name="why"/>, when there is none; the platform's order follows.</summary>
+    private static AVBufferRef* TryZeroCopy(AVCodec* codec, AVCodecContext* ctx, DecoderOptions options, out AVPixelFormat format,
+        out DecodePath rung, ref string why)
+    {
+        format = AVPixelFormat.AV_PIX_FMT_NONE;
+        rung = DecodePath.HwCopyBack;
+        if (options.Gpu is not { } share || DecodeLadder.Rank(options.Ceiling) is not (1 or 2)
+            || (!string.IsNullOrEmpty(options.HardwareDevice) && !ZeroCopyDevice(share.Api).Equals(options.HardwareDevice, StringComparison.OrdinalIgnoreCase)))
+            return null;
+        AVBufferRef* device;
+        AVHWDeviceType type;
+        string refused;
+        if (share.Api == GpuApi.DmaBuf && OperatingSystem.IsLinux() && share.DrmRenderNode is { Length: > 0 } node
+            && options.Ceiling == DecodePath.HwDirect)
+        {
+            type = AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI;
+            // A libva this FFmpeg cannot use is said once, by the platform's order that follows.
+            if (Unusable(type, options.LibraryProbe) is not null)
+                return null;
+            else
+                device = HwDecode.VaapiOnNode(node, out refused);
+            rung = DecodePath.HwDirect;
+        }
+        else if (share.Api == GpuApi.D3D11 && OperatingSystem.IsWindows())
+        {
+            type = AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA;
+            device = HwDecode.D3d11vaOnShare(share, out refused);
+            rung = options.Ceiling;
+        }
+        else
+        {
+            return null;
+        }
+        if (device is not null && PixelFormatFor(codec, type) == AVPixelFormat.AV_PIX_FMT_NONE)
+        {
+            refused = $"{ffmpeg.av_hwdevice_get_type_name(type)}: does not decode {FfmpegUtil.Text(codec->name)}";
+            ffmpeg.av_buffer_unref(&device);
+        }
+        if (device is null)
+        {
+            why = Words(why, refused);
+            return null;
+        }
+        ctx->hw_device_ctx = ffmpeg.av_buffer_ref(device);
+        ctx->extra_hw_frames = Math.Max(1, options.QueueFramesHw) + HwDecode.RendererHeld;
+        format = PixelFormatFor(codec, type);
+        return device;
+    }
+
+    /// <summary>FFmpeg's device name for the zero-copy device of a share's API ("" when it has none).</summary>
+    internal static string ZeroCopyDevice(GpuApi api) => api switch
+    {
+        GpuApi.DmaBuf => "vaapi",
+        GpuApi.D3D11 => "d3d11va",
+        _ => "",
+    };
+
+    private static AVPixelFormat PixelFormatFor(AVCodec* codec, AVHWDeviceType type)
+    {
+        for (var i = 0; ; i++)
+        {
+            var config = ffmpeg.avcodec_get_hw_config(codec, i);
+            if (config is null)
+                return AVPixelFormat.AV_PIX_FMT_NONE;
+            if (config->device_type == type && (config->methods & (int)AvCodecHwConfigMethod.AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) != 0)
+                return config->pix_fmt;
         }
     }
 

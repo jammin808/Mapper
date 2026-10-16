@@ -2,8 +2,8 @@
 
 A PlayMap node receives network video as live inputs and sends any point of its pipeline as a network source. Two protocols:
 **OMT** (Open Media Transport — libomtnet and its VMX codec, vendored, so it works on every node out of the box) and **NDI**
-(through the NDI 6 runtime the user installs; PlayMap ships none of it). Spout's provider registers beside them with the
-Direct3D 11 work, which is in flight.
+(through the NDI 6 runtime the user installs; PlayMap ships none of it). **Spout** (Windows) registers beside them: GPU textures
+shared with other apps on the same machine (see *Spout* below).
 The verbs, STATE, the context, events, INDEX and preflight are in `docs/wire/videoio.md`; the design is
 `docs/round2/design/netvideo.md`.
 
@@ -113,13 +113,57 @@ the frame's metadata. The tests run against `tests/native/fake_ndi.c`, PlayMap's
 
 NDI® is a registered trademark of Vizrt NDI AB.
 
+## Spout
+
+Spout 2 shares GPU textures between apps on one Windows machine. PlayMap's provider (`src/PlayMap.Media/Video/Spout`) speaks Spout
+2.007's protocol over two seams — the kernel's named objects (`ISpoutKernel`) and a Direct3D 11 device (`ISpoutGpu`) — and is
+registered in videoio's lists by the output part when `NodeSettings.VideoIo.SpoutEnabled` is on. Off Windows it is registered
+unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER SPOUT` are refused "Spout is Windows only".
+
+- **Discovery** reads the sender list (`SpoutSenderNames`: 256-byte slots, the names in order) under its mutex — Spout's 67 ms wait,
+  on the provider's own timer, never the frame path — and each sender's 280-byte info map (share handle, size, DXGI format, usage,
+  the sender's exe path, partner id). `spout:*` is the active sender. A name with no map is asked of the kernel
+  (`OpenFileMappingW`) before it is opened, so looking for an absent sender throws nothing.
+- **Receiving** (`SpoutReceiver`, on the input's own thread, a step every 2 ms — every 250 ms while no sender of the name exists —
+  never blocking): the info at 0 ms on its mutex (its
+  texture reopened when the handle, size or format changes); then **in Spout's order** the access lock first — the texture's keyed
+  mutex at key 0 where it has one, else `<sender>_SpoutAccessMutex` at 0 ms; inside it the frame counter (take one, give it back,
+  the count before; nothing given back when nothing was taken), a count equal to the last copied one being not new; then `CopyResource` into one of three staging textures,
+  the lock released, `<sender>_Sync_Event` set, and only then the count committed — a busy lock or a failed copy leaves it, so the
+  next step copies frame N. A copied frame is mapped one step later with `DO_NOT_WAIT` (a copy still in flight is tried again at the
+  next step, before any other copy is made, never waited for) into the input's frame pool as BGRA or RGBA, so every copy made is
+  delivered. B8G8R8A8 and R8G8B8A8 senders are received this round (format 0 and the
+  D3D9 formats read as B8G8R8A8); a sender's texture on another GPU is refused with the words. Spout has no tally.
+- **Sending** (`SpoutSender` behind a `SendSink`): the published name is `PlayMap <node> - <send>` (printable ASCII; anything else is
+  `?`). Registering inserts the name in the sender list under its mutex (refused when a live sender already has it, naming its exe),
+  makes the active sender when none is, makes the shared B8G8R8A8 texture, its info map (partner id 0: a DirectX sender), the
+  access mutex, the frame counter (a semaphore from 1), the sync event and the data map. Each frame is the frame the **send stage**
+  hands every sender of that tap — so a Spout send follows the air as outputs show it: black while blacked out, held while frozen, a
+  pattern's black, the master applied, a blind draft never in it — converted to BGRA on the send's worker (UYVY and UYVA by BT.709,
+  P216 and PA16 by their high bytes) and uploaded: the access mutex tried for up to 20 ms on the send's worker (a receiver still
+  holding it skips the frame, counted dropped with words; a frame of a format that does not convert is dropped with words too, never
+  counted sent), the counter given net one, the mutex released, the event set, and PlayMap's facts written to `<sender>_map`
+  (`{"pm":1,"node","send","rate","tap","frame","leaderNs","w","h"}`). Spout shows no receivers, so a send counts one connection (its
+  shared texture) and sends whenever it is on; stopping sends one black frame and removes the name.
+- **The GPU target** (`IGpuSendTarget`, videoio's GPU send provider) gives a renderer the shared texture to draw into, made on the
+  renderer's own Direct3D 11 device when it has one (`IGpuShare`; every call on its immediate context under the device's lock, which
+  the render loop holds around each frame), with the same lock and counter (a frame of another size is
+  skipped and counted, never remade on the frame path); videoio's send stage drives the packed path this round, so Spout sends go through it.
+- **Spout's device** is its own Direct3D 11 device (the default adapter; WARP on CI): the renderer is OpenGL on `auto`, and the shared
+  textures are legacy share handles, as Spout publishes them.
+- A PC set to Spout 2.006 memory share (SpoutSettings) is said in STATE: PlayMap shares GPU textures only.
+
 ## Verified here, and in the lab
 
 Verified on this machine: the GPU pack and unpack of every layout against the CPU twin on GL 3.3 core and GLES 3.00 (llvmpipe); OMT
 for real over loopback, lock-step at 1080p in UYVY, UYVA, BGRA, P216 and PA16, with tally, quality and the 1/8 preview; the engine
 sending an output and receiving it as an input; discovery with no avahi daemon; NDI against the fake runtime (loader, find with
 groups and the discovery server, receive, the async send ring, tally both ways, advertisers on 6.3 and not 6.2, colour info); the
-loss policy and backups on a fake provider and a hand-moved clock. Opt-in: `NdiRealRuntimeTests` with `PLAYMAP_NDI_DIR` pointing
+loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
+list, Spout's order on both sides, the busy-mutex case, a failed copy, a read-back in flight read before the next copy, keyed
+textures, a sender that left, a frame that does not convert dropped and never counted sent) and a Spout send following the air on
+the real render host. On the Windows CI job (WARP): a sender and a receiver round-trip a 64×36
+chart through two WARP devices and the kernel's real named objects. Opt-in: `NdiRealRuntimeTests` with `PLAYMAP_NDI_DIR` pointing
 at a real NDI 6 runtime (120 frames sent and received back).
 
 The lab checklist (two machines on one switch):
@@ -133,9 +177,13 @@ The lab checklist (two machines on one switch):
 4. P216 from A with B's input at `live.depth "high"`: B receives 16-bit (`format:"p216"`).
 5. Blackout A: B's picture goes black; freeze A: it holds; a test pattern on A's outputs reaches B.
 6. Watch the bandwidth line in STATE against the switch's own counters; `SEND ADD` past 70 % of the link is refused.
+7. Spout (one Windows machine with a GPU): `SEND ADD SPOUT Main output:op_1 BGRA8 ALWAYS`; Resolume and TouchDesigner list
+   `PlayMap <node> - Main` and show it; blackout reaches them. Send from Resolume; `INPUT DISCOVER SPOUT` lists it; `INPUT ADD
+   spout:Arena` shows it on a surface; close Resolume and the input goes `lost`.
 
 ## Next round
 
 Prewarp taps, multiview sends, smooth and locked pacing (`LivePacing` is accepted and shown as `latest`), PTZ, failover sends
 (`SEND FAILOVER`), `LiveCamera` scans over NDI/OMT, discovery thumbnails, hosting an OMT discovery server, naming sources after Show
-Bus peers, Syphon, capture cards, a per-RID libvmx in the release packaging.
+Bus peers, Syphon, capture cards, a per-RID libvmx in the release packaging; Spout's GPU send stage (drawing into the shared texture on
+the renderer's device), the WGL bridge for GL renderers, 16-bit and float Spout formats, and the ANGLE zero-copy receive.

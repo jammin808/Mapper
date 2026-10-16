@@ -171,10 +171,15 @@ public sealed class OutputFixtureTests
     {
         var root = JsonNode.Parse(MainStateFixtureTests.Normalise(stateJson))!.AsObject();
         root["machine"]!["renderer"] = "OpenGL 4.5 llvmpipe";
+        // The fixture is written on Linux: another platform's own window-system words read as GLX's (EGL stays EGL).
+        if ((string?)root["machine"]!["gl"] == HostRig.NativeBinding)
+            root["machine"]!["gl"] = "glx";
         if (root["machine"]!["present"] is JsonObject machine)
         {
             machine["adapter"] = "OpenGL 4.5 llvmpipe";
             machine["presentMsP95"] = 0.21;
+            if ((string?)machine["context"] == HostRig.NativeContext)
+                machine["context"] = "glx";
         }
         foreach (var o in root["outputs"]!.AsArray().OfType<JsonObject>())
         {
@@ -195,7 +200,7 @@ public sealed class OutputFixtureTests
                 p["words"] = "60 Hz target · offscreen · 0 missed in 60 s";
             }
         }
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     /// <summary>The desk's cards for this package's STATE blocks: title, STATE path, light, words, up to six fields, actions as lines.</summary>
@@ -205,7 +210,7 @@ public sealed class OutputFixtureTests
         {
             Card("Presentation", "outputs[].present", "outputs[].present.light", "outputs[].present.words",
                 [("Refresh", "outputs[].present.refreshHz", "Hz"), ("Against", "outputs[].present.nominalHz", "Hz"), ("Missed (60 s)", "outputs[].present.missed60s", ""),
-                 ("Late (10 s)", "outputs[].present.late10s", ""), ("Path", "outputs[].present.path", ""), ("Latency", "outputs[].latencyMs", "ms")],
+                 ("Late (10 s)", "outputs[].present.late10s", ""), ("Delay", "outputs[].present.delayFrames", "frames"), ("Latency", "outputs[].latencyMs", "ms")],
                 [("Stats", "OUTPUT STATS $(id)"), ("Reset counters", "PRESENT RESET $(id)")]),
             Card("Frame lock", "outputs[].lock", "outputs[].lock.state", "outputs[].lock.words",
                 [("State", "outputs[].lock.state", ""), ("Reason", "outputs[].lock.reason", ""), ("Fell out", "outputs[].lock.fellOut", ""),
@@ -216,11 +221,11 @@ public sealed class OutputFixtureTests
                  ("Latency", "sync.latencyMs", "ms"), ("Refused", "sync.lock.refused.words", "")],
                 [("Apply", "SYNC APPLY"), ("Leave", "SYNC LEAVE"), ("Rejoin", "SYNC REJOIN")]),
             Card("Present path", "machine.present", null, "machine.present.why",
-                [("API", "machine.present.api", ""), ("Adapter", "machine.present.adapter", ""), ("Path", "machine.present.path", ""),
-                 ("Dialect", "machine.present.dialect", ""), ("Context", "machine.present.context", ""), ("Present p95", "machine.present.presentMsP95", "ms")],
-                [("Stats", "OUTPUT STATS ALL")]),
+                [("Path", "machine.present.path", ""), ("Asked", "machine.present.asked", ""), ("Fuse", "machine.present.fuse.state", ""),
+                 ("Adapter", "machine.present.adapter", ""), ("Air latency", "machine.present.airLatencyMs", "ms"), ("Present p95", "machine.present.presentMsP95", "ms")],
+                [("Stats", "OUTPUT STATS ALL"), ("Reset", "PRESENT RESET"), ("OpenGL", "PRESENT PATH GL")]),
         };
-        return cards.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return cards.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     private static JsonObject Card(string title, string path, string? light, string words, (string Label, string Path, string Unit)[] fields,

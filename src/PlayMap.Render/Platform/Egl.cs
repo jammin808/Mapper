@@ -102,7 +102,7 @@ internal static partial class Egl
 /// counted, so the display is initialised by the first live context and terminated only when the last one is disposed: one
 /// context going never pulls the display from under another on another thread.</summary>
 [SupportedOSPlatform("linux")]
-internal sealed class EglSurfacelessContext : IDisposable
+internal sealed class EglSurfacelessContext : ISurfacelessContext
 {
     private static readonly Lock DisplayGate = new();
     private static int _displayUsers;

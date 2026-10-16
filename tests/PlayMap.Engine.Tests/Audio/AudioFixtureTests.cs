@@ -112,7 +112,7 @@ public sealed class AudioFixtureTests
     {
         var root = JsonNode.Parse(stateJson)!.AsObject();
         var fixture = new JsonObject { ["audio"] = root["audio"]!.DeepClone(), ["modulation"] = root["modulation"]!.DeepClone() };
-        return fixture.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        return fixture.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public sealed class AudioFixtureTests
             Assert.Equal(2, modulation.GetProperty("pure").GetInt32());
             Assert.Equal("gn_julia", modulation.GetProperty("held")[0].GetString());
         }
-        var cards = Cards().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "audio.json");
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "audio.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")

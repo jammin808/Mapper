@@ -49,6 +49,11 @@ runs at a time, oldest first, through the worker:
   tests). It lowers its own CPU priority, makes its GL context through the platform seam (hidden, or EGL surfaceless on Linux with no
   display), and speaks one JSON object a line on its standard input and output (run, knobs, cancel, stop; hello, progress, done,
   failed). It ends when its input closes, and after `IdleExitS` (120 s) with nothing to do.
+- **A worker that will not end.** Asked to end, a worker has `StopGrace` (5 s) and is then killed; a killed worker has
+  `KillWait` (5 s) to go. One that has not (a thread held in a GPU or codec driver, a disk that went away) is journalled — "the
+  optimise worker (pid …) has not ended 5 s after it was killed (a driver or a disk holds it): the node goes on without it" —
+  and the node goes on: its stop, the recovery record and the journal's flush never wait on it. A stop kills only the worker it
+  asked to end; a job that comes while a worker is on its way out goes to a fresh worker at once.
 - **A worker that stops** (a crash, a kill) is started again after a backoff (1 s, doubling with each crash in a row, at most 30 s; a version made resets it); its job starts again from
   its first frame. A clip that stops the worker `MaxAttempts` (3) times fails with "the worker stopped (exit code …) 3 times on
   this clip — it is not optimised". A node that restarts mid-job queues the job again with its words.
@@ -63,7 +68,9 @@ runs at a time, oldest first, through the worker:
 - **Audio** is stream-copied into the `.mov` with its own timestamps when the muxer takes the codec (AAC, PCM, ALAC among them);
   otherwise the version is silent and its words say so (decoding to PCM is next round).
 - **Cancel** kills a running job's worker and deletes its partial file; a cancelled or failed job leaves no file, and the work
-  folder is swept of every partial whose job is not running. A clean stop of the node leaves a running job queued for its next start.
+  folder is swept of every partial whose job is not running — whenever a worker's end is reported, and when a worker replaced on its
+  way out has gone (on Windows a killed worker's files can be deleted only then). A clean stop of the node leaves a running job
+  queued for its next start.
 - **The import hook.** When an import's probe lands (an item gains its content hash), the item is planned under the project's mode.
 
 ## The governor
