@@ -283,8 +283,12 @@ void test('INDEX makes a template group per playlist keyed pl.<id>, a section pe
 				.find((x) => x.id === 'sec.show')
 				?.definitions.map((g) => [g.id, g.presetId, g.templateValues?.map((v) => v.value)]),
 			[
-				['sec.show.0', 'section_key_instant', ['SHOW ARM', 'SHOW DISARM', 'PANIC', 'PANIC BLACK', 'PANIC HARD']],
-				['sec.show.0.hold', 'section_key_hold', ['PANIC CLEAR', 'MASTER 0', 'MASTER 100']],
+				[
+					'sec.show.0',
+					'section_key_instant',
+					['SHOW ARM', 'SHOW DISARM', 'PANIC', 'PANIC BLACK', 'PANIC HARD', 'BLIND DISCARD'],
+				],
+				['sec.show.0.hold', 'section_key_hold', ['PANIC CLEAR', 'MASTER 0', 'MASTER 100', 'BLIND COMMIT NEXT']],
 			],
 		)
 		// The output section's REJOIN key is held as its hint says; its present key is instant.

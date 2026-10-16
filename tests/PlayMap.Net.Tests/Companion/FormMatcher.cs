@@ -15,9 +15,9 @@ namespace PlayMap.Net.Tests.Companion;
 /// a literal word, or a shape ("#&lt;n&gt;", "&lt;w&gt;x&lt;h&gt;", "@&lt;fps&gt;") whose marks the word carries. An optional parameter may be left out and
 /// a repeating one takes one or more values; every reading of the optional ones is tried, so a line that fits is never refused.
 /// A form a key cannot write right fits no line: one whose literal is no word ("#rrggbb" is the shape of a value, named bare, which a
-/// key could only send as it stands), one with a flag straight before an optional choice ("QUALITY" then "LOW|MEDIUM|HIGH": a
-/// keyword parted from its value, either of which a key could send alone), or one with any parameter after JSON or an embedded line
-/// (which take the rest of the line, so nothing after them can be written).</summary>
+/// key could only send as it stands), or one with any parameter after JSON or an embedded line (which take the rest of the line, so
+/// nothing after them can be written). A keyword and the choice it introduces in one optional part ("[QUALITY LOW|MEDIUM|HIGH]") are
+/// one keyed choice (VerbParamTests holds the reader to it), so a flag before a choice is two parts a key may send apart.</summary>
 internal static partial class FormMatcher
 {
     /// <summary>The first words of placeholders that stand for a number ("&lt;n&gt;", "&lt;w&gt;x&lt;h&gt;", "&lt;unix ms&gt;").</summary>
@@ -66,8 +66,6 @@ internal static partial class FormMatcher
             var p = form[i];
             if (p.Kind is ParamKind.Enum or ParamKind.Flag && p.Values?.FirstOrDefault(v => !IsLiteralWord(v)) is { } bare)
                 return $"its {p.Name} names '{bare}', the shape of a value rather than a word the node reads, so a key could only send it as it stands";
-            if (p.Kind is ParamKind.Flag && i + 1 < form.Count && form[i + 1] is { Kind: ParamKind.Enum, Optional: true, Keyword: null } next)
-                return $"its flag {string.Join('|', p.Values ?? [])} stands before the choice {string.Join('|', next.Values ?? [])} — a keyword parted from its value, either of which a key could send alone";
             if (p.Kind is ParamKind.Json or ParamKind.Line && i + 1 < form.Count)
                 return $"its {p.Name} takes the rest of the line, so no key can write the {string.Join(", ", form.Skip(i + 1).Select(q => q.Name))} after it";
         }

@@ -120,7 +120,8 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(services);
         Services = services;
-        Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name));
+        // The undo window counts on the node's clock, as the control gestures that close inside it do.
+        Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name), () => services.Mono.NowNs / 1_000_000);
         Journal = new Journal(services.JournalPath, () => services.Wall.UnixMs);
         Playback = new PlaybackLanes(MediaDurationNs);
         Playback.Reconcile(Store.Project);
@@ -430,8 +431,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         BeginStop();
         StopSolving();
+        CancelSurvey();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
+        await EndSurveyAsync().ConfigureAwait(false);
         await Journal.DisposeAsync().ConfigureAwait(false);
     }
 }

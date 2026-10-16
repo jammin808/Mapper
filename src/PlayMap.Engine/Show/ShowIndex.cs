@@ -5,7 +5,7 @@ using PlayMap.Core.Show;
 namespace PlayMap.Engine.Show;
 
 /// <summary>INDEX's show section: the keys a show caller needs on a deck — ARM, DISARM, a PANIC per outcome this show plans (and
-/// the default), PANIC CLEAR, the master's ends and the master on an encoder. Each row's id is the line its key sends; the
+/// the default), PANIC CLEAR, the master's ends and the master on an encoder, and the blind draft's COMMIT NEXT and DISCARD. Each row's id is the line its key sends; the
 /// encoder row's key sends MASTER with the encoder's value. Written from published state only.</summary>
 public sealed class ShowIndex(EngineCore engine) : IIndexContributor
 {
@@ -36,6 +36,12 @@ public sealed class ShowIndex(EngineCore engine) : IIndexContributor
         Row(w, "MASTER 0", "master", "MASTER 0", level == 0 ? "amber" : "grey", level.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Row(w, "MASTER 100", "master", "MASTER 100", level == 100 ? "green" : "grey", level.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Row(w, "MASTER", "encoder", "MASTER", level < 100 ? "amber" : "green", level.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        // The blind draft's keys: land it at the focused playlist's next switch, or drop it.
+        var blind = engine.BlindNow;
+        var staged = blind is null ? "no draft" : blind.Commit is { } commit ? "landing " + commit.BoundaryWord
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{blind.Patch.Changes.Count} staged");
+        Row(w, "BLIND COMMIT NEXT", "blind", "COMMIT NEXT", blind is null ? "grey" : "amber", staged);
+        Row(w, "BLIND DISCARD", "blind", "DISCARD", blind is null ? "grey" : "amber", staged);
         w.WriteEndArray();
     }
 

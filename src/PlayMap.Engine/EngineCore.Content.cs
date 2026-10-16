@@ -362,6 +362,9 @@ public sealed partial class EngineCore
     {
         if (args.Count < 1)
             return CommandReply.Fail("MEDIA IMPORT <path|url> [<name>]");
+        // A survey or model file is never media: no decoder plays it, and the library would keep a clip that cannot play.
+        if (Path.GetExtension(args[0]).ToLowerInvariant() is ".obj" or ".ply" or ".gltf" or ".glb" or ".las" or ".laz" or ".e57" or ".xyz" or ".pts")
+            return CommandReply.Fail($"{Path.GetFileName(args[0])} is a survey or model, not media — SURVEY IMPORT {args[0]} brings it onto the stage");
         if (Services.Media is not { } media)
             return CommandReply.Fail("no media engine on this node");
         var location = args[0];

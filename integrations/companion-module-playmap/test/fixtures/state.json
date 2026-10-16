@@ -33,6 +33,7 @@
       "handle": null,
       "grid": false,
       "cursors": 0,
+      "cursorP95Ms": -1,
       "armed": false
     }
   },
@@ -163,7 +164,10 @@
     "surfaces": 0,
     "meshes": 0,
     "projectors": [],
-    "scans": 0
+    "scans": 0,
+    "site": null,
+    "controls": 0,
+    "surveys": []
   },
   "scan": {
     "state": "projecting",
@@ -297,7 +301,8 @@
       "expectArmed": false,
       "defaultOutcome": "black",
       "defaultFadeMs": 1000,
-      "panicLeadMs": 0
+      "panicLeadMs": 0,
+      "commitLeadMs": 34
     },
     "blind": null,
     "panic": null,
@@ -307,6 +312,7 @@
       "last": ""
     },
     "preflight": null,
+    "sound": null,
     "minGoMs": 0
   },
   "fleet": {
@@ -357,6 +363,53 @@
       "words": "no decoders open; no renderer yet"
     },
     "sources": []
+  },
+  "videoio": {
+    "ndi": {
+      "state": "absent",
+      "version": "",
+      "path": "",
+      "words": "NDI is not available on this node: no NDI runtime was loaded \u2014 install the NDI 6 runtime (https://ndi.video) and set PLAYMAP_NDI_DIR to its folder",
+      "link": "https://ndi.video",
+      "groups": "",
+      "discovery": "",
+      "advertisers": false,
+      "next": {
+        "state": "on",
+        "groups": "",
+        "discovery": ""
+      }
+    },
+    "omt": {
+      "state": "failed",
+      "version": "",
+      "vmx": "missing",
+      "mdns": "none",
+      "server": "",
+      "words": "OMT is not available on this node",
+      "next": {
+        "state": "on",
+        "server": ""
+      }
+    },
+    "spout": {
+      "state": "unavailable",
+      "version": "",
+      "senders": 0,
+      "words": "no Spout provider on this node (Spout is Windows only)"
+    },
+    "discoveredCount": 0,
+    "discovered": [],
+    "inputs": [],
+    "sends": [],
+    "bandwidth": {
+      "nic": "",
+      "linkMbps": -1,
+      "inMbps": 0,
+      "outMbps": 0,
+      "limitMbps": 0,
+      "light": "grey"
+    }
   },
   "control": {
     "enabled": true,
@@ -555,7 +608,8 @@
   },
   "align": {
     "run": null,
-    "groups": []
+    "groups": [],
+    "devices": []
   },
   "phones": []
 }

@@ -118,7 +118,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
         Midi.PortsChanged += () => _work.Writer.TryWrite(Work.Ports);
         OpenOsc(settings, engine.Services.Settings);
         _midiWords = Midi.Unavailable ?? "";
-        Reconcile(engine.Store.Project, settings);
+        Reconcile(engine.Store.Current, settings);
         _loop = Task.Run(() => LoopAsync(_stop.Token), _stop.Token);
         _ticker = Task.Run(() => TickerAsync(_stop.Token), _stop.Token);
         engine.FactsChanged();
@@ -218,7 +218,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
                     await ArtNetAsync(w.Bytes!, w.Address, w.AtNs, ct).ConfigureAwait(false);
                     break;
                 case WorkKind.Settings:
-                    Reconcile(engine.Store.Project, engine.ControlInput.Settings);
+                    Reconcile(engine.Store.Current, engine.ControlInput.Settings);
                     break;
                 case WorkKind.Ports:
                     ReconcileMidi(engine.Store.Project, engine.ControlInput.Settings);
@@ -250,9 +250,10 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     {
         var engine = _engine!;
         var now = engine.Services.Mono.NowNs;
-        var project = engine.Store.Project;
+        var shown = engine.Store.Current;
+        var project = shown.Project;
         if (!ReferenceEquals(project, _seen))
-            Reconcile(project, engine.ControlInput.Settings);
+            Reconcile(shown, engine.ControlInput.Settings);
         await engine.ControlInput.PollAsync(now, ct).ConfigureAwait(false);
         foreach (var p in _midiInputs.Values)
             lock (p.Parser)
@@ -295,14 +296,15 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
 
     /// <summary>Opens and closes what the settings and the show ask for: MIDI inputs, the Art-Net consumer and its wanted channels,
     /// the timecode inputs.</summary>
-    private void Reconcile(Project project, ControlSettings settings)
+    private void Reconcile(ProjectSnapshot shown, ControlSettings settings)
     {
+        var project = shown.Project;
         _seen = project;
         _surfaces = project.Control.Surfaces;
         ReconcileMidi(project, settings);
         ReconcileArtNet(project, settings);
         ReconcileSacn(project, settings);
-        ReconcileTimecode(project);
+        ReconcileTimecode(shown);
         _engine?.FactsChanged();
     }
 
@@ -787,10 +789,12 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
 
     // ---- timecode inputs ----
 
-    private void ReconcileTimecode(Project project)
+    private void ReconcileTimecode(ProjectSnapshot shown)
     {
         var engine = _engine!;
-        engine.TimecodeSources.Reconcile(project);
+        var project = shown.Project;
+        // The board ignores a show older than one the lane has reconciled it to since this one was read.
+        engine.TimecodeSources.Reconcile(shown);
         var ltc = project.Timecode.Sources.Where(s => s.Kind == TimecodeKind.Ltc).ToList();
         foreach (var (id, input) in _ltc.ToList())
         {

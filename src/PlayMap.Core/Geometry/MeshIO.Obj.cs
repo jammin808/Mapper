@@ -8,9 +8,18 @@ public static partial class MeshIO
     /// v/vt/vn forms and negative (relative) indices; polygons are fan-triangulated; groups, objects,
     /// smoothing and materials are ignored. Each distinct (v, vt, vn) corner becomes one vertex. A file with
     /// no faces is a point cloud of its vertices.</summary>
-    public static GeometryFile ReadObj(TextReader reader)
+    public static GeometryFile ReadObj(TextReader reader) => ReadObj(reader, GeometryReadOptions.AsStored);
+
+    /// <summary>Reads Wavefront OBJ placed by <paramref name="options"/>: vertices are parsed in double and rebased into the
+    /// options' frame before they are narrowed to float; normals are turned into the stage's axes.</summary>
+    public static GeometryFile ReadObj(TextReader reader, GeometryReadOptions options) => ReadObj(reader, options, CancellationToken.None);
+
+    /// <summary>Reads Wavefront OBJ placed by <paramref name="options"/>; <paramref name="ct"/> stops a long file between lines.</summary>
+    public static GeometryFile ReadObj(TextReader reader, GeometryReadOptions options, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(options);
+        var lines = 0;
         var pos = new List<Vec3d>();
         var col = new List<int>();
         var tex = new List<Vec2d>();
@@ -22,6 +31,8 @@ public static partial class MeshIO
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
+            if ((++lines & 0xFFFF) == 0)
+                ct.ThrowIfCancellationRequested();
             var span = line.AsSpan().Trim();
             if (span.IsEmpty || span[0] == '#')
                 continue;
@@ -56,8 +67,9 @@ public static partial class MeshIO
             }
         }
         var colours = col.Count == pos.Count && pos.Count > 0 ? col : null;
+        var frame = options.Resolve(pos);
         if (corners.Count == 0)
-            return new GeometryFile(null, new PointCloud([.. pos], null, colours?.ToArray()), []);
+            return new GeometryFile(null, new PointCloud([.. pos.Select(x => options.Apply(x, frame))], null, colours?.ToArray()), []) { Site = frame };
 
         var anyUv = corners.Exists(c => c.T >= 0);
         var anyNormal = corners.Exists(c => c.N >= 0);
@@ -74,7 +86,7 @@ public static partial class MeshIO
             {
                 v = (uint)map.Count;
                 map[c] = v;
-                var p = pos[c.V];
+                var p = options.Apply(pos[c.V], frame);
                 outPos.AddRange([(float)p.X, (float)p.Y, (float)p.Z]);
                 if (anyUv)
                 {
@@ -83,7 +95,7 @@ public static partial class MeshIO
                 }
                 if (anyNormal)
                 {
-                    var q = c.N >= 0 ? nor[c.N] : Vec3d.Zero;
+                    var q = c.N >= 0 ? options.ApplyDirection(nor[c.N], frame) : Vec3d.Zero;
                     outNor.AddRange([(float)q.X, (float)q.Y, (float)q.Z]);
                 }
                 if (colours is not null)
@@ -91,7 +103,7 @@ public static partial class MeshIO
             }
             idx[i] = v;
         }
-        return new GeometryFile(new MeshData([.. outPos], [.. outNor], [.. outUv], idx), null, [.. outCol]);
+        return new GeometryFile(new MeshData([.. outPos], [.. outNor], [.. outUv], idx), null, [.. outCol]) { Site = frame };
     }
 
     /// <summary>One face corner "v", "v/vt", "v//vn" or "v/vt/vn" as zero-based indices (−1 for absent).</summary>

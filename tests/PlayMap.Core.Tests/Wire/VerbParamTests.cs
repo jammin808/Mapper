@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Core.Tests.Wire;
@@ -11,7 +12,7 @@ namespace PlayMap.Core.Tests.Wire;
 /// PLAY, PAUSE, BLACKOUT, FREEZE, PANIC) fire at once and every other high-risk row is held; a keyword is never parted from the
 /// choice it introduces, and a range inside a placeholder is not a repeat; "line" and "json" type a parameter only as whole words,
 /// and nothing follows a parameter that takes the rest of the line.</summary>
-public sealed class VerbParamTests
+public sealed partial class VerbParamTests
 {
     [Fact]
     public void EveryRowAndEveryAlternativeHasItsParameters()
@@ -122,14 +123,20 @@ public sealed class VerbParamTests
     [Fact]
     public void AKeywordIsNeverPartedFromItsChoiceAndARangeIsNotARepeat()
     {
+        // An optional part "[KEYWORD A|B]" is one keyed choice, never a flag and a choice a key could send apart; a flag and a choice
+        // in parts of their own ("[QUICK] [ALL|WAIT]") are two.
         foreach (var spec in VerbCatalog.All)
         {
-            foreach (var form in VerbParams.Forms(spec))
+            var alternatives = VerbSyntax.Alternatives(spec);
+            var forms = VerbParams.Forms(spec);
+            for (var f = 0; f < alternatives.Count && f < forms.Count; f++)
             {
-                for (var i = 0; i + 1 < form.Count; i++)
+                foreach (Match part in KeyedChoice().Matches(alternatives[f]))
                 {
-                    Assert.False(form[i] is { Kind: ParamKind.Flag } && form[i + 1] is { Kind: ParamKind.Enum, Optional: true, Keyword: null },
-                        $"{spec.Name}: the flag {form[i].Name} stands before the choice {form[i + 1].Name}, either of which a key could send alone");
+                    var keyword = part.Groups[1].Value;
+                    var p = forms[f].SingleOrDefault(q => q.Keyword == keyword);
+                    Assert.True(p is { Kind: ParamKind.Enum, Optional: true }, $"{spec.Name}: [{keyword} {part.Groups[2].Value}] is no keyed choice");
+                    Assert.Equal(part.Groups[2].Value.Split('|'), p!.Values);
                 }
             }
         }
@@ -176,6 +183,25 @@ public sealed class VerbParamTests
     }
 
     [Fact]
+    public void AnOverridesLiteralWordsAreItsRowsSyntaxWords()
+    {
+        // An override restates a row's syntax; its keywords and literal choices are words of that syntax, so a catalogue edit that drops
+        // or renames one fails here instead of a key sending a word the node no longer reads.
+        foreach (var name in VerbParams.OverriddenRows)
+        {
+            var spec = VerbCatalog.Find(name)!;
+            var words = spec.Syntax.Split([' ', '|', '[', ']', '…'], StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+            foreach (var p in VerbParams.Forms(spec).SelectMany(f => f))
+            {
+                if (p.Keyword is { } keyword)
+                    Assert.True(words.Contains(keyword), $"{name}: keyword {keyword} is no word of '{spec.Syntax}'");
+                if (p.Kind is ParamKind.Enum or ParamKind.Flag)
+                    Assert.All(p.Values ?? [], v => Assert.True(words.Contains(v), $"{name}: {p.Name} names {v}, no word of '{spec.Syntax}'"));
+            }
+        }
+    }
+
+    [Fact]
     public void AControllersFormsReadAsTheyShould()
     {
         var go = VerbParams.For("PLAYLIST GO");
@@ -203,4 +229,8 @@ public sealed class VerbParamTests
             at.GetProperty("optional").GetBoolean(), at.GetProperty("keyword").GetString(), at.GetProperty("alt").GetString()));
         Assert.False(doc.RootElement[0].TryGetProperty("optional", out _));
     }
+
+    /// <summary>An optional part of a keyword and a literal choice: "[MODE FAST|ROBUST]".</summary>
+    [GeneratedRegex(@"\[([A-Z][A-Z0-9-]*) ([A-Za-z0-9][A-Za-z0-9+,._-]*(?:\|[A-Za-z0-9][A-Za-z0-9+,._-]*)+)\]", RegexOptions.CultureInvariant)]
+    private static partial Regex KeyedChoice();
 }

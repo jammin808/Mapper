@@ -3,9 +3,12 @@ using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Sync;
+using PlayMap.Core.Time;
 using PlayMap.Engine.Presentation;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
+using PlayMap.Render.Gpu;
+using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
 
 namespace PlayMap.Engine.Tests.Presentation;
@@ -234,6 +237,81 @@ public sealed class FrameLockHostTests
         await Until(rig, () => rig.Host.Locks()["op_a"].Locked, "op_a never locked again");
         Assert.Equal(1, rig.Host.Locks()["op_a"].Rejoins);
         Assert.Equal(1, rig.Host.Locks()["op_a"].FellOut);
+    }
+
+    /// <summary>A presenter that returns as a vsync'd swap does, just after the next vblank of a 60 Hz grid on the monotonic clock,
+    /// and holds every tenth present four periods more (a software rasteriser, a display server's round trip, a starved thread):
+    /// each present lasts at least that long whatever the machine's load.</summary>
+    private sealed class HeldPresenter : IOutputPresenter
+    {
+        private const double Period = 1e9 / 60;
+        private readonly long _start = MonoClock.Instance.NowNs;
+        private int _presents;
+
+        public int Width => 64;
+        public int Height => 36;
+        public bool IsClosing => false;
+        public PresentPath Path => PresentPath.GlWindow;
+        public int SwapInterval { get; private set; }
+        public long LastSwapNs { get; private set; }
+        public int Held { get; private set; }
+
+        public void SetSwapInterval(int interval) => SwapInterval = interval;
+
+        public PresentResult Present(GpuTexture picture) => PresentBlack();
+
+        public PresentResult PresentBlack()
+        {
+            var hold = ++_presents % 10 == 0;
+            if (hold)
+                Held++;
+            var now = MonoClock.Instance.NowNs;
+            var k = (long)Math.Floor((now - _start) / Period) + (hold ? 5 : 1);
+            var returns = _start + (long)Math.Round(k * Period);
+            var spin = new SpinWait();
+            while (MonoClock.Instance.NowNs < returns)
+                spin.SpinOnce(sleep1Threshold: -1);
+            LastSwapNs = MonoClock.Instance.NowNs;
+            return PresentResult.Done(LastSwapNs);
+        }
+
+        public void Dispose()
+        {
+            // Holds nothing.
+        }
+    }
+
+    /// <summary>Presents that take four periods while joined are the node's own slowness, not the barrier's: the output locks
+    /// through them. Only the driver's own fact, its barrier wait timing out, makes it fall out with the stall's words.</summary>
+    [Fact]
+    public async Task APresentThatTakesLongIsNoBarrierStallAndOnlyTheBarriersOwnTimeoutIs()
+    {
+        var (rig, driver) = Start(Screen("op_a"));
+        await using var _rig = rig;
+        await Until(rig, () => rig.Host.Board is not null && rig.Host.Locks().Count == 1, "the board was never seen");
+        using var presenter = new HeldPresenter();
+        await rig.Host.InvokeAsync(r =>
+        {
+            r.Attach("op_a", presenter, 60);
+            return true;
+        });
+
+        var applied = await rig.Run("SYNC APPLY");
+        Assert.True(applied.Ok, applied.Payload);
+        Assert.True(rig.Host.Locks()["op_a"].Locked, applied.Payload);
+        Assert.True(presenter.Held >= 10, $"{presenter.Held} held presents");   // 120 refreshes to confirm, every tenth held
+
+        driver.BarrierWaitTimesOut = true;
+        await Until(rig, () => rig.Host.Locks()["op_a"].State == LockState.FellOut, "op_a never fell out");
+        var view = rig.Host.Locks()["op_a"];
+        Assert.Equal(LockReasons.Stall, view.Reason);
+        Assert.Contains("the barrier stalled", view.Words, StringComparison.Ordinal);
+        Assert.Contains("leave op_a", driver.Calls);
+        await rig.Host.InvokeAsync(r =>
+        {
+            r.Detach("op_a");
+            return true;
+        });
     }
 
     [Fact]

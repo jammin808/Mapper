@@ -60,6 +60,40 @@ internal sealed class DisplayShooter(IScanDisplay display, IScanCamera camera, I
         return new CameraShot(last.Gray, last.Width, last.Height);
     }
 
+    /// <summary>Each output's colour frame at once (null: black) through the display's colour path, and the first colour picture the
+    /// camera took at or after the last present plus the latency; null when the display or the camera has no colour.</summary>
+    public async Task<CameraShotRgb?> ShootRgbAsync(IReadOnlyList<byte[]?> frames, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        _latencyMs ??= await MeasureLatencyAsync(ct).ConfigureAwait(false);
+        var present = 0L;
+        try
+        {
+            for (var k = 0; k < outputs.Count; k++)
+            {
+                var o = outputs[k];
+                var frame = k < frames.Count ? frames[k] : null;
+                present = Math.Max(present, await display.ShowRgbAsync(o.Id, frame ?? new byte[o.Width * o.Height * 3], o.Width, o.Height, ct).ConfigureAwait(false));
+                _black[k] = false;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+        var earliest = present + (long)(Math.Max(0, _latencyMs.Value) * 1e6);
+        while (true)
+        {
+            var f = await camera.NextAsync(_generation, options.FrameTimeout, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"the camera sent no picture for {options.FrameTimeout.TotalSeconds:0.#} s ({camera.Problem})"));
+            _generation = f.Generation;
+            if (f.ArrivalNs < earliest)
+                continue;
+            return f.Rgb is { } rgb ? new CameraShotRgb(rgb, f.Width, f.Height) : null;
+        }
+    }
+
     /// <summary>Black on every output, then white and black a few times on the first, each change stamped at its present; every
     /// camera picture's mean brightness collected meanwhile.</summary>
     private async Task<double> MeasureLatencyAsync(CancellationToken ct)

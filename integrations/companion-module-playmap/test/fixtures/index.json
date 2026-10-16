@@ -418,6 +418,28 @@
       "rows": []
     },
     {
+      "section": "sends",
+      "hint": {
+        "title": "Video sends",
+        "rowKind": "send",
+        "keys": [
+          {
+            "label": "On",
+            "line": "SEND ENABLE $(id) ON",
+            "feedback": "videoio.sends.state",
+            "press": "hold"
+          },
+          {
+            "label": "Off",
+            "line": "SEND ENABLE $(id) OFF",
+            "feedback": "videoio.sends.state",
+            "press": "hold"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "show",
       "hint": {
         "title": "Show",
@@ -503,6 +525,22 @@
           "parent": "show",
           "light": "green",
           "state": "100"
+        },
+        {
+          "id": "BLIND COMMIT NEXT",
+          "kind": "blind",
+          "label": "COMMIT NEXT",
+          "parent": "show",
+          "light": "grey",
+          "state": "no draft"
+        },
+        {
+          "id": "BLIND DISCARD",
+          "kind": "blind",
+          "label": "DISCARD",
+          "parent": "show",
+          "light": "grey",
+          "state": "no draft"
         }
       ]
     },
@@ -685,6 +723,34 @@
             "line": "TIMECODE ENGAGE $(id) TOGGLE",
             "feedback": "chase.engaged",
             "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
+      "section": "video",
+      "hint": {
+        "title": "Video inputs",
+        "rowKind": "input",
+        "keys": [
+          {
+            "label": "Reconnect",
+            "line": "INPUT RECONNECT $(id)",
+            "feedback": "videoio.inputs.state",
+            "press": "hold"
+          },
+          {
+            "label": "Backup",
+            "line": "INPUT SWITCH $(id) BACKUP",
+            "feedback": "videoio.inputs.using",
+            "press": "hold"
+          },
+          {
+            "label": "Primary",
+            "line": "INPUT SWITCH $(id) PRIMARY",
+            "feedback": "videoio.inputs.using",
+            "press": "hold"
           }
         ]
       },

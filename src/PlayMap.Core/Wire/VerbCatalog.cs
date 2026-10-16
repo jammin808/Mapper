@@ -277,9 +277,9 @@ public static class VerbCatalog
         // or Panic is high.
 
         // Show Mode, panic, locks, blind edit, preflight (wp2-show; blind edit and the ALL forms by wp2-blind, its continuation).
-        V2("SHOW", "SHOW [STATUS]", "Show Mode: armed or rehearsal, by whom and since, the rules, panic, locks and the last preflight", VerbCategory.Show, VerbRisk.Low, false),
-        V2("SHOW ARM", "SHOW ARM [ALL] [<words>]", "Arms the show with no password: edits that would move the air are refused for every caller until SHOW DISARM; transport, blackout and PANIC stay live; armed survives a restart (ALL: every node of the group, refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Review, true),
-        V2("SHOW DISARM", "SHOW DISARM [ALL]", "Back to rehearsal (ALL: every node of the group, refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Review, true),
+        V2("SHOW", "SHOW [STATUS]", "Show Mode: armed or rehearsal, by whom and since, the rules, the blind draft, panic, locks and the last preflight", VerbCategory.Show, VerbRisk.Low, false),
+        V2("SHOW ARM", "SHOW ARM [ALL] [<words>]", "Arms the show with no password: edits that would move the air are refused for every caller until SHOW DISARM; transport, blackout and PANIC stay live; armed survives a restart (ALL: every node of the group, answered with each member's receipt; refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Review, true),
+        V2("SHOW DISARM", "SHOW DISARM [ALL]", "Back to rehearsal (ALL: every node of the group, answered with each member's receipt; refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Review, true),
         V2("SHOW SET", "SHOW SET MINGO <ms> [ARMED|REHEARSAL] | REMOTE-VIEW-ONLY ON|OFF | DISARM-FROM PAIRED|DESK | EXPECT-ARMED ON|OFF | COMMIT-LEAD <ms> | PANIC-LEAD <ms>", "Changes a show rule: double-GO protection, remote clients read-only while armed, who may disarm, warn when playing unarmed, how far ahead on the show clock a panic lands (COMMIT-LEAD waits for blind commits) (kept in the project, one undo step)", VerbCategory.Show, VerbRisk.Review, true),
         V2("PANIC", "PANIC [BLACK|RUN|REWIND|NEXT|FREEZE|SAFE|SHUTTER|FX-OFF|HARD] [ON <output>…|ALL] [FADE <ms 0-10000>] [AT +<ms>|<unix ms>] [HERE]", "Takes each output to its planned outcome over its fade, picture and sound, now or at an instant on the show clock; a second PANIC during the fade is the hard stop; HERE keeps it to this node; never refused for an operator (an assistant's PANIC waits for a person)", VerbCategory.Show, VerbRisk.High, true) with { Show = ShowClass.Panic },
         V2("PANIC CLEAR", "PANIC CLEAR [ON <output>…|ALL] [FADE <ms 0-10000>] [HERE]", "Brings the air back from a panic over a fade (transports stay as the outcome left them)", VerbCategory.Show, VerbRisk.High, true, "PANIC OFF") with { Show = ShowClass.Panic },
@@ -294,7 +294,7 @@ public static class VerbCatalog
         V2("BLIND DIFF", "BLIND DIFF", "What the draft changes, entity by entity, in field words, with conflicts", VerbCategory.Show, VerbRisk.Low, false),
         V2("BLIND COMMIT", "BLIND COMMIT [NOW|NEXT [<playlist>]|ON GO [<playlist>]|AT +<ms>|<unix ms>] [FORCE]", "Lands the draft on the air as one undo step at a show boundary, frame-exact; FORCE overrides the conflicts it names", VerbCategory.Show, VerbRisk.High, true),
         V2("BLIND DISCARD", "BLIND DISCARD", "Drops the draft", VerbCategory.Show, VerbRisk.Review, true),
-        V2("PREFLIGHT", "PREFLIGHT [QUICK] [ALL]", "Checks the node is ready for the show from facts: outputs on present displays, media present and readable, linked projectors reachable, free disk, the show's safety; each row carries the line that fixes it; answers the report's id (ALL: every node of the group, refused while this node fans out to none)", VerbCategory.Show, VerbRisk.Low, true),
+        V2("PREFLIGHT", "PREFLIGHT [QUICK] [ALL|WAIT]", "Checks the node is ready for the show from facts: outputs on present displays, media present and readable, linked projectors reachable and solved, free disk, the show clock, the links, the show's safety; each row carries the line that fixes it; answers the report's id (ALL: every node of the group, one section per node, refused while this node fans out to none; WAIT: answers with the finished report)", VerbCategory.Show, VerbRisk.Low, true),
         V2("PREFLIGHT REPORT", "PREFLIGHT REPORT [<id>]", "The last preflight report, or one by id", VerbCategory.Show, VerbRisk.Low, false),
 
         // Health, the fleet board in Patterns' Eye shape (wp2-fleet).
@@ -328,7 +328,7 @@ public static class VerbCatalog
         V2("PRESENT PATH", "PRESENT PATH AUTO|DXGI|GL", "Where outputs present from the render host's next start: AUTO is OpenGL this round; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Setup },
 
         // The group's clock, anchors and vblank verdict (wp2-sync). SUBSCRIBE ANCHORS is a topic; SYNC STATUS (today's row) gains the verdict.
-        V2("SYNC LATENCY", "SYNC LATENCY AUTO|<ms 0-500>", "The group's air latency (AUTO: the largest output latency any member reports)", VerbCategory.Network, VerbRisk.Review, true) with { Show = ShowClass.Layout },
+        V2("SYNC RECEIPT", "SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]", "A group member's answer to an air line its leader fanned out (member to leader, on the member's anchor feed)", VerbCategory.Network, VerbRisk.Low, false) with { Ephemeral = true },
 
         // HAP on the GPU (wp2-decode).
         V2("MEDIA INSPECT", "MEDIA INSPECT <media>", "What a clip is to the decoder: codec and texture, chunks, second stage, MB per frame and per second, HDR reading, odd size, and the lines that fix what is slow", VerbCategory.Media, VerbRisk.Low, false),
@@ -355,9 +355,9 @@ public static class VerbCatalog
         V2("INPUT SWITCH", "INPUT SWITCH <input> PRIMARY|BACKUP", "Switches an input between its feeds (answered at the first frame)", VerbCategory.Video, VerbRisk.High, true) with { Show = ShowClass.DeviceSafe },
         V2("INPUT RECONNECT", "INPUT RECONNECT <input>|ALL", "Reconnects a stale or lost input (refused while it delivers)", VerbCategory.Video, VerbRisk.High, true) with { Show = ShowClass.DeviceSafe },
         V2("SEND LIST", "SEND LIST", "Every send with its tap, format, receivers, tally and drops", VerbCategory.Video, VerbRisk.Low, false),
-        V2("SEND ADD", "SEND ADD NDI|OMT|SPOUT <name> <tap> [<w>x<h>] [@<fps>] [UYVY|UYVA|P216|PA16|BGRA8|RGBA8|RGBA16F] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]", "Sends a picture to the network or to other apps on this machine: tap output:<id>, prewarp:<id>, canvas:<id> or source:<ref>; answers its id", VerbCategory.Video, VerbRisk.Review, true),
-        V2("SEND ENABLE", "SEND ENABLE <send> ON|OFF", "Starts or stops a send", VerbCategory.Video, VerbRisk.High, true) with { Show = ShowClass.Layout, RiskWhen = [new(1, "ON", VerbRisk.Review)] },
-        V2("SEND REMOVE", "SEND REMOVE <send>", "Removes a send (its receivers lose the picture)", VerbCategory.Video, VerbRisk.High, true) with { Show = ShowClass.Layout },
+        V2("SEND ADD", "SEND ADD NDI|OMT|SPOUT <name> <tap> [<w>x<h>] [@<fps>] [UYVY|UYVA|P216|PA16|BGRA8] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]", "Sends a picture to the network or to other apps on this machine: tap output:<id>, canvas:<id> or source:<ref>; answers its id", VerbCategory.Video, VerbRisk.Review, true),
+        V2("SEND ENABLE", "SEND ENABLE <send> ON|OFF", "Starts or stops a send", VerbCategory.Video, VerbRisk.High, true) with { RiskWhen = [new(1, "ON", VerbRisk.Review)] },
+        V2("SEND REMOVE", "SEND REMOVE <send>", "Removes a send (its receivers lose the picture)", VerbCategory.Video, VerbRisk.High, true),
         V2("VIDEOIO STATUS", "VIDEOIO STATUS", "The NDI, OMT and Spout runtimes on this node: loaded, versions, discovery, bandwidth", VerbCategory.Video, VerbRisk.Low, false),
         V2("VIDEOIO CHECK", "VIDEOIO CHECK", "Video I/O readiness rows with the lines that fix them", VerbCategory.Video, VerbRisk.Low, false),
         V2("VIDEOIO SET", "VIDEOIO SET NDI ON|OFF | NDI-GROUPS <groups> | NDI-DISCOVERY <host,…>|OFF | OMT ON|OFF | OMT-DISCOVERY <host[:port]>|OFF | SPOUT ON|OFF | MAX-SEND-MBPS <0-100000>", "Changes this node's video I/O settings", VerbCategory.Video, VerbRisk.Review, true) with { Show = ShowClass.Setup },
@@ -453,32 +453,29 @@ public static class VerbCatalog
         V2("LED LEVEL", "LED LEVEL <0-100> [FADE <ms>] | LED LEVEL BY <delta> [FADE <ms>]", "The LED rig's master level (live, not an undo step)", VerbCategory.Led, VerbRisk.High, true) with { Show = ShowClass.Air },
         V2("LED MONITOR", "LED MONITOR <node> <universe>", "The bytes last sent to a universe, with the fixtures in it", VerbCategory.Led, VerbRisk.Low, false),
 
-        // Facades: site, survey, control points, long-throw priors, light plan, stacks (wp2-facade).
+        // Facades: site, survey, control points, long-throw priors (wp2-facade; the guide, the light plan and stacks are wp2-stacks').
         V2("SITE", "SITE", "The site frame: coordinate system, grid origin, rotation, scale and mains frequency", VerbCategory.Site, VerbRisk.Low, false),
         V2("SITE ORIGIN", "SITE ORIGIN <e> <n> <h> [CRS <code>|LOCAL] [ROTATE <deg>]", "Sets the site frame; the whole stage moves with it in one edit", VerbCategory.Site, VerbRisk.Review, true),
         V2("SITE MAINS", "SITE MAINS 50|60", "The venue's mains frequency", VerbCategory.Site, VerbRisk.Low, true),
         V2("SITE POINTS", "SITE POINTS <path> [ORDER PENZD|PNEZD|ENH|NEH] [CRS <code>] [UNITS m|cm|mm|ft|usft]", "Imports surveyed control points; answers their ids and the lines it skipped", VerbCategory.Site, VerbRisk.Review, true),
         V2("SITE CHECK", "SITE CHECK [<surface>|<survey>]", "Measures the model against the control points: each point's distance and the fit", VerbCategory.Site, VerbRisk.Low, false),
-        V2("SURVEY IMPORT", "SURVEY IMPORT <path> [CRS <code>|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL <m>] [DECIMATE <triangles>|OFF] [NAME <name>]", "Imports a surveyed model or point cloud (OBJ, PLY, glTF, LAS) into the site frame, off the control lane; answers its id", VerbCategory.Site, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
+        V2("SURVEY IMPORT", "SURVEY IMPORT <path> [CRS <code>|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL <m>] [DECIMATE <triangles>|OFF] [NAME <name>]", "Imports a surveyed model or point cloud (OBJ, PLY, glTF, LAS, E57, XYZ) into the site frame, off the control lane; answers its id", VerbCategory.Site, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
         V2("SURVEY LIST", "SURVEY LIST", "Imported surveys with provenance and state", VerbCategory.Site, VerbRisk.Low, false),
-        V2("SITE GUIDE", "SITE GUIDE", "The facade workflow as steps (survey, control points, pins, priors and solve, stacks, blend, score), each with its state and the line that does it", VerbCategory.Site, VerbRisk.Low, false, "FACADE GUIDE"),
         V2("PROJECTOR PRIOR", "PROJECTOR PRIOR <projector> THROW <ratio> [±<pct>] | PROJECTOR PRIOR <projector> AT <control> [±<m>] | PROJECTOR PRIOR <projector> AT <x> <y> <z> [±<m>] | PROJECTOR PRIOR <projector> CLEAR", "What a solve may assume about a projector's lens and position", VerbCategory.Mapping, VerbRisk.Review, true),
-        V2("PLAN LIGHT", "PLAN LIGHT [<surface>|ALL] [AMBIENT <lux>] [ALBEDO <0-1>] [TARGET <lux>] [DERATE <0-1>]", "Predicted illuminance, luminance, contrast and pixel pitch per surface from the projectors as placed", VerbCategory.Site, VerbRisk.Low, false),
-        V2("STACK NEW", "STACK NEW <name> <projector> <projector> [<projector>…] [MASTER <projector>]", "Groups projectors lighting one picture (the blend treats them as one); answers its id", VerbCategory.Mapping, VerbRisk.Review, true),
+        // Kept unrouted for wp2-stacks: the calibration score's stack term names it as its fix (unavailable until routed).
         V2("STACK ALIGN", "STACK ALIGN <stack> FROM <scan> [GRID <c>x<r>]", "Fits each member's measured residual to the master's picture from a shared scan", VerbCategory.Mapping, VerbRisk.Review, true),
-        V2("STACK MATCH", "STACK MATCH <stack> FROM <scan>", "Matches the members' colour gains from the scan's white frames", VerbCategory.Mapping, VerbRisk.Review, true),
-        V2("STACK FAILOVER", "STACK FAILOVER <stack> HOLD|MATCH", "What the stack does when a member fails: hold the rest, or dim its blend group to match", VerbCategory.Mapping, VerbRisk.Review, true),
-        V2("STACK LIST", "STACK LIST", "Stacks with members, residual, gains and degraded members", VerbCategory.Mapping, VerbRisk.Low, false),
 
-        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align; ALIGN PLAN, SCORE, ONLY and DEVICE NATIVE by wp2-resolve).
+        // Auto-align from the truck: camera-measured flat-screen correction (wp2-align, continued by wp2-resolve: ONLY, COLOR WHITE, the verify pass, ALIGN SCORE and DEVICE NATIVE).
         V2("ALIGN NEW", "ALIGN NEW <name> <camera> <output>…|ALL [CANVAS <canvas>|NEW] [SHAPE AUTO|FLAT]", "Outputs aligned together through one camera onto one canvas; answers its id", VerbCategory.Align, VerbRisk.Review, true),
-        V2("ALIGN RUN", "ALIGN RUN <group> [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ) with its score; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        V2("ALIGN RUN", "ALIGN RUN <group> [ONLY <output>…] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]", "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, γ, and with COLOR WHITE each white matched) with its score; ONLY scans those outputs again and keeps the others; nothing changes on the air until ALIGN ACCEPT", VerbCategory.Align, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("ALIGN STATUS", "ALIGN STATUS", "The running or last run", VerbCategory.Align, VerbRisk.Low, false),
+        V2("ALIGN SCORE", "ALIGN SCORE <run>|<group>", "A run's score and every term with its words and fix", VerbCategory.Align, VerbRisk.Low, false),
         V2("ALIGN CANCEL", "ALIGN CANCEL", "Stops a run; the outputs are the show's again", VerbCategory.Align, VerbRisk.Low, true) with { Show = ShowClass.Perform },
         V2("ALIGN ACCEPT", "ALIGN ACCEPT <run>|<group>", "Applies a staged run to its outputs as one edit; the corrections they had become their fallbacks", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN REVERT", "ALIGN REVERT <group>", "Back to each output's fallback correction", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CORNERS", "ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4> | ALIGN CORNERS <group> CLEAR", "The screen's corners in the camera picture (0–1), for an exact canvas", VerbCategory.Align, VerbRisk.Review, true),
         V2("ALIGN CLEAR", "ALIGN CLEAR <output>|<group>", "Removes measured corrections from outputs; what they had becomes the fallback", VerbCategory.Align, VerbRisk.Review, true),
+        V2("DEVICE NATIVE", "DEVICE NATIVE <device>", "A projector's own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard", VerbCategory.Device, VerbRisk.Low, false),
 
         // The phone as a scan camera, fully local (wp2-phonescan; many views into one scan are wp2-multiscan's).
         V2("PHONE INVITE", "PHONE INVITE [<name>] [FOR <minutes 1-60>]", "A one-time link and QR code that makes a phone a scan camera (to this session only; never from an assistant)", VerbCategory.Scan, VerbRisk.High, true) with { Show = ShowClass.Setup },
@@ -507,7 +504,7 @@ public static class VerbCatalog
         V2("CALIBRATION ACCEPT", "CALIBRATION ACCEPT <projector>|<output>|ALL|<snapshot>", "Accepts the current (or a staged) result: it becomes the fallback", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FALLBACK", "CALIBRATION FALLBACK <projector>|<output>|ALL", "Back to the fallback result, exactly", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION FORGET", "CALIBRATION FORGET <snapshot>", "Forgets a kept result (never the current, fallback or staged one)", VerbCategory.Calibration, VerbRisk.Review, true),
-        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>… [STAGE]", "Re-solves only the projectors named from their pins as they stand (dragged onto the wall's features), scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+        V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>…|ALL [CAMERA <camera>] [STAGE]", "Re-solves only the projectors named — from their pins as they stand, or with CAMERA from a fresh look at their dots (only the ones found moved) — scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("CALIBRATION CANCEL", "CALIBRATION CANCEL", "Stops a calibration task and gives the outputs back", VerbCategory.Calibration, VerbRisk.Low, true) with { Show = ShowClass.Perform },
     ];
 

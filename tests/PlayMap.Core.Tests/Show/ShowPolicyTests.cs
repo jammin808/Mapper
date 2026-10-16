@@ -23,6 +23,12 @@ public sealed class ShowPolicyTests
         return ShowPolicy.Decide(spec, line, role, new ShowFacts(armed, false, dark, viewOnly, disarmFrom));
     }
 
+    private static ShowDecision Decide(string text, ShowRole role, ShowFacts facts)
+    {
+        var line = Line(text);
+        return ShowPolicy.Decide(VerbCatalog.Match(line)!.Value.Spec, line, role, in facts);
+    }
+
     /// <summary>One line per class and the armed verdict for Operator, Remote, Assistant, Approved, Peer and System
     /// (A allow, R refuse, P propose).</summary>
     public static TheoryData<ShowClass, string, string> ArmedTable => new()
@@ -182,10 +188,62 @@ public sealed class ShowPolicyTests
         Assert.Equal(ShowRole.System, ShowPolicy.RoleOf(new SessionInfo("s", "system", "127.0.0.1", true, "PlayMap", true), none));
         var companion = new SessionInfo("c", "companion", "10.0.0.7", false, "Companion: FOH deck", true);
         Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(companion, none));
-        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(companion, ["companion: foh deck"]));
-        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(companion, ["10.0.0.7"]));
+        // The operators list grants the role only to a session that proved the node's token on its connection, by an address rule.
+        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(companion, ["companion: foh deck@10.0.0.7"], proved: true));
+        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(companion, ["10.0.0.7"], proved: true));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(companion, ["10.0.0.7"]));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(companion, ["companion: foh deck"], proved: true));
         // A client calling itself "Desk" over the wire is still a remote: names never make a role, only the operators list.
         Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(new SessionInfo("x", "wire", "10.0.0.8", false, "Desk", true), none));
+    }
+
+    [Fact]
+    public void AnOperatorsEntryIsAnAddressRuleAndANameAloneIsThisMachinesOnly()
+    {
+        var deck = new SessionInfo("c", "companion", "10.0.0.7", false, "Companion: FOH deck", true);
+        var claim = deck with { RemoteAddress = "10.0.0.99" };
+        var local = deck with { RemoteAddress = "127.0.0.1", IsLoopback = true };
+        // The same HELLO name from another address is not the operator; neither is an unproved session at the listed address.
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(claim, ["Companion: FOH deck@10.0.0.7"], proved: true));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(claim, ["10.0.0.7"], proved: true));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(deck, ["Companion: FOH deck@10.0.0.7"], proved: false));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(deck with { ClientName = "Companion: Other" }, ["Companion: FOH deck@10.0.0.7"], proved: true));
+        // A bare name names only this machine; an IPv4 address matches its IPv6-mapped form.
+        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(local, ["Companion: FOH deck"], proved: true));
+        Assert.Equal(ShowRole.Remote, ShowPolicy.RoleOf(deck, ["Companion: FOH deck"], proved: true));
+        Assert.Equal(ShowRole.Operator, ShowPolicy.RoleOf(deck with { RemoteAddress = "::ffff:10.0.0.7" }, ["10.0.0.7"], proved: true));
+        // The transport's own roles never come from the list.
+        Assert.Equal(ShowRole.Assistant, ShowPolicy.RoleOf(new SessionInfo("m", "mcp", "10.0.0.7", false, "MCP", true), ["10.0.0.7"], proved: true));
+    }
+
+    [Fact]
+    public void TheBlindOwnersDraftableLinesGoToItsDraftArmedOrNot()
+    {
+        foreach (var armed in new[] { false, true })
+        {
+            var facts = new ShowFacts(armed, true, false, false, "paired");
+            foreach (var line in new[] { "SET op_1 rotation 90", "WARP NODE op_1 1 1 0.01 0", "SET cv_main background \"#FF0000\"", "PLAYLIST NEW Encore", "UNDO", "REDO" })
+                Assert.Equal(ShowVerdict.BlindOnly, Decide(line, ShowRole.Operator, facts).Verdict);
+            // The air, the transport, Show Mode itself and the stop are never drafted.
+            foreach (var line in new[] { "PLAYLIST GO pl_show", "BLACKOUT ON", "SHOW SET MINGO 500", "PANIC", "STATE" })
+                Assert.NotEqual(ShowVerdict.BlindOnly, Decide(line, ShowRole.Operator, facts).Verdict);
+            // An assistant that holds the draft drafts; a peer never does.
+            Assert.Equal(ShowVerdict.BlindOnly, Decide("SET op_1 rotation 90", ShowRole.Assistant, facts).Verdict);
+            Assert.NotEqual(ShowVerdict.BlindOnly, Decide("SET op_1 rotation 90", ShowRole.Peer, facts).Verdict);
+        }
+        // Armed, an assistant may open and read a draft; landing it waits for a person.
+        Assert.Equal(ShowVerdict.Allow, Decide("BLIND ON", ShowRole.Assistant, true).Verdict);
+        Assert.Equal(ShowVerdict.Allow, Decide("BLIND DIFF", ShowRole.Assistant, true).Verdict);
+        // Landing a draft is a person's, armed or not: refused (never queued for an approval that could not land it).
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLIND COMMIT", ShowRole.Assistant, true).Verdict);
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLIND COMMIT NEXT", ShowRole.Assistant, false).Verdict);
+        // A peer runs the group's DISARM unless this show keeps it to its own desk.
+        Assert.Equal(ShowVerdict.Allow, Decide("SHOW DISARM", ShowRole.Peer, true).Verdict);
+        var desk = Decide("SHOW DISARM", ShowRole.Peer, true, disarmFrom: "desk");
+        Assert.Equal(ShowVerdict.Refuse, desk.Verdict);
+        Assert.Contains("DISARM-FROM DESK", desk.Words, StringComparison.Ordinal);
+        Assert.Equal(ShowVerdict.Refuse, Decide("UNLOCK ALL", ShowRole.Peer, true, disarmFrom: "desk").Verdict);
+        Assert.Equal(ShowVerdict.Refuse, Decide("BLIND ON", ShowRole.Remote, true).Verdict);
     }
 
     [Theory]
@@ -207,6 +265,41 @@ public sealed class ShowPolicyTests
     {
         var line = Line(text);
         Assert.Equal(cls, ShowPolicy.ClassOf(VerbCatalog.Match(line)!.Value.Spec, line));
+    }
+
+    /// <summary>A send is content wherever it is changed — by its own verbs or a generic edit of its id or kind, as LOCK AREA content
+    /// locks it — so stopping one is never refused through one verb and allowed through another. A live input's library edits are
+    /// content, its repairs a device's (an operator's, armed), the node's video settings set-up.</summary>
+    [Theory]
+    [InlineData("SEND ADD OMT Main output:op_1", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND ENABLE sd00000001 ON", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND ENABLE sd00000001 OFF", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SEND REMOVE sd00000001", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("SET sd00000001 enabled false", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("REMOVE sd00000001", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("ADD send {\"name\":\"Main\",\"protocol\":\"omt\",\"tap\":\"output:op_1\"}", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT ADD \"omt:STUDIO (Cam 1)\"", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT FALLBACK md00000001 BLACK", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT BACKUP md00000001 \"omt:STUDIO (Cam 2)\"", ShowClass.Content, ShowVerdict.Allow)]
+    [InlineData("INPUT SWITCH md00000001 BACKUP", ShowClass.DeviceSafe, ShowVerdict.Allow)]
+    [InlineData("INPUT RECONNECT md00000001", ShowClass.DeviceSafe, ShowVerdict.Allow)]
+    [InlineData("VIDEOIO SET OMT OFF", ShowClass.Setup, ShowVerdict.Refuse)]
+    public void EveryLineThatChangesASendOrALiveInputHasItsClassWhicheverVerbSaysIt(string text, ShowClass cls, ShowVerdict operatorArmed)
+    {
+        var line = Line(text);
+        Assert.Equal(cls, ShowPolicy.ClassOf(VerbCatalog.Match(line)!.Value.Spec, line));
+        Assert.Equal(operatorArmed, Decide(text, ShowRole.Operator, true).Verdict);
+    }
+
+    [Fact]
+    public void AnArmedOperatorStopsASendByAnyVerbAndARemoteByNone()
+    {
+        foreach (var text in new[] { "SEND ENABLE sd00000001 OFF", "SET sd00000001 enabled false", "SEND REMOVE sd00000001", "REMOVE sd00000001" })
+        {
+            Assert.Equal(ShowVerdict.Allow, Decide(text, ShowRole.Operator, true).Verdict);
+            Assert.Equal(ShowVerdict.Refuse, Decide(text, ShowRole.Remote, true).Verdict);
+            Assert.Equal(ShowVerdict.Propose, Decide(text, ShowRole.Assistant, true).Verdict);
+        }
     }
 
     [Fact]

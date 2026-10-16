@@ -177,7 +177,8 @@ public sealed class MediaCheck : IPreflightCheck
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
 
-    /// <summary>The media ids the show uses: playlist items, layers, surfaces, outputs and the panic plans' safe looks.</summary>
+    /// <summary>The media ids the show uses: playlist items, layers, surfaces, outputs, the panic plans' safe looks, what an enabled
+    /// send taps, and the fallback a live input the show uses shows on loss.</summary>
     public static HashSet<string> UsedMedia(Project p)
     {
         ArgumentNullException.ThrowIfNull(p);
@@ -201,6 +202,18 @@ public sealed class MediaCheck : IPreflightCheck
         {
             if (plan.SafeLook is { } look)
                 Add(look);
+        }
+        foreach (var send in p.Sends)
+        {
+            if (send.Enabled && VideoIo.SendShape.TryTap(send.Tap, out var kind, out _, out var tapped, out _)
+                && kind == PlayMap.Render.Passes.SendTapKind.Source && tapped is not null)
+                Add(tapped);
+        }
+        // A live input's fallback shows on the air when its feed is lost (a fallback is never itself live).
+        foreach (var m in p.Media)
+        {
+            if (used.Contains(m.Id) && VideoIo.Fallbacks.Of(m) is { } fallback)
+                Add(fallback);
         }
         return used;
     }
@@ -301,8 +314,9 @@ public sealed class DiskCheck(Func<string, long?>? freeBytes = null) : IPrefligh
     }
 }
 
-/// <summary>The show's safety: armed (grey in rehearsal, amber when the show expects to be armed), and every SAFE plan's look
-/// present. Fix: SHOW ARM; plan black instead.</summary>
+/// <summary>The show's safety: armed (grey in rehearsal, amber when the show expects to be armed), every SAFE plan's look present,
+/// no plan for an output the show no longer has, double-GO protection on, no panic in force, no blind draft left open. Fix: SHOW ARM;
+/// plan black instead; SHOW SET MINGO 300; PANIC CLEAR.</summary>
 public sealed class SafetyCheck : IPreflightCheck
 {
     public string Section => "safety";
@@ -338,6 +352,21 @@ public sealed class SafetyCheck : IPreflightCheck
         }
         rows.Add(new PreflightRow("safety:panic", node, Section, "Panic", Light.Green, PanicMath.Json(rules.DefaultOutcome),
             string.Create(CultureInfo.InvariantCulture, $"{p.Show.Panic.Length} output plan{(p.Show.Panic.Length == 1 ? "" : "s")}; the rest {PanicMath.Json(rules.DefaultOutcome)} over {rules.DefaultFadeMs} ms"), null));
+        // A plan for an output the show no longer has guards nothing: the output it meant falls back to the default.
+        foreach (var plan in p.Show.Panic.Where(x => p.FindOutput(x.OutputId) is null))
+            rows.Add(new PreflightRow("safety:plan:" + plan.OutputId, node, Section, plan.OutputId, Light.Amber, "no such output",
+                $"a panic plan names {plan.OutputId}, which the show no longer has", null));
+        if (rules.MinGoMsArmed == 0)
+            rows.Add(new PreflightRow("safety:mingo", node, Section, "Double-GO protection", Light.Amber, "off",
+                "armed, two GOs in a row both run", "SHOW SET MINGO 300"));
+        if (e.Air.Panic is { } panic)
+            rows.Add(new PreflightRow("safety:in-panic", node, Section, "Panic", Light.Red, PanicMath.Json(panic.Outcome),
+                $"in panic since {LockGuard.Clock(panic.SinceUnixMs)} — the air is dark", "PANIC CLEAR"));
+        if (e.BlindNow is { } blind)
+            rows.Add(new PreflightRow("safety:blind", node, Section, "Blind draft", Light.Amber,
+                string.Create(CultureInfo.InvariantCulture, $"{blind.Patch.Changes.Count} staged"),
+                blind.Commit is { } commit ? $"{blind.OwnerName}'s draft lands {commit.BoundaryWord}" : $"{blind.OwnerName}'s draft is open — BLIND COMMIT or BLIND DISCARD before doors",
+                null));
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
 }

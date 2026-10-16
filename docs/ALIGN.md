@@ -12,7 +12,7 @@ it replaced kept as its fallback (`docs/CALIBRATION.md`). The verbs are in `docs
 2. `ALIGN CORNERS <group> x1 y1 … x4 y4` (optional) gives the screen's corners as clicked on the camera picture; the canvas is
    then exactly the screen (`FIT CORNERS`). Without corners the canvas is the largest rectangle of its aspect the outputs cover
    (`FIT INSIDE`).
-3. `ALIGN RUN <group>` measures and stages: progress, the step and the time left are in `STATE.align.run`. The run never writes
+3. `ALIGN RUN <group> [COLOR WHITE] [ONLY <output>…]` measures and stages: progress, the step and the time left are in `STATE.align.run`. The run never writes
    the project. Its files go under `align/<run>/` beside the project and are never written again.
 4. `ALIGN ACCEPT <run>` applies every output's correction as one edit (one undo step); `ALIGN REVERT <group>` goes back to each
    output's fallback; `ALIGN CLEAR` takes a correction off.
@@ -68,15 +68,65 @@ replaces the output's region of the canvas, since the grid holds the canvas's ow
 changes and nothing on a frame where it is the same. An output whose file is missing or changed runs without its correction, and
 `outputs[].measured.files` says which file.
 
-## The score
+## Rescanning one output (`ONLY`)
 
-A staged run carries a points score (`CalibrationScoring.ForAlign`): coverage of the canvas, seams (how far neighbours disagree in
-their overlap, p95) and uniformity (1 − white p5/p95 after the blend), graded A/B/C/F. Every fix a term carries is a line the node
-carries out (the uniformity term's raises the group's `options.uniformity` to 1). The accepted score is the ledger result's.
+Every run keeps what the camera saw of each output beside it (`capture-<output>.bin`: the decode, the footprint, the white picture
+and the photometry; `black.bin`). `ALIGN RUN <group> ONLY op2` loads the captures of the run the group's outputs stand on, shows
+patterns on op2 alone, and solves with the earlier captures as the reference: the screen, the rectification and the canvas come
+from them exactly, so op2's new warp lands on the very canvas the others already show. The others keep their warp files as they
+are; every blend is made again from the new black, the kept whites and op2's new one (`AlignOnlyTests`: P2 knocked 3 px, the
+seams back from 3.3 px to 0.05 px, op1's file unchanged byte for byte, op1 shown nothing). Each run also writes `basis.txt` (the run
+whose captures made its canvas) and `canvas.txt` (the fit, aspect, margin and corners it was made with): chained ONLY runs keep
+the one canvas, and ONLY refuses with words when those settings or the camera's raster changed since.
+
+## Colour and level (`COLOR WHITE`, `Core/Align/ColourMatch.cs`)
+
+The colour step shows each output's black, red, green, blue and white through the display's colour path, each output alone, and
+measures each over its own footprint (eroded off its edge) in camera-linear RGB (the camera taken as linear sRGB through its 2.2). Each output's primaries make a
+3 × 3 matrix M; the common white is the mean of the outputs' white chromaticities at the largest level every output reaches with
+gains no more than one, and each output's gains are M⁻¹ · white: diagonal gains in linear light, staged as its measured colour and
+drawn by the output stage; a white an output cannot reach refuses colour with words. First a stability probe shows the first
+output's white alone and again with the other outputs lit (a lone output, or a stack whose outputs share every pixel: on the left
+of its raster only): where only it reaches, a camera that holds its exposure reads
+the same; one that sets its own refuses colour with words, and the run's geometry is staged without it (`ColourMatchTests`: a
+6 500 K output at full level and a 7 500 K one at 0.8 land within Δu′v′ 0.0002 and 0.5 % of each other).
+
+## Verify and the score
+
+Every run ends with a verify pass (`Core/Align/AlignVerify.cs`): a grid of canvas points about 24 output px apart, drawn as dots
+through each output's new warp, each output alone; where two outputs drew the same canvas point, the distance between the two
+dots the camera saw is their misregistration on the screen in output pixels (a stack's, when the outputs share one picture).
+Measured rather than predicted, it sees a projector that drifted after the scan.
+
+A staged run carries a points score (`CalibrationScoring.ForAlign`): coverage of the canvas, the verify pass's seam (or stack)
+misregistration p95, and uniformity (1 − white p5/p95 after the blend), graded A/B/C/F; `ALIGN SCORE` answers it with every term.
+Every fix a term carries is a line the node carries out: coverage `ALIGN RUN <group> FIT INSIDE` (or `ALIGN CORNERS <group> CLEAR`
+when corners reach past what the outputs light), seam and stack `ALIGN RUN <group>`, uniformity the group's `options.uniformity`
+raised to 1 (`AlignScoreTests` trips each with a simulator condition). The accepted score is the ledger result's.
+
+A run says its pictures and its pattern time — pictures times a picture's hold (`AlignRunnerOptions.PatternHold`, 200 ms: a
+present, the camera's latency, one settled picture). Four projectors in a 2 × 2 tile through every step take 167 pictures here
+(33 s) and 207 at 1920 × 1080 (41 s), inside the 90 s bar (`AlignTimingTests`).
+
+## The projectors' own processing
+
+A projector whose own geometry or edge blend is on while PlayMap draws a measured correction warps or blends twice. For every
+device linked to an output with a measured correction (by the link's output, or by the projector the output shows), the
+projector's own processing is read live, off the lane, in step with the device's poll and at once after an accept
+(`Devices/Native`: on Panasonic `QVX:GMMI0` and `QVX:EDBI0`, queries only; other protocols say where to look). One found on lights
+its `device:<id>` context item amber with the words and the `DEVICE RAW … VXX:GMMI0=+00000` line that turns it off, adds an amber
+preflight row, and `STATE.align.devices` says what was read. `DEVICE NATIVE <device>` reads one now.
+
+## Simulator layouts
+
+A simulated camera's source names its layout: `flat-screen|bulged-screen|curved-screen`, `tile<c>x<r>`, `stack<n>`, `o<pct>`
+(overlap), `k<kelvin>,…` (each projector's colour temperature), `lvl<level>,…` (its light), `autoexposure` (a camera that sets
+its own exposure, within 0.6–1.6× of its set one), `shift<n>=<px>` (projector n knocked so its picture moves that many of its
+pixels) and `drift<n>=<px>` (the same, only after the scan: seen by the verify pass).
 
 ## Not yet
 
-Grouped capture, curved screens (cylinder, then dome), the colour match (`STEPS COLOR`, `COLOR WHITE`), the projectors' own
-processing (snapshot, neutral and restore), the shutter knock, the free-form hand-over to the scan solver, auditing a vendor's
-built-in result, the warm-up gate, two cameras, camera control, `ALIGN PLAN` (the dry run), `ALIGN SCORE`, `ONLY`, `DEVICE NATIVE`
-and the desk's Align tab.
+Grouped capture, curved screens (cylinder, then dome), FULL colour (the primaries matched, not only white), a colour step on its
+own, the warm-up gate, the projectors' own processing snapshot, neutral and restore, the shutter knock, the free-form hand-over to
+the scan solver, auditing a vendor's built-in result, two cameras, camera control, `ALIGN PLAN` (the dry run) and the desk's Align
+tab.

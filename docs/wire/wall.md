@@ -27,7 +27,7 @@ picture), so a quad stays on its feature when the output's warp or raster change
 | `CALIBRATION ACCEPT` | `CALIBRATION ACCEPT <projector>\|<output>\|ALL\|<snapshot>` | JSON `{fallbacks:[{target, fallback}], words}`: a staged result applied and made the fallback, else the current one made the fallback (a projector with none records itself as it stands first) | review | yes |
 | `CALIBRATION FALLBACK` | `CALIBRATION FALLBACK <projector>\|<output>\|ALL` | as `RECALL` of the fallback (ALL: `{recorded, words}`) | review | yes |
 | `CALIBRATION FORGET` | `CALIBRATION FORGET <snapshot>` | JSON `{removed, words}`; the current, fallback or staged result refused | review | yes |
-| `CALIBRATION RESOLVE` | `CALIBRATION RESOLVE <projector>… [STAGE]` | JSON `{task, projectors:[{id, snapshot, applied, staged, why, score:{value, grade, rmsPx, words}, delta:{mm, deg, wallPx}}], words}`; answered off the lane; each named projector re-solved from its pins as they stand; applied when its score is within `max(calibrationGate, 1.25 × the fallback's)` and not F, otherwise staged (also with `STAGE`, and always for an assistant over MCP); `CAMERA` refused with words (next round) | high | yes |
+| `CALIBRATION RESOLVE` | `CALIBRATION RESOLVE <projector>…\|ALL [CAMERA <camera>] [STAGE]` | JSON `{task, projectors:[{id, snapshot, applied, staged, why, score:{value, grade, rmsPx, words}, delta:{mm, deg, wallPx}, verifiedP50, verifiedP95, priorsUsed, locked}], blend, words}`; answered off the lane. Without `CAMERA` each named projector is re-solved from its pins as they stand, as `PROJECTOR SOLVE` solves with no LOCK word: its priors as rows, the zoom locked from the lens when the pins cannot carry it (`locked:["focal"]`, the words say so), a bound pin away from its control point refused with the `SET` line (docs/wire/facade.md). With `CAMERA` (a calibrated camera of the stage) every projector black, then each named projector's dots alone: each judged unmoved, moved or unseen (and every one moved together: the camera moved), only the movers re-solved from their dots (optics kept; a position prior as rows beside them) and checked once more on the wall; the reply adds `camera`, `attribution:[{id, name, verdict, dots, matched, shiftP50, shiftP95, words}]`, `frames`, `patternSeconds` (frames × the node's `wall.resolveFrameMs`) and `captureSeconds`; nothing moved, the camera moved or nothing seen is refused with the attribution's words. Applied when its score is within `max(calibrationGate, 1.25 × the fallback's)` and not F, otherwise staged (also with `STAGE`, and always for an assistant over MCP). Applied with `CAMERA`, the projector's pins take the new pose's pixels and its pixel quads are re-seated to light the wall spots they lit before. A projector that blends automatically has its blend solved again off the lane (`blend` its receipt); in a blind draft, `blend` says it is solved when the draft lands. Refused: no such camera, a camera not calibrated, a stage without a surface, a scan or an alignment showing patterns, a task running | high | yes |
 | `CALIBRATION CANCEL` | `CALIBRATION CANCEL` | stops a running re-solve before it applies anything (its task `cancelled`, the re-solve answers "cancelled — nothing was applied"); once its result is being applied, refused with the way back (`CALIBRATION FALLBACK`) | low | yes |
 
 Changed rows: `PROJECTOR SOLVE` and `SCAN APPLY` record a scored result in the same edit; their replies gain `snapshot` and
@@ -40,10 +40,11 @@ Every wall verb that changes something is refused while the show is armed, with 
 ```jsonc
 "air": { …, "overlay": {"on":true,"outputs":["op…"],"layers":["cursor","outlines","handles","lattice"],
                         "handle":{"surface":"sf…","kind":"corner","index":0}|{"surface":"sf…","kind":"node","col":1,"row":1}|null,
-                        "grid":false,"cursors":1,"armed":false} },
+                        "grid":false,"cursors":1,"cursorP95Ms":16.7|-1,"armed":false} },
 "stage": { "projectors": [{ …, "grade":"A"|"", "quads":1 }] },
-"calibration": {"moved":[],
-                "task":null|{"id":"kt…","kind":"resolve","state":"solving|done|failed|cancelled","projector":"pj…","progress":1,"words":"…"},
+"calibration": {"moved":["pj…"],
+                "task":null|{"id":"kt…","kind":"resolve","state":"capturing|matching|solving|verifying|done|failed|cancelled","projector":"pj…",
+                             "progress":1,"words":"…"},
                 "targets":[{"id":"pj…","kind":"projector|output","name":"…","score":0.2|-1,"unit":"px|points","grade":"A|B|C|F|",
                             "light":"green|amber|red|grey","source":"pins|scan|resolve|manual|align|stack","words":"A 0.2 — …","worst":"",
                             "confidence":1,"snapshot":"cs…"|null,"fallback":"cs…"|null,"staged":"cs…"|null,"history":1,"verifiedP95":-1,
@@ -52,7 +53,10 @@ Every wall verb that changes something is refused while the show is armed, with 
 "onboarding": {"stage":"none|lit|quad|content","startedAt":…|null,"litAt":…|null,"quadAt":…|null,"contentAt":…|null,"seconds":84.2|-1}
 ```
 
-`targets` lists every projector, and every output with a result. Unknown numbers are −1. The fixture is
+`targets` lists every projector, and every output with a result. `moved` names the projectors the last camera look found moved
+that still stand where they were found (a staged re-solve leaves its projector there). `cursorP95Ms` is the render host's measure
+of how late a cursor move is drawn: frames from its line's arrival to the frame that first draws it, times the output's frame
+period, p95 over the last 300 moves (−1 before the first). Unknown numbers are −1. The fixture is
 `tests/fixtures/state/wall.json`, its cards `wall.cards.json`.
 
 ## Context, events, preflight, INDEX
@@ -66,16 +70,5 @@ Every wall verb that changes something is refused while the show is armed, with 
 
 ## Papers note
 
-For the integration docs pass:
-
-- `WIRE.md`: the rows above, the changed `PROJECTOR SOLVE` / `SCAN APPLY` replies, STATE `air.overlay`, `calibration`,
-  `onboarding`, `stage.projectors[].grade` / `quads`; `OVERLAY GRID` left the catalogue (next round).
-- `MAPPING.md`: pixel quads (a homography of the unit square plus an optional lattice, drawn in the projector pass over the 3D
-  surfaces with homogeneous coordinates; the UV checker until a source is given); the edit overlay drawn after the output stage
-  through the output's warp; the explainable score and the ledger (`docs/CALIBRATION.md`).
-- `ARCHITECTURE.md`: `OverlayPass` (an `IFramePass` at order 10 000, `Final` only), the cursor board (lane-written, render-read),
-  `ICalibrationLedger` bound through `EngineServices.Ledger` (a late ledger the first engine binds; a second engine built from the
-  same services makes it refuse every call with words, since a caller cannot tell the two apart).
-- `ROADMAP.md`: the quad on the wall, the score vocabulary, the ledger and re-solve from pins done; next round: the camera re-solve
-  ladder (LENS, CODED, DENSE), the dot check, the drift monitor, re-seating quads after a re-solve, `OVERLAY GRID`, overlay names
-  and pins, `HIGHLIGHT`, `PICK PIXEL`, snapping, quads on the 3D view, warp handles on the wall.
+See `docs/wire/resolve.md` for what wp2-resolve added (the camera re-solve, re-seating, the cursor's latency, the first content
+witnessed by the render host, the projector VIEW).

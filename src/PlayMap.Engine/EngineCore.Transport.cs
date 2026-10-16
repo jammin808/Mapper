@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Playback;
 
 namespace PlayMap.Engine;
 
@@ -46,9 +47,12 @@ public sealed partial class EngineCore
                 "VIDEO RATE" => "RATE takes 0.05 to 20",
                 _ => $"{verb} is not a clip verb",
             });
+        var moved = isGo ? BlindOnGo(list.Id, now, switches: false) : null;
         var (ok, words) = Playback.Transport(list, op, now);
         if (ok && isGo)
             NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: $"{list.Name}: {words}") : CommandReply.Fail(words);
     }
 
@@ -196,17 +200,21 @@ public sealed partial class EngineCore
         else
         {
             var lane = Playback.Lane(list.Id);
+            var onAir = lane is null ? -1 : PlaybackLanes.OnAirIndex(lane, at!.Value);
             index = lane is null || lane.IsIdle ? 0
-                : lane.Clip.State is TransportState.Cued ? lane.Index
-                : PlaylistCursor.StepIndex(list, lane.Index, 1);
+                : lane.Clip.State is TransportState.Cued && onAir == lane.Index ? lane.Index
+                : PlaylistCursor.StepIndex(list, onAir, 1);
             if (index < 0)
                 return CommandReply.Fail($"{list.Name} is at its last item");
         }
         if (GoFence(list, expect, index, "next item") is { } fenced)
             return CommandReply.Fail(fenced);
-        var (ok, words) = Playback.Go(list, index, at!.Value);
+        var moved = BlindOnGo(list.Id, at!.Value, switches: true);
+        var (ok, words) = Playback.Go(list, index, at.Value);
         if (ok)
             NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -234,12 +242,15 @@ public sealed partial class EngineCore
         if (list is null)
             return CommandReply.Fail(args.Count > 0 ? $"no playlist {args[0]}" : "no playlist is focused");
         var lane = Playback.Lane(list.Id);
-        var target = lane is null || lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, lane.Index, step);
+        var target = lane is null || lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, PlaybackLanes.OnAirIndex(lane, at!.Value), step);
         if (GoFence(list, expect, target, step > 0 ? "next item" : "previous item") is { } fenced)
             return CommandReply.Fail(fenced);
+        var moved = target >= 0 ? BlindOnGo(list.Id, at!.Value, switches: true) : null;
         var (ok, words) = Playback.Step(list, step, at!.Value);
         if (ok)
             NoteGo(list);
+        else
+            BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
@@ -282,7 +293,9 @@ public sealed partial class EngineCore
         return null;
     }
 
-    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here).</summary>
+    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here). A blind commit
+    /// waiting for a GO there was given the GO's instant before the GO was applied (<see cref="BlindOnGo"/>), so one snapshot carries
+    /// both.</summary>
     private void NoteGo(Playlist list) => _lastGo[list.Id] = LeaderNowNs;
 
     private CommandReply PlaylistLoop(List<string> args)

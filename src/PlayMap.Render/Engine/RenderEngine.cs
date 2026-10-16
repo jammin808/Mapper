@@ -24,9 +24,11 @@ public sealed record RenderEngineOptions(
     bool GpuTiming = true);
 
 /// <summary>A preview a viewer asked for: a view id, the ring it goes to, its size (at most the ring's), and
-/// what it shows — an output's finished picture (<see cref="OutputId"/>) or the editor's free view
-/// (<see cref="Editor"/>).</summary>
-public sealed record PreviewRequest(string ViewId, PreviewRingWriter Ring, int Width, int Height, string? OutputId = null, EditorCamera? Editor = null);
+/// what it shows — an output's finished picture (<see cref="OutputId"/>), the editor's free view (<see cref="Editor"/>), or what a
+/// projector puts on the wall (<see cref="ProjectorId"/>: its picture of the stage through the lens lookup of the output that drives
+/// it, before that output's warp, blend, mask and trim, black where it lights nothing).</summary>
+public sealed record PreviewRequest(string ViewId, PreviewRingWriter Ring, int Width, int Height, string? OutputId = null, EditorCamera? Editor = null,
+    string? ProjectorId = null);
 
 /// <summary>The renderer the engine drives: once a frame, <see cref="Render"/> draws every enabled output of
 /// the project snapshot — sources, canvases, the projector pass, the output stage — into the output's
@@ -54,8 +56,6 @@ public sealed class RenderEngine : IDisposable
         public PresentClock Clock = new(60, measured: false, PresentPath.Offscreen);
         /// <summary>The refresh an offscreen output is measured against (its configured rate).</summary>
         public double OffscreenHz;
-        /// <summary>How long the last present call took (the pacing presenter's includes its wait for the vblank).</summary>
-        public long PresentWaitNs;
         public GpuTimer? Timer;
         public bool HasPicture;
         /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
@@ -81,10 +81,14 @@ public sealed class RenderEngine : IDisposable
         public required PreviewRingWriter Ring { get; set; }
         public long LastFrame;
 
+        /// <summary>A projector view's own picture before the lens lookup (made at the view's size on its first frame).</summary>
+        public RenderTarget? Picture;
+
         public void Dispose()
         {
             Readback.Dispose();
             Target.Dispose();
+            Picture?.Dispose();
         }
     }
 
@@ -205,9 +209,6 @@ public sealed class RenderEngine : IDisposable
     public PresentSnapshot? Present(string outputId) =>
         _outputs.TryGetValue(outputId, out var st) ? st.Clock.Snapshot(MonoClock.Instance.NowNs) : null;
 
-    /// <summary>How long the output's last present call took, ns (0 offscreen): the watchdog's evidence of a stalled barrier.</summary>
-    public long PresentWaitNs(string outputId) => _outputs.TryGetValue(outputId, out var st) ? st.PresentWaitNs : 0;
-
     /// <summary>The time the last frame spent in present calls, ms (the pacing presenter's wait for the vblank included).</summary>
     public double LastPresentMs { get; private set; }
 
@@ -315,9 +316,7 @@ public sealed class RenderEngine : IDisposable
         {
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null || st.Final is null)
                 continue;
-            var callNs = MonoClock.Instance.NowNs;
             var presented = st.Window.Present(st.Final.Color);
-            st.PresentWaitNs = MonoClock.Instance.NowNs - callNs;
             if (presented.Queued)
                 st.Pacer.OnPresented(presented.ReturnedNs);
             st.Clock.OnPresented(in presented);
@@ -444,6 +443,15 @@ public sealed class RenderEngine : IDisposable
         return source.IsNone ? null : _sources.Resolve(source, width, height, GeneratorContext.None);
     }
 
+    /// <summary>What the air shows instead of the show (a safe look, a test pattern) at a size, for a pass that taps it: resolved as
+    /// an output resolves it, through no pass (a canvas or playlist in it composed or mixed without its layers' and items' calls).
+    /// Render thread, during a frame.</summary>
+    public GpuTexture? LookPicture(SourceRef look, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(look);
+        return look.IsNone ? null : _sources.ResolvePlain(look, width, height, GeneratorContext.None);
+    }
+
     /// <summary>A raw picture over the whole raster: the identity warp, no mask, blend or lens, a neutral trim,
     /// no rotation and no dither, so an 8-bit code in is the same code out at the same pixel.</summary>
     private void DrawRaw(Output output, OutputState st, SourceRef raw)
@@ -511,7 +519,11 @@ public sealed class RenderEngine : IDisposable
         pv.LastFrame = Frame;
         CollectPreview(pv);
 
-        if (request.Editor is { } camera && _project is not null)
+        if (request.ProjectorId is { } projectorId && _project?.FindProjector(projectorId) is { } projector)
+        {
+            PreviewProjector(pv, _project, projector, w, h);
+        }
+        else if (request.Editor is { } camera && _project is not null)
         {
             _stage.RenderEditor(pv.Target, _project, camera, _resources, _sources, in _generatorFrame);
         }
@@ -534,6 +546,31 @@ public sealed class RenderEngine : IDisposable
             }
         }
         pv.Readback.Request(pv.Target, _leaderNs);
+    }
+
+    /// <summary>A projector's view: the stage as the projector lights it (at the view's size, so the picture fills the raster as the
+    /// output's does), then through the lens lookup of the first enabled output that drives it — no warp, mask, blend, trim or dither —
+    /// so it equals that output's picture before those, and is black wherever the projector lights nothing.</summary>
+    private void PreviewProjector(PreviewState pv, Project project, Projector projector, int w, int h)
+    {
+        if (pv.Picture is null || pv.Picture.Width != w || pv.Picture.Height != h)
+        {
+            pv.Picture?.Dispose();
+            pv.Picture = Device.CreateRenderTarget(w, h, Device.TargetFormat(TextureFormat.Rgba16F, out _), depth: true);
+        }
+        Output? output = null;
+        var index = 0;
+        for (var i = 0; i < project.Outputs.Length && output is null; i++)
+        {
+            var o = project.Outputs[i];
+            if (o.Enabled && o.Mode == OutputMode.Projector && string.Equals(o.ProjectorId, projector.Id, StringComparison.Ordinal))
+                (output, index) = (o, i);
+        }
+        var context = new GeneratorContext(output?.Name ?? projector.Name, index + 1, projector.Color, true);
+        _stage.RenderProjector(pv.Picture, project, projector, _resources, _sources, in _generatorFrame, context with { NativeRaster = false });
+        var lens = output is not null && _resources.LensPredistortion(output.Id) is { } l ? _caches.Lens(l) : null;
+        _outputStage.Draw(pv.Target, new OutputStageInputs(pv.Picture.Color, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, lens,
+            ColorTrim.Neutral, 0, 0f, Frame));
     }
 
     /// <summary>Delivers every finished preview read to its ring (never waits).</summary>

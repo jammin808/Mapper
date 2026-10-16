@@ -154,11 +154,57 @@ public sealed class PlaybackLanes
         if (index < 0 || index >= list.Items.Length)
             return (false, list.Items.Length == 0 ? $"{list.Name} is empty" : $"{list.Name} has no item {index + 1}");
         var lane = Lane(list.Id) ?? Idle(list.Id);
+        if (ManualMix(list, lane, index, atLeaderNs) is { } mixed)
+        {
+            _lanes[list.Id] = mixed;
+            Publish();
+            return (true, $"{list.Name}: {(mixed.NextTransition == TransitionKind.Dip ? "dipping" : "fading")} into {Label(list, index)}");
+        }
         var loaded = Load(list, index, lane.Clip.Seq);
         var played = loaded.Clip.Play(atLeaderNs);
         _lanes[list.Id] = Schedule(list, loaded with { Clip = played.Transport }, atLeaderNs);
         Publish();
         return (true, $"{list.Name}: playing {Label(list, index)}");
+    }
+
+    /// <summary>A GO (or NEXT, PREV) into an item that comes in with a fade or a dip keeps the item on the air through the
+    /// transition's window: it stays the lane's current item, the incoming one is its next with the switch at the window's end and
+    /// the window opening at the GO's instant, so the source provider mixes both sides exactly as between scheduled items. The item
+    /// on the air at the GO's instant is the outgoing one (an incoming item already mixing in counts as on the air). Null when the GO
+    /// cuts: nothing on the air, the same item again, a cut, or a playlist in a sync group (its followers adopt the leader's item
+    /// and anchor, which carries no window, so the group cuts together at the GO).</summary>
+    private PlaylistPlayback? ManualMix(Playlist list, PlaylistPlayback lane, int index, long atLeaderNs)
+    {
+        if (lane.IsIdle || list.SyncGroup is not null)
+            return null;
+        var outgoing = lane.NextItemId is not null && atLeaderNs >= Math.Min(lane.MixStartNs, lane.SwitchAtLeaderNs) ? Promote(list, lane) : lane;
+        var incoming = list.Items[index];
+        if (outgoing.ItemId is null || outgoing.Source.IsNone || string.Equals(outgoing.ItemId, incoming.Id, StringComparison.Ordinal))
+            return null;
+        var loaded = Load(list, index, outgoing.Clip.Seq);
+        var rate = loaded.Clip.Anchor.Rate > 0 ? loaded.Clip.Anchor.Rate : 1;
+        var window = Transitions.WindowNs(incoming.Transition, incoming.TransitionNs, atLeaderNs + incoming.TransitionNs, long.MaxValue,
+            loaded.Clip.HasLength ? (long)(loaded.Clip.LengthNs / rate) : 0);
+        if (window <= 0)
+            return null;
+        var switchAt = atLeaderNs + window;
+        return outgoing with
+        {
+            SwitchAtLeaderNs = switchAt,
+            NextIndex = index,
+            NextItemId = loaded.ItemId,
+            NextSource = loaded.Source,
+            NextClip = loaded.Clip.Play(switchAt - Transitions.IncomingLeadNs(incoming.Transition, window)).Transport,
+            NextTransition = incoming.Transition,
+            MixStartNs = atLeaderNs,
+        };
+    }
+
+    /// <summary>The index of the item on the air at an instant: the incoming one once its transition window opened.</summary>
+    public static int OnAirIndex(PlaylistPlayback lane, long leaderNs)
+    {
+        ArgumentNullException.ThrowIfNull(lane);
+        return lane.NextItemId is not null && leaderNs >= Math.Min(lane.MixStartNs, lane.SwitchAtLeaderNs) ? lane.NextIndex : lane.Index;
     }
 
     /// <summary>NEXT / PREV: the neighbouring item in list order (wrapping when the list loops), playing.</summary>
@@ -168,7 +214,7 @@ public sealed class PlaybackLanes
         if (GuardOf(list.Id) is { } guarded)
             return (false, guarded);
         var lane = Lane(list.Id) ?? Idle(list.Id);
-        var target = lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, lane.Index, step);
+        var target = lane.IsIdle ? (step > 0 ? 0 : -1) : PlaylistCursor.StepIndex(list, OnAirIndex(lane, atLeaderNs), step);
         if (target < 0)
             return (false, step > 0 ? $"{list.Name} is at its last item" : $"{list.Name} is at its first item");
         return Go(list, target, atLeaderNs);
@@ -184,8 +230,9 @@ public sealed class PlaybackLanes
         var lane = Lane(list.Id);
         if (lane is null || lane.IsIdle)
             return (false, $"nothing is loaded in {list.Name} — PLAYLIST GO {list.Id} starts it");
-        // A verb that lands after a scheduled switch acts on the item that is on now.
-        if (nowLeaderNs >= lane.SwitchAtLeaderNs && lane.NextItemId is not null)
+        // A verb that lands once the next item shows acts on the item on the air: the incoming one from its window's opening (a
+        // fade or dip a GO started is kept and the verb lands on the GO's item), the next one after a switch.
+        if (lane.NextItemId is not null && nowLeaderNs >= lane.NextShowsAtNs)
             lane = Promote(list, lane);
         var r = verb(lane.Clip);
         if (!r.Ok)
@@ -240,8 +287,9 @@ public sealed class PlaybackLanes
             var ticked = lane.Clip.Tick(nowLeaderNs);
             if (!ReferenceEquals(ticked, lane.Clip))
             {
+                // An item that ends while another mixes in over it holds its last frame until the switch.
                 if (ticked.State == TransportState.Ended && lane.Index >= 0 && lane.Index < list.Items.Length
-                    && list.Items[lane.Index].End == EndAction.Stop)
+                    && list.Items[lane.Index].End == EndAction.Stop && lane.NextItemId is null)
                     _lanes[id] = Idle(id) with { Clip = ClipTransport.Empty with { Seq = ticked.Seq + 1 } };
                 else
                     _lanes[id] = lane with { Clip = ticked };

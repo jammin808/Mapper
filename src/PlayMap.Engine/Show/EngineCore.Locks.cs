@@ -32,6 +32,14 @@ public sealed partial class EngineCore
         }
         if (p.Show.Locks.Any(x => x.Kind == l.Kind && x.Target == l.Target))
             return CommandReply.Fail($"{l.Target} is already locked");
+        // A waiting blind commit is drawn on the air from its instant: a lock that would refuse it would show the audience a change
+        // the document never takes, so it waits until the commit has landed.
+        if (_blind?.Commit is { } waiting)
+        {
+            var locked = p with { Show = p.Show with { Locks = p.Show.Locks.Add(l) } };
+            if (LockGuard.Check(locked, waiting.Patch.ApplyTo(locked), armed: false) is not null)
+                return CommandReply.Fail($"a blind commit lands {l.Target} {When(waiting)} — LOCK it once the commit has landed, or BLIND DISCARD first");
+        }
         var r = Store.ApplyUnrecorded($"lock {l.Target}", q => q with { Show = q.Show with { Locks = q.Show.Locks.Add(l) } }, KeepLocks);
         if (!r.Changed)
             return CommandReply.Fail(r.Effect);

@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddWallParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(_ => new Wall.WallExtension());
+        extensions.Add(setup => new Wall.WallExtension(setup.Display));
     }
 }

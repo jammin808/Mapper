@@ -74,6 +74,8 @@ internal sealed class LeasePool
 
     public LeasePool(int capacity) => _free = new MediaFrameLease?[Math.Max(4, capacity)];
 
+    internal Lock Gate => _gate;
+
     /// <summary>A lease on the slot; the caller has already added the slot reference the lease owns.</summary>
     public MediaFrameLease Rent(FrameSlot slot)
     {

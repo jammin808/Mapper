@@ -112,6 +112,33 @@ internal sealed class OpsRig : IAsyncDisposable
         return condition();
     }
 
+    /// <summary>How often the desk renews the views it shows (MainViewModel: every 5 s, a third of the node's 15 s lease).</summary>
+    public static readonly TimeSpan DeskRenewsViews = TimeSpan.FromSeconds(5);
+
+    /// <summary>Waits for a condition as a desk showing <paramref name="views"/> waits: renewing them every
+    /// <see cref="DeskRenewsViews"/>, so a wait longer than the node's lease (a scan under load) keeps them shown.</summary>
+    public async Task<bool> EventuallyShowing(Func<bool> condition, int timeoutMs, params string[] views)
+    {
+        var sw = Stopwatch.StartNew();
+        var renewed = Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if (condition())
+                return true;
+            if (renewed.Elapsed >= DeskRenewsViews)
+            {
+                foreach (var view in views)
+                    await Ok($"VIEW {view} KEEP");
+                renewed.Restart();
+            }
+            await Task.Delay(20);
+        }
+        return condition();
+    }
+
+    /// <summary>The journal's rows about views (a lease that ran out is one), for a failure's words.</summary>
+    public string ViewRows() => string.Join("; ", Engine.Journal.Recent(200).Where(r => r.Kind == "view").Select(r => r.Text));
+
     /// <summary>The newest picture on a view's ring: its size and how many pictures the ring has had (null before
     /// the first).</summary>
     public PreviewFrameInfo? Picture(string viewId)

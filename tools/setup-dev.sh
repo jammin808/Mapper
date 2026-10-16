@@ -2,7 +2,8 @@
 # A PlayMap build and test machine (Ubuntu 24.04, run as root; safe to run again): the .NET 10 SDK, headless OpenGL (Mesa
 # llvmpipe under Xvfb), FFmpeg 9.0's shared libraries in /opt/ffmpeg9, and a sound stack (PulseAudio, sox) so audio capture runs
 # against a real device. `tools/setup-dev.sh` installs; `tools/setup-dev.sh start` also starts the display and the sound card for
-# this session and prints the variables the tests read.
+# this session and prints the variables the tests read. PulseAudio pulls Ubuntu's FFmpeg and with it libva, which a bare machine
+# (and CI) lacks: `tools/without-libs.sh <command>` runs one command as on such a machine.
 set -euo pipefail
 
 FFMPEG_DIR=/opt/ffmpeg9

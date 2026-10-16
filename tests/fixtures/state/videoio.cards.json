@@ -1,1 +1,216 @@
-[]
+[
+  {
+    "id": "videoio.runtimes",
+    "title": "Video I/O",
+    "path": "videoio",
+    "light": {
+      "path": "videoio.bandwidth.light",
+      "red": [
+        "red"
+      ],
+      "amber": [
+        "amber"
+      ],
+      "green": [
+        "green"
+      ]
+    },
+    "words": "videoio.ndi.words",
+    "fields": [
+      {
+        "label": "NDI",
+        "path": "videoio.ndi.state"
+      },
+      {
+        "label": "NDI runtime",
+        "path": "videoio.ndi.version"
+      },
+      {
+        "label": "NDI discovery",
+        "path": "videoio.ndi.discovery"
+      },
+      {
+        "label": "OMT",
+        "path": "videoio.omt.state"
+      },
+      {
+        "label": "VMX",
+        "path": "videoio.omt.vmx"
+      },
+      {
+        "label": "mDNS",
+        "path": "videoio.omt.mdns"
+      },
+      {
+        "label": "Spout",
+        "path": "videoio.spout.state"
+      },
+      {
+        "label": "Discovered",
+        "path": "videoio.discoveredCount"
+      },
+      {
+        "label": "In (Mb/s)",
+        "path": "videoio.bandwidth.inMbps"
+      },
+      {
+        "label": "Out (Mb/s)",
+        "path": "videoio.bandwidth.outMbps"
+      },
+      {
+        "label": "Limit (Mb/s)",
+        "path": "videoio.bandwidth.limitMbps"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Status",
+        "line": "VIDEOIO STATUS"
+      },
+      {
+        "label": "Check",
+        "line": "VIDEOIO CHECK"
+      },
+      {
+        "label": "Discover",
+        "line": "INPUT DISCOVER ALL"
+      }
+    ]
+  },
+  {
+    "id": "videoio.input",
+    "title": "Live input",
+    "path": "videoio.inputs[]",
+    "key": "id",
+    "light": {
+      "path": "state",
+      "red": [
+        "lost",
+        "failed"
+      ],
+      "amber": [
+        "stale"
+      ],
+      "green": [
+        "ok"
+      ]
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Source",
+        "path": "uri"
+      },
+      {
+        "label": "Width",
+        "path": "w"
+      },
+      {
+        "label": "Height",
+        "path": "h"
+      },
+      {
+        "label": "Rate (fps)",
+        "path": "fps"
+      },
+      {
+        "label": "Age (ms)",
+        "path": "ageMs"
+      },
+      {
+        "label": "Format",
+        "path": "format"
+      },
+      {
+        "label": "Tally",
+        "path": "tally"
+      },
+      {
+        "label": "Received",
+        "path": "received"
+      },
+      {
+        "label": "Dropped",
+        "path": "dropped"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Reconnect",
+        "line": "INPUT RECONNECT {id}"
+      }
+    ]
+  },
+  {
+    "id": "videoio.send",
+    "title": "Send",
+    "path": "videoio.sends[]",
+    "key": "id",
+    "light": {
+      "path": "state",
+      "red": [
+        "failed"
+      ],
+      "amber": [
+        "starting"
+      ],
+      "green": [
+        "sending",
+        "idle"
+      ]
+    },
+    "words": "words",
+    "fields": [
+      {
+        "label": "Announced as",
+        "path": "fullName"
+      },
+      {
+        "label": "Tap",
+        "path": "tap"
+      },
+      {
+        "label": "Width",
+        "path": "w"
+      },
+      {
+        "label": "Height",
+        "path": "h"
+      },
+      {
+        "label": "Rate (fps)",
+        "path": "fps"
+      },
+      {
+        "label": "Format",
+        "path": "format"
+      },
+      {
+        "label": "Receivers",
+        "path": "connections"
+      },
+      {
+        "label": "On program",
+        "path": "tally.program"
+      },
+      {
+        "label": "Sent",
+        "path": "sent"
+      },
+      {
+        "label": "Dropped",
+        "path": "dropped"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Start",
+        "line": "SEND ENABLE {id} ON"
+      },
+      {
+        "label": "Stop",
+        "line": "SEND ENABLE {id} OFF"
+      }
+    ]
+  }
+]

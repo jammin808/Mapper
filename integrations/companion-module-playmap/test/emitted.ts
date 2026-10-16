@@ -37,7 +37,7 @@ export function statePaths(): string[] {
 }
 
 /** A row for a section the INDEX fixture lists none of, by its hint's row kind: what a show would list there. An align group's id
- * holds a space, so the module quotes it in a line. */
+ * and an input's name hold a space, so the module quotes them in a line. */
 export const SAMPLE_ROWS: Readonly<Record<string, IndexRow>> = {
 	align: { id: 'Front wall', kind: 'align', label: 'Front wall', parent: '', light: 'grey', state: 'idle' },
 	projector: { id: 'pj0a1b2c3d', kind: 'projector', label: 'Left', parent: '', light: 'green', state: 'A' },
@@ -45,6 +45,8 @@ export const SAMPLE_ROWS: Readonly<Record<string, IndexRow>> = {
 	output: { id: 'op0a1b2c3d', kind: 'output', label: 'Output 2', parent: '', light: 'green', state: 'locked' },
 	chase: { id: 'pl0a1b2c3d', kind: 'chase', label: 'Show', parent: '', light: 'grey', state: 'disengaged' },
 	lednode: { id: 'ln0a1b2c3d', kind: 'lednode', label: 'Truss', parent: '', light: 'grey', state: 'off' },
+	send: { id: 'sd0a1b2c3d', kind: 'send', label: 'Program', parent: '', light: 'grey', state: 'off' },
+	input: { id: 'Stage cam', kind: 'input', label: 'Stage cam', parent: '', light: 'green', state: 'live' },
 }
 
 /** The INDEX fixture's sections, a section with no rows given the sample row of its kind when a line of its keys names a row (one

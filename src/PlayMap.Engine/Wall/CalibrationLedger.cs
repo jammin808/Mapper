@@ -45,7 +45,10 @@ internal static class CalibrationLedger
         {
             Projectors = st.Projectors.Update(s.TargetId, pj => ApplyTo(pj, s) with { CalibrationId = s.Id, StagedId = pj.StagedId == s.Id ? null : pj.StagedId }),
         })
-        : p with { Outputs = p.Outputs.Update(s.TargetId, o => o with { Measured = s.Output, CalibrationId = s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }) };
+        : p with { Outputs = p.Outputs.Update(s.TargetId, o => WithBlendGamma(o, s) with { Measured = s.Output, CalibrationId = s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }) };
+
+    /// <summary>The output with the result's blend γ when the result recorded one.</summary>
+    private static Output WithBlendGamma(Output o, CalibrationSnapshot s) => s.BlendGamma > 0 ? o with { Blend = o.Blend with { Gamma = s.BlendGamma } } : o;
 
     /// <summary>True when the projector stands exactly as the result has it.</summary>
     public static bool Matches(Projector pj, CalibrationSnapshot s) =>
@@ -66,7 +69,7 @@ internal static class CalibrationLedger
             : p with
             {
                 Outputs = p.Outputs.Update(s.TargetId, o => apply
-                    ? o with { Measured = s.Output, CalibrationId = s.Id, FallbackId = o.FallbackId ?? s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }
+                    ? WithBlendGamma(o, s) with { Measured = s.Output, CalibrationId = s.Id, FallbackId = o.FallbackId ?? s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }
                     : o with { StagedId = s.Id }),
             };
         return Prune(p, s.TargetId);

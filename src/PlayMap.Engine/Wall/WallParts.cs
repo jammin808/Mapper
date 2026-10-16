@@ -87,15 +87,16 @@ internal sealed class WallPreflight : IPreflightCheck
     }
 }
 
-/// <summary>wp2-wall's part of the node: its preflight check in the services; nothing to start.</summary>
-internal sealed class WallExtension : IEngineExtension
+/// <summary>wp2-wall's part of the node: its preflight check and the display a camera re-solve shows its dots on, in the services;
+/// nothing to start.</summary>
+internal sealed class WallExtension(IScanDisplay? display = null) : IEngineExtension
 {
     public string Name => "wall";
 
     public EngineServices Configure(EngineServices services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services with { PreflightChecks = [.. services.PreflightChecks, new WallPreflight()] };
+        return services with { WallDisplay = display ?? services.WallDisplay, PreflightChecks = [.. services.PreflightChecks, new WallPreflight()] };
     }
 
     public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;

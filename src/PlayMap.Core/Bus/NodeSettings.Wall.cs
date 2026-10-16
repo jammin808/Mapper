@@ -17,4 +17,11 @@ public sealed record WallSettings
     public int MaxCursors { get; init; } = 8;
 
     public int CalibrationTaskTimeoutS { get; init; } = 120;
+
+    /// <summary>The spacing of a camera re-solve's dots (projector px).</summary>
+    public double ResolveDotSpacing { get; init; } = 64;
+
+    /// <summary>How long one pattern of a camera re-solve holds on the wall (present, the camera's latency and one settled picture);
+    /// a capture's pattern time is its frames times this.</summary>
+    public int ResolveFrameMs { get; init; } = 100;
 }

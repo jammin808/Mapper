@@ -1,1 +1,129 @@
-[]
+[
+  {
+    "title": "Site",
+    "path": "stage.site",
+    "light": [
+      {
+        "if": "crs",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "{crs} {name} \u00B7 mains {mainsHz} Hz",
+    "fields": [
+      {
+        "label": "System",
+        "path": "crs"
+      },
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Origin",
+        "path": "origin"
+      },
+      {
+        "label": "Rotation",
+        "path": "rotationDeg"
+      },
+      {
+        "label": "Grid scale",
+        "path": "gridScale"
+      },
+      {
+        "label": "Mains",
+        "path": "mainsHz"
+      }
+    ],
+    "actions": [
+      "SITE",
+      "SITE CHECK",
+      "SITE MAINS 50",
+      "SITE MAINS 60"
+    ]
+  },
+  {
+    "title": "Survey",
+    "path": "stage.surveys.0",
+    "light": [
+      {
+        "if": "mesh",
+        "light": "green"
+      },
+      {
+        "light": "amber"
+      }
+    ],
+    "words": "{name} ({format}) \u00B7 {state}",
+    "fields": [
+      {
+        "label": "Name",
+        "path": "name"
+      },
+      {
+        "label": "Format",
+        "path": "format"
+      },
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Points",
+        "path": "points"
+      },
+      {
+        "label": "Triangles",
+        "path": "triangles"
+      },
+      {
+        "label": "Mesh",
+        "path": "mesh"
+      }
+    ],
+    "actions": [
+      "SURVEY LIST",
+      "SITE CHECK $(id)"
+    ]
+  },
+  {
+    "title": "Solve uncertainty",
+    "path": "stage.projectors.0.uncertainty",
+    "light": [
+      {
+        "if": "weak",
+        "light": "amber"
+      },
+      {
+        "light": "green"
+      }
+    ],
+    "words": "on the wall \u00B1{wallPx} px \u00B7 distance \u00B1{axisM} m \u00B7 zoom \u00B1{focalPct} % {weak}",
+    "fields": [
+      {
+        "label": "On the wall (px)",
+        "path": "wallPx"
+      },
+      {
+        "label": "Along the axis (m)",
+        "path": "axisM"
+      },
+      {
+        "label": "Zoom (%)",
+        "path": "focalPct"
+      },
+      {
+        "label": "Weak",
+        "path": "weak"
+      }
+    ],
+    "actions": [
+      "PROJECTOR SOLVE $(id)",
+      "PROJECTOR PRIOR $(id) THROW 3 \u00B12",
+      "PROJECTOR PRIOR $(id) CLEAR"
+    ]
+  }
+]

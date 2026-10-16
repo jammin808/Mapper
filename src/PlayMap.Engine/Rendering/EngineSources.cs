@@ -72,6 +72,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private Project _project = Project.CreateDefault();
     private PlaybackSnapshot _playback = PlaybackSnapshot.Empty;
     private long _frame;
+    private bool _air;
     private bool _disposed;
 
     public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null)
@@ -87,6 +88,17 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     /// <summary>Decoders open now (all consumers).</summary>
     public int OpenSources => _itemSlots.Count + _mediaSlots.Count + _liveSlots.Count;
 
+    /// <summary>The frame's air is drawn (its outputs and sends): live inputs drawn from here until the next frame — previews — are
+    /// drawn for preview, not for program (tally).</summary>
+    public void EndAir()
+    {
+        _air = false;
+        AirEnds++;
+    }
+
+    /// <summary>Frames whose air was marked ended (render thread writes; read by tests and health).</summary>
+    public long AirEnds { get; private set; }
+
     /// <summary>Why a library item could not be opened, or null.</summary>
     public string? Problem(string mediaOrItemId) =>
         (_itemSlots.GetValueOrDefault(mediaOrItemId) ?? _mediaSlots.GetValueOrDefault(mediaOrItemId) ?? _liveSlots.GetValueOrDefault(mediaOrItemId))?.Problem;
@@ -98,6 +110,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         _project = snapshot.Project.Project;
         _playback = snapshot.Playback;
         _frame = frame;
+        _air = true;
         if (frame % SweepEvery == 0)
         {
             Sweep(_itemSlots, _itemGone);
@@ -131,15 +144,37 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     public SourceRef? Route(SourceRef source, long leaderNs)
     {
         ArgumentNullException.ThrowIfNull(source);
-        // An item's own frames (a side of a mix) are never routed again.
-        if (source.Kind != SourceKind.Playlist || _itemRefOwners.ContainsKey(source.Id))
+        if (source.Kind is SourceKind.Media or SourceKind.Live)
+            return LossOf(source.Id);
+        if (source.Kind != SourceKind.Playlist)
             return null;
+        // An item's own frames (a side of a mix) are never routed again, save to what its live input shows on loss.
+        if (_itemRefOwners.TryGetValue(source.Id, out var owner))
+            return _playback.Playlists.TryGetValue(owner.PlaylistId, out var mixing) && !mixing.IsIdle
+                ? string.Equals(mixing.ItemId, owner.ItemId, StringComparison.Ordinal) ? LossOf(mixing.Source)
+                : string.Equals(mixing.NextItemId, owner.ItemId, StringComparison.Ordinal) ? LossOf(mixing.NextSource) : null
+                : null;
         if (!_playback.Playlists.TryGetValue(source.Id, out var lane) || lane.IsIdle)
             return SourceRef.None;
         PrepareNext(lane, leaderNs);
         var (now, _, _) = lane.At(leaderNs);
+        if (LossOf(now) is { } loss)
+            return loss;
         // An item that plays another playlist shows that playlist's picture (the renderer refuses a loop).
         return Drawn(now) || now.Kind == SourceKind.Playlist ? now : null;
+    }
+
+    private SourceRef? LossOf(SourceRef source) => source.Kind is SourceKind.Media or SourceKind.Live ? LossOf(source.Id) : null;
+
+    /// <summary>What a live input shows instead of its feed while its loss policy holds (black or its fallback; validation keeps a
+    /// fallback off live inputs, so this never routes to another), or null. A routed input's consumer slot stays in use, so the
+    /// feed is read again the frame the policy lets go. Allocation-free.</summary>
+    private SourceRef? LossOf(string id)
+    {
+        if (!_liveSlots.TryGetValue(id, out var slot) || Volatile.Read(ref slot.Source) is not VideoIo.LiveHandle handle || handle.LossRoute is not { } route)
+            return null;
+        slot.LastUsed = _frame;
+        return route;
     }
 
     public SourceMix? Mix(SourceRef source, long leaderNs)
@@ -319,6 +354,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     {
         var slot = SlotFor(_liveSlots, id, item);
         var src = slot is null ? null : Volatile.Read(ref slot.Source);
+        if (src is VideoIo.LiveHandle handle)
+            handle.ForAir = _air;
         // A live source has only now: its newest frame, whatever the time asked.
         return slot is null || src is null ? null : _leases.Wrap(src.Acquire(0), slot.Epoch);
     }

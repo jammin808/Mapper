@@ -267,12 +267,17 @@ public sealed class ChaseTests
     /// <summary>Code rolling at 25 fps steps ahead by some frames at once. Past the jump threshold in force (the chase's JUMP, or
     /// auto's 2 frames) the step is a jump: on the second observation that agrees the run starts afresh, and by the third the line is
     /// on the new code. Within it the step is drift: the run goes on, nothing is counted a discontinuity, the line stays rolling and
-    /// comes to the new code as the fit's window takes it in.</summary>
+    /// comes to the new code as the fit's window takes it in — but only a step the fit can glide within its slope bounds (three
+    /// frames at most on the full 1.5 s window): a steeper one within a wider JUMP is a jump all the same.</summary>
     [Theory]
     [InlineData(1, 0, false)]
     [InlineData(1, 20, true)]
     [InlineData(3, 0, true)]
     [InlineData(3, 200, false)]
+    [InlineData(4, 200, true)]
+    [InlineData(6, 500, true)]
+    [InlineData(-3, 500, false)]
+    [InlineData(-4, 500, true)]
     public void TheJumpThresholdInForceDecidesWhetherAStepIsAJumpOrDrift(int stepFrames, int jumpMs, bool isJump)
     {
         var tracker = new TimecodeTracker(Format, jumpNs: jumpMs * 1_000_000L);
@@ -316,15 +321,16 @@ public sealed class ChaseTests
 
     /// <summary>A one-frame step: auto (2 frames) rides it as drift — the fit glides the line onto the code over a few frames, and
     /// meanwhile the picture shows the frame before; a chase with JUMP 20 ms relocates, and every vblank from 150 ms after the step
-    /// shows the frame of the code.</summary>
+    /// shows the frame of the code. A six-frame step within JUMP 500 ms is too steep for the fit to glide: it relocates the same way.</summary>
     [Theory]
-    [InlineData(0, false)]
-    [InlineData(20, true)]
-    public void AChaseRelocatesOnAStepPastItsJumpThreshold(int jumpMs, bool relocates)
+    [InlineData(1, 0, false)]
+    [InlineData(1, 20, true)]
+    [InlineData(6, 500, true)]
+    public void AChaseRelocatesOnAStepPastItsJumpThreshold(int stepFrames, int jumpMs, bool relocates)
     {
         const long t0 = 10_000_000_000;
         var start = Tc("01:00:01:00");
-        long? Code(long t) => start + (t - t0) + (t >= t0 + 2_000_000_000 ? 40_000_000 : 0);
+        long? Code(long t) => start + (t - t0) + (t >= t0 + 2_000_000_000 ? stepFrames * 40_000_000L : 0);
         var settings = new ChaseSettings(0, ChaseLoss.Hold, 500_000_000, ChaseGap.Black) { JumpNs = jumpMs * 1_000_000L };
         var run = Run(5, Code, 3, t => t is > t0 + 2_150_000_000 and < t0 + 2_500_000_000, settings);
         Assert.True(run.Checked > 15, $"{run.Checked} vblanks checked");
@@ -333,6 +339,87 @@ public sealed class ChaseTests
         else
             Assert.NotEmpty(run.Misses);
         Assert.Equal(ChaseState.Locked, run.Memory.State);
+    }
+
+    /// <summary>Whether a step within a wide JUMP glides is judged on the window as it stands and the code's rate, not by its frames
+    /// alone: a three-frame step glides on the full 1.5 s window of code at its true rate (up to 1.12×), but not on a run only half
+    /// a second old (the window it would glide over is shorter) nor on code running 5 % fast (1.05× + 0.12 is past 1.15×), and each
+    /// of those relocates instead; a four-frame step, a jump on code at its true rate, glides on code running 5 % slow (up to 0.95× +
+    /// 0.16); five frames there reach the bound (0.95× + 0.20) and are a jump.</summary>
+    [Theory]
+    [InlineData(3, 1.0, 3000, false)]
+    [InlineData(3, 1.0, 500, true)]
+    [InlineData(3, 1.05, 3000, true)]
+    [InlineData(4, 0.95, 3000, false)]
+    [InlineData(5, 0.95, 3000, true)]
+    [InlineData(6, 0.95, 3000, true)]
+    public void AStepGlidesOnlyWhereTheWindowAsItStandsCanGlideIt(int stepFrames, double rate, int runMs, bool isJump)
+    {
+        var tracker = new TimecodeTracker(Format, jumpNs: 500_000_000);
+        var code = (double)Format.Ns(100);
+        var t = 1_000_000_000L;
+        var observed = new List<(long Discontinuity, bool Running)>();
+        void Roll(int frames)
+        {
+            // An observation as the code crosses each frame (its frames' ends come every 40 ms ÷ rate).
+            for (var i = 0; i < frames; i++)
+            {
+                var frame = Format.FrameOf((long)Math.Round(code));
+                tracker.Observe(new TcObservation(t, frame, 0, Format, 1, TcObsKind.FrameEnd, 0, false));
+                observed.Add((tracker.Reading.Counters.Discontinuity, tracker.Reading.Line is { Running: true }));
+                code = Format.Ns(frame + 1);
+                t += (long)Math.Round(40_000_000 / rate);
+            }
+        }
+
+        Roll((int)(runMs / 40.0 * rate));
+        Assert.Equal((0L, true), observed[^1]);
+        observed.Clear();
+        code += stepFrames * 40_000_000L;
+        Roll(60);
+        // A jump relocates on the second observation of the new code; drift glides. Either way the line is never out of its
+        // bounds, and it ends on the code.
+        Assert.Equal(isJump ? 1L : 0L, observed[1].Discontinuity);
+        Assert.Equal(isJump ? 1L : 0L, observed[^1].Discontinuity);
+        Assert.All(observed, o => Assert.True(o.Running));
+        var line = tracker.Reading.Line!.Value;
+        Assert.InRange(line.TcAt(t - (long)Math.Round(40_000_000 / rate)) - Format.Ns(Format.FrameOf((long)Math.Round(code)) - 1), -1_000_000, 1_000_000);
+    }
+
+    /// <summary>A step whose glide would reach the slope bound exactly — four frames at 25 fps on a 1.6 s window (1.5 × 160 ÷ 1600 =
+    /// 0.15) — is a jump however the observations jitter (±50 µs, forty seeds): relocated on the second observation of the new code,
+    /// the line running at every observation, on the code from then on; never a glide that leaves the bound part way ("varispeed out
+    /// of range — nothing locks") as the jitter moves the window's edge by a point.</summary>
+    [Fact]
+    public void AStepAtTheBoundIsAJumpHoweverTheObservationsJitter()
+    {
+        for (ulong seed = 1; seed <= 40; seed++)
+        {
+            var tracker = new TimecodeTracker(Format, fitWindowMs: 1600, jumpNs: 500_000_000);
+            var jitter = new Pcg32(seed);
+            var t = 1_000_000_000L;
+            long frame = 100;
+            var seen = new List<(long Discontinuity, bool Running, string Words)>();
+            void Roll(int frames)
+            {
+                for (var i = 0; i < frames; i++, t += 40_000_000, frame++)
+                {
+                    var at = t + (long)Math.Round((jitter.NextDouble() - 0.5) * 100_000);
+                    tracker.Observe(new TcObservation(at, frame, 0, Format, 1, TcObsKind.FrameEnd, 0, false));
+                    seen.Add((tracker.Reading.Counters.Discontinuity, tracker.Reading.Line is { Running: true }, tracker.Reading.Words));
+                }
+            }
+
+            Roll(100);
+            Assert.Equal((0L, true), (seen[^1].Discontinuity, seen[^1].Running));
+            seen.Clear();
+            frame += 4;
+            Roll(60);
+            Assert.True(seen[0].Discontinuity == 0 && seen[1].Discontinuity == 1, $"seed {seed}: relocated at observation {seen.FindIndex(s => s.Discontinuity > 0)}");
+            Assert.All(seen, s => Assert.True(s.Running, $"seed {seed}: {s.Words}"));
+            Assert.Equal(1L, seen[^1].Discontinuity);
+            Assert.InRange(tracker.Reading.Line!.Value.TcAt(t - 40_000_000) - Format.Ns(frame - 1), -1_000_000, 1_000_000);
+        }
     }
 
     /// <summary>A tracker judged at another threshold starts from the code as it stands (still locked, the same line and run) and

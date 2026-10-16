@@ -4538,7 +4538,7 @@
   {
     "name": "SHOW",
     "syntax": "SHOW [STATUS]",
-    "words": "Show Mode: armed or rehearsal, by whom and since, the rules, panic, locks and the last preflight",
+    "words": "Show Mode: armed or rehearsal, by whom and since, the rules, the blind draft, panic, locks and the last preflight",
     "category": "show",
     "risk": "low",
     "mutates": false,
@@ -4579,7 +4579,7 @@
   {
     "name": "SHOW ARM",
     "syntax": "SHOW ARM [ALL] [\u003Cwords\u003E]",
-    "words": "Arms the show with no password: edits that would move the air are refused for every caller until SHOW DISARM; transport, blackout and PANIC stay live; armed survives a restart (ALL: every node of the group, refused while this node fans out to none)",
+    "words": "Arms the show with no password: edits that would move the air are refused for every caller until SHOW DISARM; transport, blackout and PANIC stay live; armed survives a restart (ALL: every node of the group, answered with each member\u0027s receipt; refused while this node fans out to none)",
     "category": "show",
     "risk": "review",
     "mutates": true,
@@ -4630,7 +4630,7 @@
   {
     "name": "SHOW DISARM",
     "syntax": "SHOW DISARM [ALL]",
-    "words": "Back to rehearsal (ALL: every node of the group, refused while this node fans out to none)",
+    "words": "Back to rehearsal (ALL: every node of the group, answered with each member\u0027s receipt; refused while this node fans out to none)",
     "category": "show",
     "risk": "review",
     "mutates": true,
@@ -5548,8 +5548,8 @@
   },
   {
     "name": "PREFLIGHT",
-    "syntax": "PREFLIGHT [QUICK] [ALL]",
-    "words": "Checks the node is ready for the show from facts: outputs on present displays, media present and readable, linked projectors reachable, free disk, the show\u0027s safety; each row carries the line that fixes it; answers the report\u0027s id (ALL: every node of the group, refused while this node fans out to none)",
+    "syntax": "PREFLIGHT [QUICK] [ALL|WAIT]",
+    "words": "Checks the node is ready for the show from facts: outputs on present displays, media present and readable, linked projectors reachable and solved, free disk, the show clock, the links, the show\u0027s safety; each row carries the line that fixes it; answers the report\u0027s id (ALL: every node of the group, one section per node, refused while this node fans out to none; WAIT: answers with the finished report)",
     "category": "show",
     "risk": "low",
     "mutates": true,
@@ -5560,7 +5560,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "PREFLIGHT [QUICK] [ALL]"
+      "PREFLIGHT [QUICK] [ALL|WAIT]"
     ],
     "available": false,
     "params": [
@@ -5573,11 +5573,12 @@
         ]
       },
       {
-        "name": "all",
-        "kind": "flag",
+        "name": "choice",
+        "kind": "enum",
         "optional": true,
         "values": [
-          "ALL"
+          "ALL",
+          "WAIT"
         ]
       }
     ],
@@ -5592,11 +5593,12 @@
           ]
         },
         {
-          "name": "all",
-          "kind": "flag",
+          "name": "choice",
+          "kind": "enum",
           "optional": true,
           "values": [
-            "ALL"
+            "ALL",
+            "WAIT"
           ]
         }
       ]
@@ -6468,35 +6470,69 @@
     "press": "hold"
   },
   {
-    "name": "SYNC LATENCY",
-    "syntax": "SYNC LATENCY AUTO|\u003Cms 0-500\u003E",
-    "words": "The group\u0027s air latency (AUTO: the largest output latency any member reports)",
+    "name": "SYNC RECEIPT",
+    "syntax": "SYNC RECEIPT \u003Cseq\u003E ACCEPTED|APPLIED|REFUSED \u003Cleader ns\u003E [\u003Cwords\u003E]",
+    "words": "A group member\u0027s answer to an air line its leader fanned out (member to leader, on the member\u0027s anchor feed)",
     "category": "network",
-    "risk": "review",
-    "mutates": true,
+    "risk": "low",
+    "mutates": false,
     "aliases": [],
-    "show": "layout",
+    "show": "query",
     "riskWhen": [],
-    "ephemeral": false,
+    "ephemeral": true,
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "SYNC LATENCY AUTO|\u003Cms 0-500\u003E"
+      "SYNC RECEIPT \u003Cseq\u003E ACCEPTED|APPLIED|REFUSED \u003Cleader ns\u003E [\u003Cwords\u003E]"
     ],
     "available": false,
     "params": [
       {
-        "name": "auto",
+        "name": "seq",
+        "kind": "integer"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "ACCEPTED",
+          "APPLIED",
+          "REFUSED"
+        ]
+      },
+      {
+        "name": "leader",
+        "kind": "text"
+      },
+      {
+        "name": "words",
         "kind": "text",
-        "alt": "\u003Cms 0-500\u003E"
+        "optional": true
       }
     ],
     "formParams": [
       [
         {
-          "name": "auto",
+          "name": "seq",
+          "kind": "integer"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "ACCEPTED",
+            "APPLIED",
+            "REFUSED"
+          ]
+        },
+        {
+          "name": "leader",
+          "kind": "text"
+        },
+        {
+          "name": "words",
           "kind": "text",
-          "alt": "\u003Cms 0-500\u003E"
+          "optional": true
         }
       ]
     ],
@@ -7336,8 +7372,8 @@
   },
   {
     "name": "SEND ADD",
-    "syntax": "SEND ADD NDI|OMT|SPOUT \u003Cname\u003E \u003Ctap\u003E [\u003Cw\u003Ex\u003Ch\u003E] [@\u003Cfps\u003E] [UYVY|UYVA|P216|PA16|BGRA8|RGBA8|RGBA16F] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]",
-    "words": "Sends a picture to the network or to other apps on this machine: tap output:\u003Cid\u003E, prewarp:\u003Cid\u003E, canvas:\u003Cid\u003E or source:\u003Cref\u003E; answers its id",
+    "syntax": "SEND ADD NDI|OMT|SPOUT \u003Cname\u003E \u003Ctap\u003E [\u003Cw\u003Ex\u003Ch\u003E] [@\u003Cfps\u003E] [UYVY|UYVA|P216|PA16|BGRA8] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]",
+    "words": "Sends a picture to the network or to other apps on this machine: tap output:\u003Cid\u003E, canvas:\u003Cid\u003E or source:\u003Cref\u003E; answers its id",
     "category": "video",
     "risk": "review",
     "mutates": true,
@@ -7348,7 +7384,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "SEND ADD NDI|OMT|SPOUT \u003Cname\u003E \u003Ctap\u003E [\u003Cw\u003Ex\u003Ch\u003E] [@\u003Cfps\u003E] [UYVY|UYVA|P216|PA16|BGRA8|RGBA8|RGBA16F] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]"
+      "SEND ADD NDI|OMT|SPOUT \u003Cname\u003E \u003Ctap\u003E [\u003Cw\u003Ex\u003Ch\u003E] [@\u003Cfps\u003E] [UYVY|UYVA|P216|PA16|BGRA8] [QUALITY LOW|MEDIUM|HIGH] [ALWAYS]"
     ],
     "available": false,
     "params": [
@@ -7396,9 +7432,7 @@
           "UYVA",
           "P216",
           "PA16",
-          "BGRA8",
-          "RGBA8",
-          "RGBA16F"
+          "BGRA8"
         ]
       },
       {
@@ -7467,9 +7501,7 @@
             "UYVA",
             "P216",
             "PA16",
-            "BGRA8",
-            "RGBA8",
-            "RGBA16F"
+            "BGRA8"
           ]
         },
         {
@@ -7503,7 +7535,7 @@
     "risk": "high",
     "mutates": true,
     "aliases": [],
-    "show": "layout",
+    "show": "content",
     "riskWhen": [
       {
         "arg": 1,
@@ -7560,7 +7592,7 @@
     "risk": "high",
     "mutates": true,
     "aliases": [],
-    "show": "layout",
+    "show": "content",
     "riskWhen": [],
     "ephemeral": false,
     "gesture": false,
@@ -11988,7 +12020,7 @@
   {
     "name": "SURVEY IMPORT",
     "syntax": "SURVEY IMPORT \u003Cpath\u003E [CRS \u003Ccode\u003E|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL \u003Cm\u003E] [DECIMATE \u003Ctriangles\u003E|OFF] [NAME \u003Cname\u003E]",
-    "words": "Imports a surveyed model or point cloud (OBJ, PLY, glTF, LAS) into the site frame, off the control lane; answers its id",
+    "words": "Imports a surveyed model or point cloud (OBJ, PLY, glTF, LAS, E57, XYZ) into the site frame, off the control lane; answers its id",
     "category": "site",
     "risk": "review",
     "mutates": true,
@@ -12140,31 +12172,6 @@
     "press": "instant"
   },
   {
-    "name": "SITE GUIDE",
-    "syntax": "SITE GUIDE",
-    "words": "The facade workflow as steps (survey, control points, pins, priors and solve, stacks, blend, score), each with its state and the line that does it",
-    "category": "site",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [
-      "FACADE GUIDE"
-    ],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "SITE GUIDE"
-    ],
-    "available": false,
-    "params": [],
-    "formParams": [
-      []
-    ],
-    "press": "instant"
-  },
-  {
     "name": "PROJECTOR PRIOR",
     "syntax": "PROJECTOR PRIOR \u003Cprojector\u003E THROW \u003Cratio\u003E [\u00B1\u003Cpct\u003E] | PROJECTOR PRIOR \u003Cprojector\u003E AT \u003Ccontrol\u003E [\u00B1\u003Cm\u003E] | PROJECTOR PRIOR \u003Cprojector\u003E AT \u003Cx\u003E \u003Cy\u003E \u003Cz\u003E [\u00B1\u003Cm\u003E] | PROJECTOR PRIOR \u003Cprojector\u003E CLEAR",
     "words": "What a solve may assume about a projector\u0027s lens and position",
@@ -12280,182 +12287,6 @@
     "press": "instant"
   },
   {
-    "name": "PLAN LIGHT",
-    "syntax": "PLAN LIGHT [\u003Csurface\u003E|ALL] [AMBIENT \u003Clux\u003E] [ALBEDO \u003C0-1\u003E] [TARGET \u003Clux\u003E] [DERATE \u003C0-1\u003E]",
-    "words": "Predicted illuminance, luminance, contrast and pixel pitch per surface from the projectors as placed",
-    "category": "site",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "PLAN LIGHT [\u003Csurface\u003E|ALL] [AMBIENT \u003Clux\u003E] [ALBEDO \u003C0-1\u003E] [TARGET \u003Clux\u003E] [DERATE \u003C0-1\u003E]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "surface",
-        "kind": "entity",
-        "optional": true,
-        "prefix": "sf",
-        "alt": "ALL"
-      },
-      {
-        "name": "ambient",
-        "kind": "number",
-        "optional": true,
-        "keyword": "AMBIENT"
-      },
-      {
-        "name": "albedo",
-        "kind": "number",
-        "optional": true,
-        "keyword": "ALBEDO",
-        "min": 0,
-        "max": 1
-      },
-      {
-        "name": "target",
-        "kind": "number",
-        "optional": true,
-        "keyword": "TARGET"
-      },
-      {
-        "name": "derate",
-        "kind": "number",
-        "optional": true,
-        "keyword": "DERATE",
-        "min": 0,
-        "max": 1
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "surface",
-          "kind": "entity",
-          "optional": true,
-          "prefix": "sf",
-          "alt": "ALL"
-        },
-        {
-          "name": "ambient",
-          "kind": "number",
-          "optional": true,
-          "keyword": "AMBIENT"
-        },
-        {
-          "name": "albedo",
-          "kind": "number",
-          "optional": true,
-          "keyword": "ALBEDO",
-          "min": 0,
-          "max": 1
-        },
-        {
-          "name": "target",
-          "kind": "number",
-          "optional": true,
-          "keyword": "TARGET"
-        },
-        {
-          "name": "derate",
-          "kind": "number",
-          "optional": true,
-          "keyword": "DERATE",
-          "min": 0,
-          "max": 1
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "STACK NEW",
-    "syntax": "STACK NEW \u003Cname\u003E \u003Cprojector\u003E \u003Cprojector\u003E [\u003Cprojector\u003E\u2026] [MASTER \u003Cprojector\u003E]",
-    "words": "Groups projectors lighting one picture (the blend treats them as one); answers its id",
-    "category": "mapping",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "mapping",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "STACK NEW \u003Cname\u003E \u003Cprojector\u003E \u003Cprojector\u003E [\u003Cprojector\u003E\u2026] [MASTER \u003Cprojector\u003E]"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "name",
-        "kind": "text"
-      },
-      {
-        "name": "projector",
-        "kind": "entity",
-        "prefix": "pj"
-      },
-      {
-        "name": "projector2",
-        "kind": "entity",
-        "prefix": "pj"
-      },
-      {
-        "name": "projector3",
-        "kind": "entity",
-        "optional": true,
-        "prefix": "pj",
-        "repeats": true
-      },
-      {
-        "name": "master",
-        "kind": "entity",
-        "optional": true,
-        "prefix": "pj",
-        "keyword": "MASTER"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "name",
-          "kind": "text"
-        },
-        {
-          "name": "projector",
-          "kind": "entity",
-          "prefix": "pj"
-        },
-        {
-          "name": "projector2",
-          "kind": "entity",
-          "prefix": "pj"
-        },
-        {
-          "name": "projector3",
-          "kind": "entity",
-          "optional": true,
-          "prefix": "pj",
-          "repeats": true
-        },
-        {
-          "name": "master",
-          "kind": "entity",
-          "optional": true,
-          "prefix": "pj",
-          "keyword": "MASTER"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
     "name": "STACK ALIGN",
     "syntax": "STACK ALIGN \u003Cstack\u003E FROM \u003Cscan\u003E [GRID \u003Cc\u003Ex\u003Cr\u003E]",
     "words": "Fits each member\u0027s measured residual to the master\u0027s picture from a shared scan",
@@ -12511,127 +12342,6 @@
           "keyword": "GRID"
         }
       ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "STACK MATCH",
-    "syntax": "STACK MATCH \u003Cstack\u003E FROM \u003Cscan\u003E",
-    "words": "Matches the members\u0027 colour gains from the scan\u0027s white frames",
-    "category": "mapping",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "mapping",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "STACK MATCH \u003Cstack\u003E FROM \u003Cscan\u003E"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "stack",
-        "kind": "entity",
-        "prefix": "sk"
-      },
-      {
-        "name": "from",
-        "kind": "entity",
-        "prefix": "sc",
-        "keyword": "FROM"
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "stack",
-          "kind": "entity",
-          "prefix": "sk"
-        },
-        {
-          "name": "from",
-          "kind": "entity",
-          "prefix": "sc",
-          "keyword": "FROM"
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "STACK FAILOVER",
-    "syntax": "STACK FAILOVER \u003Cstack\u003E HOLD|MATCH",
-    "words": "What the stack does when a member fails: hold the rest, or dim its blend group to match",
-    "category": "mapping",
-    "risk": "review",
-    "mutates": true,
-    "aliases": [],
-    "show": "mapping",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "STACK FAILOVER \u003Cstack\u003E HOLD|MATCH"
-    ],
-    "available": false,
-    "params": [
-      {
-        "name": "stack",
-        "kind": "entity",
-        "prefix": "sk"
-      },
-      {
-        "name": "choice",
-        "kind": "enum",
-        "values": [
-          "HOLD",
-          "MATCH"
-        ]
-      }
-    ],
-    "formParams": [
-      [
-        {
-          "name": "stack",
-          "kind": "entity",
-          "prefix": "sk"
-        },
-        {
-          "name": "choice",
-          "kind": "enum",
-          "values": [
-            "HOLD",
-            "MATCH"
-          ]
-        }
-      ]
-    ],
-    "press": "instant"
-  },
-  {
-    "name": "STACK LIST",
-    "syntax": "STACK LIST",
-    "words": "Stacks with members, residual, gains and degraded members",
-    "category": "mapping",
-    "risk": "low",
-    "mutates": false,
-    "aliases": [],
-    "show": "query",
-    "riskWhen": [],
-    "ephemeral": false,
-    "gesture": false,
-    "pairedOnly": false,
-    "forms": [
-      "STACK LIST"
-    ],
-    "available": false,
-    "params": [],
-    "formParams": [
-      []
     ],
     "press": "instant"
   },
@@ -12730,8 +12440,8 @@
   },
   {
     "name": "ALIGN RUN",
-    "syntax": "ALIGN RUN \u003Cgroup\u003E [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]",
-    "words": "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, \u03B3) with its score; nothing changes on the air until ALIGN ACCEPT",
+    "syntax": "ALIGN RUN \u003Cgroup\u003E [ONLY \u003Coutput\u003E\u2026] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]",
+    "words": "Measures the outputs through the camera and stages a correction (warp, blend and pedestal, \u03B3, and with COLOR WHITE each white matched) with its score; ONLY scans those outputs again and keeps the others; nothing changes on the air until ALIGN ACCEPT",
     "category": "align",
     "risk": "high",
     "mutates": true,
@@ -12742,7 +12452,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "ALIGN RUN \u003Cgroup\u003E [STEPS SCAN,SOLVE|ALL] [FIT INSIDE|CORNERS]"
+      "ALIGN RUN \u003Cgroup\u003E [ONLY \u003Coutput\u003E\u2026] [STEPS SCAN,SOLVE,COLOR|ALL] [FIT INSIDE|CORNERS] [COLOR OFF|WHITE]"
     ],
     "available": false,
     "params": [
@@ -12751,12 +12461,20 @@
         "kind": "text"
       },
       {
+        "name": "only",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "op",
+        "keyword": "ONLY",
+        "repeats": true
+      },
+      {
         "name": "steps",
         "kind": "enum",
         "optional": true,
         "keyword": "STEPS",
         "values": [
-          "SCAN,SOLVE",
+          "SCAN,SOLVE,COLOR",
           "ALL"
         ]
       },
@@ -12769,6 +12487,16 @@
           "INSIDE",
           "CORNERS"
         ]
+      },
+      {
+        "name": "color",
+        "kind": "enum",
+        "optional": true,
+        "keyword": "COLOR",
+        "values": [
+          "OFF",
+          "WHITE"
+        ]
       }
     ],
     "formParams": [
@@ -12778,12 +12506,20 @@
           "kind": "text"
         },
         {
+          "name": "only",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "op",
+          "keyword": "ONLY",
+          "repeats": true
+        },
+        {
           "name": "steps",
           "kind": "enum",
           "optional": true,
           "keyword": "STEPS",
           "values": [
-            "SCAN,SOLVE",
+            "SCAN,SOLVE,COLOR",
             "ALL"
           ]
         },
@@ -12795,6 +12531,16 @@
           "values": [
             "INSIDE",
             "CORNERS"
+          ]
+        },
+        {
+          "name": "color",
+          "kind": "enum",
+          "optional": true,
+          "keyword": "COLOR",
+          "values": [
+            "OFF",
+            "WHITE"
           ]
         }
       ]
@@ -12821,6 +12567,41 @@
     "params": [],
     "formParams": [
       []
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "ALIGN SCORE",
+    "syntax": "ALIGN SCORE \u003Crun\u003E|\u003Cgroup\u003E",
+    "words": "A run\u0027s score and every term with its words and fix",
+    "category": "align",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "ALIGN SCORE \u003Crun\u003E|\u003Cgroup\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "run",
+        "kind": "text",
+        "alt": "\u003Cgroup\u003E"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "run",
+          "kind": "text",
+          "alt": "\u003Cgroup\u003E"
+        }
+      ]
     ],
     "press": "instant"
   },
@@ -13058,6 +12839,41 @@
           "kind": "entity",
           "prefix": "op",
           "alt": "\u003Cgroup\u003E"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "DEVICE NATIVE",
+    "syntax": "DEVICE NATIVE \u003Cdevice\u003E",
+    "words": "A projector\u0027s own geometry and edge blend, read live (Panasonic this round; others answer with words), for the double-correction guard",
+    "category": "device",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "DEVICE NATIVE \u003Cdevice\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "device",
+        "kind": "entity",
+        "prefix": "dv"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "device",
+          "kind": "entity",
+          "prefix": "dv"
         }
       ]
     ],
@@ -14309,8 +14125,8 @@
   },
   {
     "name": "CALIBRATION RESOLVE",
-    "syntax": "CALIBRATION RESOLVE \u003Cprojector\u003E\u2026 [STAGE]",
-    "words": "Re-solves only the projectors named from their pins as they stand (dragged onto the wall\u0027s features), scores and applies it (or stages it when it fails the gate); the others are not touched",
+    "syntax": "CALIBRATION RESOLVE \u003Cprojector\u003E\u2026|ALL [CAMERA \u003Ccamera\u003E] [STAGE]",
+    "words": "Re-solves only the projectors named \u2014 from their pins as they stand, or with CAMERA from a fresh look at their dots (only the ones found moved) \u2014 scores and applies it (or stages it when it fails the gate); the others are not touched",
     "category": "calibration",
     "risk": "high",
     "mutates": true,
@@ -14321,7 +14137,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "CALIBRATION RESOLVE \u003Cprojector\u003E\u2026 [STAGE]"
+      "CALIBRATION RESOLVE \u003Cprojector\u003E\u2026|ALL [CAMERA \u003Ccamera\u003E] [STAGE]"
     ],
     "available": false,
     "params": [
@@ -14329,7 +14145,15 @@
         "name": "projector",
         "kind": "entity",
         "prefix": "pj",
+        "alt": "ALL",
         "repeats": true
+      },
+      {
+        "name": "camera",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "cm",
+        "keyword": "CAMERA"
       },
       {
         "name": "stage",
@@ -14346,7 +14170,15 @@
           "name": "projector",
           "kind": "entity",
           "prefix": "pj",
+          "alt": "ALL",
           "repeats": true
+        },
+        {
+          "name": "camera",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "cm",
+          "keyword": "CAMERA"
         },
         {
           "name": "stage",

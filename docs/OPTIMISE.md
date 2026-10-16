@@ -57,7 +57,9 @@ runs at a time, oldest first, through the worker:
   the file, and a version shorter than the container's own frame count fails. The engine then
   refuses a version whose lowest PSNR is below `MinPsnr` (30 dB) with "lowest 28.4 dB at 1.2 s is below this node's floor of 30
   dB — the version is not kept", hashes the file, probes it, moves it into the node's media store by its hash and records the
-  `MediaVersion` on its item as one edit ("optimised Clip → hap-q").
+  `MediaVersion` on its item as one edit ("optimised Clip → hap-q"). When a blind commit waiting for its boundary lands that
+  item, its guard refuses the edit: the job stays verifying ("recorded when the blind commit lands: …") and the edit is made once
+  no commit waits (it landed or was discarded); a lock the operator set still fails the job with its words.
 - **Audio** is stream-copied into the `.mov` with its own timestamps when the muxer takes the codec (AAC, PCM, ALAC among them);
   otherwise the version is silent and its words say so (decoding to PCM is next round).
 - **Cancel** kills a running job's worker and deletes its partial file; a cancelled or failed job leaves no file, and the work
@@ -86,7 +88,8 @@ its next frame. The read-back after the trailer decodes only the three sampled f
 `MediaBackend.Open` asks `VersionChoice` which file to open, at each open. With `use: "auto"` it takes a version whose codec this
 GPU samples, not marked for review, whose file is in this node's store — the highest measured quality, then the newest — else the
 source. `"source"` plays the source; a version id plays that version when this node can (else the source, and `MEDIA VERSIONS` says
-why). A change reaches the air at the item's next open: an open decoder keeps what it opened (the render host's source slots compare
+why). The air's sound reads the source; when the source does not resolve here and the version that plays has sound, it reads
+the version's file. A change reaches the air at the item's next open: an open decoder keeps what it opened (the render host's source slots compare
 an item without its versions and use).
 
 ## Measured here

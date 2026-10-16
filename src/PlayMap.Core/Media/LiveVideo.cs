@@ -276,3 +276,68 @@ public interface ISendSinkProvider : IDisposable
     /// <summary>Control lane: registers the send's published name and makes its shared texture.</summary>
     IGpuSendTarget Create(VideoSend send, string publishedName, IGpuShare gpu);
 }
+
+/// <summary>The plane geometry of the four packed network layouts as NDI and OMT lay them out (tight rows, no padding): Uyvy one
+/// plane of 2·w bytes a row; Uyva that plane then an 8-bit alpha plane of w; P216 a 16-bit Y plane of 2·w then an interleaved 16-bit
+/// CbCr plane of 2·w at full height; Pa16 P216's two planes then a 16-bit alpha plane of 2·w. Samples of the 16-bit layouts are
+/// little-endian and use all 16 bits. Pure: the frame pool sizes its slots, the uploader its textures and the senders their strides
+/// from it.</summary>
+public static class LivePlanes
+{
+    public static bool IsPacked(PixelLayout layout) => layout is PixelLayout.Uyvy or PixelLayout.Uyva or PixelLayout.P216 or PixelLayout.Pa16;
+
+    public static bool HasAlpha(PixelLayout layout) => layout is PixelLayout.Uyva or PixelLayout.Pa16;
+
+    public static bool IsDeep(PixelLayout layout) => layout is PixelLayout.P216 or PixelLayout.Pa16;
+
+    /// <summary>Planes of a packed layout; 0 for any other.</summary>
+    public static int PlaneCount(PixelLayout layout) => layout switch
+    {
+        PixelLayout.Uyvy => 1,
+        PixelLayout.Uyva or PixelLayout.P216 => 2,
+        PixelLayout.Pa16 => 3,
+        _ => 0,
+    };
+
+    /// <summary>The tight row of one plane, in bytes, at width <paramref name="width"/>.</summary>
+    public static int Stride(PixelLayout layout, int plane, int width) => layout switch
+    {
+        PixelLayout.Uyvy => 2 * width,
+        PixelLayout.Uyva => plane == 0 ? 2 * width : width,
+        PixelLayout.P216 or PixelLayout.Pa16 => 2 * width,
+        _ => throw new ArgumentOutOfRangeException(nameof(layout), layout, "not a packed layout"),
+    };
+
+    /// <summary>The bytes of one whole frame (every plane, tight).</summary>
+    public static long FrameBytes(PixelLayout layout, int width, int height)
+    {
+        long bytes = 0;
+        for (var i = 0; i < PlaneCount(layout); i++)
+            bytes += (long)Stride(layout, i, width) * height;
+        return bytes;
+    }
+
+    /// <summary>Why a frame of this size cannot be laid out (4:2:2 pairs need an even width), or null.</summary>
+    public static string? Refuse(PixelLayout layout, int width, int height)
+    {
+        if (!IsPacked(layout))
+            return $"{layout} is not a packed network layout";
+        if (width < 2 || height < 1)
+            return string.Create(CultureInfo.InvariantCulture, $"a {Word(layout)} frame of {width}×{height} has no picture");
+        if (width % 2 != 0)
+            return string.Create(CultureInfo.InvariantCulture, $"a {Word(layout)} frame needs an even width (4:2:2 pairs), not {width}");
+        return null;
+    }
+
+    /// <summary>The lower-case word STATE uses for a layout.</summary>
+    public static string Word(PixelLayout layout) => layout switch
+    {
+        PixelLayout.Uyvy => "uyvy",
+        PixelLayout.Uyva => "uyva",
+        PixelLayout.P216 => "p216",
+        PixelLayout.Pa16 => "pa16",
+        PixelLayout.Bgra8 => "bgra",
+        PixelLayout.Rgba8 => "rgba",
+        _ => layout.ToString().ToLowerInvariant(),
+    };
+}

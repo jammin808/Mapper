@@ -39,7 +39,7 @@ public sealed record SiteFrame(string Crs, string CrsName, Vec3d Origin, double 
 /// <summary>A surveyed point with its uncertainty and the surveyor's code.</summary>
 public sealed record ControlPoint(string Id, string Name, Vec3d Grid, double SigmaM, string Code, bool Enabled) : IEntity;
 
-public enum SurveyFormat { Obj, Ply, Gltf, Las, Xyz, Pts, Csv }
+public enum SurveyFormat { Obj, Ply, Gltf, Las, Xyz, Pts, Csv, E57 }
 public enum SurveyState { Importing, Ready, Failed }
 
 /// <summary>An imported survey (model or point cloud) with its provenance.</summary>

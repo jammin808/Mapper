@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 
 namespace PlayMap.Core.Geometry;
@@ -9,6 +10,9 @@ namespace PlayMap.Core.Geometry;
 public sealed record GeometryFile(MeshData? Mesh, PointCloud? Cloud, int[] MeshColors)
 {
     public bool IsMesh => Mesh is not null;
+
+    /// <summary>The site frame the coordinates were rebased into (null: as stored).</summary>
+    public SiteFrame? Site { get; init; }
 
     /// <summary>The points: the cloud as read, or the mesh's vertices with their normals and colours.</summary>
     public PointCloud ToPointCloud()
@@ -39,31 +43,39 @@ public static partial class MeshIO
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     /// <summary>Reads a file by its extension: .obj, .ply, .xyz/.pts/.txt/.asc/.csv, .las, .glb/.gltf.</summary>
-    public static GeometryFile Load(string path)
+    public static GeometryFile Load(string path) => Load(path, GeometryReadOptions.AsStored);
+
+    /// <summary>Reads a file by its extension, placed by <paramref name="options"/> (rebased in double before narrowing).</summary>
+    public static GeometryFile Load(string path, GeometryReadOptions options) => Load(path, options, CancellationToken.None);
+
+    /// <summary>Reads a file by its extension, placed by <paramref name="options"/>; <paramref name="ct"/> stops a long OBJ or PLY
+    /// between records.</summary>
+    public static GeometryFile Load(string path, GeometryReadOptions options, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(options);
         var ext = Path.GetExtension(path).ToLowerInvariant();
         switch (ext)
         {
             case ".obj":
             {
                 using var reader = new StreamReader(path);
-                return ReadObj(reader);
+                return ReadObj(reader, options, ct);
             }
             case ".ply":
             {
                 using var stream = File.OpenRead(path);
-                return ReadPly(stream);
+                return ReadPly(stream, options, ct);
             }
             case ".xyz" or ".pts" or ".txt" or ".asc" or ".csv":
             {
                 using var reader = new StreamReader(path);
-                return new GeometryFile(null, ReadXyz(reader), []);
+                return Placed(new GeometryFile(null, ReadXyz(reader), []), options);
             }
             case ".las":
             {
                 using var stream = File.OpenRead(path);
-                return new GeometryFile(null, ReadLas(stream), []);
+                return Placed(new GeometryFile(null, ReadLas(stream), []), options);
             }
             case ".laz":
                 throw new NotSupportedException("Compressed LAS (LAZ) is not read; decompress it to LAS first.");
@@ -71,11 +83,49 @@ public static partial class MeshIO
             {
                 var dir = Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 using var stream = File.OpenRead(path);
-                return ReadGltf(stream, uri => File.ReadAllBytes(Path.Combine(dir, Uri.UnescapeDataString(uri))));
+                return Placed(ReadGltf(stream, uri => File.ReadAllBytes(Path.Combine(dir, Uri.UnescapeDataString(uri)))), options);
             }
             default:
                 throw new NotSupportedException($"No reader for '{ext}' files.");
         }
+    }
+
+    /// <summary>A file read as stored, placed by the options afterwards: clouds are held in double already; a glTF mesh's floats are
+    /// as precise as the file allows.</summary>
+    internal static GeometryFile Placed(GeometryFile file, GeometryReadOptions options)
+    {
+        if (options.IsAsStored)
+            return file;
+        if (file.Cloud is { } cloud)
+        {
+            var frame = options.Resolve(cloud.Points);
+            var pts = cloud.Points.Select(p => PointCloud.IsValid(p) ? options.Apply(p, frame) : p).ToArray();
+            var nrm = cloud.HasNormals ? cloud.Normals.Select(n => options.ApplyDirection(n, frame)).ToArray() : null;
+            return new GeometryFile(null, new PointCloud(pts, nrm, cloud.HasColors ? cloud.Colors : null, cloud.GridWidth, cloud.GridHeight), file.MeshColors)
+            {
+                Site = frame,
+            };
+        }
+        var m = file.Mesh!;
+        var raw = Enumerable.Range(0, m.VertexCount).Select(m.Position).ToArray();
+        var f = options.Resolve(raw);
+        var pos = new float[m.Positions.Length];
+        var nor = new float[m.Normals.Length];
+        for (var i = 0; i < raw.Length; i++)
+        {
+            var p = options.Apply(raw[i], f);
+            pos[i * 3] = (float)p.X;
+            pos[i * 3 + 1] = (float)p.Y;
+            pos[i * 3 + 2] = (float)p.Z;
+            if (nor.Length > 0)
+            {
+                var n = options.ApplyDirection(m.Normal(i), f);
+                nor[i * 3] = (float)n.X;
+                nor[i * 3 + 1] = (float)n.Y;
+                nor[i * 3 + 2] = (float)n.Z;
+            }
+        }
+        return new GeometryFile(new MeshData(pos, nor, m.Uvs, m.Indices), null, file.MeshColors) { Site = f };
     }
 
     /// <summary>A Z-up point (surveying, LAS) in the stage's Y-up frame: (x, y, z) ↦ (x, z, −y).</summary>

@@ -23,6 +23,7 @@ public sealed class VideoTextureSet : IDisposable
     private readonly GlDevice _device;
     private readonly PixelUnpackRing? _ring;
     private CompressedUploadRing? _blocks;
+    private PackedUnpack? _packed;
     private readonly GpuTexture?[] _planes = new GpuTexture?[3];
     private RenderTarget? _converted;
     private PixelLayout _layout;
@@ -69,6 +70,8 @@ public sealed class VideoTextureSet : IDisposable
             return false;
         if (HapCodecs.IsBlockLayout(lease.Layout))
             return UpdateBlocks(lease);
+        if (LivePlanes.IsPacked(lease.Layout))
+            return UpdatePacked(lease);
         var planes = lease.Planes;
         if (lease.Width < 1 || lease.Height < 1 || planes.Count < PlaneCount(lease.Layout))
             return false;
@@ -123,6 +126,24 @@ public sealed class VideoTextureSet : IDisposable
         HapPass.Draw(_device, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
         HasAlpha = lease.HasAlpha;
         Refusal = null;
+        Generation = lease.Generation;
+        Uploads++;
+        return true;
+    }
+
+    /// <summary>A packed network frame (UYVY, UYVA, P216, PA16): its own unpacker's picture (wp2-videoio).</summary>
+    private bool UpdatePacked(VideoFrameLease lease)
+    {
+        if (Picture is not null && !LivePlanes.IsPacked(_layout))
+            DisposeTextures();
+        _packed ??= new PackedUnpack(_device, _ring);
+        _packed.Update(lease);
+        _layout = lease.Layout;
+        _width = lease.Width;
+        _height = lease.Height;
+        Picture = _packed.Picture;
+        // UYVA and PA16 carry an alpha plane whatever the lease says.
+        HasAlpha = lease.HasAlpha || LivePlanes.HasAlpha(lease.Layout);
         Generation = lease.Generation;
         Uploads++;
         return true;
@@ -275,6 +296,8 @@ public sealed class VideoTextureSet : IDisposable
 
     private void DisposeTextures()
     {
+        _packed?.Dispose();
+        _packed = null;
         _converted?.Dispose();
         _converted = null;
         for (var i = 0; i < _planes.Length; i++)

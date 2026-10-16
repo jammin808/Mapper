@@ -15,7 +15,16 @@ public sealed record AlignCapture(string OutputId, int Width, int Height, Corres
 /// (INSIDE with the canvas's aspect and a margin, or CORNERS with the corners clicked on the camera picture, 0–1, TL TR BR BL) and
 /// the group's options.</summary>
 public sealed record AlignSolveInput(int CameraWidth, int CameraHeight, byte[] Black, IReadOnlyList<AlignCapture> Outputs, CanvasFit Fit,
-    double Aspect, IReadOnlyList<Vec2d> CameraCorners, double MarginPct, AlignOptions Options);
+    double Aspect, IReadOnlyList<Vec2d> CameraCorners, double MarginPct, AlignOptions Options)
+{
+    /// <summary>ONLY: the earlier run's captures of the same outputs, in order. The screen, the canvas and the kept outputs' warps come
+    /// from them exactly as that run made them; only the outputs in <see cref="Rescanned"/> are fitted from their new captures, to that
+    /// same canvas. The blend is made again from every output's light (the new black, the kept whites and the new ones).</summary>
+    public IReadOnlyList<AlignCapture>? Reference { get; init; }
+
+    /// <summary>The outputs (indices) a run with a reference scanned again.</summary>
+    public IReadOnlySet<int>? Rescanned { get; init; }
+}
 
 /// <summary>One output's result: its measured warp, its blend at a quarter of its raster, its γ, the share of its footprint decoded,
 /// and its residual to the flat fit (output pixels).</summary>
@@ -50,27 +59,12 @@ public static class AlignSolve
         var cw = input.CameraWidth;
         var chh = input.CameraHeight;
 
-        // Dense pairs inside each footprint.
-        var pairs = new OutputPairs[input.Outputs.Count];
-        var decoded = new double[input.Outputs.Count];
-        for (var j = 0; j < input.Outputs.Count; j++)
-        {
-            var o = input.Outputs[j];
-            var cam = new List<Vec2d>();
-            var proj = new List<Vec2d>();
-            for (var y = 0; y < chh; y++)
-            {
-                for (var x = 0; x < cw; x++)
-                {
-                    if (!o.Footprint.Mask[y * cw + x] || !o.Map.TryGet(x, y, out var q))
-                        continue;
-                    cam.Add(new Vec2d(x + 0.5, y + 0.5));
-                    proj.Add(q);
-                }
-            }
-            decoded[j] = o.Footprint.Area > 0 ? (double)cam.Count / o.Footprint.Area : 0;
-            pairs[j] = new OutputPairs(o.OutputId, o.Width, o.Height, [.. cam], [.. proj]);
-        }
+        var reference = input.Reference is { } r && r.Count == input.Outputs.Count ? r : null;
+        var basis = reference ?? input.Outputs;
+
+        // Dense pairs inside each footprint: of the captures the geometry comes from, and (with a reference) of the new ones.
+        var pairs = Pairs(basis, cw, chh, out var decoded);
+        var fresh = reference is null ? pairs : Pairs(input.Outputs, cw, chh, out decoded);
         ct.ThrowIfCancellationRequested();
 
         var planar = PlanarFit.Fit(cw, chh, pairs, ct: ct);
@@ -79,7 +73,7 @@ public static class AlignSolve
         ct.ThrowIfCancellationRequested();
 
         // The plane, and what the outputs cover on it.
-        var eroded = input.Outputs.Select(o => Footprints.Erode(o.Footprint.Mask, cw, chh, 2)).ToArray();
+        var eroded = basis.Select(o => Footprints.Erode(o.Footprint.Mask, cw, chh, 2)).ToArray();
         var union = new bool[cw * chh];
         foreach (var m in eroded)
             for (var i = 0; i < union.Length; i++)
@@ -96,12 +90,12 @@ public static class AlignSolve
         else
         {
             var samples = new List<Vec2d>();
-            foreach (var o in input.Outputs)
+            foreach (var o in basis)
                 samples.Add(lens.Undistort(o.Footprint.Centroid));
             for (var i = 0; i < union.Length; i += 97)
                 if (union[i])
                     samples.Add(lens.Undistort(new Vec2d(i % cw + 0.5, i / cw + 0.5)));
-            rect = PlaneRectify.FromProjectors(planar.Homographies, [.. input.Outputs.Select(o => o.Prior)], samples);
+            rect = PlaneRectify.FromProjectors(planar.Homographies, [.. basis.Select(o => o.Prior)], samples);
         }
         bool Covered(Vec2d plane)
         {
@@ -133,10 +127,11 @@ public static class AlignSolve
         Parallel.For(0, input.Outputs.Count, new ParallelOptions { CancellationToken = ct }, j =>
         {
             var o = input.Outputs[j];
-            var uv = new Vec2d[pairs[j].Camera.Length];
+            var from = reference is not null && input.Rescanned?.Contains(j) == true ? fresh[j] : pairs[j];
+            var uv = new Vec2d[from.Camera.Length];
             for (var i = 0; i < uv.Length; i++)
-                uv[i] = target.ToUv(rect.Apply(lens.Undistort(pairs[j].Camera[i])));
-            warps[j] = MeasuredWarpFit.Fit(o.Width, o.Height, input.Options.GridColumns, input.Options.GridRows, pairs[j].Projector, uv, ct);
+                uv[i] = target.ToUv(rect.Apply(lens.Undistort(from.Camera[i])));
+            warps[j] = MeasuredWarpFit.Fit(o.Width, o.Height, input.Options.GridColumns, input.Options.GridRows, from.Projector, uv, ct);
         });
         var seam = SeamP95(input, warps);
         ct.ThrowIfCancellationRequested();
@@ -164,6 +159,31 @@ public static class AlignSolve
         var words = string.Join("; ", planar.Words, rect.Words, target.Words, blend.Words)
             + (seam >= 0 ? string.Create(CultureInfo.InvariantCulture, $"; seams agree to {seam:0.00} px (95 %)") : "");
         return new AlignSolveResult(true, words, planar, rect, target, outputs.ToImmutable(), seam, target.CoverageShare, blend.WhiteP5OverP95);
+    }
+
+    private static OutputPairs[] Pairs(IReadOnlyList<AlignCapture> captures, int cw, int chh, out double[] decoded)
+    {
+        var pairs = new OutputPairs[captures.Count];
+        decoded = new double[captures.Count];
+        for (var j = 0; j < captures.Count; j++)
+        {
+            var o = captures[j];
+            var cam = new List<Vec2d>();
+            var proj = new List<Vec2d>();
+            for (var y = 0; y < chh; y++)
+            {
+                for (var x = 0; x < cw; x++)
+                {
+                    if (!o.Footprint.Mask[y * cw + x] || !o.Map.TryGet(x, y, out var q))
+                        continue;
+                    cam.Add(new Vec2d(x + 0.5, y + 0.5));
+                    proj.Add(q);
+                }
+            }
+            decoded[j] = o.Footprint.Area > 0 ? (double)cam.Count / o.Footprint.Area : 0;
+            pairs[j] = new OutputPairs(o.OutputId, o.Width, o.Height, [.. cam], [.. proj]);
+        }
+        return pairs;
     }
 
     /// <summary>Where two outputs both decoded a camera pixel, how far their warps put that pixel's canvas point apart, in output

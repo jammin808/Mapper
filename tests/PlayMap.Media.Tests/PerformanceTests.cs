@@ -62,6 +62,74 @@ public class PerformanceTests(ITestOutputHelper output)
         Assert.Equal(0, consumer[1] + consumer[2]);
     }
 
+    /// <summary>A lock's first wait makes its wait event on the waiting thread; a prepared thread's wait on a prepared lock makes
+    /// nothing.</summary>
+    [Fact]
+    public void APreparedLocksFirstWaitAllocatesNothingWhereAnUnpreparedOnesDoes()
+    {
+        static long WaitOnce(Lock gate, bool prepareThread)
+        {
+            long allocated = 0;
+            gate.Enter();
+            try
+            {
+                var waiter = new Thread(() =>
+                {
+                    if (prepareThread)
+                        PlayMap.Media.Frames.LockWaits.PrepareThisThread();
+                    var before = GC.GetAllocatedBytesForCurrentThread();
+                    if (gate.TryEnter(5))
+                        gate.Exit();
+                    allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                });
+                waiter.Start();
+                waiter.Join();
+            }
+            finally
+            {
+                gate.Exit();
+            }
+            return allocated;
+        }
+        var unprepared = new Lock();
+        var prepared = new Lock();
+        PlayMap.Media.Frames.LockWaits.Prepare(prepared);
+        Assert.True(WaitOnce(unprepared, prepareThread: true) > 0, "a first wait on a lock makes its event");
+        Assert.Equal(0, WaitOnce(prepared, prepareThread: true));
+    }
+
+    /// <summary>On a loaded machine the decode thread may first have to wait for the queue's lock at any frame of a show (a
+    /// consumer preempted while it holds it): that wait allocates nothing either. The lock is held here across three of the
+    /// decode loop's 100 ms turns, each of which takes it, so the decode thread waits for it.</summary>
+    [Fact]
+    public async Task AFirstWaitForTheQueuesLockInTheShowAllocatesNothing()
+    {
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));
+        Assert.True(await source.Opened);
+        var rate = FrameRate.Fps25;
+        void Play(int from, int to)
+        {
+            for (var n = from; n < to; n++)
+            {
+                var t = rate.TimeOf(n) + 1;
+                Assert.True(source.WaitUntilReady(t, TimeSpan.FromSeconds(10)));
+                source.Prepare(t, true, 1);
+                source.Acquire(t)?.Dispose();
+            }
+        }
+        Play(0, 120);
+        var before = source.DecodeThreadAllocatedBytes;
+        using (var never = new ManualResetEventSlim(false))
+        {
+            lock (source.QueueGate)
+                never.Wait(TimeSpan.FromMilliseconds(350));
+        }
+        Play(120, 240);
+        var after = source.DecodeThreadAllocatedBytes;
+        output.WriteLine($"decode thread across the wait and 120 frames: {after - before} B");
+        Assert.Equal(0, after - before);
+    }
+
     [Fact]
     public async Task A1080pH264DecodesFasterThanRealTimeInSoftware()
     {

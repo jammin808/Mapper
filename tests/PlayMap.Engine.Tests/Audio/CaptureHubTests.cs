@@ -171,6 +171,25 @@ public sealed class CaptureHubTests
         }
     }
 
+    /// <summary>The tick's open runs on the pool after the tick decided it was due, so it can run after a verb that changed what the
+    /// show asks and opened it: it applies what the show asks when it runs, so the verb's open stands — the same device, opened once,
+    /// still listening — instead of the ask the tick saw (listening to nothing) closing it.</summary>
+    [Fact]
+    public async Task ATicksOpenThatRunsAfterAVerbsOpenNeverUndoesIt()
+    {
+        await using var rig = new AudioRig();
+        await rig.Ok("AUDIO LISTEN TEST CLICK");
+        var opened = rig.Engine.AudioRt.State;
+        var opens = rig.Engine.AudioRt.Hub.Opens;
+        Assert.Equal(("listening", "test:click"), (opened.State, opened.Key));
+
+        await rig.Engine.ListenNowAsync();
+
+        Assert.Equal(opened, rig.Engine.AudioRt.State);
+        Assert.Equal(opens, rig.Engine.AudioRt.Hub.Opens);
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Text.StartsWith("audio input off", StringComparison.Ordinal));
+    }
+
     /// <summary>The lane's tick reopens the input the show names (an undo put it back), and the listing that resolves its name waits
     /// on the backends: it runs off the lane, so the lane answers meanwhile.</summary>
     [Fact]

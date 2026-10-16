@@ -34,9 +34,24 @@
       "expectArmed": true,
       "defaultOutcome": "black",
       "defaultFadeMs": 1000,
-      "panicLeadMs": 0
+      "panicLeadMs": 0,
+      "commitLeadMs": 34
     },
-    "blind": null,
+    "blind": {
+      "on": true,
+      "owner": "Desk",
+      "since": 1760000000000,
+      "base": 4,
+      "changes": 1,
+      "commit": {
+        "boundary": "on go",
+        "playlist": "pl_show",
+        "effectiveLeaderNs": null,
+        "changes": 1,
+        "by": "Desk",
+        "forced": false
+      }
+    },
     "panic": {
       "outcome": "black",
       "hard": false,
@@ -88,12 +103,19 @@
       "depth": "quick",
       "light": "red",
       "green": 3,
-      "amber": 0,
-      "red": 1,
-      "grey": 2,
-      "ready": "4/5",
+      "amber": 1,
+      "red": 2,
+      "grey": 6,
+      "ready": "3/5",
       "firstOpen": "outputs: Output 1 \u2014 this machine has no display for it",
       "running": false
+    },
+    "sound": {
+      "output": "null",
+      "status": "the fixture\u0027s silent output",
+      "item": null,
+      "gain": 0.4,
+      "problem": ""
     },
     "minGoMs": 300
   }

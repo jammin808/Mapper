@@ -154,7 +154,7 @@ public static class VerbParams
                     new VerbParam("tap", ParamKind.Ref) { Values = ["output:", "prewarp:", "canvas:", "source:"] },
                     new VerbParam("size", ParamKind.Text, Optional: true) { Alt = "<w>x<h>" },
                     new VerbParam("fps", ParamKind.Text, Optional: true) { Alt = "@<fps>" },
-                    new VerbParam("format", ParamKind.Enum, Optional: true) { Values = ["UYVY", "UYVA", "P216", "PA16", "BGRA8", "RGBA8", "RGBA16F"] },
+                    new VerbParam("format", ParamKind.Enum, Optional: true) { Values = ["UYVY", "UYVA", "P216", "PA16", "BGRA8"] },
                     new VerbParam("quality", ParamKind.Enum, Optional: true) { Keyword = "QUALITY", Values = ["LOW", "MEDIUM", "HIGH"] },
                     new VerbParam("always", ParamKind.Flag, Optional: true) { Values = ["ALWAYS"] },
                 ],

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Client;
 using PlayMap.Core.Media;
@@ -85,8 +86,20 @@ public sealed class OpsHostTests
         using (var started = JsonDocument.Parse(Answer(await wire.AskAsync("@s SCAN START sim MODE FAST"), "s")))
         {
             var scanId = started.RootElement.GetProperty("scan").GetString()!;
-            Assert.True(await Eventually.TrueAsync(() => node.State().GetProperty("scan").GetProperty("state").GetString() is "done" or "failed", 120_000),
-                "the scan never ended");
+            // The test is the camera view's viewer: it renews the view as the desk does (every 5 s), since the node lets a view
+            // nobody renews go after 15 s, and a scan on a loaded machine takes longer than that.
+            var renewed = Stopwatch.StartNew();
+            Assert.True(await Eventually.TrueAsync(async () =>
+            {
+                if (renewed.Elapsed >= OpsRig.DeskRenewsViews)
+                {
+                    Answer(await wire.AskAsync("@k VIEW cam KEEP"), "k");
+                    renewed.Restart();
+                }
+                return node.State().GetProperty("scan").GetProperty("state").GetString() is "done" or "failed";
+            }, 120_000), "the scan never ended");
+            // Renewed as the scan ends too, so the apply below runs well inside the lease before the view is read.
+            Answer(await wire.AskAsync("@k VIEW cam KEEP"), "k");
             var scan = node.State().GetProperty("scan");
             Assert.True(scan.GetProperty("state").GetString() == "done", scan.GetProperty("message").GetString());
             Assert.Equal(scanId, scan.GetProperty("id").GetString());

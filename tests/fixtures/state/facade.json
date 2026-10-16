@@ -1,1 +1,40 @@
-{}
+{
+  "stage": {
+    "site": {
+      "crs": "EPSG:25832",
+      "name": "",
+      "origin": [
+        512340,
+        5401230,
+        120
+      ],
+      "rotationDeg": 0,
+      "gridScale": 1,
+      "mainsHz": 50
+    },
+    "controls": 14,
+    "surveys": [
+      {
+        "id": "sv_fixture1",
+        "name": "front",
+        "format": "obj",
+        "state": "ready",
+        "points": 4,
+        "triangles": 2,
+        "mesh": "ms_fixture1"
+      }
+    ],
+    "projectors": [
+      {
+        "id": "pj_fixture1",
+        "uncertainty": {
+          "wallPx": 0.781,
+          "axisM": 0.021,
+          "focalPct": 0,
+          "weak": "position"
+        },
+        "priors": "TR 3.02 \u00B12 %"
+      }
+    ]
+  }
+}

@@ -6,12 +6,17 @@ using PlayMap.Core.Calibration.Scoring;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Wall;
 
 namespace PlayMap.Engine;
 
 /// <summary>A calibration task as STATE shows it: a re-solve under way or its end.</summary>
-internal sealed record CalibrationTask(string Id, string Kind, string State, string Projector, double Progress, string Words);
+internal sealed record CalibrationTask(string Id, string Kind, string State, string Projector, double Progress, string Words)
+{
+    /// <summary>Capturing, matching, solving or verifying: the task holds the calibration lane.</summary>
+    public bool IsRunning => State is "capturing" or "matching" or "solving" or "verifying";
+}
 
 /// <summary>The calibration ledger's verbs (CALIBRATION STATUS, HISTORY, SAVE, RECALL, ACCEPT, FALLBACK, FORGET), the re-solve of
 /// named projectors from their pins (CALIBRATION RESOLVE, CANCEL), STATE.calibration, the context's calibration items and the
@@ -210,6 +215,8 @@ public sealed partial class EngineCore
         var p = _snapshot.Project.Project;
         w.WriteStartObject("calibration");
         w.WriteStartArray("moved");
+        foreach (var id in _calibrationMoved)
+            w.WriteStringValue(id);
         w.WriteEndArray();
         WriteTask(w);
         w.WriteStartArray("targets");
@@ -484,6 +491,7 @@ public sealed partial class EngineCore
         if (plan.Count == 0)
             return (null, string.Join("; ", refused), []);
         var fallbacks = new List<(string Target, string Snapshot)>();
+        var reseated = new List<string>();
         var r = Edits.Apply($"accept the calibration of {string.Join(", ", plan.Select(x => NameOf(p, x.Target)))}", project =>
         {
             fallbacks.Clear();
@@ -498,7 +506,19 @@ public sealed partial class EngineCore
                 var s = project.FindCalibration(id) ?? throw new EditRefusedException($"no calibration result {id}");
                 var (cur, _, staged) = CalibrationLedger.Ids(project, target);
                 if (s.Id == staged && s.Id != cur)
+                {
+                    // A staged camera re-solve carries the wall with it when a person accepts it: its quads re-seated from the pose
+                    // it replaces, and its blend solved again after the edit.
+                    var before = project.FindProjector(target);
                     project = CalibrationLedger.MakeCurrent(project, s);
+                    if (before is not null && s.Projector is { } solved && s.RunId.StartsWith(CameraRunPrefix, StringComparison.Ordinal)
+                        && StageWorld.Of(project, Meshes) is { } world)
+                    {
+                        var distance = solved.Pins.IsDefaultOrEmpty ? 5 : solved.Pins.Average(x => Core.Numerics.Vec3d.Distance(x.World, before.Pose.Position));
+                        project = ReseatQuads(project, target, DeviceView.Of(before), new DeviceView(solved.Intrinsics, solved.Lens, solved.Pose), world, distance);
+                        reseated.Add(target);
+                    }
+                }
                 project = s.Target == CalibrationTarget.Projector
                     ? project.WithStage(st => st with { Projectors = st.Projectors.Update(target, pj => pj with { FallbackId = s.Id, StagedId = pj.StagedId == s.Id ? null : pj.StagedId }) })
                     : project with { Outputs = project.Outputs.Update(target, o => o with { FallbackId = s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }) };
@@ -509,6 +529,9 @@ public sealed partial class EngineCore
         var words = r.Changed
             ? string.Join("; ", fallbacks.Select(f => $"{NameOf(Store.Project, f.Target)} falls back to {f.Snapshot}")) + (refused.Count > 0 ? "; " + string.Join("; ", refused) : "")
             : r.Effect;
+        var blend = r.Changed && reseated.Count > 0 ? BlendAfter(Edits, reseated) : "";
+        if (blend.Length > 0)
+            words += "; " + blend;
         return (r, words, fallbacks);
     }
 
@@ -591,154 +614,101 @@ public sealed partial class EngineCore
         FactsChanged();
     }
 
-    /// <summary>CALIBRATION RESOLVE &lt;projector&gt;… [STAGE]: each named projector solved again from its pins as they stand (the operator
-    /// dragged them onto the wall's features), against the stage, scored, and in one edit applied — or staged when STAGE says so,
-    /// when an assistant asked, or when its score fails the gate. A projector with no fallback keeps its result from before as one.
-    /// No other projector, result or surface moves.</summary>
+    /// <summary>A projector solved again, as the re-solve applies or stages it: before and after, its score and uncertainty, the
+    /// wall error a fresh look measured (−1: none), and what else moves with its pose when applied (pins and quads; null: nothing).</summary>
+    private sealed record Resolved(Projector Before, Projector After, QualityScore Score, SolveUncertainty? Uncertainty, double VerifiedP50, double VerifiedP95,
+        Func<Project, Project>? Reseat)
+    {
+        /// <summary>What the result records as its run: "camera:&lt;camera&gt;" for a camera re-solve, else "".</summary>
+        public string RunId { get; init; } = "";
+
+        /// <summary>The projector's priors the solve used ("throw", "position"; PROJECTOR PRIOR sets them).</summary>
+        public IReadOnlyList<string> PriorsUsed { get; init; } = [];
+
+        /// <summary>True when the solve locked the focal from the lens prior because the pins could not carry it.</summary>
+        public bool FocalLocked { get; init; }
+
+        /// <summary>What the long-throw solve adds to the words (the lens lock, or the weak direction), "" when nothing.</summary>
+        public string LongThrowWords { get; init; } = "";
+    }
+
+    /// <summary>CALIBRATION RESOLVE &lt;projector&gt;… [CAMERA &lt;camera&gt;] [STAGE]: each named projector solved again — from its pins as they
+    /// stand (the operator dragged them onto the wall's features), or with CAMERA from a fresh look at its dots through that camera
+    /// (only the projectors the look finds moved are solved) — against the stage, scored, and in one edit applied, or staged when STAGE
+    /// says so, when an assistant asked, or when its score fails the gate. A projector with no fallback keeps its result from before as
+    /// one. No other projector, result or surface moves.</summary>
     private async Task<CommandReply> ResolveAsync(VerbCall c)
     {
-        const string Syntax = "CALIBRATION RESOLVE <projector>… [STAGE]";
+        const string Syntax = "CALIBRATION RESOLVE <projector>…|ALL [CAMERA <camera>] [STAGE]";
         var args = new List<string>(c.Args);
         var stage = args.RemoveAll(a => a.Equals("STAGE", StringComparison.OrdinalIgnoreCase)) > 0;
+        string? camera = null;
+        var ci = args.FindIndex(a => a.Equals("CAMERA", StringComparison.OrdinalIgnoreCase));
+        if (ci >= 0)
+        {
+            if (ci + 1 >= args.Count)
+                return CommandReply.Fail("CAMERA takes a camera — " + Syntax);
+            camera = args[ci + 1];
+            args.RemoveRange(ci, 2);
+        }
         if (args.Count == 0)
             return CommandReply.Fail(Syntax);
-        if (args.Any(a => a.Equals("CAMERA", StringComparison.OrdinalIgnoreCase)))
-            return CommandReply.Fail("a re-solve from a fresh camera capture is not on this node yet — drag the pins onto the wall's features, then CALIBRATION RESOLVE <projector>");
         var p = Store.Project;
         var named = new List<Projector>();
-        foreach (var word in args)
+        var words = args.Count == 1 && args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase)
+            ? p.Stage.Projectors.Select(x => x.Id).ToList()
+            : args;
+        foreach (var word in words)
         {
             if (ProjectorNamed(p, word) is not { } pj)
                 return CommandReply.Fail($"no projector {word}");
             if (pj.Locked)
                 return CommandReply.Fail($"{pj.Name} is locked — unlock it to solve it again");
-            var pins = pj.Pins.Count(x => x.Enabled);
-            if (pins < 4)
-                return CommandReply.Fail($"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
+            if (camera is null)
+            {
+                var pins = pj.Pins.Count(x => x.Enabled);
+                if (pins < 4)
+                    return CommandReply.Fail($"{pj.Name} has {pins} pin{(pins == 1 ? "" : "s")} — a solve needs six or more spread out (four with the optics locked)");
+                if (BoundPinAway(p.Stage, pj) is { } away)
+                    return CommandReply.Fail($"{pj.Name}: {away}");
+            }
             if (!named.Any(x => x.Id == pj.Id))
                 named.Add(pj);
         }
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(c.Ct);
-        Action cancel = cts.Cancel;
+        if (named.Count == 0)
+            return CommandReply.Fail("there is no projector to re-solve");
+        if (camera is not null)
+            return await ResolveFromCameraAsync(c, camera, named, stage).ConfigureAwait(false);
+
         var taskId = Ids.New("kt");
         var task = new CalibrationTask(taskId, "resolve", "solving", named[0].Id, 0, $"solving {string.Join(", ", named.Select(x => x.Name))} from their pins");
-        lock (_calibrationGate)
-        {
-            if (_calibrationTask is { State: "solving" } running)
-                return CommandReply.Fail($"a calibration task is running ({running.Id}) — CALIBRATION CANCEL first");
-            _calibrationTask = task;
-            _cancelCalibration = cancel;
-        }
-        FactsChanged();
-        var ai = c.Session.Transport is "mcp" or "assistant";
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(c.Ct);
+        if (BeginCalibrationTask(task, cts) is { } busy)
+            return busy;
         try
         {
-            var solved = new List<(Projector Before, PoseSolution Solution, Projector After, QualityScore Score, SolveUncertainty? Uncertainty)>();
+            var solved = new List<Resolved>();
             for (var i = 0; i < named.Count; i++)
             {
                 var pj = named[i];
-                var solution = await Task.Run(() => PoseSolver.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose }), cts.Token)
-                    .ConfigureAwait(false);
+                // The same solve as PROJECTOR SOLVE's with no LOCK word: the projector's priors as rows, and a focal the lens locked
+                // asked again.
+                var longThrow = await Task.Run(() => LongThrowSolve.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose },
+                    retestLock: true), cts.Token).ConfigureAwait(false);
                 cts.Token.ThrowIfCancellationRequested();
-                var after = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose };
+                var solution = longThrow.Solution;
+                var after = pj with { Intrinsics = solution.Intrinsics, Lens = solution.Lens, Pose = solution.Pose, Locks = longThrow.LocksUsed };
                 var (score, uncertainty) = CalibrationScoring.ForPins(after, solution, "resolve");
-                solved.Add((pj, solution, after, score, uncertainty));
+                solved.Add(new Resolved(pj, after, score, uncertainty, -1, -1, null)
+                {
+                    PriorsUsed = PriorsUsed(longThrow),
+                    FocalLocked = longThrow.FocalLocked,
+                    LongThrowWords = longThrow.Note,
+                });
                 task = task with { Projector = pj.Id, Progress = (i + 1.0) / named.Count };
                 SetTask(task);
             }
-            var gate = p.Settings.CalibrationGate;
-            var results = new List<(string Projector, string Snapshot, bool Applied, QualityScore Score, string Why)>();
-            var r = await EditAsync(c.Session, $"re-solve {string.Join(", ", named.Select(x => x.Name))}", project =>
-            {
-                // On the lane, as CANCEL is: a cancel that came first refuses the whole edit; from here on the result is being applied
-                // and a CANCEL is refused with the way back.
-                lock (_calibrationGate)
-                {
-                    if (cts.IsCancellationRequested)
-                        throw new EditRefusedException(ResolveCancelled);
-                    _calibrationApplying = true;
-                }
-                results.Clear();
-                foreach (var (before, _, after, score, uncertainty) in solved)
-                {
-                    var now = project.FindProjector(before.Id) ?? throw new EditRefusedException($"no projector {before.Id}");
-                    if (now.FallbackId is null)
-                        project = RecordAsItStands(project, now.Id, c.Session.ClientName, pinned: false, null, out _);
-                    now = project.FindProjector(before.Id)!;
-                    var fallback = now.FallbackId is { } fid ? project.FindCalibration(fid) : null;
-                    var limit = Math.Max(gate, 1.25 * (fallback?.Score.Value ?? 0));
-                    var why = stage ? "STAGE asked for it" : ai ? "an assistant asked: a person accepts it"
-                        : score.Grade == "F" ? $"it grades F ({score.Words})"
-                        : score.Value > limit ? string.Create(CultureInfo.InvariantCulture, $"its score {score.Value:0.0} is over the gate {limit:0.0}")
-                        : "";
-                    var apply = why.Length == 0;
-                    var id = project.NewId(Ids.Calibration);
-                    var result = now with { Intrinsics = after.Intrinsics, Lens = after.Lens, Pose = after.Pose, Uncertainty = apply ? uncertainty : now.Uncertainty };
-                    var snap = CalibrationLedger.Of(result, id, CalibrationLedger.NameFor(project, now.Id, CalibrationSource.Resolve), score,
-                        CalibrationSource.Resolve, c.Session.ClientName, Services.Wall.UnixMs);
-                    if (apply)
-                        project = project.WithStage(st => st with { Projectors = st.Projectors.Update(now.Id, _ => result) });
-                    (project, _) = CalibrationLedger.Record(project, snap, apply);
-                    results.Add((now.Id, id, apply, score, why));
-                }
-                return project;
-            }).ConfigureAwait(false);
-            if (!r.Changed)
-            {
-                if (cts.IsCancellationRequested)
-                {
-                    SetTask(task with { State = "cancelled", Words = ResolveCancelled });
-                    return CommandReply.Fail(ResolveCancelled);
-                }
-                SetTask(task with { State = "failed", Words = r.Effect });
-                return FromEdit(r);
-            }
-            var after2 = Store.Project;
-            foreach (var x in results.Where(x => !x.Applied))
-                RaiseEvent("calibration.staged", LeaderNowNs, w =>
-                {
-                    w.WriteString("projector", x.Projector);
-                    w.WriteString("snapshot", x.Snapshot);
-                    w.WriteString("words", x.Why);
-                });
-            var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
-                $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
-            SetTask(task with { State = "done", Progress = 1, Words = words });
-            return CommandReply.Success(JsonOut(w =>
-            {
-                w.WriteStartObject();
-                w.WriteString("task", taskId);
-                w.WriteStartArray("projectors");
-                foreach (var x in results)
-                {
-                    w.WriteStartObject();
-                    w.WriteString("id", x.Projector);
-                    w.WriteString("snapshot", x.Snapshot);
-                    w.WriteBoolean("applied", x.Applied);
-                    w.WriteBoolean("staged", !x.Applied);
-                    w.WriteString("why", x.Why);
-                    w.WriteStartObject("score");
-                    w.WriteNumber("value", x.Score.Value);
-                    w.WriteString("grade", x.Score.Grade);
-                    w.WriteNumber("rmsPx", x.Score.RmsPx);
-                    w.WriteString("words", x.Score.Words);
-                    w.WriteEndObject();
-                    var before = solved.First(s => s.Before.Id == x.Projector).Before;
-                    var snap = after2.FindCalibration(x.Snapshot);
-                    var (mm, deg, wallPx) = snap is { Projector: not null }
-                        ? CalibrationLedger.Delta(CalibrationLedger.Of(before, "", "", QualityScore.None, CalibrationSource.Manual, "", 0), snap)
-                        : (-1, -1, -1);
-                    w.WriteStartObject("delta");
-                    w.WriteNumber("mm", Math.Round(mm, 2));
-                    w.WriteNumber("deg", Math.Round(deg, 4));
-                    w.WriteNumber("wallPx", Math.Round(wallPx, 2));
-                    w.WriteEndObject();
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-                w.WriteString("words", words);
-                w.WriteEndObject();
-            }), words);
+            return await ApplyResolvedAsync(c, task, cts, solved, stage, null).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -753,18 +723,203 @@ public sealed partial class EngineCore
         }
         finally
         {
-            lock (_calibrationGate)
+            EndCalibrationTask(cts);
+        }
+    }
+
+    /// <summary>Makes <paramref name="task"/> the running calibration task, cancelled through <paramref name="cts"/>; the refusal when
+    /// one runs already.</summary>
+    private CommandReply? BeginCalibrationTask(CalibrationTask task, CancellationTokenSource cts)
+    {
+        lock (_calibrationGate)
+        {
+            if (_calibrationTask is { IsRunning: true } running)
+                return CommandReply.Fail($"a calibration task is running ({running.Id}) — CALIBRATION CANCEL first");
+            _calibrationTask = task;
+            _cancelCalibration = cts.Cancel;
+            _calibrationCts = cts;
+            _calibrationApplying = false;
+        }
+        FactsChanged();
+        return null;
+    }
+
+    private CancellationTokenSource? _calibrationCts;
+
+    private void EndCalibrationTask(CancellationTokenSource cts)
+    {
+        lock (_calibrationGate)
+        {
+            if (ReferenceEquals(_calibrationCts, cts))
             {
-                if (ReferenceEquals(_cancelCalibration, cancel))
-                {
-                    _cancelCalibration = null;
-                    _calibrationApplying = false;
-                }
+                _cancelCalibration = null;
+                _calibrationCts = null;
+                _calibrationApplying = false;
             }
         }
     }
 
+    /// <summary>The re-solved projectors applied (or staged) as one edit, the events raised and the reply made. Runs the auto-blend's
+    /// solve off the lane after when an applied projector blends automatically.</summary>
+    private async Task<CommandReply> ApplyResolvedAsync(VerbCall c, CalibrationTask task, CancellationTokenSource cts, List<Resolved> solved, bool stage,
+        Action<Utf8JsonWriter>? extra)
+    {
+        var ai = c.Session.Transport is "mcp" or "assistant";
+        var gate = Store.Project.Settings.CalibrationGate;
+        var results = new List<(string Projector, string Snapshot, bool Applied, QualityScore Score, string Why)>();
+        var r = await EditAsync(c.Session, $"re-solve {string.Join(", ", solved.Select(x => x.Before.Name))}", project =>
+        {
+            // On the lane, as CANCEL is: a cancel that came first refuses the whole edit; from here on the result is being applied
+            // and a CANCEL is refused with the way back.
+            lock (_calibrationGate)
+            {
+                if (cts.IsCancellationRequested)
+                    throw new EditRefusedException(ResolveCancelled);
+                _calibrationApplying = true;
+            }
+            results.Clear();
+            foreach (var x in solved)
+            {
+                var now = project.FindProjector(x.Before.Id) ?? throw new EditRefusedException($"no projector {x.Before.Id}");
+                if (now.Pose != x.Before.Pose || now.Intrinsics != x.Before.Intrinsics || now.Lens != x.Before.Lens || !now.Pins.SequenceEqual(x.Before.Pins))
+                    throw new EditRefusedException($"{now.Name} was changed while it was being re-solved — nothing was applied; CALIBRATION RESOLVE {now.Id} again");
+                if (now.FallbackId is null)
+                    project = RecordAsItStands(project, now.Id, c.Session.ClientName, pinned: false, null, out _);
+                now = project.FindProjector(x.Before.Id)!;
+                var fallback = now.FallbackId is { } fid ? project.FindCalibration(fid) : null;
+                var limit = Math.Max(gate, 1.25 * (fallback?.Score.Value ?? 0));
+                var score = x.Score;
+                var why = stage ? "STAGE asked for it" : ai ? "an assistant asked: a person accepts it"
+                    : score.Grade == "F" ? $"it grades F ({score.Words})"
+                    : score.Value > limit ? string.Create(CultureInfo.InvariantCulture, $"its score {score.Value:0.0} is over the gate {limit:0.0}")
+                    : "";
+                var apply = why.Length == 0;
+                var id = project.NewId(Ids.Calibration);
+                // The locks the solve answers (a focal the lens locked, or freed when the pins carry it again) go with its optics.
+                var result = now with { Intrinsics = x.After.Intrinsics, Lens = x.After.Lens, Pose = x.After.Pose, Pins = x.After.Pins,
+                    Locks = x.After.Locks == x.Before.Locks ? now.Locks : x.After.Locks,
+                    Uncertainty = apply ? x.Uncertainty : now.Uncertainty };
+                var snap = CalibrationLedger.Of(result, id, CalibrationLedger.NameFor(project, now.Id, CalibrationSource.Resolve), score,
+                    CalibrationSource.Resolve, c.Session.ClientName, Services.Wall.UnixMs) with
+                {
+                    VerifiedP50Px = x.VerifiedP50 > 0 ? x.VerifiedP50 : 0,
+                    VerifiedP95Px = x.VerifiedP95 > 0 ? x.VerifiedP95 : 0,
+                    RunId = x.RunId,
+                };
+                if (apply)
+                {
+                    project = project.WithStage(st => st with { Projectors = st.Projectors.Update(now.Id, _ => result) });
+                    if (x.Reseat is { } reseat)
+                        project = reseat(project);
+                }
+                (project, _) = CalibrationLedger.Record(project, snap, apply);
+                results.Add((now.Id, id, apply, score, why));
+            }
+            return project;
+        }).ConfigureAwait(false);
+        if (!r.Changed)
+        {
+            if (cts.IsCancellationRequested)
+            {
+                SetTask(task with { State = "cancelled", Words = ResolveCancelled });
+                return CommandReply.Fail(ResolveCancelled);
+            }
+            SetTask(task with { State = "failed", Words = r.Effect });
+            return FromEdit(r);
+        }
+        var after2 = Store.Project;
+        foreach (var x in results.Where(x => !x.Applied))
+            RaiseEvent("calibration.staged", LeaderNowNs, w =>
+            {
+                w.WriteString("projector", x.Projector);
+                w.WriteString("snapshot", x.Snapshot);
+                w.WriteString("words", x.Why);
+            });
+        if (_calibrationMoved.Length > 0)
+            _calibrationMoved = [.. _calibrationMoved.Where(id => !results.Any(x => x.Applied && x.Projector == id))];
+        var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
+            $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{LongThrowNote(solved, x.Projector)}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
+        var blend = "";
+        var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
+        if (applied.Count > 0)
+            blend = await _lane.RunAsync(() => BlendAfter(EditsFor(c.Session), applied)).ConfigureAwait(false);
+        if (blend.Length > 0)
+            words += "; " + blend;
+        SetTask(task with { State = "done", Progress = 1, Words = words });
+        return CommandReply.Success(JsonOut(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("task", task.Id);
+            w.WriteStartArray("projectors");
+            foreach (var x in results)
+            {
+                w.WriteStartObject();
+                w.WriteString("id", x.Projector);
+                w.WriteString("snapshot", x.Snapshot);
+                w.WriteBoolean("applied", x.Applied);
+                w.WriteBoolean("staged", !x.Applied);
+                w.WriteString("why", x.Why);
+                w.WriteStartObject("score");
+                w.WriteNumber("value", x.Score.Value);
+                w.WriteString("grade", x.Score.Grade);
+                w.WriteNumber("rmsPx", x.Score.RmsPx);
+                w.WriteString("words", x.Score.Words);
+                w.WriteEndObject();
+                var s = solved.First(s => s.Before.Id == x.Projector);
+                var snap = after2.FindCalibration(x.Snapshot);
+                var (mm, deg, wallPx) = snap is { Projector: not null }
+                    ? CalibrationLedger.Delta(CalibrationLedger.Of(s.Before, "", "", QualityScore.None, CalibrationSource.Manual, "", 0), snap)
+                    : (-1, -1, -1);
+                w.WriteStartObject("delta");
+                w.WriteNumber("mm", Math.Round(mm, 2));
+                w.WriteNumber("deg", Math.Round(deg, 4));
+                w.WriteNumber("wallPx", Math.Round(wallPx, 2));
+                w.WriteEndObject();
+                w.WriteNumber("verifiedP50", Math.Round(s.VerifiedP50, 3));
+                w.WriteNumber("verifiedP95", Math.Round(s.VerifiedP95, 3));
+                w.WriteStartArray("priorsUsed");
+                foreach (var used in s.PriorsUsed)
+                    w.WriteStringValue(used);
+                w.WriteEndArray();
+                w.WriteStartArray("locked");
+                if (s.FocalLocked)
+                    w.WriteStringValue("focal");
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteString("blend", blend);
+            extra?.Invoke(w);
+            w.WriteString("words", words);
+            w.WriteEndObject();
+        }), words);
+    }
+
     private const string ResolveCancelled = "cancelled — nothing was applied";
+
+    /// <summary>A re-solved projector's long-throw words for the reply ("; zoom locked from the lens: …"), "" when there are none.</summary>
+    private static string LongThrowNote(List<Resolved> solved, string projector) =>
+        solved.FirstOrDefault(s => s.Before.Id == projector) is { LongThrowWords.Length: > 0 } x ? "; " + x.LongThrowWords : "";
+
+    /// <summary>A camera re-solve's result says so in its RunId ("camera:&lt;camera&gt;"): accepting it later re-seats the quads.</summary>
+    private const string CameraRunPrefix = "camera:";
+
+    /// <summary>On the lane, after re-solved projectors were applied to <paramref name="edits"/>: when one of them blends automatically,
+    /// the live blend solved again — its receipt, or why it was not — or, applied to a blind draft, the words that the blend follows
+    /// when the draft lands (the render host's automatic blend solves the stage on the air); "" when none blends.</summary>
+    private string BlendAfter(ProjectStore edits, IReadOnlyCollection<string> projectors)
+    {
+        if (!Blends(edits.Project, projectors))
+            return "";
+        if (!ReferenceEquals(edits, Store))
+            return "the blend is solved for the new pose when the draft lands (the automatic blend follows the stage on the air)";
+        var solve = SolveBlend([]);
+        return solve.Ok ? solve.Effect : "the blend was not solved again: " + solve.Payload;
+    }
+
+    /// <summary>Whether one of the projectors blends automatically in the project.</summary>
+    private static bool Blends(Project p, IReadOnlyCollection<string> projectors) =>
+        BlendInputs.Of(p).Outputs.Any(o => o.ProjectorId is { } id && projectors.Contains(id));
 
     /// <summary>CALIBRATION CANCEL: stops the running calibration task before it applies anything.</summary>
     private CommandReply CalibrationCancel(VerbCall c)
@@ -773,9 +928,9 @@ public sealed partial class EngineCore
             return CommandReply.Fail("CALIBRATION CANCEL");
         lock (_calibrationGate)
         {
-            if (_calibrationApplying && _calibrationTask is { State: "solving" } applying)
+            if (_calibrationApplying && _calibrationTask is { IsRunning: true } applying)
                 return CommandReply.Fail($"{applying.Id} is applying its result — too late to cancel; CALIBRATION FALLBACK {applying.Projector} goes back");
-            if (_calibrationTask is not { State: "solving" } t || _cancelCalibration is not { } cancel)
+            if (_calibrationTask is not { IsRunning: true } t || _cancelCalibration is not { } cancel)
                 return CommandReply.Fail("no calibration task is running");
             cancel();
             return CommandReply.Success(effect: $"cancelling {t.Id}");

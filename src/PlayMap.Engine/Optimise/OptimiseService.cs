@@ -59,6 +59,8 @@ public sealed class OptimiseService : IAsyncDisposable
     private int _restarts;
     private int _crashStreak;
     private long _ledLateSteps;
+    private readonly Dictionary<string, Ready> _awaiting = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _retrying = new(StringComparer.Ordinal);
     private bool _disposed;
     private readonly HashSet<string> _recording = new(StringComparer.Ordinal);
     private string _gl = "";
@@ -341,6 +343,7 @@ public sealed class OptimiseService : IAsyncDisposable
         if (_engine is not { } engine)
             return;
         var now = engine.Services.Mono.NowNs;
+        RetryAwaiting(engine);
         long dropped = 0;
         foreach (var h in engine.Services.Outputs.Health())
             dropped += h.Dropped;
@@ -618,27 +621,75 @@ public sealed class OptimiseService : IAsyncDisposable
                 return;   // cancelled while it was hashed: nothing is recorded
             File.Move(partial, dest, overwrite: true);
             media?.AddVerified(hash, dest, job.Name + " (" + job.To + ").mov");
-            var encoder = _encoder;
-            var versionId = "";
+            await RecordStepAsync(new Ready(job, hash, size, probe.Info, q, e.Audio, _encoder));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Whatever stopped the recording (a disk, a probe, the node going) fails the job with its words, never leaves it verifying.
+            Finish(job.Id, JobStates.Failed, "the version could not be recorded: " + ex.Message);
+        }
+    }
+
+    /// <summary>A finished job's file, in the store and indexed, waiting to be named by a version on its item.</summary>
+    private sealed record Ready(OptimiseJob Job, string Hash, long Size, MediaInfo Info, VersionQuality Quality, string Audio, string Encoder);
+
+    /// <summary>The one edit that names the version on its item. Refused because a blind commit lands the item, it waits (the job
+    /// stays verifying, with the words why) and is tried again once no commit waits; any other refusal fails the job with its words.</summary>
+    private async Task RecordStepAsync(Ready ready)
+    {
+        var engine = _engine!;
+        var job = ready.Job;
+        var q = ready.Quality;
+        var versionId = "";
+        var outcome = "";
+        try
+        {
             var r = await engine.EditAsync(EngineCore.SystemSession, $"optimised {job.Name} → {job.To}", p =>
             {
-                if (p.FindMedia(job.Media) is not { } item || item.Versions.Any(v => v.Key == job.Key) || !Verifying(job.Id))
+                if (p.FindMedia(job.Media) is not { } item)
+                {
+                    outcome = "gone";
+                    return p;
+                }
+                if (item.Versions.FirstOrDefault(v => v.Key == job.Key) is { } have)
+                {
+                    (outcome, versionId) = ("has", have.Id);
+                    return p;
+                }
+                if (!Verifying(job.Id))
                     return p;
                 versionId = p.NewId(Ids.MediaVersion);
-                var v = new MediaVersion(versionId, job.To, job.Recipe, job.Key, hash, size, probe.Info, q, Recipe.EncoderVersion + " · " + encoder,
-                    engine.Services.Settings.NodeId, engine.Services.Wall.UnixMs);
+                var v = new MediaVersion(versionId, job.To, job.Recipe, job.Key, ready.Hash, ready.Size, ready.Info, q,
+                    Recipe.EncoderVersion + " · " + ready.Encoder, engine.Services.Settings.NodeId, engine.Services.Wall.UnixMs);
                 return p with { Media = p.Media.Update(job.Media, m => m with { Versions = m.Versions.Add(v) }) };
             });
-            if (!r.Changed && !Verifying(job.Id))
+            if (!Verifying(job.Id))
                 return;
-            if (!r.Changed)
+            if (!r.Changed && outcome == "gone")
             {
-                Finish(job.Id, JobStates.Failed, "the version was not recorded: " + (r.Effect.Length > 0 ? r.Effect : "the item is gone or has it already"));
+                Finish(job.Id, JobStates.Failed, "the version was not recorded: the item was removed from the project");
+                return;
+            }
+            if (!r.Changed && outcome != "has" && engine.Snapshot.Pending is not null)
+            {
+                // A blind commit waiting for its boundary lands this item: the version waits for it, and is recorded after it.
+                lock (_gate)
+                {
+                    _awaiting[job.Id] = ready;
+                    Replace(job.Id, j => j with { Words = "recorded when the blind commit lands: " + r.Effect });
+                }
+                Changed();
+                return;
+            }
+            if (!r.Changed && outcome != "has")
+            {
+                Finish(job.Id, JobStates.Failed, "the version was not recorded: " + (r.Effect.Length > 0 ? r.Effect : "the edit changed nothing"));
                 return;
             }
             lock (_gate)
             {
-                Replace(job.Id, j => JobStates.IsOver(j.State) ? j : j with { State = JobStates.Done, Version = versionId, PsnrAvg = q.PsnrAvg, Words = string.Create(CultureInfo.InvariantCulture, $"{e.Audio}; {q.PsnrAvg:0.0} dB average, {q.PsnrMin:0.0} dB lowest"), FinishedUnixMs = Now() });
+                _awaiting.Remove(job.Id);
+                Replace(job.Id, j => JobStates.IsOver(j.State) ? j : j with { State = JobStates.Done, Version = versionId, PsnrAvg = q.PsnrAvg, Words = string.Create(CultureInfo.InvariantCulture, $"{ready.Audio}; {q.PsnrAvg:0.0} dB average, {q.PsnrMin:0.0} dB lowest"), FinishedUnixMs = Now() });
                 _recording.Remove(job.Id);
                 _crashStreak = 0;
                 _store.Save(_jobs);
@@ -649,9 +700,29 @@ public sealed class OptimiseService : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Whatever stopped the recording (a disk, a probe, the node going) fails the job with its words, never leaves it verifying.
             Finish(job.Id, JobStates.Failed, "the version could not be recorded: " + ex.Message);
         }
+        finally
+        {
+            lock (_gate)
+                _retrying.Remove(job.Id);
+        }
+    }
+
+    /// <summary>Versions that waited for a blind commit are recorded once none waits (it landed, or was discarded).</summary>
+    private void RetryAwaiting(EngineCore engine)
+    {
+        if (engine.Snapshot.Pending is not null)
+            return;
+        List<Ready> retry;
+        lock (_gate)
+        {
+            retry = [.. _awaiting.Values.Where(r => _retrying.Add(r.Job.Id))];
+            foreach (var r in retry)
+                _awaiting.Remove(r.Job.Id);
+        }
+        foreach (var r in retry)
+            _ = Task.Run(() => RecordStepAsync(r), CancellationToken.None);
     }
 
     private bool Verifying(string jobId)
@@ -696,6 +767,7 @@ public sealed class OptimiseService : IAsyncDisposable
             if (_running == jobId)
                 _running = null;
             _recording.Remove(jobId);
+            _awaiting.Remove(jobId);
             _store.Save(_jobs);
         }
         DeletePartial(jobId);

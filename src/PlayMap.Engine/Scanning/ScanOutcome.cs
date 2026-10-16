@@ -30,6 +30,9 @@ public sealed record ScanOutcome(
     /// <summary>The surfaces the scan suggests, placed on the smart scan.</summary>
     public IReadOnlyList<ScanRegion> Regions { get; init; } = [];
 
+    /// <summary>Each projector's camera latency as the flashes measured it (empty for a simulated scan, which has no camera).</summary>
+    public IReadOnlyList<(string ProjectorId, LatencyEstimate Latency)> Latencies { get; init; } = [];
+
     /// <summary>The worst solved projector's reprojection RMS (pixels), 0 when none solved.</summary>
     public double WorstResidualPx => Solution.Projectors.Where(p => p.Solved).Select(p => p.RmsPx).DefaultIfEmpty(0).Max();
 
@@ -40,6 +43,45 @@ public sealed record ScanOutcome(
         Solution.Projectors.FirstOrDefault(p => p.Solved && string.Equals(p.ProjectorId, projectorId, StringComparison.Ordinal)) is { } x
             ? new Core.Calibration.Scoring.ScanScoreInputs(projectorId, x.RmsPx, x.Inliers, Math.Clamp(x.Quality / 100.0, 0, 1), 1) { CameraId = CameraId }
             : null;
+}
+
+/// <summary>The stage's model a bridged scan registers into: every visible surface on an imported mesh, through its placement
+/// (<see cref="Core.Mapping.StageScene"/>, world coordinates) — never a mesh file's raw coordinates, so a surface moved on the stage
+/// bridges where it stands. Null when no such surface's mesh loads from the project folder.</summary>
+public static class BridgeModel
+{
+    public static MeshRaycaster? Of(Project project, string folder)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(folder);
+        var imported = project.Stage.Meshes.Where(m => m.Path.Length > 0 && m.Origin == MeshOrigin.Imported).ToDictionary(m => m.Id, StringComparer.Ordinal);
+        var loaded = new Dictionary<string, MeshData?>(StringComparer.Ordinal);
+        MeshData? Mesh(string id)
+        {
+            if (loaded.TryGetValue(id, out var have))
+                return have;
+            MeshData? mesh = null;
+            if (imported.TryGetValue(id, out var asset))
+            {
+                try
+                {
+                    mesh = MeshIO.Load(Path.Combine(folder, asset.Path)).Mesh;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or NotSupportedException or InvalidDataException)
+                {
+                    // A model that does not load is not bridged into; the scan self-calibrates when none does.
+                    mesh = null;
+                }
+            }
+            loaded[id] = mesh;
+            return mesh;
+        }
+        var surfaces = project.Stage.Surfaces.Where(s => s.Pixel is null && imported.ContainsKey(s.MeshId)).ToList();
+        if (surfaces.Count == 0)
+            return null;
+        var scene = Core.Mapping.StageScene.Build(project.Stage with { Surfaces = [.. surfaces] }, Mesh);
+        return scene.World.TriangleCount > 0 ? scene.Raycaster : null;
+    }
 }
 
 /// <summary>A scan's folder beside the project ("scans/&lt;id&gt;"): scan.json (the solve without its geometry),

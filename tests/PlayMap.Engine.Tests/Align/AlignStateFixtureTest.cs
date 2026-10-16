@@ -48,6 +48,15 @@ public sealed partial class AlignStateFixtureTest
                 Field("Files", "files")),
             ["actions"] = new JsonArray("ALIGN STATUS"),
         },
+        new JsonObject
+        {
+            ["title"] = "Projectors' own processing",
+            ["path"] = "align",
+            ["light"] = new JsonArray(new JsonObject { ["light"] = "grey" }),
+            ["words"] = "the double-correction guard: {devices}",
+            ["fields"] = new JsonArray(Field("Guarded devices", "devices")),
+            ["actions"] = new JsonArray("DEVICE NATIVE $(id)"),
+        },
     ];
 
     private static JsonObject Field(string label, string path) => new() { ["label"] = label, ["path"] = path };

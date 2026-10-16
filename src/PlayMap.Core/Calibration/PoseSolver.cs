@@ -42,6 +42,10 @@ public sealed record PoseSolveOptions
 
     /// <summary>Names for the pairs in the words, in input order; default 1, 2, 3…</summary>
     public IReadOnlyList<string>? Labels { get; init; }
+
+    /// <summary>What the refinement may assume about the focal length and the centre, as extra residual rows (none: the solve is
+    /// exactly the solve without priors). The closed forms and the consensus never see them.</summary>
+    public PosePriors Priors { get; init; } = PosePriors.None;
 }
 
 /// <summary>Solves a camera's or projector's optics and pose from world↔pixel pairs — pins picked by hand or
@@ -134,7 +138,7 @@ public static class PoseSolver
                 if (next.Length < (coplanar ? 4 : 6) || next.AsSpan().SequenceEqual(use))
                     break;
                 use = next;
-                model = Refine(world, pixels, use, layout, model).Model;
+                model = Refine(world, pixels, use, layout, model, options.Priors).Model;
             }
         }
 
@@ -315,10 +319,13 @@ public static class PoseSolver
     /// <summary>Reprojection residuals over the chosen pairs, with the analytic Jacobian. Residuals are
     /// multiplied by <see cref="Scale"/>, chosen so the largest diagonal of JᵀJ is one at the start: the
     /// solver's first damping is then the intended small fraction of each diagonal whatever the units.</summary>
-    private sealed class Problem(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start) : ILeastSquaresProblem
+    private sealed class Problem(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start, PosePriors priors) : ILeastSquaresProblem
     {
+        private readonly bool _focalRow = priors.Focal is not null && layout.Focal;
+        private readonly bool _centreRows = priors.Centre is not null;
+
         public int ParameterCount => layout.Count;
-        public int ResidualCount => use.Length * 2;
+        public int ResidualCount => use.Length * 2 + (_focalRow ? 1 : 0) + (_centreRows ? 3 : 0);
         public double Scale { get; private set; } = 1;
 
         public void Normalise(double[] p0)
@@ -350,6 +357,16 @@ public static class PoseSolver
                     residuals[2 * k] = 1e4 * Scale;
                     residuals[2 * k + 1] = 1e4 * Scale;
                 }
+            }
+            var row = use.Length * 2;
+            if (_focalRow)
+                residuals[row++] = priors.FocalRow(m.Fx) * Scale;
+            if (_centreRows)
+            {
+                var c = priors.CentreRows(m.Centre);
+                residuals[row] = c.X * Scale;
+                residuals[row + 1] = c.Y * Scale;
+                residuals[row + 2] = c.Z * Scale;
             }
         }
 
@@ -415,6 +432,13 @@ public static class PoseSolver
                     }
                 }
             }
+            // The prior rows are linear in their parameter: constant derivatives (the focal is the first optics column).
+            var at = use.Length * 2;
+            if (_focalRow)
+                jacobian.RowSpan(at++)[6] = priors.FocalWeight * Scale;
+            if (_centreRows)
+                for (var i = 0; i < 3; i++)
+                    jacobian.RowSpan(at + i)[3 + i] = priors.CentreWeight * Scale;
             return true;
         }
 
@@ -437,9 +461,9 @@ public static class PoseSolver
         return Mat3d.Identity + k * ((1 - Math.Cos(theta)) / t2) + k * k * ((theta - Math.Sin(theta)) / (t2 * theta));
     }
 
-    private static (Model Model, double Cost) Refine(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start)
+    private static (Model Model, double Cost) Refine(Vec3d[] world, Vec2d[] pixels, int[] use, Layout layout, Model start, PosePriors priors)
     {
-        var problem = new Problem(world, pixels, use, layout, start);
+        var problem = new Problem(world, pixels, use, layout, start, priors);
         var p0 = layout.Pack(start);
         problem.Normalise(p0);
         var result = LevenbergMarquardt.Solve(problem, p0, maxIterations: 100, tolerance: 1e-12);
@@ -501,7 +525,7 @@ public static class PoseSolver
             var front = w.Count(x => (s.WorldToCamera * (x - s.Centre)).Z > 0);
             if (front * 2 < w.Length)
                 continue;
-            var (m, cost) = Refine(world, pixels, use, layout, s);
+            var (m, cost) = Refine(world, pixels, use, layout, s, o.Priors);
             if (cost < bestCost)
             {
                 bestCost = cost;

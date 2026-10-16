@@ -47,6 +47,17 @@ public sealed class LedVerbTests
         }
     }
 
+    /// <summary>Waits (bounded) for a condition the engine's ticker makes true.</summary>
+    internal static async Task UntilTrue(Func<bool> good, string what)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!good())
+        {
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), what + " never happened");
+            await Task.Delay(5);
+        }
+    }
+
     private static Project Show()
     {
         var p = Project.CreateDefault("LED");
@@ -258,7 +269,11 @@ public sealed class LedMotionTests
         var strip = await LedVerbTests.Ok(engine, "LED NEW LINE 4");
         await LedVerbTests.Ok(engine, $"LED PATCH {strip} Bar 0.1");
         await LedVerbTests.Ok(engine, $"LED LOCATE {strip} 30");
-        var revision = engine.State().Revision;
+        // The baseline after the lane's first tick at this instant (the air settles there), and the project's revision: nothing
+        // below edits the show or runs a verb, so whatever STATE shows afresh moved on its own.
+        var now = clock.NowNs;
+        await LedVerbTests.UntilTrue(() => engine.ShowTickedNs >= now, "the lane ticked");
+        var project = engine.Store.Current.Revision;
         var left = LedVerbTests.Led(engine).GetProperty("locate").GetProperty("leftMs").GetInt64();
         clock.Advance(1_000_000_000);
         await LedVerbTests.Until(engine, s => s.GetProperty("locate").GetProperty("leftMs").GetInt64() == left - 1000);
@@ -270,6 +285,6 @@ public sealed class LedMotionTests
         sender.Sink.Submit(f);
         sender.Pump(clock.NowNs);
         await LedVerbTests.Until(engine, s => s.GetProperty("nodes")[0].GetProperty("state").GetString() == "sending");
-        Assert.Equal(revision, engine.State().Revision);
+        Assert.Equal(project, engine.Store.Current.Revision);
     }
 }

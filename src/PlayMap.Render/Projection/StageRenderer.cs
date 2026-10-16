@@ -27,7 +27,8 @@ public sealed record EditorCamera(
 /// drawn top row first; the mirror turns the winding over, which the device's cull state accounts for. Depth
 /// testing is on. A surface's content is sampled through its UVs (with the region's offset and scale), from
 /// a canvas region, or projected from a viewpoint; a surface-aware effect is drawn from the surface's own
-/// world position, normal and UVs. The surface mask (UV space) and the opacity scale the light.
+/// world position, normal and UVs at the generator's own time (the time it draws at anywhere else), and its draw
+/// is reported to the frame's content stats. The surface mask (UV space) and the opacity scale the light.
 ///
 /// A surface whose effect chain draws has its content made once a frame, at the frame's chain size (<see cref="BeginFrame"/>),
 /// and passed through the frame's passes; every projector pass that frame, and a preview after it, samples that one picture, so
@@ -243,7 +244,6 @@ internal sealed class StageRenderer : IDisposable
         p.Set("uEye", (float)eye.X, (float)eye.Y, (float)eye.Z);
         p.Set("uBoundsMin", (float)boundsMin.X, (float)boundsMin.Y, (float)boundsMin.Z);
         p.Set("uBoundsMax", (float)boundsMax.X, (float)boundsMax.Y, (float)boundsMax.Z);
-        p.Set("uTime", (float)frame.Seconds);
         for (var i = 0; i < surfaces.Length; i++)
         {
             var s = surfaces[i];
@@ -269,7 +269,10 @@ internal sealed class StageRenderer : IDisposable
             }
             else if (sources.EffectOf(s.Content.Source) is { } effect)
             {
-                EffectUniforms.For(GeneratorCatalog.Find(effect.Kind)!, effect.Params).Apply(p, frame.Seconds);
+                // The effect's own time, as it draws anywhere else: its origin moves it here too, and the shader is handed the small
+                // number of seconds since that origin, never the leader's.
+                var uniforms = EffectUniforms.For(GeneratorCatalog.Find(effect.Kind)!, effect.Params);
+                uniforms.Apply(p, sources.EffectFrame(effect, in frame).Seconds);
                 d.BindSampler(p, "uSource", 0, _services.Black);
             }
             else

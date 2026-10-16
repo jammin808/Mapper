@@ -37,4 +37,19 @@
     <ProjectReference Include="..\..\tools\PlayMap.Node\PlayMap.Node.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup Label="wp2-resolve">
+    <Compile Include="..\PlayMap.Devices.Tests\Simulators\PanasonicSimulator.cs" Link="Simulators\PanasonicSimulator.cs" />
+  </ItemGroup>
+
+  <!-- OMT's codec built for the tests from the vendored source, shared with the media tests rather than copied. -->
+  <ItemGroup Label="wp2-videoio">
+    <Compile Include="..\PlayMap.Media.Tests\Video\VmxBuild.cs" Link="VideoIo\VmxBuild.cs" />
+  </ItemGroup>
+
+  <!-- The survey files the facade's import is tested on, written by the same writers the readers are tested against. -->
+  <ItemGroup Label="wp2-facade">
+    <Compile Include="..\PlayMap.Core.Tests\Facade\E57TestWriter.cs" Link="Facade\E57TestWriter.cs" />
+    <Compile Include="..\PlayMap.Core.Tests\Facade\LasTestWriter.cs" Link="Facade\LasTestWriter.cs" />
+  </ItemGroup>
+
 </Project>
