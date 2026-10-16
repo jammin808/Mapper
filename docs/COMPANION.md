@@ -153,8 +153,12 @@ structure after 3 s, while keys relabel at once through value feedbacks; a `proj
 **Actions** are generated from `VERBS` (`v_<name>`, one per row the module does not say itself, that carries no secret and that the node answers — `CURSOR` gets no line back and its lease lapses unless sent again, so it is no key), with typed
 options from `params` — entity dropdowns from INDEX, literal choices, keyword parameters, a form chooser for a row with several — and the
 line written by the node's grammar. Every press returns its receipt as the action's result (`ok`, `stage`, `effect`, `error`) on the node's
-first reply, and lights a corner dot on its key: amber while sent or accepted — an accepted line until STATE's entries for the ids it
-names move (or, naming none, until STATE moves past it), at most 10 s — red for 2 s on `ERR` with the words in `last_refusal`. Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
+first reply — `stage` is `applied` or `accepted` (the node's OK), `refused` (its ERR), `unanswered` (the line left the module and no
+answer came: none in 5 s, or the link dropped after it was written; the node may have run it, so its error says to check STATE before
+sending it again) or `not-sent` (it never left: the fence, a guard, no link, too long) — and lights a corner dot on its key: amber while
+sent or accepted — an accepted line until STATE's entries for the ids it names move (or, naming none, until STATE moves past it), at
+most 10 s — red for 2 s on `ERR` with the words in `last_refusal`, and red for 2 s when unanswered (`last_receipt` reads
+`unanswered: <VERB> — …`; `last_refusal` holds only what the node refused). Smart actions: GO, NEXT and PREV on the focused playlist with `EXPECT` the next item; PANIC per outcome;
 blackout and freeze toggles; a section key; the Live page; `raw` (any line of the vocabulary) and `ask_node` (a question, its
 answer as the result; a line that is no question, or that the fence refuses, is refused naming only its verb). Every key's line — generated, raw, a section key or Live slot from INDEX — passes one fence, which reads it as the
 node does (its words split by the node's grammar, its verb by name or alias — Patterns' `EYE`, `VT`, `CLIP`, `TC` are their rows): it

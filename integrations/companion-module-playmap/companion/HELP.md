@@ -40,7 +40,12 @@ The press shape comes from the node's vocabulary:
 - **Held 0.8 s** — verbs that change the air at high risk (show or hide a surface …): the key says HOLD… while held.
 - **Two presses** — a projector's power: the first held press says SURE? for 3 s, the second sends.
 
-A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and _if_ blocks can branch on it.
+A corner dot shows the press's receipt: amber while the node has it and its effect is not yet in STATE, red for 2 s when refused, with the node's words in `last_refusal`, and red for 2 s when no answer came. Every action returns its receipt as its result (`ok`, `stage`, `effect`, `error`), so `Store result` and _if_ blocks can branch on it. The `stage` is one of:
+
+- `applied` or `accepted` — the node took it (accepted: its effect is still to come).
+- `refused` — the node said no; `error` is its words.
+- `unanswered` — the line was sent but no answer came (5 s passed, or the link dropped). The node may have run it: check its STATE before sending it again. `last_receipt` says so; `last_refusal` is left as it was.
+- `not-sent` — the line never left the module (a key the module keeps to itself, the double-GO guard, no link).
 
 ### Show Mode
 
@@ -108,5 +113,5 @@ round($(playmap:pl_1_progress) * 100) + '%'
 ## When something is wrong
 
 - Keys dark with a ⚠ — the node has said nothing for 4 s, or the link is down; it comes back by itself.
-- A red corner dot — the node refused the press; `last_refusal` says why in its words.
+- A red corner dot — the node refused the press (`last_refusal` says why in its words), or no answer came (`last_receipt` reads `unanswered: …`: look at the node before pressing again).
 - A key reads REMOVED — the show no longer has that item; the key keeps its place until you move it.

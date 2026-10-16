@@ -229,8 +229,10 @@ void test('a press answered after destroy touches nothing of the host', async ()
 		await m.stop()
 		const calls = m.host.variableCalls
 		const r = (await press) as { ok: boolean; stage: string; error: string }
-		assert.equal(r.stage, 'not-sent')
-		assert.equal(r.error, 'the connection stopped')
+		// The line left for the node before the connection stopped: its effect is unknown, so it is unanswered, never "not sent".
+		assert.equal(r.ok, false)
+		assert.equal(r.stage, 'unanswered')
+		assert.equal(r.error, "sent; the connection stopped before an answer — check the node's STATE for its effect")
 		// No failed receipt is kept (its clearing would arm a 2 s timer) and nothing more reached the host.
 		assert.equal(m.instance.receipts.stage('key-bo'), null)
 		assert.equal(m.host.variableCalls, calls)

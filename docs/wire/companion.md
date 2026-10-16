@@ -116,6 +116,9 @@ adds nothing to the node's wire.
   and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
   `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
   engine wrote. Unknown pushes are ignored.
+- **A line with no answer**: every line waits 5 s for its `OK`/`ERR`. A line that got none — the time ran out, or the link dropped
+  after it was written — left the module, so the node may have run it: the module reports it `unanswered` (red on its key, its error
+  saying to check STATE), never `not-sent`, which is kept for lines that never left (the fence, a guard, no link, past 64 KiB).
 - **The web port's rules hold**: it sends no `Origin`; a refused upgrade's JSON `error` is shown as the node wrote it; a node that asks for
   a token is paired by proof, so the Host rule for tokenless admission does not apply to it.
 

@@ -23,10 +23,12 @@ export interface Watch {
 }
 
 /** What a press's action answers (an action result for `storeResult` and `internal:logicIf`): resolved on the node's first reply,
- * never on STATE. */
+ * never on STATE. `applied` and `accepted` are the node's OK, `refused` its ERR; `unanswered` a line that left the module and got no
+ * answer (none in 5 s, or the link dropped after it was written), whose effect only STATE can say; `not-sent` a line that never left
+ * the module (the fence, a guard, no link, too long). */
 export interface PressResult {
 	readonly ok: boolean
-	readonly stage: 'accepted' | 'applied' | 'refused' | 'not-sent'
+	readonly stage: 'accepted' | 'applied' | 'refused' | 'unanswered' | 'not-sent'
 	readonly effect: string
 	readonly error: string
 	readonly reply: string
@@ -60,8 +62,8 @@ export class Receipts {
 	 * `verb` names the line: its first words once the fence has passed it, else the row's name only — a receipt never repeats words
 	 * that may hold a secret. */
 	replied(controlId: string, verb: string, reply: Reply, stateSeq: number, watch: Watch | null = null): PressResult {
-		let result: PressResult
-		if (!reply.ok) {
+		const result = replyResult(reply)
+		if (result.stage === 'refused') {
 			this.#by.set(controlId, {
 				stage: 'failed',
 				words: reply.payload,
@@ -71,24 +73,38 @@ export class Receipts {
 			})
 			this.lastRefusal = reply.payload
 			this.lastReceipt = `refused: ${verb} — ${reply.payload}`
-			result = { ok: false, stage: 'refused', effect: '', error: reply.payload, reply: reply.payload }
-		} else if (reply.accepted) {
+		} else if (result.stage === 'accepted') {
 			this.#by.set(controlId, { stage: 'pending', words: '', until: this.#now() + PENDING_MS, seq: stateSeq, watch })
-			const effect = acceptedEffect(reply.payload)
-			this.lastReceipt = `accepted: ${verb}${effect ? ' — ' + effect : ''}`
-			result = { ok: true, stage: 'accepted', effect, error: '', reply: reply.payload }
+			this.lastReceipt = `accepted: ${verb}${result.effect ? ' — ' + result.effect : ''}`
 		} else {
 			this.#by.delete(controlId)
 			this.lastReceipt = `applied: ${verb}`
-			result = { ok: true, stage: 'applied', effect: reply.payload, error: '', reply: reply.payload }
 		}
 		this.#schedule()
 		this.#changed()
 		return result
 	}
 
-	/** A key's line that never left the module (no link, no answer in time, refused by the module's own guard). `verb` names it
-	 * as `replied` says. */
+	/** A key's line that left the module and got no answer (none in time, or the link dropped after it was written): the node may
+	 * have run it, so it is red as a failure but is no refusal (last_refusal keeps the node's last), and its words say to look at
+	 * STATE before it is sent again. `verb` names it as `replied` says. */
+	unanswered(controlId: string, verb: string, why: string): PressResult {
+		const result = unansweredResult(why)
+		this.#by.set(controlId, {
+			stage: 'failed',
+			words: result.error,
+			until: this.#now() + FAILED_MS,
+			seq: null,
+			watch: null,
+		})
+		this.lastReceipt = `unanswered: ${verb} — ${result.error}`
+		this.#schedule()
+		this.#changed()
+		return result
+	}
+
+	/** A key's line that never left the module (the fence, the module's own guard, no link, a line the node would not read). `verb`
+	 * names it as `replied` says. */
 	notSent(controlId: string, verb: string, why: string): PressResult {
 		this.#by.set(controlId, { stage: 'failed', words: why, until: this.#now() + FAILED_MS, seq: null, watch: null })
 		this.lastRefusal = why
@@ -157,6 +173,25 @@ export class Receipts {
 			},
 			Math.max(0, first - this.#now()),
 		)
+	}
+}
+
+/** The result the node's first reply makes of a press: refused on ERR, accepted on a receipt, else applied. */
+export function replyResult(reply: Reply): PressResult {
+	if (!reply.ok) return { ok: false, stage: 'refused', effect: '', error: reply.payload, reply: reply.payload }
+	if (reply.accepted)
+		return { ok: true, stage: 'accepted', effect: acceptedEffect(reply.payload), error: '', reply: reply.payload }
+	return { ok: true, stage: 'applied', effect: reply.payload, error: '', reply: reply.payload }
+}
+
+/** The result of a line that left the module and got no answer: why none came, and that its effect is STATE's to say. */
+export function unansweredResult(why: string): PressResult {
+	return {
+		ok: false,
+		stage: 'unanswered',
+		effect: '',
+		error: `sent; ${why} — check the node's STATE for its effect`,
+		reply: '',
 	}
 }
 

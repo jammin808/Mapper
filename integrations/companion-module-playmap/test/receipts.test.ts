@@ -169,6 +169,37 @@ void test('a refused press is failed (red) with the node’s words in last_refus
 	}
 })
 
+void test('a line the link dropped after it was written is unanswered: red, last_receipt says so, last_refusal untouched', async () => {
+	const { node, m } = await linked()
+	try {
+		await ready(m)
+		// The node reads the line and the link drops before it answers: its effect is unknown, so the press is no "not sent".
+		node.handlers.set('BLACKOUT', () => {
+			for (const s of node.sessions) s.close(1001)
+			return null
+		})
+		const result = fields(await m.press('v_blackout', { state: 'ON' }, 'key-drop'))
+		assert.ok(node.sent().includes('BLACKOUT ON'), 'the node read the line')
+		assert.equal(result.ok, false)
+		assert.equal(result.stage, 'unanswered')
+		assert.equal(result.effect, '')
+		assert.equal(result.reply, '')
+		assert.match(
+			String(result.error),
+			/^sent; the link to the node dropped \(.+\) before an answer — check the node's STATE for its effect$/u,
+		)
+		assert.equal(m.instance.receipts.stage('key-drop'), 'failed', 'red as a failure')
+		await m.host.until(
+			() => m.host.variables.get('last_receipt') === `unanswered: BLACKOUT ON — ${String(result.error)}`,
+			'last_receipt',
+		)
+		assert.equal(m.host.variables.get('last_refusal'), '', 'nothing refused it')
+	} finally {
+		await m.stop()
+		await node.stop()
+	}
+})
+
 void test('each receipt follows the control that pressed, whatever order the replies come in', async () => {
 	const words = 'no output is enabled'
 	const { node, m } = await linked({ BLACKOUT: () => null, FREEZE: () => null })

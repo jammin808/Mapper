@@ -38,6 +38,18 @@ export interface Reply {
 	readonly payload: string
 }
 
+/** Why a line got no reply. `written` is true once the line left for the node — the node may have run it, so its effect is unknown —
+ * and false for a line that never left the module (no link, a line break, past what the node reads). */
+export class LineError extends Error {
+	readonly written: boolean
+
+	constructor(message: string, written: boolean) {
+		super(message)
+		this.name = 'LineError'
+		this.written = written
+	}
+}
+
 /** What the session tells its instance. */
 export interface SessionHost {
 	/** "Companion:<label>": the HELLO name and the proof's message. */
@@ -154,24 +166,26 @@ export class NodeSession {
 		this.#setState('halted')
 	}
 
-	/** Sends a line and waits for its one reply (or rejects when the link drops or nothing answers in 5 s). */
+	/** Sends a line and waits for its one reply. It rejects with a LineError: unwritten when the line never left, written when the
+	 * link drops after it left or nothing answers in 5 s. */
 	async ask(line: string, timeoutMs?: number): Promise<Reply> {
-		if (!this.linked) throw new Error('the node is not linked')
+		if (!this.linked) throw new LineError('the node is not linked', false)
 		return this.#request(line, timeoutMs)
 	}
 
 	async #request(line: string, timeoutMs?: number, hello = false): Promise<Reply> {
 		const channel = this.#channel
-		if (!channel) throw new Error('the node is not linked')
+		if (!channel) throw new LineError('the node is not linked', false)
 		// One line is one command: a line break would put a second, unnumbered line on the TCP wire.
-		if (/[\r\n]/u.test(line)) throw new Error('a line cannot hold a line break')
+		if (/[\r\n]/u.test(line)) throw new LineError('a line cannot hold a line break', false)
 		if (Buffer.byteLength(line, 'utf8') + 16 > MAX_LINE_BYTES)
-			throw new Error('the line is longer than the node reads (64 KiB)')
+			throw new LineError('the line is longer than the node reads (64 KiB)', false)
 		const id = `c${++this.#counter}`
 		return new Promise<Reply>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.#pending.delete(id)
-				reject(new Error(`no answer from the node within ${Math.round((timeoutMs ?? this.#replyTimeoutMs) / 1000)} s`))
+				const s = Math.round((timeoutMs ?? this.#replyTimeoutMs) / 1000)
+				reject(new LineError(`no answer from the node within ${s} s`, true))
 			}, timeoutMs ?? this.#replyTimeoutMs)
 			this.#pending.set(id, { resolve, reject, timer, hello })
 			channel.send(`@${id} ${line}`)
@@ -423,7 +437,14 @@ export class NodeSession {
 		this.#offset = null
 		for (const [, p] of this.#pending) {
 			clearTimeout(p.timer)
-			p.reject(new Error(info ? `the link to the node dropped (${info.reason})` : 'the link to the node closed'))
+			p.reject(
+				new LineError(
+					info
+						? `the link to the node dropped (${info.reason}) before an answer`
+						: 'the link to the node closed before an answer',
+					true,
+				),
+			)
 		}
 		this.#pending.clear()
 		if (channel && !info) channel.close()

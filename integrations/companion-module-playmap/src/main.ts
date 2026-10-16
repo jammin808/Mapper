@@ -20,8 +20,8 @@ import type { Ctx, SendOptions } from './context.ts'
 import { Encoders } from './encoders.ts'
 import { EventLog, eventWords, readEvent } from './events.ts'
 import { FEEDBACK_SLICES, feedbackDefinitions } from './feedbacks.ts'
-import { Confirms, GoGuard, Receipts, type PressResult } from './guards.ts'
-import { NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
+import { Confirms, GoGuard, Receipts, replyResult, unansweredResult, type PressResult } from './guards.ts'
+import { LineError, NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
 import { LivePage } from './live.ts'
 import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets, withPresets } from './presets.ts'
 import { NodeModel } from './state/model.ts'
@@ -108,15 +108,6 @@ function walkEntries(state: unknown, visit: (id: string, entry: object) => void)
 /** An EVENTS SINCE replay that is not answered is asked again this often, this many times in all, before the gap is given up. */
 const REPLAY_RETRY_MS = 2000
 const REPLAY_TRIES = 3
-
-/** A press whose answer came after the connection was destroyed. */
-const notSentAfterStop: PressResult = {
-	ok: false,
-	stage: 'not-sent',
-	effect: '',
-	error: 'the connection stopped',
-	reply: '',
-}
 
 export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implements Ctx {
 	/** Set by a test before init (the host never sets it). */
@@ -242,15 +233,23 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 		this.receipts.sent(controlId)
 		try {
 			const reply = await session.ask(line)
-			if (this.#destroyed) return notSentAfterStop
+			// A press answered as the connection stopped answers its caller and touches nothing of a stopped instance.
+			if (this.#destroyed) return replyResult(reply)
 			const words = new Set(line.trim().split(/\s+/u).slice(1))
 			const ids = reply.accepted ? entitiesNamed(this.model.state, words) : []
 			const watch = reply.accepted ? { ids, before: entriesOf(this.model.state, ids) } : null
 			return this.receipts.replied(controlId, verb, reply, numOf(at(this.model.state, P.seq)), watch)
 		} catch (e) {
+			const why = e instanceof Error ? e.message : String(e)
+			// A line that left is unanswered, never "not sent": the node may have run it.
+			const written = e instanceof LineError && e.written
 			// A press in flight when the connection stopped answers its caller and touches nothing of a stopped instance.
-			if (this.#destroyed) return notSentAfterStop
-			return this.receipts.notSent(controlId, verb, e instanceof Error ? e.message : String(e))
+			if (this.#destroyed)
+				return written
+					? unansweredResult('the connection stopped before an answer')
+					: { ok: false, stage: 'not-sent', effect: '', error: why, reply: '' }
+			if (written) return this.receipts.unanswered(controlId, verb, why)
+			return this.receipts.notSent(controlId, verb, why)
 		}
 	}
 

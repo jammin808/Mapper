@@ -1,6 +1,6 @@
 // Receipts on the module's clock: a refused press is red for 2 s and then clear; an accepted press whose effect no STATE shows is
-// pending for 10 s and then clear; a press the node never answers fails at 5 s (its result says it was not sent through) and is red
-// for 2 s. On fake timers, in its own file so its clock is its own.
+// pending for 10 s and then clear; a press the node never answers is unanswered at 5 s — it left the module, so its result is no
+// refusal and no "not sent" but says to look at STATE — and is red for 2 s. On fake timers, in its own file so its clock is its own.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { JsonValue } from '@companion-module/base'
@@ -15,7 +15,7 @@ function fields(v: JsonValue | undefined): Fields {
 	return v as Fields
 }
 
-void test('failed clears after 2 s; accepted with no effect clears after 10 s; no answer fails the press at 5 s', async (t) => {
+void test('failed clears after 2 s; accepted with no effect clears after 10 s; no answer leaves the press unanswered at 5 s', async (t) => {
 	t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_760_000_000_000 })
 	const { factory, opened } = fakeChannels()
 	const m = await boot({ host: '10.0.0.5', port: 9940, min_go_ms: 0 }, {}, { factory, random: () => 0.5 })
@@ -77,24 +77,35 @@ void test('failed clears after 2 s; accepted with no effect clears after 10 s; n
 		assert.equal(pending(), false, 'clear after 10 s')
 		assert.equal(failed(), false)
 
-		// Never answered: amber while the press waits, failed at 5 s, red for 2 s.
+		// Never answered: amber while the press waits, unanswered at 5 s, red for 2 s; nothing refused it, so last_refusal keeps the
+		// node's last refusal.
+		assert.equal(m.host.variables.get('last_refusal'), 'the show is armed')
 		let answered = false
 		const unanswered = m.press('v_blackout', { state: 'OFF' }, 'key-1')
 		void unanswered.then(() => (answered = true))
 		await advance(t.mock.timers, 60, 10)
+		assert.ok(
+			ch.sent.some((l) => /^@c\d+ BLACKOUT OFF$/u.test(l)),
+			'the line left the module',
+		)
 		assert.equal(pending(), true)
 		await wait(4880)
 		assert.equal(answered, false, 'the result waits for the node before 5 s')
 		assert.equal(pending(), true)
 		await wait(120)
 		const result = fields(await unanswered)
-		assert.equal(result.ok, false)
-		assert.equal(result.stage, 'not-sent')
-		assert.equal(result.reply, '')
-		assert.ok(typeof result.error === 'string' && result.error.length > 0)
+		assert.deepEqual(result, {
+			ok: false,
+			stage: 'unanswered',
+			effect: '',
+			error: "sent; no answer from the node within 5 s — check the node's STATE for its effect",
+			reply: '',
+		})
+		await advance(t.mock.timers, 60, 10)
 		assert.equal(failed(), true)
 		assert.equal(pending(), false)
-		assert.equal(m.host.variables.get('last_refusal'), result.error)
+		assert.equal(m.host.variables.get('last_refusal'), 'the show is armed', 'nothing refused it')
+		assert.equal(m.host.variables.get('last_receipt'), `unanswered: BLACKOUT OFF — ${String(result.error)}`)
 		await wait(2000)
 		assert.equal(failed(), false, 'clear 2 s after it failed')
 	} finally {
