@@ -137,7 +137,8 @@ The render thread reads `AirLevels`, built on the lane once per change and alloc
 × panic level × degrade gain (`IOutputGains`), multiplied last in the output stage (`uAir`) so 0 is true black; the SAFE look rides
 the pattern-override path; FREEZE holds the output's picture. The air's sound gain (`IAirLevels.AudioGain`) is master × the darkest
 panic, from the same fades, so the air's sound fades on the same frames as the picture (a SAFE look has no show sound; Sound on
-the air, below).
+the air, below). STATE shows each level as it stands when read: it moves when a fade starts and once more when every fade has
+settled, and never on its own while nothing fades (a node just started included, its degrade gains on the air from the start).
 
 `MASTER <0-100> [FADE <ms>]` is the grand master over every output's picture (and the air's sound gain), faded on the show clock;
 it is runtime, not an undo step.

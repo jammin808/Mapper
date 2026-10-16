@@ -9,7 +9,8 @@ namespace PlayMap.Engine.Tests.Show;
 /// <summary>Panic and the master on a manual show clock: every level is a fade of the leader instant, picture and sound alike; a
 /// second PANIC inside the fade is the hard stop; CLEAR fades back; the transport outcomes land at the fade's end (REWIND cues the
 /// item at its in-point, NEXT the next item, BLACK pauses); SHUTTER closes the linked projector (observed); FX-OFF sends its line
-/// as the node; SAFE dips to the planned look; a panic survives a restart; PANIC is never refused for an operator.</summary>
+/// as the node; SAFE dips to the planned look; a panic survives a restart; PANIC is never refused for an operator; STATE moves when a
+/// fade starts and when it settles, and never on its own while nothing fades.</summary>
 public sealed class PanicTests
 {
     private const double Tolerance = 1e-6;
@@ -260,6 +261,48 @@ public sealed class PanicTests
         Assert.Equal(1.0, rig.Engine.AirAudioGain(rig.Now), Tolerance);
         await rig.Ok("MASTER 50");
         Assert.Equal(0.25, rig.Engine.AirGain("op_1", rig.Now), Tolerance);
+    }
+
+    /// <summary>Nothing fades on a node just made: its lane's ticks leave STATE where it is, the first one included. A fade moves
+    /// STATE when it starts, not while it runs, and once more when it has settled.</summary>
+    [Fact]
+    public async Task StateMovesWhenAFadeSettlesAndNeverOnItsOwnWhileNothingFades()
+    {
+        await using var rig = new ShowRig();
+        // A tick that has seen the clock where it is, run to its end.
+        async Task Ticked()
+        {
+            await rig.Ticked();
+            await rig.Engine.Lane.RunAsync(() => { });
+        }
+
+        // The lane waits on the test (its ticks queue behind the wait), so its first tick runs after STATE is read.
+        using var holding = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var held = rig.Engine.Lane.RunAsync(() =>
+        {
+            holding.Set();
+            release.Wait(TimeSpan.FromSeconds(30));
+        });
+        Assert.True(holding.Wait(TimeSpan.FromSeconds(10)), "the lane took the test's wait");
+        var key = rig.Engine.StateKey();
+        var state = rig.Engine.State().Json;
+        release.Set();
+        await held;
+        await Ticked();
+        Assert.Equal(state, rig.Engine.State().Json);
+        Assert.Equal(key, rig.Engine.StateKey());
+
+        await rig.Ok("MASTER 50 FADE 100");
+        var fading = rig.Engine.StateKey();
+        Assert.NotEqual(key, fading);
+        rig.Advance(50);
+        await Ticked();
+        Assert.Equal(fading, rig.Engine.StateKey());
+        rig.Advance(50);
+        await Ticked();
+        Assert.NotEqual(fading, rig.Engine.StateKey());
+        Assert.Equal(0.5, rig.State().GetProperty("air").GetProperty("master").GetProperty("level").GetDouble(), Tolerance);
     }
 
     [Fact]

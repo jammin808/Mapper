@@ -24,6 +24,12 @@ playlists route one generator, the first in the show's order sets its time.
 The **sync marks** (`pattern.syncmarks`) keep the leader's own grid whatever their origin: a flash on every node at the same leader
 second is what they are for.
 
+**On a stage surface.** A surface-aware effect (`effect.sweep`, `effect.outline`, `effect.relight`) shown on a surface is drawn by
+the projector pass from the surface's own geometry, on the same own time it draws at anywhere else: `RETIME` moves it there too,
+the shader is handed only the seconds since its origin, and STATE counts the surface's draw (`ok`, on the air, its `timeS`). An
+effect kind this node does not have (a show made on a newer node) faults as any generator does: its surface shows the error card,
+STATE says `faulted`, and every other surface the projector lights is drawn as before.
+
 ## Stings
 
 A **sting** is one of Patterns' twelve pulse and score shapes (`STING LIST`): Explosion, Rush, Flash, Bloom (pulses) and

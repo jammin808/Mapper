@@ -70,11 +70,12 @@ public sealed partial class EngineCore
     /// <summary>Runs every chase once at a leader instant (the lane's tick, or a test).</summary>
     private void TickTimecode(long leaderNs)
     {
-        var p = Store.Project;
+        var shown = Store.Current;
+        var p = shown.Project;
         if (!ReferenceEquals(p, _timecodeProject))
         {
             _timecodeProject = p;
-            TimecodeSources.Reconcile(p);
+            TimecodeSources.Reconcile(shown);
             foreach (var gone in _chases.Keys.Where(k => p.FindPlaylist(k)?.Chase is null).ToList())
             {
                 _chases.Remove(gone);
@@ -141,10 +142,12 @@ public sealed partial class EngineCore
 
     /// <summary>One chase at one instant: the active source (the first rolling one in order, else the first), its code judged at
     /// the chase's jump threshold, its line in leader time, the plan, and the lane made to match it when it moves by a quarter frame
-    /// or more (at most four times a second within a region; at once past the jump threshold, or when the region or the state
-    /// changes).</summary>
+    /// or more (at most four times a second within a region; at once on a jump, or when the region or the state changes). A jump
+    /// moves the picture's code past the chase's threshold, or past auto's onto a run of the code its source's tracker relocated to
+    /// (a step past auto's threshold too steep for the fit to glide is relocated whatever the chase's threshold).</summary>
     private ChaseView Step(Playlist list, TimecodeChase chase, ChaseRun run, long leaderNs, long mono)
     {
+        var placedOn = (Source: run.Active, Run: run.Memory.LastLine?.Run);
         var sources = chase.Sources;
         var settings = ChaseSettings.Of(chase);
         var readings = sources.Select(s => (Id: s, Reading: TimecodeSources.ReadingOf(s, mono, chase.JumpNs))).ToList();
@@ -187,12 +190,14 @@ public sealed partial class EngineCore
             }
         }
         Playback.Guard(list, $"{list.Name} chases {sourceName} ({StateWord(plan.State)}) — TIMECODE ENGAGE {list.Name} OFF to drive it by hand", leaderNs);
-        Apply(list, regions.Regions, plan, format, settings.JumpThresholdNs(format, sigma), run, leaderNs);
+        var relocated = placedOn.Run is { } was && placedOn.Source == run.Active && memory.LastLine?.Run is { } now && now != was;
+        var jumpAt = settings.JumpThresholdNs(format, sigma);
+        Apply(list, regions.Regions, plan, format, relocated ? Math.Min(jumpAt, autoJump) : jumpAt, run, leaderNs);
         var freewheelLeft = plan.State == ChaseState.Freewheel && memory.FreewheelSinceNs != long.MinValue
             ? Math.Max(0, (chase.FreewheelNs - (leaderNs - memory.FreewheelSinceNs)) / 1_000_000) : -1;
-        // Code arriving on a fitted line that does not run (its slope outside 0.85–1.15: a varispeed, or a step this chase's threshold
-        // takes as drift that is too steep to glide) leaves the chase unlocked for the reason its reading gives; the source's own
-        // reading, judged at auto, may roll meanwhile, so the chase's words carry it.
+        // Code arriving on a fitted line that does not run (its slope outside 0.85–1.15: a varispeed, or a glide of drift that left
+        // the bounds after all) leaves the chase unlocked for the reason its reading gives; the source's own reading, judged at auto,
+        // may roll meanwhile, so the chase's words carry it.
         var words = plan.State == ChaseState.Locked
             ? $"locked to {sourceName}{(chase.DelayNs != 0 ? $", picture {Fmt(chase.DelayNs / 1e6)} ms later" : "")}"
             : plan.State == ChaseState.Acquiring && reading.Line is { Running: false, Points: > 1 } ? reading.Words
@@ -264,8 +269,9 @@ public sealed partial class EngineCore
         return (format, regions, problem);
     }
 
-    /// <summary>Makes the lane match the plan. Within a region a re-anchor that moves the picture's code by more than the jump
-    /// threshold in force is a jump: taken at once, and STATE's lastJump says from where to where; less is a correction.</summary>
+    /// <summary>Makes the lane match the plan. Within a region a re-anchor that moves the picture's code by more than
+    /// <paramref name="jumpAtNs"/> (the chase's jump threshold in force; auto's when the code was relocated) is a jump: taken at
+    /// once, and STATE's lastJump says from where to where; less is a correction.</summary>
     private void Apply(Playlist list, ImmutableArray<TcRegion> regions, ChasePlan plan, TcFormat format, double jumpAtNs, ChaseRun run, long leaderNs)
     {
         var lane = Playback.Lane(list.Id);
@@ -431,7 +437,7 @@ public sealed partial class EngineCore
         {
             if (FindSource(args[1]) is not { } s)
                 return CommandReply.Fail($"no timecode source {args[1]}");
-            TimecodeSources.Reconcile(Store.Project);
+            TimecodeSources.Reconcile(Store.Current);
             if (sub == "RESET")
                 return TimecodeSources.Reset(s.Id) ? CommandReply.Success(effect: $"{s.Name}: its error counts start again") : CommandReply.Fail($"{s.Name} has no counts yet");
             // A chase is never left without a source (disengaged or not): its playlist is handed back first.
@@ -664,7 +670,7 @@ public sealed partial class EngineCore
                 else if (Ms(1, 10000, out var jump))
                 {
                     next = chase with { JumpNs = jump };
-                    effect = $"{list.Name}: a jump is code more than {Fmt(jump / 1e6)} ms off its line, relocated at once; less is drift";
+                    effect = $"{list.Name}: a jump is code more than {Fmt(jump / 1e6)} ms off its line, or a step too steep for the fit to glide, relocated at once; less is drift";
                 }
                 else
                 {
@@ -687,7 +693,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(r.Effect);
         // The live chase's code is judged at its jump threshold from this reply on, not from the lane's next tick (a blind draft's
         // edit leaves the live show as it is).
-        TimecodeSources.Reconcile(Store.Project);
+        TimecodeSources.Reconcile(Store.Current);
         return CommandReply.Success(effect: effect);
     }
 
@@ -763,7 +769,7 @@ public sealed partial class EngineCore
             default:
                 return CommandReply.Fail("TIMECODE INTERNAL <source> PLAY|STOP | LOCATE <tc> | RATE <0.5-2>");
         }
-        TimecodeSources.Reconcile(Store.Project);
+        TimecodeSources.Reconcile(Store.Current);
         var (ok, words) = TimecodeSources.Internal(s.Id, verb, tc, rate, Services.Mono.NowNs);
         if (ok)
             TickTimecode(LeaderNowNs);
