@@ -68,10 +68,12 @@ internal sealed class VideoIoExtension(ExtensionSetup setup) : IEngineExtension
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Keeps the settings for the next start through the network host, the settings file's one writer; a write that fails
+    /// throws, as the file's own write did.</summary>
     private void SaveNode(VideoIoSettings videoIo)
     {
-        var current = setup.Home.LoadSettings(setup.Settings.Name);
-        setup.Home.SaveSettings(current with { VideoIo = videoIo });
+        if (setup.Network.PersistSettings(s => s with { VideoIo = videoIo }) is { Length: > 0 } failed)
+            throw new IOException(failed);
     }
 }
 

@@ -427,6 +427,16 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         }
     }
 
+    /// <summary>Where this node's clock asks its leader now, as "address:port" ("" unless it follows).</summary>
+    public string FollowedClock => _role == "follower" ? _sync.Snapshot.Leader : "";
+
+    /// <summary>Where a follow of <paramref name="nodeId"/> would ask its clock now, by the clock port its latest hello names, as
+    /// "address:port" ("" when it is not heard).</summary>
+    public string ClockOf(string nodeId) =>
+        FindPeer(nodeId) is { } peer && IPAddress.TryParse(peer.Address, out var ip)
+            ? new IPEndPoint(ip, peer.Hello.Port("sync") is > 0 and var port ? port : ShowBusConstants.PlayMapSyncPort).ToString()
+            : "";
+
     public async Task<string> FollowAsync(string group, string nodeId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -504,7 +514,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         lock (_settingsGate)
         {
             var token = Pairing.NewToken();
-            var stored = _stored with { Token = token };
+            // Read fresh: another part's keys kept since this run began (a sync role, the fleet's epoch) are written back with it.
+            var stored = Fresh() with { Token = token };
             try
             {
                 _o.Home.SaveSettings(stored);

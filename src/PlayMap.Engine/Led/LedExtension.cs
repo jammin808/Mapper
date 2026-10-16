@@ -40,19 +40,12 @@ internal sealed class LedExtension : IEngineExtension
         };
     }
 
-    /// <summary>Writes the LED settings into the node's settings file (read fresh, so nothing else in it is lost).</summary>
+    /// <summary>Keeps the LED settings for the next start through the network host, the settings file's one writer (it reads the
+    /// file fresh under its own lock, so nothing else in it is lost); null, or the words of a failure.</summary>
     private string? Persist(LedSettings settings)
     {
-        try
-        {
-            var current = _setup.Home.LoadSettings(_setup.Settings.Name);
-            _setup.Home.SaveSettings(current with { Led = settings });
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return ex.Message;
-        }
+        var failed = _setup.Network.PersistSettings(s => s with { Led = settings });
+        return failed.Length == 0 ? null : failed;
     }
 
     public Task StartAsync(EngineCore engine, CancellationToken ct)
@@ -112,6 +105,11 @@ internal sealed class LedPreflight : IPreflightCheck
                     r.Node.Protocol == LedProtocol.Sacn ? "sACN receivers do not answer: reachability is not known" : "DDP devices are not asked this round: reachability is not known", null));
                 continue;
             }
+            if (r.State is "standby" or "held")
+            {
+                rows.Add(new PreflightRow("led:" + r.Node.Id, node, Section, item, r.State == "standby" ? Light.Green : Light.Grey, r.State, "not polled: " + r.Why, null));
+                continue;
+            }
             if (!engine.Led.Master || r.Sent is null)
             {
                 rows.Add(new PreflightRow("led:" + r.Node.Id, node, Section, item, Light.Grey, r.State, "not polled: this machine is not sending LED data", null));
@@ -158,7 +156,7 @@ internal sealed class LedIndex(EngineCore engine) : IIndexContributor
             w.WriteString("parent", "");
             w.WriteString("light", r.State switch
             {
-                "sending" => "green",
+                "sending" or "standby" => "green",
                 "late" => "amber",
                 "unreachable" or "refused" => "red",
                 _ => "grey",
