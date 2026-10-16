@@ -87,7 +87,9 @@ void test('a playlist key keeps its name when the link drops; a machine’s key 
 		await m.place('show', 'label', { ref: SHOW.playlist })
 		await m.place('peerName', 'label', { ref: 'a1b2c3d4' })
 		await m.place('peerWord', 'state_word', { ref: 'a1b2c3d4' })
-		await values(m, { show: 'Show', peerName: 'Stage left' }, 'the names')
+		// Rechecked with the link, as the label is: its value moving says the drop's recheck has reached the host.
+		await m.place('stale', 'stale', {})
+		await values(m, { show: 'Show', peerName: 'Stage left', stale: false }, 'the names')
 
 		const state = copy(fixture('state.json') as StateJson)
 		Object.assign(state.peers[0] ?? {}, { name: 'Stage left B', headline: 'Stage left B · ok', light: 'green' })
@@ -95,8 +97,9 @@ void test('a playlist key keeps its name when the link drops; a machine’s key 
 		await values(m, { peerName: 'Stage left B', peerWord: 'Stage left B · ok' }, 'a peers-only change relabels the key')
 
 		for (const s of [...node.sessions]) s.close(1001)
-		await m.host.until(() => m.instance.link() !== 'live', 'the link down')
-		await values(m, { show: 'Show' }, 'INDEX still names the playlist: not REMOVED')
+		await m.host.until(() => m.host.feedbackValues.get('stale') === true, "the drop's recheck at the host")
+		assert.notEqual(m.instance.link(), 'live')
+		assert.equal(m.host.feedbackValues.get('show'), 'Show', 'INDEX still names the playlist: not REMOVED')
 	} finally {
 		await m.stop()
 		await node.stop()
