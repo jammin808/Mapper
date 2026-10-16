@@ -57,7 +57,7 @@ public sealed class StateOrderTests
         TodayThenOnly("sync", ["role", "leader", "offsetMs", "rttMs", "driftPpm", "groups"],
             ["group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs", "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch"],
             Keys(s.GetProperty("sync")));
-        TodayThenOnly("machine", ["renderer", "memMb", "gcPauseMsTotal"], ["present", "gl"], Keys(s.GetProperty("machine")));
+        TodayThenOnly("machine", ["renderer", "memMb", "gcPauseMsTotal"], ["present", "views", "gl"], Keys(s.GetProperty("machine")));
         TodayThenOnly("project", ["id", "name", "revision", "path", "dirty"], ["index"], Keys(s.GetProperty("project")));
     }
 

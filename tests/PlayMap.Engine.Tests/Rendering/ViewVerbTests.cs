@@ -105,6 +105,56 @@ public sealed class ViewVerbTests
         Assert.False(File.Exists(path));
     }
 
+    /// <summary>A view shown again after its ring went writes a new ring in a file of its own: the SHOW reply and STATE's
+    /// machine.views name it, and a reader still mapping the old ring keeps the picture it had — no writer opens its file again
+    /// (on Windows such a reader once kept the node from making the ring; on Linux a writer would truncate it under the map).</summary>
+    [Fact]
+    public async Task AViewShownAgainWritesANewRingAndAReaderOfTheOldOneKeepsItsPicture()
+    {
+        await using var engine = Engine();
+        engine.Previews.Register("camera", new GreyCamera());
+        var first = await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540");
+        Assert.True(first.Ok, first.Payload);
+        var ringA = Ring(first);
+        Assert.Equal(ringA, engine.Previews.RingOf("scan-camera"));
+        Assert.Equal([("scan-camera", "camera:cm_1", ringA)], StateViews(engine));
+        using var old = new PreviewRingReader(ringA);
+        var buffer = new byte[old.MaxWidth * old.MaxHeight * 4];
+        Assert.True(old.TryRead(buffer, -1, out var had));
+
+        Assert.True((await Run(engine, "VIEW scan-camera HIDE")).Ok);
+        Assert.Empty(StateViews(engine));
+        Assert.Null(engine.Previews.RingOf("scan-camera"));
+        var again = await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540");
+        Assert.True(again.Ok, again.Payload);
+        var ringB = Ring(again);
+        Assert.NotEqual(ringA, ringB);
+        Assert.Equal([("scan-camera", "camera:cm_1", ringB)], StateViews(engine));
+
+        // The old reader's map is the old ring, whole: its last picture is still there.
+        Assert.True(old.TryRead(buffer, -1, out var still));
+        Assert.Equal((had.Width, had.Height, had.Sequence), (still.Width, still.Height, still.Sequence));
+        using var reader = new PreviewRingReader(ringB);
+        Assert.True(reader.TryRead(new byte[reader.MaxWidth * reader.MaxHeight * 4], -1, out var info));
+        Assert.Equal((640, 360), (info.Width, info.Height));
+        Assert.True((await Run(engine, "VIEW scan-camera HIDE")).Ok);
+    }
+
+    /// <summary>The ring a VIEW SHOW reply names.</summary>
+    private static string Ring(CommandReply shown)
+    {
+        using var doc = JsonDocument.Parse(shown.Payload!);
+        return doc.RootElement.GetProperty("ring").GetString()!;
+    }
+
+    /// <summary>STATE machine.views: (id, what, ring) of every view shown.</summary>
+    private static List<(string, string, string)> StateViews(EngineCore engine)
+    {
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        return [.. doc.RootElement.GetProperty("machine").GetProperty("views").EnumerateArray()
+            .Select(v => (v.GetProperty("id").GetString()!, v.GetProperty("what").GetString()!, v.GetProperty("ring").GetString()!))];
+    }
+
     [Fact]
     public async Task AViewNotRenewedForFifteenSecondsIsHiddenAndItsRingLetGo()
     {

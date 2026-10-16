@@ -81,10 +81,10 @@ public sealed partial class RenderHost : IPreviewFeed
         PreviewRingWriter? ring = null;
         try
         {
-            // A path no view id can spell ('~' is not a view id's character): the draft renderer's own ring for this view.
-            var path = engine.Previews.RingPath(request.ViewId + "~draft");
-            ring = new PreviewRingWriter(path, sink.MaxWidth, sink.MaxHeight);
-            var view = new DraftView(request, sink, ring, new PreviewRingReader(path));
+            // A name no view id can spell ('~' is not a view id's character): the draft renderer's own ring for this view, in a file of
+            // its own generation, so a view hidden and shown again never writes the ring its retiring predecessor still maps.
+            ring = engine.Previews.NewRing(request.ViewId + "~draft", sink.MaxWidth, sink.MaxHeight);
+            var view = new DraftView(request, sink, ring, new PreviewRingReader(ring.Path));
             lock (_draftGate)
             {
                 _draftViews.Add(view);

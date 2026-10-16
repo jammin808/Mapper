@@ -16,7 +16,7 @@ public enum ViewKind
     Scan,
 }
 
-/// <summary>One VIEW SHOW, parsed: the view id (its ring is <see cref="PreviewRing.PathFor"/>(node, view)), what
+/// <summary>One VIEW SHOW, parsed: the view id (its ring is <see cref="PreviewViews.RingOf"/> the view), what
 /// it shows, the entity it is of (an output, projector, camera or scan id; null for the editor), the variant
 /// ("smart" or "confidence" for a scan) and the size the viewer asked for.</summary>
 public sealed record ViewRequest(string ViewId, ViewKind Kind, string? TargetId, string? Variant, int Width, int Height)
@@ -123,6 +123,9 @@ public interface IViewRenderer
 {
     string? Show(ViewRequest request);
 
+    /// <summary>The file of the ring a shown view's pictures go to, or null when it shows none.</summary>
+    string? RingOf(string viewId);
+
     string? Camera(string viewId, EditorCamera camera);
 
     bool Hide(string viewId);
@@ -157,6 +160,9 @@ public sealed class PreviewSink : IDisposable
     public int MaxWidth => _ring.MaxWidth;
 
     public int MaxHeight => _ring.MaxHeight;
+
+    /// <summary>The ring's file.</summary>
+    public string Path => _ring.Path;
 
     /// <summary>Frames written so far.</summary>
     public long Frames { get; private set; }
@@ -239,7 +245,12 @@ public sealed class PreviewSink : IDisposable
 ///
 /// <para>A shown view is leased: SHOW, CAMERA and KEEP renew it, and one not renewed for <see cref="LeaseNs"/> is
 /// hidden by <see cref="Expire"/> and its ring let go — a viewer that went away without HIDE (a desk that crashed,
-/// a peer that dropped) costs the node nothing for long. Thread-safe.</para></summary>
+/// a peer that dropped) costs the node nothing for long.</para>
+///
+/// <para>Each ring the node makes has a file of its own, named with a generation (<see cref="NewRing"/>): a view shown again after
+/// its ring went, or a draft view's private ring made while the one before it retires, is a new file, so a new writer never meets
+/// a reader still mapping an old ring (on Windows such a reader keeps the old file; on Linux a writer opening it would truncate it
+/// under the reader's map). The VIEW reply and STATE (<c>machine.views</c>) name the file a view's reader opens. Thread-safe.</para></summary>
 public sealed class PreviewViews : IDisposable
 {
     /// <summary>How long a view lives without SHOW, CAMERA or KEEP.</summary>
@@ -259,6 +270,7 @@ public sealed class PreviewViews : IDisposable
     private readonly HashSet<string> _renderedIds = new(StringComparer.Ordinal);
     private readonly IMonoClock _clock;
     private IViewRenderer? _renderer;
+    private long _generation;
 
     public PreviewViews(string nodeId, IMonoClock? clock = null)
     {
@@ -267,8 +279,84 @@ public sealed class PreviewViews : IDisposable
         _clock = clock ?? MonoClock.Instance;
     }
 
-    /// <summary>The ring file a view's pictures go to.</summary>
-    public string RingPath(string viewId) => PreviewRing.PathFor(_nodeId, viewId);
+    /// <summary>The file a shown view's pictures go to (the one its reader opens), or null when it is not shown.</summary>
+    public string? RingOf(string viewId)
+    {
+        lock (_gate)
+        {
+            if (!_shown.TryGetValue(viewId, out var request))
+                return null;
+            return request.Rendered ? _renderer?.RingOf(viewId) : _fed.TryGetValue(viewId, out var fed) ? fed.Sink.Path : null;
+        }
+    }
+
+    /// <summary>The file a shown view's pictures go to; an <see cref="InvalidOperationException"/> when it is not shown.</summary>
+    public string RingPath(string viewId) => RingOf(viewId) ?? throw new InvalidOperationException($"no view {viewId} is shown");
+
+    /// <summary>A new ring for <paramref name="name"/> (a view id, or a view's private ring) in a file no ring had before: the next
+    /// generation's. A file left at that name by an earlier run is deleted when it can be, and the generation after it taken. The
+    /// name's earlier generations are let go first where they can be: a file a reader still mapped when its writer let it go (it
+    /// stays on Windows until the reader closes) goes once that reader has; on Linux an earlier ring still written is only unlinked,
+    /// its writer and readers keep their maps.</summary>
+    public PreviewRingWriter NewRing(string name, int maxWidth, int maxHeight)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        SweepGenerations(name);
+        for (var attempt = 0; ; attempt++)
+        {
+            var path = PreviewRing.PathFor(_nodeId, name, Interlocked.Increment(ref _generation));
+            try
+            {
+                return new PreviewRingWriter(path, maxWidth, maxHeight);
+            }
+            catch (IOException) when (attempt < 16 && File.Exists(path))
+            {
+                TryDelete(path);
+            }
+        }
+    }
+
+    /// <summary>Deletes, where it can, every file of an earlier generation of <paramref name="name"/>'s ring (never another name's:
+    /// the part after the name's '~' is the generation's digits only).</summary>
+    private void SweepGenerations(string name)
+    {
+        var prefix = $"playmap-{_nodeId}-{name}~";
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(PreviewRing.DefaultFolder(), prefix + "*.preview");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The folder cannot be read now: the next ring made sweeps again.
+            return;
+        }
+        foreach (var file in files)
+        {
+            var generation = Path.GetFileNameWithoutExtension(file).AsSpan(prefix.Length);
+            if (!generation.IsEmpty && !generation.ContainsAnyExceptInRange('0', '9'))
+                TryDelete(file);
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // An earlier run's reader still maps it (Windows): the next generation is taken instead.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // As above.
+        }
+    }
+
+    /// <summary>Raised (outside the registry's lock, on the caller's thread) when the views shown, or a view's ring, changed.</summary>
+    public event Action? Changed;
 
     /// <summary>The views shown now, by id.</summary>
     public IReadOnlyDictionary<string, ViewRequest> Shown()
@@ -280,6 +368,7 @@ public sealed class PreviewViews : IDisposable
     /// <summary>The render host's side (null detaches it: render-backed views are refused again).</summary>
     public void AttachRenderer(IViewRenderer? renderer)
     {
+        var changed = false;
         lock (_gate)
         {
             _renderer = renderer;
@@ -288,8 +377,11 @@ public sealed class PreviewViews : IDisposable
                 {
                     _shown.Remove(id);
                     _renewed.Remove(id);
+                    changed = true;
                 }
         }
+        if (changed)
+            Changed?.Invoke();
     }
 
     /// <summary>A feed for a kind of view: "camera", "scan" or "draft" (another registration replaces it).</summary>
@@ -309,6 +401,15 @@ public sealed class PreviewViews : IDisposable
     public string? Show(ViewRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var why = ShowLocked(request, out var changed);
+        if (changed)
+            Changed?.Invoke();
+        return why;
+    }
+
+    private string? ShowLocked(ViewRequest request, out bool changed)
+    {
+        changed = false;
         lock (_gate)
         {
             if (_shown.TryGetValue(request.ViewId, out var had) && had == request)
@@ -351,7 +452,7 @@ public sealed class PreviewViews : IDisposable
                         var size = ViewRequest.Fit(request.Width, request.Height, request.Width / (double)request.Height);
                         try
                         {
-                            sink = new PreviewSink(new PreviewRingWriter(RingPath(request.ViewId), size.Width, size.Height));
+                            sink = new PreviewSink(NewRing(request.ViewId, size.Width, size.Height));
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
@@ -372,6 +473,7 @@ public sealed class PreviewViews : IDisposable
             }
             _shown[request.ViewId] = request;
             _renewed[request.ViewId] = _clock.NowNs;
+            changed = true;
             return null;
         }
     }
@@ -392,17 +494,19 @@ public sealed class PreviewViews : IDisposable
     /// its ring go; answers the views hidden.</summary>
     public IReadOnlyList<string> Expire()
     {
+        List<string>? gone = null;
         lock (_gate)
         {
             var now = _clock.NowNs;
-            List<string>? gone = null;
             foreach (var (id, at) in _renewed)
                 if (now - at > LeaseNs && _shown.ContainsKey(id))
                     (gone ??= []).Add(id);
             foreach (var id in gone ?? [])
-                Hide(id);
-            return gone ?? (IReadOnlyList<string>)[];
+                HideLocked(id);
         }
+        if (gone is not null)
+            Changed?.Invoke();
+        return gone ?? (IReadOnlyList<string>)[];
     }
 
     /// <summary>Moves a view's eye (the editor's orbit); kept for a view not shown yet.</summary>
@@ -423,6 +527,14 @@ public sealed class PreviewViews : IDisposable
 
     /// <summary>Lets a view go; null when it went, else the words why not.</summary>
     public string? Hide(string viewId)
+    {
+        var why = HideLocked(viewId);
+        if (why is null)
+            Changed?.Invoke();
+        return why;
+    }
+
+    private string? HideLocked(string viewId)
     {
         lock (_gate)
         {

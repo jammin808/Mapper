@@ -165,7 +165,8 @@ mapping while armed is what the draft is for).
 its context that is handed the draft with no outputs, so its canvases and generators are the draft's and the air's renderer never
 sees the draft (the stage's meshes and warps are the live ones until the commit lands). With no draft open it shows the air. The
 draft is drawn after the air's frame, between frames, into a ring of the view's own, so a draft view never moves the air's present
-and a fault in it stops the draft views (journalled once), never the air. A draft view takes a view id of its own: an id that has
+and a fault in it stops the draft views (journalled once), never the air. That ring is a file of its own generation: a draft view
+hidden and shown again at once makes a new one while the last retires, so the draft renderer never writes a ring two views share. A draft view takes a view id of its own: an id that has
 drawn the air is refused ("live has drawn the air — a draft view takes a view id of its own (VIEW live-draft SHOW editor DRAFT)").
 
 **`BLIND DIFF`** lists the draft against the root it started from, entity by entity (`ProjectDiff`, Core): added, changed (each

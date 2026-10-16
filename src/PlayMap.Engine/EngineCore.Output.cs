@@ -468,6 +468,31 @@ public sealed partial class EngineCore
 
     partial void MachineOutput(Utf8JsonWriter w)
     {
+        WritePresent(w);
+        WriteViews(w);
+    }
+
+    /// <summary><c>machine.views</c>: every preview view shown now, by id, with what it shows and the file of the ring its reader
+    /// opens (a ring made again is a new file: a reader opens the one named here).</summary>
+    private void WriteViews(Utf8JsonWriter w)
+    {
+        w.WriteStartArray("views");
+        if (_previews is { } previews)
+        {
+            foreach (var (id, request) in previews.Shown().OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                w.WriteStartObject();
+                w.WriteString("id", id);
+                w.WriteString("what", request.What);
+                w.WriteString("ring", previews.RingOf(id) ?? "");
+                w.WriteEndObject();
+            }
+        }
+        w.WriteEndArray();
+    }
+
+    private void WritePresent(Utf8JsonWriter w)
+    {
         if (PresentBackend is not { } backend)
         {
             w.WriteNull("present");

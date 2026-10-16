@@ -13,8 +13,8 @@ namespace PlayMap.Engine.Rendering;
 /// <c>VIEW pj-&lt;projector&gt; SHOW projector:&lt;projector&gt; &lt;w&gt;x&lt;h&gt;</c> for the stage as that
 /// projector lights it (its pose and intrinsics, content on), <c>VIEW editor SHOW editor &lt;w&gt;x&lt;h&gt;</c>
 /// for the free 3D view, whose eye <c>VIEW editor CAMERA {"intrinsics":…,"pose":…}</c> moves, and
-/// <c>VIEW &lt;view&gt; HIDE</c> when it no longer shows. The pictures are BGRA in the ring at
-/// <see cref="PreviewRing.PathFor"/>(node id, view id), read with a <see cref="PreviewRingReader"/>.</para>
+/// <c>VIEW &lt;view&gt; HIDE</c> when it no longer shows. The pictures are BGRA in the ring the VIEW reply names
+/// (<see cref="PreviewViews.RingOf"/>), read with a <see cref="PreviewRingReader"/>.</para>
 ///
 /// <para><b>What it costs.</b> An output view is a blit of the output's finished picture at most ten times a
 /// second (<see cref="RenderHostOptions.OutputPreviewInterval"/>); an editor or projector view is a stage pass
@@ -24,7 +24,8 @@ namespace PlayMap.Engine.Rendering;
 ///
 /// <para><b>Rings.</b> A view's ring is made once and kept while the view lives: the desk opens it once. The
 /// editor's ring is made at the largest size, so the desk's viewport can grow without a new ring. A hidden view
-/// keeps its ring a few seconds (the readbacks in flight land, and showing it again finds it), then it goes.</para></summary>
+/// keeps its ring a few seconds (the readbacks in flight land, and showing it again finds it), then it goes; shown after
+/// that, the view writes a new ring in a file of its own (<see cref="PreviewViews.NewRing"/>).</para></summary>
 public sealed partial class RenderHost : IViewRenderer
 {
     private const int RetireFrames = 150;
@@ -77,7 +78,7 @@ public sealed partial class RenderHost : IViewRenderer
                 PreviewRingWriter ring;
                 try
                 {
-                    ring = new PreviewRingWriter(engine.Previews.RingPath(request.ViewId), w, h);
+                    ring = engine.Previews.NewRing(request.ViewId, w, h);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -92,6 +93,12 @@ public sealed partial class RenderHost : IViewRenderer
             Interlocked.Increment(ref _viewsVersion);
         }
         return null;
+    }
+
+    string? IViewRenderer.RingOf(string viewId)
+    {
+        lock (_viewGate)
+            return _views.TryGetValue(viewId, out var slot) && slot.Request is not null ? slot.Ring.Path : null;
     }
 
     string? IViewRenderer.Camera(string viewId, EditorCamera camera)
