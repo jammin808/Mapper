@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,20 @@ using PlayMap.Media.Optimise;
 namespace PlayMap.Engine.Optimise;
 
 /// <summary>What the optimise service is made with: how its worker starts, its step, how many times a clip may stop the worker
-/// before its job fails, and the first restart backoff (doubled per restart, at most 30 s).</summary>
+/// before its job fails, the first restart backoff (doubled per restart, at most 30 s), how long a worker asked to end is waited
+/// for before it is killed, and how long a killed worker is waited for before the node goes on without it.</summary>
 public sealed record OptimiseOptions
 {
     public WorkerLaunch Worker { get; init; } = WorkerLaunch.ThisProcess();
     public TimeSpan Step { get; init; } = TimeSpan.FromSeconds(1);
     public int MaxAttempts { get; init; } = 3;
     public TimeSpan FirstBackoff { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan StopGrace { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan KillWait { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>How a worker is killed: its whole process tree. A test stands in a kill the system takes and a worker does not obey
+    /// (a thread held in a driver), which no worker can be made to do.</summary>
+    internal Action<Process> Kill { get; init; } = static p => p.Kill(entireProcessTree: true);
 }
 
 /// <summary>What STATE says of the service: the governor, the counts, the worker and the jobs (the running one first, then the
@@ -77,9 +85,11 @@ public sealed class OptimiseService : IAsyncDisposable
         _options = options ?? new OptimiseOptions();
         _store = new JobStore(Path.Combine(home.Folder, "optimise"), log);
         _jobs = _store.Load();
-        _worker = new OptimiseSupervisor(_options.Worker, log);
+        _worker = new OptimiseSupervisor(_options, log);
         _worker.Event += OnEvent;
         _worker.Exited += OnExited;
+        _worker.LetGo += SweepWork;
+        _worker.Stuck += OnStuck;
         _governor = new Governor(new GovernorSettings(_settings.TrickleGpuDuty, _settings.TrickleDiskMbps, _settings.PauseAfterDropS, Environment.ProcessorCount));
         SweepWork();
     }
@@ -146,7 +156,8 @@ public sealed class OptimiseService : IAsyncDisposable
     }
 
     /// <summary>Cancels a job (or every unfinished one): a queued job leaves the queue, a running one stops (its worker is killed)
-    /// and its partial file is deleted. Answers the jobs cancelled.</summary>
+    /// and its partial file is deleted — at once, or, while the killed worker still holds it, by the sweep once that worker has
+    /// gone. Answers the jobs cancelled.</summary>
     public IReadOnlyList<string> Cancel(string jobOrAll)
     {
         var cancelled = new List<string>();
@@ -583,6 +594,12 @@ public sealed class OptimiseService : IAsyncDisposable
         Kick();
     }
 
+    /// <summary>A killed worker that has not gone: the node goes on without it; what it holds is deleted once it is let go (a sweep
+    /// after it has gone, else the node's next start).</summary>
+    private void OnStuck(int pid) =>
+        Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture,
+            $"the optimise worker (pid {pid}) has not ended {_options.KillWait.TotalSeconds:0.#} s after it was killed (a driver or a disk holds it): the node goes on without it"), false);
+
     /// <summary>A finished job: hashed, probed, held to the quality floor, moved into the store and recorded on its item.</summary>
     private async Task RecordAsync(WorkerEvent e)
     {
@@ -820,6 +837,7 @@ public sealed class OptimiseService : IAsyncDisposable
         // "encoding" on disk and is queued again when the node next starts.
         _worker.Event -= OnEvent;
         _worker.Exited -= OnExited;
+        _worker.LetGo -= SweepWork;
         await _stop.CancelAsync();
         try
         {
@@ -829,7 +847,9 @@ public sealed class OptimiseService : IAsyncDisposable
         {
             // The loop ends on the stop it was given.
         }
+        // A worker that will not end is said before the node's journal closes; the node's stop does not wait for it.
         await _worker.DisposeAsync();
+        _worker.Stuck -= OnStuck;
         _stop.Dispose();
         _kick.Dispose();
     }

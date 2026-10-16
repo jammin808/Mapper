@@ -41,7 +41,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   doors and parts close in reverse, the recovery record is written and the journal flushed.
 - A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
-  closes, and after two minutes with nothing to do (docs/OPTIMISE.md).
+  closes, and after two minutes with nothing to do; every wait on it is bounded, so a killed worker that a driver holds is
+  journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
   pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees.
