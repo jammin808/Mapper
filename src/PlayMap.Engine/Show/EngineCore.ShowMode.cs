@@ -389,7 +389,9 @@ public sealed partial class EngineCore : IShowDecisions
         return line.Length <= 160 ? line : string.Concat(line.AsSpan(0, 157), "…");
     }
 
-    private static string Quote(string words) => "\"" + words.Replace("\"", "'", StringComparison.Ordinal) + "\"";
+    /// <summary>The words as one quoted word that every member reads back as these words (a backslash and a quote escaped).</summary>
+    private static string Quote(string words) =>
+        "\"" + words.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     /// <summary>Show Mode moved: STATE's revision and the recovery record follow the air's revision.</summary>
     private void TouchShow()

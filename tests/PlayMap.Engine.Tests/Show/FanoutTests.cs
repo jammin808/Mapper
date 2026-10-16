@@ -189,4 +189,18 @@ public sealed class FanoutTests
         Assert.Equal(report.Id, rig.Show().GetProperty("preflight").GetProperty("id").GetString());
         Assert.StartsWith("PREFLIGHT [QUICK] [ALL|WAIT]", await rig.Refused("PREFLIGHT ALL WAIT"), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task ArmAllCarriesItsWordsToEveryMemberAsTheyWereWritten()
+    {
+        await using var b = Member("FOH-B");
+        var group = new Group(("nb", "FOH-B", b.Engine));
+        await using var lead = new ShowRig(services: s => s with { Settings = s.Settings with { Name = "FOH-A" }, Fanout = group });
+
+        // Words with a quote and backslashes (a path, a shrug) reach the member as this node read them.
+        await lead.Ok("SHOW ARM ALL \"say \\\"go\\\"\" \\o/ C:\\shows\\");
+        Assert.Equal("say \"go\" \\o/ C:\\shows\\", lead.Engine.ShowNow.Words);
+        Assert.True(b.Engine.ShowNow.Armed);
+        Assert.Equal(lead.Engine.ShowNow.Words, b.Engine.ShowNow.Words);
+    }
 }
