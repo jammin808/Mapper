@@ -23,6 +23,7 @@ public sealed partial class EngineCore
     private readonly ConcurrentDictionary<string, NativeView> _native = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _nativeDue = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _nativeBusy = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _nativeGeneration = new(StringComparer.Ordinal);
 
     /// <summary>The outputs with a measured correction a device's projector shows.</summary>
     private static List<Output> GuardedOutputs(Project p, DeviceLink link)
@@ -73,6 +74,7 @@ public sealed partial class EngineCore
             if (guarded.Count == 0)
             {
                 _nativeDue.TryRemove(link.Id, out _);
+                _nativeGeneration.AddOrUpdate(link.Id, 1, (_, g) => g + 1);
                 if (_native.TryRemove(link.Id, out _))
                     FactsChanged();
                 continue;
@@ -83,23 +85,29 @@ public sealed partial class EngineCore
                 continue;
             _nativeDue[link.Id] = now + Math.Max(1000, link.PollIntervalMs) * 1_000_000L;
             var outputs = guarded.Select(o => o.Id).ToList();
+            var generation = _nativeGeneration.AddOrUpdate(link.Id, 1, (_, g) => g + 1);
             _ = Task.Run(async () =>
             {
+                NativeView view;
                 try
                 {
                     var reading = await ReadNativeAsync(devices, link, CancellationToken.None).ConfigureAwait(false);
-                    _native[link.Id] = new NativeView(link.Id, outputs, reading, Services.Wall.UnixMs, reading?.Words ?? "not read");
-                    FactsChanged();
+                    view = new NativeView(link.Id, outputs, reading, Services.Wall.UnixMs, reading?.Words ?? "not read");
                 }
-                catch (Exception ex) when (ex is ObjectDisposedException or OperationCanceledException or InvalidOperationException or IOException)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    // The node is stopping or the projector went away mid-read: the read is told as failed and the next poll tries again.
-                    _native[link.Id] = new NativeView(link.Id, outputs, null, Services.Wall.UnixMs, $"not read: {ex.Message}");
+                    // The projector went away mid-read, or the node is stopping: the read is told as failed and the next poll tries again.
+                    view = new NativeView(link.Id, outputs, null, Services.Wall.UnixMs, $"not read: {ex.Message}");
                 }
                 finally
                 {
                     _nativeBusy.TryRemove(link.Id, out _);
                 }
+                // A read that finishes after the device stopped guarding anything, or after the node began to stop, is dropped.
+                if (Stopping || !_nativeDue.ContainsKey(link.Id) || _nativeGeneration.GetValueOrDefault(link.Id) != generation)
+                    return;
+                _native[link.Id] = view;
+                FactsChanged();
             }, CancellationToken.None);
         }
     }

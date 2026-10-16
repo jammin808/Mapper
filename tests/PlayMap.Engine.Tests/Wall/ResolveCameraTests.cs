@@ -144,6 +144,20 @@ public sealed class ResolveCameraTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task OneProjectorNamedIsJudgedAgainstAnotherSoAMovedCameraIsNotTakenForIt()
+    {
+        await using var rig = await ThreeSolvedWithCamera();
+        for (var n = 0; n < 3; n++)
+            rig.Engine.SimulatedStage.Knock(rig.Project.FindProjector($"pj_test{n + 1}")! with { Pose = WallRig.TruePose(n) }, Vec3d.Zero, Vec3d.Zero);
+        rig.Engine.SimulatedStage.Knock(rig.Project.Stage.Cameras[0], new Vec3d(0, 0.5 * Math.PI / 180, 0), Vec3d.Zero);
+        var before = rig.Project;
+        var words = await rig.Refused("CALIBRATION RESOLVE pj_test2 CAMERA cm_sim");
+        output.WriteLine(words);
+        Assert.Contains("the camera moved", words, StringComparison.Ordinal);
+        Assert.Same(before, rig.Project);
+    }
+
+    [Fact]
     public async Task ACameraResolveIsRefusedWithoutACalibratedCameraOrAStage()
     {
         await using var rig = new WallRig(WallRig.ProjectorsWithPins(2, noisePx: 0.1));

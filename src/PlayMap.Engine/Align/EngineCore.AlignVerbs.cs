@@ -47,7 +47,7 @@ public sealed partial class EngineCore
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));
         routes.Lane("ALIGN STATUS", _ => CommandReply.Success(JsonOut(w => WriteAlignRun(w, AlignBackend.View))));
-        routes.Lane("ALIGN SCORE", AlignScore);
+        routes.OffLane("ALIGN SCORE", c => Task.Run(() => AlignScore(c), c.Ct));
         routes.OffLane("DEVICE NATIVE", DeviceNativeAsync);
         routes.Lane("ALIGN CANCEL", AlignCancel);
         routes.OffLane("ALIGN ACCEPT", c => AlignGate(c) is { } refused ? Task.FromResult(refused) : AlignAcceptAsync(c));
@@ -261,6 +261,8 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"{runner.View!.Id} is running — ALIGN CANCEL first");
         if (Services.Scan.Current is { State: "starting" or "running" })
             return CommandReply.Fail("a scan is running — one camera and one display at a time");
+        if (_calibrationTask is { IsRunning: true } calibrating)
+            return CommandReply.Fail($"a calibration task is looking through a camera ({calibrating.Id}) — one camera and one display at a time");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project is not saved yet — an alignment keeps its files beside it: PROJECT SAVE <path> first");
         CameraRig? rig = null;
@@ -341,6 +343,7 @@ public sealed partial class EngineCore
     {
         if (c.Args.Count != 1)
             return CommandReply.Fail("ALIGN SCORE <run>|<group>");
+        // Off the lane (a run may be read from its folder): the project is the store's snapshot.
         var p = Store.Project;
         var word = c.Args[0];
         string runId;

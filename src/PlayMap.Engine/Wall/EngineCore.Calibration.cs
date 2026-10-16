@@ -491,6 +491,7 @@ public sealed partial class EngineCore
         if (plan.Count == 0)
             return (null, string.Join("; ", refused), []);
         var fallbacks = new List<(string Target, string Snapshot)>();
+        var reseated = new List<string>();
         var r = Edits.Apply($"accept the calibration of {string.Join(", ", plan.Select(x => NameOf(p, x.Target)))}", project =>
         {
             fallbacks.Clear();
@@ -505,7 +506,19 @@ public sealed partial class EngineCore
                 var s = project.FindCalibration(id) ?? throw new EditRefusedException($"no calibration result {id}");
                 var (cur, _, staged) = CalibrationLedger.Ids(project, target);
                 if (s.Id == staged && s.Id != cur)
+                {
+                    // A staged camera re-solve carries the wall with it when a person accepts it: its quads re-seated from the pose
+                    // it replaces, and its blend solved again after the edit.
+                    var before = project.FindProjector(target);
                     project = CalibrationLedger.MakeCurrent(project, s);
+                    if (before is not null && s.Projector is { } solved && s.RunId.StartsWith(CameraRunPrefix, StringComparison.Ordinal)
+                        && StageWorld.Of(project, Meshes) is { } world)
+                    {
+                        var distance = solved.Pins.IsDefaultOrEmpty ? 5 : solved.Pins.Average(x => Core.Numerics.Vec3d.Distance(x.World, before.Pose.Position));
+                        project = ReseatQuads(project, target, DeviceView.Of(before), new DeviceView(solved.Intrinsics, solved.Lens, solved.Pose), world, distance);
+                        reseated.Add(target);
+                    }
+                }
                 project = s.Target == CalibrationTarget.Projector
                     ? project.WithStage(st => st with { Projectors = st.Projectors.Update(target, pj => pj with { FallbackId = s.Id, StagedId = pj.StagedId == s.Id ? null : pj.StagedId }) })
                     : project with { Outputs = project.Outputs.Update(target, o => o with { FallbackId = s.Id, StagedId = o.StagedId == s.Id ? null : o.StagedId }) };
@@ -516,6 +529,8 @@ public sealed partial class EngineCore
         var words = r.Changed
             ? string.Join("; ", fallbacks.Select(f => $"{NameOf(Store.Project, f.Target)} falls back to {f.Snapshot}")) + (refused.Count > 0 ? "; " + string.Join("; ", refused) : "")
             : r.Effect;
+        if (r.Changed && reseated.Count > 0)
+            words += "; " + BlendAfter(reseated);
         return (r, words, fallbacks);
     }
 
@@ -601,7 +616,11 @@ public sealed partial class EngineCore
     /// <summary>A projector solved again, as the re-solve applies or stages it: before and after, its score and uncertainty, the
     /// wall error a fresh look measured (−1: none), and what else moves with its pose when applied (pins and quads; null: nothing).</summary>
     private sealed record Resolved(Projector Before, Projector After, QualityScore Score, SolveUncertainty? Uncertainty, double VerifiedP50, double VerifiedP95,
-        Func<Project, Project>? Reseat);
+        Func<Project, Project>? Reseat)
+    {
+        /// <summary>What the result records as its run: "camera:&lt;camera&gt;" for a camera re-solve, else "".</summary>
+        public string RunId { get; init; } = "";
+    }
 
     /// <summary>CALIBRATION RESOLVE &lt;projector&gt;… [CAMERA &lt;camera&gt;] [STAGE]: each named projector solved again — from its pins as they
     /// stand (the operator dragged them onto the wall's features), or with CAMERA from a fresh look at its dots through that camera
@@ -699,6 +718,7 @@ public sealed partial class EngineCore
             _calibrationTask = task;
             _cancelCalibration = cts.Cancel;
             _calibrationCts = cts;
+            _calibrationApplying = false;
         }
         FactsChanged();
         return null;
@@ -741,6 +761,8 @@ public sealed partial class EngineCore
             foreach (var x in solved)
             {
                 var now = project.FindProjector(x.Before.Id) ?? throw new EditRefusedException($"no projector {x.Before.Id}");
+                if (now.Pose != x.Before.Pose || now.Intrinsics != x.Before.Intrinsics || now.Lens != x.Before.Lens || !now.Pins.SequenceEqual(x.Before.Pins))
+                    throw new EditRefusedException($"{now.Name} was changed while it was being re-solved — nothing was applied; CALIBRATION RESOLVE {now.Id} again");
                 if (now.FallbackId is null)
                     project = RecordAsItStands(project, now.Id, c.Session.ClientName, pinned: false, null, out _);
                 now = project.FindProjector(x.Before.Id)!;
@@ -760,6 +782,7 @@ public sealed partial class EngineCore
                 {
                     VerifiedP50Px = x.VerifiedP50 > 0 ? x.VerifiedP50 : 0,
                     VerifiedP95Px = x.VerifiedP95 > 0 ? x.VerifiedP95 : 0,
+                    RunId = x.RunId,
                 };
                 if (apply)
                 {
@@ -795,16 +818,9 @@ public sealed partial class EngineCore
         var words = string.Join("; ", results.Select(x => string.Create(CultureInfo.InvariantCulture,
             $"{NameOf(after2, x.Projector)} {(x.Applied ? "re-solved" : "staged")}: {x.Score.Words}{(x.Applied ? "" : $" — {x.Why}; CALIBRATION ACCEPT {x.Snapshot} applies it")}")));
         var blend = "";
-        var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToHashSet(StringComparer.Ordinal);
+        var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         if (applied.Count > 0)
-            blend = await _lane.RunAsync(() =>
-            {
-                var inputs = BlendInputs.Of(Store.Project);
-                if (!inputs.Outputs.Any(o => o.ProjectorId is { } id && applied.Contains(id)))
-                    return "";
-                var solve = SolveBlend([]);
-                return solve.Ok ? solve.Effect : "";
-            }).ConfigureAwait(false);
+            blend = await _lane.RunAsync(() => BlendAfter(applied)).ConfigureAwait(false);
         if (blend.Length > 0)
             words += "; " + blend;
         SetTask(task with { State = "done", Progress = 1, Words = words });
@@ -850,6 +866,20 @@ public sealed partial class EngineCore
     }
 
     private const string ResolveCancelled = "cancelled — nothing was applied";
+
+    /// <summary>A camera re-solve's result says so in its RunId ("camera:&lt;camera&gt;"): accepting it later re-seats the quads.</summary>
+    private const string CameraRunPrefix = "camera:";
+
+    /// <summary>On the lane, after re-solved projectors were applied: the automatic blend solved again when one of them blends
+    /// automatically — its receipt, or why it was not ("" when none blends).</summary>
+    private string BlendAfter(IReadOnlyCollection<string> projectors)
+    {
+        var inputs = BlendInputs.Of(Store.Project);
+        if (!inputs.Outputs.Any(o => o.ProjectorId is { } id && projectors.Contains(id)))
+            return "";
+        var solve = SolveBlend([]);
+        return solve.Ok ? solve.Effect : "the blend was not solved again: " + solve.Payload;
+    }
 
     /// <summary>CALIBRATION CANCEL: stops the running calibration task before it applies anything.</summary>
     private CommandReply CalibrationCancel(VerbCall c)

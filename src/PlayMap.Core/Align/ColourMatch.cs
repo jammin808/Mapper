@@ -143,7 +143,9 @@ public static class ColourMatch
             var g = inverses[j] * (target * level);
             var c = colours[j];
             var (u, v) = Uv(c.White - c.Black);
-            gains.Add(new WhiteGains(Math.Clamp(g.X, 0, 1), Math.Clamp(g.Y, 0, 1), Math.Clamp(g.Z, 0, 1), u, v, Luminance(c.White - c.Black) / brightest));
+            if (g.X < 0 || g.Y < 0 || g.Z < 0)
+                return (null, $"output {j + 1} cannot reach the common white (its primaries leave it outside) — colour was not matched");
+            gains.Add(new WhiteGains(Math.Min(g.X, 1), Math.Min(g.Y, 1), Math.Min(g.Z, 1), u, v, Luminance(c.White - c.Black) / brightest));
         }
         var spread = 0.0;
         for (var a = 0; a < gains.Count; a++)

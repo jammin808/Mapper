@@ -75,16 +75,19 @@ and the photometry; `black.bin`). `ALIGN RUN <group> ONLY op2` loads the capture
 patterns on op2 alone, and solves with the earlier captures as the reference: the screen, the rectification and the canvas come
 from them exactly, so op2's new warp lands on the very canvas the others already show. The others keep their warp files as they
 are; every blend is made again from the new black, the kept whites and op2's new one (`AlignOnlyTests`: P2 knocked 3 px, the
-seams back from 3.3 px to 0.05 px, op1's file unchanged byte for byte, op1 shown nothing).
+seams back from 3.3 px to 0.05 px, op1's file unchanged byte for byte, op1 shown nothing). Each run also writes `basis.txt` (the run
+whose captures made its canvas) and `canvas.txt` (the fit, aspect, margin and corners it was made with): chained ONLY runs keep
+the one canvas, and ONLY refuses with words when those settings or the camera's raster changed since.
 
 ## Colour and level (`COLOR WHITE`, `Core/Align/ColourMatch.cs`)
 
-The colour step shows each output's black, red, green, blue and white through the display's colour path and measures each over
-the core of its footprint in camera-linear RGB (the camera taken as linear sRGB through its 2.2). Each output's primaries make a
+The colour step shows each output's black, red, green, blue and white through the display's colour path, each output alone, and
+measures each over its own footprint (eroded off its edge) in camera-linear RGB (the camera taken as linear sRGB through its 2.2). Each output's primaries make a
 3 × 3 matrix M; the common white is the mean of the outputs' white chromaticities at the largest level every output reaches with
 gains no more than one, and each output's gains are M⁻¹ · white: diagonal gains in linear light, staged as its measured colour and
-drawn by the output stage. First a stability probe shows the first output's white alone and again with the other outputs lit (a
-lone output: on the left of its raster only): its core sees none of the others' light, so a camera that holds its exposure reads
+drawn by the output stage; a white an output cannot reach refuses colour with words. First a stability probe shows the first
+output's white alone and again with the other outputs lit (a lone output, or a stack whose outputs share every pixel: on the left
+of its raster only): where only it reaches, a camera that holds its exposure reads
 the same; one that sets its own refuses colour with words, and the run's geometry is staged without it (`ColourMatchTests`: a
 6 500 K output at full level and a 7 500 K one at 0.8 land within Δu′v′ 0.0002 and 0.5 % of each other).
 

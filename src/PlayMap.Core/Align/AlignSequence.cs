@@ -111,8 +111,8 @@ public static class AlignSequence
     /// <summary>
     /// WHITE (autoalign §3.5, the diagonal half): every output black, then each output's full red, green, blue and white alone, each
     /// measured over the core of its footprint in camera-linear RGB; first, the camera's stability probe — the first output's white
-    /// alone and then with every other output white too (a lone output: on the left of its raster only): where its core sees it, a
-    /// camera that holds its exposure reads the same light, one that sets its own does not. A camera that moved its exposure, or that has no colour, matches nothing (the words
+    /// alone and then with every other output white too (a lone output, or a stack whose outputs share every pixel: on the left of its
+    /// raster only): where only it reaches, a camera that holds its exposure reads the same light, one that sets its own does not. A camera that moved its exposure, or that has no colour, matches nothing (the words
     /// say why; the geometry stands).
     /// </summary>
     public static async Task<AlignColour> ColourAsync(IAlignShooter shooter, IReadOnlyList<AlignOutputSpec> outputs, IReadOnlyList<AlignCapture> captures,
@@ -139,8 +139,12 @@ public static class AlignSequence
         if (await Shoot(-1, null).ConfigureAwait(false) is not { } black)
             return new AlignColour([], null, false, "the camera or the display shows no colour — colour was not matched", 0);
         Step(-1, "every output black");
+        // Each colour shot lights one output alone, so its own footprint (eroded off its edge) speaks for it; the probe that lights the
+        // others too needs the core no other output reaches, and a stack has none: it probes on the left of the first output instead.
         var footprints = captures.Select(c => c.Footprint).ToList();
-        var cores = captures.Select(c => Photometry.Core(c.Footprint, footprints)).ToList();
+        var regions = captures.Select(c => Footprints.Erode(c.Footprint.Mask, c.Footprint.Width, c.Footprint.Height, 4)).ToList();
+        var core0 = Photometry.Core(captures[0].Footprint, footprints);
+        var coreCount = core0.Count(x => x);
 
         // The stability probe: the first output's white alone, then again with every other output white too (alone in the group: on
         // the left of its raster only). Its core sees none of the others' light, so a camera that holds its exposure reads the same.
@@ -149,23 +153,23 @@ public static class AlignSequence
         Step(0, $"{first.Name} white");
         bool[] probe;
         CameraShotRgb? second;
-        if (outputs.Count >= 2)
+        if (outputs.Count >= 2 && coreCount >= 64)
         {
             Array.Clear(frames);
             for (var j = 0; j < outputs.Count; j++)
                 frames[j] = SolidRgb(outputs[j].Width, outputs[j].Height, 255, 255, 255, 1);
             second = await shooter.ShootRgbAsync(frames, ct).ConfigureAwait(false);
             Step(-1, "every output white: is the camera's exposure held?");
-            probe = cores[0];
+            probe = core0;
         }
         else
         {
             second = await Shoot(0, SolidRgb(first.Width, first.Height, 255, 255, 255, 0.5)).ConfigureAwait(false);
             Step(0, $"{first.Name} white on its left half: is the camera's exposure held?");
             var map = captures[0].Map;
-            probe = new bool[cores[0].Length];
+            probe = new bool[regions[0].Length];
             for (var i = 0; i < probe.Length; i++)
-                probe[i] = cores[0][i] && map.ProjectorX[i] is var x && float.IsFinite(x) && x < 0.4 * map.ProjectorWidth;
+                probe[i] = regions[0][i] && map.ProjectorX[i] is var x && float.IsFinite(x) && x < 0.4 * map.ProjectorWidth;
         }
         var a = ColourMatch.Luminance(ColourMatch.Mean(whiteFirst!.Rgb, probe) - ColourMatch.Mean(black.Rgb, probe));
         var b = ColourMatch.Luminance(ColourMatch.Mean(second!.Rgb, probe) - ColourMatch.Mean(black.Rgb, probe));
@@ -180,7 +184,7 @@ public static class AlignSequence
         for (var j = 0; j < outputs.Count; j++)
         {
             var o = outputs[j];
-            var k = ColourMatch.Mean(black.Rgb, cores[j]);
+            var k = ColourMatch.Mean(black.Rgb, regions[j]);
             var shots = new Vec3d[4];
             (byte R, byte G, byte B, string Name)[] primaries = [(255, 0, 0, "red"), (0, 255, 0, "green"), (0, 0, 255, "blue"), (255, 255, 255, "white")];
             for (var p = 0; p < 4; p++)
@@ -189,7 +193,7 @@ public static class AlignSequence
                 var shot = j == 0 && p == 3 ? whiteFirst : await Shoot(j, SolidRgb(o.Width, o.Height, r, g, bl, 1)).ConfigureAwait(false);
                 if (!(j == 0 && p == 3))
                     Step(j, $"{o.Name} {name}");
-                shots[p] = ColourMatch.Mean(shot!.Rgb, cores[j]);
+                shots[p] = ColourMatch.Mean(shot!.Rgb, regions[j]);
             }
             colours.Add(new ProjectorColour(k, shots[0], shots[1], shots[2], shots[3]));
         }

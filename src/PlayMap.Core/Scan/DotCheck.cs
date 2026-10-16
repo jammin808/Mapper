@@ -240,7 +240,8 @@ public static class DotCheck
             {
                 if (predicted[i] is not { } p)
                     continue;
-                var ids = near.NearestK(p, 6);
+                // Its neighbours' residual, never its own: a dot does not vote for the spot it was given.
+                var ids = near.NearestK(p, 7).Where(k => matchedAt[k] != p).Take(6).ToList();
                 var rx = ids.Select(k => residual[k].X).ToList();
                 var ry = ids.Select(k => residual[k].Y).ToList();
                 looked[i] = a.Apply(p) + (ids.Count == 0 ? Vec2d.Zero : new Vec2d(Median(rx), Median(ry)));

@@ -83,6 +83,44 @@ public sealed class ReseatTests(ITestOutputHelper output)
         Assert.Equal("done", solved.State);
     }
 
+    [Fact]
+    public async Task AStagedCameraResultReseatsItsQuadsWhenAPersonAcceptsIt()
+    {
+        var p = CameraStage.With(WallRig.ProjectorsWithPins(3, noisePx: 0.1));
+        p = p.WithStage(st => st with
+        {
+            Projectors = [.. st.Projectors.Select((pj, n) => pj with { Pose = WallRig.TruePose(n) })],
+            Surfaces = st.Surfaces.Add(QuadOn("sf_quad2", "pj_test2", null)),
+        });
+        await using var rig = new WallRig(p);
+        foreach (var pj in rig.Project.Stage.Projectors)
+            rig.Engine.SimulatedStage.Knock(pj, Vec3d.Zero, Vec3d.Zero);
+        var old = rig.Engine.SimulatedStage.TruthOf(rig.Project.FindProjector("pj_test2")!);
+        rig.Engine.SimulatedStage.Knock(rig.Project.FindProjector("pj_test2")!, new Vec3d(0, 16.0 / 2880, 0), Vec3d.Zero);
+        var knocked = rig.Engine.SimulatedStage.TruthOf(rig.Project.FindProjector("pj_test2")!);
+        var quad = rig.Project.FindSurface("sf_quad2")!.Pixel!;
+        var points = Points(quad);
+
+        // Staged: nothing moves until a person accepts it.
+        var reply = WallRig.Json(await rig.Ok("CALIBRATION RESOLVE ALL CAMERA cm_sim STAGE"));
+        var staged = reply.GetProperty("projectors")[0].GetProperty("snapshot").GetString()!;
+        Assert.Equal(quad, rig.Project.FindSurface("sf_quad2")!.Pixel);
+        var accepted = await rig.Ok($"CALIBRATION ACCEPT {staged}");
+        output.WriteLine(accepted);
+        Assert.Equal(staged, rig.Project.FindProjector("pj_test2")!.CalibrationId);
+        Assert.Contains("solving the blend", accepted, StringComparison.Ordinal);
+
+        var now = Points(rig.Project.FindSurface("sf_quad2")!.Pixel!);
+        var worst = 0.0;
+        for (var i = 0; i < now.Count; i++)
+        {
+            var lit = OnWall(CameraModel.PixelRay(now[i], knocked.Intrinsics, knocked.Lens, knocked.Pose));
+            worst = Math.Max(worst, Vec2d.Distance(CameraModel.Project(lit, old.Intrinsics, old.Lens, old.Pose)!.Value, points[i]));
+        }
+        output.WriteLine($"accepted: the corners land {worst:0.000} px from their old spots");
+        Assert.True(worst <= 0.5, $"{worst} px");
+    }
+
     private static Surface QuadOn(string id, string projectorId, WarpLattice? lattice) =>
         new(id, id, "", Transform3.Identity, [], SurfaceContent.Empty, 1, [], true, false, "#FF8800", [])
         {

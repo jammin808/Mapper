@@ -17,7 +17,8 @@ using PlayMap.Engine.Wall;
 namespace PlayMap.Engine;
 
 /// <summary>
-/// CALIBRATION RESOLVE … CAMERA: a fresh look at only the named projectors through one calibrated camera. Every projector black,
+/// CALIBRATION RESOLVE … CAMERA: a fresh look at only the named projectors (one alone: with another as a reference that is never
+/// re-solved) through one calibrated camera. Every projector black,
 /// then each named projector's jittered dots alone; each spot matched to the dot it is by where the project says that dot lands
 /// (its stored pose onto the stage, into the camera); each projector judged unmoved, moved or unseen (and all moved together: the
 /// camera moved); each mover's pose solved again from its dots (the camera's rays onto the stage ↔ the dots' pixels, optics kept),
@@ -33,9 +34,18 @@ public sealed partial class EngineCore
     /// <summary>The projectors the last camera look found moved and that still stand where they were found (STATE.calibration.moved).</summary>
     private volatile string[] _calibrationMoved = [];
 
-    private async Task<CommandReply> ResolveFromCameraAsync(VerbCall c, string cameraWord, List<Projector> named, bool stage)
+    private async Task<CommandReply> ResolveFromCameraAsync(VerbCall c, string cameraWord, List<Projector> requested, bool stage)
     {
         var p = Store.Project;
+        // One projector alone cannot tell its own move from the camera's: another projector an output shows (or, simulated, any other)
+        // is looked at too, as a reference that is never re-solved.
+        var named = new List<Projector>(requested);
+        var reference = requested.Count == 1
+            ? p.Stage.Projectors.FirstOrDefault(x => x.Id != requested[0].Id
+                && (p.Outputs.Any(o => o.Enabled && o.Mode == OutputMode.Projector && o.ProjectorId == x.Id) || p.Stage.Cameras.Find(cameraWord)?.SourceKind == CameraSourceKind.Simulated))
+            : null;
+        if (reference is not null)
+            named.Add(reference);
         var rig = p.Stage.Cameras.Find(cameraWord) ?? p.Stage.Cameras.FirstOrDefault(x => x.Name.Equals(cameraWord, StringComparison.OrdinalIgnoreCase));
         if (rig is null)
             return CommandReply.Fail($"no camera {cameraWord} — the camera must be one of the stage's, placed and calibrated");
@@ -55,6 +65,10 @@ public sealed partial class EngineCore
         }
         if (!simulated && Services.WallDisplay is null)
             return CommandReply.Fail("this node has no outputs to show the dots on");
+        // Every other projector output is held black while the dots are up, so no show content reaches the camera's pictures.
+        var shown = new List<Output>(outputs);
+        if (!simulated)
+            shown.AddRange(p.Outputs.Where(o => o.Enabled && o.Mode == OutputMode.Projector && !outputs.Any(x => x.Id == o.Id)));
         if (Services.Scan.Current is { State: "starting" or "running" })
             return CommandReply.Fail("a scan is running — a re-solve waits for it (SCAN CANCEL)");
         if (AlignBackend.IsRunning)
@@ -90,7 +104,7 @@ public sealed partial class EngineCore
                 if (!await camera.OpenAsync(cts.Token).ConfigureAwait(false))
                     throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
                 showing = true;
-                shooter = new DisplayShooter(Services.WallDisplay!, camera, outputs, new AlignRunnerOptions());
+                shooter = new DisplayShooter(Services.WallDisplay!, camera, shown, new AlignRunnerOptions());
             }
             var cameraView = DeviceView.Of(rig);
             var black = await shooter.ShootAsync(-1, null, cts.Token).ConfigureAwait(false);
@@ -111,9 +125,11 @@ public sealed partial class EngineCore
             task = task with { State = "matching", Words = "judging who moved" };
             SetTask(task);
             var motion = MotionAttribution.Attribute(check);
+            if (named.Count == 1 && motion[0].Verdict == MotionVerdict.Moved)
+                motion[0] = motion[0] with { Words = motion[0].Words + " — with no other projector to compare, a moved camera would read the same" };
             var movers = new List<int>();
             for (var j = 0; j < named.Count; j++)
-                if (motion[j].Verdict == MotionVerdict.Moved)
+                if (motion[j].Verdict == MotionVerdict.Moved && requested.Any(x => x.Id == named[j].Id))
                     movers.Add(j);
             if (movers.Count == 0)
             {
@@ -153,11 +169,14 @@ public sealed partial class EngineCore
                 var verify = await Task.Run(() => Look(after, patterns[j].Raster, black, again, cameraView, world), cts.Token).ConfigureAwait(false);
                 var verifyPairs = MotionAttribution.Pairs(verify, cameraView, world);
                 var (p50, p95, _) = MotionAttribution.WallError(verifyPairs, DeviceView.Of(after));
-                var score = DotScore(pj, rig, pairs, solution);
+                var (score, uncertainty) = DotScore(pj, rig, pairs, solution);
                 var before = DeviceView.Of(pj);
                 var newView = DeviceView.Of(after);
                 var fallbackDistance = pairs.Count == 0 ? 5 : pairs.Average(x => Vec3d.Distance(x.World, pj.Pose.Position));
-                solved.Add(new Resolved(pj, after, score, null, p50, p95, project => ReseatQuads(project, pj.Id, before, newView, world, fallbackDistance)));
+                solved.Add(new Resolved(pj, after, score, uncertainty, p50, p95, project => ReseatQuads(project, pj.Id, before, newView, world, fallbackDistance))
+                {
+                    RunId = CameraRunPrefix + rig.Id,
+                });
             }
             var patternMs = frames * settings.ResolveFrameMs;
             _calibrationMoved = [.. movers.Select(j => named[j].Id)];
@@ -222,19 +241,19 @@ public sealed partial class EngineCore
 
     /// <summary>A camera re-solve's score: the dot fit scored as a pin solve, each dot a pin; a fix that would name one dot is the
     /// re-solve again instead.</summary>
-    private static QualityScore DotScore(Projector pj, CameraRig rig, List<Correspondence> pairs, PoseSolution solution)
+    private static (QualityScore Score, SolveUncertainty? Uncertainty) DotScore(Projector pj, CameraRig rig, List<Correspondence> pairs, PoseSolution solution)
     {
         var dots = pairs.Select((x, i) => new CalibrationPin("dot" + (i + 1).ToString(CultureInfo.InvariantCulture), x.World, x.Pixel, true)).ToImmutableArray();
         var asPins = pj with { Pose = solution.Pose, Pins = dots, Locks = SolveLocks.Focal | SolveLocks.Shift | SolveLocks.Distortion };
-        var (pinScore, _) = CalibrationScoring.ForPins(asPins, solution, "resolve");
+        var (pinScore, uncertainty) = CalibrationScoring.ForPins(asPins, solution, "resolve");
         var score = pinScore with { Words = pinScore.Words.Replace(" pins", " dots", StringComparison.Ordinal) };
         var again = $"CALIBRATION RESOLVE {pj.Id} CAMERA {rig.Id}";
-        return score with
+        return (score with
         {
             Terms = [.. score.Terms.Select(t => t.Fix.Contains("dot", StringComparison.Ordinal) || t.Fix.StartsWith("SET ", StringComparison.Ordinal)
                 ? t with { Fix = again, Where = t.Where.Contains("dot", StringComparison.Ordinal) ? "" : t.Where }
                 : t)],
-        };
+        }, uncertainty);
     }
 
     /// <summary>Every pixel quad of a projector re-seated from its old pose to its new one (inside the apply edit).</summary>

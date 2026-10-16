@@ -83,6 +83,8 @@ public static class AlignCaptureFile
             var pw = r.ReadInt32();
             var ph = r.ReadInt32();
             var region = new PixelRect(r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32());
+            if (mw is < 1 or > 16384 || mh is < 1 or > 16384 || pw is < 1 or > 65536 || ph is < 1 or > 65536)
+                return null;
             var axes = (ScanAxes)r.ReadInt32();
             var sub = r.ReadBoolean();
             var map = new CorrespondenceMap(mw, mh, pw, ph, region, axes, sub);
@@ -100,7 +102,10 @@ public static class AlignCaptureFile
             var mask = new bool[mw * mh];
             for (var i = 0; i < mask.Length; i++)
                 mask[i] = r.ReadBoolean();
-            var white = r.ReadBytes(r.ReadInt32());
+            var whiteLength = r.ReadInt32();
+            if (whiteLength != mw * mh)
+                return null;
+            var white = r.ReadBytes(whiteLength);
             var photometry = new ProjectorPhotometry(r.ReadDouble(), r.ReadDouble(), r.ReadDouble(), r.ReadDouble(), r.ReadInt32());
             return new AlignCapture(id, width, height, map, new Footprint(mw, mh, mask, area, centroid, bounds, threshold), white, photometry, prior);
         }
@@ -137,6 +142,8 @@ public static class AlignCaptureFile
                 return null;
             var w = r.ReadInt32();
             var h = r.ReadInt32();
+            if (w is < 1 or > 16384 || h is < 1 or > 16384)
+                return null;
             var gray = r.ReadBytes(w * h);
             return gray.Length == w * h ? new CameraShot(gray, w, h) : null;
         }

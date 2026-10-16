@@ -107,7 +107,9 @@ it. A projector with no fallback keeps its calibration from before as one. No ot
 projector knocked 2 cm comes back within half a pixel RMS on the wall).
 
 **From a camera** (`CAMERA <camera>`, calibops M5–M8 at their QUICK rung): a calibrated camera of the stage takes a fresh look at
-only the named projectors (`ALL`: every projector).
+only the named projectors (`ALL`: every projector). One projector named alone is looked at with another the stage shows, as a
+reference that is never re-solved, so a moved camera is not taken for a moved projector; with no other, the words say the two
+read the same. A real camera's look holds every other projector output black while the dots are up.
 
 1. *Dots* (`Core/Scan/DotCheck.cs`): every projector black, then each named projector alone showing a grid of dots 64 projector px
    apart, each moved by a seeded jitter of a quarter of the spacing so the pattern never passes for itself shifted, drawn as
@@ -129,7 +131,10 @@ only the named projectors (`ALL`: every projector).
 7. *Apply*: in the one edit, the projector's pins keep their world points and take the new pose's pixels, and its pixel quads are
    re-seated (`Core/Calibration/Reseat2D.cs`): each corner and lattice node out along the old pose's ray onto the stage and back in
    through the new pose, so it lights the wall spot it lit before. Masks, 3D surfaces and output warps are not touched. A
-   projector that blends automatically has its blend solved again off the lane (BLEND SOLVE's receipt is the reply's `blend`).
+   projector that blends automatically has its blend solved again off the lane (BLEND SOLVE's receipt is the reply's `blend`, or
+   why it was not). A projector changed while it was being re-solved (dragged pins, a nudged pose) refuses the whole edit with
+   words. A staged camera result is marked as one (its `runId` is `camera:<camera>`): when a person accepts it, its quads are
+   re-seated from the pose it replaces and the blend is solved again, as if it had been applied at once.
 
 The task's state moves through `capturing`, `matching`, `solving`, `verifying` to `done`; `CALIBRATION CANCEL` stops it before it
 applies. A simulated camera (a rig of kind Simulated) is its own display: `StageSimulator` traces the stage from the camera and

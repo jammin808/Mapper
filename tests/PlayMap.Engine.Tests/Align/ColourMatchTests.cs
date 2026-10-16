@@ -94,4 +94,15 @@ public sealed class ColourMatchTests(ITestOutputHelper log)
             Assert.All(record.Outputs, o => Assert.NotNull(o.Measured.Warp));
         }
     }
+
+    [Fact]
+    public async Task AStackMatchesItsMembersWhites()
+    {
+        await using var rig = new AlignRig(AlignRig.Project(2, "flat-screen:stack2:k6500,7500:lvl1,0.8"));
+        var group = await rig.NewGroup();
+        var run = await rig.RunToEnd(group, "COLOR WHITE");
+        log.WriteLine(rig.Runner.View!.Words);
+        Assert.Contains("whites matched", rig.Runner.View!.Words, StringComparison.Ordinal);
+        Assert.True(rig.Runner.Finished(run)!.Outputs[1].Measured.Color is { } c && (c.GainR < 1 || c.GainG < 1 || c.GainB < 1));
+    }
 }
