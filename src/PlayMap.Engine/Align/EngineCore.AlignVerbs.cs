@@ -861,7 +861,7 @@ public sealed partial class EngineCore
         else
             w.WriteString("blend", "replace");
         var faulted = set.Faults.TryGetValue(o.Id, out var fault);
-        var loaded = set.Loads.ContainsKey(o.Id);
+        var loaded = set.Loads.ContainsKey(o.Id) || !MeasuredLibrary.Reads(m);
         w.WriteString("files", faulted ? fault : loaded ? "ok" : "loading");
         w.WriteString("light", faulted ? "red" : loaded ? "green" : "grey");
         w.WriteEndObject();

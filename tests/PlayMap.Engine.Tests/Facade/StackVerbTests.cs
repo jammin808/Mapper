@@ -114,6 +114,27 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         Assert.Null(rig.Engine.Store.Project.FindOutput("op00000002")!.Measured);
     }
 
+    /// <summary>A member's lattice is drawn from the project itself: there is no file to read, so the measured correction it lands as
+    /// is loaded — preflight's align row is green with the residual and STATE's outputs[].measured says ok, never "not loaded".</summary>
+    [Fact]
+    public async Task AnAlignedMembersLatticeStandsLoadedInPreflightAndState()
+    {
+        var sim = StackKit.Sim();
+        _scans.Remember(await StackKit.OutcomeAsync(sim));
+        await using var rig = Rig(sim);
+        var id = Json(await rig.Ok("STACK NEW S1 P1 P2")).GetProperty("id").GetString()!;
+        await rig.Ok($"STACK ALIGN {id} FROM {StackKit.Scan}");
+        Assert.Null(rig.Engine.Store.Project.FindOutput("op00000002")!.Measured!.Color);
+
+        var rows = await new PlayMap.Engine.Align.AlignPreflight().RunAsync(new PlayMap.Engine.PreflightContext(rig.Engine, Core.Preflight.PreflightDepth.Quick, false), CancellationToken.None);
+        var row = Assert.Single(rows, r => r.Id == "align:op00000002");
+        Assert.Equal(Core.Bus.Light.Green, row.Light);
+        Assert.StartsWith("S1's lattice, 0.", row.Note, StringComparison.Ordinal);
+        var measured = Json(rig.Engine.State().Json).GetProperty("outputs").EnumerateArray()
+            .Single(o => o.GetProperty("id").GetString() == "op00000002").GetProperty("measured");
+        Assert.Equal(("ok", "green"), (measured.GetProperty("files").GetString(), measured.GetProperty("light").GetString()));
+    }
+
     [Fact]
     public async Task StackMatchBringsTheMembersWhiteToTheMastersWithGainsOfAtMostOne()
     {
@@ -374,7 +395,7 @@ public sealed class StackVerbTests(ITestOutputHelper log) : IAsyncDisposable
         var item = ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "stack:" + id);
         Assert.Equal(Core.Bus.Light.Amber, item.Light);
         Assert.Contains("P2 or P1 moved since S1 was aligned", item.State, StringComparison.Ordinal);
-        var row = Assert.Single(await new Site.SitePreflight().RunAsync(new PreflightContext(rig.Engine, Core.Preflight.PreflightDepth.Quick, false),
+        var row = Assert.Single(await new Site.SitePreflight().RunAsync(new PlayMap.Engine.PreflightContext(rig.Engine, Core.Preflight.PreflightDepth.Quick, false),
             CancellationToken.None), r => r.Id == "stack:" + id);
         Assert.Equal((Core.Bus.Light.Amber, $"STACK ALIGN {id} FROM {StackKit.Scan}"), (row.Light, row.Fix));
         var step = Core.Site.SiteGuide.Steps(rig.Engine.Store.Project, rig.Engine.GuideFactsFor(rig.Engine.Store.Project)).Single(s => s.Step == "stacks");

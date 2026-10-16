@@ -56,7 +56,7 @@ public sealed class MeasuredLibrary
     public void Refresh(Project project, string? folder)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var wanted = project.Outputs.Where(o => o.Measured is { Warp: not null } or { Blend: not null } or { Color: not null })
+        var wanted = project.Outputs.Where(o => o.Measured is { } m && Reads(m))
             .Select(o => (o.Id, Key: KeyOf(o.Measured!))).ToList();
         var signature = (folder ?? "") + "\n" + string.Join("\n", wanted.Select(w => w.Id + "=" + w.Key));
         lock (_gate)
@@ -83,6 +83,10 @@ public sealed class MeasuredLibrary
             _wanted = "";
         Refresh(project, folder);
     }
+
+    /// <summary>True when a correction has something to read or upload (a warp grid, a blend map, colour gains); one that holds only a
+    /// stack's lattice (drawn by the warp mesh from the project itself) has nothing, and stands loaded as it is.</summary>
+    internal static bool Reads(MeasuredCorrection m) => m.Warp is not null || m.Blend is not null || m.Color is not null;
 
     private static string KeyOf(MeasuredCorrection m) => string.Create(CultureInfo.InvariantCulture,
         $"{m.Warp?.File}|{m.Warp?.Hash}|{m.Blend?.File}|{m.Blend?.Hash}|{m.Color?.GainR}|{m.Color?.GainG}|{m.Color?.GainB}|{m.Color?.Level}|{m.Color?.Gamma}");
