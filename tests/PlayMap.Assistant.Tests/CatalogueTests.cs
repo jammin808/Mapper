@@ -24,6 +24,7 @@ public sealed class CatalogueTests
         "GENERATOR MORPH", // wp2-content: morphs are next round
         "LED DISCOVER", // wp2-led: discovery is next round
         "MEDIA ESTIMATE", "MEDIA VERSION", // wp2-optimise: estimates and removing a version (with the lossless rewriter) are next round
+        "SITE GUIDE", "PLAN LIGHT", "STACK NEW", "STACK MATCH", "STACK FAILOVER", "STACK LIST", // wp2-facade: the guide, the light plan and stacks are wp2-stacks'
     ];
 
     /// <summary>The connection's own verbs: the gate refuses them by design.</summary>

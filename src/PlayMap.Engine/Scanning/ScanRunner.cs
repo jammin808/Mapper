@@ -552,26 +552,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         return new Setup(p.NewId(Ids.Scan), rig, camera, parts, p, engine.ProjectFolderForFiles, simulated);
     }
 
-    /// <summary>The stage's first imported mesh that loads from the project folder, for a bridged registration.</summary>
-    private static MeshRaycaster? StageModel(Setup setup)
-    {
-        if (setup.Folder is null || !setup.Camera.Calibrated || setup.Simulated)
-            return null;
-        foreach (var m in setup.Project.Stage.Meshes.Where(m => m.Path.Length > 0 && m.Origin == MeshOrigin.Imported))
-        {
-            try
-            {
-                if (MeshIO.Load(Path.Combine(setup.Folder, m.Path)).Mesh is { TriangleCount: > 0 } mesh)
-                    return new MeshRaycaster(mesh);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or NotSupportedException or InvalidDataException)
-            {
-                // A model that does not load is not bridged into; the scan self-calibrates instead.
-                continue;
-            }
-        }
-        return null;
-    }
+    /// <summary>The stage's model as placed (its surfaces on imported meshes, through their transforms), for a bridged registration.</summary>
+    private static MeshRaycaster? StageModel(Setup setup) =>
+        setup.Folder is null || !setup.Camera.Calibrated || setup.Simulated ? null : BridgeModel.Of(setup.Project, setup.Folder);
 
     private List<ProjectorCapture> CaptureSimulated(SimulatedRig rig, Setup setup, Track track, List<(string, ProjectorView)> views, out SimTruth truth,
         CancellationToken ct)

@@ -115,6 +115,8 @@
         "solved": false,
         "residualPx": 0,
         "pins": 0,
+        "uncertainty": null,
+        "priors": "",
         "grade": "",
         "quads": 0
       },
@@ -124,11 +126,16 @@
         "solved": false,
         "residualPx": 0,
         "pins": 0,
+        "uncertainty": null,
+        "priors": "",
         "grade": "",
         "quads": 0
       }
     ],
-    "scans": 0
+    "scans": 0,
+    "site": null,
+    "controls": 0,
+    "surveys": []
   },
   "scan": null,
   "sync": {

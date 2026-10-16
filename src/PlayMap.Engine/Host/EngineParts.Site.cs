@@ -5,6 +5,6 @@ public sealed partial record EngineParts
 {
     static partial void AddSiteParts(List<EngineExtensionFactory> extensions)
     {
-        // wp2-facade fills this.
+        extensions.Add(_ => new Site.SiteExtension());
     }
 }
