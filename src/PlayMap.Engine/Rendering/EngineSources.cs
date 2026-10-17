@@ -388,10 +388,13 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             return null;
         slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame, OpenedFrame = _frame };
         slots[key] = slot;
-        var media = _media;
-        _work(() => Open(media, slot));
+        QueueOpen(_media, slot);
         return slot;
     }
+
+    // The open's closure is made here, not in the caller: a lambda that captures this has its closure made at its method's entry
+    // in an optimised build, and the caller runs every frame.
+    private void QueueOpen(IMediaBackend media, Slot slot) => _work(() => Open(media, slot));
 
     private void Open(IMediaBackend media, Slot slot)
     {
