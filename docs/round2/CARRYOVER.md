@@ -1,4 +1,37 @@
-# Carry-over from round-1 integration (fold into round-2 packages)
+# Round 2: carry-over and the integrator's notes
+
+**Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. This file keeps what each integration found, from the
+round-1 integration's carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
+[`docs/ROADMAP.md`](../ROADMAP.md) ("Open fixes", with "Lab only" for what only real hardware proves); the owner's open calls are
+here, in one place.
+
+## The owner's open calls
+
+Round 3 ([`docs/round3/PLAN.md`](../round3/PLAN.md)) starts once the owner has made six decisions:
+
+1. **The show nodes' Windows edition** (the plan's D4).
+2. **The hardware lock's hardware:** whether RTX PRO cards with RTX PRO Sync are what the hardware lock is built for (D5).
+3. **The signing identity:** the identity that signs builds and the installer (§9 decision 2).
+4. **The WiX maintenance fee** (§9 decision 3).
+5. **The lab:** its machines and who runs it (§9 decision 11, §7).
+6. **The round's size:** all sixteen sessions, or fewer in §9's deferral order (§9 decision 1).
+
+The desk's held-line exemptions (the desk-2 notes, below):
+
+7. The desk sends `VIDEO STOP` (the transport's Stop), `PANIC CLEAR` (the panic banner's Clear and its fade menu) and `MASTER` at
+   every press, though a Companion key holds each to confirm (`DeskAction.SentAtOnce`).
+8. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk.
+
+The other calls the notes below leave with the owner:
+
+9. The controllers preflight rows carry no fix line: no verb pairs a client or restarts the network announcement (wp2-companion,
+   in the fx merge's notes).
+10. `/api/context` sits behind the token, so Patterns reads PlayMap's context over the wire (`SUBSCRIBE CONTEXT`); opening it is
+    the owner's call (wp2-fleet).
+11. Which 64 commands Patterns' Eye sees: the context lists the verbs that move a panic, the air, a transport or Show Mode first,
+    the rest in catalogue order, and the Eye keeps the first 64 (wp2-control).
+
+## Carry-over from the round-1 integration
 
 From the host integration (merged 0dd62d2):
 - Sync-group anchors are not carried to followers: AnchorPublished has no verb/push to followers. → fleet/framelock package must add an anchor push (Show Bus or wire SUBSCRIBE) so followers adopt the leader's playlist anchors.

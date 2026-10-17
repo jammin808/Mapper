@@ -13,7 +13,7 @@ first five minutes, and calibration you can explain, keep and repair.
 | The shared code every package builds on (model, verb catalogue, gate, seams, STATE, the Eye contract) | `SPINE.md` |
 | One design per feature: the bar each competitor sets and how PlayMap meets or beats it, scope, architecture, verification | `design/` |
 | The research behind the designs, every fact with its source and whether it was opened | `research/` |
-| Gaps carried over from the first integration, each owned by a package | `CARRYOVER.md` |
+| What each integration found, from the first integration's carry-overs to the last fix batch's notes, and the owner's open calls in one place | `CARRYOVER.md` |
 
 Decisions taken for this round: the full plan; ISF effects now and the FFGL host next round; the Patterns-side Eye patch is
 prepared by the fleet package for Patterns' maintainers and not applied; AI proposals wait on PlayMap's own approval list
