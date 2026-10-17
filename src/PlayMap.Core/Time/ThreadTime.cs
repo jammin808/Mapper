@@ -1,40 +1,40 @@
 using System.Diagnostics;
-using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace PlayMap.Core.Time;
 
-/// <summary>How long the calling thread has held its place, in nanoseconds: the stopwatch's time less the time the thread waited
-/// runnable for a processor (the scheduler gave the processor to other threads — a preemption on a loaded machine). Time the thread
-/// spends blocked of its own accord (a lock, a read, a page fault) counts: it holds what it holds meanwhile. Linux reads the waits
-/// from the thread's scheduler statistics (<see cref="Precise"/>); elsewhere none are read and the reads are the stopwatch's.</summary>
-public static class ThreadTime
+/// <summary>The work the calling thread has done, in nanoseconds of its own processor time: what it did between two reads, never the
+/// time the machine gave other threads meanwhile (a preemption, a loaded machine) nor the time it was stopped (a collection, a page
+/// brought in). Linux and macOS read the thread's CPU clock (<see cref="Precise"/>); elsewhere the reads are the stopwatch's.</summary>
+public static partial class ThreadTime
 {
-    /// <summary>True when the thread's run-queue waits are read (Linux with scheduler statistics): a preempted span counts only
-    /// what the thread held.</summary>
-    public static bool Precise { get; } = OperatingSystem.IsLinux() && RunQueueWaitNs() >= 0;
+    private const int LinuxThreadCpu = 3;
+    private const int MacThreadCpu = 16;
 
-    /// <summary>The calling thread's held time now (ns); only differences of two reads on one thread mean anything.</summary>
-    public static long NowNs()
+    /// <summary>True when <see cref="NowNs"/> reads the thread's own processor time on this platform.</summary>
+    public static bool Precise { get; } = (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) && Read(out _);
+
+    /// <summary>The calling thread's processor time now (ns); only differences of two reads on one thread mean anything.</summary>
+    public static long NowNs() =>
+        Precise && Read(out var ns) ? ns : (long)(Stopwatch.GetTimestamp() * (1e9 / Stopwatch.Frequency));
+
+    private static bool Read(out long ns)
     {
-        var wall = (long)(Stopwatch.GetTimestamp() * (1e9 / Stopwatch.Frequency));
-        if (!Precise)
-            return wall;
-        var waited = RunQueueWaitNs();
-        return waited >= 0 ? wall - waited : wall;
+        var t = default(Timespec);
+        if (ClockGetTime(OperatingSystem.IsLinux() ? LinuxThreadCpu : MacThreadCpu, ref t) != 0)
+        {
+            ns = 0;
+            return false;
+        }
+        ns = t.Seconds * 1_000_000_000L + t.Nanoseconds;
+        return true;
     }
 
-    /// <summary>The calling thread's total wait on the run queue (ns, the second field of /proc/thread-self/schedstat), or −1.</summary>
-    private static long RunQueueWaitNs()
-    {
-        try
-        {
-            var fields = File.ReadAllText("/proc/thread-self/schedstat").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return fields.Length >= 2 && long.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ns) ? ns : -1;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            // No scheduler statistics here: the stopwatch alone.
-            return -1;
-        }
-    }
+    /// <summary>struct timespec on a 64-bit Unix (the platforms the node runs on).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private record struct Timespec(long Seconds, long Nanoseconds);
+
+    [LibraryImport("libc", EntryPoint = "clock_gettime")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static partial int ClockGetTime(int clock, ref Timespec time);
 }
