@@ -219,11 +219,11 @@ node's place in a hot-backup pair keeps what it puts out beside its outputs sile
 just started and listens for its backups (docs/FLEET.md) — and the node with the show sounds from its next step. A decoder opens on
 a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and the
 optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
-`STATE.show.sound.problem`: its file has no sound this node can play, or it runs at a rate sound does not play. Sound plays 0.5×
-to 2× (its pitch, with the ±0.5 % correction's room beyond either end); at any other rate the item stays on the air silent, as
-when paused, and from the first step back in range its sound resyncs onto the anchor. The exe's show part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's
-name) on the node's own clock — the one the network clock maps to the leader's, so an output on any other is refused; a node with
-no device plays the null output.
+`STATE.show.sound.problem`: its file has no sound this node can play, or it runs at a rate sound does not play. Sound plays 0.5× to
+2× (its pitch, with the ±0.5 % correction's room beyond either end); at any other rate the item stays on the air silent, as when
+paused, and from the first step back in range its sound resyncs onto the anchor. The exe's show part opens the machine's output
+(`show.airSound`: `default`, `off` or an OpenAL device's name) on the node's own clock — the one the network clock maps to the
+leader's, so an output on any other is refused; a node with no device plays the null output.
 
 Every output runs one service step — on a device's own thread (OpenAL Soft over WASAPI on Windows, PulseAudio or ALSA on Linux),
 on the loopback's pull, on the null output's thread — and each step reads the output's clock once, right after a device's position
