@@ -220,7 +220,15 @@ just started and listens for its backups (docs/FLEET.md) — and the node with t
 a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and the
 optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
 `STATE.show.sound.problem`. The exe's show part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's
-name); a node with no device plays the null output.
+name) on the node's own clock — the one the network clock maps to the leader's, so an output on any other is refused; a node with
+no device plays the null output.
+
+Every output runs one service step — on a device's own thread (OpenAL Soft over WASAPI on Windows, PulseAudio or ALSA on Linux),
+on the loopback's pull, on the null output's thread — and each step reads the output's clock once: the item's position, the gain
+and the null output's playhead are all taken at that one instant (through the network clock, at its leader instant), so a clock
+that moves while a step runs changes nothing the step sees. The null output's playhead is a function of its clock: the media time
+where its rate was last set plus the time since at that rate. A step consumes the whole frames before the playhead and carries the
+part of a frame after them, so no step loses or invents a frame.
 
 ## Transitions on a manual GO
 

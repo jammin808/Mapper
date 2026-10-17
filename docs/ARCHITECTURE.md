@@ -143,8 +143,10 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   way; a playlist in a sync group cuts at the GO, since the anchor its followers take carries no window.
 - The on-air item's sound (the focused playlist's) plays through one `AudioOut` slaved to the item's anchor: its rate nudged
   by at most ±0.5 % to stay within 10 ms, resynced hard on a jump. Its gain is the air's sound gain (master × the darkest
-  panic, from the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Sound
-  comes in: one capture per input feeds the analyser and the LTC reader.
+  panic, from the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Each step
+  reads the output's clock (the node's own) once and takes the item's position, the gain and the null output's playhead at that
+  one instant; the null output's playhead is a function of its clock, and a step consumes its whole frames and carries the part
+  of a frame after them (docs/SHOW.md). Sound comes in: one capture per input feeds the analyser and the LTC reader.
 - `Media/Audio/AudioOut` plays through the OpenAL Soft that ships beside PlayMap, found in the app's own native folders before
   the system's (`OpenAlLibrary`); where no OpenAL loads, its device output is the null one and `AudioOut.Status` says why,
   which STATE carries as `show.sound.status`.

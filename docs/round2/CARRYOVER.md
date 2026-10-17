@@ -139,3 +139,31 @@ Round 2 W1 notes:
   refuses; the settings gate above closes that race in the process), and
   `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` (Linux CI runs 252 and 265: the other follower stays
   free-wheeling with the anchor feed lost; it passes in every other run and locally). Watch all three.
+
+## Integrator notes from the round-2 fix batch (fix-tests3)
+
+- Every `Parallel.For` and `Parallel.ForEach` under `src/` passes `Compute.Options` or `Compute.With`, and every long CPU job (a
+  solve, a decode, a simulator) runs through `Compute.RunAsync`: Core's compute threads, one fewer than the processors beside a
+  loop's calling thread, never the shared thread pool the lanes, sockets and timers need. `ComputeTests` scans `src/` and refuses a
+  loop on the pool, PLINQ and `Parallel.Invoke`; a package that adds a CPU loop or job uses them. Awaited I/O stays on the pool.
+- Every test that measures allocation does it through `tests/Shared/Allocations.cs` (`Start`/`Since` for the measuring thread's own
+  window, `Begin` before reading a counter another thread keeps), linked into the Core, Render, Media, Net and Engine suites; the
+  allocation tests run in Release as well as Debug, since a closure an optimised build makes at a method's entry shows only there.
+- The waits a test reads are on clocks it owns: a cued camera's patience on `ScanRunnerOptions.Time`, a live receiver's state on
+  its provider's clock (`NdiFakeRuntimeTests` steps it a 60 Hz period a frame, so the default stale and lost times hold), a
+  source's opens on the queue `EngineSources` is given. The optimise worker's priority is `OptimiseOptions.WorkerPriority` (the test
+  rig runs it at normal); latency flashes are paced by `FlashPhases`, each held until the camera has sent the pictures that measure
+  it; a leader's anchor is adopted in the lane action that applies it; the mDNS responder under test binds a port of its own.
+- Fixed at this merge: the null sound output's lost frames (Windows CI run 286, Media
+  `AudioTests.TheNullOutputConsumesOnTheClock`, "the null output stalled at 19958333 ns"; run 282, 249958333 ns), a clock step
+  between two reads of one service step. A service step reads the output's clock once and asks the timeline about that instant
+  (`IAudioTimeline.At`); the null output's playhead is a function of its clock and carries the part of a frame a step leaves, so
+  no step loses or invents a frame (`AudioTests.AClockStepInsideAServiceStepLosesNoFrame`,
+  `AStepBetweenFramesCarriesThePartOfAFrame`; a device's thread runs the same step, `TheMachinesOutputReadsItsClockOncePerServiceStep`).
+  The air's sound runs on the node's own clock, which the network clock maps to the leader's; `StartAirAudio` refuses an output
+  on another.
+- Still open, for the next fix batch (each passes alone and fails at times under the full Engine suite on a loaded machine; none
+  is changed here): `GroupAirTests`' 500 ms real-time wait for a receipt; `RouteTests`' 2 s real-time wait for a route;
+  `FleetMonitorTests`' 10 s real-time wait; the multi-view scan's "already running" and the phone camera's "no picture for 5 s"
+  (align's, and the wall's `ResolveCameraTests.APhoneRigOpensThroughTheHubAndReachesTheResolve`) under the full suite; the 2 M-triangle
+  import's wall-time ceiling on the lane's slice; `ClockSlewTests`' 3 h 12 min slew, whose 597.5 s is not explained yet.
