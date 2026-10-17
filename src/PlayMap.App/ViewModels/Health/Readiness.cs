@@ -8,10 +8,10 @@ namespace PlayMap.App.ViewModels.Health;
 /// <summary>One part of the readiness light: its name, its light and its words, as STATE says them.</summary>
 public sealed record ReadinessPart(string Name, string Light, string Words);
 
-/// <summary>The show strip's readiness light: the worst of the show's last preflight (STATE.show.preflight), the fleet's light
-/// (STATE.fleet) and the group's vblank picture (STATE.sync), each in the node's own words. A part STATE does not carry (no
-/// preflight run, no fleet monitor, no sync group) is left out; with none the light is grey. Pure: the same STATE gives the same
-/// light.</summary>
+/// <summary>The show strip's readiness light: the worst of the show's last preflight (STATE.show.preflight, its last report's light
+/// while it runs again), the fleet's light (STATE.fleet) and the sync group's light (STATE.sync), each in the node's own words. A
+/// part STATE does not carry (no preflight report, no fleet monitor, no sync group) is left out; with none the light is grey. Pure:
+/// the same STATE gives the same light.</summary>
 public sealed record Readiness(string Light, ImmutableArray<ReadinessPart> Parts)
 {
     public static readonly Readiness Unknown = new("grey", []);
@@ -40,8 +40,8 @@ public sealed record Readiness(string Light, ImmutableArray<ReadinessPart> Parts
     {
         ArgumentNullException.ThrowIfNull(state);
         var parts = ImmutableArray.CreateBuilder<ReadinessPart>(3);
-        if (Section(state, "show")?.Obj("preflight") is { } pf && !pf.Bool("running"))
-            parts.Add(new ReadinessPart("show", Word(pf.Str("light", "grey")), pf.Str("firstOpen") is { Length: > 0 } open ? open : "show-ready " + pf.Str("ready")));
+        if (Section(state, "show")?.Obj("preflight") is { } pf && pf.StrOrNull("light") is { } pl)
+            parts.Add(new ReadinessPart("show", Word(pl), pf.Str("firstOpen") is { Length: > 0 } open ? open : "show-ready " + pf.Str("ready")));
         if (Section(state, "fleet") is { } fleet && fleet.StrOrNull("light") is { } fl)
             parts.Add(new ReadinessPart("fleet", Word(fl), fleet.Str("headline")));
         if (Section(state, "sync") is { } sync && SyncPart(sync, state.Playlists.Any(p => p.IsPlaying)) is { } s)
@@ -60,31 +60,41 @@ public sealed record Readiness(string Light, ImmutableArray<ReadinessPart> Parts
     /// <summary>A free-running pair that slips sooner than this while the show plays is amber (the sync board's rule).</summary>
     private const double SlipAmberS = 600;
 
-    /// <summary>The group's vblank picture as the sync board lights it, read from the words STATE.sync carries (its verdict, each
-    /// output's lock word, each pair's next slip): red while an output fell out of the lock; amber for mixed rates, an output that
-    /// joins or reports locked off the one vblank, or a slip within ten minutes while a playlist plays; green on one vblank or
-    /// free-running at ease; grey before any output reported. Null for a node in no sync group.</summary>
+    /// <summary>The sync group's light as the node gives it, from STATE.sync. A follower's is its own link and clock (the verdict is
+    /// the leader's): red while its clock holds (freewheelS) or the anchor feed is lost, green while the feed is live, amber otherwise.
+    /// A leader's is the sync board's over the outputs it hears: grey before any is heard; red while one fell out of the lock; amber
+    /// for mixed rates, or for a verdict short of one vblank while every heard output reports locked (framelocked or house-locked:
+    /// one is off the others' vblank); amber when a free-running pair slips within ten minutes while a playlist plays; green on one
+    /// vblank or free-running at ease. A node configured into a group it has not joined is grey. Null for a node in no sync group.</summary>
     private static ReadinessPart? SyncPart(JsonElement sync, bool playing)
     {
-        if (sync.StrOrNull("verdict") is not { } verdict)
+        if (sync.StrOrNull("verdict") is not { } verdict || sync.Str("group").Length == 0)
             return null;
         var words = sync.Str("words", verdict);
-        var states = sync.Arr("outputs").Select(o => o.Str("state")).ToList();
-        string light;
-        if (states.Contains("fell-out"))
-            light = "red";
-        else
+        var light = sync.Str("role") switch
         {
-            light = verdict switch
-            {
-                "same vblank" => "green",
-                "mixed rate" => "amber",
-                "free-running" when states.Any(x => x is "framelocked" or "joining") => "amber",
-                "free-running" when playing && sync.Arr("pairs").Any(p => p.Num("nextSlipS", double.PositiveInfinity) < SlipAmberS) => "amber",
-                "free-running" => "green",
-                _ => "grey",
-            };
-        }
+            "follower" => sync.Num("freewheelS", 0) > 0 || sync.Str("feed") == "lost" ? "red" : sync.Str("feed") == "live" ? "green" : "amber",
+            "leader" => LeaderLight(sync, verdict, playing),
+            _ => "grey",
+        };
         return new ReadinessPart("sync", light, words);
+    }
+
+    private static string LeaderLight(JsonElement sync, string verdict, bool playing)
+    {
+        var heard = sync.Arr("outputs").Where(o => o.Bool("heard")).Select(o => o.Str("state")).ToList();
+        if (heard.Count == 0)
+            return "grey";
+        if (heard.Contains("fell-out"))
+            return "red";
+        return verdict switch
+        {
+            "same vblank" => "green",
+            "mixed rate" => "amber",
+            "free-running" when heard.All(s => s is "framelocked" or "house-locked") => "amber",
+            "free-running" when playing && sync.Arr("pairs").Any(p => p.Num("nextSlipS", double.PositiveInfinity) < SlipAmberS) => "amber",
+            "free-running" => "green",
+            _ => "grey",
+        };
     }
 }

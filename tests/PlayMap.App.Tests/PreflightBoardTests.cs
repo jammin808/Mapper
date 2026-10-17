@@ -160,18 +160,62 @@ public class PreflightBoardTests(ITestOutputHelper output)
         var syncWords = desk.Session.State.Root.GetProperty("sync").GetProperty("words").GetString();
         Assert.Equal(("green", syncWords), (strip.Readiness.Parts.Single(p => p.Name == "sync").Light, strip.Readiness.Parts.Single(p => p.Name == "sync").Words));
 
-        // An output of the group that fell out of the lock is red (the sync board's red).
-        desk.Link.SetSection("sync", """{"outputs":[{"node":"0badc0de","output":"op_1","state":"fell-out"}],"words":"2 nodes, 2 outputs: op_1 fell out of the lock"}""");
+        // A heard output of the group that fell out of the lock is red (the sync board's red); one the leader no longer hears is not.
+        desk.Link.SetSection("sync", """{"outputs":[{"node":"0badc0de","output":"op_1","state":"fell-out","heard":true}],"words":"2 nodes, 2 outputs: op_1 fell out of the lock"}""");
         Is("red");
         Assert.Contains("sync: red — 2 nodes, 2 outputs: op_1 fell out of the lock", strip.ReadyTip, StringComparison.Ordinal);
+        desk.Link.SetSection("sync", """{"outputs":[{"node":"0badc0de","output":"op_1","state":"free-measured","heard":true},{"node":"9f8e7d6c","output":"op_1","state":"fell-out","heard":false}]}""");
+        Is("green");
         // Mixed rates are amber.
-        desk.Link.SetSection("sync", """{"outputs":[{"node":"0badc0de","output":"op_1","state":"free-measured"}],"verdict":"mixed rate"}""");
+        desk.Link.SetSection("sync", """{"outputs":[{"node":"0badc0de","output":"op_1","state":"free-measured","heard":true}],"verdict":"mixed rate"}""");
         Is("amber");
-        // A preflight running is not a light yet; the others still are.
-        desk.Link.SetSection("show", """{"preflight":{"running":true,"light":"red"}}""");
-        Is("amber");
+        desk.Link.SetSection("sync", """{"verdict":"free-running"}""");
+        Is("green");
+        // A preflight running again keeps its last report's light (STATE keeps it with running), red here, while the strip says Checking….
+        desk.Link.SetSection("show", """{"preflight":{"running":true,"light":"red","firstOpen":"outputs: Output 1 — this machine has no display for it"}}""");
+        Is("red");
         Assert.Equal("Checking…", strip.ReadyText);
+        Assert.Contains("show: red — outputs: Output 1", strip.ReadyTip, StringComparison.Ordinal);
+        // A first run, with no report yet, is no light.
+        desk.Link.SetSection("show", null);
+        desk.Link.SetSection("show", """{"preflight":{"id":"pf1","running":true}}""");
+        Is("green");
+        Assert.DoesNotContain(strip.Readiness.Parts, p => p.Name == "show");
         window.Close();
+    }
+
+    /// <summary>The sync part as a real node of each role lights it (EngineCore.SyncVerdict and the sync board), from the STATE.sync
+    /// keys that node writes.</summary>
+    [Theory]
+    // A follower's light is its own link and clock; its verdict is always "unknown" (the leader's to give).
+    [InlineData("follower", "lost", 12.5, "unknown", "[]", "red")]
+    [InlineData("follower", "live", 3.2, "unknown", "[]", "red")]
+    [InlineData("follower", "live", 0, "unknown", "[]", "green")]
+    [InlineData("follower", "waiting", 0, "unknown", "[]", "amber")]
+    // A leader: every heard output house-locked or framelocked, yet short of one vblank — one is off the others' vblank: amber.
+    [InlineData("leader", "live", 0, "free-running", """[{"state":"house-locked","heard":true},{"state":"house-locked","heard":true}]""", "amber")]
+    [InlineData("leader", "live", 0, "same vblank", """[{"state":"house-locked","heard":true},{"state":"framelocked","heard":true}]""", "green")]
+    // One framelocked output among free-running ones is not a fault; one joining the lock is not either until the board says so.
+    [InlineData("leader", "live", 0, "free-running", """[{"state":"framelocked","heard":true},{"state":"free-measured","heard":true}]""", "green")]
+    [InlineData("leader", "live", 0, "free-running", """[{"state":"joining","heard":true},{"state":"free-measured","heard":true}]""", "green")]
+    // Nothing heard: grey, as the board's "unknown".
+    [InlineData("leader", "live", 0, "unknown", """[{"state":"free-measured","heard":false}]""", "grey")]
+    public void TheSyncPartIsLitAsTheNodeLightsItsRole(string role, string feed, double freewheelS, string verdict, string outputs, string light)
+    {
+        var json = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $$$"""{"sync":{"role":"{{{role}}}","group":"show","feed":"{{{feed}}}","freewheelS":{{{freewheelS}}},"outputs":{{{outputs}}},"pairs":[],"verdict":"{{{verdict}}}","words":"the node's words"}}""");
+        var readiness = Readiness.Of(PlayMap.App.State.StateSnapshot.Parse(json));
+        var sync = Assert.Single(readiness.Parts);
+        Assert.Equal(("sync", light, "the node's words"), (sync.Name, sync.Light, sync.Words));
+        Assert.Equal(light, readiness.Light);
+    }
+
+    [Fact]
+    public void ANodeInNoSyncGroupHasNoSyncPart()
+    {
+        var solo = PlayMap.App.State.StateSnapshot.Parse("""{"sync":{"role":"solo","group":"","feed":"none","verdict":"unknown","words":"not in a sync group"}}""");
+        Assert.Empty(Readiness.Of(solo).Parts);
+        Assert.Equal("grey", Readiness.Of(solo).Light);
     }
 
     [Fact]
