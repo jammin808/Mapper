@@ -101,6 +101,16 @@ public sealed partial class FakeEngineLink
             reply = Blind(line);
             return;
         }
+        if (line.Verb == "PREFLIGHT")
+        {
+            reply = line.WordUpper(1) == "REPORT" ? PreflightReport(line) : Preflight(line);
+            return;
+        }
+        if (line.Verb == "FAILOVER")
+        {
+            reply = Failover(line);
+            return;
+        }
         if (line.Verb is not ("SHOW" or "PANIC" or "LOCK" or "UNLOCK" or "LOCKS" or "MASTER"))
             return;
         var second = line.WordUpper(1);

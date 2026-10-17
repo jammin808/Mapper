@@ -114,6 +114,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             if (m.EscapeOrder != int.MaxValue)
                 Escape.Add(new EscapeRung(m.EscapeOrder, m.GetType().Name, m.TryEscape));
         }
+        // Each drawer opens on its first tab by order, whichever module brought it first.
+        foreach (var d in Drawers.Drawers.Where(d => d.Tabs.Count > 0))
+            d.Selected = d.Tabs[0];
         Escape.Add(new EscapeRung(EscapeLadder.PatternTask, "pattern task", CancelPatternTask));
         Escape.Add(new EscapeRung(EscapeLadder.Selection, "selection", () =>
         {

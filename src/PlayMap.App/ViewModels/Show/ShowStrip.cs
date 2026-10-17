@@ -113,6 +113,7 @@ public sealed class ShowStripViewModel : ObservableObject
 {
     private static readonly string[] Outcomes = ["BLACK", "RUN", "REWIND", "NEXT", "FREEZE", "SAFE", "SHUTTER", "FX-OFF", "HARD"];
     private ShowSection _show = ShowSection.Absent;
+    private Health.Readiness _readiness = Health.Readiness.Unknown;
 
     public ShowStripViewModel(DeskSession session, DeskPrefs prefs, Action openHealth)
     {
@@ -189,9 +190,13 @@ public sealed class ShowStripViewModel : ObservableObject
     /// <summary>"Ready 4/5", "Checking…" while a preflight runs, "Ready" before the first.</summary>
     public string ReadyText => _show.PreflightRunning ? "Checking…" : _show.Ready.Length > 0 ? "Ready " + _show.Ready : "Ready";
 
-    public string ReadyLight => _show.ReadyLight;
+    /// <summary>The worst of the show's last preflight, the fleet and the group's vblank picture (grey while none is known).</summary>
+    public string ReadyLight => _readiness.Light;
 
-    public string ReadyTip => _show.FirstOpen.Length > 0 ? "First open: " + _show.FirstOpen + "\nClick: Health · right-click: run preflight" : "Click: Health · right-click: run preflight";
+    /// <summary>The readiness light's parts as STATE words them.</summary>
+    public Health.Readiness Readiness => _readiness;
+
+    public string ReadyTip => (_readiness.Tip.Length > 0 ? _readiness.Tip + "\n" : "") + "Click: Health · right-click: run preflight";
 
     /// <summary>ARM's tooltip: who armed and since when, and what the gate refused in the last minute.</summary>
     public string ArmTip => Arm.Tip + (_show.RefusedLastMinute > 0
@@ -213,10 +218,13 @@ public sealed class ShowStripViewModel : ObservableObject
     public static string Clock(long unixMs, string format) =>
         DateTimeOffset.FromUnixTimeMilliseconds(unixMs).ToLocalTime().ToString(format, CultureInfo.InvariantCulture);
 
-    public void Update(ShowSection show)
+    public void Update(ShowSection show, Health.Readiness readiness)
     {
+        ArgumentNullException.ThrowIfNull(readiness);
+        if (Set(ref _readiness, readiness, nameof(Readiness)))
+            Raise(nameof(ReadyLight), nameof(ReadyTip));
         if (Set(ref _show, show, nameof(Show)))
-            Raise(nameof(IsPresent), nameof(IsArmed), nameof(IsPanic), nameof(ReadyText), nameof(ReadyLight), nameof(ReadyTip), nameof(ArmTip), nameof(PanicTip));
+            Raise(nameof(IsPresent), nameof(IsArmed), nameof(IsPanic), nameof(ReadyText), nameof(ReadyTip), nameof(ArmTip), nameof(PanicTip));
     }
 
     private (string Arm, string Panic) _tips = ("", "");
@@ -291,7 +299,7 @@ public sealed class ShowStripModule : DeskModule
         _show = state.Section("show", ShowSection.Read);
         _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
-        Strip.Update(_show);
+        Strip.Update(_show, Health.Readiness.Of(state));
     }
 
     public override void RefreshActions()
