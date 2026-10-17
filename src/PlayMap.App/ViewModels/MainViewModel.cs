@@ -127,7 +127,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         }));
         Escape.Add(new EscapeRung(EscapeLadder.Draft, "draft", () =>
         {
-            if (Workspace != Workspace.Map || !Map.Pen.IsDrawing)
+            if (Workspace != Workspace.Map)
+                return false;
+            if (Map.CancelQuadDraft())
+                return true;
+            if (!Map.Pen.IsDrawing)
                 return false;
             Map.Pen.Cancel();
             return true;

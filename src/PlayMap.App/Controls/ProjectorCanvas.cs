@@ -14,9 +14,11 @@ namespace PlayMap.App.Controls;
 /// <summary>The projector view: what one projector sees (the engine's picture of its output, or the desk's
 /// drawing of the stage from its pose), with what is edited on top of it, directly — the corner pin and the
 /// warp lattice (Warp tool), the output's pen masks (Pen tool draws new ones; Select drags an existing one's
-/// nodes and handles), and the pins with their live residuals (Pin tool: click a surface to pin it, drag a
-/// pin onto the real feature). Coordinates: the projector's raster maps onto the picture; masks and warps
-/// are in normalised output units.</summary>
+/// nodes and handles), the pins with their live residuals (Pin tool: click a surface to pin it, drag a
+/// pin onto the real feature), and the quads drawn in its picture with their corners (Quad tool: four clicks with a
+/// rubber band to the pointer; Select picks a quad, its selected corner drawn large). Coordinates: the projector's raster
+/// maps onto the picture; masks, warps and the quad tool's clicks are in normalised output units (the wall's), a quad's
+/// corners are raster-normalised and drawn where the output's warp puts them on the wall.</summary>
 public sealed class ProjectorCanvas : PreviewSurface
 {
     public static readonly StyledProperty<MapViewModel?> MapProperty = AvaloniaProperty.Register<ProjectorCanvas, MapViewModel?>(nameof(Map));
@@ -128,10 +130,87 @@ public sealed class ProjectorCanvas : PreviewSurface
                 DrawWarp(context, r, output);
         }
         DrawPen(context, r, map.Pen);
+        DrawQuads(context, r, map, pj);
+        DrawQuadTool(context, r, map.Quad);
         DrawPins(context, v, pj, map.Tool == MapTool.Pin);
         context.DrawRectangle(new Pen(new SolidColorBrush(StageDrawing.ColorOf(pj.Color)), 2), r.Deflate(1), 0);
         StageDrawing.Label(context, map.ViewTitle + "  ·  " + pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture) + "×" + pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture),
             new Point(r.X + 12, r.Bottom - 28));
+    }
+
+    private (OutputWarp Warp, Core.Mapping.WarpField Field)? _field;
+
+    /// <summary>Where a raster-normalised point of the view's projector lands on the wall (the output's warp), or the point itself
+    /// when no output shows the projector.</summary>
+    private Vec2d WallOf(MapViewModel map, Vec2d raster)
+    {
+        if (map.WallOutput is not { } o)
+            return raster;
+        if (_field is not { } f || !ReferenceEquals(f.Warp, o.Warp))
+        {
+            f = (o.Warp, new Core.Mapping.WarpField(o.Warp));
+            _field = f;
+        }
+        return f.Field.Evaluate(raster.X, raster.Y);
+    }
+
+    /// <summary>A quad's corners on the wall (wall-normalised), TL TR BR BL.</summary>
+    private Vec2d[] QuadCorners(MapViewModel map, PixelQuad q) =>
+        [WallOf(map, q.TopLeft), WallOf(map, q.TopRight), WallOf(map, q.BottomRight), WallOf(map, q.BottomLeft)];
+
+    /// <summary>The quads drawn in this projector's picture: outlines, names and corners; the selected one's selected corner large.</summary>
+    private void DrawQuads(DrawingContext ctx, Rect r, MapViewModel map, Projector pj)
+    {
+        if (map.Project is not { } p)
+            return;
+        foreach (var s in p.Stage.Surfaces)
+        {
+            if (s.Pixel is not { } q || q.ProjectorId != pj.Id || !s.Visible)
+                continue;
+            var selected = map.SelectedKind == "surface" && map.SelectedId == s.Id;
+            var c = QuadCorners(map, q);
+            var pen = new Pen(selected ? StageDrawing.Accent : new SolidColorBrush(StageDrawing.ColorOf(s.Color)), selected ? 2 : 1.4);
+            for (var i = 0; i < 4; i++)
+                ctx.DrawLine(pen, Norm(r, c[i]), Norm(r, c[(i + 1) % 4]));
+            StageDrawing.Label(ctx, s.Name, Norm(r, c[0]) + new Point(8, 6), StageDrawing.DimText, 10.5);
+            for (var i = 0; i < 4; i++)
+            {
+                var at = Norm(r, c[i]);
+                var size = selected && map.SelectedCorner == i ? 9 : 5;
+                ctx.DrawRectangle(selected && map.SelectedCorner == i ? StageDrawing.Accent : HandleFill, HandlePen, new Rect(at.X - size, at.Y - size, size * 2, size * 2), 2, 2);
+            }
+        }
+    }
+
+    /// <summary>The quad tool's corners so far, joined in order, and the rubber band from the last to the pointer.</summary>
+    private static void DrawQuadTool(DrawingContext ctx, Rect r, ViewModels.Map.QuadTool quad)
+    {
+        var clicks = quad.Clicks;
+        if (clicks.Count == 0)
+            return;
+        var pen = new Pen(StageDrawing.Accent, 2);
+        for (var i = 1; i < clicks.Count; i++)
+            ctx.DrawLine(pen, Norm(r, clicks[i - 1]), Norm(r, clicks[i]));
+        if (clicks.Count == 4)
+            ctx.DrawLine(pen, Norm(r, clicks[3]), Norm(r, clicks[0]));
+        else if (quad.Pointer is { } to)
+            ctx.DrawLine(new Pen(StageDrawing.Accent, 1.2, dashStyle: new DashStyle([4, 3], 0)), Norm(r, clicks[^1]), Norm(r, to));
+        foreach (var c in clicks)
+            ctx.DrawEllipse(StageDrawing.Accent, HandlePen, Norm(r, c), 6, 6);
+    }
+
+    /// <summary>The quad of this projector under a point of the picture (wall-normalised), topmost first, or null.</summary>
+    private string? QuadAt(MapViewModel map, Projector pj, Vec2d n)
+    {
+        if (map.Project is not { } p)
+            return null;
+        for (var i = p.Stage.Surfaces.Length - 1; i >= 0; i--)
+        {
+            var s = p.Stage.Surfaces[i];
+            if (s.Pixel is { } q && q.ProjectorId == pj.Id && s.Visible && Inside(QuadCorners(map, q), n))
+                return s.Id;
+        }
+        return null;
     }
 
     private Vec2d NodeOffset(WarpLattice l, int c, int row) =>
@@ -297,6 +376,9 @@ public sealed class ProjectorCanvas : PreviewSurface
         _drag = default;
         switch (map.Tool)
         {
+            case MapTool.Quad:
+                map.QuadClick(n);
+                break;
             case MapTool.Pen:
                 map.Pen.Press(n, e.KeyModifiers.HasFlag(KeyModifiers.Alt), hit);
                 break;
@@ -344,6 +426,11 @@ public sealed class ProjectorCanvas : PreviewSurface
             }
         }
         map.SelectedMaskId = null;
+        if (map.ViewProjector is { } pj && QuadAt(map, pj, ToNorm(r, p)) is { } quad)
+        {
+            map.Select("surface", quad);
+            return;
+        }
         if (View(r) is { } v && map.Scene.Pick(v.RayAt(p)) is { } h)
             map.Select("surface", h.Surface.Surface.Id);
     }
@@ -406,6 +493,11 @@ public sealed class ProjectorCanvas : PreviewSurface
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (Map is { Tool: MapTool.Quad } quadMap)
+        {
+            var at = ToNorm(PictureRect(), e.GetPosition(this));
+            quadMap.Quad.MoveTo(at.X is >= 0 and <= 1 && at.Y is >= 0 and <= 1 ? at : null);
+        }
         if (!_pressed || Map is not { } map || map.ViewProjector is not { } pj)
             return;
         var r = PictureRect();

@@ -15,7 +15,7 @@ public sealed record Shortcut(string Keys, string Words, string Scope, Key Key, 
 }
 
 /// <summary>The desk's keyboard: one table that both handles the keys and fills the F1 overlay, so the help
-/// never lies. Tool letters (Q P W B T) apply in MAP; the transport keys everywhere.</summary>
+/// never lies. Tool letters (S Q P W B T O) apply in MAP; the transport keys everywhere.</summary>
 public sealed class ShortcutMap
 {
     private ShortcutMap(IReadOnlyList<Shortcut> entries) => Entries = entries;
@@ -55,15 +55,31 @@ public sealed class ShortcutMap
             new("Ctrl+Left", "Previous item", "Transport", Key.Left, KeyModifiers.Control, vm.Master.Prev.Command),
             new("Ctrl+Right", "Next item", "Transport", Key.Right, KeyModifiers.Control, vm.Master.Next.Command),
             new("Ctrl+B", "Blackout on or off (BLACKOUT)", "Transport", Key.B, KeyModifiers.Control, vm.Blackout.Command),
-            new("Q", "Select tool", "MAP", Key.Q, KeyModifiers.None, map.SelectTool, InMap),
+            new("S", "Select tool", "MAP", Key.S, KeyModifiers.None, map.SelectTool, InMap),
+            new("Q", "Quad tool: click the four corners of the wall, on the wall; Enter draws it (SURFACE QUAD)", "MAP", Key.Q, KeyModifiers.None, map.QuadTool, InMap),
+            new("O", "On the wall: the edit overlay on the projector's output (OVERLAY ON|OFF ON <output>)", "MAP", Key.O, KeyModifiers.None, map.OnWall.Command, InMap),
             new("P", "Pin tool: click a surface in projector view to pin it", "MAP", Key.P, KeyModifiers.None, map.PinTool, InMap),
             new("W", "Warp tool: drag lattice and corner handles", "MAP", Key.W, KeyModifiers.None, map.WarpTool, InMap),
             new("B", "Pen tool: click corners, drag smooth nodes, Alt-click toggles, click the first node to close", "MAP", Key.B, KeyModifiers.None, map.PenTool, InMap),
             new("T", "Test pattern menu", "MAP", Key.T, KeyModifiers.None, map.OpenPatternMenu, InMap),
             new("V", "3D view ↔ projector view", "MAP", Key.V, KeyModifiers.None, map.ToggleView, InMap),
             new("Enter", "Close the pen path", "MAP", Key.Enter, KeyModifiers.None, map.Pen.CloseCommand, () => InMap() && map.Pen.IsDrawing),
+            new("Enter", "Draw the quad from its four corners (SURFACE QUAD)", "MAP", Key.Enter, KeyModifiers.None, map.FinishQuad, () => InMap() && map.Quad.IsReady),
+            new("Tab", "The selected quad's next corner (HANDLE SELECT)", "MAP", Key.Tab, KeyModifiers.None, map.NextCorner, () => InMap() && map.CanNudge),
+            new("Shift+Tab", "The selected quad's previous corner (HANDLE SELECT)", "MAP", Key.Tab, KeyModifiers.Shift, map.PrevCorner, () => InMap() && map.CanNudge),
             new("Delete", "Remove the selection (REMOVE)", "MAP", Key.Delete, KeyModifiers.None, map.RemoveSelection, InMap),
         ];
+        // The arrows move the selected quad's corner in wall pixels: 1 px, Shift ×10, Alt ×0.1 (SURFACE CORNER … BY … PX).
+        foreach (var (mods, step, words) in new[] { (KeyModifiers.None, 1.0, ""), (KeyModifiers.Shift, 10.0, "Shift+"), (KeyModifiers.Alt, 0.1, "Alt+") })
+        {
+            foreach (var (key, dx, dy, name) in new[] { (Key.Left, -1.0, 0.0, "Left"), (Key.Right, 1.0, 0.0, "Right"), (Key.Up, 0.0, -1.0, "Up"), (Key.Down, 0.0, 1.0, "Down") })
+            {
+                var (x, y) = (dx * step, dy * step);
+                e.Add(new(words + name, string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"Move the selected quad's corner {step:0.#} px {name.ToLowerInvariant()} on the wall (SURFACE CORNER … BY … PX)"),
+                    "MAP", key, mods, new Infrastructure.RelayCommand(() => map.Nudge(x, y)), () => InMap() && map.CanNudge));
+            }
+        }
         if (modules is not null)
             e.AddRange(modules);
         return new ShortcutMap(e);
