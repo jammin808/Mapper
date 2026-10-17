@@ -40,15 +40,15 @@ with no rebuild path [map §3.1].
 
 | # | Decision | What it means in the tree | Why | What would reopen it |
 |---|---|---|---|---|
-| D1 | **Direct3D 12 is the primary renderer, behind an RHI.** | The RHI's contracts live in Core (`PlayMap.Core/Gpu`); the GL backend moves under `src/PlayMap.Render/Gl/`; the Direct3D 12 backend is a new edge, `src/PlayMap.Render.D3D12`, referencing Core and its native libraries only. Passes, generators and the frame code use the RHI and name neither API. | New GPU features reach Windows through D3D12 first; it sits on DXGI's flip model and NVIDIA's present barrier; it is the currency of D3D12 Video, Spout's D3D11 bridge and the desk's GPU import; only D3D12 has PIX, DRED, Aftermath, Radeon GPU Detective and GPU-less CI on WARP [dir §1]. | Nothing in the evidence; a lab finding that D3D12 is slower than GL on a vendor tier delays AUTO there (D2), not the decision. |
-| D2 | **OpenGL stays the reference backend until pixel and timing parity, then retires.** | GL 3.3 core / ES 3.00 stays behind the RHI with unchanged pixels. `PRESENT PATH D3D12` is explicit this round; AUTO stays GL until a lab parity record exists for a vendor tier (§1.5, M1), and then becomes D3D12 on that tier in one commit that cites the record. GL, ANGLE and the D3D11 path are deleted next round, each with the tests that test only it. | Parity must be measured before a backend is retired ("measured, then governed"); no source compares D3D12, Vulkan and GL latency on show hardware [dir §1]. | A tier whose parity never arrives keeps GL there, with words. |
-| D3 | **Vulkan is not carried.** | No Vulkan backend. The user-shader front end goes through SPIR-V (D7), so a Vulkan backend would stay cheap to add. | Vulkan's Windows presentation depends on each vendor; Spout, D3D12 Video and the desk's import need a DirectX bridge anyway; present timing is new and NVIDIA-first [dir §1]. | Linux render nodes as a goal again. |
-| D4 | **Windows 11 24H2 (build 26100) or later; Windows 11 IoT Enterprise LTSC 2024 recommended for show nodes.** | The installer refuses an older build with words. Show nodes: IoT Enterprise LTSC 2024 (build 26100, supported to 10 Oct 2034, Shell Launcher and specialized displays available). Desk and programming machines: Pro or Enterprise 24H2/25H2. Windows 10 is not supported. Linux keeps the development loop and CI's GL suites, not shipped nodes. | 24H2 clears every feature floor the round uses (GPU upload heaps at 26080+, D3D12 AV1 encode); the Agility SDK keeps D3D12 current on a frozen LTSC; Windows 10 ended on 14 Oct 2025 [dir §5]. | A shipped feature needing a later build. |
-| D5 | **Hardware lock only on NVIDIA RTX PRO with RTX PRO Sync; an honest software lock everywhere else.** | The frame-lock tier joins outputs through NVAPI's D3D12 present barrier and reports its sync mode and in-sync counts as the lock's evidence. AMD, GeForce and any node without a board present free and report measured phase ("same frame, phase +6.2 ms ± 0.3 ms"); STATE never says "locked" without hardware evidence. | AMD withdrew framelock in 23.Q1; GeForce never had it; network time aligns which frame is drawn, not when it scans out [dir §2]. | A vendor shipping a lock with a D3D12 entry point. |
-| D6 | **A per-machine MSI; the engine runs in an auto-logged-on show user's session under a supervising service.** | WiX v7 builds one per-machine MSI. A small LocalSystem service (`PlayMap.Supervisor`) starts `PlayMap.exe engine` in the show user's session, restarts it, and stops one whose shown-frame heartbeat has stopped. The engine never runs as administrator and never in session 0; the installer does every machine-level action once (firewall, dump settings, privileges). | Session 0 cannot drive displays; MSIX virtualises the machine-level writes the node needs; Velopack's MSI adds no services [dir §5]. | None expected. |
-| D7 | **One HLSL source for the product shaders; user ISF out of process.** | The 40 product programs are written once in HLSL and compiled by DXC at build time (the GLSL stays for the GL backend until it retires). User ISF goes ISF → GLSL 4.50 → glslang relaxed (`-R`) → SPIR-V → validated → SPIRV-Cross → HLSL → DXC → DXIL in a `PlayMap shader-worker` process, so no compiler loads into the engine; spirv_to_dxil stays a measured alternative behind the same stage. A shader that crashed the GPU is quarantined. | DXC's PDBs map a GPU crash to a source line in PIX and RGD; incorrectly written GLSL crashes explicit-API renderers [dir §1]. SPIRV-Cross and DXC ship as packages today; spirv_to_dxil has no package (to be built from Mesa). | spirv_to_dxil passing more of the ISF corpus than SPIRV-Cross (shaders' stretch measures it). |
-| D8 | **TerraFX for Direct3D 12 and DXGI.** | `TerraFX.Interop.Windows` (raw structs and function-pointer vtables, generated from the Windows SDK and Agility headers) in `PlayMap.Render.D3D12` only; its port of the D3D12 Memory Allocator for memory, or PlayMap's own placed-resource pools if that port lags the Agility SDK. NVAPI stays hand-declared, as today. | The hot path allocates nothing; raw bindings keep that true and match the house's vtable approach (`ComSlots`) without hand-writing the D3D12 surface, which is far larger than the 31 methods `ComSlots` declares [map §2.7]. A wrapper binding allocates managed objects per interface. | A binding gap that blocks a must; Vortice.Windows is the named alternative. |
-| D9 | **The desk keeps Avalonia,** with GPU shared-texture previews and the consoles' safety patterns. | Previews move from four CPU copies to a shared texture and fence per view where the desk's compositor shares the engine's adapter; the CPU ring stays for every other case. | Avalonia 12.1 is current and imports D3D11 NT-handle textures and D3D12 fence handles; WinUI 3 would rewrite every view for one asset [dir §9]. | Avalonia's backend not importing either at run time (§1.5, M2): the ring stays, and only the GPU path waits. |
+| D1 | **Direct3D 12 is the primary renderer, behind an RHI.** | The RHI's contracts will live in Core (`PlayMap.Core/Gpu`); the GL backend will move under `src/PlayMap.Render/Gl/`; the Direct3D 12 backend will be a new edge, `src/PlayMap.Render.D3D12`, referencing Core and its native libraries only. Passes, generators and the frame code will use the RHI and name neither API. | New GPU features reach Windows through D3D12 first; it sits on DXGI's flip model and NVIDIA's present barrier; it is the currency of D3D12 Video, Spout's D3D11 bridge and the desk's GPU import; only D3D12 has PIX, DRED, Aftermath, Radeon GPU Detective and GPU-less CI on WARP [dir §1]. | Nothing in the evidence; a lab finding that D3D12 is slower than GL on a vendor tier delays AUTO there (D2), not the decision. |
+| D2 | **OpenGL stays the reference backend until pixel and timing parity, then retires.** | GL 3.3 core / ES 3.00 will stay behind the RHI with unchanged pixels. `PRESENT PATH D3D12` will be explicit this round; AUTO will stay GL until a lab parity record exists for a vendor tier (§1.5, M1), and then become D3D12 on that tier in one commit that cites the record. GL, ANGLE and the D3D11 path will be deleted next round, each with the tests that test only it. | Parity must be measured before a backend is retired ("measured, then governed"); no source compares D3D12, Vulkan and GL latency on show hardware [dir §1]. | A tier whose parity never arrives keeps GL there, with words. |
+| D3 | **Vulkan is not carried.** | No Vulkan backend. The user-shader front end will go through SPIR-V (D7), so a Vulkan backend would stay cheap to add. | Vulkan's Windows presentation depends on each vendor; Spout, D3D12 Video and the desk's import need a DirectX bridge anyway; present timing is new and NVIDIA-first [dir §1]. | Linux render nodes as a goal again. |
+| D4 | **Windows 11 24H2 (build 26100) or later; Windows 11 IoT Enterprise LTSC 2024 recommended for show nodes.** | The installer will refuse an older build with words. Show nodes: IoT Enterprise LTSC 2024 (build 26100, supported to 10 Oct 2034, Shell Launcher and specialized displays available). Desk and programming machines: Pro or Enterprise 24H2/25H2. Windows 10 will not be supported. Linux will keep the development loop and CI's GL suites, not shipped nodes. | 24H2 clears every feature floor the round uses (GPU upload heaps at 26080+, D3D12 AV1 encode); the Agility SDK keeps D3D12 current on a frozen LTSC; Windows 10 ended on 14 Oct 2025 [dir §5]. | A shipped feature needing a later build. |
+| D5 | **Hardware lock only on NVIDIA RTX PRO with RTX PRO Sync; an honest software lock everywhere else.** | The frame-lock tier will join outputs through NVAPI's D3D12 present barrier and report its sync mode and in-sync counts as the lock's evidence. AMD, GeForce and any node without a board will present free and report measured phase ("same frame, phase +6.2 ms ± 0.3 ms"); STATE will never say "locked" without hardware evidence. | AMD withdrew framelock in 23.Q1; GeForce never had it; network time aligns which frame is drawn, not when it scans out [dir §2]. | A vendor shipping a lock with a D3D12 entry point. |
+| D6 | **A per-machine MSI; the engine runs in an auto-logged-on show user's session under a supervising service.** | WiX v7 will build one per-machine MSI. A small LocalSystem service (`PlayMap.Supervisor`) will start `PlayMap.exe engine` in the show user's session, restart it, and stop one whose shown-frame heartbeat has stopped. The engine will never run as administrator and never in session 0; the installer will do every machine-level action once (firewall, dump settings, privileges). | Session 0 cannot drive displays; MSIX virtualises the machine-level writes the node needs; Velopack's MSI adds no services [dir §5]. | None expected. |
+| D7 | **One HLSL source for the product shaders; user ISF out of process.** | The 40 product programs will be written once in HLSL and compiled by DXC at build time (the GLSL stays for the GL backend until it retires). User ISF will go ISF → GLSL 4.50 → glslang relaxed (`-R`) → SPIR-V → validated → SPIRV-Cross → HLSL → DXC → DXIL in a `PlayMap shader-worker` process, so no compiler loads into the engine; spirv_to_dxil will stay a measured alternative behind the same stage. A shader that crashed the GPU will be quarantined. | DXC's PDBs map a GPU crash to a source line in PIX and RGD; incorrectly written GLSL crashes explicit-API renderers [dir §1]. SPIRV-Cross and DXC ship as packages today; spirv_to_dxil has no package (to be built from Mesa). | spirv_to_dxil passing more of the ISF corpus than SPIRV-Cross (shaders' stretch measures it). |
+| D8 | **TerraFX for Direct3D 12 and DXGI.** | `TerraFX.Interop.Windows` (raw structs and function-pointer vtables, generated from the Windows SDK and Agility headers) in `PlayMap.Render.D3D12` only; its port of the D3D12 Memory Allocator for memory, or PlayMap's own placed-resource pools if that port lags the Agility SDK. NVAPI will stay hand-declared, as today. | The hot path allocates nothing; raw bindings keep that true and match the house's vtable approach (`ComSlots`) without hand-writing the D3D12 surface, which is far larger than the 31 methods `ComSlots` declares [map §2.7]. A wrapper binding allocates managed objects per interface. | A binding gap that blocks a must; Vortice.Windows is the named alternative. |
+| D9 | **The desk keeps Avalonia,** with GPU shared-texture previews and the consoles' safety patterns. | Previews will move from four CPU copies to a shared texture and fence per view where the desk's compositor shares the engine's adapter; the CPU ring will stay for every other case. | Avalonia 12.1 is current and imports D3D11 NT-handle textures and D3D12 fence handles; WinUI 3 would rewrite every view for one asset [dir §9]. | Avalonia's backend not importing either at run time (§1.5, M2): the ring stays, and only the GPU path waits. |
 | D10 | **What the round refuses.** | DLSS frame generation (synthesised frames under their own pacing contradict content as a pure function of show time); adaptive resolution (it breaks blend seams); VRR on any output in a lock group or feeding genlocked processors; shipping changed TDR registry keys (long GPU work is split instead); `GC.Collect` at show arm (banned in `src/`; a case for it needs a measured cause and a test). | [dir §2, §4, §5, §7, §8] | A measured cause and a deterministic test. |
 
 ### 1.3 Versions: one source, every format its reader needs
@@ -65,7 +65,7 @@ rules (wp3-installer, item 1).
 | **MSI `ProductVersion`** | `MAJOR.MINOR.BUILD`, major and minor ≤ 255, build ≤ 65 535 | `0.2.17` | Windows Installer reads three fields and ignores a fourth: under the branch's four-part scheme every CI build of 0.2.0 would read as 0.2.0 [map §6.3]. The MSI takes the build number as its third field, so every numbered build upgrades the one before it |
 | Assembly version | binding only | `0.2.0.0` | As the branch has it |
 
-The rules the installer adds:
+The rules the installer will add:
 
 1. **Major and minor at most 255** for every build, not only for an MSI: `Version.props` will refuse more, so no version can be
    set that a release cannot install.
@@ -86,10 +86,10 @@ MSIX and Velopack are not used, so their version rules do not apply.
 
 ### 1.4 What CI proves, and where
 
-The Linux job stays the development loop and the gate for everything that is not Direct3D. The Windows job (`windows-latest`, no
-GPU) gains Direct3D 12 on WARP from NuGet (feature level 12_2, Shader Model 6.9 [dir §1]) with the Agility SDK's debug layer, and
-becomes the hard gate for every Direct3D 12 line from wp3-d3d12-core's merge on (§5.4). WARP's NuGet binaries are CI's only; they
-are never in the MSI.
+The Linux job will stay the development loop and the gate for everything that is not Direct3D. The Windows job (`windows-latest`,
+no GPU) will gain Direct3D 12 on WARP from NuGet (feature level 12_2, Shader Model 6.9 [dir §1]) with the Agility SDK's debug
+layer, and will become the hard gate for every Direct3D 12 line from wp3-d3d12-core's merge on (§5.4). WARP's NuGet binaries are
+CI's only; they will never be in the MSI.
 
 | Evidence | Linux job (llvmpipe, Xvfb) | Windows job (WARP) | Lab |
 |---|---|---|---|
@@ -110,8 +110,8 @@ are never in the MSI.
 | MSI build, install, upgrade, downgrade refused, uninstall, service, firewall, dump settings | — | ✓ (the runner is elevated) | IoT Enterprise LTSC 2024, auto-logon |
 | Signing | — | ✓ on `main` | SmartScreen |
 
-The development loop runs on Linux, so every Direct3D 12 slice keeps its logic pure where it can be and its Direct3D calls thin,
-and reads its pushed branch's Windows job (`gh run view`) before it says it is done.
+The development loop runs on Linux, so every Direct3D 12 slice will keep its logic pure where it can be and its Direct3D calls
+thin, and will read its pushed branch's Windows job (`gh run view`) before it says it is done.
 
 ### 1.5 Measure first
 
@@ -121,7 +121,7 @@ both answers, so no slice waits on a hope.
 | # | Question | Measured how | Deadline | If yes | If no (and until it is measured) |
 |---|---|---|---|---|---|
 | M1 | **Is D3D12 as fast as GL, through the present ledger, on show hardware?** | `bench/r3-present` in W1 (a flashing quad through D3D12 flip, the existing GL window and the D3D11 path on one display, photodiode at a fixed screen position plus PresentMon); then the engine itself once wp3-present merges: the same show on `PRESENT PATH GL` and `D3D12`, an hour each, ledger and photodiode | AUTO's switch, after W3 | AUTO becomes D3D12 on that vendor tier (NVIDIA RTX, RTX PRO, Radeon, Arc) in one commit citing the record | AUTO stays GL on that tier, with words in STATE naming the record; D3D12 stays explicit |
-| M2 | **Does Avalonia's Windows backend import a D3D12 shared texture and a D3D12 fence at run time?** | A bench app in W1 on a real GPU: `ICompositionGpuInterop.SupportedImageHandleTypes` and `SupportedSemaphoreTypes`, an import, a frame shown | wp3-desk-gpu's slice (W3) | The fence path as designed | Only the texture is shared and the desk polls the ring's control block for completion, or the ring stays; the age badge ships either way |
+| M2 | **Does Avalonia's Windows backend import a D3D12 shared texture and a D3D12 fence at run time?** | A bench app in W1 on a real GPU: `ICompositionGpuInterop.SupportedImageHandleTypes` and `SupportedSemaphoreTypes`, an import, a frame shown | wp3-desk-gpu's slice (W3) | The fence path as designed | The ring stays for that compositor (a shared texture the desk cannot wait on is not used); the age badge ships either way |
 | M3 | **Does the Windows 11 composition swapchain take D3D12 buffers and present at a target time?** | A bench in W1 | wp3-present's stretch 7 | A timed-present tier for outputs whose cadence is not the display's | Not built; flip presenters with the predicted display time are the path |
 | M4 | **Does the present barrier join several swap chains in one process on a Sync wall?** | The lab's two-machine RTX PRO Sync wall, two outputs each, nvpro-samples' barrier sample then the engine | wp3-framelock's slice (W4) | A client per output's swap chain, as designed | Multi-output nodes lock through one swap chain over a Synchronized Mosaic surface (framelock's stretch 6 becomes its must) |
 | M5 | **Does Reflex work on RTX PRO drivers, and with the present barrier?** | The lab's RTX PRO node: `NvAPI_D3D_SetSleepMode` answers and its latency markers | after W3 | An optional low-latency tier on outputs that are not in a barrier | PlayMap's own just-in-time pacing (waitable, then sample, then record) is the only one; never both on one output until measured |
@@ -265,7 +265,7 @@ lab, and its next round.
    the table below with its syntax, words, risk, show class and owner's block comment; `VIEW` gains `[SHARED <pid>]` and
    `PRESENT PATH` gains `D3D12` (refused with words until their owners route them); `RoutesTests` and `CatalogueTests` cover the
    rows. (3 h)
-3. Core contracts two or more packages share: `GpuApi.D3D12`; `PresentPath.D3D12Flip` and its word (`d3d12-flip` in STATE; on the
+3. Contracts two or more packages share: `GpuApi.D3D12`; `PresentPath.D3D12Flip` and its word (`d3d12-flip` in STATE; on the
    wire a D3D12 flip presenter reports PMVB path 2, `dxgi-flip`, the presentation model it shares with the D3D11 path, so mixed
    builds in a group read each other); the PMVB reader learns path 3 (`dedicated`, wp3-present's stretch) and still refuses 4
    and above; `NodeIdentity`, `AdapterIdentity`, `CapabilitySnapshot` and `CapabilityProbe` records (Core/Machine); the engine
@@ -328,7 +328,8 @@ creates a WARP device and says its feature level. **Manual.** None.
 
 **Slice.**
 1. The contracts in `src/PlayMap.Core/Gpu/`: the format, filter, wrap, blend, depth, cull and topology vocabulary (moved from
-   `Render/Gpu/GpuTypes.cs`, same names and values); `IGpuDevice`, `ITexture`, `IRenderTarget`, `IGpuBuffer`; `ICommandList`
+   `Render/Gpu/GpuTypes.cs`, same names and values); `IGpuDevice`; the resource types callers already name (`GpuTexture`,
+   `RenderTarget`, `GpuBuffer`, and `GpuMesh` for today's `VertexArray`) as abstract classes; `ICommandList`
    with a `DrawBuilder` (a `ref struct` that sets a program's constants by name through its layout, binds textures by slot and
    draws); `PipelineKey` (program, blend, depth, cull, topology, target formats) and `DrawState`; `ProgramLayout` (each
    program's constants with type and offset, its texture slots); `FenceValue` (a queue's timeline and value); `IUploadRing`,
@@ -344,7 +345,7 @@ creates a WARP device and says its feature level. **Manual.** None.
    then `Present()` in place of `Present(GpuTexture)`; the engine's two `GlDevice` files; `PassFrame.Device` an `IGpuDevice`.
    (9 h)
 4. The tests: `BackendFixture` in place of `GlFixture` (the GL backend on a dedicated thread today; a backend list a later
-   package extends), `Pixels.Read(IGpuDevice, IRenderTarget)`, the 213 `gl` tests and 15 files that name `GlDevice` moved onto it;
+   package extends), `Pixels.Read(IGpuDevice, RenderTarget)`, the 213 `gl` tests and 15 files that name `GlDevice` moved onto it;
    no golden file edited. (4 h)
 
 ⟂ *(≈ 25 h)*
@@ -373,7 +374,7 @@ and the other rigs' platform lines.
   two programs share a name.
 - `FenceValueTests`: values grow per queue; `IsComplete` is monotonic; a fence ring of 64 wraps without losing a value.
 - `AllocationTests` unchanged: a warm frame allocates nothing.
-- `RenderStateFixtureTests`: every STATE fixture regenerated byte for byte.
+- The STATE fixtures' own tests regenerate every fixture byte for byte.
 
 **Verified here.** All. **On CI (Windows).** The same suites on Mesa WGL. **Manual.** None.
 
@@ -452,8 +453,9 @@ each default; a hybrid Intel CPU's placement; a dual-CCD X3D CPU.
 **Slice.**
 1. The 40 product programs [map §2.4] in HLSL under `src/PlayMap.Render.D3D12/Shaders/`, one file per family, with the house's
    conventions (targets top row first, row-vector matrices, UV v down, geometry from `SV_VertexID`, exact reads with `Load`), one
-   root signature for all (the program's constants in `b0`, sixteen texture slots, four static samplers); compiled by DXC at
-   build time to DXIL with PDBs and reflection, embedded in the assembly (on the Windows job; on Linux too if M6 says yes). (12 h)
+   root signature for all (the program's constants in `b0`; a binding block in `b1` of sixteen texture and sixteen sampler
+   indices into directly indexed heaps, Shader Model 6.6); compiled by DXC at build time to DXIL with PDBs and reflection,
+   embedded in the assembly (on the Windows job; on Linux too if M6 says yes). (12 h)
 2. `ShaderLayoutTests`: each program's DXC reflection (constant names, types, offsets; texture slots) equals its
    `ProgramLayout`; before rhi merges, against a parse of the GLSL declarations. The integer-exact programs (`video.pack`,
    `hapenc.*`) are marked for wp3-d3d12-core's byte-exact parity tests. (2 h)
@@ -639,7 +641,7 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
 4. Commands: `D3D12CommandList : ICommandList` with automatic state tracking and barriers (per subresource; resources the render
    graph manages opt out in wp3-d3d12-passes), the shared root signature, constants into the frame's ring through the program's
    layout, pipelines from the embedded DXIL through `IPipelineCache` — made on the render thread only when no warm-up made them
-   and then counted (`render.pipelines.renderThreadCompiles`), kept in a pipeline library keyed by adapter LUID, driver version
+   and then counted (`render.pipelines.renderThreadMakes`), kept in a pipeline library keyed by adapter LUID, driver version
    and build; timestamps per pass; PIX markers and DRED breadcrumbs per pass. (6 h)
 5. The Direct3D 12 leg of `BackendFixture`: every Render pixel scene on WARP within its GL tolerance (the byte-exact ones — packed
    video, HAP encoder blocks — byte-exact); an offscreen D3D12 platform for the render host (`PRESENT PATH D3D12` on a node with
@@ -760,10 +762,10 @@ per pass on real GPUs (from -2's timings).
 ⟂ *(≈ 22 h)*
 
 6. *(stretch)* The observer reading the scan camera's view of the wall in rehearsal (larger marks).
-7. *(stretch)* The air hazard file (`docs/HAZARDS.md`: each hazard to the air traced to the test that holds it, design §5).
+7. *(stretch)* The air hazard file (`docs/HAZARDS.md`: each hazard to the air traced to the test that holds it, design §14).
 
-**Preflight.** Section `observe`: an observed output stale, torn, wrong, late or lost (red); a watermark showing on the air
-(amber, with where). **INDEX.** Section `observe`: each observed output's light.
+**Preflight.** Section `observe`: an observed output stale, torn, wrong or lost (red), late (amber); a watermark showing on the
+air (amber, with where). **INDEX.** Section `observe`: each observed output's light.
 
 **Owns.** `src/PlayMap.Core/Observe/**`, `src/PlayMap.Engine/Observe/**`, the `Observe` stubs, `src/PlayMap.Render/Passes/
 WatermarkPass.cs`, `docs/OBSERVE.md`, `docs/wire/observe.md`.
@@ -804,8 +806,9 @@ loop-through of a real output; an LED processor's monitor out; a photodiode besi
    frames in flight, the refresh an enumerated mode (a request for another refused, naming both rationals), `Present(1, 0)`;
    `Record` copies the final picture into the back buffer in the frame's list; the fuse (a start that never reached its first
    frames comes back as GL, with words); `PRESENT PATH D3D12` routed, AUTO still GL until M1's record, with words. (7 h)
-2. Vblank truth and the evidence: frame statistics into `VblankClock` and `PresentLedger`; Independent Flip as `hint` from
-   statistics continuity (each present shown on the refresh it was queued for, no composition stall) and as `proven` by
+2. Vblank truth and the evidence: frame statistics into `VblankClock` and `PresentLedger`; Independent Flip as `hint` from DXGI's
+   own report (the media statistics' composition mode) with the statistics continuous (each present shown on the refresh after
+   its waitable signalled, no composition stall) and as `proven` by
    `PRESENT PROVE` (N seconds of continuity at the display's own rate, no miss, one frame from present to display), in PresentMon's
    words; `outputs[].present.mode/evidence/evidenceWords`; an output not in Independent Flip amber in preflight with its reason
    (composed: a window overlaps; the mode's refresh is not the display's). (5 h)
@@ -918,11 +921,12 @@ the pinned FFmpeg (M12); Spout with Resolume and TouchDesigner (M11); NDI with a
 *Design: `design/desk-gpu.md`.*
 
 **Slice.**
-1. The engine: a preview view drawn at its displayed size into two or three textures created shared, with one shared fence; their
-   NT handles duplicated into the desk's process on `VIEW … SHARED <pid>` (loopback sessions only, and only into a process of the
-   engine's own user and session, else refused with words); the ring file kept as the view's control block (slot, fence value,
-   size, stamp), so the desk learns the newest slot without a line; the engine never waits on the desk — a slot the desk still
-   holds is skipped, as the ring does today. (7 h)
+1. The engine: a preview view drawn at its displayed size into three textures created shared, with a `ready` fence the engine
+   signals and a `released` fence the desk signals; their NT handles duplicated into the desk's process on `VIEW … SHARED <pid>`
+   (loopback sessions only, and only into the process that owns the session's connection, of the engine's own user and session,
+   else refused with words); the ring file kept as the view's control block (slot, fence value, size, stamp), so the desk learns
+   the newest slot without a line; the engine never waits on the desk — a slot not yet released is skipped, as the ring skips a
+   slot today. (7 h)
 2. The desk: `GpuPreviewSource : IPreviewSource` importing each slot once through `ICompositionGpuInterop` (`ImportImage` with
    the texture's NT handle, `ImportSemaphore` with the D3D12 fence where the interop lists that type, M2), drawing into a
    `CompositionDrawingSurface` with its wait value; `IPreviewSource` answering a composition surface or a bitmap; the adapter guard
