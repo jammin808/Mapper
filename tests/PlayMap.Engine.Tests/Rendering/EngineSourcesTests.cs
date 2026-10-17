@@ -105,6 +105,26 @@ public sealed class EngineSourcesTests
         }
     }
 
+    /// <summary>Asks every one of the sources once a frame until each has answered; none goes a frame unasked, so none is idle.</summary>
+    private static void UntilAll(EngineSources sources, EngineSnapshot snap, SourceRef[] wanted, ref long frame)
+    {
+        var waited = Stopwatch.StartNew();
+        var answered = new bool[wanted.Length];
+        while (true)
+        {
+            sources.BeginFrame(snap, ++frame);
+            for (var i = 0; i < wanted.Length; i++)
+            {
+                using var lease = sources.Acquire(wanted[i], 7_000_000_000);
+                answered[i] |= lease is not null;
+            }
+            if (answered.All(a => a))
+                return;
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), "the sources never opened");
+            Thread.Yield();
+        }
+    }
+
     [Fact]
     public void TwoDecodersFramesNeverShareAGenerationAndALibraryItemLoopsOnTheLeadersClock()
     {
@@ -236,9 +256,9 @@ public sealed class EngineSourcesTests
         worker.Start();
         var sources = new EngineSources(media, work: work.Add);
         long frame = 0;
-        // Two open (their opens run); then the worker is held, and the third's open is queued behind the hold with the closes.
-        Until(sources, snap, SourceRef.Media("md_a"), ref frame).Dispose();
-        Until(sources, snap, SourceRef.Media("md_b"), ref frame).Dispose();
+        // Two open (their opens run, both asked every frame so neither is retired idle meanwhile); then the worker is held, and the
+        // third's open is queued behind the hold with the closes.
+        UntilAll(sources, snap, [SourceRef.Media("md_a"), SourceRef.Media("md_b")], ref frame);
         using var gate = new ManualResetEventSlim(false);
         work.Add(gate.Wait);
         sources.BeginFrame(snap, frame + 1);
