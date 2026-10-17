@@ -221,7 +221,7 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
 
     /// <summary>A pause is applied when the worker holds, not when it is asked: a queued job's pause is applied at once (it is not
     /// started); the running job's is accepted, pending, until its worker says it holds — then STATE says held and the journal says
-    /// paused, at the frame it held at; a resume lets it go on to its version.</summary>
+    /// paused, at the frame it held at; a resume is asked until the worker goes on, then journalled, and the job reaches its version.</summary>
     [FfmpegFact]
     public async Task APauseIsAppliedOnlyOnceTheWorkerHolds()
     {
@@ -243,7 +243,10 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         var row = rig.State().GetProperty("media").GetProperty("optimise").GetProperty("jobs").EnumerateArray().First(j => j.GetProperty("id").GetString() == jobs[0]);
         Assert.Equal((true, true, 1L), (row.GetProperty("paused").GetBoolean(), row.GetProperty("held").GetBoolean(), row.GetProperty("framesDone").GetInt64()));
 
-        await rig.Ok($"MEDIA OPTIMISE RESUME {jobs[0]}");
+        // The resume of the held job is asked, then a fact when the worker goes on.
+        var resumed = await rig.Run($"MEDIA OPTIMISE RESUME {jobs[0]}");
+        Assert.Equal((true, false, $"resume asked of {jobs[0]}: it goes on when its worker does"), (resumed.Ok, resumed.Applied, resumed.Effect));
+        await rig.Until(() => rig.Engine.Journal.Recent(50).Any(r => r.Text == $"First ({jobs[0]}) resumed at frame 1"), "the worker going on");
         await rig.Until(() => JobStates.IsOver(rig.Job(jobs[0]).State), "the first job's end");
         Assert.Equal((JobStates.Done, false), (rig.Job(jobs[0]).State, rig.Job(jobs[0]).Held));
         Assert.Equal((JobStates.Queued, true), (rig.Job(jobs[1]).State, rig.Job(jobs[1]).Paused));

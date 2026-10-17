@@ -122,7 +122,7 @@ internal sealed class OptimiseRig : IAsyncDisposable
 
     public OptimiseJob Job(string id) => Service.Jobs.Single(j => j.Id == id);
 
-    /// <summary>The rig's options with its first worker waiting at its first frame for the engine's next knobs
+    /// <summary>The rig's options with its first worker waiting at its first frame for the engine's next knobs that hold
     /// (<see cref="OptimiseOptions.HoldFirstWorkerAt"/>): a pause sent once that frame is heard reaches the worker mid-job.</summary>
     public static OptimiseOptions HeldAtFirstFrame() => Options() with { HoldFirstWorkerAt = 1 };
 

@@ -28,8 +28,8 @@ public static class OptimiseWorker
     public const string PriorityWord = "--priority";
 
     /// <summary>"--hold-at &lt;frames&gt;" after the word (tests only): after that many frames of its first job the worker waits for the
-    /// engine's next knobs line before its next frame, as a frame that takes that long would — so a pause sent then reaches it
-    /// mid-job however fast the encoder runs.</summary>
+    /// engine's next knobs line that holds (a pause, the governor's wait) before its next frame, as a frame that takes that long would —
+    /// so a pause sent then reaches it mid-job however fast the encoder runs.</summary>
     public const string HoldAtWord = "--hold-at";
 
     /// <summary>The frame the arguments' <see cref="HoldAtWord"/> names, 0 when none.</summary>
@@ -114,7 +114,8 @@ public static class OptimiseWorker
                             _go.Reset();
                         else
                             _go.Set();
-                        _knobsHeard.Set();
+                        if (k.Holds)
+                            _knobsHeard.Set();
                         break;
                     case "cancel":
                         lock (_write)
@@ -263,7 +264,7 @@ public static class OptimiseWorker
             }
         }
 
-        /// <summary>The test's hold (<see cref="HoldAtWord"/>): the frame goes on once the engine's next knobs line is in.</summary>
+        /// <summary>The test's hold (<see cref="HoldAtWord"/>): the frame goes on once the engine's next knobs line that holds is in.</summary>
         private void HoldForKnobs(CancellationToken ct) => _knobsHeard.Wait(ct);
 
         /// <summary>Between frames: hold while the knobs hold, saying so as the hold begins and ends; at a duty below one, rest so this

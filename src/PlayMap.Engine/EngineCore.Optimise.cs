@@ -150,9 +150,9 @@ public sealed partial class EngineCore
             foreach (var id in done)
                 w.WriteStringValue(id);
             w.WriteEndArray();
-            if (verb == "PAUSE")
+            if (verb != "CANCEL")
             {
-                // The running job's pause is applied when its worker says it holds (STATE jobs[].held), not when it is asked.
+                // The running job's pause is applied when its worker says it holds (STATE jobs[].held), its resume when it goes on.
                 w.WriteStartArray("pending");
                 foreach (var id in pending)
                     w.WriteStringValue(id);
@@ -163,7 +163,8 @@ public sealed partial class EngineCore
             : string.Join("; ", new[]
             {
                 done.Count > pending.Count ? $"{past} {string.Join(", ", done.Except(pending))}" : "",
-                $"pause asked of {string.Join(", ", pending)}: it holds at its next frame",
+                verb == "PAUSE" ? $"pause asked of {string.Join(", ", pending)}: it holds at its next frame"
+                    : $"resume asked of {string.Join(", ", pending)}: it goes on when its worker does",
             }.Where(p => p.Length > 0)));
         return pending.Count == 0 ? reply : reply with { Applied = false };
     }
