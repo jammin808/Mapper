@@ -5,6 +5,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Tests.Facade;
+using PlayMap.Core.Time;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Facade;
@@ -71,6 +72,16 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 
     /// <summary>The longest the import may hold the control lane in one slice (ms).</summary>
     internal const double LaneSliceBudgetMs = 10;
+
+    /// <summary>A slice is the lane thread's own time, read to the measure's resolution (the job's view carries it): a step of more
+    /// than a tenth of the budget could not tell a slice inside the budget from one over it, so where the measure is that coarse, or is
+    /// the stopwatch, the budget is not held by luck but refused here with what the measure is.</summary>
+    internal static void AssertTheSliceMeasureResolvesTheBudget(SurveyJobView job)
+    {
+        Assert.True(ThreadTime.Counted, $"the lane slice is timed by the stopwatch here, other threads' turns included ({ThreadTime.Basis})");
+        Assert.True(job.LaneResolutionMs * 10 <= LaneSliceBudgetMs, string.Create(CultureInfo.InvariantCulture,
+            $"the lane slice is measured in steps of {job.LaneResolutionMs} ms here ({ThreadTime.Basis}): the {LaneSliceBudgetMs} ms budget cannot be read"));
+    }
 
     internal static double ToSurvey(Vec3d stage, SiteFrame site, MeshData original, int cols, int rows)
     {
@@ -151,15 +162,16 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 
         var (job, seconds, answer, asked) = await ImportWhileAsking(rig, file);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices; {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
+            $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices ({ThreadTime.Basis}); {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
         Assert.Equal("ready", job.State);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
         // The lane answers SITE throughout: held here to the 4× ceiling of its 50 ms budget (the Perf twin, run alone, holds the budget).
         Assert.True(asked >= 2, $"{asked}");
         Assert.True(answer <= 4 * LaneAnswerBudgetMs, string.Create(CultureInfo.InvariantCulture, $"{answer:0.0} ms"));
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
-        // The 10 ms slice is a budget on real work: here it is held to its 4× ceiling (the suite runs beside it); the Perf twin,
-        // run alone, holds it to 10 ms.
+        // The 10 ms slice is a budget on real work, read to the measure's resolution: here it is held to its 4× ceiling (the suite
+        // runs beside it); the Perf twin, run alone, holds it to 10 ms.
+        AssertTheSliceMeasureResolvesTheBudget(job);
         Assert.True(job.LaneMaxMs <= 4 * LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
         // One edit: the revision moved once.
         Assert.Equal(revision + 1, rig.Engine.Store.Current.Revision);
@@ -439,9 +451,10 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
         var (job, seconds) = await SurveyImportTests.ImportBig(rig, file);
-        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices"));
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices ({ThreadTime.Basis})"));
         Assert.Equal("ready", job.State);
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
+        SurveyImportTests.AssertTheSliceMeasureResolvesTheBudget(job);
         Assert.True(job.LaneMaxMs <= SurveyImportTests.LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
     }
 }

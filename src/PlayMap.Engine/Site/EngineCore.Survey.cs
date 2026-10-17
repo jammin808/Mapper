@@ -11,9 +11,10 @@ namespace PlayMap.Engine;
 /// <summary>A survey import as the node sees it while it runs and after: its id and name, the file, importing / ready / failed with
 /// the progress and words, and the most work the import did on the control lane in one slice (ms of the lane thread's processor time,
 /// from its own instrumentation: the time a loaded machine gave others is not the import's; how long the lane answers while it runs is
-/// measured as such, SITE's latency in SurveyImportTests).</summary>
+/// measured as such, SITE's latency in SurveyImportTests) beside the step that measure moves in here (<see cref="Core.Time.ThreadTime.ResolutionNs"/>,
+/// ms), so a reader knows what <see cref="LaneMaxMs"/> can tell.</summary>
 public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, string Path, string State, double Progress, string Words,
-    double LaneMaxMs, int LaneSlices);
+    double LaneMaxMs, int LaneSlices, double LaneResolutionMs);
 
 /// <summary>SURVEY IMPORT and SURVEY LIST. The lane checks the line and the node and answers accepted at once; a worker reads,
 /// places, thins, decimates and writes (<see cref="SurveyImporter"/>); the lane then applies the result as one edit — the mesh asset,
@@ -157,7 +158,8 @@ public sealed partial class EngineCore
         {
             if (Volatile.Read(ref _survey) is { State: "importing" } running)
                 return CommandReply.Fail(string.Create(SiteInv, $"{running.Name} is importing ({running.Progress:P0}) — one survey at a time; STATE.stage.surveys follows it"));
-            view = new SurveyJobView(id, name, format, path, "importing", 0, $"importing {Path.GetFileName(path)}", 0, 1);
+            view = new SurveyJobView(id, name, format, path, "importing", 0, $"importing {Path.GetFileName(path)}", 0, 1,
+                Core.Time.ThreadTime.ResolutionNs / 1e6);
             Volatile.Write(ref _survey, view);
             _surveyShown = 0;
         }
