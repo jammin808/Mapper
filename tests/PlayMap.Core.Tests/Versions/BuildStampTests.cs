@@ -6,8 +6,8 @@ using PlayMap.Core.Tests.Model;
 namespace PlayMap.Core.Tests.Versions;
 
 /// <summary>The stamp Version.props writes, read back from built files: a small probe assembly built with the repository's
-/// Version.props as a CI build (a run number and a commit), as a local build in a checkout (the commit the SDK reads from git)
-/// and as a local build outside one; then MSBuild's own answer for a run counted from a raised base, at and past the four-part
+/// Version.props as a CI build (a run number and a commit), as a local build given a commit and as a local build outside a
+/// checkout; then MSBuild's own answer for this tree's checkout, for a run counted from a raised base, at and past the four-part
 /// bound and for numbers outside the scheme; and PlayMap.Core as this run's build stamped it. Each probe is built in a folder of
 /// its own outside the tree.</summary>
 public sealed class BuildStampTests
@@ -68,9 +68,10 @@ public sealed class BuildStampTests
     }
 
     [Fact]
-    public async Task ALocalBuildInACheckoutIsMarkedDevWithTheCommitTheSdkReads()
+    public async Task ALocalBuildGivenACommitIsMarkedDevWithIt()
     {
-        // In a git checkout the SDK sets SourceRevisionId from .git; the probe is outside one, so it is given the same property.
+        // In a git checkout the SDK sets SourceRevisionId from .git (ALocalBuildOfThisTreeCarriesTheCommitItsCheckoutIsAt); the
+        // probe is outside one, so it is given the property.
         var v = await ProductVersion();
         var stamp = await BuildProbe("-p:SourceRevisionId=" + Sha);
         Assert.Equal(AssemblyVersionOf(v), stamp.AssemblyVersion?.ToString());
@@ -91,6 +92,19 @@ public sealed class BuildStampTests
         Assert.Equal(v + "-dev", stamp.InformationalAttribute);
         Assert.Equal(new BuildInfo(v, 0, ""), BuildInfo.Parse(stamp.InformationalAttribute));
         Assert.Equal(v + ".0", stamp.Resource?.FixedFileVersion);
+    }
+
+    [Fact]
+    public async Task ALocalBuildOfThisTreeCarriesTheCommitItsCheckoutIsAt()
+    {
+        // PlayMap.Core's own project in this tree, its stamp target run now (nothing is compiled): the commit is what the SDK reads
+        // from the checkout, HEAD is read here from .git itself. Outside a checkout the stamp names no commit.
+        var v = await ProductVersion();
+        var local = await StampTarget();
+        Assert.True(local.Exit == 0, local.Output);
+        Assert.Equal(v + ".0", local.Properties["FileVersion"]);
+        var head = GitHead.Of(RoundTwoSample.RepoRoot());
+        Assert.Equal(head is null ? v + "-dev" : v + "-dev+" + head[..7], local.Properties["InformationalVersion"]);
     }
 
     [Fact]
