@@ -114,16 +114,17 @@ Round 2 W1 notes:
 
 ## Integrator notes from the round-2 fix batch (fix-product3)
 
-- The desk must open each preview at the ring the `VIEW … SHOW` reply names (`{"view","ring"}`) or STATE `machine.views[].ring`,
-  and open it again when that name changes: the engine writes `playmap-<node>-<view>~<generation>.preview` only (generations
-  count from the engine's start), so `PreviewSource`'s `PreviewRing.PathFor(node, view)` finds nothing and shows the stand-in.
-  Owner: the desk merge.
+- Done: the desk opens each preview at the ring the `VIEW … SHOW` reply names (`{"view","ring"}`) or STATE `machine.views[].ring`,
+  whichever came last, and opens it again when that name changes, the old reader disposed first; it reads no other file, and shows
+  the stand-in with the node's words while no ring is named or the named one does not open (`PreviewNames`, `RingPreviewSource`;
+  `DeskPreviewTests`). The demo engine lists `machine.views` with no ring.
 - `hevc10.mp4` is the one test clip a GPL encoder makes (libx265 at test time, never committed): no LGPL-compatible encoder in
   this FFmpeg writes 10-bit HEVC. The owner decided to keep it. No LGPL-compatible encoder here writes H.264 with B-frames
   either (OpenH264 makes none); the reordered-stream tests play MPEG-4 part 2 and Kvazaar's HEVC.
-- The node's settings file has three read-modify-write paths: `NetworkHost.PersistSettings` (under its gate), present's
-  `SavePresent` and decode's policy write (outside it). Each read and write is one at a time per file (`NodeHome`), but two
-  edits of different sections landing together can lose one. Owner: output and decode, through `PersistSettings`.
+- Done: the node's settings file has one writer, the network host. Every read-modify-write of it — `PersistSettings`,
+  `KeepSettings` (present's `SavePresent` and decode's policy write, all or nothing), the pairing token, the links — reads the file
+  fresh and writes it durably under the host's one lock, so two edits of different sections landing together both stay; no other
+  code calls `NodeHome.SaveSettings` (`SettingsGateTests`).
 - PROJECT SAVE flushes on the control lane: 0.7–3.7 ms median (20 KB–2 MB, ext4 on virtio here), p95 under 5 ms. Measured,
   not governed; a disk under heavy writes (a media pull) may stall it longer. The chunk map of a pull is not flushed (a hint the
   file's hash checks).

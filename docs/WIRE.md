@@ -301,11 +301,14 @@ at most 30. A view keeps its ring while it lives (a reader opens it once). Each 
 of the view's (`playmap-<node>-<view>~<generation>.preview`): a view shown again after its ring went, or a draft view shown again
 while its last ring retires, writes a ring no reader has mapped, so a reader that still maps the old one keeps its last picture and
 never holds the new one up; generations count up from the engine's start (its wall-clock milliseconds × 1000), so a ring made after a
-restart never takes a name a reader opened before it. A reader opens the file the reply or STATE names, and opens it again when that
-name changes. View ids are file names: letters,
+restart never takes a name a reader opened before it. `ring` is empty for a view the node writes no ring for. A reader opens the
+file the reply or STATE names, and opens it again when that name changes. The desk reads that file and no other, taking each
+view's ring from whichever of the reply and STATE came last; a new name closes and disposes the reader of the old ring before the
+new one opens, and a view STATE lists no more is let go. View ids are file names: letters,
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
-stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
+stand-in with those words — as it does while no ring is named, and with the words why while the named ring does not open. The
+desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
 
 The scan side feeds the camera and scan views. A camera view (`camera:<id>`, or `camera:sim` for the bare
 simulator) shows the frames a running scan takes through that camera; between scans, a capture camera is opened

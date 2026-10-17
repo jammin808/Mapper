@@ -128,9 +128,6 @@ For the integration docs pass (`WIRE.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `UX.m
 
 Seams outside this package that would close what SYNC.md lists as not yet (spine amendments):
 
-- `NetworkHost.PersistAsync(Func<NodeSettings, NodeSettings>)`, the one writer of the node's settings file: the sync part writes
-  `NodeSettings.Sync` read-fresh under its own lock today, so a later `NetworkHost.Persist` (LINK PATTERNS, a new token) writes its
-  start-time copy of `sync` back over it.
 - The verb row journalled inside the lane action (or a lane-side "line ran" hook), so the fan-out numbers air lines in lane order
   and reads the lane's instant.
 - A step epoch (or the clock mapping) in the published snapshot, so a frame never pairs a stepped clock with an unrebased snapshot;

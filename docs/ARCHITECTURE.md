@@ -47,7 +47,7 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
-  pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees. Before a press the desk asks the
+  pictures (the ring file each view's `VIEW … SHOW` reply and STATE `machine.views` name). Anything the desk can do, a peer can do; anything a peer sees, the desk sees. Before a press the desk asks the
   same Core rules the engine's door decides by (the show policy for its role from `WHOAMI`, the locks in STATE.show), so a
   control the node would refuse is greyed with the node's own words; the engine still decides. A package's STATE shows on
   the desk through its card descriptor (`tests/fixtures/state/<pkg>.cards.json`, built into the desk), so a package adds data,

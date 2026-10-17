@@ -203,9 +203,10 @@ on a follower (red while its leader is silent), and a key per backup of a primar
 
 ## Threads
 
-The node's settings file has one writer, the network host (`NetworkHost.PersistSettings`): the sync role, the fleet's role and
-epoch, the links and the pairing token, and the LED, control, video and audio settings each go through it, read fresh from the file,
-so none loses another's.
+The node's settings file has one writer, the network host (`NetworkHost.PersistSettings`, and `KeepSettings` for a change that is
+refused when it cannot be written): the sync role, the fleet's role and epoch, the links and the pairing token, the LED, control,
+video and audio settings, the present path and the decode policy each go through it, read fresh from the file and written under its
+one lock, so none loses another's.
 
 The sampler, the light watch and the HEALTH clock run on timers of their own; the backup's watch (its fence, its group's new leader,
 its mirror's state) on a task of its own; the mirror's lines are taken one at a time beside the lane and run through the engine's own
