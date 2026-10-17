@@ -119,16 +119,24 @@ public sealed class OmtLoopbackTests
                 }
             }
 
-            engine.VideoIo.Tick();
-            engine.FactsChanged();
-            var state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio");
-            var row = state.GetProperty("inputs").EnumerateArray().Single(i => i.GetProperty("id").GetString() == input);
+            // The tally is the hub's window over the air's draws (a quarter second on the node's clock): it reads program at a tick
+            // that finds the input drawn into the air within it, which a tick just after a drawn frame does on any machine but one
+            // that holds this thread longer than the window between them.
+            JsonElement state = default;
+            JsonElement row = default;
+            Assert.True(await Host.Eventually.TrueAsync(() =>
+            {
+                engine.VideoIo.Tick();
+                engine.FactsChanged();
+                state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").Clone();
+                row = state.GetProperty("inputs").EnumerateArray().Single(i => i.GetProperty("id").GetString() == input);
+                return row.GetProperty("tally").GetString() == "program";
+            }), $"the input's tally reads {row.GetProperty("tally").GetString()}");
             Assert.Equal("ok", row.GetProperty("state").GetString());
             Assert.Equal(1920, row.GetProperty("w").GetInt32());
             Assert.Equal(1080, row.GetProperty("h").GetInt32());
             Assert.Equal("uyvy", row.GetProperty("format").GetString());
             Assert.True(row.GetProperty("received").GetInt64() > 0);
-            Assert.Equal("program", row.GetProperty("tally").GetString());
             var sendRow = state.GetProperty("sends").EnumerateArray().Single(s => s.GetProperty("id").GetString() == send);
             Assert.Equal("sending", sendRow.GetProperty("state").GetString());
             Assert.True(sendRow.GetProperty("connections").GetInt32() >= 1);
