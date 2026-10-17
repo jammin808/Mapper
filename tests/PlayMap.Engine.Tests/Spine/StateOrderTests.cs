@@ -55,7 +55,7 @@ public sealed class StateOrderTests
         TodayThenOnly("stage.projectors[]", ["id", "name", "solved", "residualPx", "pins"], ["uncertainty", "priors", "stack", "grade", "quads"],
             Keys(s.GetProperty("stage").GetProperty("projectors")[0]));
         TodayThenOnly("sync", ["role", "leader", "offsetMs", "rttMs", "driftPpm", "groups"],
-            ["group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs", "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch"],
+            ["group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs", "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch", "light"],
             Keys(s.GetProperty("sync")));
         TodayThenOnly("machine", ["renderer", "memMb", "gcPauseMsTotal"], ["present", "views", "gl"], Keys(s.GetProperty("machine")));
         TodayThenOnly("project", ["id", "name", "revision", "path", "dirty"], ["index"], Keys(s.GetProperty("project")));

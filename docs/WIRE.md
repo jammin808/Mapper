@@ -155,7 +155,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
   trip): the raw difference between two machines' monotonic clocks says nothing about the show and is not shown.
   A leader shows its own id as `leader`; a node that neither leads nor follows is `solo`. The sync part adds the group,
   its feed (`live`, `connecting`, `lost`, `off`), whether the clock is slewing, its steps and free-wheel seconds, the
-  board's outputs and pairs, and its verdict and words (docs/wire/sync.md).
+  board's outputs and pairs, and its verdict and words; `sync.light`, last, is the group's light read with that verdict (a
+  leader's from its board, a follower's from its feed and clock, grey in no group), the context item's light (docs/wire/sync.md).
 - `links.patterns.clip` is the desk's clip as this node counts it on ("VT 2:28"), or why there is none;
   `links.stagewatch.timer.text` is `?` whenever the time is not a fact (no frame, the link quiet, Stagewatch stuck).
 - `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
@@ -356,7 +357,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
-  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `groupLatencyMs`, `latencyMs`, `lock`, `epoch`; `show` — `sound`
+  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `groupLatencyMs`, `latencyMs`, `lock`, `epoch`, `light`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage` — `site`, `controls`, `surveys`, `stacks`; `stage.site` — `next` (after `mainsHz`); `stage.projectors[]` — `uncertainty`,
   `priors`, `stack`, `grade`, `quads`; `scan` — `pairing`, `view`,

@@ -32,11 +32,9 @@ right-click entry and key names the catalogue line it sends, the same line the w
 Not built yet: a confirmation before closing while armed, PANIC's pulse, the master's level bar, the PLAY bin as a panel of its own;
 the blind panel's ON GO and AT boundaries (they run over the wire), its row selecting the entity, the commit's countdown and the
 violet frame; the fleet's alarm banner (STATE.fleet.alarm is always null); Check all and Re-solve moved on Health ▸ Calibration
-(the catalogue has no such rows); a hold in a right-click menu (a held action's menu entry runs on a click). STATE.sync carries no
-light of its own, so the readiness light reads the group's from its keys as the node lights it: a follower's from its feed and
-clock (`feed`, `freewheelS`), a leader's from the outputs it hears and the board's verdict. Two of the leader board's ambers are not
-in those keys and read green there: a locked pair off one vblank among free-running outputs, and an output joining the lock for
-over 5 s (the board's words say so in the tooltip). A Recall of a kept result the target already stands as exactly (just after
+(the catalogue has no such rows); a hold in a right-click menu (a held action's menu entry runs on a click). The readiness light's
+sync part is the node's own light for the group, `sync.light` (a leader's from its board, a follower's from its feed and clock), in
+the node's words; only a node whose STATE.sync carries no `light` has it read from its keys. A Recall of a kept result the target already stands as exactly (just after
 it was recalled) is offered, and the node refuses it with its words. A drag the gate refuses still moves on screen; its steps are
 not sent and a toast gives the node's words.
 

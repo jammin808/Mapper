@@ -223,7 +223,17 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     internal void WritePlaylistExtras(Utf8JsonWriter w, Playlist list) { PlaylistControl(w, list); }
 
-    internal void WriteSyncExtras(Utf8JsonWriter w) { SyncSync(w); SyncOutput(w); SyncFleet(w); }
+    /// <summary>STATE.sync's package keys, then <c>light</c> last: the group's light as the sync part lights it, read with its verdict
+    /// (absent on a node without the sync part).</summary>
+    internal void WriteSyncExtras(Utf8JsonWriter w)
+    {
+        string? light = null;
+        SyncSync(w, ref light);
+        SyncOutput(w);
+        SyncFleet(w);
+        if (light is not null)
+            w.WriteString("light", light);
+    }
 
     internal void WriteMediaExtras(Utf8JsonWriter w) { MediaOptimise(w); }
 
@@ -350,7 +360,7 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void OutputFx(Utf8JsonWriter w, Output o);
     partial void OutputAlign(Utf8JsonWriter w, Output o);
     partial void PlaylistControl(Utf8JsonWriter w, Playlist list);
-    partial void SyncSync(Utf8JsonWriter w);
+    partial void SyncSync(Utf8JsonWriter w, ref string? light);
     partial void SyncOutput(Utf8JsonWriter w);
     partial void SyncFleet(Utf8JsonWriter w);
     partial void MediaOptimise(Utf8JsonWriter w);

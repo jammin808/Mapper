@@ -199,7 +199,7 @@ public sealed partial class EngineCore
 
     partial void TickSync(long leaderNs) => Services.GroupSync?.Tick(this, leaderNs);
 
-    partial void SyncSync(Utf8JsonWriter w)
+    partial void SyncSync(Utf8JsonWriter w, ref string? light)
     {
         if (Services.GroupSync is not { } sync)
             return;
@@ -252,10 +252,12 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }
         w.WriteEndArray();
-        var (verdict, _, words) = SyncVerdict(sync, picture);
+        var (verdict, lit, words) = SyncVerdict(sync, picture);
         w.WriteString("verdict", verdict);
         w.WriteString("words", words);
         w.WriteNumber("groupLatencyMs", Math.Round(sync.GroupLatencyMs, 3));
+        // The light read with this verdict: a leader's from its board, a follower's from its feed and clock, grey in no group.
+        light = ShowContext.LightWord(lit);
     }
 
     /// <summary>The group's air latency written through to this node's outputs: the render host raises the node's air latency to it,

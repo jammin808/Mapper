@@ -60,18 +60,19 @@ public sealed record Readiness(string Light, ImmutableArray<ReadinessPart> Parts
     /// <summary>A free-running pair that slips sooner than this while the show plays is amber (the sync board's rule).</summary>
     private const double SlipAmberS = 600;
 
-    /// <summary>The sync group's light as the node gives it, from STATE.sync. A follower's is its own link and clock (the verdict is
-    /// the leader's): red while its clock holds (freewheelS) or the anchor feed is lost, green while the feed is live, amber otherwise.
-    /// A leader's is the sync board's over the outputs it hears: grey before any is heard; red while one fell out of the lock; amber
-    /// for mixed rates, or for a verdict short of one vblank while every heard output reports locked (framelocked or house-locked:
-    /// one is off the others' vblank); amber when a free-running pair slips within ten minutes while a playlist plays; green on one
-    /// vblank or free-running at ease. A node configured into a group it has not joined is grey. Null for a node in no sync group.</summary>
+    /// <summary>The sync group's light as the node gives it: STATE.sync.light, the light the node reads with its verdict (a leader's
+    /// from its sync board, a follower's from its own feed and clock), in its words. A node whose STATE.sync carries no light has it read
+    /// from its keys as that node lights it: a follower's red while its clock holds (freewheelS) or the anchor feed is lost, green while
+    /// the feed is live, amber otherwise; a leader's grey before any output is heard, red while one fell out of the lock, amber for mixed
+    /// rates, for a verdict short of one vblank while every heard output reports locked, or for a free-running pair that slips within ten
+    /// minutes while a playlist plays, green otherwise (two of the board's ambers are not in those keys). A node configured into a group
+    /// it has not joined is grey. Null for a node in no sync group.</summary>
     private static ReadinessPart? SyncPart(JsonElement sync, bool playing)
     {
         if (sync.StrOrNull("verdict") is not { } verdict || sync.Str("group").Length == 0)
             return null;
         var words = sync.Str("words", verdict);
-        var light = sync.Str("role") switch
+        var light = sync.StrOrNull("light") is { } lit ? Word(lit) : sync.Str("role") switch
         {
             "follower" => sync.Num("freewheelS", 0) > 0 || sync.Str("feed") == "lost" ? "red" : sync.Str("feed") == "live" ? "green" : "amber",
             "leader" => LeaderLight(sync, verdict, playing),

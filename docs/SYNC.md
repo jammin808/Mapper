@@ -169,7 +169,10 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 - **STATE `sync`** gains SPINE §9's keys: `group`, `feed` (live|connecting|lost|off), `slewing`, `steps`, `freewheelS`,
   `outputs[]` (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`; `mixedRate` per pair),
-  `verdict`, `words`, `groupLatencyMs` (`SYNC STATUS` answers the same object), and the fleet's `epoch` (docs/FLEET.md). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
+  `verdict`, `words`, `groupLatencyMs` (`SYNC STATUS` answers the same object), the fleet's `epoch` (docs/FLEET.md), and last
+  `light`: the group's light read with the verdict, the context item's and INDEX row's — a leader's the board's (every amber above
+  among them, a locked pair off one vblank and a join over 5 s included), a follower's red while its clock free-wheels or the feed
+  is lost, green while the feed is live, amber otherwise, grey in no group. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
   not the clocks' raw difference.
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running
