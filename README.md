@@ -195,10 +195,11 @@ Third-party software, and the licences it comes under, is listed in `THIRD-PARTY
 
 ## Versions
 
-The product version is SemVer, `MAJOR.MINOR.PATCH`, written once, in `Version.props` (0.2.0). Every build carries a build
-number and its commit: CI passes its run number and commit (`-p:PlayMapBuild=<n> -p:PlayMapCommit=<sha>`); a build given
-neither is a local build, numbered 0 and marked `-dev`, with the commit its checkout is at (none outside a git checkout,
-which does not fail the build). Every PlayMap assembly carries the same stamp — here CI's run 17 of commit abc1234, and a
+The product version is SemVer, `MAJOR.MINOR.PATCH`, written once, as `PlayMapVersion` in `Version.props`. Every build carries
+a build number and its commit: CI passes its run number and commit (`-p:PlayMapRun=<n> -p:PlayMapCommit=<sha>`), and the
+build number is the run number less `PlayMapRunBase`, also in `Version.props`; a build given neither is a local build,
+numbered 0 and marked `-dev`, with the commit its checkout is at (none outside a git checkout, which does not fail the build).
+Every assembly of PlayMap's own source carries the same stamp — here, for version 0.2.0, CI's build 17 of commit abc1234 and a
 local build:
 
 | | CI build | Local build |
@@ -210,9 +211,13 @@ local build:
 
 The assembly version moves only with MAJOR.MINOR, so binding does not churn between builds. A part of a Windows file version
 holds at most 65535: a build number past it fails the build with words (wrapped, it would read to an installer as an older
-build; clamped, as the same one), and the numbering starts again under a raised version. Where to read a build: the exe's
-file properties (File version, Product version); the desk's title and the About line of its help (F1); the engine's log,
-whose first line and every crash line name it, and the journal's start line; HEALTH's `build`, which the context's machine
-item and the fleet's board carry (docs/wire/fleet.md); the web port's MCP server info; CI's job summary and the Windows
-artifact's name (`PlayMap-0.2.0.17-win-x64`). STATE's `version` is the product version alone, the same for every build of a
-release, so the committed STATE fixtures hold on any machine.
+build; clamped, as the same one). CI's run numbers never start again (they count the workflow's runs), so a raised version
+alone keeps the count; raising `PlayMapVersion` and setting `PlayMapRunBase` to the last run's number in the same commit starts
+it again at 1. The vendored projects under `src/ThirdParty` keep their upstream's version, with PlayMap's patch level after it
+(libomtnet's `1.0.0.20+7d29031.playmap.1`): their file version does not move with PlayMap's builds, so whatever installs
+PlayMap replaces every file of a build, not only those whose version rose. Where to read a build: the exe's file properties
+(File version, Product version); the desk's title and the About line of its help (F1); the engine's log, where the first line
+of every file it starts, the start line and every crash line name it, and the journal's start line; HEALTH's `build`, which the
+context's machine item and the fleet's board carry (docs/wire/fleet.md); the web port's MCP server info; each CI job's summary,
+written straight after its build, and the Windows artifact's name (`PlayMap-0.2.0.17-win-x64`). STATE's `version` is the
+product version alone, the same for every build of a release, so the committed STATE fixtures hold on any machine.
