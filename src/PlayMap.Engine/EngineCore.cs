@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PlayMap.Core;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Show;
@@ -86,6 +87,10 @@ public sealed partial record EngineServices(
     string? JournalPath,
     string? ProjectFolder)
 {
+    /// <summary>The build this node reports: its product version as STATE's "version" (the same for every build of a release), its
+    /// whole build identity as HEALTH's "build" and in the context's machine item and the journal's start line.</summary>
+    public BuildInfo Build { get; init; } = BuildInfo.Current;
+
     public static EngineServices ForTests(IMonoClock? mono = null)
     {
         var m = mono ?? new ManualClock(1_000_000_000);

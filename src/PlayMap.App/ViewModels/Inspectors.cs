@@ -7,14 +7,59 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.App.ViewModels;
 
+/// <summary>What the window's modules add under an inspector: the entries its right-click menu also carries (shown as
+/// the inspector's second toolbar) and the sections drawn below its fields.</summary>
+public interface IInspectorExtras
+{
+    IReadOnlyList<DeskAction> ExtrasFor(IMenuTarget target);
+
+    IReadOnlyList<object> SectionsFor(IMenuTarget target);
+}
+
 /// <summary>Holds the inspector for what is selected and refreshes it on every push; an inspector whose
-/// object is gone closes.</summary>
+/// object is gone closes. The modules' extras and sections for the object follow it.</summary>
 public sealed class InspectorHost : ObservableObject
 {
     private readonly DeskSession _session;
     private InspectorViewModel? _current;
+    private IInspectorExtras? _modules;
+    private IReadOnlyList<DeskAction> _extras = [];
+    private IReadOnlyList<object> _sections = [];
 
     public InspectorHost(DeskSession session) => _session = session;
+
+    /// <summary>The modules' entries for the selected object: the same instances its right-click menu appends.</summary>
+    public IReadOnlyList<DeskAction> Extras
+    {
+        get => _extras;
+        private set => Set(ref _extras, value);
+    }
+
+    /// <summary>The modules' sections for the selected object (cards, effect slots…), drawn by their registered views.</summary>
+    public IReadOnlyList<object> Sections
+    {
+        get => _sections;
+        private set => Set(ref _sections, value);
+    }
+
+    /// <summary>Connects the window's modules (once, where the window composes them).</summary>
+    public void Use(IInspectorExtras modules)
+    {
+        _modules = modules;
+        RefreshExtras();
+    }
+
+    /// <summary>Re-reads the modules' extras and sections for the selected object (a new list only when it changed).</summary>
+    public void RefreshExtras()
+    {
+        IReadOnlyList<DeskAction> extras = _current is { } c && _modules is { } m ? m.ExtrasFor(c) : [];
+        IReadOnlyList<object> sections = _current is { } c2 && _modules is { } m2 ? m2.SectionsFor(c2) : [];
+        if (!extras.SequenceEqual(_extras))
+            Extras = extras;
+        if (!sections.SequenceEqual(_sections))
+            Sections = sections;
+        _extras.RefreshAll();
+    }
 
     public InspectorViewModel? Current
     {
@@ -33,12 +78,15 @@ public sealed class InspectorHost : ObservableObject
         Current = inspector;
         if (inspector is not null && _session.Project is { } p)
             Refresh(p, _session.State);
+        else
+            RefreshExtras();
     }
 
     public void Refresh(Project p, StateSnapshot s)
     {
         if (_current is { } c && !c.Refresh(p, s))
             Current = null;
+        RefreshExtras();
     }
 }
 
@@ -46,8 +94,10 @@ public sealed class InspectorHost : ObservableObject
 /// loaded from the mirror on every push; a field the operator changed in the last moments is left alone so
 /// a push that lags the typing never pulls the caret back. Sliders and text go through the throttle
 /// (latest wins, ≈ 60 Hz); toggles and choices go at once.</summary>
-public abstract class InspectorViewModel : ObservableObject
+public abstract class InspectorViewModel : ObservableObject, IMenuTarget
 {
+    IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
+
     private static readonly long FreshTicks = Stopwatch.Frequency / 2;
     private readonly Dictionary<string, long> _edited = new(StringComparer.Ordinal);
     private string _title = "";
@@ -58,7 +108,18 @@ public abstract class InspectorViewModel : ObservableObject
     {
         Session = session;
         Id = id;
+        Unlock = DeskAction.Send(session, "inspector.unlock", "Unlock", () => VerbText.Set(Id, "locked", "false"), isEnabled: () => IsFlagLocked)
+            .Look("unlock");
     }
+
+    /// <summary>Clears the object's own Locked flag (SET &lt;id&gt; locked false). It sits beside the refusal's words, outside the
+    /// greyed fields, so a surface or projector locked by its own flag is unlocked from its own inspector.</summary>
+    public DeskAction Unlock { get; }
+
+    /// <summary>The object's own Locked flag is set (surfaces and projectors carry one) and holds its fields: Unlock shows.</summary>
+    public bool ShowsUnlock => IsFlagLocked && !IsEditable;
+
+    private bool IsFlagLocked => Session.Project is { } p && (p.Stage.Surfaces.Find(Id) is { Locked: true } || p.Stage.Projectors.Find(Id) is { Locked: true });
 
     protected DeskSession Session { get; }
 
@@ -92,6 +153,14 @@ public abstract class InspectorViewModel : ObservableObject
     /// <summary>The actions the inspector's bar shows (the menu holds them all).</summary>
     public IReadOnlyList<DeskAction> Toolbar => _actions.Toolbar();
 
+    /// <summary>Why the gate would refuse an edit of this object now (armed and it is mapping or layout, a lock holds it, the node
+    /// mirrors another's show): the fields grey and show these words; null while its fields are live. Asked with the line its name
+    /// field sends; a field whose own line the gate refuses (a geometry field under a mapping lock) says the gate's words when it
+    /// is changed and sends nothing.</summary>
+    public string? EditRefusal => Session.GateWords(VerbText.Set(Id, "name", "\"\""));
+
+    public bool IsEditable => EditRefusal is null;
+
     /// <summary>True while fields are being loaded from the mirror (a load never sends).</summary>
     protected bool Loading { get; private set; }
 
@@ -103,7 +172,11 @@ public abstract class InspectorViewModel : ObservableObject
         {
             var ok = Load(p, s);
             if (ok)
+            {
                 Actions.RefreshAll();
+                Unlock.Refresh();
+                Raise(nameof(EditRefusal), nameof(IsEditable), nameof(ShowsUnlock));
+            }
             return ok;
         }
         finally
@@ -128,7 +201,13 @@ public abstract class InspectorViewModel : ObservableObject
         _edited[path] = Stopwatch.GetTimestamp();
         var line = VerbText.Set(id, path, json);
         if (throttle)
+        {
             Session.Throttle.Post(id + " " + path, line);
+            return;
+        }
+        // A field's line the gate refuses is not sent: its words are said (the throttle does the same for a drag's steps).
+        if (Session.GateWords(line) is { } why)
+            Session.Notify(ToastKind.Refused, why, line);
         else
             Session.Fire(line);
     }

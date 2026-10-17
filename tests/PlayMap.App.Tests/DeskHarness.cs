@@ -11,12 +11,16 @@ namespace PlayMap.App.Tests;
 /// <see cref="Pump"/> runs the dispatcher so the mirror catches up with the engine's pushes.</summary>
 public sealed class DeskHarness : IAsyncDisposable
 {
-    public DeskHarness()
+    /// <param name="setup">Prepares the fake engine before the desk attaches (a node without some verbs, a fixture).</param>
+    /// <param name="nowMs">The desk's own clock for the Esc guard (null: the machine's).</param>
+    /// <param name="project">The show the fake engine opens (the demo show when null).</param>
+    public DeskHarness(Action<FakeEngineLink>? setup = null, Func<long>? nowMs = null, PlayMap.Core.Model.Project? project = null)
     {
         Clock = new ManualClock(1_000_000_000);
-        Link = new FakeEngineLink(clock: Clock);
+        Link = new FakeEngineLink(project, clock: Clock);
+        setup?.Invoke(Link);
         Session = new DeskSession(a => Dispatcher.UIThread.Post(a));
-        Main = new MainViewModel(Session);
+        Main = new MainViewModel(Session, nowMs: nowMs);
         Main.Attach(Link, "Demo node");
         Pump();
         Link.ClearSent();

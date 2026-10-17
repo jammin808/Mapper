@@ -26,7 +26,7 @@ public sealed record AlignOutputView(string Id, string Name, string Step, double
 public sealed record AlignRunView(string Id, string GroupId, string State, string Step, double Progress, double EtaS, string Words,
     ImmutableArray<AlignOutputView> Outputs, QualityScore? Score)
 {
-    public bool IsRunning => State == "running";
+    public bool IsRunning => PlayMap.Core.Calibration.PatternTasks.AlignRunning(State);
 }
 
 /// <summary>What a run is given: the group, its outputs in order with their projectors (or null), the camera (null: the bare simulator),

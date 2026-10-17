@@ -108,18 +108,22 @@ public static partial class EngineEntry
             b.SetMinimumLevel(LogLevel.Information);
         });
         var log = logs.CreateLogger("PlayMap.Engine");
+        // The build rides on the start line and on every crash line, as on the first line of every file the log starts: a crash's
+        // lines may be read from a file that holds no start line, or be all that is left of one.
+        var build = Core.BuildInfo.Current.Display;
         if (error is not null)
         {
-            log.LogError("The engine did not start: {Error}. It reads: {Usage}", error, Usage);
+            log.LogError("{Build}: the engine did not start: {Error}. It reads: {Usage}", build, error, Usage);
             return BadArguments;
         }
 
         void OnUnhandled(object? sender, UnhandledExceptionEventArgs e) =>
-            log.LogCritical(e.ExceptionObject as Exception, "The engine process is ending on a fault nothing caught.");
+            log.LogCritical(e.ExceptionObject as Exception, "The engine process is ending on a fault nothing caught ({Build}).", build);
         AppDomain.CurrentDomain.UnhandledException += OnUnhandled;
         try
         {
-            log.LogInformation("The engine starts{Headless} in {Home} (process {Pid}).", options.Headless ? " headless" : "", home.Folder, Environment.ProcessId);
+            log.LogInformation("{Build}: the engine starts{Headless} in {Home} (process {Pid}).", build, options.Headless ? " headless" : "", home.Folder,
+                Environment.ProcessId);
             await using var host = new EngineHost(options, home, new EngineHostOptions { Parts = parts, Logs = logs });
             try
             {
@@ -143,7 +147,7 @@ public static partial class EngineEntry
         }
         catch (Exception ex)
         {
-            log.LogCritical(ex, "The engine stopped on a fault nothing else caught.");
+            log.LogCritical(ex, "The engine stopped on a fault nothing else caught ({Build}).", build);
             return Crashed;
         }
         finally

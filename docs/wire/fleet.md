@@ -31,7 +31,9 @@ every machine, output and projector". `FLEET FOCUS self` names this node's own m
   "dropped","missed60s","path"}],"projectors":[{"id","name","light","words","output"}],"render":{"renderer","path","resets"},
   "cpuPct","memMb","memFreeMb","diskFreeGb","gpuPct","gpuTempC","netMbps","uptimeS","sync":{"role","leader","group","uncertaintyMs",
   "freewheelS"},"devices":{"total","green","amber","red"},"media":{"items","missing"},"watchdog":{"laneMs","renderMs"},"rev",
-  "categories":[{"name","light","words"}]}`. Categories, always all eleven in this order: outputs, render, cpu, memory, disk, gpu,
+  "categories":[{"name","light","words"}]}`. `build` is the node's whole build identity in SemVer: `0.2.0+17.abc1234` for CI's
+  build 17 of commit abc1234, `0.2.0-dev+abc1234` for a local build (README, "Versions"); STATE's `version` is the product
+  version alone. Categories, always all eleven in this order: outputs, render, cpu, memory, disk, gpu,
   network, sync, devices, media, watchdog. A number not measured is −1 and its category grey with words that say why ("GPU load
   and temperature are not readable on this machine"). The machine's light is the worst known category (red over amber over green;
   grey says nothing). The light table is `HealthLights` (src/PlayMap.Core/Fleet/HealthRecord.cs): CPU 80/95 %, free memory
@@ -77,7 +79,8 @@ to the hot backup and are described in [backup.md](backup.md). The fixture is `t
 
 ## The context (Show Bus §6) for Patterns' Eye
 
-A `machine` item (second, after `show`): the worst of this node's HEALTH, with its role, build and render path. The items are
+A `machine` item (second, after `show`): the worst of this node's HEALTH, with its role, build (HEALTH's `build`: "solo · build
+0.2.0+17.abc1234 · …") and render path. The items are
 ordered for the Eye's twelve (Patterns draws reds, then ambers, then the given order): `show`, `machine`, the outputs (six one by
 one; beyond six an `outputs` item for the green ones and every other output by itself), the projectors (each with its device's facts
 folded in), the playlists that play (two or more idle ones as one `playlists` item), `mirror:*`, `sync*`, `media`, `preflight`,

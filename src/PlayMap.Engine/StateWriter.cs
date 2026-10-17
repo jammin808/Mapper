@@ -12,8 +12,6 @@ namespace PlayMap.Engine;
 /// focused playlist, so Stagewatch's VT link and countdown work unchanged.</summary>
 public static class StateWriter
 {
-    public const string Version = "0.1.0";
-
     public static string Write(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -31,7 +29,7 @@ public static class StateWriter
         w.WriteString("id", s.Settings.NodeId);
         w.WriteString("t", ShowBusConstants.KindPlayMap);
         w.WriteString("name", s.Settings.Name);
-        w.WriteString("version", Version);
+        w.WriteString("version", s.Build.Version);
         w.WriteNumber("at", s.Wall.UnixMs);
         var ctx = ContextBuilder.Build(e);
         w.WriteString("light", ShowContext.LightWord(ctx.Light));

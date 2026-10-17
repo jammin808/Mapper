@@ -89,7 +89,7 @@ public sealed partial record ScanView(
     ImmutableArray<ScanRegion> Regions,
     string? ProjectorId)
 {
-    public bool IsRunning => State is "starting" or "running";
+    public bool IsRunning => PlayMap.Core.Calibration.PatternTasks.ScanRunning(State);
 
     /// <summary>How the last cued view was paired (null when the camera streamed frames).</summary>
     public ScanPairing? Pairing { get; init; }

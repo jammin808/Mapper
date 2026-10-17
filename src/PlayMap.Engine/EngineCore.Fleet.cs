@@ -171,7 +171,7 @@ public sealed partial class EngineCore
             Epoch = FleetRole.Epoch,
             Mirror = s.Backup?.Mirror()?.State ?? "",
             SyncGroup = s.GroupSync is { } group && group.Role != "solo" ? group.Settings.Group : "",
-            Build = StateWriter.Version,
+            Build = Services.Build.Informational,
             Rev = snapshot.Revision,
             Outputs = outputs.ToImmutable(),
             Projectors = [.. ProjectorFolds().Select(x => new HealthProjector(x.Id, x.Name, x.Light, x.Words, x.Output))],

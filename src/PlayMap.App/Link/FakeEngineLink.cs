@@ -3,6 +3,7 @@ using System.Globalization;
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Show;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 
@@ -43,6 +44,51 @@ public sealed partial class FakeEngineLink : IEngineLink
     private string _token = PlayMap.Core.Bus.Pairing.NewToken();
     private LinkStatus _status = LinkStatus.Live;
     private int _disposed;
+    private readonly SortedDictionary<string, System.Text.Json.Nodes.JsonNode?> _sections = new(StringComparer.Ordinal);
+    private bool _extraMoved;
+
+    // One hook per desk package: each answers the round-2 verbs its features need in the demo, in its own file;
+    // a hook nobody implements compiles away. A hook that changes STATE sets _extraMoved.
+    partial void TryShowVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryAssistantVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryContentVerbs(WireLine line, ref WireReply? reply);
+
+    partial void TryMapVerbs(WireLine line, ref WireReply? reply);
+
+    /// <summary>Lays a top-level STATE section over the fake's own (a test's fixture, as the node writes it) and
+    /// publishes; objects merge key by key, arrays of objects by id. Null removes the section.</summary>
+    public void SetSection(string key, string? json)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        long stateRev;
+        lock (_gate)
+        {
+            if (json is null)
+                _sections.Remove(key);
+            else
+                _sections[key] = _sections.TryGetValue(key, out var had) && had is not null
+                    ? Merge(had, System.Text.Json.Nodes.JsonNode.Parse(json))
+                    : System.Text.Json.Nodes.JsonNode.Parse(json);
+            Publish(projectMoved: false);
+            stateRev = _stateSeq;
+        }
+        StateChanged?.Invoke(stateRev);
+    }
+
+    /// <summary>A section as a hook holds it (created empty when absent), to change in place; the send publishes.</summary>
+    private System.Text.Json.Nodes.JsonObject Section(string key)
+    {
+        if (_sections.TryGetValue(key, out var node) && node is System.Text.Json.Nodes.JsonObject o)
+            return o;
+        var made = new System.Text.Json.Nodes.JsonObject();
+        _sections[key] = made;
+        return made;
+    }
+
+    /// <summary>Marks STATE as moved by a hook (the send publishes it).</summary>
+    private void Moved() => _extraMoved = true;
 
     /// <param name="project">The project to open (the demo show when null).</param>
     /// <param name="clock">The show clock; tests pass a <see cref="ManualClock"/> and call <see cref="Tick"/>.</param>
@@ -51,6 +97,8 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         _clock = clock ?? MonoClock.Instance;
         _store = new ProjectStore(project ?? DemoProject.Create(), () => _clock.NowNs / 1_000_000);
+        // The engine's guard: an edit of a locked entity or area, or (armed) of the mapping or the layout, is refused with LockGuard's words.
+        _store.Guard = (before, after) => LockGuard.Check(WithLocks(before), WithLocks(after), Armed && !_promoting);
         _savedRevision = _store.Current.Revision;
         _focused = _store.Project.Playlists.IsDefaultOrEmpty ? null : _store.Project.Playlists[0].Id;
         lock (_gate)
@@ -96,6 +144,26 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// <summary>The project as the store holds it now (tests read the truth here).</summary>
     public Project CurrentProject => _store.Project;
 
+    /// <summary>What Show Mode takes the desk for (WHOAMI's role): "operator" for the desk on this machine, "remote" for a
+    /// desk the node does not know as its own (tests set it before the desk attaches).</summary>
+    public string Role { get; set; } = "operator";
+
+    /// <summary>Whether this demo node holds the desk's session as paired (WHOAMI's paired): an unpaired session's line that would
+    /// change something is refused at the door with the node's words. Tests set it before the desk attaches.</summary>
+    public bool Paired { get; set; } = true;
+
+    /// <summary>The desk's session on this demo node, as WHOAMI and STATE.show.blind name it.</summary>
+    public string SessionId => "demo";
+
+    /// <summary>The transport the desk's session arrives on: the desk's own, or the wire for a desk the node does not know as its own.</summary>
+    public string Transport => Role == "operator" ? "desk" : "wire";
+
+    /// <summary>The name the desk's session gives (a draft's owner's name).</summary>
+    public const string ClientName = "PlayMapDesk";
+
+    /// <summary>Verbs this demo node marks unavailable in its VERBS answer (a node without a package), for tests.</summary>
+    public HashSet<string> WithoutVerbs { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Every line the desk sent, in order.</summary>
     public IReadOnlyList<string> SentLines
     {
@@ -135,10 +203,27 @@ public sealed partial class FakeEngineLink : IEngineLink
         StatusChanged?.Invoke(status);
     }
 
+    /// <summary>Holds a line's reply until the task it returns completes (the line is taken and acted on at once): a slow link,
+    /// for tests. Null answers at once.</summary>
+    public Func<string, Task>? ReplyAfter { get; set; }
+
+    /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open).</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
+        var reply = SendNow(line, ct);
+        return ReplyAfter is { } after ? Later(reply, after(line)) : reply;
+    }
+
+    private static async Task<WireReply> Later(Task<WireReply> reply, Task after)
+    {
+        await after;
+        return await reply;
+    }
+
+    private Task<WireReply> SendNow(string line, CancellationToken ct)
+    {
         ct.ThrowIfCancellationRequested();
-        if (_status != LinkStatus.Live)
+        if (_status is not (LinkStatus.Live or LinkStatus.Stale))
             return Task.FromResult(new WireReply(false, "the link is down — nothing was sent"));
         WireReply reply;
         long stateRev;
@@ -148,9 +233,17 @@ public sealed partial class FakeEngineLink : IEngineLink
             _sent.Add(line);
             var before = _store.Current.Revision;
             var beforeAir = (_blackout, _frozen, _pattern);
-            reply = Handle(line);
+            _extraMoved = false;
+            try
+            {
+                reply = Handle(line);
+            }
+            finally
+            {
+                _lineStore = null;
+            }
             var projectMoved = _store.Current.Revision != before;
-            var mutated = reply.Ok && (projectMoved || IsMutating(line) || beforeAir != (_blackout, _frozen, _pattern));
+            var mutated = reply.Ok && (projectMoved || IsMutating(line) || _extraMoved || beforeAir != (_blackout, _frozen, _pattern));
             if (!mutated)
                 return Task.FromResult(reply);
             Publish(projectMoved);
@@ -250,7 +343,10 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     private WireReply Edit(string label, Func<Project, Project> edit, string? coalesceKey = null, string okText = "")
     {
-        var r = _store.Apply(label, edit, coalesceKey);
+        var store = _lineStore ?? _store;
+        var r = store.Apply(label, edit, coalesceKey);
+        if (r.Changed && !ReferenceEquals(store, _store))
+            DraftMoved();
         return r.Changed ? Ok(okText) : Err(r.Effect);
     }
 
@@ -268,6 +364,16 @@ public sealed partial class FakeEngineLink : IEngineLink
             case "SCAN" when line.WordUpper(1) == "SURFACE":
                 return ScanSurface(line);
         }
+        WireReply? extra = null;
+        TryShowVerbs(line, ref extra);
+        if (extra is null)
+            TryAssistantVerbs(line, ref extra);
+        if (extra is null)
+            TryContentVerbs(line, ref extra);
+        if (extra is null)
+            TryMapVerbs(line, ref extra);
+        if (extra is not null)
+            return extra;
         var match = VerbCatalog.Match(line);
         if (match is null)
             return Err($"unknown verb '{line.Word(0)}' — HELP lists the vocabulary");
@@ -279,7 +385,16 @@ public sealed partial class FakeEngineLink : IEngineLink
                 "HELLO" or "PING" or "NONCE" or "AUTH" or "AUTH-PROOF" or "SUBSCRIBE" => Ok(),
                 "STATE" => Ok(_stateJson),
                 "PROJECT GET" => Ok(_projectMirror.Json),
-                "VERBS" or "HELP" => Ok(string.Join(' ', VerbCatalog.All.Select(v => v.Name))),
+                "HELP" => Ok(string.Join(' ', VerbCatalog.All.Select(v => v.Name))),
+                // The engine's shape: one row per verb (the desk reads the names).
+                // The engine's shape: every row, each saying whether this node answers it now.
+                "VERBS" => Ok(System.Text.Json.JsonSerializer.Serialize(VerbCatalog.All
+                    .Select(v => new Dictionary<string, object> { ["name"] = v.Name, ["available"] = !WithoutVerbs.Contains(v.Name) }))),
+                "WHOAMI" => Ok(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["session"] = SessionId, ["transport"] = Transport, ["client"] = ClientName, ["paired"] = Paired,
+                    ["role"] = Role, ["armed"] = Armed, ["proto"] = 1,
+                })),
                 "SET" => Set(line),
                 "ADD" => Add(line),
                 "REMOVE" => line.Count < 2 ? Err("REMOVE <id>") : Edit("remove " + line.Word(1), p => ProjectEdits.Remove(p, line.Word(1))),

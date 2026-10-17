@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -52,7 +53,8 @@ public sealed partial class FacadeStateFixtureTest
             ["words"] = "on the wall ±{wallPx} px · distance ±{axisM} m · zoom ±{focalPct} % {weak}",
             ["fields"] = new JsonArray(Field("On the wall (px)", "wallPx"), Field("Along the axis (m)", "axisM"), Field("Zoom (%)", "focalPct"),
                 Field("Weak", "weak")),
-            ["actions"] = new JsonArray("PROJECTOR SOLVE $(id)", "PROJECTOR PRIOR $(id) THROW 3 ±2", "PROJECTOR PRIOR $(id) CLEAR"),
+            // A throw prior is the operator's measurement, never a value written here; clearing the priors needs none.
+            ["actions"] = new JsonArray("PROJECTOR SOLVE $(id)", "PROJECTOR PRIOR $(id) CLEAR"),
         },
         new JsonObject
         {
@@ -65,13 +67,17 @@ public sealed partial class FacadeStateFixtureTest
         },
         new JsonObject
         {
+            // One card per stack, lit and worded as the node lights its context row: red while a member is lost, amber until aligned
+            // within 0.5 px, green after.
             ["title"] = "Stack",
-            ["path"] = "stage.stacks.0",
-            ["light"] = new JsonArray(Rule("if", "aligned", "green"), new JsonObject { ["light"] = "amber" }),
-            ["words"] = "{name}: {members} on {master} · {residualPx} px · failover {failover}",
-            ["fields"] = new JsonArray(Field("Name", "name"), Field("Members", "members"), Field("Master", "master"), Field("Aligned", "aligned"),
-                Field("Matched", "matched"), Field("Residual (px)", "residualPx"), Field("Failover", "failover"), Field("Degraded", "degraded"), Field("Gain", "gain")),
-            ["actions"] = new JsonArray("STACK LIST", "STACK ALIGN $(id) FROM <scan>", "STACK MATCH $(id) FROM <scan>", "REMOVE $(id)"),
+            ["path"] = "stage.stacks[]",
+            ["light"] = new JsonArray(new JsonObject { ["from"] = "light" }),
+            ["words"] = "{words} · failover {failover}",
+            ["fields"] = new JsonArray(Field("Members", "members"), Field("Master", "master"), Field("Aligned", "aligned"), Field("Residual (px)", "residualPx"),
+                Field("Degraded", "degraded"), Field("Gain", "gain"), Field("Matched", "matched"), Field("Failover", "failover"), Field("Name", "name")),
+            // The scan a stack is aligned or matched from is the operator's choice, never a value its card holds: STACK ALIGN and
+            // STACK MATCH are sent over the wire, MCP, Companion or a binding, not from a card.
+            ["actions"] = new JsonArray("STACK LIST", "STACK FAILOVER $(id) MATCH", "STACK FAILOVER $(id) HOLD", "REMOVE $(id)"),
         },
     ];
 
@@ -117,18 +123,31 @@ public sealed partial class FacadeStateFixtureTest
         return text + "\n";
     }
 
-    private static JsonNode? At(JsonNode? node, string path)
+    /// <summary>The blocks a card's path names: one, or every element of a list for a step ending "[]".</summary>
+    private static List<JsonNode> At(JsonNode? node, string path)
     {
+        List<JsonNode> nodes = node is null ? [] : [node];
         foreach (var part in path.Split('.'))
         {
-            node = node switch
+            var many = part.EndsWith("[]", StringComparison.Ordinal);
+            var name = many ? part[..^2] : part;
+            var next = new List<JsonNode>();
+            foreach (var n in nodes)
             {
-                JsonObject o => o[part],
-                JsonArray a when int.TryParse(part, out var i) && i < a.Count => a[i],
-                _ => null,
-            };
+                var step = n switch
+                {
+                    JsonObject o => o[name],
+                    JsonArray a when int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var i) && i < a.Count => a[i],
+                    _ => null,
+                };
+                if (many && step is JsonArray list)
+                    next.AddRange(list.OfType<JsonNode>());
+                else if (!many && step is not null)
+                    next.Add(step);
+            }
+            nodes = next;
         }
-        return node;
+        return nodes;
     }
 
     [Fact]
@@ -163,10 +182,15 @@ public sealed partial class FacadeStateFixtureTest
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())
         {
-            var at = At(root, card!["path"]!.GetValue<string>());
-            Assert.NotNull(at);
-            foreach (var field in card["fields"]!.AsArray())
-                Assert.True(at.AsObject().ContainsKey(field!["path"]!.GetValue<string>()), $"{card["title"]}: {field["path"]}");
+            var blocks = At(root, card!["path"]!.GetValue<string>());
+            Assert.NotEmpty(blocks);
+            foreach (var at in blocks)
+            {
+                foreach (var field in card["fields"]!.AsArray())
+                    Assert.True(at.AsObject().ContainsKey(field!["path"]!.GetValue<string>()), $"{card["title"]}: {field["path"]}");
+                if (card["light"] is JsonArray rules && rules.OfType<JsonObject>().Select(r => r["from"]?.GetValue<string>()).OfType<string>().FirstOrDefault() is { } from)
+                    Assert.True(at.AsObject().ContainsKey(from), $"{card["title"]}: {from}");
+            }
             foreach (var action in card["actions"]!.AsArray())
             {
                 Assert.True(WireGrammar.TryParse(action!.GetValue<string>().Replace("$(id)", "pj_test1", StringComparison.Ordinal), out var line, out _));

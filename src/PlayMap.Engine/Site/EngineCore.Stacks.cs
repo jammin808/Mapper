@@ -667,7 +667,7 @@ public sealed partial class EngineCore
 
     // ---- STATE, context ------------------------------------------------------------------------------------------------------
 
-    /// <summary>A stack as STATE and STACK LIST tell it: aligned when every member but the master carries this stack's lattice, fitted
+    /// <summary>A stack's facts as STATE and STACK LIST tell them: aligned when every member but the master carries this stack's lattice, fitted
     /// to the poses its projectors stand at (<see cref="StackPoses"/>); its worst member's held-out residual; the members' gains; and
     /// the member whose lattice was fitted to poses that are gone (it or the master solved again since), when one was (null otherwise).</summary>
     internal static (bool Aligned, double ResidualPx, bool Matched, string? Moved) StackFacts(Project p, StackGroup sk)
@@ -740,6 +740,9 @@ public sealed partial class EngineCore
                 w.WriteStringValue(id);
             w.WriteEndArray();
             w.WriteNumber("gain", Math.Round(lost?.Gain ?? 1, 3));
+            var (light, words) = StackLight(p, sk, lost);
+            w.WriteString("light", ShowContext.LightWord(light));
+            w.WriteString("words", words);
             if (list)
             {
                 w.WriteStartArray("gains");
@@ -761,20 +764,29 @@ public sealed partial class EngineCore
             w.WriteEndObject();
     }
 
+    /// <summary>A stack's light and words, the same in its context row and in STATE: red while a member is lost (with the light the
+    /// building is at under MATCH, or held); amber while its lattice was fitted to poses that are gone, while it is not aligned, or while
+    /// a member lands more than <see cref="StackResidualMaxPx"/> from the master; green with the residual otherwise.</summary>
+    internal static (Light Light, string Words) StackLight(Project p, StackGroup sk, StackDegradation? lost)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        ArgumentNullException.ThrowIfNull(sk);
+        var (aligned, residual, _, moved) = StackFacts(p, sk);
+        return lost is not null
+            ? (Light.Red, $"{sk.Name} lost {string.Join(", ", lost.Members.Keys.Select(id => p.FindProjector(id)?.Name ?? id))} — "
+                + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $"matched: the building at {lost.Gain * 100:0} %") : "held"))
+            : moved is not null ? (Light.Amber, $"{NameOfProjector(p, moved)} or {NameOfProjector(p, sk.MasterId)} moved since {sk.Name} was aligned — STACK ALIGN {sk.Id} FROM <scan>")
+            : !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
+            : residual > StackResidualMaxPx ? (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: a member lands {residual:0.00} px from the master"))
+            : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.Members.Length} projectors within {residual:0.00} px"));
+    }
+
     private void ContextStacks(Project p, List<ContextItem> items)
     {
         foreach (var sk in p.Stage.Stacks)
         {
-            var (aligned, residual, _, moved) = StackFacts(p, sk);
-            var lost = StackDegradations.GetValueOrDefault(sk.Id);
-            var (light, state) = lost is not null
-                ? (Light.Red, $"{sk.Name} lost {string.Join(", ", lost.Members.Keys.Select(id => p.FindProjector(id)?.Name ?? id))} — "
-                    + (lost.Gain < 1 ? string.Create(CultureInfo.InvariantCulture, $"matched: the building at {lost.Gain * 100:0} %") : "held"))
-                : moved is not null ? (Light.Amber, $"{NameOfProjector(p, moved)} or {NameOfProjector(p, sk.MasterId)} moved since {sk.Name} was aligned — STACK ALIGN {sk.Id} FROM <scan>")
-                : !aligned ? (Light.Amber, $"{sk.Name} is not aligned — STACK ALIGN {sk.Id} FROM <scan>")
-                : residual > StackResidualMaxPx ? (Light.Amber, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: a member lands {residual:0.00} px from the master"))
-                : (Light.Green, string.Create(CultureInfo.InvariantCulture, $"{sk.Name}: {sk.Members.Length} projectors within {residual:0.00} px"));
-            items.Add(new ContextItem("stack:" + sk.Id, "stack", sk.Name, light, state));
+            var (light, words) = StackLight(p, sk, StackDegradations.GetValueOrDefault(sk.Id));
+            items.Add(new ContextItem("stack:" + sk.Id, "stack", sk.Name, light, words));
         }
     }
 }

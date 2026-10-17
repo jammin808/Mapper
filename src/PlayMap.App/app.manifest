@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <!-- A fixed side-by-side identity for Windows' activation context, not PlayMap's version: the exe's version is its version
+       resource, stamped from Version.props (README, "Versions"). -->
   <assemblyIdentity version="1.0.0.0" name="PlayMap.Desk"/>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>

@@ -61,8 +61,10 @@ the playlist's anchor does both). `SHOW DISARM ALL` is the desk's only.
 
 ## STATE
 
-`show.blind` (was always null): `null | {"on":true,"owner":"Desk","since":<unix ms>,"base":<revision>,"changes":n,
-"commit":null|{"boundary","playlist","effectiveLeaderNs"|null,"changes","by","forced"}}`.
+`show.blind`: `null | {"on":true,"owner":"Desk","session":"d1","transport":"desk","since":<unix ms>,"base":<revision>,"changes":n,
+"commit":null|{"when","boundary","playlist","effectiveLeaderNs"|null,"changes","by","forced"}}`. `session` and `transport` are the
+owner's as WHOAMI says them, so a client knows the draft is its own; `when` is the boundary in the words an owner's edit is refused
+with while the commit waits ("with the next GO on Show", "at 20:31:05.120").
 `show.rules.commitLeadMs` (34). `show.sound`: `null | {"output":"device|loopback|null","status":"…","item":"it…"|null,
 "gain":0.5,"problem":""}`. Fixture: tests/fixtures/state/show.json (cards: show.cards.json, "Blind" and "Sound").
 

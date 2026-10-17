@@ -178,6 +178,9 @@ public sealed class HostLifecycleTests
                 Endpoint = new Uri(http.BaseAddress!, "/mcp"),
                 TransportMode = HttpTransportMode.StreamableHttp,
             }));
+            // MCP's server info names the build the node runs.
+            Assert.Equal("PlayMap", mcp.ServerInfo.Name);
+            Assert.Equal(Core.BuildInfo.Current.Informational, mcp.ServerInfo.Version);
             var run = await mcp.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = "BLACKOUT ON", ["reason"] = "a test asks" });
             var text = string.Concat(run.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text));
             using (var receipt = JsonDocument.Parse(text))
@@ -202,7 +205,11 @@ public sealed class HostLifecycleTests
             var bad = new KeptLog();
             Assert.Equal(EngineEntry.BadArguments, await EngineEntry.RunAsync(["engine", "--home", badHome.FullName, "--bogus"], EngineParts.Bare, CancellationToken.None, bad));
             Assert.Contains(bad.Lines, l => l.Contains("unknown option --bogus", StringComparison.Ordinal));
-            Assert.True(File.Exists(Path.Combine(badHome.FullName, NodeLogProvider.FileName)));
+            Assert.StartsWith(Core.BuildInfo.Current.Display + ": the engine did not start", bad.Lines.First(), StringComparison.Ordinal);
+            // The file the log started in a fresh folder: its heading names the build, then the line that says why.
+            var file = File.ReadAllLines(Path.Combine(badHome.FullName, NodeLogProvider.FileName));
+            Assert.EndsWith(" info PlayMap.Engine.Log: " + NodeLogProvider.Heading, file[0], StringComparison.Ordinal);
+            Assert.Contains(" error PlayMap.Engine: " + Core.BuildInfo.Current.Display + ": the engine did not start", file[1], StringComparison.Ordinal);
         }
         finally
         {
@@ -240,6 +247,16 @@ public sealed class HostLifecycleTests
             Assert.Equal(EngineEntry.Stopped, await run.WaitAsync(TimeSpan.FromSeconds(30)));
             Assert.True(File.Exists(Path.Combine(home.FullName, "playmap.recovery.json")));
             Assert.Contains(kept.Lines, l => l.Contains("asked to stop", StringComparison.Ordinal));
+            // The log's first line and the journal's start row name the build.
+            Assert.StartsWith(Core.BuildInfo.Current.Display + ": the engine starts headless", kept.Lines.First(), StringComparison.Ordinal);
+            static string TextOf(string row)
+            {
+                using var doc = JsonDocument.Parse(row);
+                return doc.RootElement.GetProperty("text").GetString() ?? "";
+            }
+            var up = File.ReadLines(new NodeHome(home.FullName).JournalPath).Select(TextOf)
+                .Single(t => t.StartsWith("Entry node is up:", StringComparison.Ordinal));
+            Assert.EndsWith(" · " + Core.BuildInfo.Current.Display, up, StringComparison.Ordinal);
         }
         finally
         {

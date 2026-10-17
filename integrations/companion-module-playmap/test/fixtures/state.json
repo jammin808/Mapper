@@ -4,7 +4,7 @@
   "id": "0badc0de",
   "t": "playmap",
   "name": "Test node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "at": 1760000001000,
   "light": "red",
   "headline": "Show \u00B7 playing Red, 0:09 left \u00B7 outputs not measured",
@@ -339,7 +339,8 @@
     "light": "grey",
     "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet",
     "routes": [],
-    "routeTest": null
+    "routeTest": null,
+    "door": null
   },
   "eye": {
     "headline": "1 machine \u00B7 1 output \u00B7 nothing measured yet",

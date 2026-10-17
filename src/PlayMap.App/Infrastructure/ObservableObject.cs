@@ -19,6 +19,9 @@ public abstract class ObservableObject : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>True while anything listens for this object's changes (a binding, a control).</summary>
+    protected bool HasListeners => PropertyChanged is not null;
+
     protected void Raise([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

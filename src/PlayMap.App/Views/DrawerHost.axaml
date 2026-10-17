@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlayMap.App.ViewModels"
+             x:Class="PlayMap.App.Views.DrawerHost"
+             x:DataType="vm:DrawerHostViewModel">
+  <!-- The open drawer on the right: its tabs, ⤢ to take the whole workspace, and the tab's view (found by the module
+       view registry, so a package adds a tab without editing this file). -->
+  <Border Classes="drawer" HorizontalAlignment="Right" Width="{Binding Width}" x:Name="DrawerFrame">
+    <Grid RowDefinitions="Auto,*">
+      <Grid ColumnDefinitions="*,Auto,Auto" Margin="10,6,6,0">
+        <ListBox x:Name="DrawerTabs" ItemsSource="{Binding Open.Tabs, FallbackValue={x:Null}}" SelectedItem="{Binding Open.Selected, FallbackValue={x:Null}}"
+                 Background="Transparent">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="2" />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:DrawerTab">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="4,0" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <Button Grid.Column="1" Classes="tool small" x:Name="WideButton" Command="{Binding ToggleWide}" ToolTip.Tip="Take the whole workspace (⤢)" Content="⤢" />
+        <Button Grid.Column="2" Classes="tool small" x:Name="CloseDrawer" Command="{Binding Close}" ToolTip.Tip="Close  (Esc)">
+          <PathIcon Data="{StaticResource Icon.close}" Width="12" Height="12" />
+        </Button>
+      </Grid>
+      <ContentControl Grid.Row="1" x:Name="DrawerContent" Content="{Binding Open.Content, FallbackValue={x:Null}}" />
+    </Grid>
+  </Border>
+</UserControl>

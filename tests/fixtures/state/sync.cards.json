@@ -40,8 +40,7 @@
     ],
     "actions": [
       "SYNC STATUS",
-      "SYNC LEAD show",
-      "SYNC FOLLOW show 0badc0de"
+      "SYNC LEAD $(group)"
     ]
   },
   {

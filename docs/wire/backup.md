@@ -85,15 +85,17 @@ state on a backup), `of` (the primary a backup mirrors, the node a primary took 
 (`[{"node","name","state","light","words"}]`, a primary's backups with the state each reports in its HEALTH), `mirror` (null, or
 `{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`), `succession` (the show's plan; `[]`),
 `alarm` (null: automatic takeover is not built), `last` (null, or `{"kind":"takeover|failback|promote","id","at","words"}`), `nodes`,
-`light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`).
+`light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`),
+`door` (the words a client's line that would change the show meets on this node — a backup's way out, or a fenced node's — exactly
+as the node refuses it; null on a node with a show of its own).
 `sync.epoch` is the node's epoch. On a hot backup each `led.nodes[]` row whose machine master is on says `state` `standby` (green in
 the context and INDEX) and each enabled `videoio.sends[]` says `standby`, both with the words why ("silent: FOH-B is a hot backup of
 FOH-A — it sends at FAILOVER"); on a fenced node both say `held` ("held black: FOH-A is fenced (FOH-B has the show) — FLEET BACKUP
 FOH-B to mirror it"); on a primary that has just started with hot backups both say `standby` until it has heard them ("silent while
 FOH-A listens for its hot backup (FOH-B): one may have taken the show while it was away"). `show.sound.gain` is 0 on each of them.
 HEALTH adds `mirror` (the backup's state) and `sync.group`; a node is told at once when a peer's epoch, mirror or group moves. The fixture is
-`tests/fixtures/state/backup.json` (a backup, its primary, and the backup after FAILOVER, its route switched on the PJLink simulator
-and read back), its cards `backup.cards.json`.
+`tests/fixtures/state/backup.json` (a backup, its primary, the backup after FAILOVER with its route switched on the PJLink simulator
+and read back, and the old primary fenced, each keyed by its scenario), its cards `backup.cards.json`.
 
 Events: `fleet.takeover` (`id`, `from`, `epoch`, `words`), `fleet.fenced` (`by`, `epoch`), `sync.promoted` (`group`, `epoch`).
 

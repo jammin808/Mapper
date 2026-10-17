@@ -16,7 +16,7 @@ safe. Patterns, Stagewatch, Companion and an AI (via MCP) can see everything it 
 MIDI, Art-Net and sACN controllers drive it through bindings.
 
 ```
-PlayMap                     the desk: Play · Map · Scan, plus Outputs and Network drawers
+PlayMap                     the desk: Play · Map · Scan, a show strip, and Outputs, Inputs, Health and Network drawers
 PlayMap engine              the node (separate process: a desk that closes never blanks a projector)
 PlayMap engine headless     a rack render node driven by Patterns, with no desk at all
 ```
@@ -109,10 +109,16 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   the epoch and fences itself; only the node with the show drives the LED rig, the network sends and the sound.
 
 Each runs by verbs on every door — the line wire, HTTP, MCP, the controllers' WebSocket and the bindings — and STATE and the
-context report it.
+context report it. The desk is one more client of those verbs: a show strip (the Ready light, ARM, PANIC and Blackout, the air's
+controls sending every press at once), every control greyed with the node's own words before a press any of its doors would
+refuse (pairing, the fleet, the show's gate with the desk's own blind draft, a lock), Lock for the show in every object's menu, a
+card for every package's STATE whose buttons take their values from that STATE, Add effect, Modulate, Bind, Optimise and Use
+input entries built from the node's own answers, and an Esc ladder that backs out before it panics (docs/DESK.md).
 
-**In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); and the
-desk's controls for show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
+**In progress:** the lab runs of the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among
+them); and the desk's next round: the preflight board with Fix buttons, the quad tool and on-wall mode, the calibration score card
+and history strip, and the blind chip. The blind draft's diff and commit, the sync board and the fleet board have no desk view of
+their own: their STATE shows on the desk's cards and their verbs run from the cards and over the wire.
 
 **Round 3 (`docs/round3/`):** PlayMap will become a Windows-native installed application on Direct3D 12 — a signed per-machine
 installer, the engine supervised in the show user's session, each output proving its flip mode, hardware lock on RTX PRO Sync and
@@ -130,7 +136,7 @@ measured phase everywhere else (`docs/round3/PLAN.md`).
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
-| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; simple workspaces, right-click menus on everything, edits only through the verbs every peer uses |
+| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words |
 
 ## Talking to Patterns and Stagewatch
 
@@ -176,6 +182,8 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/RESEARCH.md` — what the field does and why PlayMap chose what it chose
 - `docs/COMPETITIVE.md` — where PlayMap stands against MadMapper, disguise, Pixera, Watchout and the rest, and what to learn from each
 - `docs/UX.md` — the desk's principles, workflows and time targets
+- `docs/DESK.md` — the desk as built: the show strip, the attention bar, drawers, generic STATE cards, generated menus and the
+  spine its parts build on
 - `docs/XR.md` — phones, smart glasses and headsets: look at a surface and control it
 - `docs/ROADMAP.md` — what is built, what is in progress, and the prioritised rounds
 - `THIRD-PARTY-NOTICES.md` — what PlayMap ships or loads from others, with their licences
@@ -196,3 +204,34 @@ virtual output whose monitor the audio tests capture from), starts the display a
 variables to export.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
+
+## Versions
+
+The product version is SemVer, `MAJOR.MINOR.PATCH`, written once, as `PlayMapVersion` in `Version.props`. Every build carries
+a build number and its commit: CI passes its run number and commit (`-p:PlayMapRun=<n> -p:PlayMapCommit=<sha>`), and the
+build number is the run number less `PlayMapRunBase`, also in `Version.props`; a build given neither is a local build,
+numbered 0 and marked `-dev`, with the commit its checkout is at (none outside a git checkout, which does not fail the build).
+Every assembly of PlayMap's own source carries the same stamp — here, for version 0.2.0, CI's build 17 of commit abc1234 and a
+local build:
+
+| | CI build | Local build |
+|---|---|---|
+| AssemblyVersion | `0.2.0.0` | `0.2.0.0` |
+| FileVersion (Windows' four parts) | `0.2.0.17` | `0.2.0.0` |
+| InformationalVersion (Windows' ProductVersion) | `0.2.0+17.abc1234` | `0.2.0-dev+abc1234` |
+| In words | PlayMap 0.2.0 (build 17, abc1234) | PlayMap 0.2.0-dev (local build, abc1234) |
+
+The assembly version moves only with MAJOR.MINOR, so binding does not churn between builds. A part of a Windows file version
+holds at most 65535: a build number past it fails the build with words (wrapped, it would read to an installer as an older
+build; clamped, as the same one). CI's run numbers never start again (they count the workflow's runs), so a raised version
+alone keeps the count; raising MAJOR or MINOR and setting `PlayMapRunBase` to the last run's number in the same commit starts
+it again at 1. A raised PATCH never starts it again: Windows Installer reads three fields of a version, so an installer of
+PlayMap orders builds by MAJOR.MINOR and the build number, and a count started again under the same MAJOR.MINOR would read to
+it as an older build. The vendored projects under `src/ThirdParty` keep their upstream's version, with PlayMap's patch level after it
+(libomtnet's `1.0.0.20+7d29031.playmap.1`): their file version does not move with PlayMap's builds, so whatever installs
+PlayMap replaces every file of a build, not only those whose version rose. Where to read a build: the exe's file properties
+(File version, Product version); the desk's title and the About line of its help (F1); the engine's log, where the first line
+of every file it starts, the start line and every crash line name it, and the journal's start line; HEALTH's `build`, which the
+context's machine item and the fleet's board carry (docs/wire/fleet.md); the web port's MCP server info; each CI job's summary,
+written straight after its build, and the Windows artifact's name (`PlayMap-0.2.0.17-win-x64`). STATE's `version` is the
+product version alone, the same for every build of a release, so the committed STATE fixtures hold on any machine.

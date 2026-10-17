@@ -4,7 +4,7 @@ One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the 
 wire over the web port's WebSocket (`/ws` with the subprotocol `playmap.lines.v1`), HTTP `POST /api/cmd` (9940), the screens'
 WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, OSC (`/playmap/line` on UDP 9943), the lines control
 bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync group's leader sends its members
-(docs/SYNC.md), and the desk.
+(docs/SYNC.md), and the desk, which adds no verb and sends only catalogue lines (docs/wire/desk.md).
 
 ## Lines
 
@@ -90,7 +90,7 @@ Compact JSON, top-level keys in this order (new keys are added at the end of the
 as raw substrings):
 
 ```json
-{"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.1.0","at":1760101234567,
+{"v":1,"seq":412,"id":"a1b2c3d4","t":"playmap","name":"Stage left","version":"0.2.0","at":1760101234567,
  "light":"green","headline":"Show · Intro 0:42 left · 3 outputs green · synced to FOH (0.2 ms)",
  "air":{"blackout":false,"frozen":false,"pattern":null,"identify":false,"patternsBlackout":false,
    "followPatternsBlackout":true},
@@ -143,6 +143,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
   that budget), what lights the output amber; the totals are in `outputs[].present` (docs/OUTPUT.md). `fps` and
   `frameMsP95` are measured against the output's own target: a windowed output's display refresh, a headless output's
   configured `refreshHz` (the headless loop runs at the fastest enabled output's refresh, not the show's frame rate).
+- `version` is the product version, SemVer `MAJOR.MINOR.PATCH` (README, "Versions"): the same from every build of a release,
+  so a STATE written by CI's build and by a local one differ in nothing. The build itself — its number and its commit — is
+  HEALTH's `build` (docs/wire/fleet.md), which the context's machine item carries too.
 - `seq` (top level) rises with every published change; a smaller `seq` after a reconnect means the node
   restarted.
 - `sync.offsetMs` is how far this node's reading of its leader's clock can be off (half the best exchange's round
@@ -317,7 +320,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
 - **The door.** A verb that changes something, or a paired-only query (`PRESENCE`, `THUMB`, the board's focus and lens),
   needs pairing. A node-to-node verb (`MIRROR`, `FLEET FENCE`) is refused from every transport but a fleet peer's and the
   node's own: `ERR <VERB>: this line is node-to-node only`. Then the fleet's door (a hot backup or a fenced node refuses a
-  client's line that would change the show it mirrors, with the way out — docs/wire/backup.md), then the show's gate (Show Mode
+  client's line that would change the show it mirrors, with the way out, the words `fleet.door` carries in STATE — docs/wire/backup.md), then the show's gate (Show Mode
   and the GO fence, docs/SHOW.md), then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
   gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
   the wall's cursor board as it arrives, stamped then, never queued behind edits.
@@ -346,7 +349,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   −1 before the first), `onboarding.contentAt` is stamped when the render host draws a frame of a quad's content (on a node
   without one, when the project first puts content on a quad an output shows), and `align.devices` is each guarded
   device's last read of its projector's own geometry and blend, with its light, words and fix (docs/wire/resolve.md).
-  `stage.stacks` is each stack with its alignment, colour match and failover (what it lost and the light it has left),
+  `stage.stacks` is each stack with its alignment, colour match and failover (what it lost and the light it has left) and its context
+  row's light and words,
   `stage.site.next` the facade guide's next step on the live stage (null once through), `stage.projectors[].stack` the stack a
   projector is in, and a stack member's correction is its output's `measured` (docs/wire/stacks.md).
   `null` means the node has none; an unknown number is `-1` and grey, never `0`. `tests/fixtures/state/main.json` is the
@@ -362,6 +366,7 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   `FACADE GUIDE`; `stage.stacks`, `stage.site.next`, each projector's `stack`, a member's lattice and gains in its output's
   `measured`) · [multiscan](wire/multiscan.md) (views INTO a scan, the joint solve, suggestions, the folder
   camera) · [multiview](wire/multiview.md) (Core's solver behind multiscan's rows: no verb, no STATE of its own) ·
+  [desk](wire/desk.md) (no rows: what the desk asks and the STATE it reads) ·
   [d3d11](wire/d3d11.md) (`PRESENT PATH AUTO|DXGI|GL` from the render host's next start, DXGI explicit and experimental, the
   present fuse that `PRESENT RESET` clears; Spout's lines through videoio's rows; each output's `latencyMs` and the node's air
   latency) · [zerocopy](wire/zerocopy.md) (`DECODE STATUS`, the `decode` object STATE carries with each source's path — the path its

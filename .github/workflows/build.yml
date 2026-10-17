@@ -37,7 +37,15 @@ jobs:
       - name: Restore
         run: dotnet restore
       - name: Build (the analyzers are fences)
-        run: dotnet build -c Release --no-restore
+        # A numbered build (Version.props): this run's number and commit; the build number is the run number less
+        # PlayMapRunBase. The version is in the tree and the commit is the workflow's own, so no git history is read and the
+        # checkout's default depth is enough.
+        run: dotnet build -c Release --no-restore -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The version
+        # What the build stamped, read back from the built assembly and checked against this run's build number and commit; it
+        # heads the job's summary whatever the suites say.
+        shell: pwsh
+        run: ./tools/ci-stamp.ps1 -File src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll -Label Linux -Heading
       - name: The machine is bare (no libva, no system OpenAL)
         run: |
           # The decode ladder's VA-API guard and the bundled OpenAL are proven here only while these are absent; on a machine
@@ -124,7 +132,13 @@ jobs:
       - name: Restore
         run: dotnet restore
       - name: Build
-        run: dotnet build -c Release --no-restore
+        # A numbered build (Version.props): this run's number and commit; no git history is read (see the Linux job).
+        run: dotnet build -c Release --no-restore -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The version
+        # The built assembly's version resource, checked as on Linux, straight after the build: the job's summary names the build
+        # whatever the suites say.
+        shell: pwsh
+        run: ./tools/ci-stamp.ps1 -File src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll -Label Windows -Heading
       - name: OpenGL beside the test hosts
         shell: pwsh
         run: |
@@ -176,9 +190,15 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
       - name: Publish the portable exe
-        run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap
+        # Publishing compiles again for win-x64, so it is given the same build number and commit as the build.
+        run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The published exe's version
+        id: version
+        # The published exe's Windows version resource, checked against this run's build number and commit: it names the artifact.
+        shell: pwsh
+        run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64'
       - name: Upload the exe
         uses: actions/upload-artifact@v5
         with:
-          name: PlayMap-win-x64
+          name: ${{ steps.version.outputs.artifact }}
           path: publish/PlayMap

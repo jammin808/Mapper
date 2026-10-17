@@ -64,6 +64,7 @@
     }
   ],
   "scan": {
+    "id": "sc_fixture1",
     "pairing": {
       "mode": "tag",
       "sites": 3,

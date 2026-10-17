@@ -28,7 +28,8 @@
           "primaryNode": "0badc0de"
         }
       ],
-      "routeTest": null
+      "routeTest": null,
+      "door": "FOH-B mirrors FOH-A — send it to FOH-A (127.0.0.1), or FAILOVER to make this node the show"
     }
   },
   "primary": {
@@ -61,7 +62,8 @@
           "primaryNode": "0badc0de"
         }
       ],
-      "routeTest": null
+      "routeTest": null,
+      "door": null
     }
   },
   "takenOver": {
@@ -91,7 +93,34 @@
           "primaryNode": "0badc0de"
         }
       ],
-      "routeTest": null
+      "routeTest": null,
+      "door": null
+    }
+  },
+  "fenced": {
+    "fleet": {
+      "role": "fenced",
+      "epoch": 1,
+      "state": "fenced",
+      "of": "9f8e7d6c",
+      "backups": [],
+      "mirror": null,
+      "succession": [],
+      "alarm": null,
+      "last": null,
+      "light": "green",
+      "headline": "2 machines",
+      "routes": [
+        {
+          "output": "op_1",
+          "device": "dv00000001",
+          "input": "31",
+          "backupInput": "32",
+          "primaryNode": "0badc0de"
+        }
+      ],
+      "routeTest": null,
+      "door": "fenced: FOH-B has the show (epoch 1) — FLEET BACKUP FOH-B to mirror it"
     }
   }
 }

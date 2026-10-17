@@ -1,8 +1,9 @@
 <Project>
   <!-- Vendored third-party source lives here, outside the fences: these projects set their own runtime and language, import
-       nothing from the repository's root (no analyzers, no banned-API list, warnings stay warnings), and are referenced by the
-       package that needs them, never copied into a fenced project. Each keeps its licence beside it and its line in
-       THIRD-PARTY-NOTICES.md. -->
+       nothing from the repository's root (no analyzers, no banned-API list, warnings stay warnings, no Version.props stamp), and
+       are referenced by the package that needs them, never copied into a fenced project. Each keeps its licence beside it, its
+       line in THIRD-PARTY-NOTICES.md and its upstream's version, with PlayMap's patch level after it in the informational version
+       (libomtnet's 1.0.0.20+7d29031.playmap.1). -->
   <PropertyGroup>
     <PlayMapTfm Condition="'$(PlayMapTfm)' == ''">net10.0</PlayMapTfm>
     <LangVersion>14</LangVersion>

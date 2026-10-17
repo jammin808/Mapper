@@ -174,7 +174,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             Media = _o.Media,
             Approvals = _o.Approvals.Policy,
             LoggerFactory = logs,
-            Version = StateWriter.Version,
+            Version = engine.Services.Build.Informational,
             Modules = [.. _modules],
         });
         try

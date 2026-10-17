@@ -28,4 +28,11 @@
     <InternalsVisibleTo Include="PlayMap.App.Tests" />
   </ItemGroup>
 
+  <!-- The card descriptors the desk renders: every package's (tests/fixtures/state/*.cards.json, written beside its STATE
+       fixture) and the desk's own, built in so a package's STATE shows on the desk without desk code. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\tests\fixtures\state\*.cards.json" LogicalName="cards/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="State\Cards\*.cards.json" LogicalName="cards/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

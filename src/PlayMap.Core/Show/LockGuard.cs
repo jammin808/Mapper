@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using PlayMap.Core.Model;
 
 namespace PlayMap.Core.Show;
@@ -6,7 +7,9 @@ namespace PlayMap.Core.Show;
 /// <summary>The one check every document edit, undo and redo passes before it is published: an edit that changes a locked
 /// entity, a locked area, or (armed) the mapping or the outputs' layout is refused with the lock's words, and nothing moves.
 /// Locks change only through LOCK and UNLOCK, which publish without asking this guard. Comparisons are by reference first (an
-/// immutable root shares every list it did not touch), so a guard over a large project costs a handful of compares.</summary>
+/// immutable root shares every list it did not touch), so a guard over a large project costs a handful of compares; an entity an
+/// edit replaced is compared by value, its lists by their items (<see cref="Same{T}"/>), so a SET that went through JSON and
+/// changed only a name never reads as a moved mapping.</summary>
 public static class LockGuard
 {
     /// <summary>The areas an armed show locks without being asked.</summary>
@@ -23,7 +26,7 @@ public static class LockGuard
             return "locks change only through LOCK and UNLOCK";
         foreach (var l in before.Show.Locks)
         {
-            var why = l.Kind == LockKind.Area ? AreaChanged(before, after, l.Target) ? AreaWords(l) : null : EntityWords(before, after, l);
+            var why = l.Kind == LockKind.Area ? AreaChanged(before, after, l.Target) ? AreaWords(l) : null : EntityChangedWords(before, after, l);
             if (why is not null)
                 return why;
         }
@@ -34,7 +37,7 @@ public static class LockGuard
             foreach (var area in ArmedAreas)
             {
                 if (AreaChanged(before, after, area) && !before.Show.Locks.Any(l => l.Kind == LockKind.Area && l.Target == area))
-                    return $"{area} is locked while the show is armed — SHOW DISARM first";
+                    return ArmedWords(area);
             }
         }
         return null;
@@ -91,15 +94,22 @@ public static class LockGuard
     /// transform, masks, visibility, pixel quad, how its content is laid on it). A field no area names counts as mapping, the
     /// cautious side.</summary>
     private static bool GeometryMoved(Surface before, Surface after) =>
-        (after with
+        !Same(after with
         {
             Name = before.Name, Color = before.Color, Tags = before.Tags, Locked = before.Locked, Opacity = before.Opacity, Fx = before.Fx,
             Bindings = before.Bindings, Content = after.Content with { Source = before.Content.Source },
-        }) != before;
+        }, before);
 
     /// <summary>What a surface shows moved: the content.</summary>
     private static bool PictureMoved(Surface before, Surface after) =>
-        !(before.Content.Source, before.Opacity, before.Fx, before.Bindings).Equals((after.Content.Source, after.Opacity, after.Fx, after.Bindings));
+        !(Same(before.Content.Source, after.Content.Source) && before.Opacity.Equals(after.Opacity) && Same(before.Fx, after.Fx)
+            && Same(before.Bindings, after.Bindings));
+
+    /// <summary>Two model values say the same: equal (a record compares its lists by reference), or written the same in the
+    /// document's JSON (an edit that went through JSON, as a SET does, makes new lists of the same items).</summary>
+    private static bool Same<T>(T before, T after) =>
+        EqualityComparer<T>.Default.Equals(before, after)
+        || string.Equals(JsonSerializer.Serialize(before, ProjectJson.Compact), JsonSerializer.Serialize(after, ProjectJson.Compact), StringComparison.Ordinal);
 
     private static bool OutputsChanged(Project before, Project after, Func<Output, Output, bool> moved, bool addedOrRemoved = false)
     {
@@ -125,12 +135,12 @@ public static class LockGuard
     /// <summary>An output's mapping moved: anything but its name, layout and content changed (warp, masks, blend, projector, the
     /// measured correction and the calibration it uses). A field no area names counts as mapping, the cautious side.</summary>
     private static bool MappingMoved(Output before, Output after) =>
-        (after with
+        !Same(after with
         {
             Name = before.Name, Kind = before.Kind, DisplayKey = before.DisplayKey, Width = before.Width, Height = before.Height,
             RefreshHz = before.RefreshHz, Mode = before.Mode, Plan = before.Plan, Rotation = before.Rotation, Enabled = before.Enabled,
             SourceRect = before.SourceRect, LatencyMs = before.LatencyMs, Source = before.Source, Color = before.Color, Fx = before.Fx,
-        }) != before;
+        }, before);
 
     /// <summary>An output's layout moved: its display, raster, refresh, mode, plan, rotation, rectangle, kind, latency or whether it
     /// is on.</summary>
@@ -142,9 +152,9 @@ public static class LockGuard
 
     /// <summary>What an output shows moved: its source, colour trim or effects.</summary>
     private static bool ContentMoved(Output before, Output after) =>
-        !(before.Source, before.Color, before.Fx).Equals((after.Source, after.Color, after.Fx));
+        !(Same(before.Source, after.Source) && Same(before.Color, after.Color) && Same(before.Fx, after.Fx));
 
-    private static string? EntityWords(Project before, Project after, ShowLock l)
+    private static string? EntityChangedWords(Project before, Project after, ShowLock l)
     {
         var was = ShowEntities.Find(before, l.Target);
         if (was is null)
@@ -152,7 +162,16 @@ public static class LockGuard
         var now = ShowEntities.Find(after, l.Target);
         if (ReferenceEquals(was, now) || Equals(was, now) || OnlyLockedFlagMoved(was, now))
             return null;
-        var (label, kind) = ShowEntities.Describe(was);
+        return EntityWords(l, was);
+    }
+
+    /// <summary>The words an edit of <paramref name="entity"/> meets under its entity lock <paramref name="l"/>: what the node refuses
+    /// it with, and what a client shows before it sends one.</summary>
+    public static string EntityWords(ShowLock l, object entity)
+    {
+        ArgumentNullException.ThrowIfNull(l);
+        ArgumentNullException.ThrowIfNull(entity);
+        var (label, kind) = ShowEntities.Describe(entity);
         var why = l.Words.Length > 0 ? $"'{l.Words}', " : "";
         return $"{label} ({kind}) is locked by {l.By} ({why}{Clock(l.AtUnixMs)}) — UNLOCK {l.Target} first";
     }
@@ -165,7 +184,7 @@ public static class LockGuard
             foreach (var s in before.Stage.Surfaces)
             {
                 if (s.Locked && after.Stage.Surfaces.Find(s.Id) is var a && !ReferenceEquals(s, a) && !OnlyLockedFlagMoved(s, a))
-                    return $"{s.Name} (surface) is locked — SET {s.Id} locked false first";
+                    return FlagWords(s);
             }
         }
         if (before.Stage.Projectors != after.Stage.Projectors)
@@ -173,7 +192,7 @@ public static class LockGuard
             foreach (var p in before.Stage.Projectors)
             {
                 if (p.Locked && after.Stage.Projectors.Find(p.Id) is var a && !ReferenceEquals(p, a) && !OnlyLockedFlagMoved(p, a))
-                    return $"{p.Name} (projector) is locked — SET {p.Id} locked false first";
+                    return FlagWords(p);
             }
         }
         return null;
@@ -181,15 +200,39 @@ public static class LockGuard
 
     private static bool OnlyLockedFlagMoved(object was, object? now) => (was, now) switch
     {
-        (Surface s, Surface t) => (s with { Locked = t.Locked }) == t,
-        (Projector p, Projector q) => (p with { Locked = q.Locked }) == q,
+        (Surface s, Surface t) => Same(s with { Locked = t.Locked }, t),
+        (Projector p, Projector q) => Same(p with { Locked = q.Locked }, q),
         _ => false,
     };
 
-    private static string AreaWords(ShowLock l)
+    /// <summary>The words an edit in the area of the area lock <paramref name="l"/> meets: what the node refuses it with, and what a
+    /// client shows before it sends one.</summary>
+    public static string AreaWords(ShowLock l)
     {
+        ArgumentNullException.ThrowIfNull(l);
         var why = l.Words.Length > 0 ? $"'{l.Words}', " : "";
         return $"{l.Target} is locked by {l.By} ({why}{Clock(l.AtUnixMs)}) — UNLOCK AREA {l.Target} first";
+    }
+
+    /// <summary>The words an edit in an area an armed show locks without being asked (<see cref="ArmedAreas"/>) meets.</summary>
+    public static string ArmedWords(string area)
+    {
+        ArgumentNullException.ThrowIfNull(area);
+        return $"{area} is locked while the show is armed — SHOW DISARM first";
+    }
+
+    /// <summary>The words an edit of a surface or projector whose own Locked flag is set meets (only the flag itself may change).</summary>
+    public static string FlagWords(Surface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        return $"{surface.Name} (surface) is locked — SET {surface.Id} locked false first";
+    }
+
+    /// <inheritdoc cref="FlagWords(Surface)"/>
+    public static string FlagWords(Projector projector)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+        return $"{projector.Name} (projector) is locked — SET {projector.Id} locked false first";
     }
 
     /// <summary>A lock's time as the operator's clock reads it (hours and minutes).</summary>

@@ -21,7 +21,7 @@ public sealed class DeskApp : Application
         {
             var options = DeskOptions.Parse(desktop.Args ?? []);
             var session = new DeskSession(a => Dispatcher.UIThread.Post(a));
-            var vm = new MainViewModel(session);
+            var vm = new MainViewModel(session, Infrastructure.DeskPrefs.Load(Infrastructure.DeskPrefs.DefaultPath));
             var window = new MainWindow { DataContext = vm };
             desktop.MainWindow = window;
             desktop.ShutdownRequested += (_, _) => vm.BeginShutdown();

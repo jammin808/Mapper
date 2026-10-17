@@ -81,4 +81,23 @@
   <StreamGeometry x:Key="Icon.info">M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M11,10 H13 V17 H11 Z M11,6.5 H13 V8.5 H11 Z</StreamGeometry>
   <StreamGeometry x:Key="Icon.fetch">M11,3 H13 V13 L16.5,9.5 L18,11 L12,17 L6,11 L7.5,9.5 L11,13 Z M4,18 H20 V21 H4 Z</StreamGeometry>
   <StreamGeometry x:Key="Icon.sync">M12,4 A8,8 0 0 1 19.4,9 H22 L18.5,13 L15,9 H17.2 A6,6 0 0 0 6.3,10 L4.5,9 A8,8 0 0 1 12,4 Z M12,20 A8,8 0 0 1 4.6,15 H2 L5.5,11 L9,15 H6.8 A6,6 0 0 0 17.7,14 L19.5,15 A8,8 0 0 1 12,20 Z</StreamGeometry>
+  <!-- Round two: the show, health, sync, timecode, tempo, effects, modulation, binding, LED, align, calibration, guides, phones, live video, sends, optimise. -->
+  <StreamGeometry x:Key="Icon.panic">M12,2 L22,20 H2 Z M11,8 V14 H13 V8 Z M11,16 V18 H13 V16 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.arm">M12,2 L20,5 V11 C20,16 16.5,20 12,22 C7.5,20 4,16 4,11 V5 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.blind">M3,5 H21 V19 H3 Z M5,7 V17 H19 V7 Z M7,9 H17 V15 H7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.health">M12,21 L4,13 A5,5 0 0 1 12,6 A5,5 0 0 1 20,13 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.fleet">M2,6 H9 V11 H2 Z M15,6 H22 V11 H15 Z M8.5,15 H15.5 V20 H8.5 Z M5,11 V13 H19 V11 H17 V12 H7 V11 Z M11,13 H13 V15 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.tc">M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M11,7 V12.5 L15,15 L16,13.5 L13,11.6 V7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.tempo">M8,21 L11,3 H13 L16,21 Z M12,9 L18,5 L19,6.5 L12,11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.fx">M4,4 H11 V6 H6 V11 H4 Z M13,13 L20,20 L18.6,21.4 L11.6,14.4 Z M15,3 L16,6 L19,7 L16,8 L15,11 L14,8 L11,7 L14,6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.modulation">M2,12 C5,4 8,4 11,12 C14,20 17,20 22,12 L20.5,11 C17,17 15,17 12.5,11 C10,5 6,5 3.5,13 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.bind">M8,8 H11 V10 H8 A2,2 0 0 0 8,14 H11 V16 H8 A4,4 0 0 1 8,8 Z M13,8 H16 A4,4 0 0 1 16,16 H13 V14 H16 A2,2 0 0 0 16,10 H13 Z M9,11 H15 V13 H9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.led">M4,10 A2,2 0 1 0 4,14 A2,2 0 1 0 4,10 Z M10,10 A2,2 0 1 0 10,14 A2,2 0 1 0 10,10 Z M16,10 A2,2 0 1 0 16,14 A2,2 0 1 0 16,10 Z M22,10 A2,2 0 1 0 22,14 A2,2 0 1 0 22,10 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.align">M3,3 H9 V5 H5 V9 H3 Z M15,3 H21 V9 H19 V5 H15 Z M3,15 H5 V19 H9 V21 H3 Z M19,15 H21 V21 H15 V19 H19 Z M11,8 H13 V11 H16 V13 H13 V16 H11 V13 H8 V11 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.calibration">M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z M12,5 A7,7 0 1 1 12,19 A7,7 0 1 1 12,5 Z M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.guide">M4,4 H11 L12,5 L13,4 H20 V19 H13 L12,20 L11,19 H4 Z M11,6 H6 V17 H11 Z M13,6 V17 H18 V6 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.phone">M7,2 H17 V22 H7 Z M9,4 V18 H15 V4 Z M11,19 H13 V21 H11 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.live">M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z M5.6,5.6 L7,7 A7,7 0 0 0 7,17 L5.6,18.4 A9,9 0 0 1 5.6,5.6 Z M18.4,5.6 A9,9 0 0 1 18.4,18.4 L17,17 A7,7 0 0 0 17,7 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.send">M3,20 L21,12 L3,4 V10 L15,12 L3,14 Z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.optimise">M13,2 L4,14 H11 L10,22 L20,9 H13 Z</StreamGeometry>
 </ResourceDictionary>
