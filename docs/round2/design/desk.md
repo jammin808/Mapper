@@ -995,7 +995,8 @@ projector. It has three steps, each read from `STATE.onboarding.stage`:
    - The guide ends with "First map in 1:24" (`onboarding.seconds`).
 - **Built:** the guide is a card in MAP (its step 1 also shows on a show with no projector); a light switches to MAP with Q armed
   on the lit projector; Enter, not the fourth click, sends the quad; step 3 offers the show's media and playlists
-  (`SURFACE SOURCE <sf> media:<md>|playlist:<pl>`) rather than an import; the cross closes it on this desk.
+  (`SURFACE SOURCE <sf> media:<md>|playlist:<pl>`) rather than an import; "First map in 1:24" is a toast as the guide closes; it
+  shows only on the first-light path (no projector yet, or a wall lit in this run); the cross closes it on this desk.
 
 **On-wall editing mode (O, or the "On the wall" toggle in the MAP toolbar):**
 

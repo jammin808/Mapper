@@ -114,14 +114,15 @@ controls sending every press at once), every control greyed with the node's own 
 refuse (pairing, the fleet, the show's gate with the desk's own blind draft, a lock), Lock for the show in every object's menu, a
 card for every package's STATE whose buttons take their values from that STATE, Add effect, Modulate, Bind, Optimise and Use
 input entries built from the node's own answers, and an Esc ladder that backs out before it panics. Round 2 has desk views of its
-own: a readiness light (the worst of the show's preflight, the fleet and the group's vblanks); the blind chip, whose panel shows
-the draft's diff and commits it now or at the next item, discards it or draws it in MAP's 3D view; Health ▸ Fleet with each
-machine's card and FAILOVER; Health ▸ Preflight with a Fix button on every row; Health ▸ Calibration with each target's score
-card, a Fix per term and the history strip's Recall; MAP's quad tool (Q, four clicks, Enter; the arrows nudge a corner in wall
-pixels) with the overlay on the wall (O); and a first-light guide from LIGHT WALL to the first clip (docs/DESK.md). The rest of
-round 2 is wire-only: the effects browser, modulation, tempo, bindings and learn, timecode, LED placement and patching, optimise
-jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync tab, Companion decks and the content library
-run over the wire, HTTP, MCP, Companion and the bindings, and show on the desk as generic cards and generated right-click entries.
+own: a readiness light (the worst of the show's preflight, the fleet and the sync group); the blind chip, whose panel shows the
+draft's diff and commits it now or at the next item, discards it or draws it in MAP's 3D view; Health ▸ Fleet with each machine's
+card and FAILOVER, held to confirm; Health ▸ Preflight with a Fix button on every row; Health ▸ Calibration with each target's
+score card, a Fix per term and the history strip's Recall; MAP's quad tool (Q, four clicks, Enter; the arrows nudge a corner in
+wall pixels) with the overlay on the wall (O); and a first-light guide from LIGHT WALL to the first clip (docs/DESK.md). The rest
+of round 2 is wire-only: the effects browser, modulation, tempo, bindings and learn, timecode, LED placement and patching,
+optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync tab, the present path chips, the
+per-output panic plans, Companion decks and the content library run over the wire, HTTP, MCP, Companion and the bindings, and
+show on the desk as generic cards and generated right-click entries.
 
 **In progress:** the lab runs of the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among
 them).
