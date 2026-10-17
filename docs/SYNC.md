@@ -111,18 +111,30 @@ latency"): every frame is drawn for the instant its light leaves the slowest dis
 every lens in the group emits a show instant's light at the same moment.
 
 - **`SYNC LATENCY AUTO|<ms 0-500>`** sets it in the leader's project (`settings.syncLatencyMs`, −1 = AUTO; one undoable edit,
-  show class layout). **AUTO** is the largest output latency the leader's board hears — its own outputs' and every member's, each
-  reported in its vblank reports (PMVB's air latency); a stated value is the group's whatever the displays report.
-- The leader's watch carries the value on the feed when it moves (`ANCHOR <group> @latency {"ms":50}`) and writes it through
-  `IPresentBackend.SetGroupAirLatency` on its own outputs; a member takes the record (fail closed: anything but `{"ms":0…500}` is not
-  taken) and writes it through on its outputs, and the journal says so ("the group's air latency is 50 ms (FOH (0badc0de)'s): this
-  node's outputs show each frame for that instant"). A node that stops following lets it go (0); a node that leads again carries
-  its own on its next watch.
+  show class layout; in an armed show it is staged in the blind draft and carried when the draft lands). **AUTO** is the largest
+  of the leader's own outputs' air latency and each member output's last report (PMVB's air latency). A member's report stays
+  while the member is subscribed and names that output — one that goes quiet keeps its place, so a network blip never moves the
+  group — and goes when the member leaves the feed or subscribes again without that output. A lead (and a leader just restarted)
+  waits for every member that names outputs to report before it carries AUTO, for at most the board's five seconds; after that a
+  member that never reports (one with no render host) is carried without. A stated value is the group's whatever the displays
+  report.
+- The leader's watch carries the value on the feed whenever it moves, 0 included (`ANCHOR <group> @latency {"ms":50}`), and
+  writes it through `IPresentBackend.SetGroupAirLatency` on its own outputs; a member takes the record (fail closed: anything but
+  `{"ms":0…500}` is not taken) and writes it through on its outputs, and the journal says so ("the group's air latency is 50 ms
+  (FOH (0badc0de)'s): this node's outputs show each frame for that instant"). A node keeps the latency it was given until the
+  next feed it follows, or its own lead, carries one: a change of leader never drops the outputs' delay for the moment between,
+  which would move every picture twice.
+- A node raises its air to the group's latency and never lowers it below its own slowest display: a stated value below a display
+  latency the group reports is set, and the reply says which node stays at its own and lights later than the rest ("… — below the
+  50 ms display latency 0badc0de reports: that node's outputs stay at their own and light later than the rest").
 - Refused with the reason: a follower's `SYNC LATENCY` ("this node follows 0badc0de in show: the group's air latency is its
-  leader's — SYNC LATENCY there"), a value that is set already, anything outside 0–500 ms. A solo node keeps the value for when it
-  leads.
-- STATE `sync.groupLatencyMs` is the group's air latency in force on this node (0 in no group); `machine.present.airLatencyMs` is the
-  node's own air latency once raised; the context's `sync:<group>` item adds "the group's air latency 50 ms".
+  leader's — SYNC LATENCY there"), a value that is set already, anything but a finite 0–500 ms or AUTO ("NaN" and "Infinity"
+  included). A solo node keeps the value for when it leads.
+- STATE `sync.groupLatencyMs` is the group's air latency in force on this node (a follower's is its leader's; 0 before any group
+  carried one); `sync.latencyMs` is this node's own project's word on it — the stated `SYNC LATENCY`, or under AUTO the largest
+  latency of its own enabled outputs — so the two differ on a follower and on an AUTO leader whose members report slower displays.
+  `machine.present.airLatencyMs` is the node's own air latency once raised; the context's `sync:<group>` item adds "the group's
+  air latency 50 ms".
 
 ## Vblank reports and the leader's board
 

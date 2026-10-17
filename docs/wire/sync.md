@@ -23,10 +23,12 @@ With the sync part, the round-one rows `SYNC LEAD`, `SYNC FOLLOW` and `LINK PATT
   leader is heard and its feed live.
 - **`LINK PATTERNS FOLLOW-BLACKOUT ON|OFF`** is kept in `NodeSettings.Sync.followPatternsBlackout`.
 - **`SYNC LATENCY AUTO|<ms 0-500>`** (on the lane, show class layout) sets the leader's project `settings.syncLatencyMs` (−1 =
-  AUTO), one undoable edit: `the group's air latency is 80 ms; show's members take it with the feed's next line`. Refused: the
-  syntax, a value outside 0–500 ms, a value set already ("the group's air latency is 80 ms already"), a follower ("this node
-  follows 0badc0de in show: the group's air latency is its leader's — SYNC LATENCY there"). A solo node keeps it "for when this
-  node leads a group".
+  AUTO), one undoable edit: `the group's air latency is 80 ms; show's members take it with the feed's next line`, and, below a
+  display latency the group reports, `… — below the 50 ms display latency 0badc0de reports: that node's outputs stay at their own
+  and light later than the rest`. In an armed show it is staged: `staged in the blind draft: the group's air latency is 80 ms —
+  carried to the members when the blind draft lands`. Refused: the syntax, anything but a finite 0–500 ms or AUTO, a value set
+  already ("the group's air latency is 80 ms already"), a follower ("this node follows 0badc0de in show: the group's air latency
+  is its leader's — SYNC LATENCY there"). A solo node keeps it "for when this node leads a group".
 - **`SYNC RECEIPT`** is accepted only from the session whose subscription the air line went to, while the leader waits for it;
   anything else: "no air line 7 waits for a receipt from this session". Ephemeral (not journalled).
 - **`SUBSCRIBE ANCHORS`** is open like every subscription (anchors are transport facts already in STATE; no secret rides the
@@ -46,9 +48,10 @@ ANCHOR show @lock {"apply":true,"swapGroup":1,"barrier":1,"counter":{"count24":1
 ANCHOR show @latency {"ms":50}
 ```
 
-`@latency` is the group's air latency (ms, 0–500): the stated one, or AUTO the largest output latency the leader's board hears
-(its own outputs' and each member's, from PMVB). It goes when it moves and to a member that joins as the latest; a member writes
-it through `IPresentBackend.SetGroupAirLatency` (anything else is not taken).
+`@latency` is the group's air latency (ms, 0–500): the stated one, or AUTO the largest of the leader's own outputs' and each
+member output's last PMVB report (a quiet member keeps its place; one that leaves drops out; a lead waits up to five seconds for
+its members' first reports). It goes whenever it moves, 0 included, and to a member that joins as the latest; a member writes it
+through `IPresentBackend.SetGroupAirLatency` (anything else is not taken) and keeps it until the next feed it follows carries one.
 
 `feed` is new per leader process and `seq` counts within it: a member runs each (feed, seq) once. A member answers each `@air`
 line on the same connection:

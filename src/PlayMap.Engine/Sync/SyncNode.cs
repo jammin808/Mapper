@@ -95,6 +95,19 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     private string _lastLock = "";
     private double _carriedLatencyMs = double.NaN;
     private double _groupLatencyMs;
+
+    /// <summary>The air latency (µs) each member output last reported, by (node number, output hash), kept while that member is
+    /// subscribed and names the output — a member that goes quiet for a while keeps its place in AUTO; one that leaves drops out.</summary>
+    private readonly Dictionary<(uint Node, uint Output), int> _reportedLatency = [];
+    private readonly Lock _latencyGate = new();
+
+    /// <summary>When this node began to lead (its own clock, ns): AUTO waits for its members' first reports for
+    /// <see cref="LatencyGraceNs"/> from then.</summary>
+    private long _ledSinceLocalNs = long.MinValue / 2;
+
+    /// <summary>How long a lead's AUTO latency waits for every member's first report before it is carried without a member that never
+    /// reports (one with no render host).</summary>
+    public const long LatencyGraceNs = SyncBoard.HeardWithinNs;
     private LockWish? _lockWish;
     private long _refused;
     private long _watches;
@@ -117,7 +130,11 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         _settings = settings ?? SyncSettings.Default;
         _log = log ?? NullLogger.Instance;
         _o = options ?? new SyncNodeOptions();
-        Feed.MembersChanged += () => _engine?.FactsChanged();
+        Feed.MembersChanged += () =>
+        {
+            KeepMembersLatency();
+            _engine?.FactsChanged();
+        };
         Feed.LateReceipt += (line, r) => _engine?.Journal.Add(r.Stage == "refused" ? "refused" : "fleet",
             $"{line} on {r.Name}: {r.Stage} at its instant{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage != "refused");
     }
@@ -155,6 +172,9 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// <summary>The leader this node is following or about to follow (its node id; "" when it follows none): set before the clock's
     /// first answer from it, so the step that answer brings is said as following it.</summary>
     public string Joining => _joining;
+
+    /// <summary>The watch's turns that offered or sent this node's reports (a leader's every turn).</summary>
+    internal long Watches => Interlocked.Read(ref _watches);
 
     /// <summary>Reports refused from a sender that is not a member of this node's group.</summary>
     public long RefusedReports => Interlocked.Read(ref _refused);
@@ -228,9 +248,13 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             // The group's latest lines start again: every synced playlist's anchor as it is now (a member that joins after a GO is
             // put on the playing item), no air or lock from before.
             Feed.Forget();
-            // The lock and the latency are carried again on the next watch, as the latest for members that join from now on.
+            // The lock and the latency are carried again on the next watch, as the latest for members that join from now on; AUTO
+            // waits for this lead's members to report.
             _lastLock = "";
             _carriedLatencyMs = double.NaN;
+            lock (_latencyGate)
+                _reportedLatency.Clear();
+            Volatile.Write(ref _ledSinceLocalNs, Clock.Local.NowNs);
             _engine?.PublishAnchors(Feed);
             var kept = Persist(s => s with { Role = "lead", Group = group, Leader = "" });
             _words = $"leading {group}";
@@ -524,22 +548,103 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// <summary>The group's air latency in force here, written through to this node's outputs.</summary>
     private void SetGroupLatency(double ms)
     {
-        var was = Volatile.Read(ref _groupLatencyMs);
-        Volatile.Write(ref _groupLatencyMs, ms);
+        var was = Interlocked.Exchange(ref _groupLatencyMs, ms);
         _engine?.SetGroupAirLatency(ms);
         if (was != ms)
             _engine?.FactsChanged();
     }
 
-    /// <summary>The group's air latency a leader carries: the project's stated one (<c>SYNC LATENCY &lt;ms&gt;</c>), or AUTO (−1) the largest
-    /// output latency its board heard, its own outputs included.</summary>
-    public static double GroupLatencyOf(Project project, SyncPicture picture)
+    /// <summary>One member output's air latency as it reported it (µs), or none.</summary>
+    public readonly record struct ReportedLatency(string Node, string Output, int AirLatencyUs);
+
+    /// <summary>The group's air latency a leader carries, or null to carry nothing yet: the project's stated one (<c>SYNC LATENCY
+    /// &lt;ms&gt;</c>, ≥ 0), else AUTO — the largest of this node's own outputs' and every member output's last report. While
+    /// <paramref name="waitForMembers"/> (a lead's first moments) AUTO waits until every member that named outputs has reported one, so
+    /// a lead, or a leader just restarted, never lowers the group before it has heard its members. A member's report stays while it is
+    /// subscribed (a quiet member keeps its place); a member that left is not listed. Pure.</summary>
+    public static double? GroupLatencyOf(double statedMs, double ownMs, IReadOnlyCollection<AnchorMember> members, IReadOnlyCollection<ReportedLatency> reported,
+        bool waitForMembers = true)
     {
-        ArgumentNullException.ThrowIfNull(project);
-        ArgumentNullException.ThrowIfNull(picture);
-        var stated = project.Settings.SyncLatencyMs;
-        var ms = stated >= 0 ? stated : picture.GroupLatencyMs;
-        return double.IsFinite(ms) ? Math.Clamp(ms, 0, MaxLatencyMs) : 0;
+        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(reported);
+        if (statedMs >= 0 && double.IsFinite(statedMs))
+            return Math.Min(statedMs, MaxLatencyMs);
+        var ms = double.IsFinite(ownMs) ? Math.Max(0, ownMs) : 0;
+        foreach (var m in members)
+        {
+            var heard = false;
+            foreach (var r in reported)
+            {
+                if (r.Node != m.Node || !m.Outputs.Contains(r.Output))
+                    continue;
+                heard = true;
+                ms = Math.Max(ms, r.AirLatencyUs / 1000.0);
+            }
+            if (!heard && m.Outputs.Length > 0 && waitForMembers)
+                return null;
+        }
+        return Math.Min(ms, MaxLatencyMs);
+    }
+
+    /// <summary>The largest air latency a member output reported (or this node's own), ms, with its node: what a stated latency below
+    /// it leaves late.</summary>
+    public (double Ms, string Node) LargestReported()
+    {
+        var best = (Ms: OwnLatencyMs(), Node: _network.Settings.NodeId);
+        var members = Feed.Members;
+        lock (_latencyGate)
+        {
+            foreach (var ((node, _), us) in _reportedLatency)
+            {
+                if (us / 1000.0 > best.Ms && members.FirstOrDefault(m => VblankReport.NodeNumber(m.Node) == node) is { } member)
+                    best = (us / 1000.0, member.Node);
+            }
+        }
+        return best;
+    }
+
+    /// <summary>This node's own outputs' largest air latency, ms (0 with none reported).</summary>
+    private double OwnLatencyMs()
+    {
+        var us = 0;
+        foreach (var v in _source?.Read() ?? [])
+            us = Math.Max(us, v.AirLatencyUs);
+        return us / 1000.0;
+    }
+
+    /// <summary>The members' reported latencies as AUTO reads them: by node id and output id, for the outputs each member names now.</summary>
+    private List<ReportedLatency> ReportedNow(IReadOnlyList<AnchorMember> members)
+    {
+        var list = new List<ReportedLatency>();
+        lock (_latencyGate)
+        {
+            foreach (var m in members)
+            {
+                var node = VblankReport.NodeNumber(m.Node);
+                foreach (var output in m.Outputs)
+                {
+                    if (_reportedLatency.TryGetValue((node, VblankReport.HashId(output)), out var us))
+                        list.Add(new ReportedLatency(m.Node, output, us));
+                }
+            }
+        }
+        return list;
+    }
+
+    /// <summary>Forgets the reports of outputs no member names any more (a member that left, or subscribed again with other outputs).</summary>
+    private void KeepMembersLatency()
+    {
+        var named = new HashSet<(uint, uint)>();
+        foreach (var m in Feed.Members)
+        {
+            foreach (var output in m.Outputs)
+                named.Add((VblankReport.NodeNumber(m.Node), VblankReport.HashId(output)));
+        }
+        lock (_latencyGate)
+        {
+            foreach (var key in _reportedLatency.Keys.Where(k => !named.Contains(k)).ToList())
+                _reportedLatency.Remove(key);
+        }
     }
 
     /// <summary>A latency record: <c>{"ms":…}</c>, rounded to the microsecond.</summary>
@@ -755,7 +860,12 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         var member = Leads && Feed.Members.Any(m => VblankReport.NodeNumber(m.Node) == node && SameAddress(m.Address, address)
             && FindPeer(m.Node) is { } peer && peer.Id == m.Node && SameAddress(peer.Address, address));
         if (!member || !Board.Offer(report, Clock.Local.NowNs))
+        {
             Interlocked.Increment(ref _refused);
+            return;
+        }
+        lock (_latencyGate)
+            _reportedLatency[(report.NodeId, report.OutputIdHash)] = report.AirLatencyUs;
     }
 
     /// <summary>The picture the leader's board gives now (empty on a node that does not lead).</summary>
@@ -801,8 +911,11 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                     }
                     var p = Picture(engine.IsAnimating);
                     // The group's air latency to the members (and to each that joins, as the latest) and to this node's own outputs.
-                    if (_settings.Group.Length > 0)
-                        CarryLatency(engine, GroupLatencyOf(engine.Snapshot.Project.Project, p));
+                    var members = Feed.Members;
+                    if (_settings.Group.Length > 0
+                        && GroupLatencyOf(engine.Snapshot.Project.Project.Settings.SyncLatencyMs, OwnLatencyMs(), [.. members], ReportedNow(members),
+                            Clock.Local.NowNs - Volatile.Read(ref _ledSinceLocalNs) < LatencyGraceNs) is { } latency)
+                        CarryLatency(engine, latency);
                     var shape = (p.Verdict, p.Light, p.Outputs.Count(o => o.Heard), p.MixedRate);
                     if (shape != _lastPicture)
                     {
@@ -829,9 +942,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             return;
         var first = double.IsNaN(_carriedLatencyMs);
         _carriedLatencyMs = ms;
-        // No latency is what a member has before any record: a lead carries 0 only when it moves there from a value it carried.
-        if (!first || ms != 0)
-            Feed.Publish(_settings.Group, LatencyKey, LatencyJson(ms));
+        // Carried even when it is 0: a member that comes back (or held a record from this leader's last run) takes the latest.
+        Feed.Publish(_settings.Group, LatencyKey, LatencyJson(ms));
         if (!first || ms != GroupLatencyMs)
             engine.Journal.Add("sync", string.Create(CultureInfo.InvariantCulture,
                 $"the group's air latency is {ms:0.###} ms ({(engine.Snapshot.Project.Project.Settings.SyncLatencyMs >= 0 ? "SYNC LATENCY" : "the largest output latency heard")}): every member's outputs show each frame for that instant"));
@@ -991,8 +1103,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         }
         Volatile.Write(ref _lockWish, null);
         _holdNoted = false;
-        // A leader's latency was its group's: this node's outputs no longer wait for it (a lead carries its own on its next watch).
-        SetGroupLatency(0);
+        // The group's latency stays until the next leader's feed (or this node's own lead) carries one: following again or leading
+        // never drops the outputs' delay for the moment between, which would move every picture twice.
     }
 
     /// <summary>The role kept in the settings, entered again at start: a lead binds at once; a follow waits until its leader is heard
@@ -1008,6 +1120,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 if (_settings.Role != "lead" || !string.Equals(_settings.Group, s.Group, StringComparison.Ordinal) || Leads)
                     return;   // a verb that held the changes chose otherwise
                 var words = await _network.LeadAsync(s.Group, ct).ConfigureAwait(false);
+                Volatile.Write(ref _ledSinceLocalNs, Clock.Local.NowNs);
                 _words = $"leading {s.Group}";
                 _engine?.Journal.Add("sync", words + " (kept from before the restart)");
             }

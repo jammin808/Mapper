@@ -273,7 +273,9 @@ public sealed partial class EngineCore
         double ms;
         if (args[0].Equals("AUTO", StringComparison.OrdinalIgnoreCase))
             ms = -1;
-        else if (!double.TryParse(args[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out ms) || ms > Sync.SyncNode.MaxLatencyMs)
+        // "NaN" and "Infinity" parse whatever the styles: a latency is a finite number of milliseconds.
+        else if (!double.TryParse(args[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out ms) || !double.IsFinite(ms)
+            || ms is < 0 or > Sync.SyncNode.MaxLatencyMs)
             return CommandReply.Fail(Syntax + " — the latency is 0 to 500 ms, or AUTO");
         else
             ms = Math.Round(ms, 3);
@@ -283,11 +285,19 @@ public sealed partial class EngineCore
         string Words(double v) => v < 0 ? "AUTO (the largest output latency any member reports)" : v.ToString("0.###", CultureInfo.InvariantCulture) + " ms";
         if (settings.SyncLatencyMs == ms || (settings.SyncLatencyMs < 0 && ms < 0))
             return CommandReply.Fail($"the group's air latency is {Words(ms)} already");
+        var staged = !ReferenceEquals(Edits, Store);
         var r = Edits.Apply("sync latency " + (ms < 0 ? "auto" : args[0]), p => p with { Settings = p.Settings with { SyncLatencyMs = ms } });
         if (!r.Changed)
             return FromEdit(r);
+        if (staged)
+            return CommandReply.Success(effect: $"staged in the blind draft: the group's air latency is {Words(ms)} — carried to the members when the blind draft lands");
         var group = sync.Leads ? $"; {sync.Settings.Group}'s members take it with the feed's next line" : " — kept for when this node leads a group";
-        return CommandReply.Success(effect: $"the group's air latency is {Words(ms)}{group}");
+        // A node never lowers its air below its own slowest display: a stated latency under one the group reports leaves that node late.
+        var (largest, node) = sync.LargestReported();
+        var late = ms >= 0 && largest > ms
+            ? string.Create(CultureInfo.InvariantCulture, $" — below the {largest:0.###} ms display latency {node} reports: that node's outputs stay at their own and light later than the rest")
+            : "";
+        return CommandReply.Success(effect: $"the group's air latency is {Words(ms)}{group}{late}");
     }
 
     partial void ContextSync(List<ContextItem> items, List<ContextLink> links)
