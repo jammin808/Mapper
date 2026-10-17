@@ -96,7 +96,7 @@ public class BlindChipTests
             var early = await QuadToolTests.Run(engine, "BLIND COMMIT NEXT");
             Assert.False(early.Ok);
             desk.Link.ClearSent();
-            DeskHarness.Click(window, Pressable(window, blind.CommitNext));
+            DeskHarness.Hold(window, Pressable(window, blind.CommitNext));
             await blind.CommitNext.Command.Last;
             DeskHarness.Pump();
             Assert.Equal(["BLIND COMMIT NEXT"], desk.Verbs());
@@ -107,7 +107,7 @@ public class BlindChipTests
         Assert.True((await desk.Session.SendAsync("PLAYLIST GO pl_show", Ct)).Ok);
         DeskHarness.Pump();
         desk.Link.ClearSent();
-        DeskHarness.Click(window, Pressable(window, blind.CommitNext));
+        DeskHarness.Hold(window, Pressable(window, blind.CommitNext));
         await blind.CommitNext.Command.Last;
         DeskHarness.Pump();
         Assert.Equal(["BLIND COMMIT NEXT"], desk.Verbs());
@@ -161,7 +161,12 @@ public class BlindChipTests
         DeskHarness.Pump();
         Assert.Equal("Commit now", blind.CommitNow.Label);
         desk.Link.ClearSent();
+        // Held to confirm, as its row is: a click sends nothing.
+        Assert.True(blind.CommitNow.IsHold);
         DeskHarness.Click(window, Pressable(window, blind.CommitNow));
+        await blind.CommitNow.Command.Last;
+        Assert.Empty(desk.Verbs());
+        DeskHarness.Hold(window, Pressable(window, blind.CommitNow));
         await blind.CommitNow.Command.Last;
         DeskHarness.Pump();
         Assert.Equal(["BLIND COMMIT NOW"], desk.Verbs());
@@ -213,7 +218,7 @@ public class BlindChipTests
         Assert.StartsWith("changed on the air since BLIND ON: ", plain.Payload, StringComparison.Ordinal);
         Assert.True((await QuadToolTests.Run(engine, "BLIND COMMIT NOW FORCE")).Ok);
         desk.Link.ClearSent();
-        DeskHarness.Click(window, Pressable(window, blind.CommitNow));
+        DeskHarness.Hold(window, Pressable(window, blind.CommitNow));
         await blind.CommitNow.Command.Last;
         DeskHarness.Pump();
         Assert.Equal(["BLIND COMMIT NOW FORCE"], desk.Verbs());

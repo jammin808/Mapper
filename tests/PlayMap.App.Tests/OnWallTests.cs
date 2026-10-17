@@ -217,10 +217,14 @@ public class FirstLightTests
         Assert.All(guide.Lights, a => Assert.Null(DeskVerbRuleTests.Fault(a.Verb)));
         Assert.True(MainWindowTests.Find<Border>(window, "Guide").IsEffectivelyVisible);
 
-        // Step 1: the button on screen sends LIGHT WALL; MAP then shows the lit projector, the quad tool armed.
+        // Step 1: the button on screen sends LIGHT WALL, held to confirm as its row is (a click sends nothing); MAP then shows the lit
+        // projector, the quad tool armed.
         desk.Link.ClearSent();
         var light = window.GetVisualDescendants().OfType<ActionMenuButton>().Single(b => ReferenceEquals(b.Action, guide.Lights[0]));
+        Assert.True(guide.Lights[0].IsHold);
         DeskHarness.Click(window, light);
+        Assert.Empty(desk.Verbs());
+        DeskHarness.Hold(window, light);
         await guide.Lighting;
         DeskHarness.Pump();
         Assert.Equal("LIGHT WALL DISPLAY2", Assert.Single(desk.Verbs()));

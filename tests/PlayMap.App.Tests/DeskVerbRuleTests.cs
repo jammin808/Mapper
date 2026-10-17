@@ -99,13 +99,12 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         return null;
     }
 
-    [AvaloniaFact]
-    public async Task EveryReachableActionSendsACatalogueLineAndEveryToolbarIsInItsMenu()
+    /// <summary>Every action the desk offers with STATE as the link holds it: from the top bar, the drawers, the inspectors and every
+    /// object's right-click menu (its own actions and the modules' entries), over every workspace, every object of the outliner selected,
+    /// every media and playlist item selected and every drawer tab shown, and every module entry for every object the desk names. On the
+    /// way, every module entry for an inspected object is on its inspector's toolbar and every control's toolbar is in its menu.</summary>
+    internal static (List<DeskAction> Actions, List<IMenuTarget> Targets, List<object> Objects) Reach(DeskHarness desk, Window window)
     {
-        await using var desk = new DeskHarness();
-        StateFixtures.LoadAll(desk.Link);
-        var window = MainWindowTests.Open(desk);
-        DeskHarness.Pump();
         var all = new List<DeskAction>();
         var targets = new List<IMenuTarget>();
         var objects = new List<object>();
@@ -176,9 +175,20 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
             }
         }
 
-        // Every module entry for every object the desk names sends a catalogue line too.
+        // Every module entry for every object the desk names.
         foreach (var t in targets.DistinctBy(t => t.Id))
             all.AddRange(desk.Main.ExtrasFor(t).SelectMany(x => x.Children.Prepend(x)));
+        return (all, targets, objects);
+    }
+
+    [AvaloniaFact]
+    public async Task EveryReachableActionSendsACatalogueLineAndEveryToolbarIsInItsMenu()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.LoadAll(desk.Link);
+        var window = MainWindowTests.Open(desk);
+        DeskHarness.Pump();
+        var (all, targets, objects) = Reach(desk, window);
 
         var lines = all.Distinct().Select(a => (a, line: a.Verb)).Where(x => x.line.Length > 0).ToList();
         Assert.NotEmpty(lines);

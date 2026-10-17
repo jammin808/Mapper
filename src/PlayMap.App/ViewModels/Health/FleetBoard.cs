@@ -148,10 +148,10 @@ public sealed class FleetBoardViewModel : ObservableObject
     {
         _session = session;
         Self = new MachineCardViewModel("", isSelf: true);
-        Failover = DeskAction.Send(session, "fleet.failover", "Failover", () => "FAILOVER", isEnabled: () => session.CanSend).Look("play", danger: true, hold: true);
-        Solo = DeskAction.Send(session, "fleet.solo", "Stop backing up", () => "FLEET SOLO", isEnabled: () => session.IsLive).Look("close", menuOnly: true, hold: true);
+        Failover = DeskAction.Send(session, "fleet.failover", "Failover", () => "FAILOVER", isEnabled: () => session.CanSend).Look("play", danger: true);
+        Solo = DeskAction.Send(session, "fleet.solo", "Stop backing up", () => "FLEET SOLO", isEnabled: () => session.IsLive).Look("close", menuOnly: true);
         Mirror = DeskAction.Send(session, "fleet.mirror", "Back up the node with the show", () => _facts.Of is { Length: > 0 } of ? "FLEET BACKUP " + of + " HOT" : null,
-            isEnabled: () => session.IsLive && _facts.Of is { Length: > 0 }).Look("fleet", hold: true);
+            isEnabled: () => session.IsLive && _facts.Of is { Length: > 0 }).Look("fleet");
         _onBackup = [Failover, Solo];
         _onFenced = [Mirror];
         LensActions = [.. Lenses.Select(l => DeskAction.Send(session, "fleet.lens." + l, Title(l), () => "FLEET LENS " + l,

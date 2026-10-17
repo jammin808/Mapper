@@ -237,9 +237,9 @@ public sealed class ObjectMenusModule : DeskModule
 
     private static DeskAction Menu(string id, string label, string icon) => DeskAction.Local(id, label, () => { }).Look(icon, menuOnly: true);
 
-    /// <summary>A generated entry sending its line: held to confirm, on its button and in its menu, when the line's catalogue row
-    /// presses hold (Use input's SURFACE SOURCE), as a Companion key holds it.</summary>
-    private DeskAction Entry(string id, string label, Func<string?> line) => DeskAction.Send(_session, id, label, line).HeldAsItsRow(line());
+    /// <summary>A generated entry sending its line (held to confirm, as every action is, when the line's row presses hold: Use input's
+    /// SURFACE SOURCE).</summary>
+    private DeskAction Entry(string id, string label, Func<string?> line) => DeskAction.Send(_session, id, label, line);
 
     private static string Words(string name) => ParamEditor.Words(name);
 }

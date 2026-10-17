@@ -13,12 +13,12 @@ using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests;
 
-/// <summary>A held action (<see cref="DeskAction.IsHold"/>: its catalogue row presses hold, as a Companion key holds it) is held in a
-/// menu too, in a menu's terms: its first press arms the entry, which then says what a second press sends, and sends nothing; a
-/// second press of the same entry within the window of the desk's clock sends exactly the line its label names, once (a line a push
-/// moved in between arms it afresh); the window passing, another entry pressed, the menu closing or made again disarms it; an entry
-/// shows its words as they are, underscores and all. Every menu the desk builds from the catalogue's data — the cards' and
-/// the generated entries — holds every line whose row presses hold, on its buttons and in its menu.</summary>
+/// <summary>A held action (<see cref="DeskAction.IsHold"/>: its line's catalogue row presses hold, as a Companion key holds it, and is
+/// not one the desk sends at every press) is held in a menu too, in a menu's terms: its first press arms the entry, which then says
+/// what a second press sends, and sends nothing; a second press of the same entry within the window of the desk's clock sends exactly
+/// the line its label names, once (a line a push moved in between arms it afresh); the window passing, another entry pressed, the
+/// menu closing or made again disarms it; an entry shows its words as they are, underscores and all. Every action the desk offers —
+/// its own controls, the cards' lines and the generated entries — holds every such line, on its buttons and in its menus.</summary>
 public class HeldMenuTests(ITestOutputHelper output)
 {
     /// <summary>A press of a menu entry, as a click raises it.</summary>
@@ -234,88 +234,110 @@ public class HeldMenuTests(ITestOutputHelper output)
         window.Close();
     }
 
-    /// <summary>Over every catalogue row that presses hold: each entry of a menu built from the catalogue's data that sends it — every
-    /// package's cards with every fixture laid, and the generated entries of every object (Use input's SURFACE SOURCE) — is held (and
-    /// an entry whose row does not press hold is not), its card button sends nothing on a click, its first press sends nothing, and two
-    /// presses send exactly its line; the desk's own held actions in any menu do the same.</summary>
+    /// <summary>The rows the desk sends at every press though a Companion key holds them: the transport's Stop and the air's own
+    /// controls, the panic banner's Clear and the master (DESK.md).</summary>
+    private static readonly string[] AtEveryPress = ["MASTER", "PANIC CLEAR", "VIDEO STOP"];
+
+    private static string RowOf(string line) => WireGrammar.TryParse(line, out var w, out _) && VerbCatalog.Match(w) is { } m ? m.Spec.Name : "";
+
+    /// <summary>Every action the desk offers that sends a line — its own controls, the cards' lines and the generated entries, in every
+    /// workspace, drawer, inspector and menu, with every fixture laid on a node that has the show — is held exactly when its line's
+    /// catalogue row presses hold (the table the Companion module's keys use) and is not one the desk sends at every press; every held
+    /// one, pressed in a menu, sends nothing on its first press and exactly its line on its second, and every row the desk holds is
+    /// pressed live (not greyed) at least once.</summary>
     [AvaloniaFact]
-    public async Task EveryMenuBuiltFromTheCatalogueHoldsEveryHeldRow()
+    public async Task EveryActionThatSendsAHeldRowIsHeldAndPressedTwiceInAMenu()
     {
         long now = 1_000;
         await using var desk = new DeskHarness(nowMs: () => now);
         StateFixtures.LoadAll(desk.Link);
-        // This node a hot backup (its card offers FAILOVER), and a live input to use on a surface.
-        StateFixtures.Load(desk.Link, "backup", "backup");
+        // This node has the show (a hot backup's door greys its lines: the fleet board's own held lines are pressed above), the show
+        // is neither armed nor locked (Show Mode and the area locks grey what changes the air), and a live input to use on a surface.
+        StateFixtures.Load(desk.Link, "backup", "primary");
+        desk.Link.SetSection("show", """{"armed":false,"locks":[]}""");
         desk.Link.SetSection("videoio", """{"inputs":[{"id":"in_arena","name":"Arena (NDI)"}]}""");
+        var window = MainWindowTests.Open(desk);
+        Assert.Equal(AtEveryPress, DeskAction.SentAtOnce.Order(StringComparer.Ordinal));
+        var heldRows = VerbCatalog.All.Where(s => VerbParams.Press(s) == PressShapes.Hold && !AtEveryPress.Contains(s.Name)).Select(s => s.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var (all, _, _) = DeskVerbRuleTests.Reach(desk, window);
+        var actions = all.Distinct().Where(a => !a.HasChildren && a.Verb.Length > 0).ToList();
+        foreach (var a in actions)
+            Assert.True(a.IsHold == heldRows.Contains(RowOf(a.Verb)), $"{a.Id}: {a.Verb} is{(a.IsHold ? "" : " not")} held");
+        Assert.Contains(actions, a => AtEveryPress.Contains(RowOf(a.Verb)) && !a.IsHold);
+
+        var held = new SortedSet<string>(StringComparer.Ordinal);
+        var live = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var a in actions.Where(a => a.IsHold))
+        {
+            if (!a.IsAvailable || !a.IsHold)
+                continue;
+            var menu = new ContextMenu();
+            DeskMenu.Fill(menu.Items, [a]);
+            var entry = EntryOf(menu.Items, a);
+            Assert.Null(entry.Command);
+            var line = a.Verb;
+            var enabled = a.IsEnabled;
+            var why = a.Refusal;
+            desk.Link.ClearSent();
+            Press(entry);
+            Assert.Empty(desk.Verbs());
+            now += 10;
+            Press(entry);
+            await a.Command.Last;
+            DeskHarness.Pump();
+            output.WriteLine($"{a.Id}: {line}{(enabled ? "" : " (greyed: " + why + ")")}");
+            // A greyed entry sends nothing on either press; a live one sends exactly its line on the second.
+            string[] expected = enabled ? [line] : [];
+            Assert.Equal(expected, desk.Verbs());
+            Assert.Null(desk.Session.Presses.Armed);
+            held.Add(RowOf(line));
+            if (enabled)
+                live.Add(RowOf(line));
+            // Whatever the line did, the next entry is pressed on a desk that has taken its push.
+            await desk.FlushThrottle();
+        }
+        output.WriteLine($"held rows: {string.Join(", ", held)}; pressed live: {string.Join(", ", live)}");
+        Assert.Equal(held, live);
+        foreach (var row in new[] { "SURFACE SOURCE", "SURFACE SHOW", "OUTPUT ENABLE", "OUTPUT IDENTIFY", "PATTERN", "CALIBRATION RESOLVE" })
+            Assert.Contains(row, held);
+        window.Close();
+    }
+
+    /// <summary>A card's button whose line is held sends nothing on a click and exactly its line once its hold completes.</summary>
+    [AvaloniaFact]
+    public async Task ACardsHeldButtonSendsItsLineOnlyWhenItsHoldCompletes()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.LoadAll(desk.Link);
+        StateFixtures.Load(desk.Link, "backup", "primary");
+        desk.Link.SetSection("show", """{"armed":false,"locks":[]}""");
         var window = MainWindowTests.Open(desk);
         desk.Main.Drawers.Show("health", "cards");
         DeskHarness.Pump();
-        var heldRows = VerbCatalog.All.Where(s => VerbParams.Press(s) == PressShapes.Hold).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        var button = window.GetVisualDescendants().OfType<CardView>().SelectMany(v => v.GetVisualDescendants().OfType<ActionMenuButton>())
+            .First(b => b.Action is { IsHold: true, IsEnabled: true, HasChildren: false } && Hittable(window, b));
+        var action = button.Action!;
+        var line = action.Verb;
+        desk.Link.ClearSent();
+        DeskHarness.Click(window, button);
+        await action.Command.Last;
+        Assert.False(button.Complete(600));
+        Assert.Empty(desk.Verbs());
 
-        // The menus built from the catalogue's data: each card's (its buttons' list) and each object's generated entries.
-        var menus = new List<(string Where, IReadOnlyList<DeskAction> Actions, Control? Card)>();
-        foreach (var view in window.GetVisualDescendants().OfType<CardView>().ToList())
-        {
-            var card = (CardViewModel)view.DataContext!;
-            menus.Add(("card " + card.Key, card.Actions, view));
-        }
-        var (_, targets, _) = DeskVerbRuleTests.Walk(desk.Main);
-        foreach (var t in targets.DistinctBy(t => t.Id))
-            menus.Add(("generated for " + t.Id, desk.Main.ExtrasFor(t), null));
-        // The desk's own held actions: this node's machine card on Health ▸ Fleet.
-        menus.Add(("fleet board", desk.Main.Health.Fleet.Self.Actions, null));
-        Assert.Contains(menus, m => m.Where.StartsWith("card ", StringComparison.Ordinal));
-
-        var covered = new SortedSet<string>(StringComparer.Ordinal);
-        var pressed = 0;
-        foreach (var (where, actions, cardView) in menus)
-        {
-            var menu = new ContextMenu();
-            DeskMenu.Fill(menu.Items, actions);
-            foreach (var entry in Entries(menu.Items).ToList())
-            {
-                if (entry.Tag is not DeskAction { HasChildren: false } a || a.Verb.Length == 0)
-                    continue;
-                var row = WireGrammar.TryParse(a.Verb, out var w, out _) && VerbCatalog.Match(w) is { } m ? m.Spec.Name : "";
-                Assert.True(a.IsHold == heldRows.Contains(row), $"{where}: {a.Verb} ({row}) is{(a.IsHold ? "" : " not")} held");
-                if (!a.IsHold)
-                    continue;
-                covered.Add(row);
-                Assert.Null(entry.Command);
-
-                // Its card button is held: a click on it sends nothing.
-                if (cardView?.GetVisualDescendants().OfType<ActionMenuButton>().FirstOrDefault(b => ReferenceEquals(b.Action, a)) is { } button
-                    && Hittable(window, button))
-                {
-                    desk.Link.ClearSent();
-                    DeskHarness.Click(window, button);
-                    await a.Command.Last;
-                    Assert.Empty(desk.Verbs());
-                }
-
-                desk.Link.ClearSent();
-                var line = a.Verb;
-                var enabled = a.IsEnabled;
-                Press(entry);
-                Assert.Empty(desk.Verbs());
-                now += 10;
-                Press(entry);
-                await a.Command.Last;
-                DeskHarness.Pump();
-                output.WriteLine($"{where}: {line}{(enabled ? "" : " (greyed)")}");
-                // A greyed entry sends nothing on either press; a live one sends exactly its line on the second.
-                string[] expected = enabled ? [line] : [];
-                Assert.Equal(expected, desk.Verbs());
-                Assert.Null(desk.Session.Presses.Armed);
-                pressed++;
-                // Whatever the line did, the next entry is pressed on a desk that has taken its push.
-                await desk.FlushThrottle();
-            }
-        }
-        output.WriteLine($"{pressed} held entries pressed; rows: {string.Join(", ", covered)}");
-        Assert.Contains("FAILOVER", covered);
-        Assert.Contains("SURFACE SOURCE", covered);
-        Assert.True(covered.Count >= 10, string.Join(", ", covered));
+        // Pressed and held to its time: exactly its line, once.
+        var at = button.TranslatePoint(new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, at, MouseButton.Left, RawInputModifiers.None);
+        DeskHarness.Pump();
+        Assert.True(button.IsHeld);
+        Assert.False(button.Complete(599));
+        Assert.Empty(desk.Verbs());
+        Assert.True(button.Complete(600));
+        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, at, MouseButton.Left, RawInputModifiers.None);
+        await action.Command.Last;
+        DeskHarness.Pump();
+        output.WriteLine(line);
+        Assert.Equal([line], desk.Verbs());
         window.Close();
     }
 }

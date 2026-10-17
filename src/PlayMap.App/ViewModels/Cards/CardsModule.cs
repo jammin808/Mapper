@@ -44,10 +44,9 @@ public sealed class CardViewModel : ObservableObject
         for (var i = 0; i < instance.Actions.Length; i++)
         {
             var at = i;
-            // A line whose catalogue row presses hold is held to confirm here too, on the card's button and in its menu.
             actions.Add(DeskAction.Send(session, Key + "#" + at.ToString(System.Globalization.CultureInfo.InvariantCulture), instance.Actions[at].Label,
                 () => _instance.Actions[at].Line, isEnabled: () => session.IsLive && _instance.Actions[at].Line is not null,
-                whyNot: () => _instance.Actions[at].Missing).HeldAsItsRow(instance.Descriptor.Actions[at].Line));
+                whyNot: () => _instance.Actions[at].Missing));
         }
         Actions = actions;
         Update(instance);
