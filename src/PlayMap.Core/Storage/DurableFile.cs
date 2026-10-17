@@ -32,6 +32,7 @@ public static partial class DurableFile
     private const int ErrorInvalidFunction = 1;
     private const int ErrorInvalidParameter = 87;
     private const int ErrorNotSupported = 50;
+    private const int ErrorNotSameDevice = 17;
     private const int Eintr = 4;
     private const int Einval = 22;
 
@@ -209,8 +210,8 @@ public static partial class DurableFile
 
     /// <summary>Renames <paramref name="from"/> over <paramref name="to"/> with POSIX semantics (Windows 10 1709 and later, on a file
     /// system that keeps them): the name is replaced while other handles that share delete hold the old file open. The rename is flushed
-    /// through the same handle before the call returns. False when the file system does not take a POSIX rename (FAT, an older system):
-    /// the caller replaces it the classic way.</summary>
+    /// through the same handle before the call returns. False when the file system does not take a POSIX rename (FAT, an older system)
+    /// or the target is on another volume: the caller replaces it the classic way, which copies across volumes.</summary>
     [SupportedOSPlatform("windows")]
     private static bool ReplaceThrough(string from, string to)
     {
@@ -234,8 +235,7 @@ public static partial class DurableFile
         if (!renamed)
         {
             var error = Marshal.GetLastPInvokeError();
-            // Not a file system or a system that takes a POSIX rename: nothing moved.
-            if (error is ErrorInvalidParameter or ErrorNotSupported or ErrorInvalidFunction)
+            if (FallsBackToMove(error))
                 return false;
             throw Refused(from, to, error);
         }
@@ -243,6 +243,11 @@ public static partial class DurableFile
             throw new NotFlushedException(to, new IOException(Marshal.GetLastPInvokeErrorMessage()));
         return true;
     }
+
+    /// <summary>A POSIX rename's error that moved nothing and that the classic move makes good: a file system or a system that takes no
+    /// POSIX rename, or a target on another volume (a rename never crosses one; the classic move copies, flushed through).</summary>
+    internal static bool FallsBackToMove(int error) =>
+        error is ErrorInvalidParameter or ErrorNotSupported or ErrorInvalidFunction or ErrorNotSameDevice;
 
     [SupportedOSPlatform("windows")]
     private static bool Rename(Microsoft.Win32.SafeHandles.SafeFileHandle handle, byte[] info, uint flags)

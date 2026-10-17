@@ -161,6 +161,21 @@ public sealed class DurableFileTests
         }
     }
 
+    /// <summary>A POSIX rename Windows cannot make moves nothing, and the replace falls back to the classic move, which copies across
+    /// volumes: a file system or a system that takes no POSIX rename (an invalid function, not supported, an invalid parameter) and a
+    /// target on another volume (not the same device — a media folder that is a junction to another drive) fall back; a refusal (access
+    /// denied, a sharing violation, a missing file) is the caller's to hear.</summary>
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(50, true)]
+    [InlineData(87, true)]
+    [InlineData(17, true)]
+    [InlineData(2, false)]
+    [InlineData(5, false)]
+    [InlineData(32, false)]
+    public void ARenameWindowsCannotMakeFallsBackToTheMoveThatCopies(int error, bool fallsBack) =>
+        Assert.Equal(fallsBack, DurableFile.FallsBackToMove(error));
+
     /// <summary>A reader that opened a durable file as every reader of one does (<see cref="DurableFile.OpenRead"/>) and holds it open
     /// across a replace never makes the replace fail: the new bytes are in place when the write returns, nothing is left beside them,
     /// and the reader goes on reading the old bytes whole. On Windows this is the POSIX-semantics rename; elsewhere a rename always is.</summary>
