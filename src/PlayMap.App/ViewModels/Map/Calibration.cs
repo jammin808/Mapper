@@ -34,7 +34,8 @@ public sealed record HistoryEntry(string Id, string Name, long AtUnixMs, string 
 
 /// <summary>A dot of the history strip: one kept result, its words in its tooltip, and its menu — Recall (CALIBRATION RECALL &lt;cs&gt;),
 /// Set as fallback (CALIBRATION ACCEPT &lt;cs&gt;), Forget (CALIBRATION FORGET &lt;cs&gt;) — as the node allows them: the current result
-/// is not recalled, and the current, fallback and staged ones are never forgotten.</summary>
+/// is not recalled; only the current or the staged result becomes the fallback (any other is recalled first), and never the one
+/// that is the fallback already; the current, fallback and staged ones are never forgotten.</summary>
 public sealed class HistoryDotViewModel : ObservableObject
 {
     public HistoryDotViewModel(DeskSession session, HistoryEntry entry)
@@ -49,7 +50,7 @@ public sealed class HistoryDotViewModel : ObservableObject
         var actions = new List<DeskAction>();
         if (!entry.Current)
             actions.Add(Recall);
-        if (!entry.Fallback)
+        if (!entry.Fallback && (entry.Current || entry.Staged))
             actions.Add(SetFallback);
         if (!entry.Current && !entry.Fallback && !entry.Staged)
             actions.Add(Forget);
@@ -91,14 +92,19 @@ public sealed class HistoryDotViewModel : ObservableObject
 
 /// <summary>A calibration target's score card (a projector's or an output's, from STATE.calibration.targets): the grade, score and
 /// words, the confidence and the verified error, every term of the score as a status row whose Fix sends the term's own fix line,
-/// the target's lines (re-solve, accept as fallback, revert to the fallback, save, accept a staged result), and the history strip
-/// read with CALIBRATION HISTORY &lt;target&gt; while the card is shown and again when the target's result count or current result
-/// moves.</summary>
-public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
+/// the target's lines (accept a staged result while one waits, re-solve, accept as fallback, revert to the fallback, save — each
+/// greyed with the node's reason while STATE.calibration and the history say the node would refuse it), and the history strip read
+/// with CALIBRATION HISTORY &lt;target&gt; while the card is shown (Health ▸ Calibration, or an inspector holding it) and again when the
+/// target's result count or current result moves.</summary>
+public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget, IInspectorSection
 {
     private readonly DeskSession _session;
     private readonly Dictionary<string, (DeskAction Action, string Line)> _fixes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HistoryDotViewModel> _dots = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<DeskAction> _lines;
+    private readonly IReadOnlyList<DeskAction> _linesStaged;
+    private readonly IReadOnlyList<DeskAction> _toolbar;
+    private readonly IReadOnlyList<DeskAction> _toolbarStaged;
     private string _light = "grey";
     private string _name = "";
     private string _grade = "";
@@ -106,10 +112,13 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
     private string _words = "";
     private string _detail = "";
     private string? _staged;
+    private string? _current;
+    private string? _fallback;
     private string? _historyKey;
     private string _fetched = "";
     private Task _fetch = Task.CompletedTask;
-    private bool _isShown;
+    private bool _inTab;
+    private bool _inInspector;
     private bool _failed;
 
     public ScoreCardViewModel(DeskSession session, string id, string kind)
@@ -117,16 +126,47 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
         _session = session;
         Id = id;
         TargetKind = kind;
-        var actions = new List<DeskAction>();
+        var lines = new List<DeskAction>();
         if (kind == "projector")
-            actions.Add(DeskAction.Send(session, "calibration.resolve", "Re-solve", () => "CALIBRATION RESOLVE " + id, isEnabled: () => session.IsLive).Look("solve"));
-        actions.Add(DeskAction.Send(session, "calibration.accept", "Accept as fallback", () => "CALIBRATION ACCEPT " + id, isEnabled: () => session.IsLive).Look("save"));
-        actions.Add(DeskAction.Send(session, "calibration.fallback", "Revert to fallback", () => "CALIBRATION FALLBACK " + id, isEnabled: () => session.IsLive).Look("undo"));
-        actions.Add(DeskAction.Send(session, "calibration.save", "Save snapshot", () => "CALIBRATION SAVE " + id, isEnabled: () => session.IsLive).Look("save", menuOnly: true));
+            lines.Add(DeskAction.Send(session, "calibration.resolve", "Re-solve", () => "CALIBRATION RESOLVE " + id, isEnabled: () => session.IsLive).Look("solve"));
+        lines.Add(DeskAction.Send(session, "calibration.accept", "Accept as fallback", () => "CALIBRATION ACCEPT " + id,
+            isEnabled: () => session.IsLive && WhyNotAccept() is null, whyNot: WhyNotAccept).Look("save"));
+        lines.Add(DeskAction.Send(session, "calibration.fallback", "Revert to fallback", () => "CALIBRATION FALLBACK " + id,
+            isEnabled: () => session.IsLive && WhyNotFallback() is null, whyNot: WhyNotFallback).Look("undo"));
+        lines.Add(DeskAction.Send(session, "calibration.save", "Save snapshot", () => "CALIBRATION SAVE " + id,
+            isEnabled: () => session.IsLive && WhyNotSave() is null, whyNot: WhyNotSave).Look("save", menuOnly: true));
         AcceptStaged = DeskAction.Send(session, "calibration.acceptStaged", "Accept the staged result", () => _staged is { } s ? "CALIBRATION ACCEPT " + s : null,
             isEnabled: () => session.IsLive && _staged is not null).Look("play");
-        Actions = actions;
+        _lines = lines;
+        _linesStaged = [AcceptStaged, .. lines];
+        _toolbar = _lines.Toolbar();
+        _toolbarStaged = _linesStaged.Toolbar();
     }
+
+    /// <summary>Why the node would refuse CALIBRATION ACCEPT &lt;target&gt; (its own words), or null: with nothing staged, a current result
+    /// that is the fallback already, or an output with no result.</summary>
+    private string? WhyNotAccept() => _staged is not null ? null
+        : _current is { } cur && cur == _fallback ? $"{Name}'s current result is its fallback already"
+        : _current is null && TargetKind == "output" ? $"{Name} has no result to accept"
+        : null;
+
+    /// <summary>Why the node would refuse CALIBRATION FALLBACK &lt;target&gt;, or null: no fallback, or the target stands on it already.</summary>
+    private string? WhyNotFallback() => _fallback is not { } fb ? $"{Name} has no fallback — CALIBRATION ACCEPT {Id} makes its current calibration the fallback"
+        : fb == _current ? $"{Name} stands as {NameOf(fb)} ({fb}) already"
+        : null;
+
+    /// <summary>Why the node would refuse CALIBRATION SAVE &lt;target&gt;, or null: an output with no result, or a current result that is
+    /// kept (pinned) already, as the history says.</summary>
+    private string? WhyNotSave()
+    {
+        if (_current is not { } cur)
+            return TargetKind == "output" ? $"{Name} has no result to keep" : null;
+        if (!_dots.TryGetValue(cur, out var dot) || !dot.Entry.Pinned)
+            return null;
+        return TargetKind == "output" ? $"{Name}'s result {cur} is kept already" : $"{Name} is kept already as {dot.Entry.Name} ({cur})";
+    }
+
+    private string NameOf(string snapshot) => _dots.TryGetValue(snapshot, out var d) && d.Entry.Name.Length > 0 ? d.Entry.Name : snapshot;
 
     /// <summary>The target's id (a projector's or an output's).</summary>
     public string Id { get; }
@@ -173,14 +213,15 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
         private set => Set(ref _detail, value);
     }
 
-    /// <summary>The target's lines (its right-click menu and its toolbar, the menu-only ones left off the toolbar).</summary>
-    public IReadOnlyList<DeskAction> Actions { get; }
+    /// <summary>The target's lines (its right-click menu and its toolbar, the menu-only ones left off the toolbar), the staged
+    /// result's Accept first while one is staged. The same instances from push to push.</summary>
+    public IReadOnlyList<DeskAction> Actions => _staged is null ? _lines : _linesStaged;
 
-    public IReadOnlyList<DeskAction> Toolbar => Actions.Toolbar();
+    public IReadOnlyList<DeskAction> Toolbar => _staged is null ? _toolbar : _toolbarStaged;
 
     IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
 
-    /// <summary>CALIBRATION ACCEPT &lt;the staged result&gt;, shown while one is staged.</summary>
+    /// <summary>CALIBRATION ACCEPT &lt;the staged result&gt;, on the card and in its menu while one is staged.</summary>
     public DeskAction AcceptStaged { get; }
 
     public bool HasStaged => _staged is not null;
@@ -199,21 +240,40 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
     /// <summary>The CALIBRATION HISTORY read in flight (tests wait on it).</summary>
     public Task Fetching => _fetch;
 
-    /// <summary>The card is on screen: its history is read now if it is not the one shown.</summary>
-    public bool IsShown
+    /// <summary>The card is on screen — on Health ▸ Calibration or in an inspector: its history is read when it is not the one shown.</summary>
+    public bool IsShown => _inTab || _inInspector;
+
+    /// <summary>Health ▸ Calibration shows the card.</summary>
+    public bool InTab
     {
-        get => _isShown;
-        set
+        get => _inTab;
+        set => Shown(ref _inTab, value);
+    }
+
+    /// <summary>A projector's or an output's inspector holds the card.</summary>
+    public bool InInspector
+    {
+        get => _inInspector;
+        set => Shown(ref _inInspector, value);
+    }
+
+    private void Shown(ref bool field, bool value)
+    {
+        if (field == value)
+            return;
+        var was = IsShown;
+        field = value;
+        if (was == IsShown)
+            return;
+        Raise(nameof(IsShown));
+        if (!IsShown)
+            return;
+        if (_failed)
         {
-            if (!Set(ref _isShown, value) || !value)
-                return;
-            if (_failed)
-            {
-                _failed = false;
-                _fetched = "";
-            }
-            FetchIfNew();
+            _failed = false;
+            _fetched = "";
         }
+        FetchIfNew();
     }
 
     /// <summary>Takes the target's block of STATE.calibration.targets.</summary>
@@ -235,10 +295,15 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
             string.Create(CultureInfo.InvariantCulture, $"{count} result{(count == 1 ? "" : "s")}"),
         }.Where(x => x.Length > 0));
         var staged = t.StrOrNull("staged");
+        _current = t.StrOrNull("snapshot");
+        _fallback = t.StrOrNull("fallback");
         if (staged != _staged)
         {
+            var hadStaged = _staged is not null;
             _staged = staged;
             Raise(nameof(HasStaged));
+            if (hadStaged != (staged is not null))
+                Raise(nameof(Actions), nameof(Toolbar));
         }
         var rows = new List<StatusRow>();
         var i = 0;
@@ -263,7 +328,7 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
                 Terms.Add(r);
         }
         _historyKey = count.ToString(CultureInfo.InvariantCulture) + "/" + t.Str("snapshot") + "/" + t.Str("fallback") + "/" + (staged ?? "");
-        if (_isShown)
+        if (IsShown)
             FetchIfNew();
     }
 
@@ -283,8 +348,7 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
 
     public void RefreshActions()
     {
-        Actions.RefreshAll();
-        AcceptStaged.Refresh();
+        _linesStaged.RefreshAll();
         foreach (var (a, _) in _fixes.Values)
             a.Refresh();
         foreach (var d in History)
@@ -317,6 +381,8 @@ public sealed class ScoreCardViewModel : ObservableObject, IMenuTarget
         foreach (var d in dots)
             History.Add(d);
         Raise(nameof(HasHistory));
+        // Save and Revert read the kept results' pins and names.
+        _linesStaged.RefreshAll();
     }
 }
 
@@ -358,7 +424,7 @@ public sealed class CalibrationTabViewModel : ObservableObject
             if (!Set(ref _isShown, value))
                 return;
             foreach (var c in Cards)
-                c.IsShown = value;
+                c.InTab = value;
         }
     }
 
@@ -405,7 +471,7 @@ public sealed class CalibrationModule : DeskModule
                     continue;
                 if (!_cards.TryGetValue(id, out var card))
                 {
-                    card = new ScoreCardViewModel(_session, id, t.Str("kind", "projector")) { IsShown = Tab.IsShown };
+                    card = new ScoreCardViewModel(_session, id, t.Str("kind", "projector")) { InTab = Tab.IsShown };
                     _cards[id] = card;
                 }
                 card.Update(t);

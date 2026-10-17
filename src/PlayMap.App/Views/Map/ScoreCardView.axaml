@@ -5,8 +5,8 @@
              x:Class="PlayMap.App.Views.Map.ScoreCardView"
              x:DataType="mapvm:ScoreCardViewModel">
   <!-- A calibration target's score card: the grade in a ring of its light, the score and its words, the confidence and the verified
-       error, the target's lines, every term with its Fix, and the history strip (each result's menu: Recall, Set as fallback,
-       Forget). -->
+       error, the target's lines (the staged result's Accept first while one waits), every term with its Fix, and the history strip
+       (each result's menu: Recall, Set as fallback, Forget, as the node allows them). -->
   <Border Classes="card" Padding="10,8" Margin="0,0,0,6" ui:DeskMenu.Actions="{Binding Actions}" x:Name="ScoreCard">
     <StackPanel Spacing="4">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
@@ -21,7 +21,6 @@
       </Grid>
       <TextBlock Classes="faint" Text="{Binding Detail}" TextWrapping="Wrap" />
       <ItemsControl ItemsSource="{Binding Toolbar}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" x:Name="ScoreActions" />
-      <ContentControl Content="{Binding AcceptStaged}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding HasStaged}" />
       <ItemsControl ItemsSource="{Binding Terms}" ItemTemplate="{StaticResource StatusRowTemplate}" x:Name="ScoreTerms" />
       <TextBlock Classes="faint" Text="History" IsVisible="{Binding HasHistory}" />
       <ItemsControl ItemsSource="{Binding History}" ItemsPanel="{StaticResource Wrap}" x:Name="HistoryStrip">

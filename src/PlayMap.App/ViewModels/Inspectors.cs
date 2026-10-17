@@ -16,8 +16,16 @@ public interface IInspectorExtras
     IReadOnlyList<object> SectionsFor(IMenuTarget target);
 }
 
+/// <summary>A module's section that reads what it shows only while an inspector holds it (a score card's history).</summary>
+public interface IInspectorSection
+{
+    /// <summary>True while an inspector holds the section among its sections.</summary>
+    bool InInspector { set; }
+}
+
 /// <summary>Holds the inspector for what is selected and refreshes it on every push; an inspector whose
-/// object is gone closes. The modules' extras and sections for the object follow it.</summary>
+/// object is gone closes. The modules' extras and sections for the object follow it; a section that
+/// asks (<see cref="IInspectorSection"/>) is told while the inspector holds it.</summary>
 public sealed class InspectorHost : ObservableObject
 {
     private readonly DeskSession _session;
@@ -57,7 +65,14 @@ public sealed class InspectorHost : ObservableObject
         if (!extras.SequenceEqual(_extras))
             Extras = extras;
         if (!sections.SequenceEqual(_sections))
+        {
+            var was = _sections;
             Sections = sections;
+            foreach (var gone in was.Except(sections).OfType<IInspectorSection>())
+                gone.InInspector = false;
+            foreach (var shown in sections.OfType<IInspectorSection>())
+                shown.InInspector = true;
+        }
         _extras.RefreshAll();
     }
 
