@@ -229,8 +229,12 @@ public sealed class PreviewRingReader : IDisposable
         }
     }
 
+    /// <summary>True once the reader let its map go (a reader that follows the node's ring names lets the old one go first).</summary>
+    public bool IsDisposed { get; private set; }
+
     public void Dispose()
     {
+        IsDisposed = true;
         _view.Dispose();
         _map.Dispose();
     }

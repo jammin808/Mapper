@@ -71,6 +71,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
 
+    /// <summary>The ring the node names for each preview view (from the VIEW … SHOW replies and STATE <c>machine.views</c>): the only
+    /// files the desk's previews read. Emptied when the link changes.</summary>
+    public PreviewNames Previews { get; } = new();
+
     private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
     private Func<string, GateRefusal?>? _gateHook;
     private string _role = "operator";
@@ -178,6 +182,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(link);
         Detach();
+        Previews.Clear();
         _link = link;
         LinkLabel = label;
         link.StatusChanged += OnStatus;
@@ -298,6 +303,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _link.StateChanged -= OnState;
         _link.ProjectChanged -= OnProject;
         _link = null;
+        Previews.Clear();
         _status = LinkStatus.Down;
         _verbs = FrozenSet<string>.Empty;
         _role = "operator";
@@ -465,6 +471,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             return;
         }
         _state = next;
+        Previews.Read(next);
         GateMoved();
         Raise(nameof(State));
         StateUpdated?.Invoke(next);
