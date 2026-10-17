@@ -846,8 +846,14 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         return ScanCameras.Open(engine, rig);
     }
 
-    /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present;
-    /// every frame's mean brightness collected meanwhile.</summary>
+    /// <summary>Pictures a latency phase (the black before the flashes, each flash, each black between) waits for, stamped after its
+    /// change, beyond its hold: the estimator measures a change from the frames after it.</summary>
+    internal const int LatencyFramesPerPhase = LatencyEstimator.FramesAfterChange;
+
+    /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present; every frame's mean
+    /// brightness collected meanwhile. Each phase stays on the glass for its hold and until the camera has sent the pictures the
+    /// estimator needs from after its change (a slow camera, or a node under load, still measures); a camera that sends none for the
+    /// frame timeout ends the measurement with what it has.</summary>
     private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, string cameraId, Output output, CancellationToken ct)
     {
         var views = ViewsOf();
@@ -856,6 +862,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var white = new byte[output.Width * output.Height];
         Array.Fill(white, (byte)255);
         var black = new byte[output.Width * output.Height];
+        // The present of the phase on the glass now, and the pictures stamped after it; a picture's arrival is signalled.
+        var phaseAtNs = long.MaxValue;
+        var phaseFrames = 0;
+        using var arrived = new SemaphoreSlim(0);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var collect = Task.Run(async () =>
         {
@@ -877,19 +887,45 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 views?.CameraFrame(cameraId, f.Gray, f.Width, f.Height, f.ArrivalNs);
                 var mean = LatencyEstimator.MeanBrightness(f.Gray);
                 lock (gate)
+                {
                     estimator.AddFrame(f.ArrivalNs / 1e6, mean);
+                    if (f.ArrivalNs > phaseAtNs)
+                        phaseFrames++;
+                }
+                arrived.Release();
             }
         }, CancellationToken.None);
+        async Task<bool> PhaseAsync(byte[] picture, bool change)
+        {
+            var at = await display.ShowAsync(output.Id, picture, output.Width, output.Height, ct).ConfigureAwait(false);
+            lock (gate)
+            {
+                if (change)
+                    estimator.AddChange(at / 1e6);
+                phaseAtNs = at;
+                phaseFrames = 0;
+            }
+            await Task.Delay(_options.FlashHold, ct).ConfigureAwait(false);
+            while (true)
+            {
+                lock (gate)
+                {
+                    if (phaseFrames >= LatencyFramesPerPhase)
+                        return true;
+                }
+                if (!await arrived.WaitAsync(_options.FrameTimeout, ct).ConfigureAwait(false))
+                    return false;
+            }
+        }
         try
         {
-            await display.ShowAsync(output.Id, black, output.Width, output.Height, ct).ConfigureAwait(false);
-            await Task.Delay(_options.FlashHold, ct).ConfigureAwait(false);
-            for (var k = 0; k < 2 * Math.Max(1, _options.LatencyFlashes); k++)
+            if (await PhaseAsync(black, change: false).ConfigureAwait(false))
             {
-                var at = await display.ShowAsync(output.Id, k % 2 == 0 ? white : black, output.Width, output.Height, ct).ConfigureAwait(false);
-                lock (gate)
-                    estimator.AddChange(at / 1e6);
-                await Task.Delay(_options.FlashHold, ct).ConfigureAwait(false);
+                for (var k = 0; k < 2 * Math.Max(1, _options.LatencyFlashes); k++)
+                {
+                    if (!await PhaseAsync(k % 2 == 0 ? white : black, change: true).ConfigureAwait(false))
+                        break;
+                }
             }
         }
         finally

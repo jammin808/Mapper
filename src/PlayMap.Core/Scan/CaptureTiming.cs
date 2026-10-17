@@ -29,6 +29,9 @@ public sealed class LatencyEstimator
     private readonly List<BrightnessSample> _samples = [];
     private readonly List<double> _changes = [];
 
+    /// <summary>The frames a change is measured from: those stamped after it, before the next.</summary>
+    public const int FramesAfterChange = 4;
+
     /// <summary>The smallest brightness step a flash must make to be measured.</summary>
     public double MinStep { get; init; } = 10;
 
@@ -90,7 +93,7 @@ public sealed class LatencyEstimator
         // Frames that arrived before the change cannot have seen it: the level before.
         var before = samples.Where(s => s.TimeMs <= start && s.TimeMs > previous).Select(s => s.Brightness).ToList();
         var during = samples.Where(s => s.TimeMs > start && s.TimeMs < next).ToArray();
-        if (before.Count == 0 || during.Length < 4)
+        if (before.Count == 0 || during.Length < FramesAfterChange)
             return null;
         var levelBefore = Median(before);
         var levelAfter = Median(during.Skip(during.Length * 2 / 3).Select(s => s.Brightness).ToList());
