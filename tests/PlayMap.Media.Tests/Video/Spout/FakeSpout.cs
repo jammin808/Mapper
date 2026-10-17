@@ -281,6 +281,8 @@ internal sealed class FakeSpoutGpu : ISpoutGpu
 
         public StagingRead ReadStaging(int slot, Span<byte> destination, int stride) => StagingRead.Failed;
 
+        public bool Copied(int slot) => false;
+
         public void Upload(ReadOnlySpan<byte> pixels, int stride)
         {
             for (var y = 0; y < height; y++)
@@ -324,6 +326,8 @@ internal sealed class FakeSpoutGpu : ISpoutGpu
             t.Rows.CopyTo(_staging[slot], 0);
             _waits[slot] = gpu.PendingReads;
         }
+
+        public bool Copied(int slot) => _waits[slot] <= 0;
 
         public StagingRead ReadStaging(int slot, Span<byte> destination, int stride)
         {

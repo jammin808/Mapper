@@ -137,6 +137,10 @@ public sealed class SpoutReceiver : IDisposable
         return ReceiveStep.Copied;
     }
 
+    /// <summary>The GPU has finished the oldest copy not yet read (its end mark signalled): <see cref="ReadPending"/> is then Ready.
+    /// False when no copy waits. Never waits.</summary>
+    public bool PendingCopied => _pending >= 0 && _texture is { } t && t.Copied(_pending);
+
     /// <summary>Reads the oldest copied slot back into <paramref name="destination"/> without waiting: Ready (the slot is free
     /// again), Pending (try at a later step) or Failed (the slot is let go).</summary>
     public StagingRead ReadPending(Span<byte> destination, int stride)

@@ -13,10 +13,13 @@ internal static class SpoutCom
     public const int QueryInterface = 0;
     public const int Release = 2;
     public const int DeviceCreateTexture2D = 5;
+    public const int DeviceCreateQuery = 24;
     public const int DeviceOpenSharedResource = 28;
     public const int DeviceGetImmediateContext = 40;
     public const int ContextMap = 14;
     public const int ContextUnmap = 15;
+    public const int ContextEnd = 28;
+    public const int ContextGetData = 29;
     public const int ContextCopyResource = 47;
     public const int ContextUpdateSubresource = 48;
     public const int ContextFlush = 111;
@@ -36,6 +39,11 @@ internal static class SpoutCom
 internal record struct SpoutTextureDesc(uint Width, uint Height, uint MipLevels, uint ArraySize, uint Format, uint SampleCount,
     uint SampleQuality, uint Usage, uint BindFlags, uint CpuAccessFlags, uint MiscFlags);
 
+/// <summary>D3D11_QUERY_DESC.</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Sequential)]
+internal record struct SpoutQueryDesc(uint Query, uint MiscFlags);
+
 /// <summary>D3D11_MAPPED_SUBRESOURCE.</summary>
 [SupportedOSPlatform("windows")]
 [StructLayout(LayoutKind.Sequential)]
@@ -43,8 +51,9 @@ internal record struct SpoutMapped(nint Data, uint RowPitch, uint DepthPitch);
 
 /// <summary>Spout's own Direct3D 11 device (Windows): on the default adapter, or WARP. Sender textures are made shared (legacy
 /// share handles, as Spout publishes them: <c>IDXGIResource::GetSharedHandle</c>, truncated to 32 bits) and a published one opened
-/// with <c>OpenSharedResource</c>; a received texture is copied into three staging textures and mapped with DO_NOT_WAIT (a copy still
-/// in flight is "pending", never waited for). Immediate-context calls go under one lock: Spout's own on its own device, the share's
+/// with <c>OpenSharedResource</c>; a received texture is copied into three staging textures, each copy submitted with an event query
+/// that marks its end, and mapped with DO_NOT_WAIT (a copy still in flight is "pending", never waited for; its query says when it is
+/// done). Immediate-context calls go under one lock: Spout's own on its own device, the share's
 /// on the renderer's device (<see cref="OnShare"/>), where the render loop holds it around each frame's drawing.</summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
@@ -63,6 +72,8 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
     private const uint MapFlagDoNotWait = 0x100000;
     private const int ErrorWasStillDrawing = unchecked((int)0x887A000A);
     private const int WaitTimeout = 0x102;
+    private const uint QueryEvent = 0;
+    private const uint GetDataDoNotFlush = 0x1;
 
     private nint _device;
     private nint _context;
@@ -217,10 +228,21 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
         Release(ref _device);
     }
 
+    private nint MakeEventQuery()
+    {
+        var desc = new SpoutQueryDesc(QueryEvent, 0);
+        nint query = 0;
+        var hr = ((delegate* unmanaged<nint, SpoutQueryDesc*, nint*, int>)Slot(_device, SpoutCom.DeviceCreateQuery))(_device, &desc, &query);
+        if (hr < 0)
+            throw new InvalidOperationException($"Direct3D 11 made no event query for Spout's copies ({Hr(hr)})");
+        return query;
+    }
+
     private sealed class Texture : ISpoutTexture
     {
         private readonly D3D11SpoutGpu _gpu;
         private readonly nint[] _staging = new nint[SpoutReceiver.StagingSlots];
+        private readonly nint[] _copied = new nint[SpoutReceiver.StagingSlots];
         private nint _texture;
         private nint _keyed;
 
@@ -238,13 +260,19 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             try
             {
                 for (var i = 0; i < _staging.Length; i++)
+                {
                     _staging[i] = gpu.MakeTexture(width, height, format, UsageStaging, 0, CpuAccessRead, 0);
+                    _copied[i] = gpu.MakeEventQuery();
+                }
             }
             catch
             {
                 // Built in part: what was made goes; the caller releases the texture it handed in.
                 for (var i = 0; i < _staging.Length; i++)
+                {
                     Release(ref _staging[i]);
+                    Release(ref _copied[i]);
+                }
                 Release(ref _keyed);
                 throw;
             }
@@ -278,7 +306,29 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
             _gpu.EnterContext();
             try
             {
-                ((delegate* unmanaged<nint, nint, nint, void>)Slot(_gpu._context, SpoutCom.ContextCopyResource))(_gpu._context, target, _texture);
+                var context = _gpu._context;
+                ((delegate* unmanaged<nint, nint, nint, void>)Slot(context, SpoutCom.ContextCopyResource))(context, target, _texture);
+                // The copy's end is marked and the copy submitted: a read at a later step finds it done once the mark signals.
+                ((delegate* unmanaged<nint, nint, void>)Slot(context, SpoutCom.ContextEnd))(context, _copied[slot]);
+                ((delegate* unmanaged<nint, void>)Slot(context, SpoutCom.ContextFlush))(context);
+            }
+            finally
+            {
+                _gpu.ExitContext();
+            }
+        }
+
+        public bool Copied(int slot)
+        {
+            var query = _copied[slot];
+            if (query == 0)
+                return false;
+            _gpu.EnterContext();
+            try
+            {
+                // S_OK once the GPU passed the mark; S_FALSE while it has not. Never flushes (the copy was submitted when queued).
+                return ((delegate* unmanaged<nint, nint, void*, uint, uint, int>)Slot(_gpu._context, SpoutCom.ContextGetData))(
+                    _gpu._context, query, null, 0, GetDataDoNotFlush) == 0;
             }
             finally
             {
@@ -348,7 +398,10 @@ public sealed unsafe partial class D3D11SpoutGpu : ISpoutGpu
         public void Dispose()
         {
             for (var i = 0; i < _staging.Length; i++)
+            {
                 Release(ref _staging[i]);
+                Release(ref _copied[i]);
+            }
             Release(ref _keyed);
             Release(ref _texture);
         }

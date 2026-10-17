@@ -53,10 +53,15 @@ public sealed class SpoutWarpTests(ITestOutputHelper output)
         }
         Assert.Equal(ReceiveStep.Copied, step);
         var picture = new byte[W * H * 4];
-        var read = StagingRead.Pending;
-        for (var tries = 0; tries < 10_000 && read == StagingRead.Pending; tries++)
-            read = receiver.ReadPending(picture, W * 4);
-        Assert.Equal(StagingRead.Ready, read);
+        // The read waits for the fact it needs: the copy's end mark on the GPU (WARP runs it on its own threads, at its own pace).
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!receiver.PendingCopied)
+        {
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(30), "the GPU never finished the copy");
+            Thread.Yield();
+        }
+        output.WriteLine($"the copy was done {waited.Elapsed.TotalMilliseconds:0.0} ms after it was queued");
+        Assert.Equal(StagingRead.Ready, receiver.ReadPending(picture, W * 4));
         Assert.Equal(chart, picture);
         Assert.Equal(ReceiveStep.NotNew, receiver.Step());
         output.WriteLine($"round trip of a {W}×{H} chart over WARP: handle 0x{receiver.Info.ShareHandle:X}, frame count {receiver.LastCount}");
@@ -117,8 +122,10 @@ public sealed class SpoutWarpTests(ITestOutputHelper output)
     public void SpoutsDeviceHasTheSdksSlotsAndLayouts()
     {
         // The same goldens as the renderer's DxgiLayoutTests (mingw-w64 11.0.1 headers, x86_64).
-        Assert.Equal((5, 28, 40), (SpoutComSlots.CreateTexture2D, SpoutComSlots.OpenSharedResource, SpoutComSlots.GetImmediateContext));
-        Assert.Equal((14, 15, 47, 48, 111), (SpoutComSlots.Map, SpoutComSlots.Unmap, SpoutComSlots.CopyResource, SpoutComSlots.UpdateSubresource, SpoutComSlots.Flush));
+        Assert.Equal((5, 24, 28, 40), (SpoutComSlots.CreateTexture2D, SpoutComSlots.CreateQuery, SpoutComSlots.OpenSharedResource, SpoutComSlots.GetImmediateContext));
+        Assert.Equal((14, 15, 28, 29, 47, 48, 111), (SpoutComSlots.Map, SpoutComSlots.Unmap, SpoutComSlots.End, SpoutComSlots.GetData, SpoutComSlots.CopyResource,
+            SpoutComSlots.UpdateSubresource, SpoutComSlots.Flush));
+        Assert.Equal(8, SpoutComSlots.QueryDescSize);
         Assert.Equal((10, 8, 8, 9), (SpoutComSlots.GetDesc, SpoutComSlots.GetSharedHandle, SpoutComSlots.AcquireSync, SpoutComSlots.ReleaseSync));
         Assert.Equal((44, 16, 8), (SpoutComSlots.TextureDescSize, SpoutComSlots.MappedSize, SpoutComSlots.MappedRowPitch));
     }
@@ -130,6 +137,10 @@ internal static class SpoutComSlots
 {
     public static int CreateTexture2D => SpoutCom.DeviceCreateTexture2D;
     public static int OpenSharedResource => SpoutCom.DeviceOpenSharedResource;
+    public static int CreateQuery => SpoutCom.DeviceCreateQuery;
+    public static int End => SpoutCom.ContextEnd;
+    public static int GetData => SpoutCom.ContextGetData;
+    public static int QueryDescSize => Unsafe.SizeOf<SpoutQueryDesc>();
     public static int GetImmediateContext => SpoutCom.DeviceGetImmediateContext;
     public static int Map => SpoutCom.ContextMap;
     public static int Unmap => SpoutCom.ContextUnmap;

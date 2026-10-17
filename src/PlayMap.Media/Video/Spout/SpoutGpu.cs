@@ -32,8 +32,13 @@ public interface ISpoutTexture : IDisposable
 
     void ReleaseKeyed();
 
-    /// <summary>Queues a copy of the texture into staging slot <paramref name="slot"/> (0–2); throws with words when the device cannot.</summary>
+    /// <summary>Queues a copy of the texture into staging slot <paramref name="slot"/> (0–2) and submits it to the GPU, marking its
+    /// end; throws with words when the device cannot.</summary>
     void CopyToStaging(int slot);
+
+    /// <summary>The GPU has finished the copy last queued into <paramref name="slot"/> (its end mark has signalled): a read of the slot
+    /// is ready. Never waits.</summary>
+    bool Copied(int slot);
 
     /// <summary>Copies a staged slot's rows (top first) into <paramref name="destination"/> of <paramref name="stride"/> bytes a row,
     /// without waiting for the GPU.</summary>
