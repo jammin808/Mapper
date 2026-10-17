@@ -20,10 +20,13 @@ if ($env:GITHUB_SHA -notmatch '^[0-9a-fA-F]{7,64}$') { throw "GITHUB_SHA '$env:G
 $run = [long]$env:GITHUB_RUN_NUMBER
 $short = $env:GITHUB_SHA.Substring(0, 7).ToLowerInvariant()
 
-# The base as the build read it: MSBuild's evaluation of a project under the root's Directory.Build.props.
+# The base as the build read it: MSBuild's evaluation of a project under the root's Directory.Build.props, whose answer is the
+# value alone on the last line.
+$env:DOTNET_NOLOGO = '1'
 $project = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/PlayMap.Core/PlayMap.Core.csproj'
-$said = (& dotnet msbuild $project -nologo '-getProperty:PlayMapRunBase' | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $said -notmatch '^(0|[1-9][0-9]{0,8})$') { throw "PlayMapRunBase could not be read from Version.props: $said" }
+$answer = @(& dotnet msbuild $project -nologo '-getProperty:PlayMapRunBase')
+$said = "$($answer | Where-Object { "$_".Trim() } | Select-Object -Last 1)".Trim()
+if ($LASTEXITCODE -ne 0 -or $said -notmatch '^(0|[1-9][0-9]{0,8})$') { throw "PlayMapRunBase could not be read from Version.props: $($answer -join ' ')" }
 $base = [long]$said
 $build = $run - $base
 
