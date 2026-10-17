@@ -1,53 +1,67 @@
 <Project>
   <!-- PlayMap's version: one scheme, one source of truth (README, "Versions"). Directory.Build.props imports this file.
        PlayMapVersion is the product version, SemVer MAJOR.MINOR.PATCH, written here and nowhere else; each part is at most 65535,
-       the most a part of a Windows file version holds. CI numbers a build with two properties: PlayMapBuild, the build number
-       (1-65535), and PlayMapCommit, the commit built (hex). A build given neither is a local build: build number 0 and the "-dev"
-       mark, with the commit the SDK's source control reading finds in the checkout (none outside a git checkout, which is no
-       failure). Every PlayMap assembly carries the same stamp:
+       the most a part of a Windows file version holds. CI numbers a build with two properties: PlayMapRun, its run number (a whole
+       number from 1), and PlayMapCommit, the commit built (hex). The build number is the run number less PlayMapRunBase, the run
+       this version's numbering counts from, and is 1-65535. A build given neither property is a local build: build number 0 and
+       the "-dev" mark, with the commit the SDK's source control reading finds in the checkout (none outside a git checkout, which
+       is no failure). Every PlayMap assembly carries the same stamp:
          AssemblyVersion       MAJOR.MINOR.0.0 (binding moves only with the release line)
          FileVersion           MAJOR.MINOR.PATCH.BUILD (Windows' four parts: 0.2.0.17 from CI, 0.2.0.0 local)
          InformationalVersion  MAJOR.MINOR.PATCH+BUILD.SHORTSHA from CI (0.2.0+17.abc1234), MAJOR.MINOR.PATCH-dev+SHORTSHA local
        The compiler writes each file's Windows version resource from these (FileVersion, and ProductVersion = the informational
        version); a Windows build copies the desk's resource into PlayMap.exe. A build number past 65535 fails the build with
-       words: wrapped, it would read to an installer as an older build; clamped, as the same build. PlayMap.Core's BuildInfo
-       reads the stamp back; no other file in the tree writes a version. -->
+       words: wrapped, it would read to an installer as an older build; clamped, as the same build. A raised PlayMapVersion keeps
+       the count; raised together with PlayMapRunBase set to the last run's number, it starts the count again at 1. PlayMap.Core's
+       BuildInfo reads the stamp back; no other file in the tree writes a version. -->
   <PropertyGroup>
     <PlayMapVersion>0.2.0</PlayMapVersion>
+    <!-- The CI run this version's build numbers count from: build number = PlayMapRun - PlayMapRunBase. -->
+    <PlayMapRunBase>0</PlayMapRunBase>
     <_PlayMapVersionWellFormed>$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapVersion)', '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'))</_PlayMapVersionWellFormed>
-    <_PlayMapBuildNumber Condition="'$(PlayMapBuild)' != ''">$(PlayMapBuild.Trim())</_PlayMapBuildNumber>
-    <_PlayMapBuildNumber Condition="'$(PlayMapBuild)' == ''">0</_PlayMapBuildNumber>
+    <_PlayMapRunWellFormed>$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapRun.Trim())', '^[1-9][0-9]{0,8}$'))</_PlayMapRunWellFormed>
+    <_PlayMapRunBaseWellFormed>$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapRunBase.Trim())', '^(0|[1-9][0-9]{0,8})$'))</_PlayMapRunBaseWellFormed>
+    <_PlayMapBuildNumber Condition="'$(PlayMapRun)' == ''">0</_PlayMapBuildNumber>
+    <_PlayMapBuildNumber Condition="'$(PlayMapRun)' != '' and $(_PlayMapRunWellFormed) and $(_PlayMapRunBaseWellFormed)">$([MSBuild]::Subtract($(PlayMapRun.Trim()), $(PlayMapRunBase.Trim())))</_PlayMapBuildNumber>
     <VersionPrefix>$(PlayMapVersion)</VersionPrefix>
-    <VersionSuffix Condition="'$(PlayMapBuild)' == ''">dev</VersionSuffix>
+    <VersionSuffix Condition="'$(PlayMapRun)' == ''">dev</VersionSuffix>
     <AssemblyVersion Condition="$(_PlayMapVersionWellFormed)">$([System.Version]::Parse('$(PlayMapVersion)').Major).$([System.Version]::Parse('$(PlayMapVersion)').Minor).0.0</AssemblyVersion>
     <FileVersion>$(PlayMapVersion).$(_PlayMapBuildNumber)</FileVersion>
     <!-- The informational version is composed by PlayMapStampVersion below, with the commit; the SDK appends nothing to it. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
-  <!-- Runs before the SDK reads the versions into the assembly's attributes: refuses a version or build number outside the
+  <!-- Runs before the SDK reads the versions into the assembly's attributes: refuses a version, run or build number outside the
        scheme, then writes the informational version. A local build's commit is the SDK's SourceRevisionId (read from the
        checkout's .git without the git program; empty outside a checkout). -->
   <Target Name="PlayMapStampVersion" BeforeTargets="GetAssemblyVersion" DependsOnTargets="InitializeSourceControlInformation">
+    <PropertyGroup>
+      <_PlayMapNumbered>false</_PlayMapNumbered>
+      <_PlayMapNumbered Condition="'$(PlayMapRun)' != '' and $(_PlayMapRunWellFormed) and $(_PlayMapRunBaseWellFormed)">true</_PlayMapNumbered>
+    </PropertyGroup>
     <Error Condition="!$(_PlayMapVersionWellFormed)"
            Text="PlayMapVersion '$(PlayMapVersion)' is not MAJOR.MINOR.PATCH with each part a whole number of at most five digits (Version.props)." />
     <Error Condition="$(_PlayMapVersionWellFormed) and ($([System.Version]::Parse('$(PlayMapVersion)').Major) &gt; 65535 or $([System.Version]::Parse('$(PlayMapVersion)').Minor) &gt; 65535 or $([System.Version]::Parse('$(PlayMapVersion)').Build) &gt; 65535)"
            Text="PlayMapVersion '$(PlayMapVersion)' has a part past 65535, the most a Windows file version's part holds." />
-    <Error Condition="'$(PlayMapBuild)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_PlayMapBuildNumber)', '^[1-9][0-9]{0,8}$'))"
-           Text="PlayMapBuild '$(PlayMapBuild)' is not a build number: a whole number from 1 (0 is a local build's)." />
-    <Error Condition="'$(PlayMapBuild)' != '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_PlayMapBuildNumber)', '^[1-9][0-9]{0,8}$')) and $(_PlayMapBuildNumber) &gt; 65535"
-           Text="Build number $(_PlayMapBuildNumber) is past 65535, the most the fourth part of a Windows file version holds; nothing was built. A wrapped or clamped number would read to an installer as an older build or the same one: raise PlayMapVersion (Version.props) and start the numbering again (a new workflow file starts its run numbers at 1)." />
-    <Error Condition="'$(PlayMapBuild)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapCommit)', '^[0-9a-fA-F]{7,64}$'))"
+    <Error Condition="!$(_PlayMapRunBaseWellFormed)"
+           Text="PlayMapRunBase '$(PlayMapRunBase)' is not a whole number: the CI run this version's build numbers count from (Version.props)." />
+    <Error Condition="'$(PlayMapRun)' != '' and !$(_PlayMapRunWellFormed)"
+           Text="PlayMapRun '$(PlayMapRun)' is not a run number: a whole number from 1 (a local build gives none)." />
+    <Error Condition="$(_PlayMapNumbered) and $(_PlayMapBuildNumber) &lt; 1"
+           Text="Run $(PlayMapRun.Trim()) is not past PlayMapRunBase $(PlayMapRunBase.Trim()) (Version.props), the run this version's build numbers count from; nothing was built." />
+    <Error Condition="$(_PlayMapNumbered) and $(_PlayMapBuildNumber) &gt; 65535"
+           Text="Build number $(_PlayMapBuildNumber) (run $(PlayMapRun.Trim()) less PlayMapRunBase $(PlayMapRunBase.Trim())) is past 65535, the most the fourth part of a Windows file version holds; nothing was built. A wrapped or clamped number would read to an installer as an older build or the same one: raise PlayMapVersion and set PlayMapRunBase to the last run's number (Version.props), and the count starts again at 1." />
+    <Error Condition="'$(PlayMapRun)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapCommit)', '^[0-9a-fA-F]{7,64}$'))"
            Text="A numbered build names the commit it built: PlayMapCommit '$(PlayMapCommit)' is not 7 to 64 hex digits." />
-    <Error Condition="'$(PlayMapBuild)' == '' and '$(PlayMapCommit)' != ''"
-           Text="PlayMapCommit is given without PlayMapBuild: a numbered build gives both, a local build neither." />
+    <Error Condition="'$(PlayMapRun)' == '' and '$(PlayMapCommit)' != ''"
+           Text="PlayMapCommit is given without PlayMapRun: a numbered build gives both, a local build neither." />
     <PropertyGroup>
-      <_PlayMapCommit Condition="'$(PlayMapBuild)' != ''">$(PlayMapCommit.ToLowerInvariant())</_PlayMapCommit>
-      <_PlayMapCommit Condition="'$(PlayMapBuild)' == '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(SourceRevisionId)', '^[0-9a-fA-F]{7,64}$'))">$(SourceRevisionId.ToLowerInvariant())</_PlayMapCommit>
+      <_PlayMapCommit Condition="'$(PlayMapRun)' != ''">$(PlayMapCommit.ToLowerInvariant())</_PlayMapCommit>
+      <_PlayMapCommit Condition="'$(PlayMapRun)' == '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(SourceRevisionId)', '^[0-9a-fA-F]{7,64}$'))">$(SourceRevisionId.ToLowerInvariant())</_PlayMapCommit>
       <_PlayMapShortCommit Condition="'$(_PlayMapCommit)' != ''">$(_PlayMapCommit.Substring(0, 7))</_PlayMapShortCommit>
-      <InformationalVersion Condition="'$(PlayMapBuild)' != ''">$(PlayMapVersion)+$(_PlayMapBuildNumber).$(_PlayMapShortCommit)</InformationalVersion>
-      <InformationalVersion Condition="'$(PlayMapBuild)' == '' and '$(_PlayMapShortCommit)' != ''">$(PlayMapVersion)-dev+$(_PlayMapShortCommit)</InformationalVersion>
-      <InformationalVersion Condition="'$(PlayMapBuild)' == '' and '$(_PlayMapShortCommit)' == ''">$(PlayMapVersion)-dev</InformationalVersion>
+      <InformationalVersion Condition="'$(PlayMapRun)' != ''">$(PlayMapVersion)+$(_PlayMapBuildNumber).$(_PlayMapShortCommit)</InformationalVersion>
+      <InformationalVersion Condition="'$(PlayMapRun)' == '' and '$(_PlayMapShortCommit)' != ''">$(PlayMapVersion)-dev+$(_PlayMapShortCommit)</InformationalVersion>
+      <InformationalVersion Condition="'$(PlayMapRun)' == '' and '$(_PlayMapShortCommit)' == ''">$(PlayMapVersion)-dev</InformationalVersion>
     </PropertyGroup>
   </Target>
 </Project>

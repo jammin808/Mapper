@@ -6,9 +6,10 @@ using PlayMap.Core.Tests.Model;
 namespace PlayMap.Core.Tests.Versions;
 
 /// <summary>The stamp Version.props writes, read back from built files: a small probe assembly built with the repository's
-/// Version.props as a CI build (a build number and a commit), as a local build in a checkout (the commit the SDK reads from git)
-/// and as a local build outside one; then MSBuild's own answer at and past the four-part bound and for numbers outside the
-/// scheme; and PlayMap.Core as this run's build stamped it. Each probe is built in a folder of its own outside the tree.</summary>
+/// Version.props as a CI build (a run number and a commit), as a local build in a checkout (the commit the SDK reads from git)
+/// and as a local build outside one; then MSBuild's own answer for a run counted from a raised base, at and past the four-part
+/// bound and for numbers outside the scheme; and PlayMap.Core as this run's build stamped it. Each probe is built in a folder of
+/// its own outside the tree.</summary>
 public sealed class BuildStampTests
 {
     private const string Sha = "0123456789ABCDEF0123456789abcdef01234567";
@@ -18,12 +19,27 @@ public sealed class BuildStampTests
     /// <summary>The product version Version.props holds, as MSBuild reads it.</summary>
     private static async Task<string> ProductVersion()
     {
-        var (exit, output, errors) = await Dotnet(RoundTwoSample.RepoRoot(), "msbuild", CoreProject, "-nologo", "-nodeReuse:false", "-getProperty:PlayMapVersion");
-        Assert.True(exit == 0, output + errors);
-        var version = output.Trim();
+        var version = await CoreProperty("PlayMapVersion");
         Assert.Matches(@"^\d{1,5}\.\d{1,5}\.\d{1,5}$", version);
         return version;
     }
+
+    /// <summary>The run Version.props counts this version's build numbers from, as MSBuild reads it.</summary>
+    private static async Task<long> RunBase()
+    {
+        var text = await CoreProperty("PlayMapRunBase");
+        Assert.Matches(@"^(0|[1-9]\d{0,8})$", text);
+        return long.Parse(text, CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<string> CoreProperty(string name)
+    {
+        var (exit, output, errors) = await Dotnet(RoundTwoSample.RepoRoot(), "msbuild", CoreProject, "-nologo", "-nodeReuse:false", "-getProperty:" + name);
+        Assert.True(exit == 0, output + errors);
+        return output.Trim();
+    }
+
+    private static string Run(long run) => "-p:PlayMapRun=" + run.ToString(CultureInfo.InvariantCulture);
 
     private static string CoreProject => Path.Combine(RoundTwoSample.RepoRoot(), "src", "PlayMap.Core", "PlayMap.Core.csproj");
 
@@ -36,8 +52,9 @@ public sealed class BuildStampTests
     [Fact]
     public async Task ACiBuildCarriesItsBuildNumberAndCommitInEveryStampedField()
     {
+        // Run 17 of this version's count: its build number is 17 whatever run the count starts after.
         var v = await ProductVersion();
-        var stamp = await BuildProbe("-p:PlayMapBuild=17", "-p:PlayMapCommit=" + Sha);
+        var stamp = await BuildProbe(Run(await RunBase() + 17), "-p:PlayMapCommit=" + Sha);
         Assert.Equal(AssemblyVersionOf(v), stamp.AssemblyVersion?.ToString());
         Assert.Equal(v + ".17", stamp.FileVersionAttribute);
         Assert.Equal(v + "+17.0123456", stamp.InformationalAttribute);
@@ -77,26 +94,60 @@ public sealed class BuildStampTests
     }
 
     [Fact]
+    public async Task TheBuildNumberIsTheRunLessTheBaseSoARaisedBaseStartsTheCountAgain()
+    {
+        var v = await ProductVersion();
+        var counted = await StampTarget("-p:PlayMapRun=300", "-p:PlayMapRunBase=263", "-p:PlayMapCommit=" + Sha);
+        Assert.True(counted.Exit == 0, counted.Output);
+        Assert.Equal(v + ".37", counted.Properties["FileVersion"]);
+        Assert.Equal(v + "+37.0123456", counted.Properties["InformationalVersion"]);
+        Assert.Equal(new BuildInfo(v, 37, "0123456"), BuildInfo.Parse(counted.Properties["InformationalVersion"]));
+
+        var first = await StampTarget("-p:PlayMapRun=264", "-p:PlayMapRunBase=263", "-p:PlayMapCommit=" + Sha);
+        Assert.True(first.Exit == 0, first.Output);
+        Assert.Equal(v + ".1", first.Properties["FileVersion"]);
+
+        // The run the count starts after, or one before it, has no build number of this version.
+        foreach (var run in new[] { "263", "5" })
+        {
+            var before = await StampTarget("-p:PlayMapRun=" + run, "-p:PlayMapRunBase=263", "-p:PlayMapCommit=" + Sha);
+            Assert.NotEqual(0, before.Exit);
+            Assert.Contains($"Run {run} is not past PlayMapRunBase 263", before.Output, StringComparison.Ordinal);
+            Assert.Equal("", before.Properties["InformationalVersion"]);
+        }
+    }
+
+    [Fact]
     public async Task BuildNumber65535IsTheLastAndOnePastItIsRefusedWithWords()
     {
         var v = await ProductVersion();
-        var last = await StampTarget("-p:PlayMapBuild=65535", "-p:PlayMapCommit=" + Sha);
+        var runBase = await RunBase();
+        var last = await StampTarget(Run(runBase + 65535), "-p:PlayMapCommit=" + Sha);
         Assert.True(last.Exit == 0, last.Output);
         Assert.Equal(v + ".65535", last.Properties["FileVersion"]);
         Assert.Equal(v + "+65535.0123456", last.Properties["InformationalVersion"]);
 
-        var past = await StampTarget("-p:PlayMapBuild=65536", "-p:PlayMapCommit=" + Sha);
+        var past = await StampTarget(Run(runBase + 65536), "-p:PlayMapCommit=" + Sha);
         Assert.NotEqual(0, past.Exit);
-        Assert.Contains("Build number 65536 is past 65535", past.Output, StringComparison.Ordinal);
+        Assert.Contains(string.Create(CultureInfo.InvariantCulture, $"Build number 65536 (run {runBase + 65536} less PlayMapRunBase {runBase}) is past 65535"),
+            past.Output, StringComparison.Ordinal);
+        Assert.Contains("set PlayMapRunBase to the last run's number", past.Output, StringComparison.Ordinal);
         Assert.Equal("", past.Properties["InformationalVersion"]);
+
+        // A raised base carries the same bound: run 263 + 65536 is build 65536 of a count that starts after run 263.
+        var raised = await StampTarget("-p:PlayMapRun=65799", "-p:PlayMapRunBase=263", "-p:PlayMapCommit=" + Sha);
+        Assert.NotEqual(0, raised.Exit);
+        Assert.Contains("Build number 65536 (run 65799 less PlayMapRunBase 263) is past 65535", raised.Output, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("is not a build number", "-p:PlayMapBuild=0 -p:PlayMapCommit=" + Sha)]
-    [InlineData("is not a build number", "-p:PlayMapBuild=17a -p:PlayMapCommit=" + Sha)]
-    [InlineData("names the commit it built", "-p:PlayMapBuild=17")]
-    [InlineData("names the commit it built", "-p:PlayMapBuild=17 -p:PlayMapCommit=main")]
-    [InlineData("without PlayMapBuild", "-p:PlayMapCommit=" + Sha)]
+    [InlineData("PlayMapRun '0' is not a run number", "-p:PlayMapRun=0 -p:PlayMapRunBase=0 -p:PlayMapCommit=" + Sha)]
+    [InlineData("PlayMapRun '17a' is not a run number", "-p:PlayMapRun=17a -p:PlayMapRunBase=0 -p:PlayMapCommit=" + Sha)]
+    [InlineData("PlayMapRunBase 'x' is not a whole number", "-p:PlayMapRunBase=x")]
+    [InlineData("PlayMapRunBase '-1' is not a whole number", "-p:PlayMapRun=17 -p:PlayMapRunBase=-1 -p:PlayMapCommit=" + Sha)]
+    [InlineData("names the commit it built", "-p:PlayMapRun=17 -p:PlayMapRunBase=0")]
+    [InlineData("names the commit it built", "-p:PlayMapRun=17 -p:PlayMapRunBase=0 -p:PlayMapCommit=main")]
+    [InlineData("without PlayMapRun", "-p:PlayMapCommit=" + Sha)]
     [InlineData("is not MAJOR.MINOR.PATCH", "-p:PlayMapVersion=0.2")]
     [InlineData("has a part past 65535", "-p:PlayMapVersion=0.70000.0")]
     public async Task AStampOutsideTheSchemeIsRefusedBeforeAnythingIsCompiled(string words, string properties)
@@ -181,7 +232,7 @@ public sealed class BuildStampTests
         };
         foreach (var a in args)
             start.ArgumentList.Add(a);
-        foreach (var name in new[] { "PlayMapBuild", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH",
+        foreach (var name in new[] { "PlayMapRun", "PlayMapRunBase", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH",
                      "MSBuildLoadMicrosoftTargetsReadOnly" })
             start.Environment.Remove(name);
         start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
