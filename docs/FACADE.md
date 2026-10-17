@@ -20,7 +20,9 @@ EPSG system to another is refused (that is a reprojection).
 ## Survey import
 
 `SURVEY IMPORT` answers at once and works on its own thread below the lane's priority; the lane is touched twice (to accept and to
-apply), each slice timed into the import's view. The result lands as one edit, so one UNDO takes the whole import back.
+apply), each slice timed into the import's view by the work the lane thread did in it (`ThreadTime`: its processor time on Linux and
+macOS, the stopwatch elsewhere — the time a loaded machine gave others is not the import's); how long the lane answers meanwhile is
+measured as such (SITE's latency). The result lands as one edit, so one UNDO takes the whole import back.
 
 - **Meshes** (OBJ, PLY, glTF): rebased as read, then decimated to the triangle budget by quadric edge collapse. A collapse keeps one of
   its edge's own vertices, so no vertex moves; boundary, seam and non-manifold vertices are never removed; a collapse that would make

@@ -161,11 +161,11 @@ public sealed class ControlStateFixtureTests
         var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("control.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("control.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("control.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("control.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("control.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("control.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("control.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("control.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var state = JsonNode.Parse(fixture)!;
         foreach (var card in Cards().Select(c => c!.AsObject()))

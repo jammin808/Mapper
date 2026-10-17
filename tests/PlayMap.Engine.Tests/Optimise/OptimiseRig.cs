@@ -122,6 +122,26 @@ internal sealed class OptimiseRig : IAsyncDisposable
 
     public OptimiseJob Job(string id) => Service.Jobs.Single(j => j.Id == id);
 
+    /// <summary>The rig's options with its first worker waiting at its first frame for the engine's next knobs that hold
+    /// (<see cref="OptimiseOptions.HoldFirstWorkerAt"/>): a pause sent once that frame is heard reaches the worker mid-job.</summary>
+    public static OptimiseOptions HeldAtFirstFrame() => Options() with { HoldFirstWorkerAt = 1 };
+
+    /// <summary>Pauses a running job and waits for the fact: the reply says the pause is asked (accepted, the job pending), and the
+    /// job is paused once its worker says it holds (STATE jobs[].held).</summary>
+    public async Task PauseRunningAsync(string jobId)
+    {
+        var r = await Run($"MEDIA OPTIMISE PAUSE {jobId}");
+        Assert.True(r.Ok, r.Payload);
+        using (var reply = JsonDocument.Parse(r.Payload!))
+        {
+            Assert.Equal([jobId], reply.RootElement.GetProperty("paused").EnumerateArray().Select(e => e.GetString()));
+            Assert.Equal([jobId], reply.RootElement.GetProperty("pending").EnumerateArray().Select(e => e.GetString()));
+        }
+        Assert.False(r.Applied);
+        Assert.Equal($"pause asked of {jobId}: it holds at its next frame", r.Effect);
+        await Until(() => Job(jobId).Held, "the worker holding the paused job");
+    }
+
     public JsonElement State()
     {
         Engine.FactsChanged();

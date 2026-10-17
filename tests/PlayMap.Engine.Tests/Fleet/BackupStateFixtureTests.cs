@@ -151,11 +151,11 @@ public sealed partial class BackupStateFixtureTests
         var cards = new JsonArray([.. Cards.Select(c => c.Card.DeepClone())]).ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("backup.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("backup.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("backup.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("backup.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("backup.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("backup.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("backup.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("backup.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var parsed = JsonNode.Parse(fixture)!;
         foreach (var (on, card) in Cards)

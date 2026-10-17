@@ -112,11 +112,11 @@ public sealed class SyncStateFixtureTests
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("sync.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("sync.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("sync.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("sync.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("sync.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("sync.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("sync.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("sync.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())

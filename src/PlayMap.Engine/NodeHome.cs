@@ -22,8 +22,8 @@ public sealed class NodeHome
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    /// <summary>One read or write of a home's settings file at a time in this process: Windows refuses to replace a file another handle
-    /// has open, so a read beside a write's rename would fail the write.</summary>
+    /// <summary>One read or write of a home's settings file at a time in this process: a load that puts the file right and a read beside
+    /// it see the file before or after, never between.</summary>
     private static readonly ConcurrentDictionary<string, Lock> SettingsGates =
         new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
@@ -109,15 +109,9 @@ public sealed class NodeHome
     }
 
     /// <summary>The settings file's text. Under the file's gate.</summary>
-    private string ReadText()
-    {
-        // Shared for write and delete: a reader never refuses a writer's own open of the file. Within this process the gate keeps a
-        // read and a replace apart; a reader in another process (the desk's pairing-token read) can still make Windows refuse a
-        // replace, which the writer answers in words.
-        using var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(file, Encoding.UTF8);
-        return reader.ReadToEnd();
-    }
+    /// <remarks>Read as every durable file is read (shared for write and delete): a reader here or in another process (the desk's
+    /// pairing-token read) never makes the writer's replace fail.</remarks>
+    private string ReadText() => DurableFile.ReadAllText(SettingsPath);
 
     /// <summary>The settings a file's text holds, or null when it does not read as the node's settings (not JSON, or no valid node id).</summary>
     private static NodeSettings? Parse(string text)
@@ -267,7 +261,7 @@ public sealed record RecoveryRecord(
             return null;
         try
         {
-            return JsonSerializer.Deserialize<RecoveryRecord>(File.ReadAllText(path), Json);
+            return JsonSerializer.Deserialize<RecoveryRecord>(DurableFile.ReadAllText(path), Json);
         }
         catch (JsonException)
         {

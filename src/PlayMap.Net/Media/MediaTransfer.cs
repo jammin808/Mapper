@@ -308,7 +308,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
         {
             if (!File.Exists(mapPath) || !File.Exists(part) || new FileInfo(part).Length != size)
                 return done;
-            var bytes = File.ReadAllBytes(mapPath);
+            var bytes = DurableFile.ReadAllBytes(mapPath);
             var header = Header(hash, size, chunkBytes);
             if (bytes.Length != header.Length + (chunks + 7) / 8 || !bytes.AsSpan(0, header.Length).SequenceEqual(header))
                 return done;

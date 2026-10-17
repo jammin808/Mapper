@@ -26,6 +26,7 @@
           "etaS": 0,
           "attempts": 0,
           "paused": false,
+          "held": false,
           "version": "mv_fixture",
           "psnrAvg": 44.1,
           "words": "aac copied; 44.1 dB average, 43.9 dB lowest"

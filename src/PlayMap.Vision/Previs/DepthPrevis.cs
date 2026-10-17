@@ -32,16 +32,18 @@ public sealed record PrevisResult(MeshData Mesh, Intrinsics Intrinsics, Pose Cam
 /// fails. For previs only: calibration comes from structured light.</summary>
 public static class DepthPrevis
 {
-    /// <summary>Builds the previs mesh off the caller's thread.</summary>
+    /// <summary>Builds the previs mesh on the compute threads.</summary>
     public static Task<PrevisResult> BuildAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions? options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(photo);
         var o = options ?? PrevisOptions.Default;
-        return Task.Run(() => BuildCoreAsync(photo, estimator, o, cancellationToken), cancellationToken);
+        return BuildCoreAsync(photo, estimator, o, cancellationToken);
     }
 
     private static async Task<PrevisResult> BuildCoreAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions options, CancellationToken cancellationToken)
     {
+        await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         if (estimator is null)
             return Flat(photo, options, string.Create(CultureInfo.InvariantCulture, $"no depth model installed: a flat plane at {options.DistanceMetres:0.##} m"));
         DepthEstimate depth;
@@ -52,8 +54,10 @@ public static class DepthPrevis
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Previs never fails: the model's failure is reported and a plane stands in.
+            await PlayMap.Core.Threading.Compute.Hop();
             return Flat(photo, options, string.Create(CultureInfo.InvariantCulture, $"the depth model failed ({ex.Message}): a flat plane at {options.DistanceMetres:0.##} m"));
         }
+        await PlayMap.Core.Threading.Compute.Hop();
         var z = ToDepth(depth, photo.Width, photo.Height, options, out var usable);
         if (!usable)
             return Flat(photo, options, string.Create(CultureInfo.InvariantCulture, $"the depth map was empty: a flat plane at {options.DistanceMetres:0.##} m"));

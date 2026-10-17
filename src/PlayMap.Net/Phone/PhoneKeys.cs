@@ -109,7 +109,7 @@ public sealed class PhoneKeys
             return;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(_path));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllBytes(_path));
             foreach (var p in doc.RootElement.GetProperty("phones").EnumerateArray())
             {
                 var digest = p.GetProperty("keySha256").GetString() ?? "";

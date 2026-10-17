@@ -49,6 +49,9 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
     // Closed by the service's stop: no worker starts from then on.
     private bool _closed;
 
+    // Workers started so far.
+    private int _started;
+
     /// <summary>A protocol line from the worker, on its reader's thread.</summary>
     public event Action<WorkerEvent>? Event;
 
@@ -106,6 +109,11 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
             info.ArgumentList.Add(OptimiseWorker.Word);
             info.ArgumentList.Add(OptimiseWorker.PriorityWord);
             info.ArgumentList.Add(options.WorkerPriority.ToString());
+            if (options.HoldFirstWorkerAt > 0 && _started == 0)
+            {
+                info.ArgumentList.Add(OptimiseWorker.HoldAtWord);
+                info.ArgumentList.Add(options.HoldFirstWorkerAt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
             var p = new Process { StartInfo = info, EnableRaisingEvents = true };
             try
             {
@@ -118,6 +126,7 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
                 throw;
             }
             _process = p;
+            _started++;
             _expected = false;
             _reported = false;
             Listen(p);

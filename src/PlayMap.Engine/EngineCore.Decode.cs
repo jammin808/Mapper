@@ -124,7 +124,7 @@ public sealed partial class EngineCore
         {
             try
             {
-                inspection = await Task.Run(() => HapInspect.Inspect(path, item.Color, 8, call.Ct), call.Ct);
+                inspection = await Core.Threading.Compute.RunAsync(() => HapInspect.Inspect(path, item.Color, 8, call.Ct), call.Ct);
             }
             catch (Exception ex) when (ex is PlayMap.Media.Ffmpeg.MediaOpenException or IOException or PlayMap.Media.Ffmpeg.FfmpegUnavailableException)
             {

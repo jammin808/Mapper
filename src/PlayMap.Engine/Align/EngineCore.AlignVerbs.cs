@@ -494,7 +494,7 @@ public sealed partial class EngineCore
                 if (file is null)
                     continue;
                 var path = AlignArchive.Resolve(folder, file);
-                if (path is null || !File.Exists(path) || !string.Equals(Core.Align.Pfm.Hash(File.ReadAllBytes(path)), hash, StringComparison.Ordinal))
+                if (path is null || !File.Exists(path) || !string.Equals(Core.Align.Pfm.Hash(PlayMap.Core.Storage.DurableFile.ReadAllBytes(path)), hash, StringComparison.Ordinal))
                     missing.Add(file);
             }
         }

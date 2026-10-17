@@ -35,7 +35,7 @@ public static class AssistantSettingsFile
             return AssistantSettings.Default;
         try
         {
-            return (JsonSerializer.Deserialize<AssistantSettings>(File.ReadAllText(path), Json)
+            return (JsonSerializer.Deserialize<AssistantSettings>(DurableFile.ReadAllText(path), Json)
                 ?? throw new InvalidDataException($"{FileName} holds no settings")).Normalised();
         }
         catch (JsonException ex)

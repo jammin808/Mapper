@@ -142,15 +142,31 @@ public sealed partial class EngineCore
                 _ => all ? "no job is paused" : $"{target} is not a paused job",
             });
         }
-        return CommandReply.Success(JsonOut(w =>
+        var pending = steered.Pending;
+        var reply = CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
             w.WriteStartArray(key);
             foreach (var id in done)
                 w.WriteStringValue(id);
             w.WriteEndArray();
+            if (verb != "CANCEL")
+            {
+                // The running job's pause is applied when its worker says it holds (STATE jobs[].held), its resume when it goes on.
+                w.WriteStartArray("pending");
+                foreach (var id in pending)
+                    w.WriteStringValue(id);
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
-        }), $"{past} {string.Join(", ", done)}");
+        }), pending.Count == 0 ? $"{past} {string.Join(", ", done)}"
+            : string.Join("; ", new[]
+            {
+                done.Count > pending.Count ? $"{past} {string.Join(", ", done.Except(pending))}" : "",
+                verb == "PAUSE" ? $"pause asked of {string.Join(", ", pending)}: it holds at its next frame"
+                    : $"resume asked of {string.Join(", ", pending)}: it goes on when its worker does",
+            }.Where(p => p.Length > 0)));
+        return pending.Count == 0 ? reply : reply with { Applied = false };
     }
 
     // ---- MEDIA JOBS, MEDIA VERSIONS, MEDIA USE ----------------------------------------------------------------------------
@@ -334,6 +350,7 @@ public sealed partial class EngineCore
             w.WriteNumber("etaS", j.Fps > 0 && j.Frames > j.FramesDone ? Math.Round((j.Frames - j.FramesDone) / j.Fps, 1) : 0);
             w.WriteNumber("attempts", j.Attempts);
             w.WriteBoolean("paused", j.Paused);
+            w.WriteBoolean("held", j.Held);
             w.WriteString("version", j.Version);
             w.WriteNumber("psnrAvg", j.PsnrAvg);
             w.WriteString("words", j.Words);

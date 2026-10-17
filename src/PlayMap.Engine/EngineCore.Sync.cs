@@ -124,7 +124,7 @@ public sealed partial class EngineCore
         if (record.UnsavedProjectJson is not null)
             project = Core.Model.ProjectJson.Deserialize(record.UnsavedProjectJson);
         else if (record.ProjectPath is not null && File.Exists(record.ProjectPath))
-            project = Core.Model.ProjectJson.Deserialize(File.ReadAllText(record.ProjectPath));
+            project = Core.Model.ProjectJson.Deserialize(Core.Storage.DurableFile.ReadAllText(record.ProjectPath));
         if (project is null)
             return "nothing to recover";
         Store.Replace(project, "recovered after a restart");

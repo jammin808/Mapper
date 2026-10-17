@@ -223,11 +223,11 @@ public sealed partial class PhoneStateFixtureTest
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("phonescan.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("phonescan.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("phonescan.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("phonescan.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("phonescan.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("phonescan.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("phonescan.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("phonescan.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())

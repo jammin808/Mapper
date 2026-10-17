@@ -50,12 +50,12 @@ public sealed class CompanionStateFixtureTests
 
         var path = FixturePath("companion.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            await File.WriteAllTextAsync(path, fixture);
-        Assert.Equal((await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(path)).ReplaceLineEndings("\n"), fixture);
 
         // Every path a card reads is in the fixture: its block (each element, for a list card), its fields, its light's conditions.
         using var state = JsonDocument.Parse(fixture);
-        using var cards = JsonDocument.Parse(await File.ReadAllTextAsync(FixturePath("companion.cards.json")));
+        using var cards = JsonDocument.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("companion.cards.json")));
         foreach (var card in cards.RootElement.EnumerateArray())
         {
             var block = state.RootElement.GetProperty(card.GetProperty("path").GetString()!);

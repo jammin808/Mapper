@@ -72,7 +72,8 @@ public sealed class PhoneAlignTests
     private static async Task<Node> StartAsync(SimDisplayCamera seam)
     {
         var folder = Directory.CreateTempSubdirectory("playmap-phonealign-").FullName;
-        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node" });
+        // The camera's patience runs on the hub's clock, held still here: a picture is waited for as the fact it is, never raced.
+        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node", Time = new Fleet.ManualTime() });
         var align = new AlignExtension(new MonoDisplay(seam));
         var services = EngineServices.ForTests(MonoClock.Instance) with
         {

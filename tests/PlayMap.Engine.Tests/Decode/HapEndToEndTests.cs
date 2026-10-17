@@ -208,11 +208,11 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
             var cards = JsonNode.Parse(Cards)!.ToJsonString(FixtureJson.Indented) + "\n";
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             {
-                await File.WriteAllTextAsync(path, fixture);
-                await File.WriteAllTextAsync(cardsPath, cards);
+                PlayMap.Core.Storage.DurableFile.WriteAllText(path, fixture);
+                PlayMap.Core.Storage.DurableFile.WriteAllText(cardsPath, cards);
             }
-            Assert.Equal((await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"), fixture);
-            Assert.Equal((await File.ReadAllTextAsync(cardsPath)).ReplaceLineEndings("\n"), cards);
+            Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(path)).ReplaceLineEndings("\n"), fixture);
+            Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(cardsPath)).ReplaceLineEndings("\n"), cards);
         }
         finally
         {

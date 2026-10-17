@@ -173,11 +173,11 @@ public sealed partial class FacadeStateFixtureTest
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("facade.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("facade.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("facade.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("facade.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("facade.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("facade.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("facade.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("facade.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())

@@ -148,16 +148,18 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
         }
     }
 
-    /// <summary>Runs off the caller's thread from the start: hashing and fitting the picture are pixel work too.</summary>
+    /// <summary>Runs on the compute threads from the start: hashing and fitting the picture are pixel work too.</summary>
     public Task<SegmentationResult> SegmentAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(prompt);
-        return Task.Run(() => SegmentCoreAsync(frame, prompt, cancellationToken), cancellationToken);
+        return SegmentCoreAsync(frame, prompt, cancellationToken);
     }
 
     private async Task<SegmentationResult> SegmentCoreAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
     {
+        await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         if (prompt.PositivePoints.IsEmpty && !prompt.HasBox)
             return SegmentationResult.Refused(prompt.HasText
                 ? Id + " cannot read a phrase; click on the surface, or install a text-prompt model"
@@ -165,6 +167,7 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
         var image = frame.Image;
         var key = Id + ":" + PictureKey(image);
         var embedding = await EncodeAsync(image, key, cancellationToken).ConfigureAwait(false);
+        await PlayMap.Core.Threading.Compute.Hop();
         var map = embedding.Map;
 
         var (coords, labels, count) = EncodePoints(prompt, map, _profile.PadPointWhenNoBox);
@@ -208,6 +211,7 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
             if (_lowResOutput is not null)
                 wanted.Add(_lowResOutput);
             var outputs = await _decoder.RunAsync(inputs, wanted, cancellationToken).ConfigureAwait(false);
+            await PlayMap.Core.Threading.Compute.Hop();
             return Decode(outputs, image, map, key, prompt.Text ?? "");
         }
         finally
@@ -224,6 +228,7 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
         await _encodeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            await PlayMap.Core.Threading.Compute.Hop();
             var map = ImageToModel.For(image.Width, image.Height, _input.Width, _input.Height, _input.Fit);
             for (var node = _cache.First; node is not null; node = node.Next)
             {

@@ -30,7 +30,7 @@ public sealed record BackupOptions
     /// <summary>How long FLEET BACKUP waits for the primary to take the subscription before it answers.</summary>
     public TimeSpan JoinWait { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>A route step's deadline (a projector that does not answer by then is "unreached").</summary>
+    /// <summary>A route step's deadline on the fleet's clock (a projector that does not answer by then is "unreached").</summary>
     public TimeSpan RouteWait { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>How long a primary that starts with hot backups waits, on its own clock, to hear them before its LED data, sends and
@@ -596,8 +596,9 @@ public sealed class BackupNode : IAsyncDisposable
                 return $"{output}: no route (switch by hand)";
             var device = engine.Store.Project.FindDevice(r.DeviceId)?.Name ?? r.DeviceId;
             var input = r.InputFor(SelfId);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(_o.RouteWait);
+            // The step's deadline on the fleet's clock (the system's in a node).
+            using var due = new CancellationTokenSource(_o.RouteWait, engine.Services.FleetTime);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, due.Token);
             CommandReply reply;
             try
             {
@@ -1000,7 +1001,7 @@ public sealed class BackupNode : IAsyncDisposable
         if (hash.Length == 0 || (_showHere.TryGetValue(path, out var known) && string.Equals(known, hash, StringComparison.Ordinal)))
             return true;
         string hex;
-        var stream = File.OpenRead(path);
+        var stream = PlayMap.Core.Storage.DurableFile.OpenRead(path, 1 << 16, FileOptions.Asynchronous);
         await using (stream.ConfigureAwait(false))
             hex = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct).ConfigureAwait(false));
         if (!ShowFiles.Matches(hex, hash))
@@ -1315,6 +1316,9 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>A peer this node may take its group's clock from: a member of its group it has known, heard over its pinned certificate.</summary>
     private bool Trusted(FleetPeer peer) => _groupPeers.ContainsKey(peer.Id) && peer.Pin == "pinned";
+
+    /// <summary>This node has known the peer as a member of its group (noted while the group was whole): the peer may lead it later.</summary>
+    internal bool KnowsInGroup(string peerId) => _groupPeers.ContainsKey(peerId);
 
     /// <summary>A leader that hears a member of its group lead it under a higher epoch (a promotion or a takeover while this node was
     /// away or cut off) steps down and follows it: a group has one clock.</summary>

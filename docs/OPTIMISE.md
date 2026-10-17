@@ -42,7 +42,9 @@ wp2-zerocopy's decode-path ladder), so long-GOP at 1080p and larger becomes HAP 
 ## Jobs
 
 `NodeHome/optimise/jobs.json` holds the queue, written whole through a temporary file and a rename on every state change. A job is
-`queued → encoding → verifying → done | failed | cancelled` (planning happens when the job is asked for, before it is queued); PAUSE holds a queued job back and a running one between frames. One job
+`queued → encoding → verifying → done | failed | cancelled` (planning happens when the job is asked for, before it is queued); PAUSE holds a queued job back at once and asks a running one to hold between frames: the
+worker says when it holds (and when it goes on), and only then is the job held (`held` in STATE) and the pause journalled; a
+RESUME of a held job is a fact, journalled, when the worker goes on. One job
 runs at a time, oldest first, through the worker:
 
 - **The worker** is the same exe in a third role, `PlayMap optimise-worker` (the node host's `PlayMap.Node optimise-worker` in
@@ -93,7 +95,7 @@ sender's dropped and skipped frames and its late nodes); its thresholds are `Nod
 | run | idle | no rest; a job started at run decodes on every core but one, hardware decode allowed | |
 
 A job's decoder threads and hardware decode are fixed when it starts; the rest, the hold and the pause apply to a running job from
-its next frame. The read-back after the trailer decodes only the three sampled frames.
+its next frame, which the worker acknowledges with a `held` line (on, at the frame it held at; off, when it goes on). The read-back after the trailer decodes only the three sampled frames.
 
 `Role: never` in the node's settings makes a node that never encodes.
 

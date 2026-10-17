@@ -35,9 +35,10 @@ internal sealed class WireSession : IAsyncDisposable
     private readonly bool _strict;
     private string _nonce = Pairing.NewNonce();
     private string _helloName = "";
-    private bool _saidHello;
+    private volatile bool _saidHello;
     private bool _greetOnPairing;
-    private bool _registered;
+    private volatile bool _registered;
+    private readonly Lock _registerGate = new();
     private string? _pairedToken;
     private int _wrong;
     private bool _close;
@@ -139,10 +140,17 @@ internal sealed class WireSession : IAsyncDisposable
     /// <summary>Tells the node's client table who this is now (after HELLO, and after pairing changes what it may do).</summary>
     private void Register()
     {
-        if (!_saidHello || _server.Endpoint is not IClientRegistry registry)
+        if (_server.Endpoint is not IClientRegistry registry)
             return;
-        registry.Hello(Info(), _channel.Kind);
-        _registered = true;
+        // The session's own thread and a settings refresh can register at once: one at a time, each reading the settings as they are
+        // when it tells the table, so the last told is the newest.
+        lock (_registerGate)
+        {
+            if (!_saidHello)
+                return;
+            registry.Hello(Info(), _channel.Kind);
+            _registered = true;
+        }
     }
 
     /// <summary>The node's settings changed (a new token unpairs, a desk address is listed or not): the client table hears who this

@@ -124,7 +124,7 @@ public sealed class PinStore
             return;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(_path));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllText(_path));
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 return;
             foreach (var p in doc.RootElement.EnumerateObject())

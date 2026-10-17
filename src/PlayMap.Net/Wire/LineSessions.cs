@@ -95,20 +95,23 @@ internal sealed class LineSessions : IAsyncDisposable
 
     private void OnProjectChanged(long revision) => _projectThrottle.Arm();
 
-    /// <summary>Runs one connection's session to its end; the channel is the caller's to dispose.</summary>
+    /// <summary>Runs one connection's session to its end; the channel is the caller's to dispose. The session is in the table before
+    /// it reads its first line: lines it handles before its run first waits (they can, when they are in already) are refreshed and
+    /// stopped as any other.</summary>
     public async Task ServeAsync(ILineChannel channel, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(channel);
         var id = _prefix + Interlocked.Increment(ref _sessionCount).ToString(CultureInfo.InvariantCulture);
         var session = new WireSession(this, channel, id);
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessions[session] = ended.Task;
         try
         {
-            var run = session.RunAsync(ct);
-            _sessions[session] = run;
-            await run;
+            await session.RunAsync(ct);
         }
         finally
         {
+            ended.SetResult();
             _sessions.TryRemove(session, out _);
             await session.DisposeAsync();
         }

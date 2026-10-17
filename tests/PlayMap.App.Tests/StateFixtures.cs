@@ -40,9 +40,9 @@ public static class StateFixtures
 
     /// <summary>Every card descriptor file present: (package, its JSON).</summary>
     public static IReadOnlyList<(string Package, string Json)> Cards =>
-        [.. Directory.GetFiles(Folder, "*.cards.json").Order(StringComparer.Ordinal).Select(f => (Path.GetFileName(f)[..^".cards.json".Length], File.ReadAllText(f)))];
+        [.. Directory.GetFiles(Folder, "*.cards.json").Order(StringComparer.Ordinal).Select(f => (Path.GetFileName(f)[..^".cards.json".Length], PlayMap.Core.Storage.DurableFile.ReadAllText(f)))];
 
-    public static string Read(string package) => File.ReadAllText(Path.Combine(Folder, package + ".json"));
+    public static string Read(string package) => PlayMap.Core.Storage.DurableFile.ReadAllText(Path.Combine(Folder, package + ".json"));
 
     /// <summary>The top-level keys of the whole STATE (main.json's).</summary>
     private static readonly Lazy<HashSet<string>> StateKeys = new(() =>

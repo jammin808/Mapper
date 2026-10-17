@@ -140,9 +140,9 @@ public sealed class ReseatTests(ITestOutputHelper output)
 
         // The render host's automatic blend, on the live project.
         await using var resources = new StageResources(rig.Engine.Meshes, StageResourceOptions.Default with { BlendDebounce = TimeSpan.FromMilliseconds(50) });
-        await Settle(resources, rig, () => resources.Blend("op_test2") is not null);
+        var liveInputs = BlendInputs.Of(rig.Project);
+        await Settle(resources, rig, () => liveInputs.Equals(resources.BlendInUseFor));
         var before = resources.Blend("op_test2")!;
-        var solves = resources.BlendSolves;
 
         // Accepted in a blind draft: the draft takes the pose and the quad; the live project and STATE.solve do not move, and the reply
         // claims nothing of the live blend.
@@ -162,7 +162,11 @@ public sealed class ReseatTests(ITestOutputHelper output)
         // The draft lands: the automatic blend follows the new pose.
         rig.Engine.DraftForTests = null;
         rig.Engine.Store.Apply("land the draft", _ => draft.Project);
-        await Settle(resources, rig, () => resources.BlendSolves > solves);
+        // The blend in use is the landed project's: solved for its inputs, not any solve that finished since (one for the live project
+        // before the draft landed counts as a solve, and its tables may not have reached the render thread yet).
+        var landedInputs = BlendInputs.Of(rig.Project);
+        Assert.False(landedInputs.Equals(liveInputs));
+        await Settle(resources, rig, () => landedInputs.Equals(resources.BlendInUseFor));
         var after = resources.Blend("op_test2")!;
         Assert.False(before.Weights.AsSpan().SequenceEqual(after.Weights), "the blend did not move with the pose");
         var expected = BlendInputs.Of(rig.Project).Solve(rig.Engine.Meshes).For("op_test2")!.Map;

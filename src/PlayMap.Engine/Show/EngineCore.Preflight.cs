@@ -207,7 +207,7 @@ public sealed partial class EngineCore
         var path = Path.Combine(dir, "preflight", id + ".json");
         try
         {
-            return File.Exists(path) ? PreflightReports.Read(await File.ReadAllTextAsync(path, ct).ConfigureAwait(false)) : null;
+            return File.Exists(path) ? PreflightReports.Read(await PlayMap.Core.Storage.DurableFile.ReadAllTextAsync(path, ct).ConfigureAwait(false)) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

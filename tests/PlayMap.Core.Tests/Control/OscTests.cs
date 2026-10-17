@@ -228,7 +228,7 @@ public sealed class OscInteropTests
     [Fact]
     public void PacketsWrittenByOscJsReadHereAsThereAndWriteBackByteForByte()
     {
-        var fixtures = JsonNode.Parse(File.ReadAllText(Path.Combine(Folder(), "node-packets.json")))!.AsArray();
+        var fixtures = JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(Path.Combine(Folder(), "node-packets.json")))!.AsArray();
         Assert.True(fixtures.Count >= 18);
         foreach (var f in fixtures)
         {
@@ -247,10 +247,10 @@ public sealed class OscInteropTests
         var text = ours.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n";
         var path = Path.Combine(Folder(), "ours.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            File.WriteAllText(path, text);
-        Assert.Equal(File.ReadAllText(path).ReplaceLineEndings("\n"), text);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, text);
+        Assert.Equal(PlayMap.Core.Storage.DurableFile.ReadAllText(path).ReplaceLineEndings("\n"), text);
         // ours-read.json is what generate.mjs read from ours.json (run it after this test writes ours.json).
-        var read = JsonNode.Parse(File.ReadAllText(Path.Combine(Folder(), "ours-read.json")))!.AsArray().ToDictionary(r => r!["name"]!.GetValue<string>(), r => r!["read"]);
+        var read = JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(Path.Combine(Folder(), "ours-read.json")))!.AsArray().ToDictionary(r => r!["name"]!.GetValue<string>(), r => r!["read"]);
         foreach (var (name, packet) in Ours())
             Assert.True(JsonNode.DeepEquals(read[name], Normal(packet)), $"{name}: osc.js read {read[name]!.ToJsonString()}, here {Normal(packet).ToJsonString()}");
     }

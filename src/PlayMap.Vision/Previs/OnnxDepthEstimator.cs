@@ -75,15 +75,17 @@ public sealed class OnnxDepthEstimator : IDepthEstimator, IDisposable
         }
     }
 
-    /// <summary>Runs off the caller's thread from the start (fitting and mapping back are pixel work).</summary>
+    /// <summary>Runs on the compute threads from the start (fitting and mapping back are pixel work).</summary>
     public Task<DepthEstimate> EstimateAsync(ImageRgb8 image, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
-        return Task.Run(() => EstimateCoreAsync(image, cancellationToken), cancellationToken);
+        return EstimateCoreAsync(image, cancellationToken);
     }
 
     private async Task<DepthEstimate> EstimateCoreAsync(ImageRgb8 image, CancellationToken cancellationToken)
     {
+        await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         ImageToModel map;
         IReadOnlyDictionary<string, TensorData> outputs;
         using (var tensor = new TensorBuffer(_inputName, 1, 3, _input.Height, _input.Width))
@@ -91,6 +93,7 @@ public sealed class OnnxDepthEstimator : IDepthEstimator, IDisposable
             map = ModelInput.Fill(image, _input, tensor.Span);
             outputs = await _session.RunAsync([tensor], [_outputName], cancellationToken).ConfigureAwait(false);
         }
+        await PlayMap.Core.Threading.Compute.Hop();
         var o = outputs[_outputName];
         var shape = o.Shape;
         if (shape.Length < 2)

@@ -35,6 +35,11 @@ public sealed record OptimiseJob(string Id, string Media, string Name, string So
 
     /// <summary>Held by MEDIA OPTIMISE PAUSE: a queued job is not started, a running one holds between frames.</summary>
     public bool Paused { get; init; }
+
+    /// <summary>The worker says it holds this running job between frames (a pause applied, or the governor's wait): what the node
+    /// observed, never kept on disk.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Held { get; init; }
 }
 
 /// <summary>The queue on disk: <c>NodeHome/optimise/jobs.json</c>, written whole on every state change through a temporary file
@@ -61,7 +66,7 @@ internal sealed class JobStore(string folder, ILogger log)
         {
             if (!File.Exists(Path))
                 return [];
-            var jobs = JsonSerializer.Deserialize<List<OptimiseJob>>(File.ReadAllText(Path), Json) ?? [];
+            var jobs = JsonSerializer.Deserialize<List<OptimiseJob>>(DurableFile.ReadAllText(Path), Json) ?? [];
             return [.. jobs.Select(j => JobStates.IsRunning(j.State)
                 ? j with { State = JobStates.Queued, FramesDone = 0, Fps = 0, Words = "the node stopped while it ran: it starts again from its first frame" }
                 : j)];

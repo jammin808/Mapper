@@ -194,6 +194,36 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A scan whose view reads ended has let go of the runner: the next SCAN START, sent the moment the end is heard (a desk
+    /// that starts the next view as soon as it reads the last one done), is never refused as "already running".</summary>
+    [Fact]
+    public async Task TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning()
+    {
+        var rig = new OpsRig(project: TwoProjectors());
+        try
+        {
+            var next = new TaskCompletionSource<Task<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Scanner.Progressed += v =>
+            {
+                // Heard on the scan's own thread, as the end is published: started at once, before anything else can run.
+                if (v.State == "done" && !next.Task.IsCompleted)
+                    next.TrySetResult(rig.Scanner.StartAsync(Scanning.SimulatedRig.CameraId, [.. rig.Engine.Store.Project.Stage.Projectors.Select(p => p.Id)], "fast", null,
+                        CancellationToken.None));
+            };
+            Assert.True((await rig.Run("SCAN START sim MODE FAST")).Ok);
+            var second = await next.Task.WaitAsync(TimeSpan.FromMinutes(2));
+            var refused = second.IsFaulted ? second.Exception!.InnerException!.Message : "";
+            Assert.DoesNotContain("already running", refused, StringComparison.Ordinal);
+            rig.Scanner.Cancel();
+            await Task.WhenAny(second).WaitAsync(TimeSpan.FromMinutes(2));
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
     [Fact]
     public async Task ASimulatedScanRunsThroughTheVerbsAndAppliesWithinToleranceOfTheTruth()
     {

@@ -26,7 +26,10 @@ namespace PlayMap.Engine.Rendering;
 ///
 /// <para>A playlist on a generator, a colour, a canvas or another playlist is routed to it (<see cref="Route"/>); an
 /// idle playlist is black. Acquire never blocks and answers null while a source opens or has nothing new: the renderer holds
-/// the picture it has. Called on the render thread only; nothing here allocates per frame once warm.</para></summary>
+/// the picture it has. Called on the render thread only; nothing here allocates per frame once warm.</para>
+///
+/// <para>Every open and close handed to a worker is counted until it ends: <see cref="Dispose"/> returns once every source has
+/// closed (it holds its file no more), or after <see cref="CloseWait"/> with the words naming the sources still closing.</para></summary>
 internal sealed class EngineSources : ISourceProvider, IDisposable
 {
     public const int IdleFrames = 120;
@@ -37,6 +40,9 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     public const int RetryFrames = 300;
 
     private const int SweepEvery = 30;
+
+    /// <summary>How long <see cref="Dispose"/> waits for the opens and closes on workers to end, by default.</summary>
+    public static readonly TimeSpan DefaultCloseWait = TimeSpan.FromSeconds(5);
 
     private static long s_epochs;
 
@@ -79,15 +85,39 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     /// queue it runs itself, so it waits on the open's fact rather than on the pool).</summary>
     private readonly Action<Action> _work;
 
-    public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null, Action<Action>? work = null)
+    /// <summary>The opens and closes handed to <see cref="_work"/> that have not ended, by slot (a slot can have an open and a close).</summary>
+    private readonly Lock _busyGate = new();
+    private readonly List<Slot> _busy = [];
+    private readonly ManualResetEventSlim _settled = new(true);
+    private readonly Action<string>? _said;
+
+    /// <param name="closeWait">How long <see cref="Dispose"/> waits for the sources to close (<see cref="DefaultCloseWait"/>).</param>
+    /// <param name="said">Hears the words when a close outlives that wait.</param>
+    public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null, Action<Action>? work = null,
+        TimeSpan? closeWait = null, Action<string>? said = null)
     {
         _work = work ?? (static a => ThreadPool.UnsafeQueueUserWorkItem(static w => w(), a, preferLocal: false));
+        CloseWait = closeWait ?? DefaultCloseWait;
+        _said = said;
         _media = media;
         _scan = scan;
         _timer = timer;
         _itemGone = ItemGone;
         _mediaGone = MediaGone;
         _liveGone = LiveGone;
+    }
+
+    /// <summary>How long <see cref="Dispose"/> waits for every source to close.</summary>
+    public TimeSpan CloseWait { get; }
+
+    /// <summary>Opens and closes handed to a worker that have not ended.</summary>
+    public int Closing
+    {
+        get
+        {
+            lock (_busyGate)
+                return _busy.Count;
+        }
     }
 
     /// <summary>Decoders open now (all consumers).</summary>
@@ -394,7 +424,40 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
 
     // The open's closure is made here, not in the caller: a lambda that captures this has its closure made at its method's entry
     // in an optimised build, and the caller runs every frame.
-    private void QueueOpen(IMediaBackend media, Slot slot) => _work(() => Open(media, slot));
+    private void QueueOpen(IMediaBackend media, Slot slot)
+    {
+        Begin(slot);
+        _work(() =>
+        {
+            try
+            {
+                Open(media, slot);
+            }
+            finally
+            {
+                End(slot);
+            }
+        });
+    }
+
+    private void Begin(Slot slot)
+    {
+        lock (_busyGate)
+        {
+            _busy.Add(slot);
+            _settled.Reset();
+        }
+    }
+
+    private void End(Slot slot)
+    {
+        lock (_busyGate)
+        {
+            _busy.Remove(slot);
+            if (_busy.Count == 0)
+                _settled.Set();
+        }
+    }
 
     private void Open(IMediaBackend media, Slot slot)
     {
@@ -426,8 +489,20 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     /// <summary>A decoder is disposed on a worker: stopping its thread may wait on a read.</summary>
     private void DisposeSource(Slot slot)
     {
-        if (Interlocked.Exchange(ref slot.Source, null) is { } source)
-            _work(source.Dispose);
+        if (Interlocked.Exchange(ref slot.Source, null) is not { } source)
+            return;
+        Begin(slot);
+        _work(() =>
+        {
+            try
+            {
+                source.Dispose();
+            }
+            finally
+            {
+                End(slot);
+            }
+        });
     }
 
     /// <summary>True when the source could not open (the backend refused it, or it opened and gave up).</summary>
@@ -494,6 +569,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         _stale.Clear();
     }
 
+    /// <summary>Closes every source and returns once each has closed — an open still running closes what it opened first — or
+    /// after <see cref="CloseWait"/>, saying which are still closing.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -505,5 +582,16 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
                 Retire(slot);
             slots.Clear();
         }
+        if (_settled.Wait(CloseWait))
+        {
+            _settled.Dispose();
+            return;
+        }
+        string names;
+        lock (_busyGate)
+            names = string.Join(", ", _busy.Select(s => s.Item.Name).Distinct(StringComparer.Ordinal));
+        // Still closing on a worker, which sets the event later: it is left to the collector, never disposed under the worker.
+        _said?.Invoke(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"render: {names} did not close within {CloseWait.TotalSeconds:0.#} s of the stop — the file stays open until it does"));
     }
 }

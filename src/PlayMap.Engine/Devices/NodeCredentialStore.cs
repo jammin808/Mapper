@@ -109,7 +109,7 @@ public sealed class NodeCredentialStore : ICredentialStore
             return;
         try
         {
-            var bytes = File.ReadAllBytes(_path);
+            var bytes = DurableFile.ReadAllBytes(_path);
             if (OperatingSystem.IsWindows())
                 bytes = Dpapi.Unprotect(bytes, Entropy);
             var entries = JsonSerializer.Deserialize<Dictionary<string, Entry>>(bytes) ?? [];

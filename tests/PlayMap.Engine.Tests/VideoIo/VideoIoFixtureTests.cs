@@ -166,11 +166,11 @@ public sealed class VideoIoFixtureTests
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "videoio.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(statePath, fixture);
-            await File.WriteAllTextAsync(cardsPath, cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(statePath, fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(cardsPath, cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(statePath)).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(cardsPath)).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(statePath)).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(cardsPath)).ReplaceLineEndings("\n"), cards);
 
         // Every card path reads a value in the fixture (a list card's paths read its first row), and every action, its {id} the first
         // row's real id, is a line of the catalogue this engine routes.

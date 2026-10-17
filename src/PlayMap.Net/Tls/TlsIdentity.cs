@@ -142,7 +142,7 @@ public sealed class TlsIdentity : IDisposable
         {
             if (!File.Exists(keyPath))
                 return null;
-            var bytes = File.ReadAllBytes(keyPath);
+            var bytes = DurableFile.ReadAllBytes(keyPath);
             if (OperatingSystem.IsWindows())
                 bytes = Dpapi.Unprotect(bytes, Entropy);
             var cert = Import(bytes);

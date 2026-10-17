@@ -77,7 +77,7 @@ internal sealed class AlignPreflight : IPreflightCheck
             try
             {
                 if (AlignArchive.Resolve(folder, file) is not { } path || !File.Exists(path)
-                    || !string.Equals(Core.Align.Pfm.Hash(File.ReadAllBytes(path)), hash, StringComparison.Ordinal))
+                    || !string.Equals(Core.Align.Pfm.Hash(PlayMap.Core.Storage.DurableFile.ReadAllBytes(path)), hash, StringComparison.Ordinal))
                     bad.Add(file);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

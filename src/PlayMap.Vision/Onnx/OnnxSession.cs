@@ -296,7 +296,7 @@ public sealed class OnnxSession : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await Task.Run(() => RunLocked(inputs, outputNames, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return await PlayMap.Core.Threading.Compute.RunAsync(() => RunLocked(inputs, outputNames, cancellationToken), cancellationToken).ConfigureAwait(false);
         }
         finally
         {

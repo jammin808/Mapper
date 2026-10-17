@@ -34,6 +34,10 @@ public sealed record SyncNodeOptions
     /// checks' budgets (up to 5 s each), so its report is not an air line's receipt.</summary>
     public TimeSpan ReportWait { get; init; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>The clock the leader's receipt and report waits run on (the system's in a node; a test's own, so a member's answer is
+    /// never raced against a real deadline).</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>Where this node's outputs' vblanks are read (null: the render host's numbers).</summary>
     public Func<EngineCore, IVblankSource>? Vblanks { get; init; }
 
@@ -421,7 +425,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         if (!Leads || _settings.Group.Length == 0)
             return [];
         var wait = WireGrammar.TryParse(line, out var parsed, out _) && AsksForReport(parsed) ? _o.ReportWait : _o.ReceiptWait;
-        var receipts = await Feed.SendAirAsync(_settings.Group, KindOf(line), line, atLeaderNs, wait, ct).ConfigureAwait(false);
+        var receipts = await Feed.SendAirAsync(_settings.Group, KindOf(line), line, atLeaderNs, wait, ct, _o.Time).ConfigureAwait(false);
         return [.. receipts.Select(r => new FanoutReceipt(r.Node, r.Name, r.Stage, r.AppliedLeaderNs, r.Words))];
     }
 

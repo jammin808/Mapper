@@ -149,7 +149,7 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
         using var bitmap = new SKBitmap(new SKImageInfo(W, H, SKColorType.Bgra8888, SKAlphaType.Opaque));
         System.Runtime.InteropServices.Marshal.Copy(bgra, 0, bitmap.GetPixels(), bgra.Length);
         using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
-        File.WriteAllBytes(path, data.ToArray());
+        PlayMap.Core.Storage.DurableFile.WriteAllBytes(path, data.ToArray());
     }
 
     private static byte[] ReadPng(string path)

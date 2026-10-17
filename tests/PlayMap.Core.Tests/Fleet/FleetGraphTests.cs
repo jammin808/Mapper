@@ -62,10 +62,10 @@ public sealed class FleetGraphTests
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await File.WriteAllTextAsync(path, board);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, board);
         }
         Assert.True(File.Exists(path), "board-3.json is written by this test: run it once with PLAYMAP_WRITE_FIXTURES=1");
-        Assert.Equal((await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"), board);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(path)).ReplaceLineEndings("\n"), board);
     }
 
     [Fact]

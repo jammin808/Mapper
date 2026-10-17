@@ -104,9 +104,9 @@ public sealed class FleetStateFixtureTests
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(GoldenPath())!);
-                await File.WriteAllTextAsync(GoldenPath(), golden);
+                PlayMap.Core.Storage.DurableFile.WriteAllText(GoldenPath(), golden);
             }
-            Assert.Equal((await File.ReadAllTextAsync(GoldenPath())).ReplaceLineEndings("\n"), golden);
+            Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(GoldenPath())).ReplaceLineEndings("\n"), golden);
         }
 
         using var stateDoc = JsonDocument.Parse(engine.State().Json);
@@ -131,11 +131,11 @@ public sealed class FleetStateFixtureTests
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("fleet.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("fleet.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("fleet.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("fleet.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("fleet.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("fleet.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("fleet.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("fleet.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var parsed = JsonNode.Parse(fixture);
         foreach (var card in Cards())

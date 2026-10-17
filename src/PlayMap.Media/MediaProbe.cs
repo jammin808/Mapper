@@ -30,13 +30,14 @@ public static unsafe class MediaProbe
     /// <summary>The frame rate an image sequence plays at when nothing says otherwise.</summary>
     public static readonly FrameRate DefaultSequenceRate = FrameRate.Fps25;
 
-    /// <summary>Probes on the thread pool (the FFmpeg calls block on the file).</summary>
+    /// <summary>Probes on the compute threads: a probe decodes the first frame (software or HAP), CPU work the pool's lanes and
+    /// sockets must not wait behind.</summary>
     public static Task<ProbeResult> ProbeAsync(string path, CancellationToken cancellationToken = default) =>
-        Task.Run(() => Probe(path, null, cancellationToken), cancellationToken);
+        Core.Threading.Compute.RunAsync(() => Probe(path, null, cancellationToken), cancellationToken);
 
-    /// <summary>Probes an image sequence at a given rate on the thread pool.</summary>
+    /// <summary>Probes an image sequence at a given rate on the compute threads.</summary>
     public static Task<ProbeResult> ProbeSequenceAsync(string location, FrameRate rate, CancellationToken cancellationToken = default) =>
-        Task.Run(() => Probe(location, rate, cancellationToken), cancellationToken);
+        Core.Threading.Compute.RunAsync(() => Probe(location, rate, cancellationToken), cancellationToken);
 
     /// <summary>Probes synchronously. <paramref name="sequenceRate"/> is the rate an image sequence plays at
     /// (default 25).</summary>

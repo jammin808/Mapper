@@ -6,7 +6,7 @@ namespace PlayMap.Media.Tests;
 
 /// <summary>Stills decode once into RGBA (half floats when deep or float) and answer every time; sequences play
 /// numbered images at a rate, frame-exact, seekable and looping.</summary>
-public class StillAndSequenceTests
+public sealed class StillAndSequenceTests
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
@@ -148,4 +148,41 @@ public class StillAndSequenceTests
         var p = (Half*)((byte*)lease.Planes[0].Data + (nint)y * lease.Planes[0].Stride) + x * 4;
         return ((double)p[0], (double)p[1], (double)p[2], (double)p[3]);
     }
+}
+
+/// <summary>A still beside a solve: the test holds every compute thread, so it runs alone, after the parallel tests.</summary>
+[Collection(ComputeHoldCollection.Name)]
+public sealed class StillBesideComputeTests(Xunit.Abstractions.ITestOutputHelper output)
+{
+    /// <summary>The air waits for a still's first picture, so its decode is not queued behind CPU jobs: with every compute thread held
+    /// by a job as long as a solve (here, until this test lets them go), a job queued on the compute threads waits for them all, and a
+    /// still opens all the same — its decode runs on the pool. The decode's time is recorded beside the measurement.</summary>
+    [Fact]
+    public async Task AStillOpensWhileEveryComputeThreadIsHeldByASolve()
+    {
+        using var held = new ManualResetEventSlim(false);
+        var holding = Enumerable.Range(0, Core.Threading.Compute.Threads).Select(_ => Core.Threading.Compute.RunAsync(() => held.Wait())).ToList();
+        try
+        {
+            var queued = Core.Threading.Compute.RunAsync(() => 1);
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            using var still = new ImageSource(TestMedia.Clip("still.png"));
+            Assert.True(await still.Opened.WaitAsync(TimeSpan.FromMinutes(1)), still.Health.Status);
+            output.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"a still opened in {started.Elapsed.TotalMilliseconds:0.0} ms (its decode {still.Health.DecodeMsP95:0.000} ms) beside {Core.Threading.Compute.Threads} held compute threads"));
+            Assert.False(queued.IsCompleted, "a job queued on the held compute threads ran");
+        }
+        finally
+        {
+            held.Set();
+            await Task.WhenAll(holding);
+        }
+    }
+}
+
+/// <summary>Tests that hold the compute threads run alone.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ComputeHoldCollection
+{
+    public const string Name = "Compute threads held";
 }

@@ -98,7 +98,7 @@ public sealed class DecodeFacts
             return Task.FromResult(known);
         lock (_gate)
         {
-            _measuring ??= Task.Run(() =>
+            _measuring ??= Core.Threading.Compute.RunAsync(() =>
             {
                 var measured = Measure(Environment.ProcessorCount, HapThroughput.DecodeMsPer4KFrame(9, CancellationToken.None),
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());

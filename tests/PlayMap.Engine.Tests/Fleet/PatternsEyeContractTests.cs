@@ -32,8 +32,8 @@ public sealed class PatternsEyeContractTests
     {
         var json = await BusyContextJson();
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            await File.WriteAllTextAsync(GoldenPath(), json + "\n");
-        Assert.Equal((await File.ReadAllTextAsync(GoldenPath())).ReplaceLineEndings("\n"), json + "\n");
+            PlayMap.Core.Storage.DurableFile.WriteAllText(GoldenPath(), json + "\n");
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(GoldenPath())).ReplaceLineEndings("\n"), json + "\n");
 
         var context = ShowContext.Parse(json);
         Assert.NotNull(context);
