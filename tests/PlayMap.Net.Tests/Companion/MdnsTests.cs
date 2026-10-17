@@ -7,7 +7,8 @@ namespace PlayMap.Net.Tests.Companion;
 /// <summary>The node's mDNS responder (RFC 6762, RFC 6763): the codec reads Bonjour's and Avahi's packets (name compression, the
 /// unicast-response and cache-flush bits) and writes what it read; a legacy unicast query on this slot's loopback address is answered
 /// to the sender with its id, PTR, SRV, TXT and A, TTLs of at most 10 s; a name another host answers for while probing becomes
-/// "&lt;name&gt; (2)"; a bind the machine refuses is a fault in words. One class, so its sockets never share the port at once.</summary>
+/// "&lt;name&gt; (2)"; a bind the machine refuses is a fault in words. The responder under test has a port of its own, so no other responder on the
+/// machine shares its datagrams.</summary>
 public sealed class MdnsTests
 {
     /// <summary>A Bonjour response announcing a PlayMap node, as it arrives: compressed names, cache-flush on SRV, TXT and A.</summary>
@@ -88,9 +89,13 @@ public sealed class MdnsTests
         public void Dispose() => Socket.Dispose();
     }
 
+    /// <summary>The responder under test on the slot's address and a port of its own: 5353 is shared (address reuse) with every other
+    /// responder on the machine — another node, Avahi, a parallel suite — and a datagram to a shared port reaches one of them, not
+    /// necessarily this one. What the port changes (a legacy querier is one whose source port is not 5353) is the querier's side.</summary>
     private static MdnsOptions Options(IPAddress address, Peer group) => new()
     {
         Bind = address,
+        Port = 0,
         Group = group.EndPoint,
         Host = "stage-pc",
         ProbeInterval = TimeSpan.FromMilliseconds(20),
@@ -103,17 +108,19 @@ public sealed class MdnsTests
         var address = Loopback();
         using var peer = new Peer(address);
         await using var responder = new MdnsResponder(Options(address, peer));
+        Assert.Equal(5353, new MdnsOptions().Port);
         Assert.True(responder.Start(), responder.Fault);
-        Assert.Equal(5353, responder.LocalPort);
+        var port = responder.LocalPort;
+        Assert.NotEqual(0, port);
         responder.Announce(Node());
         // The second announcement says the name is ours: probing is over.
         await peer.ReceiveAsync(m => m.IsResponse && m.Answers.Any(r => r.Type == DnsType.Ptr));
         await peer.ReceiveAsync(m => m.IsResponse && m.Answers.Any(r => r.Type == DnsType.Ptr));
 
         var query = DnsMessage.Query(0x1234, new DnsQuestion("_playmap._tcp.local", DnsType.Ptr));
-        await peer.Socket.SendToAsync(query.Write(), SocketFlags.None, new IPEndPoint(address, 5353));
+        await peer.Socket.SendToAsync(query.Write(), SocketFlags.None, new IPEndPoint(address, port));
         var (answer, from) = await peer.ReceiveAsync(m => m.Id == 0x1234);
-        Assert.Equal(5353, from.Port);
+        Assert.Equal(port, from.Port);
         Assert.True(answer.IsResponse);
         Assert.Equal("_playmap._tcp.local", Assert.Single(answer.Questions).Name);
         var records = answer.Answers.Concat(answer.Additionals).ToList();
@@ -126,9 +133,9 @@ public sealed class MdnsTests
         Assert.All(records, r => Assert.False(r.CacheFlush));
 
         // The service list and the instance's own name are answered too.
-        await peer.Socket.SendToAsync(DnsMessage.Query(7, new DnsQuestion(MdnsResponder.ServicesName, DnsType.Ptr)).Write(), SocketFlags.None, new IPEndPoint(address, 5353));
+        await peer.Socket.SendToAsync(DnsMessage.Query(7, new DnsQuestion(MdnsResponder.ServicesName, DnsType.Ptr)).Write(), SocketFlags.None, new IPEndPoint(address, port));
         Assert.Equal("_playmap._tcp.local", Assert.Single((await peer.ReceiveAsync(m => m.Id == 7)).Message.Answers).Target);
-        await peer.Socket.SendToAsync(DnsMessage.Query(8, new DnsQuestion("stage left._playmap._tcp.local", DnsType.Any)).Write(), SocketFlags.None, new IPEndPoint(address, 5353));
+        await peer.Socket.SendToAsync(DnsMessage.Query(8, new DnsQuestion("stage left._playmap._tcp.local", DnsType.Any)).Write(), SocketFlags.None, new IPEndPoint(address, port));
         var own = (await peer.ReceiveAsync(m => m.Id == 8)).Message;
         Assert.Equal([DnsType.Txt, DnsType.Srv], own.Answers.Select(r => r.Type).Order());
     }
