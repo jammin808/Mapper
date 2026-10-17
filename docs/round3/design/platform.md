@@ -65,24 +65,42 @@ The engine composes `WindowsMachinePlatform` on Windows and `NullMachinePlatform
 Windows only"); both live in `PlayMap.Platform.Windows` and Core respectively, and the engine reaches them through
 `Seams.Round3.IMachinePlatform`.
 
+Threads started in Media, Net and the engine claim their role through one static seam in Core, because Media and Net cannot see
+the engine's platform:
+
+```csharp
+namespace PlayMap.Core.Machine;
+
+/// <summary>Where a thread claims its role. The engine points it at its platform once at start; until then, and on a node
+/// without the seam, a claim is a no-op that says so. One line at each thread's start; the claim is disposed at its end.</summary>
+public static class ThreadClaims
+{
+    public static IThreadClaim Claim(ThreadRole role);
+    public static void Use(IMachinePlatform platform);   // the engine's, at start
+}
+```
+
+The spine lands `ThreadRole`, `IThreadClaim` and `ThreadClaims` (Core/Machine) with the other shared records.
+
 ## 2. The claims
 
-| Claim | Call | Read back | Default | `MACHINE SET` word | Refused when |
-|---|---|---|---|---|---|
-| Process priority | `SetPriorityClass(HIGH_PRIORITY_CLASS)`; realtime never | `GetPriorityClass` | on | `PROCESS HIGH\|NORMAL` | — |
-| HighQoS, every timer honoured | `SetProcessInformation(ProcessPowerThrottling)` with `EXECUTION_SPEED \| IGNORE_TIMER_RESOLUTION` in the control mask and a zero state mask | `GetProcessInformation` | on | `QOS HIGH\|AUTO` | — |
-| GPU scheduling class | `D3DKMTSetProcessSchedulingPriorityClass(HIGH)` | `D3DKMTGetProcessSchedulingPriorityClass` | on | `GPU-PRIORITY NORMAL\|HIGH\|REALTIME` | REALTIME without `SeIncreaseBasePriorityPrivilege` (the installer grants it to the show account); REALTIME also asks the direct queue for `GLOBAL_REALTIME` at the next device start, whose creation fails rather than downgrades |
-| MMCSS for render and present | `AvSetMmThreadCharacteristicsW("Games")`, `AvSetMmThreadPriority(AVRT_PRIORITY_HIGH)`; reverted with `AvRevertMmThreadCharacteristics` | the handle, the task's registry values (read, never written) | on | `MMCSS ON\|OFF` | the MMCSS service stopped |
-| MMCSS for audio and timecode | `"Pro Audio"` (priority 23–26) | as above | on | as above | as above |
-| Decode | above-normal priority; the critical CPU set (stretch) | `GetThreadPriority` | on | — | — |
-| Background pools | EcoQoS: `SetThreadInformation(ThreadPowerThrottling)` with `EXECUTION_SPEED` in both masks; below-normal priority | `GetThreadInformation` | on | — | — |
-| CPU sets (stretch) | `SetThreadSelectedCpuSets`: the critical pool on the highest `EfficiencyClass`, background pools on the rest; never a hard affinity | `GetThreadSelectedCpuSets` | AUTO | `CPUSETS AUTO\|OFF` | one efficiency class only (nothing to separate), said |
-| Keep awake | `SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED \| ES_SYSTEM_REQUIRED)` while an output is open | the previous state it returns | on | `AWAKE ON\|OFF` | — |
-| GC while armed | `GCSettings.LatencyMode = SustainedLowLatency` on `SHOW ARM`, back on `SHOW DISARM` | `GCSettings.LatencyMode` | on | `GC SHOW\|DEFAULT` | the runtime refuses (server GC), said |
+| Claim | Call | Read back | Default | The cause of the default | `MACHINE SET` word | Refused when |
+|---|---|---|---|---|---|---|
+| Process priority | `SetPriorityClass(HIGH_PRIORITY_CLASS)`; realtime never | `GetPriorityClass` | on | Microsoft's documented pattern for this class: a process whose threads are mostly blocked and run briefly for time-critical events (scheduling priorities) — the engine's deadline threads wait on the waitable and the timer | `PROCESS HIGH\|NORMAL` | — |
+| HighQoS, every timer honoured | `SetProcessInformation(ProcessPowerThrottling)` with `EXECUTION_SPEED \| IGNORE_TIMER_RESOLUTION` in the control mask and a zero state mask | `GetProcessInformation` | on | documented: Windows 11 lowers the QoS of a process whose windows are occluded, minimised or absent and stops honouring its timer requests | `QOS HIGH\|AUTO` | — |
+| GPU scheduling class | `D3DKMTSetProcessSchedulingPriorityClass(HIGH)` | `D3DKMTGetProcessSchedulingPriorityClass` | **NORMAL** until L10 | none documented: off until measured | `GPU-PRIORITY NORMAL\|HIGH\|REALTIME` | REALTIME without `SeIncreaseBasePriorityPrivilege` (the installer grants it to the show account); REALTIME also asks the direct queue for `GLOBAL_REALTIME` at the next device start, whose creation fails rather than downgrades |
+| MMCSS for render and present | `AvSetMmThreadCharacteristicsW("Games")`, `AvSetMmThreadPriority(AVRT_PRIORITY_HIGH)`; reverted with `AvRevertMmThreadCharacteristics` | the handle, the task's registry values (read, never written) | on | documented: MMCSS is Windows' service for time-critical multimedia threads, which it places in the Media and Deadline QoS levels | `MMCSS ON\|OFF` | the MMCSS service stopped |
+| MMCSS for audio and timecode | `"Pro Audio"` (priority 23–26) | as above | on | as above, the task "designed for Pro Audio" | as above | as above |
+| Decode | above-normal priority, on the critical CPU set | `GetThreadPriority` | on | the critical pool (item 5) | — | — |
+| Background pools | EcoQoS: `SetThreadInformation(ThreadPowerThrottling)` with `EXECUTION_SPEED` in both masks; below-normal priority | `GetThreadInformation` | on | documented: EcoQoS is the explicit level for background work, which Windows may confine to a subset of processors on a hybrid CPU | — | — |
+| CPU sets | `SetThreadSelectedCpuSets`: the critical pool (render, present, decode) on the highest `EfficiencyClass`, background pools on the rest; never a hard affinity | `GetThreadSelectedCpuSets` | AUTO | documented: Intel and Microsoft advise CPU sets, never affinity, on hybrid processors; a single efficiency class leaves it a no-op | `CPUSETS AUTO\|OFF` | one efficiency class only (nothing to separate), said |
+| Keep awake | `SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED \| ES_SYSTEM_REQUIRED)` while an output is open | the previous state it returns | on | documented: the display and the system otherwise sleep on their timeouts | `AWAKE ON\|OFF` | — |
+| GC while armed | `GCSettings.LatencyMode = SustainedLowLatency` on `SHOW ARM`, back on `SHOW DISARM` (through `IShowArmHook`) | `GCSettings.LatencyMode` | **DEFAULT** until L10 | Microsoft names rendering animations as its case, but it grows an uncompacted heap; the research itself asks for a pause histogram first | `GC SHOW\|DEFAULT` | the runtime refuses (server GC), said |
 
-Defaults are on where the cause is documented (Windows' own throttling of an occluded or windowless process; timer requests ignored;
-the display sleeping) — L10 measures every claim's effect on p99.9 frame time, and a default that measures worse changes in one
-commit citing the record. A setting already at its value is refused with words ("QoS is already high"), as the doctrine asks.
+A default is on only where its cause is documented, as the table says; the two without one (the GPU class and the GC mode) are
+built, settable and off. L10 measures every claim's effect on p99.9 frame time on each vendor's node, and a default changes — on or
+off — in one commit citing that record. A setting already at its value is refused with words ("QoS is already high"), as the
+doctrine asks.
 
 ## 3. Threads
 
@@ -104,8 +122,10 @@ pool is not claimed. The optimise worker and the shader worker are processes tha
 
 - Every deadline wait on a claimed thread goes through `IDeadlineTimer`: `CreateWaitableTimerExW(…, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
   TIMER_ALL_ACCESS)`, the due time computed from the monotonic clock, `WaitForMultipleObjects` with the cancel handle. The
-  headless pacer is the first user: today it waits with `AutoResetEvent.WaitOne` at the default resolution, a measured cause
-  waiting to be measured [map §3.1].
+  headless pacer is the first user: today it waits with `AutoResetEvent.WaitOne` at the default resolution [map §3.1]. Measured
+  first: `PlatformCallsTests` time 1 000 waits of 1 ms with today's wait and with the high-resolution timer on the runner and record
+  both lateness distributions; the pacer switches in the same package, its commit citing the two numbers, and L10 confirms them
+  on show hardware.
 - Stamps stay QPC (`Stopwatch`, `MonoClock`); wall-clock stamps that cross machines use `GetSystemTimePreciseAsFileTime`, as the
   clock's sync already does.
 - The timer's lateness (p99 of the last 1 000 waits) is in STATE; a p99 over 1 ms is amber in preflight.
@@ -126,8 +146,9 @@ public sealed record OsIdentity(string Edition, string Version, int Build, int R
 public sealed record CpuIdentity(string Model, int Logical, ImmutableArray<int> ByEfficiencyClass, int VectorBits, bool Avx512,
     bool Avx10);
 public sealed record AdapterIdentity(long Luid, int VendorId, int DeviceId, string Name, string Driver, string Branch,
-    VendorTier Tier, bool DrivesOutputs, long DedicatedMb);
+    VendorTier Tier, SupportLevel Support, bool DrivesOutputs, long DedicatedMb);
 public enum VendorTier { NvidiaRtxPro, NvidiaRtx, Radeon, IntelArc, Other, Software }
+public enum SupportLevel { Tier1, ValidatedPerDriver, BestEffort, Unsupported }
 public sealed record RuntimeIdentity(string Agility, string Ffmpeg, string SyncFirmware);
 
 /// <summary>Every probe's answer: supported, why not, and the driver it was asked of. Immutable; a new snapshot after a device
@@ -140,7 +161,8 @@ public readonly record struct CapabilityProbe(string Feature, long AdapterLuid, 
 |---|---|
 | OS | `RtlGetVersion`; `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (`EditionID` — `IoTEnterpriseS` is IoT Enterprise LTSC, `EnterpriseS` Enterprise LTSC — `DisplayVersion`, `UBR`) |
 | CPU | the processor's name string; `GetSystemCpuSetInformation` (efficiency classes); `Vector512.IsHardwareAccelerated`, `Avx512F.IsSupported`, `Avx10v1.IsSupported` |
-| GPUs | DXGI 1.6 `EnumAdapterByGpuPreference` (LUID, vendor and device ids, name, memory); the driver's user-mode version (`CheckInterfaceSupport`); on NVIDIA `NvAPI_SYS_GetDriverAndBranchVersion` and `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)` (RTX PRO) |
+| GPUs | DXGI 1.6 `EnumAdapterByGpuPreference` (LUID, vendor and device ids, name, memory); the driver's user-mode version (`CheckInterfaceSupport`); on NVIDIA `NvAPI_SYS_GetDriverAndBranchVersion` and `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)` (RTX PRO). These are read-only probes with their own minimal declarations in `PlayMap.Platform.Windows/Interop/` — `CreateDXGIFactory2` and the three vtable slots used (`IDXGIFactory6::EnumAdapterByGpuPreference`, `IDXGIAdapter1::GetDesc1`, `CheckInterfaceSupport`), NVAPI's `nvapi_QueryInterface` and the two calls' ids — each structure pinned by a layout golden (`PlatformLayoutTests`), so the platform project references Core alone and never TerraFX or Render |
+| Vendor tier | the policy published in `docs/INSTALL.md` and carried in `machine.identity.adapters[].tier` with `support`: NVIDIA RTX and RTX PRO tier 1 (validated); AMD RDNA 3 and 4 tier 2 (validated per driver: a driver outside the validated list is amber); Intel Arc best effort (said); anything else unsupported, said |
 | HAGS | `D3DKMTQueryAdapterInfo` (the WDDM 2.7 caps' scheduling flag) — recorded, never forced |
 | Runtimes | the Agility runtime from wp3-d3d12-core, FFmpeg's version and configuration from Media, the board's firmware from the frame-lock tier, each filled by its owner |
 
@@ -152,26 +174,30 @@ id, device id and name.
 ## 6. Machine preflight
 
 Each row is a fact with its light and its words; a fix line is given only where a verb fixes it, otherwise the words say what a
-person does (and wp3-installer's stretch adds the show-machine policies that write some of them once, at install).
+person does (and wp3-installer's stretch adds the show-machine policies that write some of them once, at install). The rows marked
+*(stretch)* follow the must's rows, traded for the CPU sets above the cut line.
 
 | Row | Light | Words / fix |
 |---|---|---|
 | OS build below 26100 | red | "Windows 11 24H2 or later is required (this is build 22631)" |
 | OS edition | grey (fact) | "Windows 11 IoT Enterprise LTSC 2024 · build 26100.4061" |
 | Power plan not High or Ultimate Performance | amber | the plan's name and how to set it |
-| USB selective suspend on; PCIe link-state power management on | amber | the setting's name |
+| USB selective suspend on; PCIe link-state power management on *(stretch)* | amber | the setting's name |
 | Display or sleep timeout set | amber | "the display sleeps after 10 min on mains" — fix `MACHINE SET AWAKE ON` when it is off |
 | Screen saver on | amber | "keeping the display awake does not stop the screen saver" |
-| Notifications on | amber | the setting |
+| Notifications on *(stretch)* | amber | the setting |
 | A reboot pending | amber | from `RebootRequired`, `RebootPending`, `PendingFileRenameOperations` |
-| Windows Update not deferred | amber | the policy values read |
-| HAGS | grey (fact) | on or off; never changed |
+| Windows Update not deferred *(stretch)* | amber | the policy values read |
+| HAGS *(stretch)* | grey (fact) | on or off; never changed |
 | A claim of §2 refused | amber | the claim's words |
 | The timer's p99 lateness over 1 ms | amber | the measured value |
-| Drift from `MACHINE LOCK`'s set | amber | "GPU driver 582.16 → 591.44 since the show was locked" — fix `MACHINE LOCK` |
+| Drift from `MACHINE LOCK`'s set | amber | "GPU driver 582.16 → 591.44 since the driver set was locked" — fix `MACHINE LOCK` |
 | Auto-logon | grey on a desk machine, amber on an installed node without it | from `Winlogon`'s `AutoAdminLogon` and `DefaultUserName` (the password is never read) |
 
 ## 7. Facts in STATE
+
+`identity`, `capabilities`, `platform`, `locked` and (wp3-installer's) `install` are children of the existing `machine` block,
+after its present keys (`renderer`, `memMb`, `gcPauseMsTotal`, `present`, `gl`); the spine reserves all five there.
 
 ```json
 "machine": {
@@ -200,16 +226,18 @@ The context's machine item carries the build, the OS line, the tier and the drif
 |---|---|---|
 | `MACHINE [STATUS]` | Low / Query | the identity, the claims and the drift, in words |
 | `MACHINE SET <word> <value>` | Review (REALTIME: High) / Setup | changes one claim's setting (`NodeSettings.Machine`) and applies it now where Windows allows, else at the next start, saying which; refused at its value, armed by the class, REALTIME without the privilege |
-| `MACHINE LOCK [CLEAR]` | Review / Setup | keeps this machine's driver set (adapters by vendor, device and name; Agility; FFmpeg; sync firmware; OS build; PlayMap's build) as the show's; preflight then names any drift |
+| `MACHINE LOCK [CLEAR]` | Review / Setup | keeps this node's driver set (adapters by vendor, device and name; Agility; FFmpeg; sync firmware; OS build; PlayMap's build) as the one its shows run on; preflight then names any drift. The set is this node's, in `NodeSettings.Machine.Locked`, written by the node's settings writer (one writer) — never in the project, so a hot backup keeps its own and never reports the primary's drivers as drift. `MACHINE LOCK` when the set equals the one locked is refused ("this machine's drivers are already the locked set"); `CLEAR` with no lock refused ("no driver set is locked") |
 
 ## 9. Tests
 
 | Test | Job | Holds |
 |---|---|---|
 | `PlatformPolicyTests` | both | the role → claims table; a fake 8 + 16 core topology → the critical pool on the 8; a refused claim keeps its words; a setting at its value refused |
-| `PlatformCallsTests` | Windows | every claim answers; the throttling state read back equals what was set; MMCSS taken and reverted; 1 000 waits of 1 ms on the timer: p99 recorded, a 4× ceiling asserted |
+| `PlatformCallsTests` | Windows | every claim answers what it asked and what Windows said (on the runner's Server SKU and Basic Render Driver, a refusal with its named words passes — M14 records which); the throttling state read back equals what was set where Windows answers; MMCSS taken and reverted where the service runs; 1 000 waits of 1 ms on today's wait and on the timer: both lateness distributions recorded, no ceiling (a shared runner), the order of the calls and the claims' fields asserted |
+| `PlatformLayoutTests` | both | the platform's own DXGI and NVAPI probe structures against the headers' sizes and offsets |
+| `CpuSetTests` | both | a fake topology of 8 performance and 16 efficiency cores → the critical pool on the 8, background on the 16; one class → nothing set, said |
 | `IdentityTests` | both | keys and types from a fake platform; `machine.json`; a changed driver against the lock → the amber row with both versions and `MACHINE LOCK` |
-| `MachineVerbTests` | both | REALTIME without the privilege; armed; at its value |
+| `MachineVerbTests` | both | REALTIME without the privilege; armed; at its value; `MACHINE LOCK` on the locked set and `CLEAR` with none, each refused with its reason |
 | `PreflightMachineTests` | both | each row fails on an injected fake fact and passes once fixed; fix lines parse |
 | `NullPlatformTests` | Linux | the words in STATE and preflight; no claim attempted |
 
@@ -219,5 +247,12 @@ The context's machine item carries the build, the OS line, the tier and the drif
   measured.
 - **Reading what Windows does not document as an API** (power settings by GUID, policy registry values): each row says where it
   read and answers "unknown" with words when a value is absent, never a guess.
-- **A dual-CCD X3D CPU** parks a CCD only for a game; PlayMap is not one. The CPU-set stretch can confine the critical pool to one
-  L3 domain, off by default until L10 measures it.
+- **A dual-CCD X3D CPU** parks a CCD only for a game; PlayMap is not one. The CPU sets can confine the critical pool to one L3
+  domain, an option off by default until L10 measures it.
+
+## 11. AMD's display state (`Vendors/`, wp3-framelock's in W4)
+
+A read-only ADLX probe — FreeSync on or off and the colour depth per display — loaded from the driver's own `amdadlx64.dll`, never
+bundled (ADLX ships with the driver under AMD's own terms), fills the capability snapshot for the lock's VRR precondition on AMD
+(`present.md` §16). It changes nothing on the display; forcing FreeSync off and 10-bit stays below the bar this round. It lives in
+`src/PlayMap.Platform.Windows/Vendors/`, owned by wp3-framelock in W4.

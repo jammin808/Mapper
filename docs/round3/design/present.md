@@ -11,8 +11,11 @@ covering the display, a waitable `FLIP_DISCARD` swap chain at latency 1, frame s
 12 presenter keeps that discipline without ANGLE, adds the evidence it never set (`IndependentFlip`, `Proven` [map §2.8]), and
 moves the render loop to just-in-time: wait on the pacing output's waitable, then sample time and live inputs, then record one
 frame for one predicted display instant. The lock is a strictly better tier behind the same lock machine: NVIDIA's D3D12 present
-barrier on RTX PRO with RTX PRO Sync, whose own sync mode and in-sync counts are the only evidence that makes an output "locked".
-Everywhere else outputs are free and STATE gives their measured phase.
+barrier on RTX PRO with RTX PRO Sync, whose own sync mode and in-sync counts are the only evidence that puts an output in a locked
+state (`framelocked`, `house-locked`, `grouped`). Everywhere else outputs are in a free state and STATE gives their measured phase.
+The seams all of this implements sit in Core (`IGpuPlatform` and `IOutputPresenter` in `Core/Gpu`, the clock, the ledger and the
+frame block in `Core/Presentation`, the barrier's target and statistics in `Core/Sync`), so the Direct3D 12 platform, presenters and
+barrier tier live in `Render.D3D12` and reference Render not at all.
 
 ---
 
@@ -23,21 +26,25 @@ Everywhere else outputs are free and STATE gives their measured phase.
 | From | Kept | Changed |
 |---|---|---|
 | `DxgiOutputWindow` (D3D11, ANGLE) | the popup over the monitor, `FLIP_DISCARD`, the waitable at the output's latency, `GetFrameStatistics` into the clock, the pacing output's bounded wait with the device lock let go, `DwmNudge` on its own thread, `DisplayList`, `QpcTime`, the staged start with words, the fuse | no ANGLE, no pbuffer wrap: `Record` copies the final picture into the back buffer in the frame's list |
-| `VblankClock`, `PresentLedger`, `PresentClock`, `LatencyPlan`, `DelayRing` | all of it | `GpuTimer` moves to the RHI's timestamps; `ModeEvidence` gets set |
+| `VblankClock`, `PresentLedger`, `PresentClock`, `LatencyPlan`, `DelayRing` | all of it (the first four in `PlayMap.Core.Presentation` since the spine) | `GpuTimer` moves to the RHI's timestamps; `ModeEvidence` gets set |
 | `PresentFuse`, `PRESENT PATH` | a start that never reached its first frames comes back as GL with words; `PRESENT RESET` clears the fuse | `D3D12` joins the words |
 
 The D3D11 path stays selectable (`PRESENT PATH DXGI`) this round and is deleted with ANGLE next round.
 
 ## 2. The platform and the path
 
-- `D3D12Platform : IGpuPlatform` (`Name` "d3d12", `Api` "dxgi-flip", `Path` `D3D12Flip`), made on the adapter that drives the
-  outputs' displays; `Device` is `d3d12.md`'s device; `Monitors()` from `DisplayList` (`EnumDisplayMonitors` and
-  `QueryDisplayConfig`, with each mode's exact refresh rational).
+- `D3D12Platform : IGpuPlatform` (`Render.D3D12/Platform/`; `Name` "d3d12", `Api` "dxgi-flip", `Path` `D3D12Flip`), made on the
+  adapter that drives the outputs' displays; `Device` is `d3d12.md`'s device; `Monitors()` from `DisplayList` (`EnumDisplayMonitors`
+  and `QueryDisplayConfig`, with each mode's exact refresh rational). wp3-d3d12-core made it offscreen; this package gives it the
+  display list and the presenters, routes `PRESENT PATH D3D12` to it, runs the Engine suites that render on it on the Windows job,
+  and writes their STATE twins (`*.d3d12.json`).
+- **A display on another adapter** (`d3d12.md` §2's rule): presented composed by DXGI's copy across adapters, amber with its reason
+  in the output's `present.words` and in preflight; `AdapterRuleTests` (a fake display list of two adapters).
 - `GpuPlatforms.Create` gains the `d3d12` word: a Direct3D 12 start that stops at a stage (`d3d12.md` §2) comes back as GL with the
   stage's words, as the DXGI path does today.
 - **AUTO.** GL on every platform this round. When L1's record exists for a vendor tier, AUTO becomes D3D12 on that tier in one
-  commit citing the record; until then `machine.present.words` says "AUTO is OpenGL: Direct3D 12 waits for its parity record on
-  this GPU's tier".
+  commit citing the record; until then `machine.present.why` (the existing key) says "AUTO is OpenGL: Direct3D 12 waits for its
+  parity record on this GPU's tier".
 
 ## 3. The flip presenter, step by step
 
@@ -62,13 +69,17 @@ statistics: a block's `ShownNs` is filled when the statistics name its present c
 | Evidence | Meaning | Taken from |
 |---|---|---|
 | `none` | nothing known yet | — |
-| `hint` | DXGI says the output is on an overlay (`CompositionMode` `OVERLAY` in the media statistics) and the statistics are continuous: every present shown on the refresh after the waitable signalled, no composition delay | `Observe`, every frame |
+| `hint` | DXGI says the output is not composed by the desktop compositor (`CompositionMode` `OVERLAY` in the media statistics) and the statistics are continuous: every present shown on the refresh after the waitable signalled, no composition delay | `Observe`, every frame |
 | `proven` | a measured run: `PRESENT PROVE` held `hint` for its whole window (default 10 s, 2–60) with no missed vblank, no `DISJOINT`, one frame from present to display at the display's own rate | `PRESENT PROVE`, kept until the mode changes or a window overlaps |
 
-The mode's words are PresentMon's, so the lab's PresentMon run reads beside STATE (L2): "Hardware: Independent Flip", "Hardware
-Composed: Independent Flip" (an overlay plane), "Composed: Flip". An output that is composed is amber in preflight with the reason
-DXGI's report and the statistics give ("composed: another window overlaps output 2", "composed: the display scales the buffer").
-The stretch's ETW session (the show user in Performance Log Users) brings PresentMon's own present-mode reading inside the engine.
+The mode keeps PlayMap's own words, which STATE already publishes (`iflip`, `composed`, `gl`, `offscreen`, `unknown`). DXGI's media
+statistics cannot tell independent flip on the primary plane from a hardware overlay plane, so `iflip` means "not composed by the
+desktop compositor", and `evidenceWords` names its source ("hint from DXGI's media statistics: overlay, statistics continuous";
+"proven by PRESENT PROVE at 21:04 for 10 s"). PresentMon's labels ("Hardware: Independent Flip", "Hardware Composed: Independent
+Flip", "Composed: Flip") appear only where PresentMon's own reading is the source: in the lab beside STATE (L2), and in a
+`presentMon` key when the stretch's ETW session (the show user in Performance Log Users) supplies it. An output that is composed is
+amber in preflight with the reason DXGI's report and the statistics give ("composed: another window overlaps output 2",
+"composed: the display scales the buffer").
 
 ## 6. One queued frame and the predicted display time
 
@@ -79,11 +90,11 @@ same picture together; a node whose outputs all carry live inputs runs at one fr
 **The frame block.**
 
 ```csharp
-namespace PlayMap.Render.Timing;
+namespace PlayMap.Core.Presentation;
 
 /// <summary>One frame's times, from the sample to the display, all on the machine's monotonic clock (ns). A ring of
 /// frames-in-flight + 1 blocks, reused; nothing allocates.</summary>
-public struct FrameBlock
+public record struct FrameBlock
 {
     public long Frame;
     public long TargetVblank;       // the pacing output's refresh count the frame is for
@@ -123,17 +134,28 @@ and `LATENCY STEP`'s stage shares.
 | `Hdr` scrgb | `R16G16B16A16_FLOAT` | `RGB_FULL_G10_NONE_P709` | linear scRGB, 1.0 = 80 cd/m² |
 
 What the display reports (`IDXGIOutput6::GetDesc1`: bits per colour, colour space, peak luminance) goes into STATE; a setting the
-display cannot show is refused with words ("output 2's display reports 8 bits and no HDR").
+display cannot show is refused with words ("output 2's display reports 8 bits and no HDR"), as is a colour space the swap chain
+refuses (`CheckColorSpaceSupport`) — the hosted runner's virtual display among them, if M14 says so, in which case `HdrOutputTests`
+assert the refusal's words there and the encode's numbers on a pure test, and L13 proves the display.
+
+The PQ encode and the 10-bit dither sit in the output stage, which wp3-d3d12-passes-2 owns in W3: this package adds them by hunks
+after it merges (`OutputStage.cs`, the encode's constants; `Shaders/output.hlsl`, the encode). The GL output program is unchanged:
+GL presents SDR only.
 
 ## 8. Facts, words and the wire
 
 ```json
 "outputs": [ { "id": "op_1", "present": {
-  "path": "d3d12-flip", "mode": "Hardware: Independent Flip", "evidence": "proven", "evidenceWords": "proven 21:04 for 10 s",
-  "framesInFlight": 1, "colorSpace": "hdr10", "display": { "bits": 10, "hdr": true, "maxNits": 1000 },
-  "refresh": "60000/1001", "presented": 1234567, "missed60s": 0 } } ],
-"machine": { "present": { "api": "d3d12", "path": "d3d12-flip", "asked": "d3d12", "kept": "d3d12", "fuse": "", "words": "" } }
+  "path": "d3d12-flip", "mode": "iflip", "evidence": "proven",
+  "evidenceWords": "proven by PRESENT PROVE at 21:04 for 10 s", "framesInFlight": 1, "colorSpace": "hdr10",
+  "display": { "bits": 10, "hdr": true, "maxNits": 1000 }, "refresh": "60000/1001", "presented": 1234567, "missed60s": 0 } } ],
+"machine": { "present": { "api": "d3d12", "path": "d3d12-flip", "asked": "d3d12", "kept": false,
+  "fuse": { "state": "clear", "attempt": 0, "at": 0 }, "why": "" } }
 ```
+
+Every key the output's and the machine's `present` blocks publish today keeps its name and its type (`kept` a boolean, `fuse` an
+object, `why` the words, `refreshHz` beside the new `refresh` rational); the new values are `api` "d3d12" and `path` "d3d12-flip",
+and the new keys are `evidenceWords`, `framesInFlight`, `colorSpace`, `display` and `refresh` — additive, as R12 asks.
 
 On the wire a D3D12 flip output reports PMVB path 2 (`dxgi-flip`), the presentation model it shares with the D3D11 path, so a group
 mixing builds reads every report; path 3 (`dedicated`, the stretch) is read by this round's builds and refused by older ones
@@ -162,7 +184,9 @@ refresh mismatch (red, with the mode to set).
 
 ## 11. What carries over
 
-The lock machine (`FrameLockMachine`, eight states, each locked state needing evidence), `LockCounter` (24-bit, wrap-aware, the
+The lock machine (`FrameLockMachine`, eight states, each locked state needing evidence; its wire words `free-unknown`,
+`free-measured`, `grouped`, `soft-locked`, `framelocked`, `house-locked`, `fell-out`, `joining`, and its `reason` key with
+`LockReasons`' words), `LockCounter` (24-bit, wrap-aware, the
 60 s re-anchor), `SYNC APPLY|LEAVE|REJOIN` with their refusals, the board's facts from `NvFrameLock` (id, firmware, synced, signal,
 house sync, a cable into a switch), PMVB and the leader's `SyncBoard` verdicts (`same vblank`, `free-running`, `mixed rate`,
 `unknown`) [map §2.9, §3.2]. Today `Join` refuses every output and `TryFrameCount` answers false.
@@ -180,10 +204,15 @@ are):
 | `NvAPI_JoinPresentBarrier(client)` / `NvAPI_LeavePresentBarrier(client)` | on `SYNC APPLY` / `SYNC LEAVE`, a stall, a rebuild |
 | `NvAPI_QueryPresentBarrierFrameStatistics(client)` | every frame after the presents |
 
-**The driver's new shape.**
+**The driver's new shape**, in Core beside the lock machine, so the tier in `Render.D3D12/Sync` implements it without Render. Today's
+`IFrameLockDriver` (in `Render/Sync`, its calls taking an `IOutputPresenter`) splits in two: the board's facts, which stay
+implemented by today's `NvFrameLock` over NVAPI's sync-board calls (its declarations unchanged in
+`Render/Platform/Windows/NvApi*.cs`, usable whatever the backend), and the barrier, implemented by `Render.D3D12/Sync/NvPresentBarrier`
+with its own declarations of the barrier's six calls and `NvAPI_D3D1x_QueryFrameCount` (NVAPI's interface ids, each structure
+pinned by `NvapiLayoutTests`). The engine's `FrameLockHost` composes the two.
 
 ```csharp
-namespace PlayMap.Render.Sync;
+namespace PlayMap.Core.Sync;
 
 /// <summary>What a flip presenter offers a barrier tier: its device, swap chain, back buffers and the epoch they were made in
 /// (a new epoch after a resize or a rebuild means "register again").</summary>
@@ -200,11 +229,19 @@ public enum BarrierMode { NotJoined, Client, System, Cluster }
 public readonly record struct BarrierStatistics(BarrierMode Mode, uint PresentCount, uint PresentInSyncCount,
     uint FlipInSyncCount, uint RefreshCountInSync);
 
+/// <summary>The sync board's facts (any thread, at most once a second): today's NVAPI tier, a fake, or none.</summary>
+public interface IFrameLockBoardSource : IDisposable
+{
+    string Name { get; }
+    string Words { get; }
+    FrameLockBoard? Board();      // the record moves from Render/Sync to here, unchanged
+}
+
+/// <summary>The barrier (render thread, on the output it acts on).</summary>
 public interface IFrameLockDriver : IDisposable
 {
     string Name { get; }
     string Words { get; }
-    FrameLockBoard? Board();
     bool CanBarrier { get; }
     bool Join(string outputId, IPresentBarrierTarget target, out string words);
     void Leave(string outputId);
@@ -215,23 +252,32 @@ public interface IFrameLockDriver : IDisposable
 ```
 
 **Evidence.** The lock machine moves an output to a locked state only when its statistics say `System` (outputs of one machine
-locked together) or `Cluster` (locked across machines through the Sync card), and `PresentInSyncCount` and `FlipInSyncCount` have
-advanced one per refresh for 120 refreshes. `Client` or `NotJoined` after a join is "pending": the barrier engages only full
-screen, with no borders, no desktop scaling and no taskbar composition — the same conditions as Independent Flip — so the words
-name which one fails ("not locked: the barrier is pending — output 2 is composed: a window overlaps it").
+locked together: `grouped`) or `Cluster` (locked across machines through the Sync card: `framelocked`, or `house-locked` when the
+board is on house sync), and `PresentInSyncCount` and `FlipInSyncCount` have advanced one per refresh for 120 refreshes.
+`SoftLocked` — a vendor's software genlock — has no tier that enters it and no STATE has ever published it; framelock removes it, so
+`FrameLockMachine.IsLocked` and the engine's `PresentSeams.Locked` count only the three states the barrier's statistics prove, and
+`docs/wire/sync.md` notes the retired word. A vendor's software genlock, if one ships, lands as a free state with its phase.
+
+`Client` or `NotJoined` after a join is "pending": the barrier engages only full screen, with no borders, no desktop scaling and no
+taskbar composition — the same conditions as Independent Flip — so the words name which one fails ("not locked: the barrier is
+pending — output 2 is composed: a window overlaps it").
 
 ## 13. The honest software lock
 
-Without a board or a barrier, every output is free. STATE gives its measured phase against the group's reference from the leader's
-board, with its uncertainty and the next slip ("same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), and never the word
-"locked": `SoftwareLockWordsTests` scan the whole of STATE for it. The content is still the same frame on every node (frame =
+Without a board or a barrier, every output is in a free state (`free-measured`, or `free-unknown` before its clock settles).
+STATE gives its measured phase against the group's reference from the leader's board, with its uncertainty and the next slip
+("same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), and never a locked state. `SoftwareLockWordsTests` assert the fields
+first — every output without barrier statistics has a free `lock.state` and `IsLocked` false — and then scan the whole of STATE for
+a locked state's word (`framelocked`, `house-locked`, `grouped`) in any value of a free output; words such as "not locked: the
+barrier is pending" are allowed. The content is still the same frame on every node (frame =
 f(leader time at vblank)); only scan-out phase differs, and only hardware moves it.
 
 ## 14. The barrier governed
 
 A barrier is all-or-nothing: a node that stalls stops the wall. An output whose `PresentInSyncCount` stops advancing for three
-refreshes while it keeps presenting (or whose waitable times out) leaves the barrier and free-runs; its cause goes to the journal
-and to `outputs[].lock.cause`; the rest of the wall keeps its barrier. While armed nothing rejoins on its own (round 2's rule);
+refreshes while it keeps presenting (or whose waitable times out) leaves the barrier and free-runs (`fell-out`); its cause goes to the journal
+and to `outputs[].lock.reason` (the existing key, with `LockReasons`' words) and `lock.words`; the rest of the wall keeps its
+barrier. While armed nothing rejoins on its own (round 2's rule);
 disarmed, an output rejoins after 10 s at an idle boundary.
 
 ## 15. The shared frame count
@@ -246,14 +292,19 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 |---|---|---|
 | each output's timing: pixel rate, totals, refresh rational | `QueryDisplayConfig` | "op_2 runs 59.9400 Hz, op_1 60.0000 Hz: 100 ppm apart, more than the ±50 ppm a lock takes" |
 | each output's EDID hash | the display's registry entry | "op_1 and op_3 show the same mode from different EDIDs" |
-| VRR on the display | NVAPI's display control | "G-SYNC is on for op_2: turn it off before the lock" |
+| VRR on the display | NVAPI's display control on NVIDIA; ADLX's FreeSync state on AMD (read only, loaded from the driver's own `amdadlx64.dll`, never bundled; `src/PlayMap.Platform.Windows/Vendors/`); unknown on Intel, said | "G-SYNC is on for op_2: turn it off before the lock"; "FreeSync is on for op_3"; "VRR state unknown on this Intel GPU: check the driver's panel" (amber) |
+| each output's adapter | `d3d12.md` §2's rule | "op_5 is on the second GPU: presented composed, it cannot join the lock" |
+| members' backends and GPU drivers | each member's `machine.present.api` and its identity's driver | amber in preflight and words in `SYNC APPLY`'s answer when members draw on different backends or drivers while a generator or effect is drawn on two members' outputs: "stage-left draws on Direct3D 12, stage-right on OpenGL: generated content may differ by a float's rounding across the seam" |
 | Independent Flip | §5 | "op_2 is composed" |
 | members' rates | PMVB's period | "the member stage-left runs 50 Hz" (the board's `mixed rate`) |
 
 ## 17. Stretch
 
-- **Synchronized Mosaic** (the must if M4 says several swap chains do not join): one swap chain over the Mosaic surface, PlayMap's
-  outputs as its viewports, one client in the barrier.
+- **Synchronized Mosaic**: one swap chain over the Mosaic surface, PlayMap's outputs as its viewports, one client in the barrier.
+  It stays a stretch whatever M4 answers, because it changes the presenter model. Until M4 is measured, a multi-output node joins one
+  swap chain per machine to the barrier (the pacing output's) and reports its other outputs free with their phase against it;
+  `SYNC APPLY` says so ("op_2 and op_3 stay free on this machine until several swap chains are measured to join"). M4 measured is
+  W4's entry condition (`PLAN.md` §1.5, §5.1).
 - **Warp and blend at scanout** (`NvAPI_GPU_SetScanoutWarping`, `SetScanoutIntensity`) behind PlayMap's shader warp, reported
   applied only after the state is read back (a GeForce driver reportedly answered success and did nothing).
 
@@ -261,11 +312,14 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 
 ```json
 "outputs": [ { "id": "op_1", "lock": {
-  "state": "locked", "tier": "present-barrier", "mode": "cluster", "presentInSync": 98012, "flipInSync": 98012,
-  "phaseMs": 0.0, "cause": "" } },
-  { "id": "op_2", "lock": { "state": "free", "tier": "none", "phaseMs": 6.2, "phaseUncertaintyMs": 0.3,
-  "words": "same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min" } } ]
+  "state": "framelocked", "words": "framelocked: cluster, 98012 presents in sync", "reason": "", "fellOut": 0, "rejoins": 0,
+  "tier": "present-barrier", "mode": "cluster", "presentInSync": 98012, "flipInSync": 98012, "phaseMs": 0.0 } },
+  { "id": "op_2", "lock": { "state": "free-measured", "words": "same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min",
+  "reason": "", "fellOut": 0, "rejoins": 0, "tier": "none", "phaseMs": 6.2, "phaseUncertaintyMs": 0.3 } } ]
 ```
+
+The published keys and words stay (`state`, `words`, `reason`, `fellOut`, `rejoins`); `tier`, `mode`, `presentInSync`,
+`flipInSync`, `phaseMs` and `phaseUncertaintyMs` are new keys.
 
 ## 19. Tests
 
@@ -277,17 +331,21 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 | `FrameBlockTests` | present | both | predicted display instants for one and two frames in flight; every stage given the same leader instant; the ring allocation-free |
 | `JustInTimeTests` | present | both | leader time sampled only after the waitable signals |
 | `HdrOutputTests` | present | Windows | HDR10 swap chain and colour space; 203 cd/m² → PQ 0.581 ± 0.001 |
-| `PresentPathTests` | present | both | AUTO's words; D3D12 on Linux refused |
+| `PresentPathTests` | present | both | AUTO's words in `machine.present.why`; D3D12 on Linux refused |
+| `AdapterRuleTests` | present | both | a fake display list of two adapters: the second adapter's output presented composed, amber with its words |
+| `D3D12EngineHostTests` | present | Windows | the Engine suites that render, on the D3D12 platform; their `*.d3d12.json` twins written and compared |
 | `PresentBarrierTierTests` | framelock | both | a scripted fake NVAPI: pending until full screen, client, cluster; locked only on cluster with in-sync counts advancing for 120 refreshes; registration matches the swap chain after a resize |
-| `BarrierStallTests` | framelock | both | a stalled output leaves within three refreshes, cause recorded, the others stay; no rejoin armed |
-| `SoftwareLockWordsTests` | framelock | both | free outputs carry phase words; "locked" appears in no STATE value of a free output |
-| `TimingPreconditionTests` | framelock | both | 80 ppm apart → `SYNC APPLY` refused naming both rates and the rule |
+| `BarrierStallTests` | framelock | both | a stalled output leaves within three refreshes (`fell-out`), its reason in `lock.reason`, the others stay; no rejoin armed |
+| `SoftwareLockWordsTests` | framelock | both | every output without barrier statistics: `lock.state` a free state and `IsLocked` false (the fields first); then no locked state's word in any STATE value of a free output; free outputs carry phase words |
+| `TimingPreconditionTests` | framelock | both | 80 ppm apart → `SYNC APPLY` refused naming both rates and the rule; an output on a second adapter refused naming it; members on different backends with a shared generator → amber and the words |
+| `AdlxProbeTests` | framelock | both | a fake ADLX: FreeSync on → the VRR row with its words; no ADLX → "unknown", said |
+| `SingleClientTests` | framelock | both | a three-output node before M4: one swap chain joins, the other two free with their phase, `SYNC APPLY`'s words |
 | `NvapiLayoutTests` | framelock | both | the barrier's structures and ids against NVIDIA's header |
 
 ## 20. Risks
 
 - **WARP gives no real vblank** and may give no statistics: CI proves bring-up, recording and read-back; the lab proves the mode and
   the timing (L1, L2).
-- **The barrier and several swap chains** (M4) — Mosaic is the fallback shape, planned as a stretch that becomes the must.
+- **The barrier and several swap chains** (M4) — until measured, one swap chain per machine joins; Mosaic stays a stretch.
 - **Reflex and the barrier together** are unknown; never combined until measured.
 - **HDR's independent flip** on mixed SDR and HDR monitors is undocumented; the evidence says what each output got.

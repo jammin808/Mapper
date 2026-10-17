@@ -25,14 +25,15 @@ an editor or projector view a stage pass at most thirty, fitted inside 1920 × 1
 | Must | Proved by |
 |---|---|
 | No CPU copy of a shared preview on either side | `PreviewShareTests` count no map, no readback, no `byte[]` |
-| The engine never waits on the desk | `DeskKillTests`; the engine's fence reads are `GetCompletedValue` only |
+| The engine never waits on the desk | `DeskKillTests` (counted: no render-thread wait on the desk's fence); the engine's fence reads are `GetCompletedValue` only |
 | The ring stays correct for every case the shared path does not take | the ring's existing tests, unchanged; `GpuPreviewSourceTests` for each fallback |
 | Handles reach only the desk that asked, on this machine, as this user | `PreviewShareTests`' refusals |
 
 ## 2. The engine's side
 
 - **Slots.** Per shared view, three `BGRA8` textures at the view's displayed size, created with `D3D12_HEAP_FLAG_SHARED` by the RHI's
-  exporter, and two fences created shared: `ready` (the engine signals value *v* when slot *v mod 3* is drawn) and `released` (the
+  exporter (wp3-d3d12-core's `Share/`, merged in W2; this package adds the duplication into another process), and two fences
+  created shared: `ready` (the engine signals value *v* when slot *v mod 3* is drawn) and `released` (the
   desk signals *v* when its compositor has finished with that slot).
 - **The draw.** `RenderEngine.Preview` draws the view into the next slot whose last value the `released` fence has reached
   (`GetCompletedValue`, never a wait); if none has, the view skips this frame, counted, as the ring's writer skips a slot today.
@@ -134,10 +135,10 @@ thumbnails at 15 Hz, hidden views none — reported by the desk through `VIEW �
 
 | Test | Job | Holds |
 |---|---|---|
-| `PreviewShareTests` | Windows | a child test process asks `VIEW … SHARED <its pid>` over loopback, opens the handles on its own WARP device, reads the chart back, sees `ready` values grow and signals `released`; no CPU copy counted on the engine; another user's or session's pid, a pid not owning the connection, and a remote session are refused |
+| `PreviewShareTests` | Windows | a child test process asks `VIEW … SHARED <its pid>` over loopback, opens the handles on its own WARP device, reads the chart back, sees `ready` values grow and signals `released`; no CPU copy counted on the engine; another user's or session's pid, a pid not owning the connection, and a remote session are refused. If M8's first-day probe finds WARP's allocations cannot be duplicated into another process, the CI case runs in one process on two WARP devices and the cross-process import moves to the lab (L3) |
 | `SharedSlotTests` | both | the control block's seqlock round trip; a slot not released is skipped, never waited on, and counted |
 | `GpuPreviewSourceTests` | both | a fake `ICompositionGpuInterop`: adapter mismatch, no fence type and repeated import failure each → the ring with its words; a lost device → one re-import; an epoch move → `VIEW … SHARED` again |
-| `DeskKillTests` | Windows | the child desk killed mid-import → the engine's present ledger and p99 frame time over the next 10 s within 5 % of the 10 s before, no allocation, the view's textures released at the lease's end |
+| `DeskKillTests` | Windows | the child desk killed mid-import → facts, never a timing band on a shared runner: zero render-thread waits on the desk's fence (counted), the present ledger's missed and held counts unchanged across the kill, no allocation on the render thread, the view's textures released at the lease's end; the frame times before and after are recorded, not asserted (L3 judges them on real GPUs) |
 | `ViewVerbTests` | both | the existing cases, plus `SHARED` |
 
 ## 9. Risks
@@ -145,6 +146,8 @@ thumbnails at 15 Hz, hidden views none — reported by the desk through `VIEW �
 - **Avalonia's fence type** (M2, `PLAN.md` R8): measured in W1 on a real GPU; without it the shared path is not taken and the ring,
   now with an age, stays.
 - **Cross-API sharing** (a D3D12 texture opened by Avalonia's D3D11 device): `BGRA8` and a single mip are the formats both sides
-  document; the format is fixed and tested.
+  document; the format is fixed and tested. Whether the NuGet WARP the Direct3D 12 tests load and the system WARP a D3D11 device
+  loads share NT-handle textures and fences is M8's first-day probe; if they do not, CI covers Direct3D 12 to Direct3D 12 and the
+  cross-API case is the lab's (L3).
 - **A desk on a hybrid laptop** composes on the integrated GPU; the LUID guard keeps the ring there, and the stretch's adapter choice
   puts the compositor on the engine's GPU where the desk allows it.

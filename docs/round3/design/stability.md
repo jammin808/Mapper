@@ -31,7 +31,7 @@ time, resumes at "now".
 
 ```
 one mark, 64 blocks of SIZE × SIZE px (SIZE 8 by default: 512 × 8 px), each block black or white at full code:
-  [ 4 sync: W B W B ][ 24 frame counter ][ 16 leader instant, ms, low bits ][ 8 CRC-8 ][ 4 sync: B W B W ][ 8 spare: 0 ]
+  [ 4 sync: W B W B ][ 24 refresh index ][ 16 leader instant, ms, low bits ][ 8 CRC-8 ][ 4 sync: B W B W ][ 8 spare: 0 ]
 two marks per output: TOP (the raster's first rows) and BOTTOM (its last rows), at the same x
 ```
 
@@ -55,8 +55,13 @@ public static class AirWatermark
 - **When.** Stamped by `WatermarkPass` last in the output stage, after the air's gain, on every frame the output presents —
   held frames included, so the counter runs while the content holds and stops only when the pipeline does. Never drawn while the
   output is black by the show's policy (blackout, a black panic outcome, a fenced node): the observer knows those from STATE.
-- **What.** The counter is the output's presented-frame count (24 bits, wrap-aware); the instant is the frame's leader instant in
-  milliseconds (16 low bits: enough to tell one frame from the next and to see a wrong instant).
+- **What.** The counter is the refresh index on the leader's time line at the vblank the frame is drawn for — the frame's leader
+  instant divided by the output's refresh period, mod 2^24 (wrap-aware) — and the instant is that leader instant in milliseconds
+  (16 low bits: enough to tell one frame from the next and to see a wrong instant). Both are functions of show time, as everything on
+  the air is: a hot backup drawing the same instant stamps the same mark, so its picture stays the primary's to the byte
+  (`BackupRenderTests` gain a case with the watermark on), and no node counts its own frames into the picture. The counter still
+  stops when the presents stop, because no new frame carries a new index; a held frame re-presented at a later vblank carries that
+  vblank's index, so the counter runs while the content holds.
 
 ## 3. The observer
 
@@ -65,9 +70,12 @@ PlayMap.exe observer     a process the engine starts and watches, one JSON objec
                          no GPU device, no render code: it reads pixels from a capture and decides
 ```
 
-**Sources** (`OBSERVE <output> FROM <uri>`, machine-local, kept in `NodeSettings.Observe`): a capture device through Media's
-avdevice (`capture:<device>` — a card on an HDMI or SDI loop-through), an OMT or NDI receive of a loop-through converter or an LED
-processor's monitor output (`omt:…`, `ndi:…`), and, for tests, an OMT send of the output itself.
+**Sources** (`OBSERVE <output> FROM <uri>`, machine-local, kept in `NodeSettings.Observe` — this node's settings, written by its
+settings writer, never the project's): a capture device through Media's avdevice (`capture:<device>` — a card on an HDMI or SDI
+loop-through), an OMT or NDI receive of a loop-through converter or an LED processor's monitor output (`omt:…`, `ndi:…`), and, for
+tests, an OMT send of the output itself. The grammar fails closed: only the `capture:`, `omt:` and `ndi:` schemes are taken; any
+other scheme, a URI carrying user information (`omt://user:secret@…`) or a query is refused with words naming what was refused,
+and nothing of a refused URI reaches the journal (`ObserveUriTests`).
 
 **The engine tells it** what it watches and what STATE says, on change only:
 
@@ -109,10 +117,12 @@ before `late` is judged.
 
 ## 4. The heartbeat
 
-`HealthOutput` gains `ShownFrames` (the ledger's shown-frame count: from display statistics where there are any, from swap returns on
-GL) and `ObservedFrames` (the observer's decoded count, −1 unobserved). HEALTH, `/health` and the fleet carry them. The supervisor
-(wp3-installer) reads them over loopback every 500 ms and, as a second path, the observer's status file; its rule is in
-`installer.md` §5.
+`HealthOutput`'s `ShownFrames` (the ledger's shown-frame count: from display statistics where there are any, from swap returns on
+GL) and `ObservedFrames` (the observer's decoded count) are reserved by the spine with −1 meaning unknown, so the supervisor (W1)
+reads a field that exists before this package fills it; HEALTH's `gpu` record (also the spine's: the device epoch, the phase —
+`starting`, `running`, `rebuilding` — and since when) says when no frames are expected. This package fills both counts. HEALTH,
+`/health` and the fleet carry them. The supervisor (wp3-installer) reads them over loopback every 500 ms and, as a second path, the
+observer's status file; its rule, inactive while a count is −1, is in `installer.md` §5.
 
 ## 5. `LATENCY STEP`
 
@@ -145,8 +155,8 @@ GL) and `ObservedFrames` (the observer's decoded count, −1 unobserved). HEALTH
 
 | Row | Risk / class | Does |
 |---|---|---|
-| `WATERMARK <output>\|ALL ON\|OFF [TOP\|BOTTOM\|BOTH] [AT <x> <y>] [SIZE <px 4-32>]` | Review / Layout | sets `Output.Watermark` (one undo step); armed refused by the class; on when on, refused "already" |
-| `OBSERVE <output> FROM <capture uri> \| OBSERVE <output> OFF` | Review / Setup | starts or stops watching; answers once the first verdict is in (or why none came in 5 s) |
+| `WATERMARK <output>\|ALL ON\|OFF [TOP\|BOTTOM\|BOTH] [AT <x> <y>] [SIZE <px 4-32>]` | Review / Layout | sets `Output.Watermark` (one undo step); armed refused by the class; `ON` with the place and size it has, refused "already"; `OFF` when it is off, refused "the watermark is already off on op_1" |
+| `OBSERVE <output> FROM <capture uri> \| OBSERVE <output> OFF` | Review / Setup | starts or stops watching; answers once the first verdict is in (or why none came in 5 s); `FROM` the source it already watches refused "already watching"; `OFF` with nothing observed refused "op_1 is not observed"; a URI outside the grammar refused (§3) |
 | `OBSERVE STATUS [<output>]` | Low / Query | the verdicts and their words |
 | `LATENCY STEP <output> [VIA <camera>\|OBSERVER] [STEPS <3-60>]` | High / Heavy | §5 |
 
@@ -201,7 +211,13 @@ public interface IGpuLifecycle
 `GPU REHEARSE [REMOVE]` (High, Heavy) forces a removal (`ID3D12Device5::RemoveDevice`) and answers when the first good frame is
 back, with the time; refused while armed ("a rehearsed loss blacks the outputs for its length: rehearse disarmed"); on GL without
 robustness, refused "the GL context cannot be removed on purpose here". CI forces removals on WARP (M8; a fault seam where WARP does
-not honour it) and asserts the STATE fields and the time to the first good frame against its recorded value with a 4× ceiling.
+not honour it) and asserts the facts — the incident row, `render.removals` with its reason, the rebuild's steps in the start's order,
+a good frame reached, the presenters back, the frame after the rebuild drawn for its own instant — and records the time to the
+first good frame without a ceiling, since the hosted runner is shared. That recorded number is the rebuild budget the supervisor's
+exemption reads (`installer.md` §5) and L9 holds a real TDR to it × 4 in the lab.
+
+**During the rebuild** HEALTH's `gpu.phase` is `rebuilding` with its epoch and since when, so the supervisor does not take a
+rebuild's stopped frames for a frozen engine; the phase goes back to `running` at the first good frame.
 
 ## 11. Repeated loss and quarantine
 
@@ -257,14 +273,17 @@ compliance claim: `docs/HAZARDS.md` lists each hazard to the air and the fault-i
 
 | Test | Package | Job | Holds |
 |---|---|---|---|
-| `WatermarkCodecTests` | stability | both | round trips near the 24-bit wrap; a flipped block fails the CRC; differing marks → torn |
+| `WatermarkCodecTests` | stability | both | round trips near the 24-bit wrap; a flipped block fails the CRC; differing marks → torn; the index is the leader instant over the period, the same on two hosts for the same instant |
 | `ObserverVerdictTests` | stability | both | scripted captures → every verdict with its words; held against stale; black expected |
-| `ObserverLoopbackTests` | stability | both | the observer process on an OMT send of the output; FREEZE → held; an injected presenter stall → stale in two frames, preflight and HEALTH red; the observer killed → restarted |
+| `ObserverLoopbackTests` | stability | both | the observer process on an OMT send of the output; FREEZE → held; an injected presenter stall → stale after two captured frames without an advance (counted in captured frames, never timed), preflight and HEALTH red; the observer killed → restarted |
+| `ObserveUriTests` | stability | both | `capture:`, `omt:`, `ndi:` taken; another scheme, user information or a query refused with words; nothing of a refused URI journalled |
+| `ObserveVerbTests` | stability | both | `OBSERVE … FROM` its current source, `OBSERVE … OFF` with nothing observed, `WATERMARK … ON` as it is and `OFF` when off: each refused with its reason, nothing changed |
 | `WatermarkRenderTests` | stability | both (WARP at merge) | the marks read back from the final raster decode to the frame's counter and instant; black under blackout |
 | `LatencyStepTests` | stability | both | ten steps → p50 and p95 (with stage shares after wp3-present); armed refused; no observer and no camera refused |
 | `HeartbeatTests` | stability | both | shown frames advance with presents, held outputs included; a stopped presenter's do not |
 | `CrashPolicyTests` | stability | both | a child host's unhandled exception → the journal flushed with the build, a non-zero exit, no in-process dump |
-| `DeviceLossRehearsalTests` | stability-2 | Windows | a removal mid-show (rehearsal) → the incident with DRED's pass; the first good frame within budget; STATE's removal; media time continuous |
+| `DeviceLossRehearsalTests` | stability-2 | Windows | a removal mid-show (rehearsal) → the incident with DRED's pass; a good frame reached and its time recorded (no ceiling on the hosted runner); STATE's removal; HEALTH's `gpu.phase` rebuilding, then running; media time continuous |
+| `SupervisorRebuildTests` | stability-2 (at the merge with wp3-installer's supervisor) | Windows | a rehearsed removal under the supervisor's rule on a fake service: no stop while HEALTH says rebuilding within its budget × 4; a rebuild past it → the stop, with words |
 | `RebuildPathTests` | stability-2 | both | a recording fake: the rebuild runs the start's steps in the start's order |
 | `RepeatedLossTests` | stability-2 | both | three in ten minutes → GL with words; GL failing → held by policy |
 | `QuarantineOnLossTests` | stability-2 | both | a breadcrumb in slot X → its kind quarantined, X drawn bypassed after the rebuild |

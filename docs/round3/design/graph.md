@@ -12,7 +12,8 @@ frame's documented order, unused steps culled, transient textures with their lif
 that needs one, copy-queue work with its fence handshake, and the pipeline keys the plan draws with. Plans are compiled on the
 render host's plan thread when the topology changes — not when time, levels or modulated numbers do — published by volatile
 reference and walked by the render thread from its next frame. When the show is armed, the plans of every state it can reach
-without an edit are compiled, and their pipelines made, before ARM answers.
+without an edit are compiled, and their pipelines made, before ARM answers — or ARM's answer names each one still missing, with
+preflight red. ARM itself is never refused for them: armed is the safe side, as for every other red preflight row.
 
 ---
 
@@ -25,6 +26,7 @@ without an edit are compiled, and their pipelines made, before ARM answers.
 | Transients alias safely; anything that lives across frames never aliases | `GraphCompilerTests`; `AliasingParityTests` on WARP |
 | Every barrier the Direct3D 12 debug layer would ask for, and none twice | `AliasingParityTests` with barrier validation on, no message |
 | No pipeline made, no allocation, no wait on the render thread during an armed show | `PipelineWarmTests`, `ZeroAllocTests` (wp3-d3d12-passes-2) |
+| The graph uses the RHI's own transient contract and adds none in W2 | `ITransientMemory`, `Alias`, `Discard` and `SetPlanManaged` are wp3-rhi's contract and wp3-d3d12-core's primitives (`rhi.md` §3.3, `d3d12.md` §6–§7); this package only calls them |
 
 ## 2. What a frame declares
 
@@ -151,12 +153,14 @@ Its steps:
 
 ## 5. Publication and walking
 
-- **The plan thread.** The render host's plan thread (a dedicated thread at normal priority, not the thread pool) compiles when the
-  topology's hash changes, materialises the plan's memory slots on Direct3D 12 (placed resources are free-threaded there) and
-  publishes the plan with a volatile write. On GL, slots are rented from `ResourcePool` by the render thread at the plan's first
-  frame, as targets are today.
+- **The plan thread.** The render host's plan thread (a dedicated thread at normal priority, not the thread pool, its claim the
+  platform's `Background` role) compiles when the topology's hash changes, materialises the plan's memory slots through
+  `IGpuDevice.CreateTransientMemory` and `ITransientMemory.Place` on Direct3D 12 (placed resources are free-threaded there), marks
+  each plan resource `SetPlanManaged`, and publishes the plan with a volatile write. On GL, `Place` rents from `ResourcePool` on the
+  render thread at the plan's first frame, as targets are today.
 - **The walk.** At the start of each frame the render thread reads the newest plan once; `RenderEngine`'s frame becomes the plan's
-  walker — for each step it issues the step's barriers, waits (on the GPU) for its copy value, and calls the same stage code as
+  walker — for each step it issues the step's barriers (an `Alias` where a transient takes over a memory slot, a `Discard` on its
+  first use), waits (on the GPU) for its copy value, and calls the same stage code as
   today with the textures the plan assigned. The doctrine's checks stay where they are: blackout clears before any content step,
   a raw scan frame skips the picture steps, a held output keeps its last picture and skips its own steps.
 - **The swap.** A plan replaced mid-run is walked from the next frame; the old one is released when the frames that walked it have
@@ -164,21 +168,27 @@ Its steps:
 
 ## 6. Plans before the show (wp3-d3d12-passes, item 5)
 
-When the show is armed, the plan thread compiles the plans of every topology the show can reach without an edit: each playlist
+When the show is armed (through the spine's `IShowArmHook`: asynchronous, cancellable, with a deadline, run by `SHOW ARM` before
+it answers), the plan thread compiles the plans of every topology the show can reach without an edit: each playlist
 item's chains and transitions (both sides of each fade), each panic outcome's safe look on its outputs, the air's test patterns,
 and the blind draft's editor view. They are kept by hash, so reaching one swaps a pointer.
 
 ## 7. Pipelines at arm, pre-roll (wp3-d3d12-passes-2, item 1)
 
-- On `SHOW ARM` and on `GPU WARM`, the union of every kept plan's pipeline keys goes to `IPipelineCache.WarmAsync`. ARM answers
-  once they are made, or answers with the count still missing and the words; preflight's row `pipelines 412/412` is red while any
-  is missing (fix `GPU WARM`).
-- A key still missing at air time holds its step: the step's output keeps its previous picture (or draws nothing if it has none),
-  the miss is counted in STATE, and nothing is compiled on the render thread.
+- On `SHOW ARM` (its `IShowArmHook`) and on `GPU WARM`, the union of every kept plan's pipeline keys — user effects' included,
+  which their passes declare (wp3-shaders-2) — goes to `IPipelineCache.WarmAsync`. ARM waits for them up to the hook's deadline and
+  answers once they are made. If any is still missing, or failed, ARM still arms, as it does with any red preflight row (armed is
+  the safe side, and SHOW ARM is never refused for a fact), and its answer names each missing key with the compile's words;
+  preflight's row `pipelines 410/412` is red (fix `GPU WARM`) and `render.pipelines.missingForShow` counts them.
+- A key still missing at air time holds its step: the step's target keeps its previous picture; a step that has never drawn passes
+  its input through, as a quarantined effect does, and a source step with no input shows black. The hold is counted in STATE
+  (`heldSteps`), named in preflight, and nothing is compiled on the render thread.
 - The cache is keyed by adapter LUID, driver version and build (`d3d12.md` §8); after a driver update the next arm warms
   everything again and says why.
 - **Pre-roll.** Before the node says it is ready (STATE `ready`), one frame of each kept plan is recorded and discarded, so every
-  per-frame path has run its first, unoptimised call before the air depends on it.
+  per-frame path has run its first, unoptimised call before the air depends on it. The call sits in the render host's start, which
+  wp3-present owns in W3: a hunk of a few lines there, landing first in W3's merge order so present rebases on it (`PLAN.md` §4,
+  §5.3); the pre-roll itself is in this package's `RenderHost.Plan.cs`. With ReadyToRun in the MSI's publish (wp3-installer), this is M13's default.
 
 ## 8. Bindless records (wp3-d3d12-passes-2, item 2)
 
@@ -198,7 +208,10 @@ struct SurfaceRecord
 ```
 
 A projector's surfaces are then drawn by a handful of indirect draws (`ExecuteIndirect` with one argument per surface range), the
-pixel shader reading its record by the draw's id. Descriptor indices are freed only after the fence value of the last frame that
+pixel shader reading its record by the draw's id. This package adds the two contracts that takes to `Core/Gpu` (its owner in W3):
+`DrawBuilder.Buffer(string name, GpuBuffer buffer)` for a structured buffer by the layout's slot, and
+`ICommandList.DrawIndirect(GpuBuffer arguments, int count, GpuBuffer? countBuffer)`, both behind `GpuFeatures.Indirect`, which GL
+3.3 reports false. Descriptor indices are freed only after the fence value of the last frame that
 used them. The GL backend keeps today's draw per surface; the pixels must be equal either way (`BindlessTests`).
 
 ## 9. Zero allocation on Direct3D 12 (wp3-d3d12-passes-2, item 3)
@@ -206,7 +219,10 @@ used them. The GL backend keeps today's draw per surface; the pixels must be equ
 The allocation fence (`GC.GetAllocatedBytesForCurrentThread` equal across N warm frames) runs on WARP for every pixel scene. The
 one known gap is round 2's: a frame whose layers, surfaces or effect slots are modulated builds a drawn copy of the project each
 frame. The modulation bus will write its drawn numbers into a per-frame table the passes read (fixed size, made at the topology's
-compile) instead of a new `Project`; the project's base values stay in the store.
+compile) instead of a new `Project`; the project's base values stay in the store. Those files are round 2's and no package owns
+them in W3: this package changes them through named hunks — `src/PlayMap.Core/Modulation/{ModulationBus, ModulationPlan}.cs`
+(the table and its writer) and `src/PlayMap.Engine/Audio/EngineCore.Mod.cs` (the drawn project's builder gives way to the table) —
+with `ModulationTests` unchanged.
 
 ## 10. Facts in STATE
 
@@ -235,7 +251,7 @@ failed counts. Refused with words when there is nothing to make ("all 412 pipeli
 | `AliasingParityTests` | Windows | aliasing on and off draw the same pixels; no debug-layer message with barrier validation |
 | `PlanSwapTests` | both | an edit swaps the plan from the next frame, allocation-free; the old plan released after its frames complete |
 | `ArmedPlansTests` | both | arming compiles the reachable plans; a transition's plan exists before its window opens |
-| `PipelineWarmTests` | Windows | ARM answers after every key is made; a forced missing key holds its step and counts; no render-thread make |
+| `PipelineWarmTests` | Windows | ARM answers after every key is made; a key forced missing → ARM's answer names it, `show.armed` true, preflight's `pipelines` row red, the step held and counted at air time, no render-thread make; a failed key the same, with the compile's words |
 | `BindlessTests` | Windows | 1, 10, 100 surfaces: the same pixels as per-surface draws; draws per output bounded; no descriptor reused before its fence |
 | `ZeroAllocTests` | both | every scene, modulated layers included |
 | `PassTimingTests` | Windows | each step's GPU time in STATE |
