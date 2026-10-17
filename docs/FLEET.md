@@ -163,7 +163,7 @@ picture stays the primary's to the byte: both read the output's final pixels, an
 2. freezes its clock's mapping into its own time line (`NetworkClock.Promote`) and leads the group: show time continues with no step;
 3. switches every **route** (`FLEET ROUTE <output> DEVICE <device> <input> <backup input>`, kept in the show) through its own
    `DEVICE INPUT`, each with the projector's receipt — observed when the projector reads its new input back; a projector that does not
-   answer within 2 s is said ("switch it by hand") and the takeover goes on;
+   answer within 2 s (on the fleet's clock, as `FLEET ROUTE TEST`'s reads are) is said ("switch it by hand") and the takeover goes on;
 4. journals the trail ("takeover tk… of FOH-A by FOH-B (pressed) — epoch 1 committed → leading show on the same time line → P1 32
    observed → serving → complete in 40 ms"), raises `fleet.takeover`, and serves: editing goes on.
 

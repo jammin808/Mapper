@@ -87,7 +87,8 @@ in order:
   in arrival order from the lane's tick once its instant has come (the member answers `accepted` first). A `PANIC` from no later
   than the panic the member is in is that press handed again: refused as such, never a second (hard) press. Every member answers
   each line with `SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]`; the leader journals each receipt ("PANIC
-  FADE 1000 on Stage: applied — …") and a member silent for 2 s reads `silent` (one deadline for the whole group).
+  FADE 1000 on Stage: applied — …") and a member silent for 2 s reads `silent` (one deadline for the whole group, on the sync part's clock — the system's in a
+  node, `SyncNodeOptions.Time`).
 - **`ANCHOR <group> @lock {"apply","swapGroup","barrier","counter":{…}|null}`**: the group's frame lock. A member offers the
   leader's counter anchor to its outputs (`IFrameLockBackend.OfferAnchor`, so counts map to the same show time), joins when the
   leader applied the lock and leaves when it released it — never with its own frame lock off or once it has begun to stop, and not
