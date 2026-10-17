@@ -28,7 +28,7 @@ public sealed record StageResourceOptions
     public double LensMapScale { get; init; } = 0.25;
 }
 
-/// <summary>The stage's geometry and maps for the renderer, over the project snapshot: meshes from
+/// <summary>The stage's geometry and maps for the renderer, over the project snapshot (built and solved on the compute threads): meshes from
 /// <see cref="StageMeshes"/>, warps from <see cref="WarpMeshBuilder"/>, manual blends from
 /// <see cref="BlendMath.EdgeBlendMap"/>, automatic blends from <see cref="BlendSolver3D"/>, masks from
 /// <see cref="MaskRasterizer"/>, lens lookups from <see cref="LensPrewarp"/>.
@@ -73,6 +73,10 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
         public bool Settled { get; }
 
         public Dictionary<string, MeshData> Meshes { get; }
+
+        /// <summary>The blend inputs the automatic blend in these tables was solved for (null: none is in them).</summary>
+        public BlendInputs? BlendFor { get; set; }
+
         public Dictionary<string, WarpEntry> Warps { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, EdgeEntry> Edges { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, BlendMap> Blends { get; } = new(StringComparer.Ordinal);
@@ -121,7 +125,13 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     /// <summary>Warp meshes tessellated so far (an unchanged warp is handed back, not built again).</summary>
     public int WarpBuilds { get; private set; }
 
-    /// <summary>Automatic blend solves finished so far (a solve BLEND SOLVE handed over is not counted).</summary>
+    /// <summary>The blend inputs the automatic blend in the tables in use was solved for (null: none is up). A blend that answers a
+    /// project's own inputs (<see cref="BlendInputs.Of"/>) is that project's; a solve finished is not in use until the render thread
+    /// takes the tables built with it (<see cref="Observe"/>).</summary>
+    public BlendInputs? BlendInUseFor => _current.BlendFor;
+
+    /// <summary>Automatic blend solves finished so far (a solve BLEND SOLVE handed over is not counted). A count, not a fact about the
+    /// tables in use: the tables built with the latest solve reach the render thread after it (<see cref="BlendInUseFor"/>).</summary>
     public int BlendSolves { get; private set; }
 
     /// <summary>The automatic blend's last words (empty before the first), and the last fault a build hit.</summary>
@@ -223,7 +233,8 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 continue;
             try
             {
-                Build(snap);
+                // The tables are CPU work (tessellation, masks, lens lookups): built on the compute threads, the loop only waits.
+                await Core.Threading.Compute.RunAsync(() => Build(snap), CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -311,6 +322,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
             foreach (var o in solved.Solution.Outputs)
                 if (project.FindOutput(o.OutputId) is { } output && BlendInputs.Blends(output))
                     next.Blends[o.OutputId] = o.Map;
+            next.BlendFor = solved.Inputs;
         }
         return next;
     }
@@ -449,7 +461,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                     continue;
                 using var solving = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 Volatile.Write(ref _solving, solving);
-                var solution = inputs.Solve(_meshes, ct: solving.Token);
+                var solution = await Core.Threading.Compute.RunAsync(() => inputs.Solve(_meshes, ct: solving.Token), solving.Token).ConfigureAwait(false);
                 Interlocked.CompareExchange(ref _solving, null, solving);
                 if (!inputs.Equals(Volatile.Read(ref _blendWanted)))
                     continue;

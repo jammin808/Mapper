@@ -379,6 +379,74 @@ public sealed class DeskIdentityTests
         Assert.Equal("tcp", channel);
     }
 
+    /// <summary>A session whose first lines are in before it runs handles them in its run's first, unbroken stretch — before the
+    /// door's table could list it, if the table listed a session only once its run first waited. Held there (its thread set aside,
+    /// as a loaded machine does), a new token still reaches it: the table hears it unpaired at once.</summary>
+    [Fact]
+    public async Task ANewTokenReachesASessionStillInItsFirstStretch()
+    {
+        var settings = TestSettings.Make(trustLoopback: false);
+        var endpoint = new RegistryEndpoint(new FakeEndpoint());
+        await using var sessions = new LineSessions(() => settings, endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 },
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, "t");
+        await using var channel = new HeldChannel(["HELLO Companion:FOH", "AUTH " + TestSettings.Token]);
+        var serve = Task.Run(() => sessions.ServeAsync(channel, CancellationToken.None));
+        Assert.True(channel.Holding.Wait(TimeSpan.FromMinutes(1)), "the session never read past its first lines");
+        Assert.True(endpoint.Hellos.Last().Item1.Paired);
+
+        settings = TestSettings.Make(trustLoopback: false, token: "another-token-for-this-node");
+        sessions.Refresh();
+        var (now, kind) = endpoint.Hellos.Last();
+        Assert.Equal((false, "companion", "tcp"), (now.Paired, now.Transport, kind));
+
+        channel.Release.Set();
+        channel.Abort();
+        await serve;
+    }
+
+    /// <summary>A TCP line channel from this machine whose lines are in at once (each read completes as it is asked), then holds the
+    /// reading thread where the next read is asked until released, and ends at an abort.</summary>
+    private sealed class HeldChannel(IEnumerable<string> lines) : ILineChannel
+    {
+        private readonly Queue<string> _lines = new(lines);
+        private readonly TaskCompletionSource<string?> _end = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ManualResetEventSlim Holding { get; } = new(false);
+
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public string Kind => "tcp";
+
+        public System.Net.IPAddress? Remote => System.Net.IPAddress.Loopback;
+
+        public Stream Output { get; } = Stream.Synchronized(new MemoryStream());
+
+        public ValueTask<string?> ReadLineAsync(CancellationToken ct)
+        {
+            if (_lines.TryDequeue(out var line))
+                return ValueTask.FromResult<string?>(line);
+            Holding.Set();
+            Release.Wait(ct);
+            return new ValueTask<string?>(_end.Task);
+        }
+
+        public Task CloseAsync(int code, string words)
+        {
+            _end.TrySetResult(null);
+            return Task.CompletedTask;
+        }
+
+        public void Abort() => _end.TrySetResult(null);
+
+        public ValueTask DisposeAsync()
+        {
+            Holding.Dispose();
+            Release.Dispose();
+            Output.Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class RegistryEndpoint(FakeEndpoint inner) : IWireEndpoint, IClientRegistry
     {
         public System.Collections.Concurrent.ConcurrentQueue<(SessionInfo, string)> Hellos { get; } = new();
