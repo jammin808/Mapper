@@ -101,6 +101,15 @@ internal sealed class OscFeedback
         _lastKey = key;
         _lastSettings = settings;
         _pending = false;
+        SendDue(engine, settings, surfaces, surfaceOf, send, nowNs);
+    }
+
+    /// <summary>A pass that is due. Its own method: its filters' closures (they capture the pass's clients) are made only when a pass
+    /// runs. Written in <see cref="Pass"/>, an optimised build would allocate them at the method's entry, on every poll of the control
+    /// loop, due or not.</summary>
+    private void SendDue(EngineCore engine, ControlSettings settings, ImmutableArray<ControlSurface> surfaces, Func<IPEndPoint, string> surfaceOf,
+        Action<byte[], IPEndPoint> send, long nowNs)
+    {
         var statics = settings.OscFeedback.Select(s => FeedbackMath.TryEndpoint(s, out var e) ? e : null).OfType<IPEndPoint>().ToList();
         List<IPEndPoint> clients;
         lock (_clientsGate)

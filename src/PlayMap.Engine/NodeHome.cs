@@ -1,10 +1,13 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Playback;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine;
 
@@ -18,6 +21,11 @@ public sealed class NodeHome
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
+
+    /// <summary>One read or write of a home's settings file at a time in this process: Windows refuses to replace a file another handle
+    /// has open, so a read beside a write's rename would fail the write.</summary>
+    private static readonly ConcurrentDictionary<string, Lock> SettingsGates =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     public NodeHome(string folder)
     {
@@ -42,13 +50,27 @@ public sealed class NodeHome
     /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept.</summary>
     public NodeSettings LoadSettings(string defaultName)
     {
+        lock (SettingsGate)
+            return LoadSettingsLocked(defaultName);
+    }
+
+    private Lock SettingsGate => SettingsGates.GetOrAdd(SettingsPath, _ => new Lock());
+
+    private NodeSettings LoadSettingsLocked(string defaultName)
+    {
         if (!File.Exists(SettingsPath))
         {
             var first = NodeSettings.CreateDefault(defaultName);
             SaveSettings(first);
             return first;
         }
-        var text = File.ReadAllText(SettingsPath);
+        string text;
+        // Shared for write and delete: a reader never refuses a writer's own open of the file. Within this process the gate keeps a
+        // read and a replace apart; a reader in another process (the desk's pairing-token read) can still make Windows refuse a
+        // replace, which the writer answers in words.
+        using (var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(file, Encoding.UTF8))
+            text = reader.ReadToEnd();
         try
         {
             // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
@@ -142,9 +164,9 @@ public sealed class NodeHome
 
     public void SaveSettings(NodeSettings settings)
     {
-        var temp = SettingsPath + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings, Json));
-        File.Move(temp, SettingsPath, overwrite: true);
+        var text = JsonSerializer.Serialize(settings, Json);
+        lock (SettingsGate)
+            DurableFile.WriteAllText(SettingsPath, text);
     }
 }
 
@@ -187,9 +209,7 @@ public sealed record RecoveryRecord(
 
     public void Save(string path)
     {
-        var temp = path + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteAllText(path, JsonSerializer.Serialize(this, Json));
     }
 
     public static RecoveryRecord? Load(string path)

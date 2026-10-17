@@ -41,8 +41,10 @@ internal static class SyncRig
         Vblanks = vblanks is null ? null : _ => vblanks,
     };
 
-    public static Task<HostRig> StartAsync(string name, string id, IMonoClock mono, SyncNodeOptions? options = null, DirectoryInfo? dir = null) =>
-        HostRig.StartAsync(name, network: true, mono: mono, parts: new EngineParts { Extensions = [SyncExtension.With(options ?? Fast())] },
+    public static Task<HostRig> StartAsync(string name, string id, IMonoClock mono, SyncNodeOptions? options = null, DirectoryInfo? dir = null,
+        Func<RenderHostRequest, IRenderHost?>? render = null) =>
+        HostRig.StartAsync(name, network: true, mono: mono,
+            parts: new EngineParts { Extensions = [SyncExtension.With(options ?? Fast())], RenderHost = render },
             settings: s => s with { NodeId = id }, dir: dir);
 
     /// <summary>Opens the test show on a node (its own copy, in its folder).</summary>
@@ -96,10 +98,15 @@ internal sealed class MovableClock(IMonoClock inner, long offsetNs) : IMonoClock
     public long NowNs => inner.NowNs + OffsetNs;
 }
 
-/// <summary>Synthetic vblanks: each output at its period with a vblank at a given local instant.</summary>
+/// <summary>Synthetic vblanks: each output at its period with a vblank at a given local instant (a test may change them, or empty
+/// them to stop the reports).</summary>
 internal sealed class FakeVblanks(params OutputVblank[] outputs) : IVblankSource
 {
-    public IReadOnlyList<OutputVblank> Read() => outputs;
+    private volatile OutputVblank[] _outputs = outputs;
+
+    public IReadOnlyList<OutputVblank> Read() => _outputs;
+
+    public void Set(params OutputVblank[] now) => _outputs = now;
 
     public static OutputVblank At(string outputId, double hz, long vblankLocalNs, LockState state = LockState.FreeMeasured) =>
         new(outputId, state, 1, (long)Math.Round(1e12 / hz), vblankLocalNs, 600, 0, true, 16_000, 0);

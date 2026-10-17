@@ -38,7 +38,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
-  starts work on a part already closed; the node's own lines (a panic's shutters and effects) still run. Then the
+  starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
+  them when its turn comes; the node's own lines (a panic's shutters and effects) still run. Then the
   doors and parts close in reverse, the recovery record is written and the journal flushed.
 - A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
@@ -319,7 +320,11 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
 ## 8. Reliability rules (inherited from Patterns, enforced by the analyzers and tests)
 
 Attempts are not facts (receipts say accepted/applied and the effect); fail closed on the wire; one writer per
-lane; immutable snapshots for readers; pools and rings that skip rather than wait; no allocation on a warm frame
+lane; immutable snapshots for readers; a file that holds state for the node's next start (its settings, the recovery record, the
+project, the optimise queue, the present fuse, keys and credentials, a run's or a scan's records) is written beside its place,
+reaches the disk, and is renamed into place with the rename flushed (`DurableFile`), while a record it only reports (the journal,
+preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
+pools and rings that skip rather than wait; no allocation on a warm frame
 (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh); a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

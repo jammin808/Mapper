@@ -5,6 +5,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Vision;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -213,7 +214,7 @@ public static class ScanArchive
         var temp = path + ".saving";
         using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
             write(stream);
-        File.Move(temp, path, overwrite: true);
+        DurableFile.MoveIntoPlace(temp, path);
     }
 
     /// <summary>Click-to-surface's inputs from a solved scan and the camera's picture; null without a cloud, a mesh,

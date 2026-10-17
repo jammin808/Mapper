@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PlayMap.Core.Model;
 using PlayMap.Net;
 using PlayMap.Net.Companion;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Companion;
 
@@ -146,7 +147,7 @@ public sealed class ThumbnailService(EngineCore engine, string? folder, ILogger?
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var temp = path + ".tmp";
             File.WriteAllBytes(temp, bytes);
-            File.Move(temp, path, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

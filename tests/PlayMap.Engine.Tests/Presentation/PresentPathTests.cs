@@ -15,9 +15,9 @@ internal sealed class PathRig : IAsyncDisposable
     public readonly EngineCore Engine;
     public readonly PresentNode Node;
 
-    public PathRig(string path = "auto", bool backend = true)
+    public PathRig(string path = "auto", bool backend = true, Action<PresentSettings>? save = null)
     {
-        Node = new PresentNode(PresentSettings.Default with { Path = path }, Saved.Add, new PresentFuse(Folder, () => 1_760_000_123_000));
+        Node = new PresentNode(PresentSettings.Default with { Path = path }, save ?? Saved.Add, new PresentFuse(Folder, () => 1_760_000_123_000));
         var services = EngineServices.ForTests() with { PresentNode = Node };
         if (backend)
             services = services with { Outputs = Outputs };
@@ -56,6 +56,18 @@ internal sealed class PathRig : IAsyncDisposable
 /// a no-op is refused; what is asked is kept on the node and observed in STATE <c>machine.present.asked</c>.</summary>
 public sealed class PresentPathTests
 {
+    /// <summary>A settings file that cannot be written (on Windows, another process reading it makes the replace refused) refuses the
+    /// verb with the words; the node keeps the path it had.</summary>
+    [Fact]
+    public async Task APathTheSettingsFileCannotKeepIsRefusedWithTheWordsAndNothingChanges()
+    {
+        await using var rig = new PathRig(save: _ => throw new UnauthorizedAccessException("Access to the path 'playmap.node.json' is denied."));
+        var r = await rig.Run("PRESENT PATH GL");
+        Assert.Equal((false, "the node's settings could not be written: Access to the path 'playmap.node.json' is denied."), (r.Ok, r.Payload));
+        Assert.Equal("auto", rig.Node.Saved.Path);
+        Assert.Equal("auto", rig.PresentPath().GetProperty("asked").GetString());
+    }
+
     [Fact]
     public async Task AutoIsOpenGlWithWordsAndTheAskedPathIsKeptAndPublished()
     {

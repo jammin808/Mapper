@@ -20,7 +20,10 @@ transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
 A node that has begun to stop takes no more lines, from any source — every transport here (MCP's tools before they
 would queue a line for a person), OSC, a control binding, the assistant, an approval: each is answered `ERR the node
 is stopping — it takes no more lines` and journalled as any refusal of its verb, and a line still waiting for the
-lane is refused the same way (a group's `SHOW ARM|DISARM ALL` then sends the group nothing). The node's own lines
+lane is refused the same way (a group's `SHOW ARM|DISARM ALL` then sends the group nothing), and so is an edit that a line
+answered off the lane still has waiting for it (a device's `ADD` or `REMOVE`, the calibration ledger's accept or fallback):
+nothing it would change lands, and a re-solve that landed before the stop keeps its new pose and, when a re-solved projector blends
+automatically on the live stage, says its blend was not solved again. The node's own lines
 still run — a panic's shutters and effects, sent at the panic's instant while the projector links are open (they
 close last), since a panic put back after a restart takes its shutters as closed — and its last work (the recovery
 record, the journal) is not a line and still happens.
@@ -291,9 +294,15 @@ draft is open), on a view id of its own (docs/SHOW.md). A shown view is leased: 
 view not renewed for 15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the
 node nothing for long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
 every view it shows every 5 s.
-Pictures are BGRA in the shared-memory ring `PreviewRing.PathFor(nodeId, view)`, fitted inside the size asked
+Pictures are BGRA in a shared-memory ring whose file the SHOW reply names — `{"view":"editor","ring":"<path>"}` — and STATE
+`machine.views[]` lists for every view shown (`id`, `what`, `ring`), fitted inside the size asked
 (and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
-at most 30. A view keeps its ring while it lives (a reader opens it once). View ids are file names: letters,
+at most 30. A view keeps its ring while it lives (a reader opens it once). Each ring the node makes is a new file, one generation
+of the view's (`playmap-<node>-<view>~<generation>.preview`): a view shown again after its ring went, or a draft view shown again
+while its last ring retires, writes a ring no reader has mapped, so a reader that still maps the old one keeps its last picture and
+never holds the new one up; generations count up from the engine's start (its wall-clock milliseconds × 1000), so a ring made after a
+restart never takes a name a reader opened before it. A reader opens the file the reply or STATE names, and opens it again when that
+name changes. View ids are file names: letters,
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
 stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
@@ -337,11 +346,11 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
-  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`, `epoch`; `show` — `sound`
+  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `groupLatencyMs`, `latencyMs`, `lock`, `epoch`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage` — `site`, `controls`, `surveys`, `stacks`; `stage.site` — `next` (after `mainsHz`); `stage.projectors[]` — `uncertainty`,
   `priors`, `stack`, `grade`, `quads`; `scan` — `pairing`, `view`,
-  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `machine.present` — after
+  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `views` (each shown view's `id`, `what` and `ring`), `gl` (once the renderer has reported); `machine.present` — after
   output's keys, `asked`, `kept`, `fuse` (`state` clear, armed or blown, `attempt`, `at`), `airLatencyMs`, `latencyWords`; `decode.platform` —
   after decode's keys, `api`, `describe`, `gl`, `zeroCopy`, `direct`, `why`; `decode.platform.blocks` — `arenaWords`; `decode.sources[]` — `device`, `gpuCopies`, `width`, `height`,
   `surfaces`, `vramMb`, `importMsP95`; `decode` — `policy`, `forced`; `project` — `index`.

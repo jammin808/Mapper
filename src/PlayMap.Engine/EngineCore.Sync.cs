@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
@@ -162,7 +163,8 @@ public sealed partial class EngineCore
 /// already on the leader's time line and stays as it is).</item>
 /// <item>With the sync part (<see cref="EngineServices.GroupSync"/>): SYNC LEAD and SYNC FOLLOW keep the role for the next start,
 /// SUBSCRIBE ANCHORS serves the feed, SYNC RECEIPT takes members' receipts, a leader's PANIC, PANIC CLEAR, BLACKOUT and MASTER
-/// reach every member, and STATE's <c>sync</c> gains the group, the feed, the clock's slew and steps and the board's verdict.</item>
+/// reach every member, SYNC LATENCY sets the group's air latency (the leader carries it to every member, each raises its own air to
+/// it), and STATE's <c>sync</c> gains the group, the feed, the clock's slew and steps, the board's verdict and the group's latency.</item>
 /// </list></summary>
 public sealed partial class EngineCore
 {
@@ -184,6 +186,7 @@ public sealed partial class EngineCore
         routes.OffLane("SYNC LEAD", c => sync.LeadAsync(c.Args, c.Ct));
         routes.OffLane("SYNC FOLLOW", c => sync.FollowAsync(c.Args, c.Ct));
         routes.Lane("SYNC RECEIPT", c => sync.Receipt(c.Args, c.Session));
+        routes.Lane("SYNC LATENCY", c => SyncLatency(sync, c.Args));
         routes.Lane("LINK PATTERNS", c => LinkPatternsKept(sync, c));
         routes.Topic("ANCHORS", sync.OpenAnchors);
         AnchorPublished += (playlistId, json) =>
@@ -252,6 +255,49 @@ public sealed partial class EngineCore
         var (verdict, _, words) = SyncVerdict(sync, picture);
         w.WriteString("verdict", verdict);
         w.WriteString("words", words);
+        w.WriteNumber("groupLatencyMs", Math.Round(sync.GroupLatencyMs, 3));
+    }
+
+    /// <summary>The group's air latency written through to this node's outputs: the render host raises the node's air latency to it,
+    /// never lowers it; 0 lets it go.</summary>
+    internal void SetGroupAirLatency(double ms) => PresentBackend?.SetGroupAirLatency(ms);
+
+    /// <summary>SYNC LATENCY AUTO|&lt;ms 0-500&gt;: the group's air latency, kept in the project (<c>settings.syncLatencyMs</c>, −1 = AUTO,
+    /// one undoable edit). The leader carries it to every member on its next watch; a follower's is its leader's, so it refuses with
+    /// the way there. Setting what is set already is refused.</summary>
+    private CommandReply SyncLatency(Sync.SyncNode sync, IReadOnlyList<string> args)
+    {
+        const string Syntax = "SYNC LATENCY AUTO|<ms 0-500>";
+        if (args.Count != 1)
+            return CommandReply.Fail(Syntax);
+        double ms;
+        if (args[0].Equals("AUTO", StringComparison.OrdinalIgnoreCase))
+            ms = -1;
+        // "NaN" and "Infinity" parse whatever the styles: a latency is a finite number of milliseconds.
+        else if (!double.TryParse(args[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out ms) || !double.IsFinite(ms)
+            || ms is < 0 or > Sync.SyncNode.MaxLatencyMs)
+            return CommandReply.Fail(Syntax + " — the latency is 0 to 500 ms, or AUTO");
+        else
+            ms = Math.Round(ms, 3);
+        if (sync.Role == "follower")
+            return CommandReply.Fail($"this node follows {sync.Settings.Leader} in {sync.Settings.Group}: the group's air latency is its leader's — SYNC LATENCY there");
+        var settings = Edits.Project.Settings;
+        string Words(double v) => v < 0 ? "AUTO (the largest output latency any member reports)" : v.ToString("0.###", CultureInfo.InvariantCulture) + " ms";
+        if (settings.SyncLatencyMs == ms || (settings.SyncLatencyMs < 0 && ms < 0))
+            return CommandReply.Fail($"the group's air latency is {Words(ms)} already");
+        var staged = !ReferenceEquals(Edits, Store);
+        var r = Edits.Apply("sync latency " + (ms < 0 ? "auto" : args[0]), p => p with { Settings = p.Settings with { SyncLatencyMs = ms } });
+        if (!r.Changed)
+            return FromEdit(r);
+        if (staged)
+            return CommandReply.Success(effect: $"staged in the blind draft: the group's air latency is {Words(ms)} — carried to the members when the blind draft lands");
+        var group = sync.Leads ? $"; {sync.Settings.Group}'s members take it with the feed's next line" : " — kept for when this node leads a group";
+        // A node never lowers its air below its own slowest display: a stated latency under one the group reports leaves that node late.
+        var (largest, node) = sync.LargestReported();
+        var late = ms >= 0 && largest > ms
+            ? string.Create(CultureInfo.InvariantCulture, $" — below the {largest:0.###} ms display latency {node} reports: that node's outputs stay at their own and light later than the rest")
+            : "";
+        return CommandReply.Success(effect: $"the group's air latency is {Words(ms)}{group}{late}");
     }
 
     partial void ContextSync(List<ContextItem> items, List<ContextLink> links)
@@ -262,6 +308,8 @@ public sealed partial class EngineCore
         var id = "sync:" + group;
         var picture = sync.Picture(IsAnimating);
         var (_, light, words) = SyncVerdict(sync, picture);
+        if (sync.GroupLatencyMs > 0)
+            words += string.Create(CultureInfo.InvariantCulture, $"; the group's air latency {sync.GroupLatencyMs:0.###} ms");
         items.Add(new ContextItem(id, "sync", "Sync " + group, light, words));
         var p = Store.Project;
         // The machine follows the group's clock on a follower; on the leader the group follows the machine.

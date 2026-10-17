@@ -124,6 +124,52 @@ public sealed class BlindRenderTests(ITestOutputHelper log)
         Assert.True(Green(await ViewCentre(rig, "again", Green)));
     }
 
+    /// <summary>A draft view hidden and shown again at once: the draft renderer's ring for the old view still retires while the new
+    /// view's is made in a file of its own (one writer per ring), and the view's own ring is a new file too; the new view shows the
+    /// draft.</summary>
+    [Fact]
+    public async Task ADraftViewShownAgainAtOnceWritesNewRingsWhileTheOldOneRetires()
+    {
+        await using var rig = HostRig.Start(Scene());
+        await rig.Ok("BLIND ON");
+        await rig.Ok("SET cv_main background \"#FF0000\"");
+        await rig.Ok("VIEW draft CAMERA " + Eye());
+        await rig.Ok("VIEW draft SHOW editor DRAFT");
+        await ViewCentre(rig, "draft", Red);
+        var first = rig.Engine.Previews.RingPath("draft");
+        var privateRings = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-{rig.Engine.Services.Settings.NodeId}-draft~draft~*.preview");
+        string[] Private() => Directory.GetFiles(Path.GetDirectoryName(privateRings)!, Path.GetFileName(privateRings));
+        var firstPrivate = Assert.Single(Private());
+
+        // The render thread is held, so the old view's ring cannot retire before the new one is made: hidden and shown within a frame.
+        using var hold = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = rig.Host.InvokeAsync(_ =>
+        {
+            entered.SetResult();
+            return hold.Wait(HostRig.Patience);
+        });
+        await entered.Task;
+        try
+        {
+            await rig.Ok("VIEW draft HIDE");
+            await rig.Ok("VIEW draft SHOW editor DRAFT");
+            var second = rig.Engine.Previews.RingPath("draft");
+            Assert.NotEqual(first, second);
+            // The new view's own ring is a file of its own, made while the old one still retires (the draft renderer may yet
+            // deliver a read into it): never the same file. (The old file's name may be gone already — unlinked under its maps on
+            // Linux — or kept while mapped on Windows.)
+            var rings = Private();
+            Assert.Contains(rings, r => r != firstPrivate);
+        }
+        finally
+        {
+            hold.Set();
+        }
+        Assert.True(await held);
+        await ViewCentre(rig, "draft", Red);
+    }
+
     [Fact]
     public async Task ACommitAtTheNextSwitchChangesTheOutputOnTheSwitchFrame()
     {

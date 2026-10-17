@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Presentation;
 
@@ -36,12 +37,13 @@ public sealed class PresentFuse(string folder, Func<long> unixMs)
         }
     }
 
-    /// <summary>Writes the fuse before a start of <paramref name="path"/>: one attempt more than the fuse already held.</summary>
+    /// <summary>Writes the fuse before a start of <paramref name="path"/>: one attempt more than the fuse already held. It is on the disk
+    /// before the start begins, so a start that hangs the machine until its power is cut still finds it at the next start.</summary>
     public FuseState Arm(string path)
     {
         var next = new FuseState(path, (Read()?.Attempt ?? 0) + 1, unixMs());
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, string.Create(CultureInfo.InvariantCulture,
+        DurableFile.WriteAllText(FilePath, string.Create(CultureInfo.InvariantCulture,
             $$"""{"path":"{{next.Path}}","attempt":{{next.Attempt}},"at":{{next.AtUnixMs}}}"""));
         return next;
     }

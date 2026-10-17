@@ -10,6 +10,7 @@ using PlayMap.Core.Model;
 using PlayMap.Engine.Host;
 using PlayMap.Media;
 using PlayMap.Media.Optimise;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Optimise;
 
@@ -755,7 +756,7 @@ public sealed class OptimiseService : IAsyncDisposable
             var dest = media?.StorePath(hash, ".mov") ?? Path.Combine(_home.MediaStore, hash["sha256:".Length..] + ".mov");
             if (!Verifying(job.Id))
                 return;   // cancelled while it was hashed: nothing is recorded
-            File.Move(partial, dest, overwrite: true);
+            DurableFile.MoveIntoPlace(partial, dest);
             media?.AddVerified(hash, dest, job.Name + " (" + job.To + ").mov");
             await RecordStepAsync(new Ready(job, hash, size, probe.Info, q, e.Audio, _encoder));
         }

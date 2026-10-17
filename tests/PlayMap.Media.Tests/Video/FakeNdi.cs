@@ -1,6 +1,7 @@
-using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using PlayMap.Media.Video.Ndi;
 
 namespace PlayMap.Media.Tests.Video;
 
@@ -25,7 +26,8 @@ internal struct FakeNdiStats
 }
 
 /// <summary>PlayMap's own test double of the NDI runtime (tests/native/fake_ndi.c, its layouts transcribed from NDI's MIT-licensed
-/// headers), compiled here with cc into libndi.so.6 — once per source version, into a folder of the temp directory — and driven through
+/// headers), compiled here into the runtime's file name — libndi.so.6 with cc on Linux, Processing.NDI.Lib.x64.dll with the runner's
+/// clang on Windows (<see cref="NativeBuild"/>) — once per source version, into a folder of the temp directory, and driven through
 /// its fake_ndi_* exports. Two copies are built in two folders, each its own library with its own state: one stays at its default
 /// version (6.3), the other is told it is 6.2 before PlayMap loads it. No NDI binary is involved.</summary>
 internal static unsafe class FakeNdi
@@ -37,44 +39,34 @@ internal static unsafe class FakeNdi
     public static string Why => Built.Value.Why;
 
     /// <summary>The folder of the 6.3 copy.</summary>
-    public static string Folder63 => Path.Combine(Dir!, "v63");
+    public static string Folder63 => Path.Combine(Built.Value.Dir ?? throw new InvalidOperationException(Why), "v63");
 
     /// <summary>The folder of the copy that says 6.2.</summary>
-    public static string Folder62 => Path.Combine(Dir!, "v62");
+    public static string Folder62 => Path.Combine(Built.Value.Dir ?? throw new InvalidOperationException(Why), "v62");
 
-    public static string Lib(string folder) => Path.Combine(folder, "libndi.so.6");
+    public static string Lib(string folder) => Path.Combine(folder, NdiRuntime.FileName);
 
     private static (string? Dir, string Why) BuildOnce()
     {
-        if (!OperatingSystem.IsLinux())
-            return (null, "the fake NDI runtime is built with cc as libndi.so.6 on Linux");
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
+            return (null, "the fake NDI runtime is built on Linux (cc) and Windows (clang)");
         var source = Path.Combine(VmxBuild.RepoRoot(), "tests", "native", "fake_ndi.c");
         var hash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(source)))[..12];
         var dir = Path.Combine(Path.GetTempPath(), "playmap-fakendi-" + hash);
         foreach (var v in new[] { "v63", "v62" })
         {
             var folder = Path.Combine(dir, v);
-            var lib = Path.Combine(folder, "libndi.so.6");
+            var lib = Lib(folder);
             if (File.Exists(lib))
                 continue;
             Directory.CreateDirectory(folder);
-            var partial = lib + "." + Environment.ProcessId;
-            var start = new ProcessStartInfo("cc") { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false };
-            foreach (var a in new[] { "-O1", "-std=c11", "-Wall", "-fPIC", "-shared", "-pthread", source, "-o", partial })
-                start.ArgumentList.Add(a);
-            try
-            {
-                using var p = Process.Start(start)!;
-                var err = p.StandardError.ReadToEnd();
-                p.StandardOutput.ReadToEnd();
-                p.WaitForExit();
-                if (p.ExitCode != 0)
-                    return (null, "cc could not build the fake NDI runtime: " + err);
-            }
-            catch (System.ComponentModel.Win32Exception ex)
-            {
-                return (null, "cc is not on this machine, so the fake NDI runtime cannot be built: " + ex.Message);
-            }
+            // Built under a name of its own, then moved: another test process building the same source never loads half a file.
+            var partial = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"building-{Environment.ProcessId}-{NdiRuntime.FileName}"));
+            string[] args = OperatingSystem.IsWindows()
+                ? ["-O1", "-std=c11", "-Wall", "-shared", source, "-o", partial]
+                : ["-O1", "-std=c11", "-Wall", "-fPIC", "-shared", "-pthread", source, "-o", partial];
+            if (NativeBuild.Run(NativeBuild.C, args, partial, "the fake NDI runtime") is { Length: > 0 } why)
+                return (null, why);
             File.Move(partial, lib, overwrite: true);
         }
         return (dir, "");
@@ -190,7 +182,8 @@ internal sealed class NdiFactAttribute : FactAttribute
 {
     public NdiFactAttribute()
     {
-        if (FakeNdi.Dir is null)
+        // Where the doubles are required (the CI jobs) a runtime that would not build fails each test with the words instead.
+        if (FakeNdi.Dir is null && !NativeBuild.Required)
             Skip = FakeNdi.Why;
     }
 }

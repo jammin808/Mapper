@@ -627,16 +627,44 @@ public sealed partial class EngineCore
             _panicLinesDue.RemoveAt(i);
             SendSystemLine(due.Text, due.Key);
         }
-        if (!_returns.IsEmpty && _returns.Any(r => r.Settled(now)))
+        if (!_returns.IsEmpty && AnyReturnSettled(now))
         {
-            _returns = [.. _returns.Where(r => !r.Settled(now))];
+            DropSettledReturns(now);
             RebuildLevels();
             FactsChanged();
         }
-        var settled = _air.Master.Settled(now) && (_air.Panic?.Outputs.All(o => now >= PanicMath.SettlesAt(o)) ?? true) && _returns.IsEmpty;
+        var settled = _air.Master.Settled(now) && PanicSettled(_air.Panic, now) && _returns.IsEmpty;
         if (settled && !_airSettledNoted)
             FactsChanged();
         _airSettledNoted = settled;
+    }
+
+    // The tick's checks are loops, and the one filter that needs a closure has a method of its own: a lambda capturing the tick's
+    // instant in TickPanic would be allocated at its entry by an optimised build, on every tick of the lane.
+
+    private bool AnyReturnSettled(long now)
+    {
+        foreach (var r in _returns)
+        {
+            if (r.Settled(now))
+                return true;
+        }
+        return false;
+    }
+
+    private void DropSettledReturns(long now) => _returns = [.. _returns.Where(r => !r.Settled(now))];
+
+    /// <summary>True when no panic is up, or every output of the one up has reached its outcome.</summary>
+    private static bool PanicSettled(PanicAir? panic, long now)
+    {
+        if (panic is null)
+            return true;
+        foreach (var o in panic.Outputs)
+        {
+            if (now < PanicMath.SettlesAt(o))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>Builds the render thread's levels from the air now (null when nothing differs from full).</summary>

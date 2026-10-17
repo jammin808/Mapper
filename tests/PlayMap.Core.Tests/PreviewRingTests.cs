@@ -28,6 +28,41 @@ public class PreviewRingTests
         Assert.False(writer.Write(new byte[100 * 100 * 4], 100, 100, 400, 0));
     }
 
+    /// <summary>One ring per file: a writer makes its file new and never opens one that is there (an earlier ring a reader may still
+    /// map), which stays as it was.</summary>
+    [Fact]
+    public void AWriterNeverOpensAFileThatIsThere()
+    {
+        var path = PreviewRing.PathFor("test", $"{Guid.NewGuid():N}", 1);
+        Assert.EndsWith("~1.preview", path, StringComparison.Ordinal);
+        File.WriteAllBytes(path, [1, 2, 3]);
+        try
+        {
+            Assert.Throws<IOException>(() =>
+            {
+                using var writer = new PreviewRingWriter(path, 8, 8);
+            });
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>A ring that cannot be made (here larger than any disk or address space) leaves no file behind: a writer that
+    /// failed never fills the folder with files no one maps.</summary>
+    [Fact]
+    public void AWriterThatCannotMakeItsRingLeavesNoFile()
+    {
+        var path = PreviewRing.PathFor("test", $"{Guid.NewGuid():N}", 1);
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            using var writer = new PreviewRingWriter(path, 1 << 29, 1 << 29);
+        });
+        Assert.False(File.Exists(path));
+    }
+
     [Fact]
     public void RepliesParseWithAndWithoutAnId()
     {

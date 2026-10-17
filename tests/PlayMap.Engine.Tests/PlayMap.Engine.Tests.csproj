@@ -44,6 +44,7 @@
   <!-- OMT's codec built for the tests from the vendored source, shared with the media tests rather than copied. -->
   <ItemGroup Label="wp2-videoio">
     <Compile Include="..\PlayMap.Media.Tests\Video\VmxBuild.cs" Link="VideoIo\VmxBuild.cs" />
+    <Compile Include="..\PlayMap.Media.Tests\Video\NativeBuild.cs" Link="VideoIo\NativeBuild.cs" />
   </ItemGroup>
 
   <!-- The survey files the facade's import is tested on, written by the same writers the readers are tested against. -->

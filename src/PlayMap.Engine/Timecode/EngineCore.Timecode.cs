@@ -73,16 +73,7 @@ public sealed partial class EngineCore
         var shown = Store.Current;
         var p = shown.Project;
         if (!ReferenceEquals(p, _timecodeProject))
-        {
-            _timecodeProject = p;
-            TimecodeSources.Reconcile(shown);
-            foreach (var gone in _chases.Keys.Where(k => p.FindPlaylist(k)?.Chase is null).ToList())
-            {
-                _chases.Remove(gone);
-                if (p.FindPlaylist(gone) is { } released)
-                    Playback.Guard(released, null, leaderNs);
-            }
-        }
+            ReconcileTimecode(shown, leaderNs);
         var mono = Services.Mono.NowNs;
         if (p.Playlists.Any(l => l.Chase is not null) || _chases.Count > 0)
         {
@@ -98,6 +89,22 @@ public sealed partial class EngineCore
             _chaseViews = views.ToImmutable();
         }
         PublishTimecodeFacts(p, mono);
+    }
+
+    /// <summary>The project moved: the sources follow it, and a chase whose playlist no longer chases lets its playlist go. Its own
+    /// method: the filter's closure (it captures the project) is made only when the project moved. Written in
+    /// <see cref="TickTimecode"/>, an optimised build would allocate it at the method's entry, on every tick.</summary>
+    private void ReconcileTimecode(ProjectSnapshot shown, long leaderNs)
+    {
+        var p = shown.Project;
+        _timecodeProject = p;
+        TimecodeSources.Reconcile(shown);
+        foreach (var gone in _chases.Keys.Where(k => p.FindPlaylist(k)?.Chase is null).ToList())
+        {
+            _chases.Remove(gone);
+            if (p.FindPlaylist(gone) is { } released)
+                Playback.Guard(released, null, leaderNs);
+        }
     }
 
     /// <summary>A source's or a chase's state, format or words changed: STATE's revision moves. A source's frame or a chase's code

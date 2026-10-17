@@ -35,9 +35,9 @@ public sealed partial class EngineCore
                     w.WriteEndArray();
                 }));
             case "DEVICE ADD":
-                return await _lane.RunAsync(() => EditsInto(session, () => DeviceAdd(args))).ConfigureAwait(false);
+                return await _lane.RunAsync(() => EditsInto(session, () => DeviceAdd(args), StoppedReply)).ConfigureAwait(false);
             case "DEVICE REMOVE":
-                return await _lane.RunAsync(() => EditsInto(session, () => DeviceRemove(args))).ConfigureAwait(false);
+                return await _lane.RunAsync(() => EditsInto(session, () => DeviceRemove(args), StoppedReply)).ConfigureAwait(false);
             case "DEVICE DISCOVER":
                 return await DeviceDiscoverAsync(args, ct).ConfigureAwait(false);
             default:

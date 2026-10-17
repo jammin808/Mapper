@@ -9,8 +9,10 @@ public readonly record struct PreviewFrameInfo(int Width, int Height, int Stride
 /// <summary>Preview pictures from the engine to the desk across the process boundary: a file-backed memory
 /// map with three BGRA slots and a seqlock per slot. The
 /// writer never waits for the reader (it writes the slot after the one last published); the reader copies the
-/// newest complete slot and retries when the writer lapped it mid-copy. One writer per ring. The file lives in a
-/// folder only this user can write.</summary>
+/// newest complete slot and retries when the writer lapped it mid-copy. One writer per ring, and one ring per file: a writer
+/// makes its file new and never opens one that exists, so it never meets a reader of an earlier ring (the node names each ring
+/// it makes with a generation of its own, <see cref="PathFor(string, string, long)"/>, and says the path to its reader). The file
+/// lives in a folder only this user can write.</summary>
 public static class PreviewRing
 {
     public const int Magic = 0x504D5052; // "PMPR"
@@ -30,9 +32,14 @@ public static class PreviewRing
         return folder;
     }
 
-    /// <summary>The ring's file for an engine and a view ("playmap-&lt;node&gt;-&lt;view&gt;.preview").</summary>
+    /// <summary>A ring's file for an engine and a name ("playmap-&lt;node&gt;-&lt;name&gt;.preview").</summary>
     public static string PathFor(string nodeId, string viewId) =>
         Path.Combine(DefaultFolder(), $"playmap-{nodeId}-{viewId}.preview");
+
+    /// <summary>The file of one generation of a view's ring ("playmap-&lt;node&gt;-&lt;view&gt;~&lt;generation&gt;.preview"; '~' is
+    /// no view id's character, so no two views' rings share a name).</summary>
+    public static string PathFor(string nodeId, string viewId, long generation) =>
+        PathFor(nodeId, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{viewId}~{generation}"));
 
     public static long SlotBytes(int maxWidth, int maxHeight) => SlotHeaderBytes + (long)maxWidth * maxHeight * 4;
 
@@ -48,6 +55,8 @@ public sealed class PreviewRingWriter : IDisposable
     private int _next;
     private long _sequence;
 
+    /// <summary>Makes the ring's file at <paramref name="path"/>; an <see cref="IOException"/> when a file is there already (an
+    /// earlier ring's, which a reader may still map: it is never truncated under it).</summary>
     public PreviewRingWriter(string path, int maxWidth, int maxHeight)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxWidth, 1);
@@ -59,7 +68,7 @@ public sealed class PreviewRingWriter : IDisposable
         var bytes = PreviewRing.FileBytes(maxWidth, maxHeight);
         // The map is made from this stream, not by reopening the path: a reopen shares the file for reading only, and on
         // Windows that refuses every reader (they open it read-write).
-        var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        var file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
         try
         {
             file.SetLength(bytes);
@@ -67,10 +76,21 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch
         {
+            // The file is this writer's own (made new above): a ring that could not be made leaves none behind (a full disk).
             file.Dispose();
+            File.Delete(path);
             throw;
         }
-        _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        try
+        {
+            _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        }
+        catch
+        {
+            _map.Dispose();
+            File.Delete(path);
+            throw;
+        }
         _view.Write(4, maxWidth);
         _view.Write(8, maxHeight);
         _view.Write(12, PreviewRing.Slots);
@@ -130,11 +150,11 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch (IOException)
         {
-            // A reader still holding the map on Windows keeps the file; it is recreated on the next run.
+            // A reader still holding the map on Windows keeps the file until it lets go; no later ring takes its name.
         }
         catch (UnauthorizedAccessException)
         {
-            // As above: the file is reused, not leaked across runs.
+            // As above.
         }
     }
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Optimise;
 
@@ -81,9 +82,8 @@ internal sealed class JobStore(string folder, ILogger log)
             using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 JsonSerializer.Serialize(file, jobs, Json);
-                file.Flush(flushToDisk: true);
             }
-            File.Move(temp, Path, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, Path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

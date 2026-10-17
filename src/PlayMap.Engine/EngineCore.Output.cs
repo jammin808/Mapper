@@ -69,7 +69,17 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"PRESENT PATH is already {word.ToUpperInvariant()} (from the render host's next start)");
         var cleared = false;
         if (current != word)
-            node.Save(saved with { Path = word });
+        {
+            try
+            {
+                node.Save(saved with { Path = word });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Nothing changed: the node keeps the path it had (another process reading the file can make Windows refuse a replace).
+                return CommandReply.Fail("the node's settings could not be written: " + ex.Message);
+            }
+        }
         // Any path asked lets a blown fuse go: DXGI tries again, GL and AUTO no longer need it.
         if (blown is not null)
         {
@@ -467,6 +477,31 @@ public sealed partial class EngineCore
     }
 
     partial void MachineOutput(Utf8JsonWriter w)
+    {
+        WritePresent(w);
+        WriteViews(w);
+    }
+
+    /// <summary><c>machine.views</c>: every preview view shown now, by id, with what it shows and the file of the ring its reader
+    /// opens (a ring made again is a new file: a reader opens the one named here).</summary>
+    private void WriteViews(Utf8JsonWriter w)
+    {
+        w.WriteStartArray("views");
+        if (_previews is { } previews)
+        {
+            foreach (var (id, request) in previews.Shown().OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                w.WriteStartObject();
+                w.WriteString("id", id);
+                w.WriteString("what", request.What);
+                w.WriteString("ring", previews.RingOf(id) ?? "");
+                w.WriteEndObject();
+            }
+        }
+        w.WriteEndArray();
+    }
+
+    private void WritePresent(Utf8JsonWriter w)
     {
         if (PresentBackend is not { } backend)
         {

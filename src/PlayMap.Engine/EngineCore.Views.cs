@@ -9,7 +9,8 @@ using ProjectFile = PlayMap.Core.Model.ProjectJson;
 namespace PlayMap.Engine;
 
 /// <summary>The VIEW verb: the preview views the desk (or any paired peer on this machine) asks for. A view's
-/// pictures go to its shared-memory ring (<see cref="PreviewViews.RingPath"/>); the render host draws the
+/// pictures go to its shared-memory ring, whose file the SHOW reply names (<c>{"view","ring"}</c>; STATE
+/// <c>machine.views</c> lists every shown view's); the render host draws the
 /// editor, outputs and projectors, the scan side's feeds draw cameras and scans. Refusals are cheap and say
 /// why — the desk asks quietly and draws its own stand-in for a view the node cannot give.</summary>
 public sealed partial class EngineCore
@@ -24,7 +25,15 @@ public sealed partial class EngineCore
     private PreviewViews? _previews;
 
     /// <summary>The node's preview views: the render host attaches to it, the scan side registers its feeds.</summary>
-    public PreviewViews Previews => LazyInitializer.EnsureInitialized(ref _previews, () => new PreviewViews(Services.Settings.NodeId, Services.Mono));
+    public PreviewViews Previews => LazyInitializer.EnsureInitialized(ref _previews, MakePreviews);
+
+    /// <summary>The views, their changes moving STATE (<c>machine.views</c> names each shown view's ring).</summary>
+    private PreviewViews MakePreviews()
+    {
+        var previews = new PreviewViews(Services.Settings.NodeId, Services.Mono, Math.Max(1, Services.Wall.UnixMs) * 1000);
+        previews.Changed += FactsChanged;
+        return previews;
+    }
 
     /// <summary>On the lane's tick: views whose viewer stopped renewing them are hidden (once a second at most).</summary>
     private void ExpireViews()
@@ -71,7 +80,13 @@ public sealed partial class EngineCore
                 }
                 return Previews.Show(request) is { } notShown
                     ? CommandReply.Fail(notShown)
-                    : CommandReply.Success(effect: $"{view} shows {request.What} at most {request.Width}×{request.Height}");
+                    : CommandReply.Success(JsonOut(w =>
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("view", view);
+                        w.WriteString("ring", Previews.RingOf(view) ?? "");
+                        w.WriteEndObject();
+                    }), $"{view} shows {request.What} at most {request.Width}×{request.Height}");
             }
             case "CAMERA":
             {

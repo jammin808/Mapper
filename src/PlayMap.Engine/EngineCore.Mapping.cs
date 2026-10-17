@@ -5,6 +5,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine;
 
@@ -158,7 +159,7 @@ public sealed partial class EngineCore
         string hash;
         using (var read = File.OpenRead(temp))
             hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(read));
-        File.Move(temp, full, overwrite: true);
+        DurableFile.MoveIntoPlace(temp, full);
         return new MeshAsset(meshId, "Scan mesh — " + scan.Name, MeshOrigin.Scanned, relative, hash, "", ParamSet.Empty, mesh.VertexCount, mesh.TriangleCount);
     }
 
