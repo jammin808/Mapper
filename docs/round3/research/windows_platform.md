@@ -111,7 +111,7 @@ For a render/decode engine, the GC strategy that matters is "don't allocate on t
 - Media read path today: sequential, large reads with `FileOptions.SequentialScan` + async I/O; unbuffered I/O (`FILE_FLAG_NO_BUFFERING`, sector-aligned buffers) only if measured page-cache pressure appears on multi-stream 8K playback.
 
 ### Gaps
-- Primary documentation for `FILE_FLAG_NO_BUFFERING` alignment rules and .NET's lack of a `FileOptions.NoBuffering` value was not retrieved in this pass.
+- Primary documentation for `FILE_FLAG_NO_BUFFERING` alignment rules and .NET's lack of a `FileOptions.NoBuffering` value was not retrieved.
 - `VirtualLock` / `SetProcessWorkingSetSizeEx` (working-set locking) semantics and quotas not retrieved.
 - `GC.TryStartNoGCRegion` limits (size cap relative to segment/region size in .NET 7+ regions GC) not retrieved.
 - Whether DATAS applies only under Server GC is implied but not stated verbatim in the DATAS page read.
@@ -298,6 +298,6 @@ Use one source of truth (git: `version.json` with Nerdbank.GitVersioning, or tag
 
 ### Gaps
 - Primary Microsoft doc for the Win32 `VS_FIXEDFILEINFO` 16-bit-per-part limit was not retrieved (the 65535 cap is evidenced here via MSIX DotQuad limits and NB.GV's UInt16 encoding).
-- GitVersion (current major version, GitFlow/GitHub-flow modes, .NET 10 support) was not researched in this pass.
-- Deterministic/reproducible builds (`Deterministic`, `ContinuousIntegrationBuild`, `PathMap`, embedded PDB/Source Link verification) were not retrieved from primary sources in this pass.
+- GitVersion (current major version, GitFlow/GitHub-flow modes, .NET 10 support) was not researched.
+- Deterministic/reproducible builds (`Deterministic`, `ContinuousIntegrationBuild`, `PathMap`, embedded PDB/Source Link verification) were not retrieved from primary sources.
 - Whether NB.GV and the SDK's automatic `SourceRevisionId` double-append the SHA to InformationalVersion when combined was not verified.

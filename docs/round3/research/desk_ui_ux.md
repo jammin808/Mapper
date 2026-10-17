@@ -9,7 +9,7 @@ Stay on Avalonia 12.x. It is current (12.0 in April 2026, 12.1 in July 2026, and
 
 ### Cited Findings
 **Avalonia (current choice)**
-- The PlayMap desk references Avalonia, Avalonia.Desktop and Avalonia.Themes.Fluent at version 12.1.4 — [PlayMap.App.csproj](/home/user/mapper/src/PlayMap.App/PlayMap.App.csproj)
+- The PlayMap desk references Avalonia, Avalonia.Desktop and Avalonia.Themes.Fluent at version 12.1.4 — [PlayMap.App.csproj](../../../src/PlayMap.App/PlayMap.App.csproj)
 - Avalonia 12 announced 2026-04-07. It targets .NET 10 and SkiaSharp 3.0, removed Direct2D1, deleted BinaryFormatter use and enabled warnings-as-errors. On Windows it stops DXGI from intercepting Alt+Enter and PrintScreen and adds a WinForms message filter for hybrid apps — [Avalonia blog: Avalonia 12](https://avaloniaui.net/blog/avalonia-12)
 - Direct2D1 backend removed in 12: "The Skia backend is now the recommended rendering backend for all usages" — [Avalonia 12 breaking changes](https://docs.avaloniaui.net/docs/avalonia12-breaking-changes)
 - 12.0 changelog includes "Composition system SP1" (#20497, 2026-02-06), "Use Silk.NET in GpuInterop sample", "Fixes accumulated glitches in GpuInterop demo" and a Vulkan-backend RenderTarget fix (2026-03-20) — [Avalonia 12.0.0 release](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.0.0); [compare 11.3.13...12.0.0](https://github.com/AvaloniaUI/Avalonia/compare/11.3.13...12.0.0)
@@ -149,10 +149,10 @@ The current path makes about four full-frame copies per view per frame; this pat
 
 ### Cited Findings
 **Current PlayMap path**
-- Previews are rendered to targets in the engine and "read back asynchronously (PBO ring) into the preview shared memory" — [docs/ARCHITECTURE.md §8](/home/user/mapper/docs/ARCHITECTURE.md)
-- The preview ring is a file-backed memory map with three BGRA slots and a per-slot seqlock. The writer never waits for the reader — [PreviewRing.cs](/home/user/mapper/src/PlayMap.Core/Media/PreviewRing.cs)
-- The desk reader copies the newest slot into a `byte[]`, then copies it row by row into an Avalonia `WriteableBitmap` with `Marshal.Copy`. It polls the ring and re-probes it at most once a second — [PreviewSource.cs](/home/user/mapper/src/PlayMap.App/Controls/PreviewSource.cs)
-- `IPreviewSource` / `PreviewFeeds.Resolve` is already a seam: the integrator can substitute other feeds, such as remote JPEG — [PreviewSource.cs](/home/user/mapper/src/PlayMap.App/Controls/PreviewSource.cs)
+- Previews are rendered to targets in the engine and "read back asynchronously (PBO ring) into the preview shared memory" — [docs/ARCHITECTURE.md §8](../../ARCHITECTURE.md)
+- The preview ring is a file-backed memory map with three BGRA slots and a per-slot seqlock. The writer never waits for the reader — [PreviewRing.cs](../../../src/PlayMap.Core/Media/PreviewRing.cs)
+- The desk reader copies the newest slot into a `byte[]`, then copies it row by row into an Avalonia `WriteableBitmap` with `Marshal.Copy`. It polls the ring and re-probes it at most once a second — [PreviewSource.cs](../../../src/PlayMap.App/Controls/PreviewSource.cs)
+- `IPreviewSource` / `PreviewFeeds.Resolve` is already a seam: the integrator can substitute other feeds, such as remote JPEG — [PreviewSource.cs](../../../src/PlayMap.App/Controls/PreviewSource.cs)
 - Measured cost of a CPU staging readback (SpoutDX source comments): "One texture — approx 7–12 msec at 1920x1080; Two textures — approx 2.5–3.5 msec at 1920x1080" — [SpoutDX.cpp](https://github.com/leadedge/SpoutCam/blob/dc6eec6e67802fa8c123be53d6972845e3f148d3/SpoutDX/source/SpoutDX.cpp)
 - Spout's GPU path is quoted at ~0.45 ms for 4K60, against ~5–7 ms for the CPU fallback at 4K. This comes from an AI-generated wiki of the repo and is unverified secondary material — [DeepWiki: Spout2 architecture](https://deepwiki.com/leadedge/Spout2/2-architecture)
 - Avalonia 12.1 made creating bitmaps from pixels "several times faster" (#21675) — [Avalonia 12.1 blog](https://avaloniaui.net/blog/release-12-1)
@@ -363,7 +363,7 @@ Avalonia 12.1's compositor (fewer allocations, faster hit-testing, refresh-rate-
 - Perceived latency from the repo's own UX paper, both touch studies:
   - Users notice drag latency at about 11 ms and tap latency at about 69 ms on direct touch; about 55 ms and 96 ms on indirect input — [Deber et al., CHI 2015](https://dl.acm.org/doi/10.1145/2702123.2702300)
   - The most sensitive users noticed drag latency at about 2 ms — [Ng et al., UIST 2012](https://dl.acm.org/doi/10.1145/2380116.2380174)
-  - Both as summarised in [docs/UX.md](/home/user/mapper/docs/UX.md)
+  - Both as summarised in [docs/UX.md](../../UX.md)
 - Avalonia 12.1 compositor work:
   - Render-data serialization rewritten, "greatly reducing memory allocations and, consequently, garbage collector pauses, leading to smoother frame times" (#21366)
   - Hit-testing with many visuals sped up "several hundredfold in extreme cases" (#21310)

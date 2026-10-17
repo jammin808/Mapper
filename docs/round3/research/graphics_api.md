@@ -1,6 +1,6 @@
 # Primary graphics API for a Windows-only pro media server / projection-mapping renderer: OpenGL 4.6 vs Vulkan 1.4 vs Direct3D 12 (state as of October 2026)
 
-Scope: Windows 11 (and Windows 10 22H2 where still relevant), x64, NVIDIA RTX / RTX PRO, AMD Radeon / Radeon PRO, Intel Arc. PlayMap today: .NET 10 engine with an OpenGL 3.3 core / GLES 3.0 renderer (Silk.NET + GLFW), an experimental D3D11 flip-model path through ANGLE, FFmpeg decode (D3D11VA slices copied once through ANGLE), Spout over its own D3D11 device, ISF effect chains translated to GLSL — see [docs/ARCHITECTURE.md](/home/user/mapper/docs/ARCHITECTURE.md). Framelock is covered by another researcher; presentation is covered here only enough to compare the APIs.
+Scope: Windows 11 (and Windows 10 22H2 where still relevant), x64, NVIDIA RTX / RTX PRO, AMD Radeon / Radeon PRO, Intel Arc. PlayMap today: .NET 10 engine with an OpenGL 3.3 core / GLES 3.0 renderer (Silk.NET + GLFW), an experimental D3D11 flip-model path through ANGLE, FFmpeg decode (D3D11VA slices copied once through ANGLE), Spout over its own D3D11 device, ISF effect chains translated to GLSL — see [docs/ARCHITECTURE.md](../../ARCHITECTURE.md). Framelock has its own note (`framelock_presentation.md`); presentation is covered here only enough to compare the APIs.
 
 ## 1. Driver quality, vendor investment and stability on Windows (NVIDIA, AMD, Intel)
 
@@ -30,9 +30,9 @@ All three vendors now ship conformant Vulkan 1.4 drivers and current D3D12 (Agil
 
 ### Gaps
 - No primary source quantifies GPU crash/TDR rates per API per vendor. The evidence above is release notes plus user and issue-tracker reports.
-- I found no 2025–2026 public NVIDIA statement on its OpenGL roadmap for Windows. NVIDIA still supports OpenGL 4.2–4.6 in its tools (section 5).
-- I did not re-source the Windows 10 end-of-support date in this pass.
-- Whether AMD has formally moved RDNA 1/2 to a maintenance branch is supported only by the user comment in DXVK #5332. I found no AMD primary statement.
+- No 2025–2026 public NVIDIA statement was found on its OpenGL roadmap for Windows. NVIDIA still supports OpenGL 4.2–4.6 in its tools (section 5).
+- The Windows 10 end-of-support date is taken from the Windows platform note, not sourced again here.
+- Whether AMD has formally moved RDNA 1/2 to a maintenance branch is supported only by the user comment in DXVK #5332. No AMD primary statement was found.
 
 ## 2. Feature reach: what each API can express on 2026 hardware
 
@@ -57,13 +57,13 @@ D3D12 and Vulkan both cover the modern feature set: bindless, mesh shaders, ray 
 - In 2019 Notch built its ray tracer on DirectX 11 compute rather than DXR, citing "the lack of support for DirectX 12 … in current media servers" (historical) — [CG Channel (Feb 2019)](https://www.cgchannel.com/2019/02/sneak-peek-real-time-ray-tracing-in-notch-builder/)
 
 ### Inferences
-- What OpenGL cannot do on Windows, beyond the items sourced above (background knowledge, not re-verified this pass): no hardware ray tracing in core, no work graphs, no sampler feedback, no explicit multi-queue or async compute, no explicit memory heaps or ReBAR placement, no video decode/encode engine access, no HDR/flip-model swapchain without driver layering, and no multithreaded command recording. Mesh shaders and bindless exist only as vendor or ARB extensions, not core.
+- What OpenGL cannot do on Windows, beyond the items sourced above (background knowledge, not re-verified here): no hardware ray tracing in core, no work graphs, no sampler feedback, no explicit multi-queue or async compute, no explicit memory heaps or ReBAR placement, no video decode/encode engine access, no HDR/flip-model swapchain without driver layering, and no multithreaded command recording. Mesh shaders and bindless exist only as vendor or ARB extensions, not core.
 - For PlayMap's workload (many video layers, warps/blends, ISF chains, 3D projection, network packing on the GPU, 10/12-bit output), the features that change outcomes are: async copy queues (uploads and readbacks off the render queue), timeline fences shared with decode and encode engines, HDR/10-bit flip-model output, and GPU upload heaps or ReBAR for per-frame data. Both D3D12 and Vulkan have all of these. Work graphs and SER are optional extras.
 - The descriptor models are converging. D3D12's heap model has been stable since SM 6.6. Vulkan's equivalent (descriptor_heap) is brand-new as an EXT in 2026, so Vulkan bindless code written now may migrate once more when the KHR lands.
 
 ### Gaps
 - Per-vendor Windows support for VK_EXT_descriptor_heap as of Oct 2026 was not found.
-- I did not find a per-vendor matrix for Vulkan SER or opacity-micromap equivalents on Windows.
+- No per-vendor matrix was found for Vulkan SER or opacity-micromap equivalents on Windows.
 - GL_ARB_bindless_texture and GL_NV_mesh_shader availability per vendor on Windows were not verified.
 
 ## 3. Presentation and latency facilities (comparison level only)
@@ -87,8 +87,8 @@ D3D12 sits directly on DXGI's flip model (DirectFlip, independent flip, MPO, wai
 - PlayMap's experimental "D3D11 flip model through ANGLE" exists because GL cannot do this natively on Windows. A D3D12 renderer removes the ANGLE indirection and keeps the same DXGI semantics.
 
 ### Gaps
-- I found no source on AMD's or Intel's Windows Vulkan WSI implementation (DXGI-layered or not), or on their VK_EXT_present_timing plans.
-- I found no source confirming that the composition swapchain API accepts D3D12-allocated buffers (the docs discuss D3D11 surfaces). It needs verification before relying on it from D3D12.
+- No source was found on AMD's or Intel's Windows Vulkan WSI implementation (DXGI-layered or not), or on their VK_EXT_present_timing plans.
+- No source was found confirming that the composition swapchain API accepts D3D12-allocated buffers (the docs discuss D3D11 surfaces). It needs verification before relying on it from D3D12.
 - VK_EXT_present_mode_fifo_latest_ready and VK_NV_low_latency2 were not researched.
 
 ## 4. Video: decode/encode APIs, zero-copy and interop (D3D11/Spout, NDI, FFmpeg)
@@ -110,7 +110,7 @@ On Windows, the zero-copy paths cluster around the DirectX family. FFmpeg's D3D1
 - **Vulkan import of D3D11 textures:** handle types D3D11_TEXTURE (NT, from CreateSharedHandle) and D3D11_TEXTURE_KMT (global, from GetSharedHandle). Both require the same device UUID and driver UUID and report DEDICATED_ONLY — [Vulkan spec, capabilities](https://docs.vulkan.org/spec/latest/chapters/capabilities.html). Some Intel iGPUs do not support the KMT type at all — [vulkan-interop-directx issue #2](https://github.com/malstraem/vulkan-interop-directx/issues/2). wgpu had to add dedicated allocation to make D3D11 shared-handle import work on AMD and NVIDIA (June 2025) — [wgpu commit](https://github.com/gfx-rs/wgpu/commit/65337894f609b536d0016fbabfea6324c5b98faf). In TouchDesigner (Vulkan), Spout failed on an Intel UHD 730 ("Spout may not be Vulkan compatible on this GPU"). Derivative: the needed Vulkan feature "isn't necessarily available on all GPUs … It's an optional feature"; the user downgraded to the pre-Vulkan TD 2021 build, which worked — [TouchDesigner forum (Oct 2025)](https://forum.derivative.ca/t/spout-on-intel-uhd-graphics-card/811529)
 - Before moving to Vulkan, Derivative expected Vulkan Video to give "GPU decoding/encoding of H264/H265 with a single API vs having to do it separately for Intel/AMD/Nvidia" — [TouchDesigner forum (2020)](https://forum.derivative.ca/t/what-does-the-adoption-of-vulcan-mean-for-the-future-of-touchdesigner/144033); [Experimental 2021.38110](https://derivative.ca/release/experimental-202138110/65595)
 - WARP (NuGet) can run D3D12 video encode and decode through Media Foundation (H.264/H.265), which is useful for CI — [Microsoft.Direct3D.WARP 1.0.21](https://www.nuget.org/packages/Microsoft.Direct3D.WARP)
-- PlayMap today decodes with D3D11VA on the renderer's device and copies once through ANGLE; Spout runs on its own D3D11 device — [docs/ARCHITECTURE.md](/home/user/mapper/docs/ARCHITECTURE.md)
+- PlayMap today decodes with D3D11VA on the renderer's device and copies once through ANGLE; Spout runs on its own D3D11 device — [docs/ARCHITECTURE.md](../../ARCHITECTURE.md)
 
 ### Inferences
 - **D3D12 renderer:** FFmpeg's D3D12VA decode produces ID3D12Resource frames in the renderer's own API, so frames can be sampled with fence waits and no copy. The current D3D11VA path can be kept through shared NT handles and shared fences. Spout works through D3D11On12 or a D3D11 side device, which is how SpoutDX12 does it. NVENC and D3D12 Video encode take D3D12 resources and fences directly, which suits the record path, network send, and the GPU HAP encoder's outputs. This is the most uniform zero-copy story on Windows.
@@ -119,9 +119,9 @@ On Windows, the zero-copy paths cluster around the DirectX family. FFmpeg's D3D1
 - HAP is BCn texture data, which every desktop D3D12 and Vulkan device samples natively (background), so HAP is API-neutral.
 
 ### Gaps
-- AMD AMF's D3D12 support level (decode/encode surfaces) was not found in this pass.
+- AMD AMF's D3D12 support level (decode/encode surfaces) was not found.
 - NVDEC's direct D3D12 output (versus CUDA external-memory interop) was not confirmed.
-- I did not verify a 9.0 release or its release notes. PlayMap already references FFmpeg 9.0 / FFmpeg.AutoGen 9.0 in its tree; D3D12 AV1 encode appears in the post-8.0 changelog.
+- Not verified: a 9.0 release or its release notes. PlayMap already references FFmpeg 9.0 / FFmpeg.AutoGen 9.0 in its tree; D3D12 AV1 encode appears in the post-8.0 changelog.
 - No source compared the real-world latency of D3D12VA versus Vulkan Video decode on Windows.
 
 ## 5. Tooling, crash diagnostics and CI
@@ -147,7 +147,7 @@ D3D12 has the deepest Windows tool stack: PIX, the debug layer and GPU-based val
 
 ### Gaps
 - Lavapipe/SwiftShader Vulkan conformance level on Windows CI runners was not researched.
-- I did not research how well DRED and Aftermath coexist in shipping builds (the overhead of always-on breadcrumbs).
+- Not researched: how well DRED and Aftermath coexist in shipping builds (the overhead of always-on breadcrumbs).
 
 ## 6. Shader toolchain and keeping ISF / Shadertoy-style GLSL working
 
@@ -174,8 +174,8 @@ The industry is converging on SPIR-V. DXC compiles HLSL to DXIL or SPIR-V, Micro
 
 ### Gaps
 - How well spirv_to_dxil can be used from .NET (no NuGet package found) and how big it is as a dependency were not researched.
-- I did not verify that ISF's common `#version 110/120`-style shaders survive normalisation to ≥140 for `-R` without semantic change; PlayMap's existing translator likely already does most of it.
-- I found no public detail on how Resolume, Pixera or Smode compile user GLSL/ISF on non-GL backends.
+- Not verified: that ISF's common `#version 110/120`-style shaders survive normalisation to ≥140 for `-R` without semantic change; PlayMap's existing translator likely already does most of it.
+- No public detail was found on how Resolume, Pixera or Smode compile user GLSL/ISF on non-GL backends.
 
 ## 7. .NET bindings and rendering-abstraction layers (RHIs)
 
@@ -199,7 +199,7 @@ For D3D12 in .NET 10, two maintained, current binding sets exist. Vortice.Window
 
 ### Gaps
 - No benchmark of interop overhead was found for Vortice versus TerraFX versus Silk.NET.
-- I did not confirm Vortice.Vulkan's (separate repo) current status.
+- Not confirmed: Vortice.Vulkan's (separate repo) current status.
 - No .NET packaging of NvAPI's present barrier was found; it would likely need a P/Invoke layer over nvapi64.dll.
 
 ## 8. What comparable products use, and why
@@ -227,7 +227,7 @@ There is no single industry answer, but every product that rewrote its renderer 
 - The graphics API of disguise designer (r-series), Green Hippo Hippotizer and Millumin (Windows) was not found in primary sources.
 - Notch 1.0/2026's current API (DX12 vs DX11) was not confirmed by a primary source; the GPU requirements (Turing+ for v1.1) suggest DX12/DXR but this is unverified.
 - Resolume's current Windows renderer (pure GL vs a newer Vulkan or D3D path) is contradictory in the sources above.
-- Unreal Engine 5's default RHI on Windows (DX12) and its Vulkan status were not re-sourced in this pass.
+- Unreal Engine 5's default RHI on Windows (DX12) and its Vulkan status were not sourced again here.
 
 ## 9. Effort and risk of moving PlayMap's GL 3.3 renderer, and how to keep GL during migration
 
@@ -241,7 +241,7 @@ Moving to an explicit API is a multi-quarter rewrite of the GPU layer, not a por
 - D3D11On12 "enables incremental porting of an application from D3D11 to D3D12, by enabling portions of the app to continue targeting D3D11" — [Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/direct3d12/direct3d-11-on-12)
 - Godot's D3D12 backend needed custom shader translation work (patches to Mesa, a binding scheme, specialization-constant patching) — [Godot](https://godotengine.org/article/d3d12-adventures-in-shaderland/)
 - NVRHI shows a viable shape for keeping several backends behind one API: binding layouts become root signatures or descriptor set layouts, command lists aggregate native lists, and barriers are automatic with an opt-out — [NVRHI guide](https://github.com/NVIDIA-RTX/NVRHI/blob/main/doc/ProgrammingGuide.md)
-- **PlayMap's tree (local measurement, Oct 16, 2026):** `src/PlayMap.Render` has 89 C# files and about 21,160 lines. Direct GL API usage is in about 10 files. `GlDevice` (split into Content/Decode/Fx/Resources/VideoIo partials) is referenced by about 40 files. There are about 20 GLSL `#version` sources across `ShaderLibrary.*.cs`, `GlDialect.cs` and the ISF translator. A render graph, `IOutputPresenter`, `GpuPlatform` and `RenderContext` already exist — local repo and [docs/ARCHITECTURE.md](/home/user/mapper/docs/ARCHITECTURE.md)
+- **PlayMap's tree (local measurement, Oct 16, 2026):** `src/PlayMap.Render` has 89 C# files and about 21,160 lines. Direct GL API usage is in about 10 files. `GlDevice` (split into Content/Decode/Fx/Resources/VideoIo partials) is referenced by about 40 files. There are about 20 GLSL `#version` sources across `ShaderLibrary.*.cs`, `GlDialect.cs` and the ISF translator. A render graph, `IOutputPresenter`, `GpuPlatform` and `RenderContext` already exist — local repo and [docs/ARCHITECTURE.md](../../ARCHITECTURE.md)
 
 ### Inferences
 - **Migration plan shape (risk-ordered):**
@@ -256,7 +256,7 @@ Moving to an explicit API is a multi-quarter rewrite of the GPU layer, not a por
 
 ### Gaps
 - No public effort figures (person-months) were found for TouchDesigner's, Smode's or Watchout's migrations.
-- PlayMap-specific estimation needs a code-level audit of GlDevice's API surface and of how many passes rely on GL-only behaviours (implicit sync, glReadPixels PBO rings, sRGB defaults); this pass did not do that audit.
+- PlayMap-specific estimation needs a code-level audit of GlDevice's API surface and of how many passes rely on GL-only behaviours (implicit sync, glReadPixels PBO rings, sRGB defaults); that audit is the codebase map's (`codebase-map.md`).
 
 ## 10. Synthesis: primary API and whether a second one is worth keeping
 
@@ -282,5 +282,5 @@ For a Windows-only, NVIDIA-first, latency- and reliability-driven media server i
 - **Baseline platform:** Windows 11 24H2+ (GPU upload heaps, AV1 D3D12 encode, WDDM 3.x iflip for the composition swapchain), NVIDIA RTX/RTX PRO with driver branch pinning, AMD RDNA 3/4 validated per release, and Intel Arc B as best effort.
 
 ### Gaps
-- I found no head-to-head latency measurement (D3D12 vs Vulkan vs GL) on identical Windows show hardware. PlayMap would have to measure this with its own present ledger before committing (in line with "measured, then governed").
+- No head-to-head latency measurement was found (D3D12 vs Vulkan vs GL) on identical Windows show hardware. PlayMap would have to measure this with its own present ledger before committing (in line with "measured, then governed").
 - NVIDIA's VK_NV_present_barrier details and Windows driver status were not separately sourced beyond the NVIDIA forum statement.

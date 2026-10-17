@@ -240,7 +240,7 @@ GPU crashes (device removed/TDR) are only diagnosable if breadcrumbs, page-fault
 - PresentMon and ETW give an *external* observer of frame delivery that is independent of the engine's own present ledger. Run it as a cross-check in soak tests, and possibly as a field "second opinion" through the PresentMon service API. That echoes the medical principle of an independent monitor (Q12).
 
 ### Gaps
-- AMD Radeon GPU Detective and Vulkan `VK_EXT_device_fault` driver support on Windows AMD was not researched in this pass.
+- AMD Radeon GPU Detective and Vulkan `VK_EXT_device_fault` driver support on Windows AMD was not researched.
 - .NET-specific crash dump collection (createdump / `DOTNET_DbgEnableMiniDump`, WER LocalDumps) was not fetched. Managed exception capture alongside native minidumps is therefore unverified here.
 - Retail availability of D3D12 GPU dump files is unclear: the spec mentions preview behaviour.
 
@@ -274,7 +274,7 @@ Treat device removal as a normal event with one rebuild path that is also the st
 - A "safe mode" (start with effects off, minimal outputs) is a common pattern but unsourced here; see Gaps.
 
 ### Gaps
-- No primary source was found for game "safe mode after crash" practices. The default Windows TDR delay is not sourced in this pass.
+- No primary source was found for game "safe mode after crash" practices. The default Windows TDR delay is not sourced.
 
 ## Q11. What Unreal nDisplay and disguise/Notch borrow from games
 
@@ -420,8 +420,8 @@ Medical display practice contributes three things:
 - Measured software pipelines:
   - NVIDIA Clara Holoscan endoscopy: a GStreamer pipeline added 146 ms and the GXF graph pipeline with AI added 51 ms, both over a 74 ms camera-to-monitor baseline. — [NVIDIA Clara Holoscan endoscopy whitepaper](https://developer.download.nvidia.com/CLARA/Endoscopy-Whitepaper-Clara-Holoscan.pdf)
   - RidgeRun's glass-to-glass test (photographing a millisecond clock and the live output together) measured 35.95–68.37 ms. Exclusive display versus a running display manager was 41.61 vs 49.62 ms; power profile and clocks also mattered. — [RidgeRun, Holoscan Sensor Bridge glass-to-glass, 2024](https://www.ridgerun.com/post/glass-to-glass-assessment-of-the-holoscan-sensor-bridge-on-a-nvidia-agx-orin)
-- Frozen-frame detection, US Patent 10,383,581: each vital-sign frame carries a secure pattern (time or sequence counter) that is updated over time. A monitoring device reads the frame actually in the display buffer and checks the pattern is current; if not, it alerts or blanks the screen, optionally restarting the display "like a watchdog". The patent states that a frozen display "represents a critical situation, since… the operator… will not notice this situation immediately". — [US 10,383,581](https://exa.ai/library/legal/patent/51s97407qh8)
-- US Patent 11,462,140: a colour or light sensor at the display reads displayed test images, an alert fires on mismatch, and backlight drive current is logged as telemetry for predictive service. — [US 11,462,140](https://exa.ai/library/legal/patent/jw0zf5rk5ph)
+- Frozen-frame detection, US Patent 10,383,581: each vital-sign frame carries a secure pattern (time or sequence counter) that is updated over time. A monitoring device reads the frame actually in the display buffer and checks the pattern is current; if not, it alerts or blanks the screen, optionally restarting the display "like a watchdog". The patent states that a frozen display "represents a critical situation, since… the operator… will not notice this situation immediately". — [US 10,383,581](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/10383581)
+- US Patent 11,462,140: a colour or light sensor at the display reads displayed test images, an alert fires on mismatch, and backlight drive current is logged as telemetry for predictive service. — [US 11,462,140](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11462140)
 - Field reality: an FDA MAUDE report (2024) of an operating-room patient monitor where "it stops and the screen is frozen", requiring reboot. — [FDA MAUDE report 19221498](https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/detail.cfm?mdrfoi__id=19221498&pc=MHX)
 - A clinical guide (vendor blog) calls a frozen display "arguably the most dangerous display problem because it is deceptive", detected by waveforms that stop scrolling or a stopped on-screen clock. — [Med-Linket troubleshooting guide, 2026](https://med-linket-corp.com/blogs/news/monitor-display-problems-blank-flickering-frozen)
 - Monitors label an *intentional* freeze: "When the waveforms on the screen are frozen, the FREEZE prompt will appear". — [Contec CMS8000 service manual](https://www.scribd.com/document/362534289/Monitor-Contec-CMS8000-Service-Manual-v1-0)
@@ -523,7 +523,7 @@ The highest-value transfers are the ones that make failures *observable and boun
 
 ### Cited Findings
 - Each item above rests on the cited findings in Q1–Q15:
-  - observation: [US 10,383,581](https://exa.ai/library/legal/patent/51s97407qh8), [AAMI BI&T 2017](https://array.aami.org/doi/full/10.2345/0899-8205-51.5.380);
+  - observation: [US 10,383,581](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/10383581), [AAMI BI&T 2017](https://array.aami.org/doi/full/10.2345/0899-8205-51.5.380);
   - predicted time: [OpenXR xrWaitFrame](https://registry.khronos.org/OpenXR/specs/1.1/man/html/xrWaitFrame.html), [VK_EXT_present_timing](https://www.khronos.org/blog/vk-ext-present-timing-the-journey-to-state-of-the-art-frame-pacing-in-vulkan), [DXGI flip model statistics](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-flip-model);
   - no compile on the render thread: [Epic PSO blog](https://www.unrealengine.com/en-US/tech-blog/game-engines-and-shader-stuttering-unreal-engines-solution-to-the-problem);
   - device loss: [Microsoft device removed](https://learn.microsoft.com/en-us/windows/uwp/gaming/handling-device-lost-scenarios), [DRED](https://learn.microsoft.com/en-us/windows/win32/direct3d12/use-dred);
@@ -554,4 +554,4 @@ Mapping table: lesson, then technique, then where it lands in PlayMap, then mana
 | 18 | Graceful degradation, not adaptive surprises (Valve, Meta) | Resubmit last frame at new time, then hold, then backup; fixed-fraction degradation for heavy generative layers only | Show policy | M |
 
 ### Gaps
-- No source evaluated these medical practices in entertainment technology. The ranking is the researcher's judgement of effect on the audience-visible output, not measured evidence.
+- No source evaluated these medical practices in entertainment technology. The ranking is a judgement of effect on the audience-visible output, not measured evidence.

@@ -297,12 +297,12 @@ Every vendor feature found exposes an explicit run-time probe (NVAPI returns `NV
 
 ### Gaps
 - No source consulted on .NET-specific bindings (e.g. maintained C# wrappers for NVAPI/ADLX/AMF); ADLX advertises C# bindings but their packaging was not checked.
-- DXGI/Vulkan vendor-id and LUID APIs were not separately sourced in this pass (standard, but uncited here).
+- DXGI/Vulkan vendor-id and LUID APIs were not separately sourced (standard, but uncited here).
 
 ## 6. Licensing and redistribution: NVAPI, Video Codec SDK, RTX Video SDK, AGS, ADLX, AMF, FidelityFX, DirectStorage and others
 
 ### Takeaway
-Nothing found blocks a closed-source commercial Windows app: NVAPI, AGS, AMF, Intel VPL and FSR source are MIT; NVIDIA's Video Codec SDK, RTX SDKs (RTX Video/DLSS/Reflex), OptiX, VFX SDK and Aftermath are proprietary but allow binary redistribution inside your product. The friction points are (a) NVIDIA notification-before-release clauses (DLSS/Reflex/NGX; OptiX/DesignWorks), (b) "NVIDIA GPUs only" and cloud-use restrictions in the RTX SDKs, (c) "no open-source contamination" clauses in NVIDIA/AMD proprietary terms — which matter if PlayMap itself is open-source (the proprietary SDKs then must stay optional, dynamically loaded plug-ins), (d) codec patent royalties are always the integrator's responsibility, and (e) Rivermax needs a paid production licence.
+Nothing found blocks PlayMap as distributed, whatever its own licence: NVAPI, AGS, AMF, Intel VPL and FSR source are MIT; NVIDIA's Video Codec SDK, RTX SDKs (RTX Video/DLSS/Reflex), OptiX, VFX SDK and Aftermath are proprietary but allow binary redistribution inside your product. The friction points are (a) NVIDIA notification-before-release clauses (DLSS/Reflex/NGX; OptiX/DesignWorks), (b) "NVIDIA GPUs only" and cloud-use restrictions in the RTX SDKs, (c) "no open-source contamination" clauses in NVIDIA/AMD proprietary terms — which matter if PlayMap itself is open-source (the proprietary SDKs then must stay optional, dynamically loaded plug-ins), (d) codec patent royalties are always the integrator's responsibility, and (e) Rivermax needs a paid production licence.
 
 ### Cited Findings
 - NVAPI headers + nvapi.lib/nvapi64.lib: MIT — [NVIDIA/nvapi License.txt](https://github.com/NVIDIA/nvapi/blob/main/License.txt)

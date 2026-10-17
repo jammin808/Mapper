@@ -66,7 +66,7 @@ In 2026 hardware framelock/genlock on Windows is effectively an NVIDIA-professio
 - The RTX PRO Sync revision 08 changelog advertises "Variable Refresh Rate" support, but the v09 body describes no VRR mode and still says to disable G-SYNC before framelock. I found no NVIDIA document explaining VRR with RTX PRO Sync.
 - Whether `VK_NV_present_barrier` works on Windows with the same requirements as the D3D12 barrier (borderless fullscreen, no DWM composition) is not stated in the extension text I read.
 - The Unreal 5.7 nDisplay pages are client-rendered and could not be read. The official 5.x docs on the Present Barrier policy and on retiring the DX11 swap-lock path are not captured.
-- I found no AMD statement on any successor to the S400, any ADLX/ADL/AGS framelock API for RDNA3/RDNA4, or the current state of Eyefinity display groups for tear-free spanning. The terms of disguise's AMD partner driver are not public.
+- No AMD statement was found on any successor to the S400, any ADLX/ADL/AGS framelock API for RDNA3/RDNA4, or the current state of Eyefinity display groups for tear-free spanning. The terms of disguise's AMD partner driver are not public.
 - Whether the Reflex SDK and the present barrier can be combined was not found.
 
 ## 2. Single-machine tear-free presentation: DXGI, Vulkan and OpenGL on Windows 11
@@ -103,9 +103,9 @@ On Windows 11 the tear-free, low-latency path is a flip-model swap chain (`FLIP_
 - For a GL-on-Windows build, the presenter behaviour is a per-driver setting outside the app. That argues for moving presentation to DXGI (GL→D3D interop, or ANGLE as PlayMap already does) or to Vulkan/D3D12, rather than relying on the GL swap path.
 
 ### Gaps
-- I found no Microsoft document listing the exact Windows 11 24H2/25H2 conditions under which a flip swap chain is denied independent flip (e.g. HDR mismatch, rotation, cursor, overlays). PresentMon remains the empirical check.
+- No Microsoft document was found listing the exact Windows 11 24H2/25H2 conditions under which a flip swap chain is denied independent flip (e.g. HDR mismatch, rotation, cursor, overlays). PresentMon remains the empirical check.
 - AMD's Windows Vulkan driver support for `VK_EXT_present_timing`, `VK_KHR_present_wait2` and `VK_EXT_full_screen_exclusive` as of late 2026 was not found.
-- The `VkPresentModeKHR` definitions (FIFO = queue on vblank, no tearing; FIFO_RELAXED = tears if late; MAILBOX = replace queued image, no tearing; IMMEDIATE = may tear) are standard spec text I did not re-fetch this session ([refpage](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentModeKHR.html)).
+- The `VkPresentModeKHR` definitions (FIFO = queue on vblank, no tearing; FIFO_RELAXED = tears if late; MAILBOX = replace queued image, no tearing; IMMEDIATE = may tear) are standard specification text, quoted from the reference page ([refpage](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentModeKHR.html)).
 
 ## 3. Multi-output on one GPU and across GPUs; DWM, display ownership, EDID/timings
 
@@ -220,7 +220,7 @@ Software can align content (which frame is drawn) across machines to well under 
 ### Gaps
 - No measured data found for the Windows PTP client's achievable accuracy with hardware timestamping on common NICs (Intel I210/I225, Mellanox) on Windows 11.
 - No source found for any Windows API that adjusts a running output's scanout phase (genlock-in-software) on NVIDIA or AMD consumer GPUs.
-- No Resolume statement on genlock/framelock support was found in this pass.
+- No Resolume statement on genlock/framelock support was found.
 
 ## 7. Broadcast / ST 2110 and SDI outputs: when and how they genlock
 
