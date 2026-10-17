@@ -78,7 +78,7 @@ Throughput-oriented queuing, with three or more frames buffered, adds 2–4 fram
 - (Seminal, Valve 2015.) "Running start": begin submitting 2 ms before vsync, based on measured 1.5–2.0 ms GPU bubbles. Valve calls this "a solid 1.5–2.0 ms GPU perf gain". SteamVR's separate process spins on `IDXGIOutput::WaitForVBlank()` to give apps time-since-vsync and a frame counter. A GPU query after clearing the back buffer keeps a late frame on the right side of vsync for the next frame's prediction. — [Vlachos, Advanced VR Rendering, GDC 2015](https://media.steampowered.com/apps/valve/2015/Alex_Vlachos_Advanced_VR_Rendering_GDC2015.pdf)
 
 ### Inferences
-- PlayMap already uses a waitable `FLIP_DISCARD` swap chain at frame latency 1 and a present ledger that records the refresh each present was meant for and the one that showed it ([docs/OUTPUT.md](docs/OUTPUT.md)). The D3D12/Vulkan move should keep both and add:
+- PlayMap already uses a waitable `FLIP_DISCARD` swap chain at frame latency 1 and a present ledger that records the refresh each present was meant for and the one that showed it ([docs/OUTPUT.md](../../OUTPUT.md)). The D3D12/Vulkan move should keep both and add:
   1. A per-frame predicted display time computed from present feedback (DXGI frame statistics, or `VK_EXT_present_timing` where available), passed unchanged through every stage. This is OpenXR's rule, and it is PlayMap's frame = f(leader time at vblank).
   2. Reflex-style markers emitted as ETW events, so PresentMon/FrameView can measure the node from outside.
 - Frames in flight should be a per-output policy, not a global constant:
@@ -266,7 +266,7 @@ Treat device removal as a normal event with one rebuild path that is also the st
 - In medical safety architecture: "hardware thread monitors avoid the problems with software reset watchdog timers by looking for 'heartbeats'… indicating thread liveness", because "watchdog timers too often have been reset inappropriately". — [AAMI BI&T 2017, Principles of explicitly designed medical device safety architecture](https://array.aami.org/doi/full/10.2345/0899-8205-51.5.380)
 
 ### Inferences
-- PlayMap already restarts the engine from a watchdog with a recovery record, rebuilds on device loss, and has a never-stall barrier watchdog ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/OUTPUT.md](docs/OUTPUT.md)). The lessons sharpen these:
+- PlayMap already restarts the engine from a watchdog with a recovery record, rebuilds on device loss, and has a never-stall barrier watchdog ([docs/ARCHITECTURE.md](../../ARCHITECTURE.md), [docs/OUTPUT.md](../../OUTPUT.md)). The lessons sharpen these:
   1. The watchdog heartbeat should be the *present ledger's shown-frame counter advancing*, not a thread's tick. A thread can tick while the picture is frozen.
   2. Device-removed rebuild should be exercised in CI with a forced TDR on Windows runners (`dxcap -forcetdr`), with assertions on time-to-first-good-frame and the STATE fields.
   3. Degraded modes in order of preference: resubmit the last frame's GPU work at the new time (Valve's autonomous render thread, valid because content = f(time)); then hold the last shown frame; then switch to backup. Never show black unless the show policy says so.
@@ -297,7 +297,7 @@ Both wrap a game engine's real-time renderer in a cluster layer: a primary that 
 
 ### Inferences
 - RenderStream's "timestamped frame request, then texture response" is the industry form of PlayMap's frame = f(leader time). It argues for a PlayMap *render-request* seam: a member renders "frame for leader time T, view V" and returns a texture or stream. That would let PlayMap host or be hosted by other engines.
-- The nDisplay timeouts and the "all instances shut down" policy are a fail-closed rule for cluster *startup*. During a running show the opposite is wanted: degrade per node and keep the rest on air. PlayMap's existing barrier "falls out" rule ([docs/OUTPUT.md](docs/OUTPUT.md)) is the better show policy and is worth stating as a deliberate difference.
+- The nDisplay timeouts and the "all instances shut down" policy are a fail-closed rule for cluster *startup*. During a running show the opposite is wanted: degrade per node and keep the rest on air. PlayMap's existing barrier "falls out" rule ([docs/OUTPUT.md](../../OUTPUT.md)) is the better show policy and is worth stating as a deliberate difference.
 
 ### Gaps
 - No public technical detail on disguise's internal render loop, frame pacing or frozen-frame detection.
@@ -463,7 +463,7 @@ Medical display practice contributes three things:
 - Meta's Application SpaceWarp lets apps intentionally render at half rate with motion vectors and depth, while the compositor synthesises intermediate frames. Meta claims "up to 70% more GPU headroom" (vendor claim). — [Meta: missed frames / AppSW](https://developers.meta.com/vr/documentation/native/android/os-missed-frames/); [Meta AppSW](https://developers.meta.com/horizon/documentation/spatial-sdk/os-app-spacewarp/)
 
 ### Inferences
-- PlayMap already has backup roles (failover/failback, a silent backup, fenced black; see [docs/SYNC.md](docs/SYNC.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)). Broadcast adds:
+- PlayMap already has backup roles (failover/failback, a silent backup, fenced black; see [docs/SYNC.md](../../SYNC.md) and [docs/ARCHITECTURE.md](../../ARCHITECTURE.md)). Broadcast adds:
   1. Changeover triggered by *observed-signal* faults (black, freeze, loss), with hysteresis and debounce in STATE.
   2. A hardware bypass recommendation: LED processor dual-input failover, or an SDI changeover router with relay bypass, so the failsafe does not depend on a working PC.
   3. As-run logs merged across failover in the journal.
