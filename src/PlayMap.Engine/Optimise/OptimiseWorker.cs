@@ -16,7 +16,8 @@ namespace PlayMap.Engine.Optimise;
 /// <summary>"PlayMap optimise-worker": the process that encodes. It lowers its own CPU priority, makes its own GL context
 /// through the platform seam (hidden, or surfaceless on Linux with no display) on its GL thread, says hello, then runs one job
 /// at a time from its standard input — decode, encode, pack, mux, read back — writing progress, done or failed on its standard
-/// output, one JSON line each. Knobs pace it between frames: paused and waiting hold the job; a GPU duty below one rests after
+/// output, one JSON line each. Knobs pace it between frames: paused and waiting hold the job, and the worker says when it holds and
+/// when it goes on (its held lines: a pause is applied only once it holds); a GPU duty below one rests after
 /// each frame for the time that keeps the frame's share of the clock at the duty. Its input closing (the engine went) or a stop
 /// line ends it; a cancel line or a kill stops the running job, whose partial file the engine deletes.</summary>
 public static class OptimiseWorker
@@ -25,6 +26,20 @@ public static class OptimiseWorker
 
     /// <summary>"--priority &lt;class&gt;" after the word: the CPU priority the worker takes (below normal when absent).</summary>
     public const string PriorityWord = "--priority";
+
+    /// <summary>"--hold-at &lt;frames&gt;" after the word (tests only): after that many frames of its first job the worker waits for the
+    /// engine's next knobs line before its next frame, as a frame that takes that long would — so a pause sent then reaches it
+    /// mid-job however fast the encoder runs.</summary>
+    public const string HoldAtWord = "--hold-at";
+
+    /// <summary>The frame the arguments' <see cref="HoldAtWord"/> names, 0 when none.</summary>
+    public static long HoldAtOf(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        var at = Array.IndexOf(args, HoldAtWord);
+        return at >= 0 && at + 1 < args.Length && long.TryParse(args[at + 1], System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
 
     /// <summary>The priority the worker's arguments name, below normal when they name none (or one it does not know).</summary>
     public static ProcessPriorityClass PriorityOf(string[] args)
@@ -49,7 +64,7 @@ public static class OptimiseWorker
         }
         using var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
         using var stdin = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
-        using var loop = new Loop(stdout);
+        using var loop = new Loop(stdout, HoldAtOf(args));
         loop.Start();
         string? line;
         while ((line = stdin.ReadLine()) is not null)
@@ -61,8 +76,11 @@ public static class OptimiseWorker
         return 0;
     }
 
-    private sealed class Loop(StreamWriter stdout) : IDisposable
+    private sealed class Loop(StreamWriter stdout, long holdAt) : IDisposable
     {
+        private readonly ManualResetEventSlim _knobsHeard = new(false);
+        private long _holdAt = holdAt;
+        private long _frames;
         private readonly Lock _write = new();
         private readonly BlockingCollection<WorkerJob> _jobs = [];
         private readonly ManualResetEventSlim _go = new(true);
@@ -96,6 +114,7 @@ public static class OptimiseWorker
                             _go.Reset();
                         else
                             _go.Set();
+                        _knobsHeard.Set();
                         break;
                     case "cancel":
                         lock (_write)
@@ -207,12 +226,22 @@ public static class OptimiseWorker
                     return packer.Pack(blocks, recipe.ChunksFor(w), recipe.SecondStage, recipe.RawBelowGain, ref packet);
                 }, p =>
                 {
+                    _frames = p.Frames;
+                    // Armed before the frame is told, so a knobs line sent on hearing it is never missed.
+                    var hold = p.Frames == _holdAt;
+                    if (hold)
+                    {
+                        _holdAt = 0;
+                        _knobsHeard.Reset();
+                    }
                     if (lastSaid.ElapsedMilliseconds >= 250 || p.Frames == 1)
                     {
                         Say(WorkerProtocol.Progress(job.Job, p.Frames, p.Expected, p.Fps));
                         lastSaid.Restart();
                     }
-                }, ms => Pace(ms, cts.Token), cts.Token);
+                    if (hold)
+                        HoldForKnobs(cts.Token);
+                }, ms => Pace(job.Job, ms, cts.Token), cts.Token);
                 Say(WorkerProtocol.Done(job.Job, result.Frames, result.Quality, result.Audio));
             }
             catch (OperationCanceledException)
@@ -234,10 +263,19 @@ public static class OptimiseWorker
             }
         }
 
-        /// <summary>Between frames: hold while the knobs hold; at a duty below one, rest so this frame's work is that share of its time.</summary>
-        private void Pace(double frameMs, CancellationToken ct)
+        /// <summary>The test's hold (<see cref="HoldAtWord"/>): the frame goes on once the engine's next knobs line is in.</summary>
+        private void HoldForKnobs(CancellationToken ct) => _knobsHeard.Wait(ct);
+
+        /// <summary>Between frames: hold while the knobs hold, saying so as the hold begins and ends; at a duty below one, rest so this
+        /// frame's work is that share of its time.</summary>
+        private void Pace(string job, double frameMs, CancellationToken ct)
         {
-            _go.Wait(ct);
+            if (!_go.IsSet)
+            {
+                Say(WorkerProtocol.Held(job, true, _frames));
+                _go.Wait(ct);
+                Say(WorkerProtocol.Held(job, false, _frames));
+            }
             var duty = _knobs.GpuDuty;
             if (duty is > 0 and < 1)
             {
@@ -251,6 +289,7 @@ public static class OptimiseWorker
         {
             _jobs.Dispose();
             _go.Dispose();
+            _knobsHeard.Dispose();
             _stop.Dispose();
         }
     }

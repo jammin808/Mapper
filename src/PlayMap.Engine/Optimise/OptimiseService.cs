@@ -36,6 +36,11 @@ public sealed record OptimiseOptions
     /// <summary>Heard as a stop begins to wait for work begun before it that has not ended (a test holds that work and lets it go
     /// only then, so it sees the stop wait for it whatever the machine's pace).</summary>
     internal Action? StopWaits { get; init; }
+
+    /// <summary>Tests only: the first worker this service starts waits, after this many frames of its first job, for the engine's next
+    /// knobs line before its next frame (<see cref="OptimiseWorker.HoldAtWord"/>), so a pause or a kill lands mid-job however fast
+    /// the encoder runs. 0: never.</summary>
+    internal long HoldFirstWorkerAt { get; init; }
 }
 
 /// <summary>What STATE says of the service: the governor, the counts, the worker and the jobs (the running one first, then the
@@ -48,7 +53,12 @@ public sealed record OptimiseOutcome(string Media, OptimiseJob? Job, string Why)
 
 /// <summary>What a cancel or a hold changed: the jobs, or none and why when it could change none it was asked to (the node is
 /// stopping). An empty why with no jobs is a target that names no job the change applies to.</summary>
-public sealed record OptimiseSteered(IReadOnlyList<string> Jobs, string Why);
+public sealed record OptimiseSteered(IReadOnlyList<string> Jobs, string Why)
+{
+    /// <summary>Of <see cref="Jobs"/>, those a pause is only asked of: the running job, until its worker says it holds (a queued job's
+    /// pause is applied at once — it is not started).</summary>
+    public IReadOnlyList<string> Pending { get; init; } = [];
+}
 
 /// <summary>Optimise on import, on this node: a queue of jobs persisted in <c>NodeHome/optimise/jobs.json</c>, one at a time
 /// through the worker process (<see cref="OptimiseWorker"/>, restarted with backoff when it stops; a clip that stops it
@@ -74,6 +84,9 @@ public sealed class OptimiseService : IAsyncDisposable
     private EngineCore? _engine;
     private Task _loop = Task.CompletedTask;
     private string? _running;
+    /// <summary>The running job its worker says it holds between frames (its "held" line), null when the worker says it goes on or
+    /// another job runs.</summary>
+    private string? _held;
     private long _restartAtNs = long.MinValue;
     private long _idleSinceNs = long.MinValue;
     private int _restarts;
@@ -122,9 +135,12 @@ public sealed class OptimiseService : IAsyncDisposable
         get
         {
             lock (_gate)
-                return [.. _jobs];
+                return [.. _jobs.Select(Observed)];
         }
     }
+
+    /// <summary>A job as the node observes it: held while its worker says it holds it. Under the gate.</summary>
+    private OptimiseJob Observed(OptimiseJob j) => j.Id == _held && j.Id == _running ? j with { Held = true } : j;
 
     public OptimiseView View
     {
@@ -132,7 +148,7 @@ public sealed class OptimiseService : IAsyncDisposable
         {
             lock (_gate)
             {
-                var running = _jobs.Where(j => JobStates.IsRunning(j.State)).ToList();
+                var running = _jobs.Where(j => JobStates.IsRunning(j.State)).Select(Observed).ToList();
                 var queued = _jobs.Where(j => j.State == JobStates.Queued).ToList();
                 var over = _jobs.Where(j => JobStates.IsOver(j.State)).OrderByDescending(j => j.FinishedUnixMs).ToList();
                 return new OptimiseView(_governor.Current, running.Count, queued.Count, _jobs.Count(j => j.State == JobStates.Failed),
@@ -240,7 +256,9 @@ public sealed class OptimiseService : IAsyncDisposable
             return new OptimiseSteered([], StoppingWords);
         try
         {
-            return new OptimiseSteered(HoldOpen(jobOrAll, paused), "");
+            var changed = HoldOpen(jobOrAll, paused);
+            lock (_gate)
+                return new OptimiseSteered(changed, "") { Pending = paused ? [.. changed.Where(j => j == _running && j != _held)] : [] };
         }
         finally
         {
@@ -528,6 +546,7 @@ public sealed class OptimiseService : IAsyncDisposable
                 _running = null;
                 return;
             }
+            _held = null;
             DeletePartial(job.Id);
             Replace(job.Id, j => j with { State = JobStates.Encoding, FramesDone = 0, Fps = 0, Words = j.Attempts > 0 ? j.Words : "" });
             _store.Save(_jobs);
@@ -602,6 +621,22 @@ public sealed class OptimiseService : IAsyncDisposable
                 }
                 Changed();
                 break;
+            case "held":
+                string? name = null;
+                lock (_gate)
+                {
+                    if (_running != e.Job)
+                        return;
+                    var was = _held == e.Job;
+                    _held = e.On ? e.Job : null;
+                    if (was != e.On && _jobs.FirstOrDefault(j => j.Id == e.Job) is { Paused: true } paused)
+                        name = paused.Name;
+                }
+                // The pause is a fact once the worker holds: the journal says so then, not when it was asked.
+                if (name is not null && e.On)
+                    Said?.Invoke("optimise", string.Create(CultureInfo.InvariantCulture, $"{name} ({e.Job}) paused at frame {e.Frames}"), false);
+                Changed();
+                break;
             case "progress":
                 lock (_gate)
                     Replace(e.Job, j => j.State == JobStates.Encoding ? j with { FramesDone = e.Frames, Frames = e.Of, Fps = e.Fps } : j);
@@ -658,6 +693,7 @@ public sealed class OptimiseService : IAsyncDisposable
             job = _running;
             _sent = null;
             _running = null;
+            _held = null;
             // The worker is gone and with it the partial file's writer: the file goes before the job reads as queued or failed.
             if (job is not null)
                 DeletePartial(job);

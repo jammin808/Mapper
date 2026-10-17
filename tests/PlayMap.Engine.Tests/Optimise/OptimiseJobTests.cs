@@ -143,11 +143,11 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         var cards = JsonNode.Parse(Cards)!.ToJsonString(FixtureJson.Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("optimise.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("optimise.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("optimise.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("optimise.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("optimise.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("optimise.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("optimise.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("optimise.cards.json"))).ReplaceLineEndings("\n"), cards);
     }
 
     /// <summary>What the desk's generic card template renders for STATE.media.optimise: the governor's card and a row per job.</summary>
@@ -194,15 +194,15 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     [FfmpegFact]
     public async Task AWorkerKilledMidJobIsRestartedAndTheJobRunsAgainToItsVersion()
     {
-        await using var rig = OptimiseRig.Start();
+        await using var rig = OptimiseRig.Start(options: OptimiseRig.HeldAtFirstFrame());
         var clip = OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10);
         var id = await rig.ImportAsync(clip, "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         Assert.Equal("accepted", reply.RootElement.GetProperty("stage").GetString());
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
-        // Held between frames, so the kill lands mid-job however fast the encoder runs.
-        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        // Held between frames — the worker says so — so the kill lands mid-job however fast the encoder runs.
+        await rig.PauseRunningAsync(jobId);
         var pid = rig.Service.View.Pid!.Value;
         using (var worker = Process.GetProcessById(pid))
             worker.Kill();
@@ -219,16 +219,46 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.Single(rig.Engine.Store.Project.FindMedia(id)!.Versions);
     }
 
+    /// <summary>A pause is applied when the worker holds, not when it is asked: a queued job's pause is applied at once (it is not
+    /// started); the running job's is accepted, pending, until its worker says it holds — then STATE says held and the journal says
+    /// paused, at the frame it held at; a resume lets it go on to its version.</summary>
+    [FfmpegFact]
+    public async Task APauseIsAppliedOnlyOnceTheWorkerHolds()
+    {
+        await using var rig = OptimiseRig.Start(options: OptimiseRig.HeldAtFirstFrame());
+        var a = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 2, "a.mp4"), "First");
+        var b = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 3, "b.mp4"), "Second");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {a} {b} TO hap QUALITY FAST"));
+        var jobs = reply.RootElement.GetProperty("jobs").EnumerateArray().Select(j => j.GetProperty("id").GetString()!).ToArray();
+        await rig.Until(() => rig.Job(jobs[0]).FramesDone >= 1, "the first frames");
+
+        var queued = await rig.Run($"MEDIA OPTIMISE PAUSE {jobs[1]}");
+        Assert.Equal((true, true, $"paused {jobs[1]}"), (queued.Ok, queued.Applied, queued.Effect));
+        using (var q = JsonDocument.Parse(queued.Payload!))
+            Assert.Empty(q.RootElement.GetProperty("pending").EnumerateArray());
+
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Text.Contains("paused at frame", StringComparison.Ordinal));
+        await rig.PauseRunningAsync(jobs[0]);
+        Assert.Contains(rig.Engine.Journal.Recent(50), r => r.Text == $"First ({jobs[0]}) paused at frame 1");
+        var row = rig.State().GetProperty("media").GetProperty("optimise").GetProperty("jobs").EnumerateArray().First(j => j.GetProperty("id").GetString() == jobs[0]);
+        Assert.Equal((true, true, 1L), (row.GetProperty("paused").GetBoolean(), row.GetProperty("held").GetBoolean(), row.GetProperty("framesDone").GetInt64()));
+
+        await rig.Ok($"MEDIA OPTIMISE RESUME {jobs[0]}");
+        await rig.Until(() => JobStates.IsOver(rig.Job(jobs[0]).State), "the first job's end");
+        Assert.Equal((JobStates.Done, false), (rig.Job(jobs[0]).State, rig.Job(jobs[0]).Held));
+        Assert.Equal((JobStates.Queued, true), (rig.Job(jobs[1]).State, rig.Job(jobs[1]).Paused));
+    }
+
     [FfmpegFact]
     public async Task AJobThatMayNotRunAgainFailsWithWordsWhenItsWorkerIsKilled()
     {
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
-            options: OptimiseRig.Options() with { MaxAttempts = 1 });
+            options: OptimiseRig.HeldAtFirstFrame() with { MaxAttempts = 1 });
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
-        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        await rig.PauseRunningAsync(jobId);
         using (var worker = Process.GetProcessById(rig.Service.View.Pid!.Value))
             worker.Kill();
         await rig.Until(() => rig.Job(jobId).State == JobStates.Failed, "the job's failure");
@@ -261,12 +291,12 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     {
         var dir = Directory.CreateTempSubdirectory("playmap-optimise-");
         string jobId;
-        var first = OptimiseRig.Start(dir: dir);
+        var first = OptimiseRig.Start(dir: dir, options: OptimiseRig.HeldAtFirstFrame());
         var id = await first.ImportAsync(OptimiseClips.Mpeg4WithAudio(dir.FullName, 320, 180, 10), "Clip");
         using (var reply = JsonDocument.Parse(await first.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST")))
             jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await first.Until(() => first.Job(jobId).FramesDone >= 1, "the first frames");
-        await first.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        await first.PauseRunningAsync(jobId);
         var project = first.Engine.Store.Project;
         await first.StopAsync();
         // A clean stop is not the job's end: on disk it is still running, and the next start queues it again.
@@ -301,13 +331,13 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         // An LED-only rig: no output window, no playlist — the LED sender is the air.
         var led = new FakeLed();
         // The node's own pause window: this test is about the pause.
-        await using var rig = OptimiseRig.Start(led: led, settings: s => s with { PauseAfterDropS = 60 });
+        await using var rig = OptimiseRig.Start(led: led, settings: s => s with { PauseAfterDropS = 60 }, options: OptimiseRig.HeldAtFirstFrame());
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
         await rig.Until(() => rig.Job(jobId).FramesDone >= 1, "the first frames");
         // Held between frames: the job still runs, so what the air loses now is the job's.
-        await rig.Ok($"MEDIA OPTIMISE PAUSE {jobId}");
+        await rig.PauseRunningAsync(jobId);
         string Governor() => rig.State().GetProperty("media").GetProperty("optimise").GetProperty("governor").GetString()!;
         Assert.Equal("run", Governor());
         led.Dropped = 3;
@@ -430,6 +460,6 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(partial)!));
         Assert.Equal("hap", Assert.Single(rig.Engine.Store.Project.FindMedia(id)!.Versions).To);
         // The queue on disk says the same.
-        Assert.Contains("\"state\": \"cancelled\"", await File.ReadAllTextAsync(Path.Combine(rig.Home.Folder, "optimise", "jobs.json")), StringComparison.Ordinal);
+        Assert.Contains("\"state\": \"cancelled\"", PlayMap.Core.Storage.DurableFile.ReadAllText(Path.Combine(rig.Home.Folder, "optimise", "jobs.json")), StringComparison.Ordinal);
     }
 }

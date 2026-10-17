@@ -15,7 +15,7 @@ public sealed record WorkerKnobs(string Mode, double GpuDuty, int CpuThreads, bo
     public bool Holds => Mode is "paused" or "waiting";
 }
 
-/// <summary>A line from the worker: hello (pid, GL, encoder id), progress, done (frames, quality, audio words), failed (words) or
+/// <summary>A line from the worker: hello (pid, GL, encoder id), progress, held (on or off, at a frame), done (frames, quality, audio words), failed (words) or
 /// cancelled. Unknown kinds are kept as such and ignored by the supervisor (fail closed: they change nothing).</summary>
 public sealed record WorkerEvent(string Kind, string Job)
 {
@@ -28,6 +28,9 @@ public sealed record WorkerEvent(string Kind, string Job)
     public VersionQuality Quality { get; init; } = VersionQuality.None;
     public string Audio { get; init; } = "";
     public string Words { get; init; } = "";
+
+    /// <summary>A held line: true when the worker holds the job between frames, false when it goes on.</summary>
+    public bool On { get; init; }
 }
 
 /// <summary>The JSON lines between the engine and its optimise worker (one object a line, "t" its kind). No secret rides them:
@@ -74,6 +77,15 @@ public static class WorkerProtocol
         w.WriteNumber("fps", Math.Round(fps, 1));
     });
 
+    /// <summary>The worker holds the job between frames (<paramref name="on"/>) or goes on with it, after <paramref name="frames"/>.</summary>
+    public static string Held(string job, bool on, long frames) => Line(w =>
+    {
+        w.WriteString("t", "held");
+        w.WriteString("job", job);
+        w.WriteBoolean("on", on);
+        w.WriteNumber("frames", frames);
+    });
+
     public static string Done(string job, long frames, VersionQuality q, string audio) => Line(w =>
     {
         w.WriteString("t", "done");
@@ -114,6 +126,7 @@ public static class WorkerProtocol
                 Fps = r.TryGetProperty("fps", out var fps) ? fps.GetDouble() : 0,
                 Audio = Str(r, "audio"),
                 Words = Str(r, "words"),
+                On = r.TryGetProperty("on", out var on) && on.ValueKind == JsonValueKind.True,
             };
             if (r.TryGetProperty("quality", out var q) && q.ValueKind == JsonValueKind.Object)
             {
