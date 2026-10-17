@@ -53,17 +53,19 @@ with no rebuild path [map §3.1].
 
 ### 1.3 Versions: one source, every format its reader needs
 
-The `versioning` branch will land on `main` before the spine starts (§5.1). It holds the version in one place
-(`Version.props`, `PlayMapVersion` 0.2.x), stamps every assembly and the exe, has `BuildInfo` read it back, shows it on the desk
-and in STATE, and names the CI artifact `PlayMap-<FileVersion>-win-x64`. Round 3 will keep that scheme and add the installer's
-rules (wp3-installer, item 1).
+`main` holds the version in one place (`Version.props`: `PlayMapVersion` 0.2.x and `PlayMapRunBase`; CI passes its run
+number as `PlayMapRun` and its commit as `PlayMapCommit`, and the build number is the run less the base), stamps every assembly
+of PlayMap's own source and the exe, has `BuildInfo` read it back, and names the build on the desk, in HEALTH's `build`, in the
+engine's log and the journal's start row and in MCP's server info. STATE's `version` stays the plain product version, so STATE
+does not move between builds. The CI artifact is `PlayMap-<FileVersion>-win-x64`. Round 3 will keep that scheme and add the
+installer's rules (wp3-installer, item 1).
 
 | Reader | Format | Example (0.2.0, CI build 17, commit `abc1234`) | Rule |
 |---|---|---|---|
-| People, the wire's hello, STATE `build`, MCP, the journal header, every crash manifest | SemVer 2 with build metadata | `0.2.0+17.abc1234` (local: `0.2.0-dev+abc1234`) | The commit maps a dump to its source; build metadata never orders versions |
-| Windows file version (Explorer, WER) | four parts, each ≤ 65 535 | `0.2.0.17` | The branch refuses a build number past 65 535 and every part past 65 535 |
-| **MSI `ProductVersion`** | `MAJOR.MINOR.BUILD`, major and minor ≤ 255, build ≤ 65 535 | `0.2.17` | Windows Installer reads three fields and ignores a fourth: under the branch's four-part scheme every CI build of 0.2.0 would read as 0.2.0 [map §6.3]. The MSI takes the build number as its third field, so every numbered build upgrades the one before it |
-| Assembly version | binding only | `0.2.0.0` | As the branch has it |
+| People, HEALTH `build` (the context's machine item, the fleet's board), MCP's server info, the log and the journal's start row, every crash manifest | SemVer 2 with build metadata | `0.2.0+17.abc1234` (local: `0.2.0-dev+abc1234`) | The commit maps a dump to its source; build metadata never orders versions |
+| Windows file version (Explorer, WER) | four parts, each ≤ 65 535 | `0.2.0.17` | `Version.props` refuses a build number past 65 535 and every part past 65 535 |
+| **MSI `ProductVersion`** | `MAJOR.MINOR.BUILD`, major and minor ≤ 255, build ≤ 65 535 | `0.2.17` | Windows Installer reads three fields and ignores a fourth: under the four-part file version every CI build of 0.2.0 would read as 0.2.0 [map §6.3]. The MSI takes the build number as its third field, so every numbered build upgrades the one before it |
+| Assembly version | binding only | `0.2.0.0` | As `main` has it |
 
 The rules the installer will add:
 
@@ -71,8 +73,9 @@ The rules the installer will add:
    set that a release cannot install.
 2. **An MSI is made only from a numbered build.** A local build refuses to make one, with words; its MSI would read as
    `0.2.0` and could never be upgraded in order.
-3. **The build number orders installs within a MAJOR.MINOR.** It is CI's run number, which only grows within one workflow
-   file. Anything that starts the numbering again (a new workflow file) must raise MINOR in the same commit; the release job
+3. **The build number orders installs within a MAJOR.MINOR.** It is CI's run number less `PlayMapRunBase`, and the run
+   number only grows within one workflow file. Anything that starts the numbering again (a raised `PlayMapRunBase`, a new
+   workflow file) raises MAJOR or MINOR in the same commit, never PATCH alone, as `Version.props` already says; the release job
    compares the new MSI version with the last release's and refuses one that is not greater, naming both.
 4. **PATCH lives in the SemVer and the product's name.** Add/Remove Programs shows `ProductVersion` (`0.2.17`); the product's
    name carries the SemVer ("PlayMap 0.2.0 (build 17)"), as the desk's about line does.

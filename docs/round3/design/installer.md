@@ -11,30 +11,31 @@ once: firewall rules, WER's dump settings, two privileges for the show account, 
 supervisor (LocalSystem) starts `PlayMap.exe engine` in the auto-logged-on show user's session — never session 0, where display
 devices are out of reach — restarts it with backoff, and stops an engine whose shown-frame count has stopped while HEALTH says it should be moving — never
 during a start or a device rebuild within its measured budget.
-The MSI's `ProductVersion` is MAJOR.MINOR.BUILD from CI's run number, so every numbered build upgrades the one before it; the
-`versioning` branch's file version and SemVer stay as they are.
+The MSI's `ProductVersion` is MAJOR.MINOR.BUILD from CI's build number, so every numbered build upgrades the one before it;
+`main`'s file version and SemVer stay as they are.
 
 ---
 
 ## 1. The version rules
 
-The base is the `versioning` branch (`PLAN.md` §1.3): `Version.props` holds `PlayMapVersion` (MAJOR.MINOR.PATCH), CI passes
-`PlayMapBuild` (its run number, 1–65 535) and `PlayMapCommit`; the file version is MAJOR.MINOR.PATCH.BUILD; the informational
-version is `MAJOR.MINOR.PATCH+BUILD.SHORTSHA`; `BuildInfo` reads it back. This package adds:
+The base is `main`'s scheme (`PLAN.md` §1.3): `Version.props` holds `PlayMapVersion` (MAJOR.MINOR.PATCH) and `PlayMapRunBase`;
+CI passes `PlayMapRun` (its run number) and `PlayMapCommit`, and the build number (`_PlayMapBuildNumber`, 1–65 535) is the run
+less the base; the file version is MAJOR.MINOR.PATCH.BUILD; the informational version is `MAJOR.MINOR.PATCH+BUILD.SHORTSHA`;
+`BuildInfo` reads it back. This package adds:
 
 ```xml
 <!-- Version.props (the installer's hunk) -->
 <Error Condition="$(_PlayMapVersionWellFormed) and ($([System.Version]::Parse('$(PlayMapVersion)').Major) &gt; 255 or $([System.Version]::Parse('$(PlayMapVersion)').Minor) &gt; 255)"
        Text="PlayMapVersion '$(PlayMapVersion)' has a major or minor above 255, the most an MSI's ProductVersion holds: no build may carry a version a release cannot install." />
-<PropertyGroup Condition="'$(PlayMapBuild)' != ''">
-  <PlayMapMsiVersion>$([System.Version]::Parse('$(PlayMapVersion)').Major).$([System.Version]::Parse('$(PlayMapVersion)').Minor).$(PlayMapBuild)</PlayMapMsiVersion>
+<PropertyGroup Condition="'$(PlayMapRun)' != ''">
+  <PlayMapMsiVersion>$([System.Version]::Parse('$(PlayMapVersion)').Major).$([System.Version]::Parse('$(PlayMapVersion)').Minor).$(_PlayMapBuildNumber)</PlayMapMsiVersion>
 </PropertyGroup>
 ```
 
 ```xml
 <!-- installer/PlayMap.Installer.wixproj: outside PlayMap.sln (an MSI builds on Windows only), built by the Windows job's MSI step -->
 <Error Condition="'$(PlayMapMsiVersion)' == ''"
-       Text="An MSI is made from a numbered build only (PlayMapBuild and PlayMapCommit from CI): a local build's MSI would read as MAJOR.MINOR.0 and could not be upgraded in order." />
+       Text="An MSI is made from a numbered build only (PlayMapRun and PlayMapCommit from CI): a local build's MSI would read as MAJOR.MINOR.0 and could not be upgraded in order." />
 ```
 
 ```csharp
@@ -45,15 +46,16 @@ public string MsiVersion => IsLocal
     : System.Version.Parse(Version) is var v ? string.Create(CultureInfo.InvariantCulture, $"{v.Major}.{v.Minor}.{Build}") : "";
 ```
 
-| Build | SemVer (people, wire, STATE) | File version | MSI |
+| Build | SemVer (people, HEALTH, the log) | File version | MSI |
 |---|---|---|---|
-| 0.2.0, run 17 | `0.2.0+17.abc1234` | `0.2.0.17` | `0.2.17` |
-| 0.2.3, run 18 | `0.2.3+18.def5678` | `0.2.3.18` | `0.2.18` (upgrades 0.2.17) |
-| 0.3.0, run 19 | `0.3.0+19.0123abc` | `0.3.0.19` | `0.3.19` |
+| 0.2.0, build 17 | `0.2.0+17.abc1234` | `0.2.0.17` | `0.2.17` |
+| 0.2.3, build 18 | `0.2.3+18.def5678` | `0.2.3.18` | `0.2.18` (upgrades 0.2.17) |
+| 0.3.0, build 19 | `0.3.0+19.0123abc` | `0.3.0.19` | `0.3.19` |
 | local | `0.2.0-dev+abc1234` | `0.2.0.0` | none (refused) |
 
 The release job reads the last release's MSI version (`gh release view`) and refuses an MSI that is not greater, naming both; a new
-workflow file starts run numbers at 1, so the commit that adds one raises MINOR. Add/Remove Programs shows `ProductVersion`; the
+workflow file starts run numbers at 1 and a raised `PlayMapRunBase` starts build numbers at 1, so the commit that does either
+raises MAJOR or MINOR, never PATCH alone. Add/Remove Programs shows `ProductVersion`; the
 product's name carries the SemVer ("PlayMap 0.2.3 (build 18)"), and `docs/INSTALL.md` explains the two numbers.
 
 ## 2. What the MSI lays down
