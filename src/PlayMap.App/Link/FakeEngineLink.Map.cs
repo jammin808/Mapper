@@ -37,11 +37,6 @@ public sealed partial class FakeEngineLink
 
     partial void TryMapVerbs(WireLine line, ref WireReply? reply)
     {
-        if (Answered(line) is { } answered)
-        {
-            reply = answered;
-            return;
-        }
         reply = (line.Verb, line.WordUpper(1)) switch
         {
             ("LIGHT", "WALL") => LightWall(line),

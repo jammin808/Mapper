@@ -96,6 +96,11 @@ public sealed partial class FakeEngineLink
             reply = Err(why);
             return;
         }
+        if (Answered(line) is { } answered)
+        {
+            reply = answered;
+            return;
+        }
         if (line.Verb == "BLIND")
         {
             reply = Blind(line);
@@ -143,13 +148,25 @@ public sealed partial class FakeEngineLink
     /// <summary>The store a line's document edits go to (the draft for its owner's draftable line), or null for the live one.</summary>
     private PlayMap.Core.Model.ProjectStore? _lineStore;
 
-    /// <summary>BLIND ON, BLIND DISCARD and BLIND COMMIT [NOW] as the engine means them, for the desk's own session: STATE.show.blind
-    /// names the owner's session as WHOAMI does; the draft's edits stay off the live project until BLIND COMMIT lands them.</summary>
+    /// <summary>A commit waiting for its boundary: the playlist it waits on (null: the next GO anywhere), next item or GO, its words.</summary>
+    private sealed record FakeCommit(string Boundary, string? Playlist, string When, bool Forced);
+
+    private FakeCommit? _commit;
+
+    /// <summary>BLIND ON, DIFF, DISCARD and COMMIT [NOW|NEXT [&lt;playlist&gt;]|ON GO [&lt;playlist&gt;]] [FORCE] as the engine means them, for the
+    /// desk's own session: STATE.show.blind names the owner's session as WHOAMI does; the draft's edits stay off the live project until
+    /// a commit lands them — at once, or (the demo's boundary) at the next GO, NEXT or PREV of the playlist it waits on.</summary>
     private WireReply Blind(WireLine line)
     {
         var word = line.WordUpper(1);
         switch (word)
         {
+            case "DIFF":
+                if (_draft is { } diffed)
+                    return Ok(DiffJson(diffed));
+                return Section("show")["blind"] is JsonObject other
+                    ? Err($"the demo engine holds no copy of {other["owner"]?.GetValue<string>()}'s draft — a real engine words it")
+                    : Err("not blind — BLIND ON starts a draft");
             case "ON":
                 if (_draft is not null)
                     return Err("already blind — " + BlindWords.Changes(_draft.Changes) + " staged");
@@ -165,42 +182,143 @@ public sealed partial class FakeEngineLink
             case "DISCARD":
                 if (_draft is not { } d)
                     return Err("not blind — nothing to discard");
+                var pending = _commit is not null;
                 _draft = null;
+                _commit = null;
                 DraftMoved();
-                return Ok("blind draft discarded (" + BlindWords.Changes(d.Changes) + ")");
+                return Ok("blind draft discarded (" + BlindWords.Changes(d.Changes) + (pending ? ", its commit cancelled" : "") + ")");
             case "COMMIT":
-                if (_draft is not { } c)
-                    return Err("not blind — BLIND ON starts a draft");
-                // A commit lands past the armed show's own locks (the show's explicit locks still hold it), as the engine's does.
-                _promoting = true;
-                WireReply landed;
-                try
-                {
-                    landed = Edit("blind commit", _ => c.Store.Project);
-                }
-                finally
-                {
-                    _promoting = false;
-                }
-                if (landed.Ok)
-                {
-                    _draft = null;
-                    DraftMoved();
-                }
-                return landed;
+                return BlindCommit(line);
             default:
                 return Err("the demo engine runs BLIND ON, BLIND DISCARD and BLIND COMMIT — a real engine runs the rest");
         }
     }
 
-    /// <summary>STATE.show.blind follows the draft.</summary>
+    private WireReply BlindCommit(WireLine line)
+    {
+        const string Syntax = "BLIND COMMIT [NOW|NEXT [<playlist>]|ON GO [<playlist>]|AT +<ms>|<unix ms>] [FORCE]";
+        if (_draft is not { } c)
+            return Err("not blind — BLIND ON starts a draft");
+        if (_commit is { } waiting)
+            return Err($"the draft already lands {waiting.When} — BLIND DISCARD cancels it");
+        var words = new List<string>();
+        for (var i = 2; i < line.Count; i++)
+            words.Add(line.Word(i));
+        var force = words.RemoveAll(w => w.Equals("FORCE", StringComparison.OrdinalIgnoreCase)) > 0;
+        var head = words.Count > 0 ? words[0].ToUpperInvariant() : "NOW";
+        PlayMap.Core.Model.Playlist? list = null;
+        switch (head)
+        {
+            case "NOW" when words.Count <= 1:
+                break;
+            case "NEXT" when words.Count <= 2:
+                list = words.Count > 1 ? _store.Project.FindPlaylist(words[1]) : _focused is { } f ? _store.Project.FindPlaylist(f) : null;
+                if (list is null)
+                    return Err(words.Count > 1 ? "no playlist " + words[1] : "no playlist is focused — BLIND COMMIT NEXT <playlist>");
+                if (CursorOf(list.Id).Clip.State != PlayMap.Core.Playback.TransportState.Playing)
+                    return Err($"nothing ends on {list.Name} — use ON GO or AT");
+                break;
+            case "ON" when words.Count is 2 or 3 && words[1].Equals("GO", StringComparison.OrdinalIgnoreCase):
+                if (words.Count == 3 && (list = _store.Project.FindPlaylist(words[2])) is null)
+                    return Err("no playlist " + words[2]);
+                break;
+            case "AT":
+                return Err("the demo engine lands a draft NOW, at the NEXT item or ON GO — a real engine also lands it AT an instant");
+            default:
+                return Err(Syntax);
+        }
+        var patch = ProjectDiff.Between(c.Base, c.Store.Project, 0);
+        if (patch.Changes.Count == 0)
+            return Err("the draft changes nothing — BLIND OFF leaves");
+        var conflicts = patch.ConflictsWith(c.Base, _store.Project);
+        if (conflicts.Count > 0 && !force)
+        {
+            var named = string.Join(", ", conflicts.Select(id => patch.Changes.First(x => x.Id == id)).Select(x => $"{x.Label} ({x.Kind}, {x.Id})"));
+            return Err($"changed on the air since BLIND ON: {named} — BLIND DIFF shows the draft; FORCE lands the draft's version");
+        }
+        if (head == "NOW")
+            return Land(c, patch);
+        _commit = head == "NEXT"
+            ? new FakeCommit("next", list!.Id, "at the next item of " + list.Name, force)
+            : new FakeCommit("on go", list?.Id, list is null ? "with the next GO" : "with the next GO on " + list.Name, force);
+        DraftMoved();
+        return Ok($"the draft lands {_commit.When} ({BlindWords.Changes(patch.Changes.Count)})");
+    }
+
+    /// <summary>Lands the draft on the live project: its changes put in entity by entity, past the armed show's own locks (the show's
+    /// explicit locks still hold it), as the engine's commit does.</summary>
+    private WireReply Land(FakeDraft c, ProjectPatch patch)
+    {
+        _promoting = true;
+        WireReply landed;
+        try
+        {
+            landed = Edit("blind commit", live => patch.ApplyTo(live));
+        }
+        finally
+        {
+            _promoting = false;
+        }
+        if (landed.Ok)
+        {
+            _draft = null;
+            _commit = null;
+            DraftMoved();
+        }
+        return landed;
+    }
+
+    /// <summary>A playlist moved to another item (GO, NEXT, PREV): a commit waiting on it, or on the next GO anywhere, lands now.</summary>
+    private void PlaylistMovedForBlind(string playlistId, bool go)
+    {
+        if (_commit is not { } waiting || _draft is not { } c)
+            return;
+        var due = waiting.Boundary == "next" ? waiting.Playlist == playlistId : go && (waiting.Playlist is null || waiting.Playlist == playlistId);
+        if (due)
+            Land(c, ProjectDiff.Between(c.Base, c.Store.Project, 0));
+    }
+
+    /// <summary>BLIND DIFF in the engine's shape: each entity the draft changes in field words, and the ones changed on the air too.</summary>
+    private string DiffJson(FakeDraft d)
+    {
+        var patch = ProjectDiff.Between(d.Base, d.Store.Project, 0);
+        var conflicts = patch.ConflictsWith(d.Base, _store.Project);
+        var changes = new JsonArray();
+        foreach (var ch in patch.Changes)
+        {
+            var fields = new JsonArray();
+            foreach (var f in ch.Fields)
+                fields.Add(new JsonObject { ["field"] = f.Field, ["from"] = f.From, ["to"] = f.To, ["words"] = f.Words });
+            var words = new JsonArray();
+            foreach (var w in ProjectDiff.Words(ch))
+                words.Add(w);
+            var o = new JsonObject { ["id"] = ch.Id, ["kind"] = ch.Kind, ["label"] = ch.Label, ["op"] = ch.Op.ToString().ToLowerInvariant(), ["fields"] = fields };
+            if (ch.More > 0)
+                o["more"] = ch.More;
+            o["words"] = words;
+            changes.Add(o);
+        }
+        var conflicted = new JsonArray();
+        foreach (var id in conflicts)
+            conflicted.Add(id);
+        return new JsonObject { ["base"] = 0, ["owner"] = d.Owner, ["changes"] = changes, ["conflicts"] = conflicted }.ToJsonString();
+    }
+
+    /// <summary>STATE.show.blind follows the draft (and its commit while it waits).</summary>
     private void DraftMoved()
     {
         Section("show")["blind"] = _draft is { } d
             ? new JsonObject
             {
                 ["on"] = true, ["owner"] = d.Owner, ["session"] = SessionId, ["transport"] = Transport, ["since"] = UnixMs,
-                ["base"] = 0, ["changes"] = d.Changes, ["commit"] = null,
+                ["base"] = 0, ["changes"] = d.Changes,
+                ["commit"] = _commit is { } k
+                    ? new JsonObject
+                    {
+                        ["when"] = k.When, ["boundary"] = k.Boundary, ["playlist"] = k.Playlist, ["effectiveLeaderNs"] = null, ["changes"] = d.Changes,
+                        ["by"] = d.Owner, ["forced"] = k.Forced,
+                    }
+                    : null,
             }
             : null;
         Moved();

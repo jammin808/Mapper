@@ -123,6 +123,7 @@ public sealed partial class FakeEngineLink
             return Ok("cued " + list.Items[index].Label);
         var r = cued.Clip.Play(Now);
         _cursors[list.Id] = cued with { Clip = r.Transport };
+        PlaylistMovedForBlind(list.Id, go: true);
         return Ok("playing " + list.Items[index].Label);
     }
 
@@ -137,6 +138,7 @@ public sealed partial class FakeEngineLink
             return Err(step > 0 ? $"{list.Name} is at its last item" : $"{list.Name} is at its first item");
         var cued = Cue(list, index);
         _cursors[list.Id] = cued with { Clip = cued.Clip.Play(Now).Transport };
+        PlaylistMovedForBlind(list.Id, go: step > 0);
         return Ok("playing " + list.Items[index].Label);
     }
 

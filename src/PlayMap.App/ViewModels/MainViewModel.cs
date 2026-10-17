@@ -150,7 +150,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             host.Use(this);
         Map.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView) or nameof(MapViewModel.EditorSize))
+            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView) or nameof(MapViewModel.EditorSize) or nameof(MapViewModel.EditorViewId))
                 UpdateViews();
         };
         session.StateUpdated += OnState;
@@ -799,6 +799,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
                 break;
             case Workspace.Map when Map.IsProjectorView && Map.ViewProjector is { } pj:
                 want[Map.ViewId] = $"projector:{pj.Id} {pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture)}x{pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture)}";
+                break;
+            case Workspace.Map when Map.ShowDraft:
+                want[Map.EditorViewId] = "editor DRAFT";
                 break;
             case Workspace.Map:
                 want["editor"] = "editor " + Map.EditorSize;

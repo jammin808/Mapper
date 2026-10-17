@@ -789,7 +789,10 @@ public sealed partial class FakeEngineLink : IEngineLink
                 _views[view] = line.RestAfter(3);
                 return Ok();
             case "SHOW":
-                _views[view] = line.Word(3);
+                // A draft view shows this session's own blind draft; the node keeps it to the draft's owner.
+                if (line.Count > 4 && line.WordUpper(4) == "DRAFT" && _draft is null)
+                    return Err("this session holds no blind draft — BLIND ON first");
+                _views[view] = line.Count > 4 && line.WordUpper(4) == "DRAFT" ? line.Word(3) + " DRAFT" : line.Word(3);
                 return Ok();
             case "KEEP":
                 return _views.ContainsKey(view) ? Ok() : Err($"no view {view} is shown");

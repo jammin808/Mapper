@@ -276,10 +276,33 @@ public sealed class MapViewModel : ObservableObject, IDisposable
 
     public string ViewTitle => _isProjectorView
         ? ViewProjector is { } pj ? $"Projector view · {pj.Name}{(ViewOutput is { } o ? " · " + o.Name : "")}" : "Projector view · no projector"
-        : "3D view";
+        : _showDraft ? "3D view · the blind draft" : "3D view";
 
     /// <summary>The engine's preview view id for what the centre shows.</summary>
-    public string ViewId => _isProjectorView && ViewProjector is { } pj ? "pj-" + pj.Id : "editor";
+    public string ViewId => _isProjectorView && ViewProjector is { } pj ? "pj-" + pj.Id : EditorViewId;
+
+    private bool _showDraft;
+
+    /// <summary>The 3D view draws this desk's blind draft instead of the air (VIEW editor-draft SHOW editor DRAFT): a view of its own,
+    /// as the node keeps a view that drew the air for the air.</summary>
+    public bool ShowDraft
+    {
+        get => _showDraft;
+        set
+        {
+            if (!Set(ref _showDraft, value))
+                return;
+            Raise(nameof(EditorViewId), nameof(ViewId), nameof(ViewTitle));
+            if (_editorPixels is { } px)
+                _session.Throttle.Post("view " + EditorViewId, $"VIEW {EditorViewId} CAMERA " + Camera.ToJson(px.W, px.H));
+            SceneChanged?.Invoke();
+        }
+    }
+
+    /// <summary>The 3D view's preview: "editor-draft" while it draws the draft, "editor" otherwise.</summary>
+    public string EditorViewId => _showDraft ? "editor-draft" : "editor";
+
+    private (double W, double H)? _editorPixels;
 
     public void Select(string kind, string? id)
     {
@@ -665,7 +688,8 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             var w = Math.Min(1920, Math.Max(64, Math.Round(width / 32) * 32));
             var h = Math.Max(32, Math.Round(w * height / width / 2) * 2);
             EditorSize = string.Create(CultureInfo.InvariantCulture, $"{w:0}x{h:0}");
-            _session.Throttle.Post("view editor", "VIEW editor CAMERA " + Camera.ToJson(w, h));
+            _editorPixels = (w, h);
+            _session.Throttle.Post("view " + EditorViewId, $"VIEW {EditorViewId} CAMERA " + Camera.ToJson(w, h));
         }
         SceneChanged?.Invoke();
     }

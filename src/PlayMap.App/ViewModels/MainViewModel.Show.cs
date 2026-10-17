@@ -20,7 +20,9 @@ public sealed partial class MainViewModel
         ModuleViews.Register<PreflightBoardViewModel>(() => new PreflightBoardView());
         ModuleViews.Register<FleetBoardViewModel>(() => new FleetBoardView());
         Health = new HealthModule(Session, Drawers);
-        ShowModule = new ShowStripModule(Session, Prefs, () => Workspace == Workspace.Play, () => Drawers.Show("health", Health.ReadyTab));
+        ModuleViews.Register<BlindChipViewModel>(() => new BlindPanelView());
+        ShowModule = new ShowStripModule(Session, Prefs, () => Workspace == Workspace.Play, () => Drawers.Show("health", Health.ReadyTab),
+            () => Map.ShowDraft, on => Map.ShowDraft = on);
         modules.Add(ShowModule);
         modules.Add(Health);
     }

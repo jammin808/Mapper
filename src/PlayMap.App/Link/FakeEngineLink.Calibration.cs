@@ -21,7 +21,8 @@ public sealed partial class FakeEngineLink
             _answers[line] = reply;
     }
 
-    /// <summary>A query a test answered, or CALIBRATION HISTORY from the demo's own results; null for any other line.</summary>
+    /// <summary>A line a test answered, or CALIBRATION HISTORY from the demo's own results; null for any other line (asked once the
+    /// node's doors let the line through).</summary>
     private WireReply? Answered(WireLine line)
     {
         if (_answers.TryGetValue(line.Raw, out var given))

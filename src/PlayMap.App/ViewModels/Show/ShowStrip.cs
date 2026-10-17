@@ -107,17 +107,19 @@ public sealed record ShowSection(bool Present, bool Armed, string By, long Since
     public ImmutableArray<ShowLock> ExplicitLocks => [.. Locks.Where(l => !l.Implicit).Select(l => l.AsCore())];
 }
 
-/// <summary>The top bar's show strip: the Ready light, ARM (no password), PANIC (never a dialog), each following
-/// STATE.show, never its own press. Its right-click menus are the Show menu, the panic outcomes and the preflight runs.</summary>
+/// <summary>The top bar's show strip: the Ready light, the blind chip while a draft is open, ARM (no password), PANIC (never a
+/// dialog), each following STATE.show, never its own press. Its right-click menus are the Show menu, the panic outcomes, the
+/// preflight runs and the blind panel's lines.</summary>
 public sealed class ShowStripViewModel : ObservableObject
 {
     private static readonly string[] Outcomes = ["BLACK", "RUN", "REWIND", "NEXT", "FREEZE", "SAFE", "SHUTTER", "FX-OFF", "HARD"];
     private ShowSection _show = ShowSection.Absent;
     private Health.Readiness _readiness = Health.Readiness.Unknown;
 
-    public ShowStripViewModel(DeskSession session, DeskPrefs prefs, Action openHealth)
+    public ShowStripViewModel(DeskSession session, DeskPrefs prefs, Action openHealth, Func<bool>? draftShown = null, Action<bool>? showDraft = null)
     {
         ArgumentNullException.ThrowIfNull(session);
+        Blind = new BlindChipViewModel(session, draftShown ?? (() => false), showDraft ?? (_ => { }));
         Arm = DeskAction.Send(session, "show.arm", "Arm", () => _show.Armed ? "SHOW DISARM" : "SHOW ARM", ArmLabel,
             isChecked: () => _show.Armed, isEnabled: () => session.IsLive).Look("arm", "Ctrl+Shift+A");
         // PANIC sends every press at once (a second press within the fade is HARD, however slow the first one's reply), and on a
@@ -167,6 +169,9 @@ public sealed class ShowStripViewModel : ObservableObject
     public DeskAction Arm { get; }
 
     public DeskAction Panic { get; }
+
+    /// <summary>The blind chip and its panel (shown while a blind draft is open).</summary>
+    public BlindChipViewModel Blind { get; }
 
     public DeskAction Ready { get; }
 
@@ -232,6 +237,7 @@ public sealed class ShowStripViewModel : ObservableObject
     /// <summary>Re-reads the strip's actions (after the gate's facts moved); ARM's and PANIC's tooltips carry their tips.</summary>
     public void RefreshActions()
     {
+        Blind.RefreshActions();
         ArmMenu.RefreshAll();
         PanicMenu.RefreshAll();
         ReadyMenu.RefreshAll();
@@ -270,12 +276,12 @@ public sealed class ShowStripModule : DeskModule
     /// <summary>The transport the desk's lines arrive on at the node: a client's, never one of the fleet's own parts.</summary>
     private const string DeskTransport = "desk";
 
-    public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth)
+    public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth, Func<bool>? draftShown = null, Action<bool>? showDraft = null)
     {
         _session = session;
         _prefs = prefs;
         _inPlay = inPlay;
-        Strip = new ShowStripViewModel(session, prefs, openHealth);
+        Strip = new ShowStripViewModel(session, prefs, openHealth, draftShown, showDraft);
         _clear = DeskAction.Send(session, "panic.clear", "Clear", () => "PANIC CLEAR FADE 1000", isEnabled: () => session.CanSend, everyPress: true).Look("play");
         _clearMenu = DeskAction.Local("panic.clearFade", "Clear with a fade", () => { });
         foreach (var ms in new[] { 0, 1000, 2000, 5000 })
@@ -300,6 +306,7 @@ public sealed class ShowStripModule : DeskModule
         _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
         Strip.Update(_show, Health.Readiness.Of(state));
+        Strip.Blind.Update(_show.Blind, OwnsDraft);
     }
 
     public override void RefreshActions()

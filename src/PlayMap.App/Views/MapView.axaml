@@ -128,7 +128,7 @@
 
       <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
         <Panel>
-          <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="editor" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
+          <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="{Binding EditorViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
           <ui:ProjectorCanvas x:Name="ProjectorView" Map="{Binding}" ViewId="{Binding ViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding IsProjectorView}" Margin="12" />
         </Panel>
       </Border>

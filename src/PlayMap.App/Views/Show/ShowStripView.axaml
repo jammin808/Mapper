@@ -4,13 +4,22 @@
              xmlns:ui="using:PlayMap.App.Controls"
              x:Class="PlayMap.App.Views.Show.ShowStripView"
              x:DataType="show:ShowStripViewModel">
-  <!-- The show strip: the Ready light, ARM (no password) and PANIC (never a dialog). Each follows STATE.show; each
-       right-click is its menu (preflight runs; the Show menu; the panic outcomes). It never shrinks. -->
+  <!-- The show strip: the Ready light, the blind chip while a draft is open, ARM (no password) and PANIC (never a dialog). Each
+       follows STATE.show; each right-click is its menu (preflight runs; the blind panel's lines; the Show menu; the panic outcomes).
+       It never shrinks. -->
   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding IsPresent}">
     <Button x:Name="ReadyButton" Classes="pill" Command="{Binding Ready.Command}" ToolTip.Tip="{Binding ReadyTip}" ui:DeskMenu.Actions="{Binding ReadyMenu}">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <Ellipse Classes="light" Fill="{Binding ReadyLight, Converter={StaticResource LightBrush}}" />
         <TextBlock Text="{Binding ReadyText}" VerticalAlignment="Center" />
+      </StackPanel>
+    </Button>
+    <!-- The blind chip while a draft is open: a press opens the blind panel under the bar; its right-click is the panel's lines. -->
+    <Button x:Name="BlindChip" Classes="pill" Classes.blind="{Binding Blind.IsPresent}" IsVisible="{Binding Blind.IsPresent}" Command="{Binding Blind.Toggle}"
+            ToolTip.Tip="{Binding Blind.Words}" ui:DeskMenu.Actions="{Binding Blind.Actions}">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <PathIcon Data="{StaticResource Icon.blind}" Width="14" Height="14" />
+        <TextBlock Text="{Binding Blind.Text}" FontWeight="SemiBold" x:Name="BlindText" />
       </StackPanel>
     </Button>
     <Button x:Name="ArmButton" Classes="pill" Classes.armed="{Binding IsArmed}" Command="{Binding Arm.Command}" ToolTip.Tip="{Binding ArmTip}"
