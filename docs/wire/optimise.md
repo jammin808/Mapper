@@ -46,9 +46,11 @@ At the end of `media`, `null` on a node without the optimise part:
 ```
 
 `paused` is the hold asked; `held` is the fact: the worker says it holds the running job between frames (a pause, or the
-governor's wait). A PAUSE of the running job is accepted (`pending`, "pause asked of oj…: it holds at its next frame") until then, and a
-RESUME of the job the worker holds is accepted ("resume asked of oj…: it goes on when its worker does") until it goes on; the journal
-says "paused at frame n" and "resumed at frame n" when they are facts.
+governor's wait). A PAUSE of the running job is accepted (`pending`, "pause asked of oj…: it holds at its next frame") until then — it
+is applied at once only when the worker holds the job and the knobs last sent hold it too (the governor's wait), at the frame it held
+at — and a RESUME of the job the worker holds, or of one whose holding knobs are on their way to it, is accepted ("resume asked of
+oj…: it goes on when its worker does") until it goes on; the journal says "paused at frame n" and "resumed at frame n" when they are
+facts, and STATE shows `held` once the journal has the row.
 `jobs` holds at most 16 rows: the running ones, the queue in order, then the latest finished. `MEDIA JOBS` has them all. A done
 job's `version` is its `mv…` and its `words` say the audio's fate and the quality ("aac copied; 44.1 dB average, 43.9 dB lowest").
 

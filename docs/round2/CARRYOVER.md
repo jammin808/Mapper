@@ -178,8 +178,8 @@ Round 2 W1 notes:
 - Every `Parallel.For` and `Parallel.ForEach` under `src/` passes `Compute.Options` or `Compute.With`, and the solves, scan
   decodes and simulators of the scan, align, resolve, blend, mapping, site and stack work run through `Compute.RunAsync`: Core's
   compute threads, one fewer than the processors beside a loop's calling thread, never the shared thread pool the lanes, sockets
-  and timers need. `ComputeTests` scans `src/` and refuses a loop on the pool, PLINQ and `Parallel.Invoke`; nothing scans for a
-  job, so a package that adds a CPU loop or job uses them by hand. Awaited I/O stays on the pool.
+  and timers need. `ComputeTests` scans `src/` and refuses a loop on the pool, PLINQ and `Parallel.Invoke`, and holds every file's
+  pool work to a reviewed count (`EveryJobHandedToThePoolWasReviewedAsNoCpuJob`, below). Awaited I/O stays on the pool.
 - Every test that measures allocation does it through `tests/Shared/Allocations.cs` (`Start`/`Since` for the measuring thread's own
   window, `Begin` before reading a counter another thread keeps), linked into the Core, Render, Media, Net and Engine suites; the
   allocation tests run in Release as well as Debug, since a closure an optimised build makes at a method's entry shows only there.
@@ -208,9 +208,12 @@ Round 2 W1 notes:
 
 ## Integrator notes from the round-2 fix batch (fix-tests4)
 
-- Done: a reader never makes a durable replace fail. Every reader of a durable file opens it through `DurableFile.OpenRead`,
-  `ReadAllText` or `ReadAllBytes` (shared for write and delete), and the STATE fixtures' writers and readers do too
-  (`MainStateFixtureTests.EveryFixtureWriterReplacesItsFileWhole` finds a fixture writer that writes in place). Windows replaces with
+- Done: a reader never makes the replace of a file that holds the node's state fail. Every reader of one opens it through
+  `DurableFile.OpenRead`, `ReadAllText` or `ReadAllBytes` (shared for write and delete), and so do the tests that read a node's files
+  and the STATE fixtures' writers and readers
+  (`MainStateFixtureTests.EveryFixtureWriterReplacesItsFileWhole` finds a fixture writer that writes in place). The media, versions,
+  models and meshes moved in through `MoveIntoPlace` are read shared for reading only (the hashers, a pull's verify, `MeshIO`): on
+  Windows a reader holding one open can make its replace fail, which then says so. Windows replaces with
   a POSIX-semantics rename (`FileRenameInfoEx`) flushed through the same handle, the same rename without the read-only flag where the
   system does not know it (before 1809), and `MoveFileEx` where the file system takes no POSIX rename (`DurableFileTests`,
   `SettingsReaderTests.AReaderHoldingTheSettingsOpenNeverLosesTheWritersChange`, Category=Windows). That closes the read of the
@@ -218,8 +221,9 @@ Round 2 W1 notes:
   asserts that no settings write failed.
 - Done: stopping the render host waits, 5 s at most (`EngineSources.DefaultCloseWait`), for every source's open and close and
   journals each that did not close (`EngineSourcesTests.WhenDisposeReturnsEverySourceHasClosed`,
-  `ACloseThatHangsIsSaidAndTheStopGoesOn`, `SourceReleaseTests`). A Spout read waits for its staging copy's event query, never a
-  count of tries (`SpoutReceiver.PendingCopied`). The stage's tables say which blend inputs their blend answers
+  `ACloseThatHangsIsSaidAndTheStopGoesOn`, `SourceReleaseTests`). The Spout test reads a frame once its staging copy's event query
+  says the copy is done (`SpoutReceiver.PendingCopied`), never after a count of tries; the provider's read never waits (a copy not
+  done yet is read at a later step). The stage's tables say which blend inputs their blend answers
   (`StageResources.BlendInUseFor`; `ReseatTests` waits for the landed draft's). A line session joins the session table before it
   runs, its registrations one at a time, and it reads whether it said hello under its register lock
   (`LineWebSocketTests.ANewTokenReachesASessionStillInItsFirstStretch`). `PromoteTests` waits until each follower knows the other in
@@ -262,6 +266,11 @@ Round 2 W1 notes:
   live (the test now waits until the headline and the context match the record the monitor holds; the 10 s "peer not live" is not
   reproduced); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's
   first clip in STATE (one failure on the batch's baseline).
+- Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
+  when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
+  on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
+  holds, and the pause stays pending with no "paused at frame" row while STATE says held (the fact). A worker that says every let-go
+  it takes, even one taken back before its thread ran, closes it.
 - Open on Windows: the survey slice is timed by the stopwatch there (`ThreadTime.Precise` is false), so a loaded Windows machine
   still counts the time other threads took into the slice; whether the Windows job's Spout test takes the real WARP round trip or
   its fallback is not verified.
