@@ -267,7 +267,8 @@ Round 2 W1 notes:
   once its runner has let go of its slot, and only while it is the latest run started
   (`ScanEngineTests.TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning`); the phone camera's 5 s and 10 s waits run on the
   hub's clock (`PhoneAlignTests`, `ResolveCameraTests`); the survey import's lane slice is the work the lane thread did in it, its
-  own processor time to the nanosecond on Linux, macOS and x64 Windows (`ThreadTime`, `ThreadTimeTests`).
+  own processor time on Linux and macOS, read in the step the CPU clock states (`ThreadTime`, `ThreadTimeTests`); Windows is open
+  below.
 - Done, off the CPU jobs fix-tests3 left on the pool: the stage's automatic blend, thumbnails' conversion and
   encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' still and scan pictures, a probe's first-frame
   decode, the site preflight check and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`;
@@ -304,13 +305,30 @@ Round 2 W1 notes:
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
   holds, and the pause stays pending with no "paused at frame" row while STATE says held (the fact). A worker that says every let-go
   it takes, even one taken back before its thread ran, closes it.
-- Done: on x64 Windows the survey slice is the lane thread's cycles of the invariant time-stamp counter (`QueryThreadCycleTime`), at
-  the counter's rate measured once as the node starts, off the lane and the render thread (the highest of 16 millisecond spins
-  against the stopwatch, which a preemption only lowers, so a slice reads at least its work); it reads to the nanosecond, as Linux's
-  CPU clock does. Windows on an ARM64 kernel, or on a processor that does not say its counter is invariant, reads the thread's
-  kernel and user time in 15.625 ms ticks and says so (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the survey view's
-  `LaneResolutionMs`); the slice budget's tests refuse a measure that coarse by name (`SurveyImportTests`), and
-  `ThreadTimeTests` fails a tick-charged read by its own assertions. The Windows reads are proven only where the Windows job runs them.
+- Open on Windows: the survey slice's measure there is not yet observed. Where the kernel is x64 and CPUID says the time-stamp
+  counter is invariant, `ThreadTime` reads the lane thread's cycles (`QueryThreadCycleTime`) at the counter's rate, measured once as
+  the node starts, off the lane and the render thread: the fastest of 16 millisecond spins against the stopwatch, which a preemption
+  or an interrupt only lowers, so a slice reads at least its work. The rate stands only where, in every spin, the count moves between
+  two reads straight after each other (a count brought up to date at a tick, a switch or any interval does not, and its fastest spin
+  can count more than the counter) and a quarter of the spins agree with the fastest within 1% (`CycleRateTests`). Otherwise, and on
+  an ARM64 kernel or a counter not said to be invariant, the measure is the thread's kernel and user time in 15.625 ms ticks, and it
+  says why (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the survey view's `LaneResolutionMs`). Where the test's own reading of the
+  platform says the cycles can be read, `ThreadTimeTests` refuses a tick read by the measure's word
+  (`AThreadsTimeCountsItsWorkNotItsWait`, `OnWindowsTheThreadsCyclesAreReadWhereTheirRateIsConstant`), by the blocked thread's count
+  and each 10 ms half (`AThreadsTimeCountsItsWorkNotItsWait`) and by the finest step (`AReadMovesInTheStepItStates`), and refuses
+  converted cycles that read a 10 ms half short of nine tenths (a rate above the counter's). Where it says they cannot, a tick read
+  passes `ThreadTimeTests` at the tick it states, and the slice budget's tests refuse it by name (`SurveyImportTests`). None of this
+  has run on Windows. A Hyper-V guest sees the invariant bit only once it opts in, so whether the windows-latest runner reads the
+  cycles is what its run says (`ThreadTimeTests` and both slice tests log `Basis` into the trx); the item is settled from that run.
+  On a guest that reads ticks there, a guest whose CPUID 0x40000003 EAX[15] is set is on a host that scales its counter, and reading
+  that as a constant rate is a candidate, measured on the runner before it is relied on. A Windows 11 24H2 show machine with Memory
+  Integrity on (the default) runs Windows as Hyper-V's root partition: whether it sees the invariant bit, so a shipped node reads
+  the cycles, is a lab check (docs/ROADMAP.md).
+- Open: `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued before `RunStep` writes the
+  panic's journal row ("panic … cued A"), so a reader that sees Cued can read the journal without the row.
+  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the journal the moment it sees Cued, and failed one Engine run of
+  the int-tests4 gate on that ordering. A row written before the lane is published, or a test that
+  waits for the row as it waits for the lane, closes it.
 - Open on Windows: whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - The desk-2 notes' open calls stand (the code settles none): the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at
   every press and presses a card's `APPROVE` once; the throttle sends what it coalesced to the link it holds when it flushes, across
