@@ -76,6 +76,7 @@
             <TextBlock Classes="h2" Text="{Binding Title}" x:Name="GuideTitle" />
             <TextBlock Classes="dim" Text="{Binding Words}" TextWrapping="Wrap" x:Name="GuideWords" />
             <ItemsControl ItemsSource="{Binding Lights}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" IsVisible="{Binding IsLightStep}" x:Name="GuideLights" />
+            <ContentControl Content="{Binding LookAgain}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding CanLookAgain}" x:Name="GuideLookAgain" />
             <ContentControl Content="{Binding DrawQuad}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding IsQuadStep}" x:Name="GuideQuad" />
             <ContentControl Content="{Binding Clip}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding IsClipStep}" x:Name="GuideClip" />
           </StackPanel>

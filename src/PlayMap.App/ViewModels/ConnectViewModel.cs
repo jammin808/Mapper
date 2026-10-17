@@ -17,6 +17,10 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public event Action<string>? Note;
 
+    /// <summary>What the desk takes back from the node before it lets go of it (another node, the desk closing): awaited, within
+    /// <see cref="MainViewModel.LeaveWithin"/>.</summary>
+    public Func<CancellationToken, Task>? Leaving { get; set; }
+
     public async Task ConnectDemoAsync()
     {
         var link = new FakeEngineLink(autoTick: true);
@@ -96,6 +100,11 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     private async Task ReleaseAsync()
     {
+        if (Leaving is { } leaving && _session.Link is not null)
+        {
+            using var within = new CancellationTokenSource(MainViewModel.LeaveWithin);
+            await leaving(within.Token);
+        }
         _session.Detach();
         _ownsLocalNode = false;
         if (_owned is { } old)

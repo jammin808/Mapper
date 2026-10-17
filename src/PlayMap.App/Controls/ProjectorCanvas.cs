@@ -581,16 +581,26 @@ public sealed class ProjectorCanvas : PreviewSurface
         InvalidateVisual();
     }
 
+    /// <summary>The right-click menu of what is under the pointer, picked as a left click picks it: a quad drawn in this projector's
+    /// picture over the meshes behind it, else the surface the projector lights there (each selected, its outliner entries); on
+    /// nothing, the view's own entries (the quad tool, On the wall).</summary>
     private void OpenMenuAt(Point p, Rect r)
     {
-        if (Map is not { } map || View(r) is not { } v || map.Scene.Pick(v.RayAt(p)) is not { } hit)
+        if (Map is not { } map)
             return;
-        map.Select("surface", hit.Surface.Surface.Id);
-        var node = map.Outliner.SelectMany(g => g.Nodes).FirstOrDefault(x => x.Id == hit.Surface.Surface.Id);
-        if (node is null)
-            return;
+        var id = map.ViewProjector is { } pj && QuadAt(map, pj, ToNorm(r, p)) is { } quad ? quad
+            : View(r) is { } v && map.Scene.Pick(v.RayAt(p)) is { } hit ? hit.Surface.Surface.Id
+            : null;
+        IEnumerable<DeskAction> actions = map.ViewActions;
+        if (id is not null)
+        {
+            map.Select("surface", id);
+            if (map.Outliner.SelectMany(g => g.Nodes).FirstOrDefault(x => x.Id == id) is not { } node)
+                return;
+            actions = node.Actions;
+        }
         var menu = new ContextMenu();
-        DeskMenu.Fill(menu.Items, node.Actions);
+        DeskMenu.Fill(menu.Items, actions);
         ContextMenu = menu;
         menu.Open(this);
     }

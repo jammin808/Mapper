@@ -16,7 +16,9 @@ namespace PlayMap.App.Tests;
 /// on the desk and on the wall (CURSOR with its trail) and send no quad, Enter sends exactly one SURFACE QUAD in the output's wall
 /// pixels — the line a real engine takes, leaving the same corners — and selects the new quad with its first corner (HANDLE SELECT);
 /// the arrows move that corner in wall pixels (Alt+Right: SURFACE CORNER &lt;sf&gt; TL BY 0.1 0 PX, plain 1 px, Shift 10 px), Tab and
-/// Shift+Tab pick the next and previous corner; Ctrl+Left stays the transport's; Esc drops a quad half drawn.</summary>
+/// Shift+Tab pick the next and previous corner, while the view has the keyboard (a focused slider keeps its arrows, and Tab its
+/// walk); Ctrl+Left stays the transport's; Esc drops a quad half drawn, as does showing another projector. A right-click on a quad
+/// is the quad's menu.</summary>
 public class QuadToolTests
 {
     internal static readonly SessionInfo DeskOnNode = new("demo", "desk", "127.0.0.1", true, Link.FakeEngineLink.ClientName, true);
@@ -135,6 +137,113 @@ public class QuadToolTests
         await desk.Main.Master.Prev.Command.Last;
         Assert.StartsWith("PLAYLIST PREV ", Assert.Single(desk.Verbs()), StringComparison.Ordinal);
         Screens.Save(window, "map-quad");
+        window.Close();
+    }
+
+    /// <summary>Draws one quad on pj_left's view (Q, four clicks, Enter) and answers it, selected with its first corner.</summary>
+    private static async Task<Surface> DrawQuad(DeskHarness desk, Window window, ProjectorCanvas canvas)
+    {
+        var map = desk.Main.Map;
+        Key(window, Avalonia.Input.Key.Q, physical: PhysicalKey.Q);
+        foreach (var (x, y) in new[] { (0.3, 0.3), (0.7, 0.3), (0.7, 0.7), (0.3, 0.7) })
+            ClickWall(window, canvas, x, y);
+        Key(window, Avalonia.Input.Key.Enter, physical: PhysicalKey.Enter);
+        await map.LastQuad;
+        DeskHarness.Pump();
+        var quad = desk.Link.CurrentProject.Stage.Surfaces.Single(s => s.Pixel is not null);
+        Assert.Equal(quad.Id, map.SelectedQuad!.Id);
+        // Selected with its inspector, once the project that names it has arrived.
+        Assert.Equal(quad.Id, Assert.IsType<SurfaceInspector>(map.Inspector.Current).Id);
+        return quad;
+    }
+
+    [AvaloniaFact]
+    public async Task AFocusedControlKeepsItsArrowsAndTabAndTheViewHasThemBack()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        var map = desk.Main.Map;
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        var canvas = MainWindowTests.Find<ProjectorCanvas>(window, "ProjectorView");
+        var quad = await DrawQuad(desk, window, canvas);
+
+        // The quad's own inspector: its Opacity slider has the keyboard. Left moves the slider, not the quad's corner on the wall,
+        // and Tab walks on to the next control instead of the next corner.
+        var slider = MainWindowTests.Find<Slider>(window, "SurfaceOpacity");
+        Assert.True(slider.Focus());
+        var before = slider.Value;
+        desk.Link.ClearSent();
+        Key(window, Avalonia.Input.Key.Left, physical: PhysicalKey.ArrowLeft);
+        Assert.DoesNotContain(desk.Link.SentLines, l => l.StartsWith("SURFACE CORNER", StringComparison.Ordinal));
+        Assert.True(slider.Value < before, $"{slider.Value} after {before}");
+        Key(window, Avalonia.Input.Key.Tab, physical: PhysicalKey.Tab);
+        Assert.DoesNotContain(desk.Link.SentLines, l => l.StartsWith("HANDLE SELECT", StringComparison.Ordinal));
+        Assert.Equal(0, map.SelectedCorner);
+        Assert.False(slider.IsFocused);
+
+        // The projector view has the keyboard again: the arrows and Tab are the quad's.
+        Assert.True(canvas.Focus());
+        desk.Link.ClearSent();
+        Key(window, Avalonia.Input.Key.Right, RawInputModifiers.Alt, PhysicalKey.ArrowRight);
+        Key(window, Avalonia.Input.Key.Tab, physical: PhysicalKey.Tab);
+        Assert.Equal([$"SURFACE CORNER {quad.Id} TL BY 0.1 0 PX", $"HANDLE SELECT {quad.Id} TR"],
+            desk.Link.SentLines.Where(l => l.StartsWith("SURFACE CORNER", StringComparison.Ordinal) || l.StartsWith("HANDLE SELECT", StringComparison.Ordinal)).ToArray());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ARightClickOnAQuadIsTheQuadsMenuAndAQuadHalfDrawnStaysWithItsProjector()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        var map = desk.Main.Map;
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        var canvas = MainWindowTests.Find<ProjectorCanvas>(window, "ProjectorView");
+        var quad = await DrawQuad(desk, window, canvas);
+        Key(window, Avalonia.Input.Key.S, physical: PhysicalKey.S);
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+
+        // A right-click inside the quad, over the wall's mesh behind it: the quad is selected, and its menu (the outliner's entries
+        // for it) opens — Remove removes the quad, not the surface behind.
+        var at = canvas.TranslatePoint(canvas.PointFor(new Vec2d(0.5, 0.5)), window)!.Value;
+        window.MouseMove(at, RawInputModifiers.None);
+        window.MouseDown(at, MouseButton.Right, RawInputModifiers.None);
+        window.MouseUp(at, MouseButton.Right, RawInputModifiers.None);
+        DeskHarness.Pump();
+        Assert.Equal(("surface", quad.Id), (map.SelectedKind, map.SelectedId));
+        var items = canvas.ContextMenu!.Items.OfType<MenuItem>().Select(i => i.Tag).OfType<DeskAction>().ToList();
+        Assert.Contains("REMOVE " + quad.Id, items.Select(a => a.Verb));
+        Assert.All(items.Where(a => a.Verb.StartsWith("REMOVE", StringComparison.Ordinal)), a => Assert.Equal("REMOVE " + quad.Id, a.Verb));
+        canvas.ContextMenu.Close();
+        // The view's own entries, where nothing is under the pointer: the quad tool and On the wall.
+        Assert.Equal([map.QuadToolAction, map.OnWall], map.ViewActions);
+        await map.QuadToolAction.Command.ExecuteAsync();
+        Assert.Equal(MapTool.Quad, map.Tool);
+
+        // Two corners on pj_left's wall, then the view shows pj_right: the half-drawn quad is dropped (the wall's cursor off), and
+        // Enter after two more clicks on pj_right's wall draws nothing from pj_left's corners.
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        ClickWall(window, canvas, 0.2, 0.2);
+        ClickWall(window, canvas, 0.8, 0.2);
+        Assert.True(map.Quad.IsDrawing);
+        desk.Link.ClearSent();
+        map.Select("projector", "pj_right");
+        DeskHarness.Pump();
+        Assert.Equal("pj_right", map.ViewProjector!.Id);
+        Assert.False(map.Quad.IsDrawing);
+        Assert.Contains("CURSOR OFF", desk.Link.SentLines);
+        ClickWall(window, canvas, 0.2, 0.8);
+        ClickWall(window, canvas, 0.8, 0.8);
+        Key(window, Avalonia.Input.Key.Enter, physical: PhysicalKey.Enter);
+        await map.LastQuad;
+        Assert.DoesNotContain(desk.Link.SentLines, l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));
+        Assert.Equal(2, map.Quad.Clicks.Count);
         window.Close();
     }
 

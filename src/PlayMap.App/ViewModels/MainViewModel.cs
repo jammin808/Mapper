@@ -43,7 +43,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         ArgumentNullException.ThrowIfNull(session);
         Session = session;
         Prefs = prefs ?? DeskPrefs.InMemory();
-        Escape = new EscapeLadder(nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
+        var clock = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
+        Escape = new EscapeLadder(clock);
         _connections = new ConnectionManager(session);
         // The supervisor speaks from its own worker; the toast goes up on the UI thread.
         _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));
@@ -82,7 +83,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
                 session.Dismiss(toast);
         });
         Play = new PlayViewModel(session);
-        Map = new MapViewModel(session);
+        Map = new MapViewModel(session, clock);
+        _connections.Leaving = Map.LeaveMapAsync;
         Scan = new ScanWizardViewModel(session);
         Outputs = new OutputsDrawerViewModel(session);
         Network = new NetworkDrawerViewModel(session, _connections);
@@ -563,8 +565,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Raise(nameof(IsConnected));
     }
 
-    /// <summary>The desk is closing: stop watching (the engine keeps playing).</summary>
+    /// <summary>The desk is closing: what it put on a wall comes off, then it stops watching (the engine keeps playing).</summary>
     public void BeginShutdown() => _ = DisposeAsync().AsTask();
+
+    /// <summary>How long a closing desk, or one leaving its node, waits for the node to take its overlay off the wall.</summary>
+    public static readonly TimeSpan LeaveWithin = TimeSpan.FromSeconds(1);
 
     /// <summary>Ticks between two renewals of the shown views' leases: 5 s at the window's 4 Hz (the node lets a view
     /// go after 15 s without one).</summary>
@@ -861,6 +866,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     public async ValueTask DisposeAsync()
     {
+        // The overlay this desk put on a wall comes off before the link goes (bounded: a node that does not answer keeps it only
+        // until its lease lapses).
+        using (var leaving = new CancellationTokenSource(LeaveWithin))
+            await Map.LeaveMapAsync(leaving.Token);
         Session.StateUpdated -= OnState;
         Session.ProjectUpdated -= OnProject;
         Session.StatusUpdated -= OnStatus;

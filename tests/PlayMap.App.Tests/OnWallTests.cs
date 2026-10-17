@@ -10,9 +10,9 @@ using PlayMap.Engine;
 namespace PlayMap.App.Tests;
 
 /// <summary>On-wall editing: O sends OVERLAY ON ON &lt;the projector's output&gt; (the line a real engine takes), STATE's air.overlay
-/// checks the toggle, this desk renews its lease every 5 s (OVERLAY KEEP), O again sends OVERLAY OFF ON &lt;output&gt;, and leaving MAP
-/// takes this desk's overlay off. Armed, O is disabled with the node's own words — a real engine's refusal of the same line — and a
-/// press sends nothing.</summary>
+/// checks the toggle, this desk renews its lease every 5 s of its clock (OVERLAY KEEP), O again sends OVERLAY OFF ON &lt;output&gt;, and
+/// leaving MAP, closing the desk or leaving the node takes this desk's overlay off. Armed, O is disabled with the node's own words — a
+/// real engine's refusal of the same line — and a press sends nothing.</summary>
 public class OnWallTests
 {
     [AvaloniaFact]
@@ -64,10 +64,11 @@ public class OnWallTests
     }
 
     [AvaloniaFact]
-    public async Task ThisDesksOverlayLeaseIsRenewedEveryFiveSecondsUntilItIsOff()
+    public async Task ThisDesksOverlayLeaseIsRenewedEveryFiveSecondsOfItsClockUntilItIsOff()
     {
-        // No window: its own 4 Hz timer would tick too; the test is the clock here.
-        await using var desk = new DeskHarness();
+        // No window: its own timer would tick too; the test is the ticks and the desk's clock here.
+        long ms = 0;
+        await using var desk = new DeskHarness(nowMs: () => ms);
         desk.Main.Workspace = Workspace.Map;
         var map = desk.Main.Map;
         map.Select("projector", "pj_left");
@@ -75,18 +76,79 @@ public class OnWallTests
         DeskHarness.Pump();
         desk.Link.ClearSent();
         string[] Overlay() => [.. desk.Link.SentLines.Where(l => l.StartsWith("OVERLAY", StringComparison.Ordinal))];
-        for (var i = 0; i < MapViewModel.KeepOverlayEveryTicks - 1; i++)
-            desk.Main.Tick();
+        void Ticks(int n)
+        {
+            for (var i = 0; i < n; i++)
+                desk.Main.Tick();
+        }
+
+        // However many ticks come, none renews the lease before 5 s of the desk's clock have passed since it was put on.
+        Ticks(100);
         Assert.Empty(Overlay());
-        desk.Main.Tick();
+        ms = MapViewModel.KeepOverlayEveryMs - 1;
+        Ticks(1);
+        Assert.Empty(Overlay());
+        ms = MapViewModel.KeepOverlayEveryMs;
+        Ticks(3);
         Assert.Equal(["OVERLAY KEEP ON op_1"], Overlay());
+        // A tick that comes late (a busy window) renews at once, and the next renewal is 5 s after it.
+        ms += 12_000;
+        Ticks(2);
+        Assert.Equal(2, Overlay().Length);
+        ms += MapViewModel.KeepOverlayEveryMs - 1;
+        Ticks(1);
+        Assert.Equal(2, Overlay().Length);
+        ms += 1;
+        Ticks(1);
+        Assert.Equal(["OVERLAY KEEP ON op_1", "OVERLAY KEEP ON op_1", "OVERLAY KEEP ON op_1"], Overlay());
+
         // Off: no lease to renew.
         await map.OnWall.Command.ExecuteAsync();
         DeskHarness.Pump();
         desk.Link.ClearSent();
-        for (var i = 0; i < MapViewModel.KeepOverlayEveryTicks * 2; i++)
-            desk.Main.Tick();
+        ms += 60_000;
+        Ticks(3);
         Assert.Empty(Overlay());
+    }
+
+    private static async Task<bool> OverlayOn(Link.FakeEngineLink link)
+    {
+        var state = await link.SendAsync("GET", Ct);
+        using var doc = System.Text.Json.JsonDocument.Parse(state.Text);
+        return doc.RootElement.GetProperty("air").GetProperty("overlay").GetProperty("on").GetBoolean();
+    }
+
+    [AvaloniaFact]
+    public async Task ClosingTheDeskOrLeavingTheNodeInMapTakesItsOverlayOffTheWall()
+    {
+        // Closing: the desk sends OVERLAY OFF ON <output> before its link goes, and the node's overlay is off.
+        var desk = new DeskHarness();
+        await using (desk)
+        {
+            desk.Main.Workspace = Workspace.Map;
+            desk.Main.Map.Select("projector", "pj_left");
+            await desk.Main.Map.OnWall.Command.ExecuteAsync();
+            DeskHarness.Pump();
+            Assert.True(await OverlayOn(desk.Link));
+            desk.Link.ClearSent();
+            await desk.Main.DisposeAsync();
+            Assert.Equal("OVERLAY OFF ON op_1", Assert.Single(desk.Link.SentLines, l => l.StartsWith("OVERLAY", StringComparison.Ordinal)));
+            Assert.False(await OverlayOn(desk.Link));
+        }
+
+        // Leaving the node for another (Connect ▸ the demo): the overlay comes off the node it was on before the desk lets go.
+        await using var other = new DeskHarness();
+        other.Main.Workspace = Workspace.Map;
+        other.Main.Map.Select("projector", "pj_left");
+        await other.Main.Map.OnWall.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        other.Link.ClearSent();
+        other.Main.Connect.Choice = Link.ConnectChoice.Demo;
+        await other.Main.Connect.ConnectCommand.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.NotSame(other.Link, other.Session.Link);
+        Assert.Equal("OVERLAY OFF ON op_1", Assert.Single(other.Link.SentLines, l => l.StartsWith("OVERLAY", StringComparison.Ordinal)));
+        Assert.False(await OverlayOn(other.Link));
     }
 
     [AvaloniaFact]
@@ -131,10 +193,11 @@ public class OnWallTests
     }
 }
 
-/// <summary>The first-light guide on a show with no projector: step 1 lists the machine's displays (DISPLAYS) and its button sends
-/// LIGHT WALL &lt;display&gt;, after which MAP shows the lit projector with the quad tool armed; four clicks and Enter send one SURFACE
-/// QUAD (step 2); step 3's clip sends SURFACE SOURCE &lt;the quad&gt; media:&lt;id&gt;, and the guide closes once the first content is up.
-/// On a show that already has projectors and no first light it does not show.</summary>
+/// <summary>The first-light guide on a show with no projector: step 1 lists the machine's displays (DISPLAYS, read again on Look
+/// again and whenever MAP shows) and its button sends LIGHT WALL &lt;display&gt;, after which MAP shows the lit projector with the quad
+/// tool armed; four clicks and Enter send one SURFACE QUAD (step 2); step 3's clip sends SURFACE SOURCE &lt;the quad&gt;
+/// media:&lt;id&gt;, and the guide closes once the first content is up, saying how long the first map took. On a show that already has
+/// projectors and no first light it does not show, even when the show draws its first quad.</summary>
 public class FirstLightTests
 {
     [AvaloniaFact]
@@ -193,7 +256,64 @@ public class FirstLightTests
         Assert.Null(DeskVerbRuleTests.Fault(desk.Verbs()[0]));
         Assert.False(guide.IsVisible);
         Assert.False(MainWindowTests.Find<Border>(window, "Guide").IsEffectivelyVisible);
-        Assert.Equal("content", desk.Session.State.Root.GetProperty("onboarding").GetProperty("stage").GetString());
+        var onboarding = desk.Session.State.Root.GetProperty("onboarding");
+        Assert.Equal("content", onboarding.GetProperty("stage").GetString());
+        // It closes saying how long the first map took, in onboarding.seconds.
+        var seconds = onboarding.GetProperty("seconds").GetDouble();
+        Assert.True(seconds >= 0);
+        Assert.Equal(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"First map in {(int)(seconds / 60)}:{(int)(seconds % 60):00}"),
+            desk.Session.LastToast!.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task NoDisplayYetLooksAgainOnItsButtonAndWhenMapShowsAgainAndARenamedDisplayOrClipKeepsItsButton()
+    {
+        var empty = Link.DemoProject.Create().WithStage(st => st with { Projectors = [], Surfaces = [] }) with { Outputs = [] };
+        await using var desk = new DeskHarness(setup: link => link.Answer("DISPLAYS", "[]"), project: empty);
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        DeskHarness.Pump();
+        var guide = desk.Main.Map.Guide;
+        await guide.Reading;
+        DeskHarness.Pump();
+
+        // No display yet: step 1 says so and offers Look again, which reads DISPLAYS once more.
+        Assert.True(guide.IsLightStep);
+        Assert.Empty(guide.Lights);
+        Assert.True(guide.CanLookAgain);
+        Assert.True(MainWindowTests.Find<ContentControl>(window, "GuideLookAgain").IsEffectivelyVisible);
+        Assert.Equal("DISPLAYS", guide.LookAgain.Verb);
+        Assert.Null(DeskVerbRuleTests.Fault(guide.LookAgain.Verb));
+        desk.Link.Answer("DISPLAYS", """[{"key":"DISPLAY2","name":"Projector A","width":1920,"height":1080,"refreshHz":60,"primary":false}]""");
+        desk.Link.ClearSent();
+        await guide.LookAgain.Command.ExecuteAsync();
+        await guide.Reading;
+        DeskHarness.Pump();
+        Assert.Equal(["DISPLAYS"], desk.Link.SentLines.Where(l => l == "DISPLAYS").ToArray());
+        var light = Assert.Single(guide.Lights);
+        Assert.Equal(("Light Projector A", "LIGHT WALL DISPLAY2"), (light.Label, light.Verb));
+        Assert.False(guide.CanLookAgain);
+
+        // The display renamed: MAP shown again reads DISPLAYS again, and the same button takes the new name.
+        desk.Link.Answer("DISPLAYS", """[{"key":"DISPLAY2","name":"Front projector","width":1920,"height":1080,"refreshHz":60,"primary":false}]""");
+        desk.Link.ClearSent();
+        desk.Main.Workspace = Workspace.Play;
+        desk.Main.Workspace = Workspace.Map;
+        DeskHarness.Pump();
+        await guide.Reading;
+        DeskHarness.Pump();
+        Assert.Contains("DISPLAYS", desk.Link.SentLines);
+        Assert.Same(light, Assert.Single(guide.Lights));
+        Assert.Equal("Light Front projector", light.Label);
+
+        // A clip renamed keeps its entry, with its new name.
+        var media = desk.Link.CurrentProject.Media[0];
+        var clip = guide.Clip.Children.Single(c => c.Id == "guide.clip.media:" + media.Id);
+        Assert.True((await desk.Session.SendAsync($"SET {media.Id} name \"Opening loop\"", Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.Same(clip, guide.Clip.Children.Single(c => c.Id == "guide.clip.media:" + media.Id));
+        Assert.Equal("Clip · Opening loop", clip.Label);
         window.Close();
     }
 
@@ -205,6 +325,11 @@ public class FirstLightTests
             desk.Main.Workspace = Workspace.Map;
             DeskHarness.Pump();
             Assert.Equal("none", desk.Session.State.Root.GetProperty("onboarding").GetProperty("stage").GetString());
+            Assert.False(desk.Main.Map.Guide.IsVisible);
+            // The show's first quad of this run, without a light: the node's stage moves on, and the guide stays away.
+            Assert.True((await desk.Session.SendAsync("SURFACE QUAD pj_left 480 216 1440 216 1440 864 480 864 PX", Ct)).Ok);
+            DeskHarness.Pump();
+            Assert.Equal("quad", desk.Session.State.Root.GetProperty("onboarding").GetProperty("stage").GetString());
             Assert.False(desk.Main.Map.Guide.IsVisible);
         }
         var empty = Link.DemoProject.Create().WithStage(st => st with { Projectors = [], Surfaces = [] }) with { Outputs = [] };

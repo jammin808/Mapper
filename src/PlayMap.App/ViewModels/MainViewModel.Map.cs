@@ -21,7 +21,11 @@ public sealed partial class MainViewModel
         Map.Lit += () => Workspace = Workspace.Map;
         PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(Workspace) && Workspace != Workspace.Map)
+            if (e.PropertyName != nameof(Workspace))
+                return;
+            if (Workspace == Workspace.Map)
+                Map.EnterMap();
+            else
                 Map.LeaveMap();
         };
         modules.Add(MapDesk);

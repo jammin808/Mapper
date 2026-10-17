@@ -12,6 +12,10 @@ public sealed record Shortcut(string Keys, string Words, string Scope, Key Key, 
 
     /// <summary>While a field types, the key runs the shortcut and still reaches the field (Esc: the field's own cancel).</summary>
     public bool FieldKeepsKey { get; init; }
+
+    /// <summary>The key is the shortcut's only while the keyboard focus is on MAP's canvas (the projector view, the 3D view, the plan)
+    /// or on nothing: a focused control keeps a key it uses itself (a slider's or a list's arrows, Tab's walk through the controls).</summary>
+    public bool CanvasOnly { get; init; }
 }
 
 /// <summary>The desk's keyboard: one table that both handles the keys and fills the F1 overlay, so the help
@@ -65,11 +69,12 @@ public sealed class ShortcutMap
             new("V", "3D view ↔ projector view", "MAP", Key.V, KeyModifiers.None, map.ToggleView, InMap),
             new("Enter", "Close the pen path", "MAP", Key.Enter, KeyModifiers.None, map.Pen.CloseCommand, () => InMap() && map.Pen.IsDrawing),
             new("Enter", "Draw the quad from its four corners (SURFACE QUAD)", "MAP", Key.Enter, KeyModifiers.None, map.FinishQuad, () => InMap() && map.Quad.IsReady),
-            new("Tab", "The selected quad's next corner (HANDLE SELECT)", "MAP", Key.Tab, KeyModifiers.None, map.NextCorner, () => InMap() && map.CanNudge),
-            new("Shift+Tab", "The selected quad's previous corner (HANDLE SELECT)", "MAP", Key.Tab, KeyModifiers.Shift, map.PrevCorner, () => InMap() && map.CanNudge),
+            new("Tab", "The selected quad's next corner (HANDLE SELECT), while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.None, map.NextCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
+            new("Shift+Tab", "The selected quad's previous corner (HANDLE SELECT), while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.Shift, map.PrevCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
             new("Delete", "Remove the selection (REMOVE)", "MAP", Key.Delete, KeyModifiers.None, map.RemoveSelection, InMap),
         ];
-        // The arrows move the selected quad's corner in wall pixels: 1 px, Shift ×10, Alt ×0.1 (SURFACE CORNER … BY … PX).
+        // The arrows move the selected quad's corner in wall pixels: 1 px, Shift ×10, Alt ×0.1 (SURFACE CORNER … BY … PX), while the
+        // view has the keyboard.
         foreach (var (mods, step, words) in new[] { (KeyModifiers.None, 1.0, ""), (KeyModifiers.Shift, 10.0, "Shift+"), (KeyModifiers.Alt, 0.1, "Alt+") })
         {
             foreach (var (key, dx, dy, name) in new[] { (Key.Left, -1.0, 0.0, "Left"), (Key.Right, 1.0, 0.0, "Right"), (Key.Up, 0.0, -1.0, "Up"), (Key.Down, 0.0, 1.0, "Down") })
@@ -77,7 +82,7 @@ public sealed class ShortcutMap
                 var (x, y) = (dx * step, dy * step);
                 e.Add(new(words + name, string.Create(System.Globalization.CultureInfo.InvariantCulture,
                     $"Move the selected quad's corner {step:0.#} px {name.ToLowerInvariant()} on the wall (SURFACE CORNER … BY … PX)"),
-                    "MAP", key, mods, new Infrastructure.RelayCommand(() => map.Nudge(x, y)), () => InMap() && map.CanNudge));
+                    "MAP", key, mods, new Infrastructure.RelayCommand(() => map.Nudge(x, y)), () => InMap() && map.CanNudge) { CanvasOnly = true });
             }
         }
         if (modules is not null)
@@ -87,12 +92,13 @@ public sealed class ShortcutMap
 
     /// <summary>Runs the shortcut for a key press; true when one ran and the key is spent (false for a key the focused field keeps
     /// as well). <paramref name="typing"/> is true while a text field has the focus (the field keeps every key but the few marked
-    /// WhileTyping).</summary>
-    public bool Handle(Key key, KeyModifiers modifiers, bool typing)
+    /// WhileTyping); <paramref name="onCanvas"/> is true while MAP's canvas or nothing has it (a shortcut marked CanvasOnly runs
+    /// only then, and the focused control keeps the key otherwise).</summary>
+    public bool Handle(Key key, KeyModifiers modifiers, bool typing, bool onCanvas = true)
     {
         foreach (var s in Entries)
         {
-            if (s.Key != key || s.Modifiers != modifiers)
+            if (s.Key != key || s.Modifiers != modifiers || (s.CanvasOnly && !onCanvas))
                 continue;
             if (typing && !s.WhileTyping)
                 return false;

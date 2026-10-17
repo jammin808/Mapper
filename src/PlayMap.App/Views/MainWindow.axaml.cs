@@ -66,9 +66,11 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainViewModel vm)
             return;
-        var typing = FocusManager?.GetFocusedElement() is TextBox;
+        var focused = FocusManager?.GetFocusedElement();
+        var typing = focused is TextBox;
         vm.IsTyping = typing;
-        if (vm.Shortcuts.Handle(e.Key, e.KeyModifiers, typing))
+        var onCanvas = focused is null or TopLevel or Controls.ProjectorCanvas or Controls.MapViewport or Controls.PlanCanvas;
+        if (vm.Shortcuts.Handle(e.Key, e.KeyModifiers, typing, onCanvas))
             e.Handled = true;
     }
 }
