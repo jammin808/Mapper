@@ -111,3 +111,24 @@ Round 2 W1 notes:
   a fallback without a correction does not restore it; wall's ScoreVocabulary still offers next-round fix lines (ALIGN RUN …
   STEPS COLOR, … COLOR WHITE); align.devices is not written (DEVICE NATIVE is next round); fx's IsfTranslatorTests leaves GL
   errors queued in the shared context (a later test that checks for none must clear them first).
+
+## Integrator notes from the round-2 fix batch (fix-product3)
+
+- The desk must open each preview at the ring the `VIEW … SHOW` reply names (`{"view","ring"}`) or STATE `machine.views[].ring`,
+  and open it again when that name changes: the engine writes `playmap-<node>-<view>~<generation>.preview` only (generations
+  count from the engine's start), so `PreviewSource`'s `PreviewRing.PathFor(node, view)` finds nothing and shows the stand-in.
+  Owner: the desk merge.
+- `hevc10.mp4` is the one test clip a GPL encoder makes (libx265 at test time, never committed): no LGPL-compatible encoder in
+  this FFmpeg writes 10-bit HEVC. The owner's choice: keep it, drop the 10-bit HEVC probe and decode tests, or commit a clip
+  made elsewhere (a hardware encoder in the lab). No LGPL-compatible encoder here writes H.264 with B-frames, CABAC or the High
+  profile either; the reordered-stream tests play MPEG-4 part 2 and Kvazaar's HEVC.
+- The node's settings file has three read-modify-write paths: `NetworkHost.PersistSettings` (under its gate), present's
+  `SavePresent` and decode's policy write (outside it). Each read and write is one at a time per file (`NodeHome`), but two
+  edits of different sections landing together can lose one. Owner: output and decode, through `PersistSettings`.
+- PROJECT SAVE flushes on the control lane: 0.7–3.7 ms median (20 KB–2 MB, ext4 on virtio here), p95 under 5 ms. Measured,
+  not governed; a disk under heavy writes (a media pull) may stall it longer. The chunk map of a pull is not flushed (a hint the
+  file's hash checks).
+- Seen once each: `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce` (Net, local; code this batch did not touch; five
+  reruns pass) and `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` (Windows CI run 259: the
+  Patterns host read back from the settings file empty — most likely a read of the file beside the write's rename, which Windows
+  refuses; the settings gate above closes that race in the process). Watch both.

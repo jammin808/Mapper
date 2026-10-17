@@ -37,7 +37,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
-  starts work on a part already closed; the node's own lines (a panic's shutters and effects) still run. Then the
+  starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
+  them when its turn comes; the node's own lines (a panic's shutters and effects) still run. Then the
   doors and parts close in reverse, the recovery record is written and the journal flushed.
 - A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
