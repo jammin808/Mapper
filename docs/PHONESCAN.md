@@ -78,7 +78,8 @@ acknowledged and dropped. A phone that sends nothing for ten seconds (its page p
   node's read the same value from the same pixels — same samples, same integer rule (checked under Node 22 on rendered pictures).
 - **Lock-step**: the next pattern goes up only when the phone says it saw this one — its tag at every lit site in two consecutive
   frames that also agree. A picture whose sites disagree is a rolling-shutter mix and is thrown away (counted). Uploads trail, at
-  most six in flight. A phone stuck on a pattern has it shown again (twice at most), then the view fails with its words; `SCAN NEXT`
+  most six in flight. A phone stuck on a pattern has it shown again (twice at most), then the view fails with its words — stuck
+  means silent for the pattern timeout (8 s) on the scan's own clock (`ScanRunnerOptions.Time`, the system's on a node); `SCAN NEXT`
   asks for it again by hand (the wait ends and the pattern goes up again, unless the phone's answer was already on its way).
 - **Checked on the node**: every picture's tag is read again when it lands; one that shows another pattern (`caught`) or never
   arrives is shot again. At the end the all-cells-lit locate frame goes up again (shot again if its picture never arrives): each

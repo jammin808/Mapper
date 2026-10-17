@@ -314,7 +314,9 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
 ## 8. Reliability rules (inherited from Patterns, enforced by the analyzers and tests)
 
 Attempts are not facts (receipts say accepted/applied and the effect); fail closed on the wire; one writer per
-lane; immutable snapshots for readers; pools and rings that skip rather than wait; no allocation on a warm frame
-(a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh); a faulting
+lane; immutable snapshots for readers; CPU-bound loops (`Parallel.For`) on Core's compute threads (`Compute`), never the shared
+thread pool the lanes, sockets and timers need; pools and rings that skip rather than wait; no allocation on a warm frame
+(a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh; every suite measures
+allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection, in Debug and Release); a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

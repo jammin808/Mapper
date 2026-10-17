@@ -33,7 +33,8 @@ read lock-free by the lane and the render thread.
   fades and safe looks, the fades back from a panic, the panic's steps and lines still due, and a blind commit waiting for its
   instant, by +Δ: media positions and levels are continuous and nothing lands early or late. A group playlist that already took
   its leader's anchor is on the leader's time line and stays (when the step brings the clock onto that line), and so does a blind
-  commit pinned to it. The render thread reads the snapshot and the clock separately, so a frame drawn in the
+  commit pinned to it; a playlist is counted as having taken its leader's anchor in the same lane action that applies the anchor,
+  so a step the lane takes after it never moves it. The render thread reads the snapshot and the clock separately, so a frame drawn in the
   microseconds between the clock's swap and the rebased snapshot can show one step; a step happens when a node starts following
   or its leader's clock jumps, not in a running show (an epoch in the snapshot would close it: a spine amendment). The journal says
   "followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place"; the event `sync.stepped` carries Δ. STATE's

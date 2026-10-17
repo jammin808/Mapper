@@ -176,7 +176,9 @@ registered to the world on its track points (as registering a scan to a surveyed
   keeps the site frame its place is in: after `SITE ORIGIN` moved the stage, the anchor's place (or a warm drop's frame) is carried
   by that move first, so the next view, solve or drop lands in the stage's frame now (`docs/MAPPING.md`).
 - **Latency.** A view through a streaming camera keeps the latency its own white flashes measured for each projector (`SCAN VIEWS`,
-  STATE); the scan's latency for a projector is its newest view's.
+  STATE); the scan's latency for a projector is its newest view's. Each flash, and each black between, stays on the glass for its
+  hold (500 ms) and until the camera has sent four pictures stamped after it (what the estimate measures a change from), so a slow
+  camera or a loaded node still measures; a camera silent for the frame timeout ends the measurement with what it has.
 - **A bad view.** Every joint solve measures each view's influence; the view whose removal halves the residual (when it is at least
   0.1 px) is named in `SCAN VIEWS` (`disagreeing`), in the solve's words, and in `SCAN APPLY`'s score: the dense fit's fix is
   `SCAN DROP <scan> <view>`. `SCAN DROP` solves the rest warm from the last solve; the view stays in the folder, marked dropped.
