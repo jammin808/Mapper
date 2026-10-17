@@ -315,8 +315,15 @@ public class HeldMenuTests(ITestOutputHelper output)
         var window = MainWindowTests.Open(desk);
         desk.Main.Drawers.Show("health", "cards");
         DeskHarness.Pump();
+        // The first held, live button in the cards' order, scrolled into view and drawn: the pointer finds what the last rendered
+        // frame shows, so which cards fit the window, and whether a frame has been drawn since they moved, is never left to timing.
         var button = window.GetVisualDescendants().OfType<CardView>().SelectMany(v => v.GetVisualDescendants().OfType<ActionMenuButton>())
-            .First(b => b.Action is { IsHold: true, IsEnabled: true, HasChildren: false } && Hittable(window, b));
+            .First(b => b.Action is { IsHold: true, IsEnabled: true, HasChildren: false });
+        button.BringIntoView();
+        DeskHarness.Pump();
+        using (Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window))
+            DeskHarness.Pump();
+        Assert.True(Hittable(window, button), $"{button.Action!.Verb} is not under the pointer once brought into view and drawn");
         var action = button.Action!;
         var line = action.Verb;
         desk.Link.ClearSent();

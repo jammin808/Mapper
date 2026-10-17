@@ -113,9 +113,11 @@ public sealed class DecodeFacts
     /// and upload are not part of it).</summary>
     public static HapLayersMeasured Measure(int cores, double decodeMs, long atUnixMs)
     {
-        var budget = HapBudget.Layers(new HapNodeFacts(0, cores, 0), HapBudget.Layer4K60(HapCodec.HapQ, decodeMs));
-        return new HapLayersMeasured(budget.Layers, budget.Limit, atUnixMs, Math.Round(decodeMs, 2), cores,
-            string.Create(CultureInfo.InvariantCulture, $"4K HAP Q second stage {decodeMs:0.0} ms a frame on one core; ") + budget.Words);
+        // The count is worked from the decode time the record keeps (to 0.01 ms), so the published time gives the published count.
+        var ms = decodeMs > 0 ? Math.Max(Math.Round(decodeMs, 2), 0.01) : decodeMs;
+        var budget = HapBudget.Layers(new HapNodeFacts(0, cores, 0), HapBudget.Layer4K60(HapCodec.HapQ, ms));
+        return new HapLayersMeasured(budget.Layers, budget.Limit, atUnixMs, ms, cores,
+            string.Create(CultureInfo.InvariantCulture, $"4K HAP Q second stage {ms:0.0} ms a frame on one core; ") + budget.Words);
     }
 
     /// <summary>A kept MEDIA INSPECT answer by its key (the content hash and the colour override that read it; "" is never kept).</summary>
