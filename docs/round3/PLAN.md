@@ -215,7 +215,7 @@ steps are hunks, §4).
 | `Observe` | wp3-stability | `EngineCore.Observe.cs`, `EngineServices.Observe.cs`, `Host/EngineParts.Observe.cs`, `Host/EngineEntry.Observer.cs` |
 | `Shaders` | wp3-shaders | `Host/EngineEntry.ShaderWorker.cs`, `EngineServices.Shaders.cs` |
 | `Undo` | wp3-desk-ux | `EngineCore.Undo.cs` |
-| `Preview` | wp3-desk-gpu | `RenderHost.Preview.cs` (beside the existing `RenderHost.Previews.cs`) |
+| `Preview` | wp3-desk-gpu | `RenderHost.Preview.cs` (beside the existing `RenderHost.Previews.cs`), `EngineCore.Preview.cs` |
 
 Present and framelock keep the existing Output and Sync files (`EngineCore.Output.cs`, `EngineCore.Sync.cs`,
 `Presentation/*`), owned by them in their waves.
@@ -277,9 +277,11 @@ lab, and its next round.
 5. The tree: `src/PlayMap.Render.D3D12` (references Core; TerraFX; every type `[SupportedOSPlatform("windows")]`),
    `src/PlayMap.Platform.Windows` (references Core), `src/PlayMap.Supervisor` (references Core), their test projects, the
    solution's entries; `ModuleRuleTests` (each new project references Core and its own native packages only; Render.D3D12 does not
-   reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding `// wp3-<pkg> fills this.`; empty
-   fixtures `machine.json`, `gpu.json`, `observe.json` with their card descriptors; `docs/wire/<pkg>.md` generated from the
-   catalogue; one heading per package in `THIRD-PARTY-NOTICES.md`. (4 h)
+   reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding `// wp3-<pkg> fills this.`; the new
+   top-level STATE keys reserved in their place (`machine.identity`, `machine.capabilities`, `machine.platform`,
+   `machine.install`, `render`, `observe`, `previews`); empty fixtures `machine.json`, `gpu.json`, `observe.json` with their
+   card descriptors; `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in `THIRD-PARTY-NOTICES.md`.
+   (4 h)
 6. CI: the Windows job restores `Microsoft.Direct3D.WARP` and `Microsoft.Direct3D.D3D12` (the Agility SDK, with its debug layer)
    and copies them beside the test hosts; a trait `Backend=D3D12` on Direct3D 12 tests so the job lists their results apart;
    the job's summary names the version built. (2 h)
@@ -538,7 +540,8 @@ wp3-d3d12-core's).
 **Preflight.** Section `install`: not installed (a folder run, amber on a show node), the supervisor's state (restarts, stopped),
 auto-logon on and for which user, the show machine's policies. **INDEX.** None.
 
-**Owns.** `installer/**`, `src/PlayMap.Supervisor/**`, `docs/INSTALL.md` (the guidance: IoT Enterprise LTSC 2024 for show nodes,
+**Owns.** `installer/**`, `src/PlayMap.Supervisor/**`, `src/PlayMap.Engine/Install/**` (STATE `machine.install` from the install's
+registry key and the supervisor's status file), `docs/INSTALL.md` (the guidance: IoT Enterprise LTSC 2024 for show nodes,
 auto-logon with the LSA secret and never a plain-text registry password, Shell Launcher, BIOS power-on after loss, the
 update window), the CI's installer and signing steps.
 
