@@ -57,6 +57,7 @@ public sealed class BlindChipViewModel : ObservableObject
     private BlindState? _blind;
     private bool _owns;
     private bool _ownerKnown = true;
+    private bool _wantDraft;
     private bool _isOpen;
     private int _fetchedChanges = -1;
     private Task _fetch = Task.CompletedTask;
@@ -75,7 +76,7 @@ public sealed class BlindChipViewModel : ObservableObject
             () => HasConflicts ? "Commit at the next item anyway (FORCE)" : "Commit at the next item", isEnabled: CanCommit).Look("next");
         Discard = DeskAction.Send(session, "blind.discard", "Discard", () => _blind is null ? null : "BLIND DISCARD",
             isEnabled: () => session.IsLive && _blind is not null).Look("trash", danger: true, separator: true);
-        DraftView = DeskAction.Local("blind.draftView", "Show the draft in MAP", () => _showDraft(!_draftShown()), isChecked: _draftShown,
+        DraftView = DeskAction.Local("blind.draftView", "Show the draft in MAP", () => WantDraft(!_draftShown()), isChecked: _draftShown,
             isEnabled: () => _owns).Look("eye", menuOnly: true);
         Actions = [Diff, CommitNow, CommitNext, Discard, DraftView];
     }
@@ -144,8 +145,10 @@ public sealed class BlindChipViewModel : ObservableObject
     }
 
     /// <summary>Takes STATE.show.blind and whether it names this desk's session; <paramref name="ownerKnown"/> is false while the node
-    /// has not yet said which session is this desk's on the link (a new link, before WHOAMI), and a draft view shown is kept until it has:
-    /// the new link is asked for it with every other view, and it goes once the node says the draft is not this desk's.</summary>
+    /// has not yet said which session is this desk's on the link (a new link, before WHOAMI answers). MAP draws the draft only while the
+    /// draft is known to be this desk's: until the node names the session, the desk keeps its wish for the draft view and MAP draws the
+    /// air's view, so a draft that turns out another's is never drawn; the wish goes once the node says the draft is another's or there
+    /// is none.</summary>
     public void Update(BlindState? blind, bool owns, bool ownerKnown = true)
     {
         var had = _blind;
@@ -159,15 +162,33 @@ public sealed class BlindChipViewModel : ObservableObject
             IsOpen = false;
             Changes.Clear();
             _fetchedChanges = -1;
-            if (_draftShown())
-                _showDraft(false);
+            _wantDraft = false;
         }
-        else if (!owns && ownerKnown && _draftShown())
-            _showDraft(false);
-        else if (_isOpen && blind.Changes != _fetchedChanges)
-            _fetch = FetchDiffAsync();
+        else
+        {
+            if (!owns && ownerKnown)
+                _wantDraft = false;
+            if (_isOpen && blind.Changes != _fetchedChanges)
+                _fetch = FetchDiffAsync();
+        }
+        ShowDraftAsWanted();
         Raise(nameof(IsPresent), nameof(OwnsDraft), nameof(Text), nameof(Words), nameof(HasConflicts));
         Toggle.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>The draft view toggled on this desk: its wish, drawn while the draft is this desk's.</summary>
+    private void WantDraft(bool on)
+    {
+        _wantDraft = on;
+        ShowDraftAsWanted();
+    }
+
+    /// <summary>MAP draws the draft while the desk wants it and the draft is known to be this desk's.</summary>
+    private void ShowDraftAsWanted()
+    {
+        var shown = _wantDraft && _blind is not null && _owns;
+        if (_draftShown() != shown)
+            _showDraft(shown);
     }
 
     public void RefreshActions() => Actions.RefreshAll();

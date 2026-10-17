@@ -469,15 +469,90 @@ public sealed class DeskPreviewTests
         viewport.PollFrame();
         Assert.Equal(ringC, Assert.IsType<RingPreviewSource>(viewport.Source).Opened[^1]);
 
-        // A node whose draft is another session's: once it names this desk's session, the draft view goes (HIDE) with its name.
+        // A node whose draft is another session's: the draft view is never asked of it, and once it names this desk's session the
+        // desk's wish for the draft view goes too.
         await using var third = new FakeEngineLink(clock: desk.Clock);
         third.SetSection("show", JsonSerializer.Serialize(new { blind = new { on = true, owner = "Patterns", session = "p1", transport = "bus", changes = 1 } }));
         desk.Main.Attach(third, "Demo node C");
         DeskHarness.Pump();
         DeskHarness.Pump();
         Assert.False(desk.Main.Map.ShowDraft);
-        Assert.Contains($"VIEW {draftView} HIDE", third.SentLines);
+        Assert.DoesNotContain(third.SentLines, l => l.StartsWith($"VIEW {draftView} SHOW ", StringComparison.Ordinal));
+        Assert.Contains(third.SentLines, l => l.StartsWith("VIEW editor SHOW editor ", StringComparison.Ordinal));
         Assert.Null(desk.Session.Previews.Of(draftView));
+        window.Close();
+    }
+
+    /// <summary>While a new link's node has not yet said which session is this desk's (WHOAMI unanswered), whose the draft is is not
+    /// known: MAP's 3D view draws the air's view and the draft view is not asked of it, the desk keeping its wish for the draft view;
+    /// once the node names the draft as this desk's, the draft view is asked; a node whose draft is another's is never asked for it,
+    /// and once it says so the wish goes.</summary>
+    [AvaloniaFact]
+    public async Task TheDraftViewIsAskedOfANewLinkOnlyOnceItsNodeNamesTheDraftTheDesks()
+    {
+        const string draftView = "editor-draft";
+        await using var desk = new DeskHarness();
+        Assert.True((await desk.Session.SendAsync("BLIND ON", Ct)).Ok);
+        DeskHarness.Pump();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = ViewModels.Workspace.Map;
+        DeskHarness.Pump();
+        var blind = desk.Main.ShowModule.Strip.Blind;
+        await DeskHarness.Settle(blind.DraftView.Command.ExecuteAsync());
+        DeskHarness.Pump();
+        Assert.True(desk.Main.Map.ShowDraft);
+
+        // Another node holding this desk's draft, its WHOAMI held: the air's view is asked of it, the draft view is not.
+        var whoami = new TaskCompletionSource();
+        await using var other = new FakeEngineLink(clock: desk.Clock);
+        Assert.True((await other.SendAsync("BLIND ON")).Ok);
+        other.ReplyAfter = line => line == "WHOAMI" ? whoami.Task : Task.CompletedTask;
+        other.ClearSent();
+        desk.Main.Attach(other, "Demo node B");
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.Equal("", desk.Session.SessionId);
+        Assert.False(desk.Main.Map.ShowDraft);
+        Assert.Equal("editor", MainWindowTests.Find<MapViewport>(window, "Viewport").ViewId);
+        Assert.DoesNotContain(other.SentLines, l => l.StartsWith($"VIEW {draftView} SHOW ", StringComparison.Ordinal));
+        Assert.Contains(other.SentLines, l => l.StartsWith("VIEW editor SHOW editor ", StringComparison.Ordinal));
+        Assert.False(blind.DraftView.IsChecked);
+
+        // The node names this desk's session, whose the draft is: the draft view is asked of it and MAP draws it.
+        whoami.SetResult();
+        await Task.Yield();
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.Equal(other.SessionId, desk.Session.SessionId);
+        Assert.True(desk.Main.Map.ShowDraft);
+        Assert.Contains($"VIEW {draftView} SHOW editor DRAFT", other.SentLines);
+        Assert.Contains("VIEW editor HIDE", other.SentLines);
+        Assert.Equal(draftView, MainWindowTests.Find<MapViewport>(window, "Viewport").ViewId);
+
+        // A node whose draft is another session's, its WHOAMI held: the draft view is never asked of it; once it names this desk's
+        // session the wish goes, and a node with this desk's draft linked after is not asked for it either.
+        var again = new TaskCompletionSource();
+        await using var third = new FakeEngineLink(clock: desk.Clock);
+        third.SetSection("show", JsonSerializer.Serialize(new { blind = new { on = true, owner = "Patterns", session = "p1", transport = "bus", changes = 1 } }));
+        third.ReplyAfter = line => line == "WHOAMI" ? again.Task : Task.CompletedTask;
+        desk.Main.Attach(third, "Demo node C");
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.False(desk.Main.Map.ShowDraft);
+        again.SetResult();
+        await Task.Yield();
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.Equal(third.SessionId, desk.Session.SessionId);
+        Assert.False(desk.Main.Map.ShowDraft);
+        Assert.DoesNotContain(third.SentLines, l => l.StartsWith($"VIEW {draftView} SHOW ", StringComparison.Ordinal));
+        await using var fourth = new FakeEngineLink(clock: desk.Clock);
+        Assert.True((await fourth.SendAsync("BLIND ON")).Ok);
+        desk.Main.Attach(fourth, "Demo node D");
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.False(desk.Main.Map.ShowDraft);
+        Assert.DoesNotContain(fourth.SentLines, l => l.StartsWith($"VIEW {draftView} SHOW ", StringComparison.Ordinal));
         window.Close();
     }
 
