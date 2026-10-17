@@ -5,7 +5,7 @@
              x:Class="PlayMap.App.Views.Health.FleetBoardView"
              x:DataType="health:FleetBoardViewModel">
   <!-- Health ▸ Fleet: the board's headline and light, the lens chips and ‹ › Reset, then a card per machine — this node first with
-       its role and the fleet verbs that act on it, each other machine lit by how recently it was heard. -->
+       its role and the fleet verbs that act on it (held to confirm), each other machine lit by how recently it was heard. -->
   <ScrollViewer Padding="12,6,12,12">
     <StackPanel Spacing="8">
       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ui:DeskMenu.Actions="{Binding Actions}">
@@ -34,7 +34,7 @@
                 </Grid>
                 <TextBlock Classes="dim" Text="{Binding Headline}" TextWrapping="Wrap" />
                 <TextBlock Classes="faint" Text="{Binding Detail}" TextWrapping="Wrap" IsVisible="{Binding HasDetail}" />
-                <ItemsControl ItemsSource="{Binding Actions}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" x:Name="MachineActions" />
+                <ItemsControl ItemsSource="{Binding Toolbar}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" x:Name="MachineActions" />
               </StackPanel>
             </Border>
           </DataTemplate>

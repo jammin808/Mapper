@@ -20,6 +20,7 @@ public sealed class MachineCardViewModel : ObservableObject, IMenuTarget
     private string _headline = "";
     private string _detail = "";
     private IReadOnlyList<DeskAction> _actions = [];
+    private IReadOnlyList<DeskAction> _toolbar = [];
 
     public MachineCardViewModel(string id, bool isSelf)
     {
@@ -90,17 +91,22 @@ public sealed class MachineCardViewModel : ObservableObject, IMenuTarget
 
     public bool HasDetail => _detail.Length > 0;
 
+    /// <summary>The card's actions, its right-click menu. The board hands the same list instance from push to push, so a press held
+    /// on one of its buttons across a push keeps its button.</summary>
     public IReadOnlyList<DeskAction> Actions
     {
         get => _actions;
         set
         {
-            if (Set(ref _actions, value))
-                Raise(nameof(Toolbar));
+            if (!Set(ref _actions, value))
+                return;
+            _toolbar = value.Toolbar();
+            Raise(nameof(Toolbar));
         }
     }
 
-    public IReadOnlyList<DeskAction> Toolbar => _actions;
+    /// <summary>The card's buttons: its actions less the menu-only ones.</summary>
+    public IReadOnlyList<DeskAction> Toolbar => _toolbar;
 
     IReadOnlyList<DeskAction> IMenuTarget.MenuActions => _actions;
 
@@ -118,17 +124,21 @@ public sealed class MachineCardViewModel : ObservableObject, IMenuTarget
 
 /// <summary>Health ▸ Fleet: every PlayMap machine this node hears, as cards. This node's card carries its role in a hot-backup pair
 /// (STATE.fleet.role, the mirror's or the backups' words, the last takeover) and the fleet verbs that act on this node:
-/// FAILOVER on a hot backup, FLEET SOLO to stop backing up, FLEET BACKUP to mirror the node that has the show when fenced. Each
+/// FAILOVER on a hot backup, FLEET SOLO to stop backing up, FLEET BACKUP to mirror the node that has the show when fenced — each a
+/// hold-to-confirm button, as the module's keys hold them, and the same instances from push to push. Each
 /// other machine's card (STATE.fleet.nodes, a primary's backups) is lit by how recently it was heard — amber when quiet, red when
 /// gone — and focuses the board (FLEET FOCUS). The lens chips, ‹ › and Reset are the board's view verbs, the words Companion's EYE
 /// keys use.</summary>
 public sealed class FleetBoardViewModel : ObservableObject
 {
     private static readonly string[] Lenses = ["ALL", "OUTPUTS", "PROJECTORS", "SYNC", "BACKUP", "PROBLEMS"];
+    private static readonly IReadOnlyList<DeskAction> NoActions = [];
 
     private readonly DeskSession _session;
     private readonly Dictionary<string, MachineCardViewModel> _cards = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<DeskAction>> _focus = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<DeskAction> _onBackup;
+    private readonly IReadOnlyList<DeskAction> _onFenced;
     private FleetFacts _facts = FleetFacts.None;
     private string _headline = "";
     private string _light = "grey";
@@ -138,10 +148,12 @@ public sealed class FleetBoardViewModel : ObservableObject
     {
         _session = session;
         Self = new MachineCardViewModel("", isSelf: true);
-        Failover = DeskAction.Send(session, "fleet.failover", "Failover", () => "FAILOVER", isEnabled: () => session.CanSend).Look("play", danger: true);
-        Solo = DeskAction.Send(session, "fleet.solo", "Stop backing up", () => "FLEET SOLO", isEnabled: () => session.IsLive).Look("close", menuOnly: true);
+        Failover = DeskAction.Send(session, "fleet.failover", "Failover", () => "FAILOVER", isEnabled: () => session.CanSend).Look("play", danger: true, hold: true);
+        Solo = DeskAction.Send(session, "fleet.solo", "Stop backing up", () => "FLEET SOLO", isEnabled: () => session.IsLive).Look("close", menuOnly: true, hold: true);
         Mirror = DeskAction.Send(session, "fleet.mirror", "Back up the node with the show", () => _facts.Of is { Length: > 0 } of ? "FLEET BACKUP " + of + " HOT" : null,
-            isEnabled: () => session.IsLive && _facts.Of is { Length: > 0 }).Look("fleet");
+            isEnabled: () => session.IsLive && _facts.Of is { Length: > 0 }).Look("fleet", hold: true);
+        _onBackup = [Failover, Solo];
+        _onFenced = [Mirror];
         LensActions = [.. Lenses.Select(l => DeskAction.Send(session, "fleet.lens." + l, Title(l), () => "FLEET LENS " + l,
             isChecked: () => string.Equals(_lens, l, StringComparison.OrdinalIgnoreCase), isEnabled: () => session.IsLive))];
         Actions =
@@ -204,9 +216,9 @@ public sealed class FleetBoardViewModel : ObservableObject
         {
             Self.Actions = _facts.Role switch
             {
-                FleetRoles.Backup => [Failover, Solo],
-                FleetRoles.Fenced => [Mirror],
-                _ => [],
+                FleetRoles.Backup => _onBackup,
+                FleetRoles.Fenced => _onFenced,
+                _ => NoActions,
             };
             Self.Update(_facts.Light, state.Name.Length > 0 ? state.Name + " (this machine)" : "This machine", RoleWord(_facts.Role), "",
                 _facts.Headline, _facts.SelfDetail);
@@ -224,7 +236,7 @@ public sealed class FleetBoardViewModel : ObservableObject
         }
         else
         {
-            Self.Actions = [];
+            Self.Actions = NoActions;
             Self.Update("grey", "This machine", "", "", "This node does not watch other machines' health (no fleet monitor).", "");
         }
         foreach (var id in _cards.Keys.Where(id => !want.Any(c => c.Id == id)).ToList())

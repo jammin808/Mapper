@@ -92,14 +92,19 @@ public sealed class DeskAction : ObservableObject
     /// <summary>Shown in the object's menu only, not on its toolbar.</summary>
     public bool MenuOnly { get; private set; }
 
+    /// <summary>Its button acts only when held (hold-to-confirm): a high-risk line that changes who has the show, the same press a
+    /// Companion key makes for it (the catalogue row's press is hold). A short press sends nothing.</summary>
+    public bool IsHold { get; private set; }
+
     /// <summary>Sets how the action looks (once, where it is made) and returns it.</summary>
-    public DeskAction Look(string? icon = null, string? gesture = null, bool danger = false, bool separator = false, bool menuOnly = false)
+    public DeskAction Look(string? icon = null, string? gesture = null, bool danger = false, bool separator = false, bool menuOnly = false, bool hold = false)
     {
         Icon = icon;
         Gesture = gesture;
         IsDanger = danger;
         SeparatorBefore = separator;
         MenuOnly = menuOnly;
+        IsHold = hold;
         return this;
     }
 
@@ -140,13 +145,13 @@ public sealed class DeskAction : ObservableObject
     /// <summary>The line this action sends now, or "" for a desk-only action.</summary>
     public string Verb => _verb() ?? "";
 
-    /// <summary>What the tooltip says: the label, the shortcut and the verb, and why it is greyed (the gate's words, or its own
-    /// condition's).</summary>
+    /// <summary>What the tooltip says: the label, the shortcut (and that it is held to confirm) and the verb, and why it is greyed
+    /// (the gate's words, or its own condition's).</summary>
     public string Tip
     {
         get
         {
-            var head = Gesture is null ? Label : $"{Label}  ({Gesture})";
+            var head = (Gesture is null ? Label : $"{Label}  ({Gesture})") + (IsHold ? " — hold to confirm" : "");
             var verb = Verb;
             var tip = verb.Length == 0 ? head : head + "\n" + verb;
             var why = Refusal ?? (_whyNot is { } w && _isEnabled?.Invoke() == false ? w() : null);

@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
@@ -5,13 +6,15 @@ using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.ViewModels;
 using PlayMap.App.ViewModels.Health;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests;
 
 /// <summary>Health ▸ Fleet: the fleet fixture renders a card per machine — this node's, and each other machine lit by how recently it
 /// was heard (amber "quiet" when stale, red "gone"); a card focuses the board (FLEET FOCUS), the lens chips and ‹ › send the board's
-/// view verbs. On a hot backup (backup.json) this node's card says BACKUP HOT with the mirror's words and its FAILOVER sends FAILOVER;
-/// the node then has the show; a primary shows its backup's card; a fenced node offers to mirror the node with the show.</summary>
+/// view verbs. On a hot backup (backup.json) this node's card says BACKUP HOT with the mirror's words and its FAILOVER — held to
+/// confirm, as the module's key is, and the same button across STATE pushes — sends FAILOVER; the node then has the show; a primary
+/// shows its backup's card; a fenced node offers to mirror the node with the show.</summary>
 public class FleetBoardTests
 {
     /// <summary>A rendered machine card: its light's fill and the heard chip's words.</summary>
@@ -91,13 +94,43 @@ public class FleetBoardTests
         var primary = board.Machines.Single(m => m.Id == "0badc0de");
         Assert.Equal(("FOH-A", "PRIMARY", "green"), (primary.Name, primary.Role, primary.Light));
 
-        // FAILOVER is on this node's card, live on a backup (the fleet's door lets it through), and sends exactly FAILOVER.
+        // FAILOVER is on this node's card, live on a backup (the fleet's door lets it through); Stop backing up is in its menu only.
         Assert.Equal(["FAILOVER", "FLEET SOLO"], self.Actions.Select(a => a.Verb).ToArray());
         var border = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "MachineCard" && ReferenceEquals(b.DataContext, self));
-        var button = border.GetVisualDescendants().OfType<ActionMenuButton>().Single(b => ReferenceEquals(b.Action, board.Failover));
+        var buttons = border.GetVisualDescendants().OfType<ActionMenuButton>().ToList();
+        var button = Assert.Single(buttons);
+        Assert.Same(board.Failover, button.Action);
+        var menu = new ContextMenu();
+        DeskMenu.Fill(menu.Items, DeskMenu.GetActions(border)!);
+        Assert.Equal([board.Failover, board.Solo], menu.Items.OfType<MenuItem>().Select(i => i.Tag).ToArray());
         Assert.True(button.IsEffectivelyEnabled);
+
+        // It is held to confirm, as the module's key holds it (the catalogue row presses hold): a click sends nothing.
+        Assert.All(new[] { board.Failover, board.Solo, board.Mirror }, a => Assert.True(a.IsHold));
+        static string PressOf(string line) => WireGrammar.TryParse(line, out var w, out _) && VerbCatalog.Match(w) is { } m ? VerbParams.Press(m.Spec) : "";
+        Assert.All(new[] { "FAILOVER", "FLEET SOLO", "FLEET BACKUP 9f8e7d6c HOT" }, l => Assert.Equal(PressShapes.Hold, PressOf(l)));
+        Assert.Contains("hold to confirm", board.Failover.Tip, StringComparison.Ordinal);
         desk.Link.ClearSent();
         DeskHarness.Click(window, button);
+        await board.Failover.Command.Last;
+        Assert.False(button.Complete(600));
+        Assert.Empty(desk.Verbs());
+
+        // Pressed, then a STATE push while it is held (the node animates): the same button holds on, and held to its time it sends
+        // exactly FAILOVER, once.
+        var at = button.TranslatePoint(new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        DeskHarness.Pump();
+        Assert.True(button.IsHeld);
+        var actions = self.Actions;
+        desk.Link.SetSection("fleet", """{"headline":"FOH-B mirrors FOH-A: identical (pushed while held)"}""");
+        DeskHarness.Pump();
+        Assert.Same(actions, self.Actions);
+        Assert.Same(button, border.GetVisualDescendants().OfType<ActionMenuButton>().Single());
+        Assert.True(button.IsHeld);
+        Assert.False(button.Complete(599));
+        Assert.True(button.Complete(600));
+        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, at, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
         await board.Failover.Command.Last;
         DeskHarness.Pump();
         Assert.Equal("FAILOVER", Assert.Single(desk.Verbs()));
