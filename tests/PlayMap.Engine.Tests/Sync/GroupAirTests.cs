@@ -55,9 +55,11 @@ public sealed class GroupAirTests
         // The member's answer is in before the deadline passes: then the send stops waiting for the final one.
         await accepted.Task.WaitAsync(TimeSpan.FromMinutes(1));
         feed.Heard -= Heard;
+        // The send's deadline is on the test's clock once the send waits on it: then it is passed.
+        Assert.True(await Eventually.TrueAsync(() => time.Waiting > 0), "the send never waited on its deadline");
         Assert.False(sending.IsCompleted);
         time.Advance(options.ReceiptWait);
-        var receipt = Assert.Single(await sending);
+        var receipt = Assert.Single(await sending.WaitAsync(TimeSpan.FromMinutes(1)));
         Assert.Equal(("Stage", "accepted", at), (receipt.Name, receipt.Stage, receipt.AppliedLeaderNs));
         Assert.False(member.State().GetProperty("air").GetProperty("blackout").GetBoolean());
         clock.Advance(Second - 1_000_000);
@@ -65,6 +67,8 @@ public sealed class GroupAirTests
         Assert.False(member.State().GetProperty("air").GetProperty("blackout").GetBoolean());
         clock.Advance(1_000_000);
         Assert.True(await Eventually.TrueAsync(() => member.State().GetProperty("air").GetProperty("blackout").GetBoolean()));
+        // The event is raised once the air has moved (STATE first): waited for as its own fact.
+        Assert.True(await Eventually.TrueAsync(() => events.Any(e => e.Kind == "air.blackout")), "no air.blackout event");
         Assert.Equal(at, Assert.Single(events, e => e.Kind == "air.blackout").AtLeaderNs);
         Assert.False(leader.State().GetProperty("air").GetProperty("blackout").GetBoolean());   // sent, not run, on the leader
         // The member's receipt when it ran the line reaches the leader after its send stopped waiting.

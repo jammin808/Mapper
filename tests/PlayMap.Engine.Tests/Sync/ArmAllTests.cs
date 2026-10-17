@@ -157,6 +157,8 @@ public sealed class ArmAllTests
         Assert.False(done.Task.IsCompleted);   // the group's preflight still waits for Stage's report
 
         // A member whose checks take longer than an air line's deadline still answers with its report.
+        // The group's preflight waits on its report deadline on the test's clock; an air line's deadline passes there, the report's not.
+        Assert.True(await Eventually.TrueAsync(() => time.Waiting > 0), "the preflight never waited on its report deadline");
         time.Advance(air * 2);
         held.Release();
         var report = await done.Task.WaitAsync(TimeSpan.FromSeconds(60));
