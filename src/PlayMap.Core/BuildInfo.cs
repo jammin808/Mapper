@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 
 namespace PlayMap.Core;
 
-/// <summary>Which build of PlayMap this is, as the stamp every PlayMap assembly carries says (Directory.Build.props writes the
-/// product version once; CI numbers each build and names its commit; a build without them is a local build). The one reader of
-/// the stamp: everything that shows a version takes it from here.
+/// <summary>Which build of PlayMap this is, as the stamp every PlayMap assembly carries says (Version.props holds the product
+/// version; CI numbers each build and names its commit; a build without them is a local build). The one reader of the stamp:
+/// everything that shows a version takes it from here.
 /// <list type="bullet">
 /// <item><see cref="Version"/>: the product version, SemVer MAJOR.MINOR.PATCH — the same for every build of a release
 /// (STATE's "version").</item>
