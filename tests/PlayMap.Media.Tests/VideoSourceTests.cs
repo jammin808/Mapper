@@ -50,10 +50,19 @@ public class VideoSourceTests
     public Task AcquireAnswersTheFrameWhoseIndexIsTheFloorOfTimeTimesRateAt2997Fps() =>
         AssertFrameExact("h264_2997.mp4", FrameRate.Fps2997);
 
-    [Fact]
-    public async Task ASeekToOnePointThreeTwoSecondsLandsOnTheExactFrame()
+    /// <summary>Streams whose frames are decoded out of display order (B-frames: MPEG-4 part 2, and HEVC's deeper reorder).</summary>
+    [Theory]
+    [InlineData("mpeg4_bf_25.mp4")]
+    [InlineData("hevc.mp4")]
+    public Task AcquireAnswersTheFrameWhoseIndexIsTheFloorOfTimeTimesRateWhenFramesAreReordered(string clip) =>
+        AssertFrameExact(clip, FrameRate.Fps25);
+
+    [Theory]
+    [InlineData("h264_long.mp4")]
+    [InlineData("mpeg4_bf_long.mp4")]
+    public async Task ASeekToOnePointThreeTwoSecondsLandsOnTheExactFrame(string clip)
     {
-        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));
+        using var source = new FfmpegVideoSource(TestMedia.Clip(clip));
         Assert.True(await source.Opened, source.Health.Status);
         Assert.Equal(0, IndexAt(source, 0));
         Assert.Equal(33, IndexAt(source, Durations.FromSeconds(1.32)));
@@ -62,10 +71,12 @@ public class VideoSourceTests
         Assert.Equal(299, IndexAt(source, Durations.FromSeconds(11.999)));
     }
 
-    [Fact]
-    public void PrerollMakesTheCueFrameReadyBeforeTheTimelineGetsThere()
+    [Theory]
+    [InlineData("h264_long.mp4")]
+    [InlineData("mpeg4_bf_long.mp4")]
+    public void PrerollMakesTheCueFrameReadyBeforeTheTimelineGetsThere(string clip)
     {
-        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_long.mp4"));
+        using var source = new FfmpegVideoSource(TestMedia.Clip(clip));
         var cue = Durations.FromSeconds(7.5);
         source.Prepare(cue, playing: false, 1);
         Assert.True(source.WaitUntilReady(cue, Wait), source.Health.Status);

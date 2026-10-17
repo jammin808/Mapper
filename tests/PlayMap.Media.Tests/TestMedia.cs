@@ -11,8 +11,10 @@ namespace PlayMap.Media.Tests;
 /// tool is PLAYMAP_FFMPEG_DIR/../bin/ffmpeg, else /opt/ffmpeg9/bin/ffmpeg, else ffmpeg beside the libraries.
 /// <para>Every video clip carries its frame index in its picture: the top 40 rows are sixteen 20-pixel blocks,
 /// block b white when bit b of the frame number is set, so a test reads back exactly which frame it got.</para>
-/// <para>The clips are made with LGPL-compatible encoders: H.264 by OpenH264 (BSD; no B-frames), 8-bit HEVC by Kvazaar (BSD),
-/// MPEG-4 part 2, HAP, ProRes, MJPEG, VP9, AV1, PCM and AAC by FFmpeg's own or BSD libraries. The one exception is
+/// <para>The clips are made with LGPL-compatible encoders: H.264 by OpenH264 (BSD; Constrained Baseline, no B-frames), 8-bit HEVC by
+/// Kvazaar (BSD; B-frames), MPEG-4 part 2 (FFmpeg's own; the B-frame clips <c>mpeg4_bf_25.mp4</c> and <c>mpeg4_bf_long.mp4</c>, so
+/// the frame-exact acquire, seek and preroll are proven on reordered streams), HAP, ProRes, MJPEG, VP9, AV1, PCM and AAC by FFmpeg's
+/// own or BSD libraries. No LGPL-compatible encoder here writes H.264 with B-frames, CABAC or the High profile. The one exception is
 /// <c>hevc10.mp4</c>: no 10-bit HEVC encoder here is LGPL-compatible (Kvazaar is built 8-bit), so it is made by libx265 (GPL) at
 /// test time and never committed.</para></summary>
 public static class TestMedia
@@ -40,8 +42,8 @@ public static class TestMedia
     public const string IndexPainter =
         "geq=lum='if(lt(Y,40),if(mod(floor(N/pow(2,floor(X/20))),2),235,16),128+60*sin(X/9+N/5))':cb=128:cr=128";
 
-    /// <summary>A clip by name, made on first use. Names: h264_25.mp4, h264_2997.mp4, h264_long.mp4, hevc.mp4,
-    /// hevc10.mp4, vp9.webm, av1.mkv, prores.mov, prores4444a.mov, mjpeg.mov, unknown.avi, still.png, still16.png,
+    /// <summary>A clip by name, made on first use. Names: h264_25.mp4, h264_2997.mp4, h264_long.mp4, h264_1080.mp4,
+    /// mpeg4_bf_25.mp4, mpeg4_bf_long.mp4, hevc.mp4, hevc10.mp4, vp9.webm, av1.mkv, prores.mov, prores4444a.mov, mjpeg.mov, unknown.avi, still.png, still16.png,
     /// still.exr, still.jpg, seq (a folder of 12 PNGs), tone48.wav, tone44.wav, tone.m4a, av.mp4, notag.wav.</summary>
     public static string Clip(string name)
     {
@@ -111,6 +113,27 @@ public static class TestMedia
             throw new InvalidOperationException("ffmpeg " + string.Join(' ', args) + " failed: " + err.Result);
     }
 
+    /// <summary>The picture types of a clip's video frames in display order ("IBBP…"), read by the ffprobe tool beside ffmpeg.</summary>
+    public static string FrameTypes(string path)
+    {
+        var tool = Path.Combine(Path.GetDirectoryName(Tool())!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+        var psi = new ProcessStartInfo(tool)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        foreach (var a in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pict_type", "-of", "csv=p=0", path })
+            psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        var err = p.StandardError.ReadToEndAsync();
+        var types = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        if (p.ExitCode != 0)
+            throw new InvalidOperationException("ffprobe " + path + " failed: " + err.Result);
+        return string.Concat(types.Where(char.IsAsciiLetterUpper));
+    }
+
     private static string Src(string size, string rate, string seconds) =>
         $"nullsrc=s={size}:r={rate}:d={seconds},format=yuv420p,{IndexPainter}";
 
@@ -132,6 +155,12 @@ public static class TestMedia
                 break;
             case "h264_1080.mp4":
                 Run("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25:d=6", "-c:v", "libopenh264", "-b:v", "8M", "-g", "50", "-pix_fmt", "yuv420p", path);
+                break;
+            case "mpeg4_bf_25.mp4":
+                Run("-f", "lavfi", "-i", Src("320x240", "25", "2"), "-c:v", "mpeg4", "-q:v", "2", "-bf", "2", "-g", "25", "-pix_fmt", "yuv420p", path);
+                break;
+            case "mpeg4_bf_long.mp4":
+                Run("-f", "lavfi", "-i", Src("320x240", "25", "20"), "-c:v", "mpeg4", "-q:v", "2", "-bf", "2", "-g", "50", "-pix_fmt", "yuv420p", path);
                 break;
             case "hevc.mp4":
                 Run("-f", "lavfi", "-i", Src("320x240", "25", "1"), "-c:v", "libkvazaar", "-kvazaar-params", "qp=12", "-pix_fmt", "yuv420p",
