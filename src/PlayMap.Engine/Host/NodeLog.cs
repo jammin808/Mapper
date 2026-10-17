@@ -9,26 +9,42 @@ namespace PlayMap.Engine.Host;
 /// Microsoft.Extensions.Logging, one stamped line each (an exception's text on the lines after), appended to
 /// playmap.engine.log in the node's folder. The journal is the show's record; this is the machine's. Lines go
 /// through a thread of their own so a slow disk never holds a network loop; past 16 MB the file moves aside to
-/// ".1" (one generation kept) and a fresh one starts. The engine has no console, so this is where its words go.</summary>
+/// ".1" (one generation kept) and a fresh one starts. Every file the log starts begins with a line naming the build and the
+/// process that wrote it, so a file read on its own — the one after a roll among them — says which build it is from. The engine
+/// has no console, so this is where its words go.</summary>
 public sealed class NodeLogProvider : ILoggerProvider
 {
     public const string FileName = "playmap.engine.log";
     private const long RollBytes = 16L * 1024 * 1024;
+    private const string Category = "PlayMap.Engine.Log";
 
     private readonly BlockingCollection<string> _lines = new(new ConcurrentQueue<string>(), 8192);
     private readonly Thread _writer;
     private readonly LogLevel _minimum;
+    private readonly long _rollBytes;
     private long _dropped;
     private int _disposed;
 
     public NodeLogProvider(string path, LogLevel minimum = LogLevel.Information)
+        : this(path, minimum, RollBytes)
+    {
+    }
+
+    /// <summary>A log that moves aside past <paramref name="rollBytes"/>.</summary>
+    internal NodeLogProvider(string path, LogLevel minimum, long rollBytes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rollBytes);
         Path = System.IO.Path.GetFullPath(path);
         _minimum = minimum;
+        _rollBytes = rollBytes;
         _writer = new Thread(WriteLoop) { IsBackground = true, Name = "PlayMap log" };
         _writer.Start();
     }
+
+    /// <summary>The first line of every file the log starts: the build (BuildInfo's words) and the process.</summary>
+    internal static string Heading =>
+        string.Create(CultureInfo.InvariantCulture, $"{Core.BuildInfo.Current.Display} begins this file of the engine's log (process {Environment.ProcessId}).");
 
     public string Path { get; }
 
@@ -46,14 +62,10 @@ public sealed class NodeLogProvider : ILoggerProvider
 
     internal void Write(LogLevel level, string category, string message, Exception? ex)
     {
-        var sb = new StringBuilder(128);
-        sb.Append(DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture))
-            .Append(' ').Append(Word(level)).Append(' ').Append(category).Append(": ").Append(message);
-        if (ex is not null)
-            sb.Append('\n').Append(ex);
+        var line = Line(level, category, message, ex);
         try
         {
-            if (!_lines.TryAdd(sb.ToString()))
+            if (!_lines.TryAdd(line))
                 Interlocked.Increment(ref _dropped);
         }
         catch (InvalidOperationException)
@@ -61,6 +73,16 @@ public sealed class NodeLogProvider : ILoggerProvider
             // Added after the log closed: the process is on its way out; nothing waits for this line.
             Interlocked.Increment(ref _dropped);
         }
+    }
+
+    private static string Line(LogLevel level, string category, string message, Exception? ex)
+    {
+        var sb = new StringBuilder(128);
+        sb.Append(DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture))
+            .Append(' ').Append(Word(level)).Append(' ').Append(category).Append(": ").Append(message);
+        if (ex is not null)
+            sb.Append('\n').Append(ex);
+        return sb.ToString();
     }
 
     private static string Word(LogLevel level) => level switch
@@ -77,24 +99,36 @@ public sealed class NodeLogProvider : ILoggerProvider
     private void WriteLoop()
     {
         StreamWriter? file = null;
+        var headed = false;
         try
         {
             foreach (var line in _lines.GetConsumingEnumerable())
             {
-                file ??= Open();
                 if (file is null)
                 {
-                    // The folder cannot be written: the line is dropped and the next one tries again.
-                    Interlocked.Increment(ref _dropped);
-                    continue;
+                    file = Open();
+                    if (file is null)
+                    {
+                        // The folder cannot be written: the line is dropped and the next one tries again.
+                        Interlocked.Increment(ref _dropped);
+                        continue;
+                    }
+                    // A file that already holds lines is not started here: its first line is its own.
+                    headed = file.BaseStream.Length > 0;
                 }
                 try
                 {
+                    if (!headed)
+                    {
+                        file.Write(Line(LogLevel.Information, Category, Heading, null));
+                        file.Write('\n');
+                        headed = true;
+                    }
                     file.Write(line);
                     file.Write('\n');
                     if (_lines.Count == 0)
                         file.Flush();
-                    if (file.BaseStream.Length > RollBytes)
+                    if (file.BaseStream.Length > _rollBytes)
                     {
                         Close(file);
                         file = null;
@@ -136,7 +170,7 @@ public sealed class NodeLogProvider : ILoggerProvider
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-            if (File.Exists(Path) && new FileInfo(Path).Length > RollBytes)
+            if (File.Exists(Path) && new FileInfo(Path).Length > _rollBytes)
                 Roll();
             var stream = new FileStream(Path, FileMode.Append, FileAccess.Write, FileShare.Read);
             return new StreamWriter(stream, new UTF8Encoding(false));

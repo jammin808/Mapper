@@ -206,7 +206,10 @@ public sealed class HostLifecycleTests
             Assert.Equal(EngineEntry.BadArguments, await EngineEntry.RunAsync(["engine", "--home", badHome.FullName, "--bogus"], EngineParts.Bare, CancellationToken.None, bad));
             Assert.Contains(bad.Lines, l => l.Contains("unknown option --bogus", StringComparison.Ordinal));
             Assert.StartsWith(Core.BuildInfo.Current.Display + ": the engine did not start", bad.Lines.First(), StringComparison.Ordinal);
-            Assert.True(File.Exists(Path.Combine(badHome.FullName, NodeLogProvider.FileName)));
+            // The file the log started in a fresh folder: its heading names the build, then the line that says why.
+            var file = File.ReadAllLines(Path.Combine(badHome.FullName, NodeLogProvider.FileName));
+            Assert.EndsWith(" info PlayMap.Engine.Log: " + NodeLogProvider.Heading, file[0], StringComparison.Ordinal);
+            Assert.Contains(" error PlayMap.Engine: " + Core.BuildInfo.Current.Display + ": the engine did not start", file[1], StringComparison.Ordinal);
         }
         finally
         {

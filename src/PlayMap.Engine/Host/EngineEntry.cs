@@ -108,8 +108,8 @@ public static partial class EngineEntry
             b.SetMinimumLevel(LogLevel.Information);
         });
         var log = logs.CreateLogger("PlayMap.Engine");
-        // The build rides on the first line and on every crash line: the log rolls at 16 MB, so a crash's lines may outlive the
-        // start line that named the build.
+        // The build rides on the start line and on every crash line, as on the first line of every file the log starts: a crash's
+        // lines may be read from a file that holds no start line, or be all that is left of one.
         var build = Core.BuildInfo.Current.Display;
         if (error is not null)
         {
