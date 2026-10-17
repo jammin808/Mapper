@@ -9,7 +9,8 @@ namespace PlayMap.Engine.Scanning;
 /// lock-step (<see cref="ICuedScanCamera"/>). Anything that reads frames instead (an align run, a camera view) gets them on request:
 /// each "still" cue is answered with the phone's next picture, stamped with when it was taken on the node's clock, one after another
 /// while frames are read — and never once a scan drives the phone, whose cues it would replace. A phone that is not connected does not
-/// open, with the words that say how to connect it; one that goes ends every wait with its words.
+/// open, with the words that say how to connect it; one that goes ends every wait with its words. Its patience (the timeout a reader
+/// gives, the wait for a picture the phone said it took) runs on the hub's clock (<see cref="PhoneHubOptions.Time"/>).
 /// </summary>
 public sealed class PhoneCamera : ICuedScanCamera
 {
@@ -24,6 +25,9 @@ public sealed class PhoneCamera : ICuedScanCamera
     private Task? _pump;
     private bool _cued;
     private long _generation;
+
+    /// <summary>How long a picture the phone said it took may take to arrive.</summary>
+    public static readonly TimeSpan PictureWait = TimeSpan.FromSeconds(10);
 
     public PhoneCamera(PhoneHub hub, CameraRig rig)
     {
@@ -64,7 +68,7 @@ public sealed class PhoneCamera : ICuedScanCamera
         }
         try
         {
-            await arrived.WaitAsync(timeout, ct).ConfigureAwait(false);
+            await arrived.WaitAsync(timeout, _hub.Options.Time, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -90,7 +94,7 @@ public sealed class PhoneCamera : ICuedScanCamera
                 var seen = await session.CueAsync(new PhoneCue(0, "still", "", 0, 0, now, now, 0, 0), ct).ConfigureAwait(false);
                 if (seen.Outcome != "seen")
                     continue;
-                var p = await session.PictureAsync(seen.Seq, ct).WaitAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+                var p = await session.PictureAsync(seen.Seq, ct).WaitAsync(PictureWait, _hub.Options.Time, ct).ConfigureAwait(false);
                 var at = session.HasClock && double.IsFinite(seen.CapturePageMs) ? session.ToNodeNs(seen.CapturePageMs) : Core.Time.MonoClock.Instance.NowNs;
                 TaskCompletionSource done;
                 lock (_gate)

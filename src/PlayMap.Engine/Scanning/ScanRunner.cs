@@ -314,6 +314,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 _task = null;
             }
             cts.Dispose();
+            // Said once the runner is free: whoever reads the scan's end may start the next one.
+            track.Ended();
         }
     }
 
@@ -490,7 +492,30 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 _regions = [.. regions];
         }
 
+        private (string State, string Message)? _end;
+
+        /// <summary>The run's ending: kept, and published only by <see cref="Ended"/> once the runner has let go of the run, so a scan
+        /// whose view reads done, failed or cancelled is one the next SCAN START is never refused for.</summary>
         public void End(string state, string message)
+        {
+            lock (_gate)
+                _end = (state, message);
+        }
+
+        /// <summary>Publishes the ending kept by <see cref="End"/> (none kept: nothing).</summary>
+        public void Ended()
+        {
+            (string State, string Message) end;
+            lock (_gate)
+            {
+                if (_end is not { } kept)
+                    return;
+                end = kept;
+            }
+            Show(end.State, end.Message);
+        }
+
+        private void Show(string state, string message)
         {
             lock (_gate)
             {
