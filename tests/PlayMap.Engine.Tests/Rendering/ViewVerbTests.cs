@@ -107,7 +107,7 @@ public sealed class ViewVerbTests
 
     /// <summary>A view shown again after its ring went writes a new ring in a file of its own: the SHOW reply and STATE's
     /// machine.views name it, and a reader still mapping the old ring keeps the picture it had — no writer opens its file again
-    /// (on Windows such a reader once kept the node from making the ring; on Linux a writer would truncate it under the map).</summary>
+    /// (on Windows a file a reader maps cannot be made again, and on Linux making it again would cut it short under the map).</summary>
     [Fact]
     public async Task AViewShownAgainWritesANewRingAndAReaderOfTheOldOneKeepsItsPicture()
     {

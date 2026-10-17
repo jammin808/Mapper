@@ -272,11 +272,15 @@ public sealed class PreviewViews : IDisposable
     private IViewRenderer? _renderer;
     private long _generation;
 
-    public PreviewViews(string nodeId, IMonoClock? clock = null)
+    /// <param name="firstGeneration">The generation the first ring made takes, counted up from there: the engine gives its start's
+    /// wall-clock milliseconds × 1000, so a ring made after a restart never takes the name of one a reader opened before it.</param>
+    public PreviewViews(string nodeId, IMonoClock? clock = null, long firstGeneration = 1)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentOutOfRangeException.ThrowIfNegative(firstGeneration);
         _nodeId = nodeId;
         _clock = clock ?? MonoClock.Instance;
+        _generation = firstGeneration - 1;
     }
 
     /// <summary>The file a shown view's pictures go to (the one its reader opens), or null when it is not shown.</summary>

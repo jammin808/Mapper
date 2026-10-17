@@ -294,7 +294,9 @@ Pictures are BGRA in a shared-memory ring whose file the SHOW reply names — `{
 at most 30. A view keeps its ring while it lives (a reader opens it once). Each ring the node makes is a new file, one generation
 of the view's (`playmap-<node>-<view>~<generation>.preview`): a view shown again after its ring went, or a draft view shown again
 while its last ring retires, writes a ring no reader has mapped, so a reader that still maps the old one keeps its last picture and
-never holds the new one up; a reader opens the file the reply or STATE names, and opens it again when that name changes. View ids are file names: letters,
+never holds the new one up; generations count up from the engine's start (its wall-clock milliseconds × 1000), so a ring made after a
+restart never takes a name a reader opened before it. A reader opens the file the reply or STATE names, and opens it again when that
+name changes. View ids are file names: letters,
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
 stand-in. The desk's ids: `editor`, `pj-<projector>`, `op-<output>`, `scan-camera`, `scan-<scan>-smart|confidence`.
@@ -338,11 +340,11 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   top level after `cameras` — `show`, `fleet`, `eye`, `decode`, `videoio`, `control`, `timecode`, `clients`, `events`, `fx`, `audio`,
   `modulation`, `content`, `led`, `calibration`, `onboarding`, `align`, `phones`; `air` — `master`, `panic`, `overlay`; `media` —
   `optimise`; `outputs[]` — `latencyMs`, `present`, `lock`, `fx`, `measured`; `playlists[]` — `chase`; `sync` — `group`, `feed`,
-  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `latencyMs`, `lock`, `epoch`; `show` — `sound`
+  `slewing`, `steps`, `freewheelS`, `outputs`, `pairs`, `verdict`, `words` (the sync part's), `groupLatencyMs`, `latencyMs`, `lock`, `epoch`; `show` — `sound`
   (after `preflight`), and `commitLeadMs` at the end of `show.rules`; `show.blind` is the open draft, or null;
   `stage` — `site`, `controls`, `surveys`, `stacks`; `stage.site` — `next` (after `mainsHz`); `stage.projectors[]` — `uncertainty`,
   `priors`, `stack`, `grade`, `quads`; `scan` — `pairing`, `view`,
-  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `gl` (once the renderer has reported); `machine.present` — after
+  `views`, `coverage`, `suggestions`; `scan.regions[]` — `projector`, `projectors`; `machine` — `present`, `views` (each shown view's `id`, `what` and `ring`), `gl` (once the renderer has reported); `machine.present` — after
   output's keys, `asked`, `kept`, `fuse` (`state` clear, armed or blown, `attempt`, `at`), `airLatencyMs`, `latencyWords`; `decode.platform` —
   after decode's keys, `api`, `describe`, `gl`, `zeroCopy`, `direct`, `why`; `decode.platform.blocks` — `arenaWords`; `decode.sources[]` — `device`, `gpuCopies`, `width`, `height`,
   `surfaces`, `vramMb`, `importMsP95`; `decode` — `policy`, `forced`; `project` — `index`.

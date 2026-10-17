@@ -30,7 +30,7 @@ public sealed partial class EngineCore
     /// <summary>The views, their changes moving STATE (<c>machine.views</c> names each shown view's ring).</summary>
     private PreviewViews MakePreviews()
     {
-        var previews = new PreviewViews(Services.Settings.NodeId, Services.Mono);
+        var previews = new PreviewViews(Services.Settings.NodeId, Services.Mono, Math.Max(1, Services.Wall.UnixMs) * 1000);
         previews.Changed += FactsChanged;
         return previews;
     }

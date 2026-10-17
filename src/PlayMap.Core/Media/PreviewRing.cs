@@ -76,10 +76,21 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch
         {
+            // The file is this writer's own (made new above): a ring that could not be made leaves none behind (a full disk).
             file.Dispose();
+            File.Delete(path);
             throw;
         }
-        _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        try
+        {
+            _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        }
+        catch
+        {
+            _map.Dispose();
+            File.Delete(path);
+            throw;
+        }
         _view.Write(4, maxWidth);
         _view.Write(8, maxHeight);
         _view.Write(12, PreviewRing.Slots);
