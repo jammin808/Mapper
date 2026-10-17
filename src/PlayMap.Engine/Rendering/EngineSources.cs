@@ -75,8 +75,13 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private bool _air;
     private bool _disposed;
 
-    public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null)
+    /// <summary>Where a decoder's open and its dispose run: a worker of the thread pool, never the render thread (a test hands in a
+    /// queue it runs itself, so it waits on the open's fact rather than on the pool).</summary>
+    private readonly Action<Action> _work;
+
+    public EngineSources(IMediaBackend? media, ScanFrames? scan = null, TimerView? timer = null, Action<Action>? work = null)
     {
+        _work = work ?? (static a => ThreadPool.UnsafeQueueUserWorkItem(static w => w(), a, preferLocal: false));
         _media = media;
         _scan = scan;
         _timer = timer;
@@ -384,11 +389,11 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame, OpenedFrame = _frame };
         slots[key] = slot;
         var media = _media;
-        ThreadPool.UnsafeQueueUserWorkItem(static s => Open(s.Media, s.Slot), (Media: media, Slot: slot), preferLocal: false);
+        _work(() => Open(media, slot));
         return slot;
     }
 
-    private static void Open(IMediaBackend media, Slot slot)
+    private void Open(IMediaBackend media, Slot slot)
     {
         try
         {
@@ -409,17 +414,17 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         }
     }
 
-    private static void Retire(Slot slot)
+    private void Retire(Slot slot)
     {
         Volatile.Write(ref slot.Retired, 1);
         DisposeSource(slot);
     }
 
     /// <summary>A decoder is disposed on a worker: stopping its thread may wait on a read.</summary>
-    private static void DisposeSource(Slot slot)
+    private void DisposeSource(Slot slot)
     {
         if (Interlocked.Exchange(ref slot.Source, null) is { } source)
-            ThreadPool.UnsafeQueueUserWorkItem(static s => s.Dispose(), source, preferLocal: false);
+            _work(source.Dispose);
     }
 
     /// <summary>True when the source could not open (the backend refused it, or it opened and gave up).</summary>

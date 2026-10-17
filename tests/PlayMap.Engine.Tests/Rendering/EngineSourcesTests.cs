@@ -161,28 +161,48 @@ public sealed class EngineSourcesTests
         }
     }
 
+    /// <summary>The open runs where the sources queue it (here, a queue this test runs, lock-step with its frames): a failed open says
+    /// why, the item is not asked for again until <see cref="EngineSources.RetryFrames"/> frames after that open — at the first sweep
+    /// past them — and then opens.</summary>
     [Fact]
     public void ASourceThatCouldNotOpenIsOpenedAgainLater()
     {
         var media = new FakeMedia { Refusals = 1 };
         var project = Project.CreateDefault() with { Media = [Item("md_late")] };
         var snap = Snapshot(project);
-        using var sources = new EngineSources(media);
-        long frame = 0;
-        var waited = Stopwatch.StartNew();
-        while (sources.Problem("md_late") is null)
+        var queued = new Queue<Action>();
+        using var sources = new EngineSources(media, work: queued.Enqueue);
+        void RunQueued()
+        {
+            while (queued.TryDequeue(out var work))
+                work();
+        }
+
+        long frame = 1;
+        sources.BeginFrame(snap, frame);
+        Assert.Null(sources.Acquire(SourceRef.Media("md_late"), 0));
+        Assert.Single(queued);
+        RunQueued();
+        Assert.Contains("not here yet", sources.Problem("md_late"), StringComparison.Ordinal);
+
+        // Asked every frame, it is not opened again until a sweep comes more than RetryFrames after the open.
+        var again = 0L;
+        while (again == 0)
         {
             sources.BeginFrame(snap, ++frame);
             Assert.Null(sources.Acquire(SourceRef.Media("md_late"), 0));
-            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), "the open never failed");
-            Thread.Yield();
+            if (queued.Count > 0)
+                again = frame;
+            Assert.True(frame < 1 + 2 * EngineSources.RetryFrames, "never opened again");
         }
-        Assert.Contains("not here yet", sources.Problem("md_late"), StringComparison.Ordinal);
-
-        // Some seconds of frames later the file is there.
-        frame += EngineSources.RetryFrames;
-        using var lease = Until(sources, snap, SourceRef.Media("md_late"), ref frame);
+        Assert.True(again - 1 > EngineSources.RetryFrames, $"opened again at frame {again}");
+        Assert.True(again - 1 <= EngineSources.RetryFrames + 30, $"opened again at frame {again}");
+        RunQueued();
+        sources.BeginFrame(snap, frame + 1);
+        using var lease = sources.Acquire(SourceRef.Media("md_late"), 7_000_000_000);
+        Assert.NotNull(lease);
         Assert.Single(media.Made);
+        Assert.Equal(2, media.OpenedOn.Count);
     }
 
     [Fact]
