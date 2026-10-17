@@ -28,7 +28,7 @@ public sealed class EngineSourcesTests
         }
     }
 
-    private sealed class FakeSource(string key) : IVideoSource
+    private sealed class FakeSource(string key, Action? onDispose = null) : IVideoSource
     {
         public string Key { get; } = key;
         public MediaInfo Info => MediaInfo.Unknown with { DurationNs = 2_000_000_000 };
@@ -49,7 +49,11 @@ public sealed class EngineSourcesTests
 
         public bool IsReadyAt(long mediaNs) => true;
 
-        public void Dispose() => Disposed = true;
+        public void Dispose()
+        {
+            onDispose?.Invoke();
+            Disposed = true;
+        }
     }
 
     private sealed class FakeMedia : IMediaBackend
@@ -57,6 +61,7 @@ public sealed class EngineSourcesTests
         public List<FakeSource> Made { get; } = [];
         public List<int> OpenedOn { get; } = [];
         public int Refusals { get; set; }
+        public Action? OnDispose { get; init; }
 
         public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) => throw new NotSupportedException();
 
@@ -70,7 +75,7 @@ public sealed class EngineSourcesTests
                     Refusals--;
                     throw new IOException($"{item.Name} is not here yet");
                 }
-                var s = new FakeSource(item.Id);
+                var s = new FakeSource(item.Id, OnDispose);
                 Made.Add(s);
                 return s;
             }
@@ -171,7 +176,9 @@ public sealed class EngineSourcesTests
         var project = Project.CreateDefault() with { Media = [Item("md_late")] };
         var snap = Snapshot(project);
         var queued = new Queue<Action>();
-        using var sources = new EngineSources(media, work: queued.Enqueue);
+        var said = new List<string>();
+        // Its closes run when this test runs them: the dispose at the end waits for none.
+        var sources = new EngineSources(media, work: queued.Enqueue, closeWait: TimeSpan.Zero, said: said.Add);
         void RunQueued()
         {
             while (queued.TryDequeue(out var work))
@@ -199,10 +206,76 @@ public sealed class EngineSourcesTests
         Assert.True(again - 1 <= EngineSources.RetryFrames + 30, $"opened again at frame {again}");
         RunQueued();
         sources.BeginFrame(snap, frame + 1);
-        using var lease = sources.Acquire(SourceRef.Media("md_late"), 7_000_000_000);
-        Assert.NotNull(lease);
+        using (var lease = sources.Acquire(SourceRef.Media("md_late"), 7_000_000_000))
+            Assert.NotNull(lease);
         Assert.Single(media.Made);
         Assert.Equal(2, media.OpenedOn.Count);
+
+        // A close that has not run when the wait is up is said, by name; it still runs.
+        sources.Dispose();
+        Assert.Equal(["render: md_late did not close within 0 s of the stop — the file stays open until it does"], said);
+        Assert.Equal(1, sources.Closing);
+        RunQueued();
+        Assert.Equal((0, true), (sources.Closing, media.Made[0].Disposed));
+    }
+
+    /// <summary>When dispose returns, every source has closed: the closes run on workers (here a thread this test holds until every
+    /// close is queued), and dispose waits for them — an open still running when it began included, which closes what it opened.</summary>
+    [Fact]
+    public async Task WhenDisposeReturnsEverySourceHasClosed()
+    {
+        var media = new FakeMedia();
+        var project = Project.CreateDefault() with { Media = [Item("md_a"), Item("md_b"), Item("md_c")] };
+        var snap = Snapshot(project);
+        using var work = new System.Collections.Concurrent.BlockingCollection<Action>();
+        var worker = new Thread(() =>
+        {
+            foreach (var w in work.GetConsumingEnumerable())
+                w();
+        }) { IsBackground = true, Name = "sources worker" };
+        worker.Start();
+        var sources = new EngineSources(media, work: work.Add);
+        long frame = 0;
+        // Two open (their opens run); then the worker is held, and the third's open is queued behind the hold with the closes.
+        Until(sources, snap, SourceRef.Media("md_a"), ref frame).Dispose();
+        Until(sources, snap, SourceRef.Media("md_b"), ref frame).Dispose();
+        using var gate = new ManualResetEventSlim(false);
+        work.Add(gate.Wait);
+        sources.BeginFrame(snap, frame + 1);
+        Assert.Null(sources.Acquire(SourceRef.Media("md_c"), 0));
+
+        var closedWhenDisposeReturned = -1;
+        var disposing = Task.Run(() =>
+        {
+            sources.Dispose();
+            closedWhenDisposeReturned = media.Made.Count(m => m.Disposed);
+        });
+        // Held behind the gate: md_c's open and the two closes.
+        Assert.True(await Host.Eventually.TrueAsync(() => work.Count == 3 && sources.Closing == 3), $"{work.Count} {sources.Closing}");
+        Assert.False(disposing.IsCompleted);
+        gate.Set();
+        await disposing;
+        work.CompleteAdding();
+        Assert.Equal(3, media.Made.Count);
+        Assert.Equal(3, closedWhenDisposeReturned);
+        Assert.Equal(0, sources.Closing);
+    }
+
+    /// <summary>A close that hangs (a read that never returns) does not hold the stop for ever: dispose returns after its wait with
+    /// the words naming it.</summary>
+    [Fact]
+    public void ACloseThatHangsIsSaidAndTheStopGoesOn()
+    {
+        using var hang = new ManualResetEventSlim(false);
+        var media = new FakeMedia { OnDispose = hang.Wait };
+        var project = Project.CreateDefault() with { Media = [Item("md_stuck")] };
+        var said = new List<string>();
+        var sources = new EngineSources(media, closeWait: TimeSpan.FromMilliseconds(100), said: said.Add);
+        long frame = 0;
+        Until(sources, Snapshot(project), SourceRef.Media("md_stuck"), ref frame).Dispose();
+        sources.Dispose();
+        Assert.Equal(["render: md_stuck did not close within 0.1 s of the stop — the file stays open until it does"], said);
+        hang.Set();
     }
 
     [Fact]

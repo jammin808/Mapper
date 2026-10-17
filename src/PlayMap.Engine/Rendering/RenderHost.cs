@@ -291,7 +291,7 @@ public sealed partial class RenderHost : IRenderHost
         ObjectDisposedException.ThrowIf(_stopping, this);
         _stage = new StageResources(engine.Meshes, _options.Stage);
         _timer = new TimerView(engine.Services.Network.StagewatchTimerJson);
-        _sources = new EngineSources(engine.Services.Media, _scan, _timer);
+        _sources = new EngineSources(engine.Services.Media, _scan, _timer, said: words => engine.Journal.Add("fault", words, ok: false));
         engine.BlendSolved += OnBlendSolved;
         if (engine.LastBlendSolve is { } solved)
             _stage.Offer(solved);
