@@ -139,3 +139,29 @@ Round 2 W1 notes:
   refuses; the settings gate above closes that race in the process), and
   `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` (Linux CI runs 252 and 265: the other follower stays
   free-wheeling with the anchor feed lost; it passes in every other run and locally). Watch all three.
+
+## Integrator notes from the desk-2 merge (int-desk2)
+
+- Done: the blind chip's draft view (`VIEW editor-draft SHOW editor DRAFT`) is asked through the views' SHOW path, its reply's ring
+  and seq taken as every view's; hidden, its ring is let go; a new link is asked for it with every other view, the draft view kept
+  while the node has not yet said which session is the desk's (before WHOAMI) and let go once it says the draft is another's or
+  there is none (`DeskPreviewTests`). The demo engine shows a draft view as a node that draws does — with no draft (the air), the
+  desk's or another session's — and refuses one on a view id that has drawn the air in the node's words (`BlindChipTests`).
+- Done: STATE.sync carries `light`, its last key: the light the node reads with its verdict (the context item's); the readiness
+  light's sync part is it, so the board's two ambers its other keys do not carry (a locked pair off one vblank among free-running
+  outputs, a join over 5 s) light the strip too; a node with no `sync.light` is still read from its keys (`SyncLightTests`,
+  `PreflightBoardTests`). sync.json and sync.cards.json moved; main.json and the Companion module's fixtures and lines did not (their
+  nodes run no sync part).
+- Done: a held action's menu entry is pressed twice (3 s of the desk's clock, `HeldPress`); every card line and generated entry whose
+  catalogue row presses hold is held, on its button and in its menu (`HeldMenuTests`, over every such row the fixtures show).
+- Done: the views' leases (`VIEW <view> KEEP`) are renewed on the desk's clock, as the overlay's are (`KeepViewsEveryMs`).
+- Open (owner's call): the desk's own controls of lines a Companion key holds or presses twice — the transport's Stop and seek, the
+  master, the panic banner's Clear and fade menu, the blind panel's commits, a pattern — send on one press; a card's `APPROVE`
+  (pressed twice on a key) is pressed once.
+- Open (next round): CALIBRATION HISTORY marks a row `current` by its id, while RECALL and FALLBACK refuse by the target's geometry
+  ("<target> stands as <name> (<cs>) already", `CalibrationLedger.Matches`): just after a Recall the target stands as the kept result
+  it came from too, and the desk offers Recall on that row and the node refuses it. The history should name the rows the target
+  stands as (a `standsAs` per row) so the desk greys them with the node's words; the desk does not repeat the node's comparison over
+  its own mirror.
+- The HoldButton's ring times its hold on the machine's stopwatch; the menus' second press and the leases run on the desk's injected
+  clock.

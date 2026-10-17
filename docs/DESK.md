@@ -38,11 +38,11 @@ the blind panel's ON GO and AT boundaries (they run over the wire), its row sele
 violet frame; the fleet's alarm banner (STATE.fleet.alarm is always null); Check all and Re-solve moved on Health ▸ Calibration
 (the catalogue has no such rows); a hold or a second press for the desk's own controls of lines a Companion key holds or
 presses twice (the transport's Stop and seek, the master, the panic banner's Clear, the blind panel's commits, a pattern), which
-send on one press as the desk's own buttons always have, and a second press for a card's or generated line pressed twice
-(`APPROVE`). The readiness light's
+send on one press, and a second press for a card's line a key presses twice (`APPROVE`). The readiness light's
 sync part is the node's own light for the group, `sync.light` (a leader's from its board, a follower's from its feed and clock), in
 the node's words; only a node whose STATE.sync carries no `light` has it read from its keys. A Recall of a kept result the target already stands as exactly (just after
-it was recalled) is offered, and the node refuses it with its words. A drag the gate refuses still moves on screen; its steps are
+it was recalled) is offered, and the node refuses it with its words: CALIBRATION HISTORY marks a row current by its id, while the
+node decides "stands as" by the target's geometry, and it names no row so. A drag the gate refuses still moves on screen; its steps are
 not sent and a toast gives the node's words.
 
 ## Wire-only in round 2
