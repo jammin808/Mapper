@@ -308,6 +308,10 @@ A desk-local preference, persisted in the desk's `desk.json`. The toggle sits be
 - **Commit** sends the chosen line, with ` FORCE` added when conflicts are shown.
 - **Discard** sends `BLIND DISCARD`.
 - **Default in Simple:** "Commit at next item of the focused playlist".
+- **Built:** the panel opens from the chip under the attention bar, in every workspace, rather than docked; it offers Commit now
+  and Commit at the next item of the focused playlist (`BLIND COMMIT NEXT`), Discard, and the draft view in MAP
+  (`VIEW editor-draft SHOW editor DRAFT`); ON GO, AT, the countdown, the row's selection and the violet frame are not on the
+  desk (docs/DESK.md).
 
 **Panic plans** (Outputs ▸ Plan tile chip "On panic: Safe look · 2 s"). Right-click a tile:
 - On panic ▸ Black / Run / Rewind / Next / Freeze / Safe look / Shutter / Effects off → `PANIC SET <op> <OUTCOME>`;
@@ -989,6 +993,9 @@ projector. It has three steps, each read from `STATE.onboarding.stage`:
    - Dropping a file from the OS onto the projector view, or **Choose a clip…**, sends `MEDIA IMPORT <path>`, then
      `SURFACE SOURCE <sf> media:<md>`.
    - The guide ends with "First map in 1:24" (`onboarding.seconds`).
+- **Built:** the guide is a card in MAP (its step 1 also shows on a show with no projector); a light switches to MAP with Q armed
+  on the lit projector; Enter, not the fourth click, sends the quad; step 3 offers the show's media and playlists
+  (`SURFACE SOURCE <sf> media:<md>|playlist:<pl>`) rather than an import; the cross closes it on this desk.
 
 **On-wall editing mode (O, or the "On the wall" toggle in the MAP toolbar):**
 
