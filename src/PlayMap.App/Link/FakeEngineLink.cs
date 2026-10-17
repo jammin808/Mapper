@@ -209,6 +209,23 @@ public sealed partial class FakeEngineLink : IEngineLink
         StateChanged?.Invoke(stateRev);
     }
 
+    /// <summary>False: STATE carries no <c>machine.views</c>, as a node that names its rings in its SHOW replies only (for tests; set
+    /// before the desk attaches).</summary>
+    public bool ListsViews { get; set; } = true;
+
+    /// <summary>Lets every view go, as a node that started again or whose leases ran out: a KEEP of each is refused from now on. For tests.</summary>
+    public void LetViewsGo()
+    {
+        long stateRev;
+        lock (_gate)
+        {
+            _shown.Clear();
+            Publish(projectMoved: false);
+            stateRev = _stateSeq;
+        }
+        StateChanged?.Invoke(stateRev);
+    }
+
     public event Action<LinkStatus>? StatusChanged;
 
     public event Action<long>? StateChanged;

@@ -260,6 +260,57 @@ public sealed class DeskPreviewTests
         window.Close();
     }
 
+    /// <summary>Through the desk, on a node that names its rings in its SHOW replies only (its STATE carries no machine.views): the reply's
+    /// ring opens; a view the node let go is asked again on its refused KEEP, and that reply's ring opens in place of the first (its reader
+    /// disposed); the workspace leaving the view sends HIDE and the view's name is forgotten.</summary>
+    [AvaloniaFact]
+    public async Task TheDeskTakesTheRingsTheShowRepliesNameAndForgetsAViewItHides()
+    {
+        var first = Environment.ProcessId * 1000L;
+        var ringA = PreviewRing.PathFor(DemoNode, View, first + 21);
+        var ringB = PreviewRing.PathFor(DemoNode, View, first + 22);
+        using var a = Ring(ringA, 64, 36);
+        using var b = Ring(ringB, 32, 18);
+        await using var desk = new DeskHarness(l =>
+        {
+            l.ListsViews = false;
+            l.SetRing(View, ringA);
+        });
+        Assert.False(desk.Session.State.ListsViews);
+        Assert.Equal(new PreviewRingName(ringA, null), desk.Session.Previews.Of(View));
+
+        var window = MainWindowTests.Open(desk);
+        var surface = window.GetVisualDescendants().OfType<PreviewSurface>().Single(s => s.ViewId == View);
+        surface.PollFrame();
+        var source = Assert.IsType<RingPreviewSource>(surface.Source);
+        Assert.True(surface.HasFrame);
+        Assert.Equal([ringA], source.Opened);
+        var readerA = source.Reader!;
+
+        // The node lets the view go, and names ring B when it is shown again; its STATE names nothing.
+        desk.Link.LetViewsGo();
+        desk.Link.SetRing(View, ringB);
+        DeskHarness.Pump();
+        Assert.Equal(new PreviewRingName(ringA, null), desk.Session.Previews.Of(View));
+        desk.Link.ClearSent();
+        for (var i = 0; i < ViewModels.MainViewModel.KeepViewsEveryTicks; i++)
+            desk.Main.Tick();
+        DeskHarness.Pump();
+        Assert.Contains($"VIEW {View} KEEP", desk.Link.SentLines);
+        Assert.Contains(desk.Link.SentLines, l => l.StartsWith($"VIEW {View} SHOW output:op_1", StringComparison.Ordinal));
+        Assert.Equal(new PreviewRingName(ringB, null), desk.Session.Previews.Of(View));
+        surface.PollFrame();
+        Assert.True(readerA.IsDisposed);
+        Assert.True(surface.HasFrame);
+        Assert.Equal([ringA, ringB], source.Opened);
+
+        desk.Main.Workspace = ViewModels.Workspace.Map;
+        DeskHarness.Pump();
+        Assert.Contains($"VIEW {View} HIDE", desk.Link.SentLines);
+        Assert.Null(desk.Session.Previews.Of(View));
+        window.Close();
+    }
+
     /// <summary>A SHOW reply carries the STATE seq from which STATE shows it: a STATE older than that (read before the SHOW ran, written
     /// after its reply) changes nothing of that view — not listing it, or naming an earlier generation — while a STATE as new as the reply
     /// names it as it stands from then on; a STATE counting below the last one read is a node that started again, and holds nothing back.</summary>

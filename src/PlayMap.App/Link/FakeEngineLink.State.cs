@@ -289,16 +289,19 @@ public sealed partial class FakeEngineLink
             w.WriteNumber("memMb", 180);
             w.WriteNumber("gcPauseMsMax", 0.2);
             // The node's shape: every view shown, with what it shows and the ring it names ("" here: the demo draws no pictures).
-            w.WriteStartArray("views");
-            foreach (var (id, what) in _shown.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            if (ListsViews)
             {
-                w.WriteStartObject();
-                w.WriteString("id", id);
-                w.WriteString("what", what);
-                w.WriteString("ring", _rings.GetValueOrDefault(id) ?? "");
-                w.WriteEndObject();
+                w.WriteStartArray("views");
+                foreach (var (id, what) in _shown.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+                {
+                    w.WriteStartObject();
+                    w.WriteString("id", id);
+                    w.WriteString("what", what);
+                    w.WriteString("ring", _rings.GetValueOrDefault(id) ?? "");
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
             }
-            w.WriteEndArray();
             w.WriteEndObject();
             w.WriteStartObject("project");
             w.WriteString("id", project.Id);
