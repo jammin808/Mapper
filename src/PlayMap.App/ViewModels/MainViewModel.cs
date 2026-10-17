@@ -38,6 +38,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     private string _focusedName = "";
     private readonly Dictionary<string, string> _views = new(StringComparer.Ordinal);
 
+    /// <summary>The link the shown views were asked of (<see cref="DeskSession.LinkEpoch"/>): another link is asked for every view afresh.</summary>
+    private long _viewsEpoch;
+
     public MainViewModel(DeskSession session, DeskPrefs? prefs = null, Func<long>? nowMs = null)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -603,9 +606,20 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private async Task KeepAsync(string view, string what)
     {
+        var epoch = Session.LinkEpoch;
         var reply = await Session.SendQuietAsync($"VIEW {view} KEEP");
-        if (reply is { Ok: false } && _views.TryGetValue(view, out var still) && still == what)
-            _ = Session.SendQuietAsync($"VIEW {view} SHOW {what}");
+        if (reply is { Ok: false } && Session.LinkEpoch == epoch && _views.TryGetValue(view, out var still) && still == what)
+            _ = ShowViewAsync(view, what);
+    }
+
+    /// <summary>Asks the node for a view (VIEW &lt;view&gt; SHOW &lt;what&gt;) and takes the ring its reply names, or its words why not,
+    /// while the view is still wanted as asked of the same link: a later SHOW or HIDE of it, or another link, supersedes this reply.</summary>
+    private async Task ShowViewAsync(string view, string what)
+    {
+        var epoch = Session.LinkEpoch;
+        var reply = await Session.SendQuietAsync($"VIEW {view} SHOW {what}");
+        if (Session.LinkEpoch == epoch && _views.TryGetValue(view, out var still) && still == what)
+            Session.Previews.Shown(view, reply);
     }
 
     private void OnStatus(LinkStatus status)
@@ -790,11 +804,18 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     /// <summary>Asks the engine for the preview views the current workspace shows and lets go of the rest
     /// (VIEW &lt;view&gt; SHOW &lt;what&gt; &lt;w&gt;x&lt;h&gt; / VIEW &lt;view&gt; HIDE), quietly: a node without
-    /// previews still plays, and the views draw their own stand-in.</summary>
+    /// previews still plays, and the views draw their own stand-in with its words. Each view reads the ring the node names for it
+    /// (<see cref="DeskSession.Previews"/>).</summary>
     private void UpdateViews()
     {
         if (!Session.IsLive)
             return;
+        // Views asked of another link are not shown on this one: every view is asked of it afresh.
+        if (_viewsEpoch != Session.LinkEpoch)
+        {
+            _views.Clear();
+            _viewsEpoch = Session.LinkEpoch;
+        }
         var want = new Dictionary<string, string>(StringComparer.Ordinal);
         switch (_workspace)
         {
@@ -821,6 +842,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         foreach (var view in _views.Keys.Where(v => !want.ContainsKey(v)).ToList())
         {
             _views.Remove(view);
+            Session.Previews.Hidden(view);
             _ = Session.SendQuietAsync($"VIEW {view} HIDE");
         }
         foreach (var (view, what) in want)
@@ -828,7 +850,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             if (_views.TryGetValue(view, out var had) && had == what)
                 continue;
             _views[view] = what;
-            _ = Session.SendQuietAsync($"VIEW {view} SHOW {what}");
+            _ = ShowViewAsync(view, what);
         }
     }
 

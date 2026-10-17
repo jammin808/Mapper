@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Storage;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net;
@@ -511,14 +512,14 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// old one is unpaired at its next verb. The words say where the token is read, never the token.</summary>
     public string NewToken()
     {
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             var token = Pairing.NewToken();
             // Read fresh: another part's keys kept since this run began (a sync role, the fleet's epoch) are written back with it.
             var stored = Fresh() with { Token = token };
             try
             {
-                _o.Home.SaveSettings(stored);
+                WriteSettingsLocked(stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -539,13 +540,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     public string PersistSettings(Func<NodeSettings, NodeSettings> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             _running = edit(_running);
             try
             {
                 _stored = edit(Fresh());
-                _o.Home.SaveSettings(_stored);
+                WriteSettingsLocked(_stored);
                 return "";
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -553,6 +554,66 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                 return "the node's settings could not be written: " + ex.Message;
             }
         }
+    }
+
+    /// <summary>Keeps a change of the node's settings, all or nothing, as the one writer of its settings file: the file is read fresh
+    /// under the writer's lock, the edit made to it and written, and only then made to the stored and the running settings. A write
+    /// that fails throws its <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/> and nothing changes, in the file or
+    /// here (a verb that keeps a setting refuses with the words: PRESENT PATH, DECODE POLICY); a write that landed but whose folder did
+    /// not flush is the file's content, and is taken (<see cref="WriteSettingsLocked"/>).</summary>
+    public void KeepSettings(Func<NodeSettings, NodeSettings> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        using (EnterSettings())
+        {
+            var next = edit(Fresh());
+            WriteSettingsLocked(next);
+            _stored = next;
+            _running = edit(_running);
+        }
+    }
+
+    /// <summary>Raised on the editor's thread when an edit of the settings file finds the writer's lock held by another edit and waits
+    /// for it (a test holds one edit inside the lock and sees the next one wait at it).</summary>
+    internal event Action? SettingsEditWaits;
+
+    /// <summary>The writer's lock: every read-modify-write of the settings file runs inside it, one at a time.</summary>
+    private SettingsScope EnterSettings()
+    {
+        if (!_settingsGate.TryEnter())
+        {
+            SettingsEditWaits?.Invoke();
+            _settingsGate.Enter();
+        }
+        return new SettingsScope(_settingsGate);
+    }
+
+    /// <summary>The writer's lock held, let go when disposed.</summary>
+    private readonly record struct SettingsScope(Lock Gate) : IDisposable
+    {
+        public void Dispose() => Gate.Exit();
+    }
+
+    /// <summary>The fault a settings write that landed without its folder's flush leaves, until a write flushes whole.</summary>
+    private const string FlushFault = "settings-flush";
+
+    /// <summary>The settings file's one write (durable: flushed before it is renamed into place). Inside <see cref="EnterSettings"/>. A
+    /// write that landed (the file renamed into place) but whose folder could not be flushed after is the file's content all the same:
+    /// it counts as written (its caller takes the change, as a later start will), and the node says in its faults that a power cut may
+    /// bring the earlier file back; a later write that flushes whole makes it durable with its own, and the fault goes.</summary>
+    private void WriteSettingsLocked(NodeSettings settings)
+    {
+        try
+        {
+            _o.Home.SaveSettings(settings);
+        }
+        catch (NotFlushedException ex)
+        {
+            Fault(FlushFault, "the node's settings file holds the last change, but its folder could not be flushed to the disk — a power cut "
+                + "may bring the earlier settings back until the next change is written: " + ex.InnerException?.Message);
+            return;
+        }
+        ClearFault(FlushFault);
     }
 
     public bool Mcp => _web?.ServesMcp ?? false;
@@ -872,13 +933,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     private void Persist(Func<NodeSettings, NodeSettings> edit)
     {
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             _running = edit(_running);
             try
             {
                 _stored = edit(Fresh());
-                _o.Home.SaveSettings(_stored);
+                WriteSettingsLocked(_stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Engine.Show;
 using PlayMap.Media.Audio;
 using Xunit.Abstractions;
 
@@ -136,6 +137,40 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         for (var i = 0; i < 4; i++)
             Assert.True(Pull(rig, output, buffer) < 1e-4, "a cued item sounded");
     }
+
+    /// <summary>The show lane's tick with sound attached allocates nothing, idle and while an item sounds: the decoder's worker closure
+    /// is made only when a decoder opens, never at Follow's entry. Measured on the lane's own thread, where the tick runs (no tick runs
+    /// beside it there). An optimised build is what would make that closure at the entry: this count is the CI's Release build's, and
+    /// HotPathClosureTests reads the same rule from the IL in either build.</summary>
+    [Fact]
+    public async Task TheLanesTickWithSoundAttachedAllocatesNothing()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable)))
+            Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
+        await using var rig = new ShowRig(ToneShow());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        Assert.Equal(0, await TickBytesAsync(rig, sound));
+
+        await rig.Ok("PLAYLIST GO pl_show");
+        Assert.True(await ShowRig.Eventually(() => sound.ItemId == "it_tone"), sound.Problem);
+        Assert.Equal(0, await TickBytesAsync(rig, sound));
+        Assert.Equal("it_tone", sound.ItemId);
+    }
+
+    /// <summary>The bytes 1000 of the lane's sound steps allocate on the lane's thread (warmed first), with the show's snapshot as the
+    /// lane reads it.</summary>
+    private static Task<long> TickBytesAsync(ShowRig rig, AirAudio sound) => rig.Engine.Lane.RunAsync(() =>
+    {
+        var snap = rig.Engine.Snapshot;
+        var now = rig.Now;
+        for (var i = 0; i < 20; i++)
+            sound.Follow(snap, now);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++)
+            sound.Follow(snap, now);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    });
 
     [Fact]
     public async Task TheItemsVolumeScalesTheSoundAndAFileWithNoSoundSaysWhy()

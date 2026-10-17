@@ -7,6 +7,7 @@ using PlayMap.Core.Fleet;
 using PlayMap.Core.Time;
 using PlayMap.Net.Media;
 using PlayMap.Net.Tls;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Fleet;
 
@@ -168,7 +169,7 @@ public sealed class MirrorPuller : IDisposable
             }
             if (!ShowFiles.Matches(hex, hash))
                 return (false, "what came is not the file the show names (its hash differs)");
-            File.Move(temp, destination, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, destination);
             PinFirstUse();
             return (true, "");
         }

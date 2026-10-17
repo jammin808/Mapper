@@ -118,10 +118,18 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
             _process = p;
             _expected = false;
             _reported = false;
-            _ = Task.Run(() => ReadAsync(p), CancellationToken.None);
-            _ = Task.Run(() => DrainAsync(p), CancellationToken.None);
+            Listen(p);
             return true;
         }
+    }
+
+    /// <summary>Reads the worker's output and drains its errors on workers. Its own method: the closures (they capture the process)
+    /// are made only when a worker starts. Written in <see cref="EnsureStarted"/>, an optimised build would allocate them at the
+    /// method's entry, on every call that finds the worker running.</summary>
+    private void Listen(Process p)
+    {
+        _ = Task.Run(() => ReadAsync(p), CancellationToken.None);
+        _ = Task.Run(() => DrainAsync(p), CancellationToken.None);
     }
 
     /// <summary>No worker starts from now (the service's stop has begun): <see cref="EnsureStarted"/> answers false. The worker there
@@ -181,11 +189,16 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
                     _expected = true;
                 var pid = p.Id;
                 _stopping = p;
-                _stop = Task.Run(() => StopAsync(p, pid, running), CancellationToken.None);
+                _stop = StartStop(p, pid, running);
             }
             return _stop;
         }
     }
+
+    /// <summary>The stop of one worker, on a worker. Its own method: the closure (it captures the worker) is made once per worker.
+    /// Written in <see cref="StopAsync()"/>, an optimised build would allocate it at the method's entry, on every service step that
+    /// asks a lingering worker to stop again.</summary>
+    private Task StartStop(Process p, int pid, bool running) => Task.Run(() => StopAsync(p, pid, running), CancellationToken.None);
 
     private async Task StopAsync(Process p, int pid, bool running)
     {

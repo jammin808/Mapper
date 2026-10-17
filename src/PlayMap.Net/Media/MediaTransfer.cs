@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
 using PlayMap.Core.Time;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Media;
 
@@ -217,7 +218,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
             _log.LogWarning("A pulled file's hash did not match what was asked: nothing was kept.");
             return new MediaPullResult(MediaPullOutcome.HashMismatch, "the file that came is not the one asked for (its SHA-256 differs) — nothing was kept", bytes, fetched, resumed);
         }
-        File.Move(part, destination, overwrite: true);
+        DurableFile.MoveIntoPlace(part, destination);
         TryDelete(mapPath);
         return new MediaPullResult(MediaPullOutcome.Verified, "pulled and verified", bytes, fetched, resumed);
     }
@@ -332,6 +333,8 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                 bytes[header.Length + i / 8] |= (byte)(1 << (i % 8));
         var temp = mapPath + ".new";
         File.WriteAllBytes(temp, bytes);
+        // Not flushed: the map is a hint for the resume. The chunks it names are not flushed either, and the whole file's hash is
+        // checked before it is kept, so a map that outlived its chunks costs a pull again, never a wrong file.
         File.Move(temp, mapPath, overwrite: true);
     }
 

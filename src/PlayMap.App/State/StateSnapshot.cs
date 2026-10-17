@@ -88,6 +88,10 @@ public sealed record AiState(bool Mcp, int Clients, int Proposals)
     public static readonly AiState Off = new(false, 0, 0);
 }
 
+/// <summary>One preview view the node shows now (STATE <c>machine.views[]</c>): its id, what it shows, and the file of the ring its
+/// pictures go to ("" while it names none).</summary>
+public sealed record ShownView(string Id, string What, string Ring);
+
 /// <summary>The node's STATE, read into small immutable records. Tolerant: a missing key reads as its
 /// neutral value, an unknown key is ignored (STATE grows at the end of its objects).</summary>
 public sealed record StateSnapshot(
@@ -119,6 +123,12 @@ public sealed record StateSnapshot(
     /// <summary>The whole STATE object as read (a detached copy), for the sections round-2 packages read
     /// themselves; default for the empty snapshot.</summary>
     public JsonElement Root { get; init; }
+
+    /// <summary>STATE <c>machine.views</c>: the preview views the node shows now, each with the ring it names.</summary>
+    public ImmutableArray<ShownView> Views { get; init; } = [];
+
+    /// <summary>True when this STATE carries <c>machine.views</c> at all (a node that does not names its rings in its replies only).</summary>
+    public bool ListsViews { get; init; }
 
     /// <summary>A top-level STATE object read once per snapshot and reader type by its package's reader (null element
     /// when the node does not publish it: the package's feature is absent there, so its controls hide). A null result is
@@ -172,6 +182,7 @@ public sealed record StateSnapshot(
         if (r.ValueKind != JsonValueKind.Object)
             return Empty;
         var links = r.Obj("links");
+        var machine = r.Obj("machine");
         return new StateSnapshot(
             r.Long("seq"),
             r.Str("id"),
@@ -193,6 +204,10 @@ public sealed record StateSnapshot(
             ReadAi(r.Obj("ai")))
         {
             Root = r.Clone(),
+            ListsViews = machine is { } m && m.TryGetProperty("views", out var views) && views.ValueKind == JsonValueKind.Array,
+            Views = machine is { } listed
+                ? listed.Arr("views").Select(v => new ShownView(v.Str("id"), v.Str("what"), v.Str("ring"))).Where(v => v.Id.Length > 0).ToImmutableArray()
+                : [],
         };
     }
 

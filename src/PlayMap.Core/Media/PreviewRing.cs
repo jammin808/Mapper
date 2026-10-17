@@ -9,8 +9,10 @@ public readonly record struct PreviewFrameInfo(int Width, int Height, int Stride
 /// <summary>Preview pictures from the engine to the desk across the process boundary: a file-backed memory
 /// map with three BGRA slots and a seqlock per slot. The
 /// writer never waits for the reader (it writes the slot after the one last published); the reader copies the
-/// newest complete slot and retries when the writer lapped it mid-copy. One writer per ring. The file lives in a
-/// folder only this user can write.</summary>
+/// newest complete slot and retries when the writer lapped it mid-copy. One writer per ring, and one ring per file: a writer
+/// makes its file new and never opens one that exists, so it never meets a reader of an earlier ring (the node names each ring
+/// it makes with a generation of its own, <see cref="PathFor(string, string, long)"/>, and says the path to its reader). The file
+/// lives in a folder only this user can write.</summary>
 public static class PreviewRing
 {
     public const int Magic = 0x504D5052; // "PMPR"
@@ -30,9 +32,46 @@ public static class PreviewRing
         return folder;
     }
 
-    /// <summary>The ring's file for an engine and a view ("playmap-&lt;node&gt;-&lt;view&gt;.preview").</summary>
+    /// <summary>A ring's file for an engine and a name ("playmap-&lt;node&gt;-&lt;name&gt;.preview").</summary>
     public static string PathFor(string nodeId, string viewId) =>
         Path.Combine(DefaultFolder(), $"playmap-{nodeId}-{viewId}.preview");
+
+    /// <summary>The file of one generation of a view's ring ("playmap-&lt;node&gt;-&lt;view&gt;~&lt;generation&gt;.preview"; '~' is
+    /// no view id's character, so no two views' rings share a name).</summary>
+    public static string PathFor(string nodeId, string viewId, long generation) =>
+        PathFor(nodeId, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{viewId}~{generation}"));
+
+    /// <summary>True when <paramref name="path"/> is one generation of the ring of view <paramref name="viewId"/> on node
+    /// <paramref name="nodeId"/> in this machine's preview folder: a full path, normal as it stands, directly in
+    /// <see cref="DefaultFolder"/>, named "playmap-&lt;node&gt;-&lt;view&gt;~&lt;digits&gt;.preview" (<see cref="PathFor(string, string, long)"/>).
+    /// Decided from the words alone, before anything on the disk is touched: a reader opens no other file a node names (a relative
+    /// path, another folder, a share, a device).</summary>
+    public static bool IsGenerationOf(string? path, string? nodeId, string? viewId)
+    {
+        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(viewId) || !Path.IsPathFullyQualified(path))
+            return false;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (ArgumentException)
+        {
+            // Not a path at all (a character no path holds): no ring.
+            return false;
+        }
+        if (!string.Equals(full, path, comparison)
+            || !string.Equals(Path.GetDirectoryName(full), Path.TrimEndingDirectorySeparator(Path.GetFullPath(DefaultFolder())), comparison))
+            return false;
+        var name = Path.GetFileName(full);
+        var prefix = $"playmap-{nodeId}-{viewId}~";
+        const string suffix = ".preview";
+        if (name.Length <= prefix.Length + suffix.Length || !name.StartsWith(prefix, comparison) || !name.EndsWith(suffix, comparison))
+            return false;
+        var generation = name.AsSpan(prefix.Length, name.Length - prefix.Length - suffix.Length);
+        return generation.Length <= 19 && !generation.ContainsAnyExceptInRange('0', '9');
+    }
 
     public static long SlotBytes(int maxWidth, int maxHeight) => SlotHeaderBytes + (long)maxWidth * maxHeight * 4;
 
@@ -48,6 +87,8 @@ public sealed class PreviewRingWriter : IDisposable
     private int _next;
     private long _sequence;
 
+    /// <summary>Makes the ring's file at <paramref name="path"/>; an <see cref="IOException"/> when a file is there already (an
+    /// earlier ring's, which a reader may still map: it is never truncated under it).</summary>
     public PreviewRingWriter(string path, int maxWidth, int maxHeight)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxWidth, 1);
@@ -59,7 +100,7 @@ public sealed class PreviewRingWriter : IDisposable
         var bytes = PreviewRing.FileBytes(maxWidth, maxHeight);
         // The map is made from this stream, not by reopening the path: a reopen shares the file for reading only, and on
         // Windows that refuses every reader (they open it read-write).
-        var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        var file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
         try
         {
             file.SetLength(bytes);
@@ -67,10 +108,21 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch
         {
+            // The file is this writer's own (made new above): a ring that could not be made leaves none behind (a full disk).
             file.Dispose();
+            File.Delete(path);
             throw;
         }
-        _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        try
+        {
+            _view = _map.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.ReadWrite);
+        }
+        catch
+        {
+            _map.Dispose();
+            File.Delete(path);
+            throw;
+        }
         _view.Write(4, maxWidth);
         _view.Write(8, maxHeight);
         _view.Write(12, PreviewRing.Slots);
@@ -130,11 +182,11 @@ public sealed class PreviewRingWriter : IDisposable
         }
         catch (IOException)
         {
-            // A reader still holding the map on Windows keeps the file; it is recreated on the next run.
+            // A reader still holding the map on Windows keeps the file until it lets go; no later ring takes its name.
         }
         catch (UnauthorizedAccessException)
         {
-            // As above: the file is reused, not leaked across runs.
+            // As above.
         }
     }
 }
@@ -146,19 +198,52 @@ public sealed class PreviewRingReader : IDisposable
     private readonly MemoryMappedViewAccessor _view;
     private readonly long _slotBytes;
 
+    /// <summary>No ring's picture has a side longer than this (a header that says more is not a ring's).</summary>
+    private const int MaxSide = 1 << 20;
+
+    /// <summary>Maps the ring at <paramref name="path"/>. A file that is not a whole ring — a pipe or a device, a file shorter than a
+    /// header, a header that is not a ring's or that claims more slots than the file holds — is an <see cref="InvalidDataException"/>,
+    /// and nothing of it is kept open.</summary>
     public PreviewRingReader(string path)
     {
-        _map = MemoryMappedFile.CreateFromFile(new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete),
-            null, 0, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
-        _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
-        if (_view.ReadInt32(0) != PreviewRing.Magic)
+        var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        long length;
+        try
+        {
+            // A ring's writer sizes its file before it maps it: anything else is not one, and is never mapped.
+            if (!file.CanSeek)
+                throw new InvalidDataException("Not a PlayMap preview ring (not a file).");
+            length = file.Length;
+            if (length < PreviewRing.HeaderBytes)
+                throw new InvalidDataException("Not a PlayMap preview ring (shorter than its header).");
+            _map = MemoryMappedFile.CreateFromFile(file, null, 0, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+        catch
+        {
+            // The map owns the stream only once it is made.
+            file.Dispose();
+            throw;
+        }
+        try
+        {
+            _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
+        }
+        catch
+        {
+            _map.Dispose();
+            throw;
+        }
+        var maxWidth = _view.ReadInt32(4);
+        var maxHeight = _view.ReadInt32(8);
+        if (_view.ReadInt32(0) != PreviewRing.Magic || maxWidth is < 1 or > MaxSide || maxHeight is < 1 or > MaxSide
+            || length < PreviewRing.FileBytes(maxWidth, maxHeight))
         {
             _view.Dispose();
             _map.Dispose();
             throw new InvalidDataException("Not a PlayMap preview ring.");
         }
-        MaxWidth = _view.ReadInt32(4);
-        MaxHeight = _view.ReadInt32(8);
+        MaxWidth = maxWidth;
+        MaxHeight = maxHeight;
         _slotBytes = PreviewRing.SlotBytes(MaxWidth, MaxHeight);
     }
 
@@ -192,10 +277,11 @@ public sealed class PreviewRingReader : IDisposable
                 var stamp = BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(header + 32, 8));
                 if (seq <= haveSequence)
                     return false;
-                var bytes = stride * height;
-                if (width < 1 || height < 1 || width > MaxWidth || height > MaxHeight || destination.Length < bytes)
+                var bytes = (long)stride * height;
+                if (width < 1 || height < 1 || width > MaxWidth || height > MaxHeight || stride < width * 4 || stride > MaxWidth * 4
+                    || destination.Length < bytes)
                     return false;
-                new ReadOnlySpan<byte>(header + PreviewRing.SlotHeaderBytes, bytes).CopyTo(destination);
+                new ReadOnlySpan<byte>(header + PreviewRing.SlotHeaderBytes, (int)bytes).CopyTo(destination);
                 if (Volatile.Read(ref *(long*)header) != before)
                     continue;
                 info = new PreviewFrameInfo(width, height, stride, seq, stamp);
@@ -209,8 +295,12 @@ public sealed class PreviewRingReader : IDisposable
         }
     }
 
+    /// <summary>True once the reader let its map go (a reader that follows the node's ring names lets the old one go first).</summary>
+    public bool IsDisposed { get; private set; }
+
     public void Dispose()
     {
+        IsDisposed = true;
         _view.Dispose();
         _map.Dispose();
     }

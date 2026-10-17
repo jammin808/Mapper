@@ -108,12 +108,16 @@ public sealed class AirAudio : IAsyncDisposable
             }
             if (_opening is null && snap.Project.Project.FindMedia(_wanted.Value.MediaId) is { } media)
             {
-                var path = PathOf(media);
                 _openingFor = _wanted;
-                _opening = Task.Run(() => Open(path));
+                _opening = StartOpen(PathOf(media));
             }
         }
     }
+
+    /// <summary>Opens <paramref name="path"/> on a worker. Its own method: the worker's closure (it captures the path) is made only
+    /// when a decoder opens. Written in <see cref="Follow"/>, an optimised build would allocate that closure at the method's entry, on
+    /// every tick of the show lane while sound is attached.</summary>
+    private Task StartOpen(string path) => Task.Run(() => Open(path));
 
     /// <summary>The bytes the item names on this machine, as the picture finds them: the file fetched by its hash, else its location
     /// (a relative one against the project's folder).</summary>

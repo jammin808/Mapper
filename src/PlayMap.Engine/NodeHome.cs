@@ -1,10 +1,13 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Playback;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine;
 
@@ -18,6 +21,11 @@ public sealed class NodeHome
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
+
+    /// <summary>One read or write of a home's settings file at a time in this process: Windows refuses to replace a file another handle
+    /// has open, so a read beside a write's rename would fail the write.</summary>
+    private static readonly ConcurrentDictionary<string, Lock> SettingsGates =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     public NodeHome(string folder)
     {
@@ -39,8 +47,49 @@ public sealed class NodeHome
     public static NodeHome Default() => new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "PlayMap"));
 
-    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept.</summary>
+    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and put right when the file does not read (the
+    /// damaged one kept beside it): a load that may write the file, so only the node's start and the settings file's one writer (the
+    /// network host, inside its own lock from the read to the write) load it. Every other reader reads it as it is
+    /// (<see cref="ReadSettings"/>).</summary>
     public NodeSettings LoadSettings(string defaultName)
+    {
+        NodeSettings read;
+        lock (SettingsGate)
+            read = LoadSettingsLocked(defaultName);
+        SettingsRead?.Invoke();
+        return read;
+    }
+
+    /// <summary>The node's settings as the file holds them now, read only: null when there is no file or it does not read as the node's
+    /// settings. Nothing is made, put right or kept beside it (a reader in another process — the desk's pairing-token read — or beside
+    /// the one writer never writes the file).</summary>
+    public NodeSettings? ReadSettings()
+    {
+        string text;
+        lock (SettingsGate)
+        {
+            if (!File.Exists(SettingsPath))
+                return null;
+            try
+            {
+                text = ReadText();
+            }
+            catch (FileNotFoundException)
+            {
+                // Gone between the look and the read: no settings to read.
+                return null;
+            }
+        }
+        return Parse(text);
+    }
+
+    /// <summary>Raised on the reader's thread after each read of the settings file, outside the file's own lock (a test holds an edit
+    /// here, between its read and its write).</summary>
+    internal event Action? SettingsRead;
+
+    private Lock SettingsGate => SettingsGates.GetOrAdd(SettingsPath, _ => new Lock());
+
+    private NodeSettings LoadSettingsLocked(string defaultName)
     {
         if (!File.Exists(SettingsPath))
         {
@@ -48,24 +97,42 @@ public sealed class NodeHome
             SaveSettings(first);
             return first;
         }
-        var text = File.ReadAllText(SettingsPath);
-        try
-        {
-            // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
-            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
-            if (loaded is not null && Ids.IsValid(loaded.NodeId))
-                return ProjectJson.Sanitize(loaded);
-        }
-        catch (JsonException)
-        {
-            // Falls through: the file is kept and the node keeps who it is.
-        }
+        var text = ReadText();
+        if (Parse(text) is { } loaded)
+            return loaded;
         // A file that does not read is kept beside the new one so nothing is lost silently, and the new one keeps the
         // node's id, name and pairing token whenever the old one still says them: a typo never unpairs the show.
         File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
         var fresh = KeepIdentity(NodeSettings.CreateDefault(defaultName), text);
         SaveSettings(fresh);
         return fresh;
+    }
+
+    /// <summary>The settings file's text. Under the file's gate.</summary>
+    private string ReadText()
+    {
+        // Shared for write and delete: a reader never refuses a writer's own open of the file. Within this process the gate keeps a
+        // read and a replace apart; a reader in another process (the desk's pairing-token read) can still make Windows refuse a
+        // replace, which the writer answers in words.
+        using var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(file, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>The settings a file's text holds, or null when it does not read as the node's settings (not JSON, or no valid node id).</summary>
+    private static NodeSettings? Parse(string text)
+    {
+        try
+        {
+            // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
+            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
+            return loaded is not null && Ids.IsValid(loaded.NodeId) ? ProjectJson.Sanitize(loaded) : null;
+        }
+        catch (JsonException)
+        {
+            // Not the node's settings as they stand: the caller decides (a load puts it right, a read takes none).
+            return null;
+        }
     }
 
     private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
@@ -142,10 +209,14 @@ public sealed class NodeHome
 
     public void SaveSettings(NodeSettings settings)
     {
-        var temp = SettingsPath + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings, Json));
-        File.Move(temp, SettingsPath, overwrite: true);
+        var text = JsonSerializer.Serialize(settings, Json);
+        lock (SettingsGate)
+            WriteFile(SettingsPath, text);
     }
+
+    /// <summary>How the settings file's text is written: durably (<see cref="DurableFile.WriteAllText"/>). A test replaces it to stand
+    /// for a disk that takes the rename and refuses the folder's flush after.</summary>
+    internal Action<string, string> WriteFile { get; set; } = static (path, text) => DurableFile.WriteAllText(path, text);
 }
 
 /// <summary>What a restart puts back: the project (its path, or its whole JSON when unsaved), the air, and each
@@ -187,9 +258,7 @@ public sealed record RecoveryRecord(
 
     public void Save(string path)
     {
-        var temp = path + ".saving";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteAllText(path, JsonSerializer.Serialize(this, Json));
     }
 
     public static RecoveryRecord? Load(string path)

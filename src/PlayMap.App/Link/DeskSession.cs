@@ -49,6 +49,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     private LinkStatus _status = LinkStatus.Down;
     private string _linkLabel = "Not connected";
     private Toast? _lastToast;
+    private long _linkEpoch;
 
     /// <param name="post">Runs an action on the UI thread later (the dispatcher's Post); tests pass the
     /// headless dispatcher's.</param>
@@ -70,6 +71,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
+
+    /// <summary>The ring the node names for each preview view (from the VIEW … SHOW replies and STATE <c>machine.views</c>): the only
+    /// files the desk's previews read. Emptied when the link changes.</summary>
+    public PreviewNames Previews { get; } = new();
 
     private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
     private Func<string, GateRefusal?>? _gateHook;
@@ -133,6 +138,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     public IEngineLink? Link => _link;
 
+    /// <summary>Moves whenever the session takes or lets go of a link: a reply to a line sent before it moved came from a link the
+    /// session no longer holds, and what it names is not this link's.</summary>
+    public long LinkEpoch => Interlocked.Read(ref _linkEpoch);
+
     public StateSnapshot State => _state;
 
     /// <summary>The mirrored project (null until the engine's first push).</summary>
@@ -178,7 +187,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(link);
         Detach();
+        Previews.Clear();
         _link = link;
+        Interlocked.Increment(ref _linkEpoch);
         LinkLabel = label;
         link.StatusChanged += OnStatus;
         link.StateChanged += OnState;
@@ -298,6 +309,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _link.StateChanged -= OnState;
         _link.ProjectChanged -= OnProject;
         _link = null;
+        Interlocked.Increment(ref _linkEpoch);
+        Previews.Clear();
         _status = LinkStatus.Down;
         _verbs = FrozenSet<string>.Empty;
         _role = "operator";
@@ -465,6 +478,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             return;
         }
         _state = next;
+        Previews.Read(next);
         GateMoved();
         Raise(nameof(State));
         StateUpdated?.Invoke(next);

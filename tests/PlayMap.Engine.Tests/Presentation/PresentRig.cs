@@ -74,6 +74,11 @@ internal sealed class ScriptedOutputs : IOutputBackend, IPresentBackend, IFrameL
 
     public bool ConfirmFirstFrames() => FirstFramesUp is { } up && up();
 
+    /// <summary>The group's air latency the engine wrote through, in order.</summary>
+    public List<double> GroupLatencies { get; } = [];
+
+    public void SetGroupAirLatency(double ms) => GroupLatencies.Add(ms);
+
     public Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct)
     {
         var list = new List<OutputPresentView>();

@@ -4,36 +4,64 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using PlayMap.App.State;
 using PlayMap.Core.Media;
 
 namespace PlayMap.App.Controls;
 
-/// <summary>Where a preview view's pictures come from. Local engines write a <see cref="PreviewRing"/> per view
-/// (shared memory); the integrator can supply another feed (a remote node's JPEG frames) through
-/// <see cref="PreviewFeeds.Resolve"/>.</summary>
+/// <summary>Where a preview view's pictures come from. A local engine writes a <see cref="PreviewRing"/> per view (shared memory)
+/// and names its file; the integrator can supply another feed (a remote node's JPEG frames) through <see cref="PreviewFeeds.Resolve"/>.</summary>
 public interface IPreviewSource : IDisposable
 {
     /// <summary>The newest picture when it is newer than the last one returned; null otherwise (or when the
     /// view is not up). The bitmap is reused between calls (one per source).</summary>
     WriteableBitmap? Poll();
+
+    /// <summary>False while the source has nothing to read (no ring named, or the one named not open): the view shows its stand-in,
+    /// not the last picture.</summary>
+    bool Live => true;
+
+    /// <summary>The words the stand-in shows while no picture can come (the node's refusal, or why the ring it names does not open);
+    /// null otherwise.</summary>
+    string? Words => null;
+
+    /// <summary>One tick while the view is off screen: nothing is read or copied, but what the source no longer has to hold (a ring
+    /// the node names no more) is let go now, not when the view shows again.</summary>
+    void Idle()
+    {
+    }
 }
 
-/// <summary>Picks the preview source for a node and a view. The default reads this machine's preview rings
-/// (PreviewRing.PathFor(node, view)); an integrator replaces <see cref="Resolve"/> to add remote feeds.</summary>
+/// <summary>Picks the preview source for a node and a view. The default reads this machine's preview ring that the node names for the
+/// view (<see cref="PreviewNames"/>: the VIEW … SHOW reply and STATE <c>machine.views</c>) when it is one of that node's rings for that
+/// view in this machine's preview folder, and no other file; an integrator replaces <see cref="Resolve"/> to add remote feeds.</summary>
 public static class PreviewFeeds
 {
-    /// <summary>The source for a view of a node; set once at start-up by the composition.</summary>
-    public static Func<string, string, IPreviewSource> Resolve { get; set; } = (node, view) => new RingPreviewSource(PreviewRing.PathFor(node, view));
+    /// <summary>The source for a view of a node, given the names the desk's session holds (null: none, so no ring is read); set once
+    /// at start-up by the composition.</summary>
+    public static Func<string, string, PreviewNames?, IPreviewSource> Resolve { get; set; } =
+        (node, view, names) => new RingPreviewSource(node, view, () => names?.Of(view));
 }
 
-/// <summary>Reads one preview ring: opens it when its file appears (checked at most once a second), copies the
-/// newest complete BGRA slot into a bitmap, and lets go when the ring goes away (engine restarted). A ring that brings no
-/// new picture for a second is checked against the file at its path: when the engine took the view's ring away or made a
-/// new one there (the view shown again after its lease ran out), the mapped ring is released and the new one opened.</summary>
+/// <summary>Reads the preview ring the node names for one view, and no other file: opens it when it is named and is one of that node's
+/// rings for that view in this machine's preview folder (<see cref="PreviewRing.IsGenerationOf"/>; any other name opens nothing and the
+/// stand-in says so), again at most once a second while it does not open, copies the newest complete BGRA slot into a bitmap, and follows
+/// the name: when the node names another ring (a new generation, a restart) the mapped one is let go, disposed, and the new one opened;
+/// when it names none the mapped one is let go and the stand-in shows the node's words. A ring that brings no new picture for a second is
+/// checked against its file: when the engine took it away, it is let go too. A named file that is not a whole ring never throws out of a
+/// poll: its words say why.</summary>
 public sealed class RingPreviewSource : IPreviewSource
 {
-    private readonly string _path;
+    /// <summary>How many of the rings opened <see cref="Opened"/> keeps.</summary>
+    private const int OpenedKept = 16;
+
+    private readonly string _nodeId;
+    private readonly string _viewId;
+    private readonly Func<PreviewRingName?> _named;
     private readonly TimeSpan _probeEvery;
+    private readonly Queue<string> _opened = new();
+    private string? _path;
+    private string? _words;
     private PreviewRingReader? _reader;
     private byte[] _buffer = [];
     private WriteableBitmap? _bitmap;
@@ -41,25 +69,49 @@ public sealed class RingPreviewSource : IPreviewSource
     private long _lastProbe;
     private long _lastNews;
 
-    public RingPreviewSource(string path)
-        : this(path, TimeSpan.FromSeconds(1))
+    /// <param name="nodeId">The node the view is on (its rings carry its id).</param>
+    /// <param name="viewId">The view (its rings carry its id).</param>
+    /// <param name="named">What the node names for the view now (read on every poll); null or no ring: nothing is read.</param>
+    public RingPreviewSource(string nodeId, string viewId, Func<PreviewRingName?> named)
+        : this(nodeId, viewId, named, TimeSpan.FromSeconds(1))
     {
     }
 
-    /// <param name="probeEvery">How often a missing ring is looked for, and how long a quiet ring waits before it is checked.</param>
-    internal RingPreviewSource(string path, TimeSpan probeEvery)
+    /// <param name="nodeId">The node the view is on.</param>
+    /// <param name="viewId">The view.</param>
+    /// <param name="named">What the node names for the view now.</param>
+    /// <param name="probeEvery">How often a named ring that does not open is tried again, and how long a quiet ring waits before it is checked.</param>
+    internal RingPreviewSource(string nodeId, string viewId, Func<PreviewRingName?> named, TimeSpan probeEvery)
     {
-        _path = path;
+        ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(viewId);
+        ArgumentNullException.ThrowIfNull(named);
+        _nodeId = nodeId;
+        _viewId = viewId;
+        _named = named;
         _probeEvery = probeEvery;
     }
 
+    public bool Live => _reader is not null;
+
+    public string? Words => _reader is null ? _words : null;
+
+    /// <summary>The ring files this source opened, oldest first (the last <see cref="OpenedKept"/>): each one the node named.</summary>
+    internal IReadOnlyList<string> Opened => [.. _opened];
+
+    /// <summary>The reader of the ring mapped now, or null.</summary>
+    internal PreviewRingReader? Reader => _reader;
+
     public WriteableBitmap? Poll()
     {
+        Follow(_named());
+        if (_path is null)
+            return null;
         if (_reader is null && !TryOpen())
             return null;
         if (Quiet() && Replaced())
         {
-            // The ring mapped here is not the one at the path any more: let it go and open what is there now.
+            // The ring mapped here is not the file the node names any more: let it go and open what is there now.
             Close();
             _lastProbe = 0;
             if (!TryOpen())
@@ -77,7 +129,7 @@ public sealed class RingPreviewSource : IPreviewSource
         }
         catch (IOException)
         {
-            // The engine took the ring away mid-read: close it and look for a new one on the next probe.
+            // The engine took the ring away mid-read: close it and try the named ring again on the next probe.
             Close();
             return null;
         }
@@ -96,34 +148,86 @@ public sealed class RingPreviewSource : IPreviewSource
         return _bitmap;
     }
 
+    public void Idle() => Follow(_named());
+
+    /// <summary>Takes the node's name for the view: a ring other than the one mapped (or none) lets the mapped one go before anything
+    /// else is read, and the named one is tried at once. A name that is not one of the node's rings for this view in this machine's
+    /// preview folder is taken as none, with words that say so: nothing is opened.</summary>
+    private void Follow(PreviewRingName? named)
+    {
+        var ring = named?.Ring is { Length: > 0 } r ? r : null;
+        string? refused = null;
+        if (ring is not null && !PreviewRing.IsGenerationOf(ring, _nodeId, _viewId))
+        {
+            refused = $"The node names {Shown(ring)} for this view, which is not one of its rings in this machine's preview folder: nothing is opened";
+            ring = null;
+        }
+        if (!string.Equals(ring, _path, StringComparison.Ordinal))
+        {
+            Close();
+            _path = ring;
+            _lastProbe = 0;
+            _words = null;
+        }
+        if (ring is null)
+            _words = refused ?? named?.Words;
+    }
+
+    /// <summary>A named path as the words show it: its file name, cut short.</summary>
+    private static string Shown(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Length == 0)
+            name = path;
+        return name.Length <= 80 ? name : name[..79] + "…";
+    }
+
     private bool TryOpen()
     {
+        var path = _path!;
         var now = Stopwatch.GetTimestamp();
         if (_lastProbe != 0 && Stopwatch.GetElapsedTime(_lastProbe, now) < _probeEvery)
             return false;
         _lastProbe = now;
-        if (!File.Exists(_path))
+        var file = Path.GetFileName(path);
+        if (!File.Exists(path))
+        {
+            _words = $"The node names the ring {file} for this view, and this machine has no such file";
             return false;
+        }
         try
         {
-            _reader = new PreviewRingReader(_path);
+            _reader = new PreviewRingReader(path);
             _sequence = 0;
             _lastNews = now;
+            _words = null;
+            _opened.Enqueue(path);
+            while (_opened.Count > OpenedKept)
+                _opened.Dequeue();
             return true;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
             // Not ready yet (the engine is creating it): the next probe tries again.
+            _words = $"The ring {file} the node names for this view does not open: {ex.Message}";
             return false;
         }
         catch (InvalidDataException)
         {
             // A file that is not a ring (yet): the next probe tries again.
+            _words = $"The file {file} the node names for this view is not a preview ring";
             return false;
         }
         catch (UnauthorizedAccessException)
         {
             // Another user's ring: never ours to read.
+            _words = $"The ring {file} the node names for this view is another user's";
+            return false;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            // A file the map refuses (empty, or not a file at all): not a ring, and the next probe tries again.
+            _words = $"The file {file} the node names for this view is not a preview ring";
             return false;
         }
     }
@@ -138,14 +242,14 @@ public sealed class RingPreviewSource : IPreviewSource
         return true;
     }
 
-    /// <summary>True when the file at the path is not the ring mapped here: it is gone, or its header or its newest picture's number
+    /// <summary>True when the file the node names is not the ring mapped here: it is gone, or its header or its newest picture's number
     /// differs from what the mapping shows (the same file read twice shows the same bytes).</summary>
     private bool Replaced()
     {
         var reader = _reader!;
         try
         {
-            using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var file = new FileStream(_path!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             Span<byte> head = stackalloc byte[24];
             file.ReadExactly(head);
             if (BinaryPrimitives.ReadInt32LittleEndian(head) != PreviewRing.Magic || BinaryPrimitives.ReadInt32LittleEndian(head[4..]) != reader.MaxWidth

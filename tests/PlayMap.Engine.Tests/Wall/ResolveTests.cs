@@ -58,6 +58,52 @@ public sealed class ResolveTests(ITestOutputHelper output)
         return rig;
     }
 
+    /// <summary>A stop begun once the re-solve's edit has landed keeps the new pose and says the blend was not solved again, only
+    /// when one was due: a projector whose output does not blend automatically gets no words about blends.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AStopBegunOnceTheReSolveLandedKeepsItAndSaysOnlyADueBlendWasNotSolvedAgain(bool blends)
+    {
+        await using var rig = await ThreeSolved();
+        if (!blends)
+        {
+            var off = await rig.Engine.EditAsync(WallRig.Desk, "no automatic blend", p => p with
+            {
+                Outputs = [.. p.Outputs.Select(o => o.ProjectorId == "pj_test2" ? o with { Blend = o.Blend with { Auto3D = false } } : o)],
+            });
+            Assert.True(off.Changed, off.Effect);
+        }
+        var truth = new SimDevice(WallRig.TrueOptics, LensDistortion.None, WallRig.TruePose(1));
+        await DragPins(rig, "pj_test2", ScanSimulator.Bump(truth, Vec3d.Zero, new Vec3d(0.02, 0, 0)), 0.1, 7);
+        var before = rig.Project.FindProjector("pj_test2")!;
+        var revision = rig.Engine.Store.Current.Revision;
+        // The stop begins on the lane the moment the re-solve's edit lands, before its blend step.
+        void Landed(ProjectSnapshot s)
+        {
+            if (s.Revision > revision)
+                rig.Engine.BeginStop();
+        }
+        rig.Engine.Store.Changed += Landed;
+        JsonElement reply;
+        try
+        {
+            reply = WallRig.Json(await rig.Ok("CALIBRATION RESOLVE pj_test2"));
+        }
+        finally
+        {
+            rig.Engine.Store.Changed -= Landed;
+        }
+        Assert.True(rig.Engine.Stopping);
+        Assert.True(reply.GetProperty("projectors")[0].GetProperty("applied").GetBoolean());
+        Assert.NotEqual(before.CalibrationId, rig.Project.FindProjector("pj_test2")!.CalibrationId);
+        var blend = reply.GetProperty("blend").GetString()!;
+        Assert.Equal(blends ? "the blend was not solved again: " + EngineCore.StoppingWords : "", blend);
+        if (blends)
+            Assert.EndsWith("; " + blend, reply.GetProperty("words").GetString(), StringComparison.Ordinal);
+        Assert.Equal("done", rig.State().GetProperty("calibration").GetProperty("task").GetProperty("state").GetString());
+    }
+
     [Fact]
     public async Task ResolveBringsTheKnockedProjectorBackAndTouchesNothingElse()
     {

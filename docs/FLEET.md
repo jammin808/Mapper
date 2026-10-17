@@ -157,7 +157,9 @@ picture stays the primary's to the byte: both read the output's final pixels, an
 **Taking over.** `FAILOVER` on the backup:
 
 1. commits the next **epoch** (one past every epoch it holds or hears) and keeps it, with the role, in the node's settings before it
-   serves (`NetworkHost.PersistSettings`, the settings file's one writer);
+   serves (`NetworkHost.PersistSettings`, the settings file's one writer; the file reaches the disk before it is renamed into place
+   and the rename before the call returns — `DurableFile`, as for every file that holds state for the node's next start — so a
+   power cut just after the takeover keeps the epoch);
 2. freezes its clock's mapping into its own time line (`NetworkClock.Promote`) and leads the group: show time continues with no step;
 3. switches every **route** (`FLEET ROUTE <output> DEVICE <device> <input> <backup input>`, kept in the show) through its own
    `DEVICE INPUT`, each with the projector's receipt — observed when the projector reads its new input back; a projector that does not
@@ -201,9 +203,13 @@ on a follower (red while its leader is silent), and a key per backup of a primar
 
 ## Threads
 
-The node's settings file has one writer, the network host (`NetworkHost.PersistSettings`): the sync role, the fleet's role and
-epoch, the links and the pairing token, and the LED, control, video and audio settings each go through it, read fresh from the file,
-so none loses another's.
+The node's settings file has one writer, the network host (`NetworkHost.PersistSettings`, and `KeepSettings` for a change that is
+refused when it cannot be written): the sync role, the fleet's role and epoch, the links and the pairing token, the LED, control,
+video and audio settings, the present path and the decode policy each go through it, read fresh from the file and written under its
+one lock, so none loses another's. Only the node's start and the network host load the file (a load makes it on a first run and puts
+a damaged one right); every other reader — the desk's pairing-token read, the render host's and the outputs' present settings —
+reads it as it is (`NodeHome.ReadSettings`) and never writes it. A write whose rename landed but whose folder the disk did not flush
+is the file's content and is kept, the change taken; the node shows a `settings-flush` fault until a later write flushes whole.
 
 The sampler, the light watch and the HEALTH clock run on timers of their own; the backup's watch (its fence, its group's new leader,
 its mirror's state) on a task of its own; the mirror's lines are taken one at a time beside the lane and run through the engine's own

@@ -7,6 +7,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Scan.MultiView;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -187,7 +188,7 @@ public static class ScanViewArchive
         var temp = path + ".saving";
         using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
             write(stream);
-        File.Move(temp, path, overwrite: true);
+        DurableFile.MoveIntoPlace(temp, path);
     }
 
     private static void WriteDepth(Stream stream, ProjectorDepthMap d)

@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Tls;
 
@@ -155,7 +156,7 @@ public sealed class PinStore
                 Directory.CreateDirectory(dir);
             var temp = _path + ".new";
             File.WriteAllText(temp, json);
-            File.Move(temp, _path, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, _path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

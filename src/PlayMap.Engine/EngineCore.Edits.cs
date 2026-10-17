@@ -6,6 +6,7 @@ using PlayMap.Core.Numerics;
 using PlayMap.Core.Wire;
 
 using ProjectFile = PlayMap.Core.Model.ProjectJson;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine;
 
@@ -670,7 +671,7 @@ public sealed partial class EngineCore
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             var temp = full + ".saving";
             File.WriteAllText(temp, ProjectFile.Serialize(Store.Project));
-            File.Move(temp, full, overwrite: true);
+            DurableFile.MoveIntoPlace(temp, full);
             _projectPath = full;
             _dirty = false;
             FactsChanged();

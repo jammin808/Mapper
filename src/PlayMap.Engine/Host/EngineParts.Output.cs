@@ -15,7 +15,7 @@ public sealed partial record EngineParts
 }
 
 /// <summary>Adds the presentation and lock check to the node's preflight and this machine's present settings and fuse (kept in the
-/// node home, saved by PRESENT PATH); attaches nothing else (the render host is the output edge).</summary>
+/// node home, saved by PRESENT PATH through the network host); attaches nothing else (the render host is the output edge).</summary>
 internal sealed class OutputParts(ExtensionSetup? setup) : IEngineExtension
 {
     /// <summary>The factory the exe's composition holds (one instance, so a test can find it there).</summary>
@@ -30,16 +30,16 @@ internal sealed class OutputParts(ExtensionSetup? setup) : IEngineExtension
         // A composition with no node home (a test's) keeps no present settings: PRESENT PATH says so.
         if (setup is null)
             return services with { PreflightChecks = checks };
-        var node = new PresentNode(setup.Home.LoadSettings(setup.Settings.Name).Present, SavePresent,
+        // The node home's present settings as the file holds them (read only: the network host is the file's one writer), else this run's.
+        var node = new PresentNode((setup.Home.ReadSettings() ?? setup.Settings).Present, SavePresent,
             new PresentFuse(setup.Home.Folder, () => setup.Wall.UnixMs));
         return services with { PreflightChecks = checks, PresentNode = node };
     }
 
-    private void SavePresent(PlayMap.Core.Bus.PresentSettings present)
-    {
-        var current = setup!.Home.LoadSettings(setup.Settings.Name);
-        setup.Home.SaveSettings(current with { Present = present });
-    }
+    /// <summary>Keeps the present settings through the network host, the settings file's one writer (the file read fresh under its
+    /// lock, so nothing else in it is lost, nor this change by another part's); a write that fails throws, and PRESENT PATH refuses with
+    /// its words.</summary>
+    private void SavePresent(PlayMap.Core.Bus.PresentSettings present) => setup!.Network.KeepSettings(s => s with { Present = present });
 
     public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
 

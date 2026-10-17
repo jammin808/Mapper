@@ -290,6 +290,67 @@ public sealed class HostStopTests
         Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Who, r.Line) == ("refused", EngineCore.StoppingWords, ShowRig.Desk.ClientName, "BLACKOUT ON"));
     }
 
+    /// <summary>An off-lane line's document edit waits for the lane: when its turn comes after the stop began, it is refused with the
+    /// words and the project stands — an edit handed to the lane directly (<see cref="EngineCore.EditAsync"/>) and an off-lane verb's
+    /// edit (DEVICE ADD) alike. The node's own edit still applies.</summary>
+    [Fact]
+    public async Task AnOffLaneEditWaitingForTheLaneWhenTheStopBeginsIsRefusedWithTheWordsAndChangesNothing()
+    {
+        await using var rig = new ShowRig();
+        var engine = rig.Engine;
+        var revision = engine.Store.Current.Revision;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busy = engine.Lane.RunAsync(() =>
+        {
+            entered.SetResult();
+            release.Wait(TimeSpan.FromSeconds(30));
+        });
+        await entered.Task;
+        Task<EditResult> edit, own;
+        Task<CommandReply> device;
+        try
+        {
+            // Both passed their door before the stop; their edits wait behind the lane's work.
+            edit = engine.EditAsync(ShowRig.Desk, "rename", p => p with { Name = "Renamed" });
+            device = rig.Run("DEVICE ADD Left pjlink 10.0.0.31");
+            own = engine.EditAsync(EngineCore.SystemSession, "node's own", p => p with { Name = "The node's own" });
+            Assert.False(edit.IsCompleted || device.IsCompleted || own.IsCompleted);
+            engine.BeginStop();
+        }
+        finally
+        {
+            // The lane is let go whatever happened above: a failed assertion never leaves it held under the rig's dispose.
+            release.Set();
+        }
+        await busy;
+        var refused = await edit;
+        var reply = await device;
+        await own;
+
+        Assert.Equal((false, EngineCore.StoppingWords), (refused.Changed, refused.Effect));
+        Assert.Equal((false, EngineCore.StoppingWords), (reply.Ok, reply.Payload));
+        Assert.Empty(engine.Store.Project.Stage.Devices);
+        // Only the node's own edit landed.
+        Assert.Equal((revision + 1, "The node's own"), (engine.Store.Current.Revision, engine.Store.Project.Name));
+        Assert.Contains(engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Line) == ("refused", EngineCore.StoppingWords, "DEVICE ADD Left pjlink 10.0.0.31"));
+    }
+
+    /// <summary>The calibration ledger's seam answers an accept or a fallback asked for once the stop began as a refused result with
+    /// the words (its contract), never an exception; the node's own still runs.</summary>
+    [Fact]
+    public async Task TheLedgersAcceptAndFallbackAreRefusedWithTheWordsOnceTheStopBegins()
+    {
+        await using var rig = new ShowRig();
+        var ledger = rig.Engine.CalibrationLedgerService;
+        rig.Engine.BeginStop();
+        var accept = await ledger.AcceptAsync(ShowRig.Desk, "op_1", CancellationToken.None);
+        var fallback = await ledger.FallbackAsync(ShowRig.Desk, "op_1", CancellationToken.None);
+        Assert.Equal((false, EngineCore.StoppingWords), (accept.Changed, accept.Effect));
+        Assert.Equal((false, EngineCore.StoppingWords), (fallback.Changed, fallback.Effect));
+        Assert.NotEqual(EngineCore.StoppingWords, (await ledger.FallbackAsync(EngineCore.SystemSession, "op_1", CancellationToken.None)).Effect);
+    }
+
     [Fact]
     public async Task AnAssistantsHighRiskLineOverMcpIsRefusedWithTheWordsOnceTheStopBeginsNotQueuedForAPerson()
     {

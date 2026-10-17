@@ -38,7 +38,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
-  starts work on a part already closed; the node's own lines (a panic's shutters and effects) still run. Then the
+  starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
+  them when its turn comes; the node's own lines (a panic's shutters and effects) still run. Then the
   doors and parts close in reverse, the recovery record is written and the journal flushed.
 - A worker that stops never touches the air: the engine starts it again after a backoff (1 s, doubling to 30 s) and its
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
@@ -46,7 +47,8 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
-  pictures. Anything the desk can do, a peer can do; anything a peer sees, the desk sees. Before a press the desk asks the
+  pictures (the ring file each view's `VIEW … SHOW` reply and STATE `machine.views` name, read only when it is that node's ring for the
+  view in the desk's own preview folder). Anything the desk can do, a peer can do; anything a peer sees, the desk sees. Before a press the desk asks the
   same Core rules the engine's door decides by (the show policy for its role from `WHOAMI`, the locks in STATE.show), so a
   control the node would refuse is greyed with the node's own words; the engine still decides. A package's STATE shows on
   the desk through its card descriptor (`tests/fixtures/state/<pkg>.cards.json`, built into the desk), so a package adds data,
@@ -319,7 +321,12 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
 ## 8. Reliability rules (inherited from Patterns, enforced by the analyzers and tests)
 
 Attempts are not facts (receipts say accepted/applied and the effect); fail closed on the wire; one writer per
-lane; immutable snapshots for readers; pools and rings that skip rather than wait; no allocation on a warm frame
+lane; immutable snapshots for readers; a file that holds state for the node's next start (its settings, the recovery record, the
+project, the optimise queue, the present fuse, keys and credentials, a run's or a scan's records) is written beside its place,
+reaches the disk, and is renamed into place with the rename flushed (`DurableFile`; a rename that landed but whose folder could not
+be flushed after says so, `NotFlushedException`: the file is in place, only its durability in doubt), while a record it only reports
+(the journal, preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
+pools and rings that skip rather than wait; no allocation on a warm frame
 (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh); a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

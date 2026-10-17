@@ -3,7 +3,11 @@
 // fake_ndi_* control exports through which the tests inject sources and frames and read back what the NDI edge
 // did. It never ships and never touches the network.
 //
-//   cc -O1 -std=c11 -Wall -fPIC -shared -pthread fake_ndi.c -o libndi.so.6
+//   cc -O1 -std=c11 -Wall -fPIC -shared -pthread fake_ndi.c -o libndi.so.6                (Linux)
+//   clang -O1 -std=c11 -Wall -shared fake_ndi.c -o Processing.NDI.Lib.x64.dll             (Windows, the runner's LLVM)
+//
+// The platform's own primitives (a lock, a condition with a timed wait, a one-time init, a monotonic clock, whether pages are
+// mapped) sit behind the shims below; everything else is the same C on both.
 //
 // The struct layouts, enumerations and constants below are transcribed from the NDI SDK 6.3 headers
 // (Processing.NDI.structs.h, .Find.h, .Recv.h, .Send.h, .SendAdvertiser.h, .RecvAdvertiser.h), which carry
@@ -26,11 +30,10 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
 // THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#ifndef _WIN32
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
-
-#include <errno.h>
-#include <pthread.h>
+#endif
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,11 +41,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#define FAKE_API __declspec(dllexport)
+#define FAKE_PRINTF(f, a)
+#define strdup _strdup
+
+typedef SRWLOCK fake_mutex_t;
+typedef CONDITION_VARIABLE fake_cond_t;
+typedef INIT_ONCE fake_once_t;
+typedef ULONGLONG fake_deadline_t; // GetTickCount64 milliseconds
+#define FAKE_MUTEX_INIT SRWLOCK_INIT
+#define FAKE_ONCE_INIT INIT_ONCE_STATIC_INIT
+#else
+#include <errno.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
 #define FAKE_API __attribute__((visibility("default")))
+#define FAKE_PRINTF(f, a) __attribute__((format(printf, f, a)))
+
+typedef pthread_mutex_t fake_mutex_t;
+typedef pthread_cond_t fake_cond_t;
+typedef pthread_once_t fake_once_t;
+typedef struct timespec fake_deadline_t; // CLOCK_MONOTONIC
+#define FAKE_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
+#define FAKE_ONCE_INIT PTHREAD_ONCE_INIT
+#endif
 
 // ===== Transcribed from the NDI SDK 6.3 headers =================================================================
 
@@ -306,9 +336,9 @@ typedef struct advertiser {
 	size_t count, capacity;
 } advertiser;
 
-static pthread_once_t g_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_cv; // CLOCK_MONOTONIC; broadcast on every change any waiter could care about
+static fake_once_t g_once = FAKE_ONCE_INIT;
+static fake_mutex_t g_mu = FAKE_MUTEX_INIT;
+static fake_cond_t g_cv; // monotonic; broadcast on every change any waiter could care about
 static endpoint* g_sources;  // registration order
 static receiver* g_receivers;
 static advertiser* g_advertisers;
@@ -322,6 +352,48 @@ static void reset_locked(void);
 // The frame_format_type fake_ndi_inject_frame gives the frames it injects (progressive until told otherwise; reset restores it).
 static int g_inject_format = NDIlib_frame_format_type_progressive;
 
+#ifdef _WIN32
+static BOOL CALLBACK once_init(PINIT_ONCE once, PVOID param, PVOID* context) {
+	(void)once;
+	(void)param;
+	(void)context;
+	InitializeConditionVariable(&g_cv);
+	reset_locked();
+	return TRUE;
+}
+
+static void lock(void) {
+	InitOnceExecuteOnce(&g_once, once_init, NULL, NULL);
+	AcquireSRWLockExclusive(&g_mu);
+}
+
+static void unlock(void) {
+	ReleaseSRWLockExclusive(&g_mu);
+}
+
+static void broadcast(void) {
+	WakeAllConditionVariable(&g_cv);
+}
+
+static int64_t now_100ns(void) {
+	LARGE_INTEGER count, frequency;
+	QueryPerformanceCounter(&count);
+	QueryPerformanceFrequency(&frequency);
+	return (int64_t)(count.QuadPart / frequency.QuadPart) * 10000000 + (int64_t)(count.QuadPart % frequency.QuadPart) * 10000000 / frequency.QuadPart;
+}
+
+static fake_deadline_t deadline_after(uint32_t timeout_ms) {
+	return GetTickCount64() + timeout_ms;
+}
+
+// False once the deadline has passed.
+static bool wait_locked(const fake_deadline_t* deadline) {
+	ULONGLONG now = GetTickCount64();
+	if (now >= *deadline)
+		return false;
+	return SleepConditionVariableSRW(&g_cv, &g_mu, (DWORD)(*deadline - now), 0) || GetLastError() != ERROR_TIMEOUT;
+}
+#else
 static void once_init(void) {
 	pthread_condattr_t attr;
 	pthread_condattr_init(&attr);
@@ -340,13 +412,17 @@ static void unlock(void) {
 	pthread_mutex_unlock(&g_mu);
 }
 
+static void broadcast(void) {
+	pthread_cond_broadcast(&g_cv);
+}
+
 static int64_t now_100ns(void) {
 	struct timespec t;
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	return (int64_t)t.tv_sec * 10000000 + t.tv_nsec / 100;
 }
 
-static struct timespec deadline_after(uint32_t timeout_ms) {
+static fake_deadline_t deadline_after(uint32_t timeout_ms) {
 	struct timespec t;
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	t.tv_sec += (time_t)(timeout_ms / 1000u);
@@ -359,9 +435,10 @@ static struct timespec deadline_after(uint32_t timeout_ms) {
 }
 
 // False once the deadline has passed.
-static bool wait_locked(const struct timespec* deadline) {
+static bool wait_locked(const fake_deadline_t* deadline) {
 	return pthread_cond_timedwait(&g_cv, &g_mu, deadline) != ETIMEDOUT;
 }
+#endif
 
 static char* dup_or_empty(const char* s) {
 	return strdup(s ? s : "");
@@ -371,7 +448,7 @@ static char* dup_nonempty(const char* s) {
 	return (s && *s) ? strdup(s) : NULL;
 }
 
-__attribute__((format(printf, 1, 2)))
+FAKE_PRINTF(1, 2)
 static char* format_dup(const char* fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
@@ -406,6 +483,18 @@ static uint64_t fnv1a64(const uint8_t* p, size_t n) {
 static bool range_mapped(const void* p, size_t n) {
 	if (!p || n == 0)
 		return true;
+#ifdef _WIN32
+	// Committed memory, region by region, to the range's end.
+	uintptr_t at = (uintptr_t)p;
+	uintptr_t end = (uintptr_t)p + n;
+	while (at < end) {
+		MEMORY_BASIC_INFORMATION info;
+		if (VirtualQuery((const void*)at, &info, sizeof info) == 0 || info.State != MEM_COMMIT)
+			return false;
+		at = (uintptr_t)info.BaseAddress + info.RegionSize;
+	}
+	return true;
+#else
 	long page_size = sysconf(_SC_PAGESIZE);
 	uintptr_t page = page_size > 0 ? (uintptr_t)page_size : 4096u;
 	uintptr_t at = (uintptr_t)p & ~(page - 1);
@@ -420,6 +509,7 @@ static bool range_mapped(const void* p, size_t n) {
 		at += chunk;
 	}
 	return true;
+#endif
 }
 
 // Bytes a frame occupies in memory, from the header's description of each FourCC. A zero stride becomes the
@@ -692,12 +782,34 @@ static void reset_locked(void) {
 	snprintf(g_version, sizeof g_version, "%s", FAKE_DEFAULT_VERSION);
 }
 
+// The process environment's value of a variable (a copy to free), or NULL: on Windows the process environment block, where
+// SetEnvironmentVariable writes (the C runtime's getenv keeps a copy of its own that it never sees); elsewhere libc's environ.
+static char* env_dup(const char* name) {
+#ifdef _WIN32
+	DWORD size = GetEnvironmentVariableA(name, NULL, 0);
+	if (size == 0)
+		return NULL;
+	char* value = malloc(size);
+	if (value && GetEnvironmentVariableA(name, value, size) != size - 1) {
+		free(value);
+		return NULL;
+	}
+	return value;
+#else
+	const char* value = getenv(name);
+	return value ? strdup(value) : NULL;
+#endif
+}
+
 // The string value of "discovery" under "networks" in $NDI_CONFIG_DIR/ndi-config.v1.json, or NULL.
 static char* read_config_discovery(void) {
-	const char* dir = getenv("NDI_CONFIG_DIR");
-	if (!dir || !*dir)
+	char* dir = env_dup("NDI_CONFIG_DIR");
+	if (!dir || !*dir) {
+		free(dir);
 		return NULL;
+	}
 	char* path = format_dup("%s/ndi-config.v1.json", dir);
+	free(dir);
 	if (!path)
 		return NULL;
 	FILE* file = fopen(path, "rb");
@@ -849,7 +961,7 @@ FAKE_API const NDIlib_source_t* NDIlib_find_get_current_sources(NDIlib_find_inst
 FAKE_API bool NDIlib_find_wait_for_sources(NDIlib_find_instance_t p_instance, uint32_t timeout_in_ms) {
 	if (!p_instance)
 		return false;
-	struct timespec deadline = deadline_after(timeout_in_ms);
+	fake_deadline_t deadline = deadline_after(timeout_in_ms);
 	lock();
 	bool changed;
 	while (!(changed = finder_set_changed_locked(p_instance)) && wait_locked(&deadline)) {
@@ -884,7 +996,7 @@ FAKE_API NDIlib_send_instance_t NDIlib_send_create(const NDIlib_send_create_t* p
 	set_string_locked(FAKE_STR_SEND_GROUPS, p_create_settings ? p_create_settings->p_groups : NULL);
 	append_source_locked(s);
 	resolve_all_locked();
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 	return s;
 }
@@ -899,7 +1011,7 @@ FAKE_API void NDIlib_send_destroy(NDIlib_send_instance_t p_instance) {
 		unlink_source_locked(s);
 		unadvertise_locked(s->id, false);
 		resolve_all_locked();
-		pthread_cond_broadcast(&g_cv);
+		broadcast();
 	}
 	unlock();
 	endpoint_free(s);
@@ -917,7 +1029,7 @@ FAKE_API void NDIlib_send_send_video_v2(NDIlib_send_instance_t p_instance, const
 	if (p_video_data) {
 		frame_store_locked(&p_instance->latest, p_video_data, now_100ns());
 		g_stats.frames_sent++;
-		pthread_cond_broadcast(&g_cv);
+		broadcast();
 	}
 	unlock();
 }
@@ -940,7 +1052,7 @@ FAKE_API void NDIlib_send_send_video_async_v2(NDIlib_send_instance_t p_instance,
 			s->async_size = size;
 			s->async_sum = fnv1a64(p_video_data->p_data, size);
 		}
-		pthread_cond_broadcast(&g_cv);
+		broadcast();
 	}
 	unlock();
 }
@@ -1000,7 +1112,7 @@ FAKE_API NDIlib_recv_instance_t NDIlib_recv_create_v3(const NDIlib_recv_create_v
 	r->next = g_receivers;
 	g_receivers = r;
 	resolve_receiver_locked(r);
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 	return r;
 }
@@ -1012,7 +1124,7 @@ FAKE_API void NDIlib_recv_destroy(NDIlib_recv_instance_t p_instance) {
 	if (p_instance->live) {
 		unlink_receiver_locked(p_instance);
 		unadvertise_locked(p_instance->id, true);
-		pthread_cond_broadcast(&g_cv);
+		broadcast();
 	}
 	unlock();
 	receiver_free(p_instance);
@@ -1032,14 +1144,14 @@ FAKE_API void NDIlib_recv_connect(NDIlib_recv_instance_t p_instance, const NDIli
 	p_instance->lost = false;
 	if (p_instance->live)
 		resolve_receiver_locked(p_instance);
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 }
 
 static NDIlib_frame_type_e capture(receiver* r, NDIlib_video_frame_v2_t* video, uint32_t timeout_in_ms) {
 	if (!r)
 		return NDIlib_frame_type_error;
-	struct timespec deadline = deadline_after(timeout_in_ms);
+	fake_deadline_t deadline = deadline_after(timeout_in_ms);
 	NDIlib_frame_type_e result = NDIlib_frame_type_none;
 	lock();
 	for (;;) {
@@ -1116,7 +1228,7 @@ FAKE_API bool NDIlib_recv_set_tally(NDIlib_recv_instance_t p_instance, const NDI
 	p_instance->tally = tally;
 	set_string_locked(FAKE_STR_TALLY, text);
 	bool connected = p_instance->source_id != 0;
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 	return connected;
 }
@@ -1260,7 +1372,7 @@ FAKE_API void fake_ndi_set_version(const char* version) {
 FAKE_API void fake_ndi_reset(void) {
 	lock();
 	reset_locked();
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 }
 
@@ -1290,7 +1402,7 @@ FAKE_API int fake_ndi_inject_source(const char* full_name, const char* url) {
 	s->desc.p_url_address = s->url;
 	append_source_locked(s);
 	resolve_all_locked();
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 	return 1;
 }
@@ -1322,7 +1434,7 @@ FAKE_API bool fake_ndi_inject_frame(const char* full_name, int fourcc, int xres,
 	v.line_stride_in_bytes = line_stride;
 	v.p_metadata = metadata;
 	frame_store_locked(&s->latest, &v, timestamp);
-	pthread_cond_broadcast(&g_cv);
+	broadcast();
 	unlock();
 	return true;
 }

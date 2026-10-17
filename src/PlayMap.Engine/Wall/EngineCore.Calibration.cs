@@ -850,8 +850,9 @@ public sealed partial class EngineCore
         words += unaligned;
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
+        // The re-solve has landed: a stop begun since leaves it as it is, and a blend that was due is not solved again.
         if (applied.Count > 0)
-            blend = await _lane.RunAsync(() => BlendAfter(EditsFor(c.Session), applied)).ConfigureAwait(false);
+            blend = await _lane.RunAsync(() => BlendAfter(DraftOf(c.Session) ?? Store, applied, RefusedAsStopping(c.Session))).ConfigureAwait(false);
         if (blend.Length > 0)
             words += "; " + blend;
         SetTask(task with { State = "done", Progress = 1, Words = words });
@@ -916,12 +917,14 @@ public sealed partial class EngineCore
     /// <summary>On the lane, after re-solved projectors were applied to <paramref name="edits"/>: when one of them blends automatically,
     /// the live blend solved again — its receipt, or why it was not — or, applied to a blind draft, the words that the blend follows
     /// when the draft lands (the render host's automatic blend solves the stage on the air); "" when none blends.</summary>
-    private string BlendAfter(ProjectStore edits, IReadOnlyCollection<string> projectors)
+    private string BlendAfter(ProjectStore edits, IReadOnlyCollection<string> projectors, bool stopping = false)
     {
         if (!Blends(edits.Project, projectors))
             return "";
         if (!ReferenceEquals(edits, Store))
             return "the blend is solved for the new pose when the draft lands (the automatic blend follows the stage on the air)";
+        if (stopping)
+            return "the blend was not solved again: " + StoppingWords;
         var solve = SolveBlend([]);
         return solve.Ok ? solve.Effect : "the blend was not solved again: " + solve.Payload;
     }
@@ -1005,7 +1008,7 @@ public sealed partial class EngineCore
             {
                 var (r, words, _) = engine.Accept(targetOrSnapshotId, session.ClientName);
                 return r ?? new EditResult(false, words, engine.Store.Current.Revision);
-            }));
+            }, engine.StoppedEdit));
         }
 
         public Task<EditResult> FallbackAsync(SessionInfo session, string targetId, CancellationToken ct)
@@ -1020,7 +1023,7 @@ public sealed partial class EngineCore
                     return new EditResult(false, $"{NameOf(p, targetId)} stands on its fallback already", engine.Store.Current.Revision);
                 return engine.Edits.Apply($"fall back {NameOf(p, targetId)}",
                     project => CalibrationLedger.Recall(project, s, project.NewId(Ids.Calibration), session.ClientName, engine.Services.Wall.UnixMs).Project);
-            }));
+            }, engine.StoppedEdit));
         }
 
         public QualityScore ScoreOf(Project project, string targetId)

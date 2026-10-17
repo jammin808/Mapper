@@ -4,15 +4,21 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using PlayMap.App.State;
 
 namespace PlayMap.App.Controls;
 
 /// <summary>A picture from the engine: polls the view's preview source while it is on screen and draws the
-/// newest frame, letterboxed; until a frame arrives (no engine, a remote node, the demo) it draws a calm
-/// placeholder with the view's name, so the layout never jumps. Subclasses draw overlays on top in the
-/// picture's own coordinates.</summary>
+/// newest frame, letterboxed; until a frame arrives, and while the source has nothing to read (no engine, a remote node, the demo,
+/// a view the node names no ring for or one whose ring does not open) it draws a calm stand-in with the view's name and the words why,
+/// so the layout never jumps. The source reads the ring the node names for the view (<see cref="NamesProperty"/>, inherited from the
+/// window). Subclasses draw overlays on top in the picture's own coordinates.</summary>
 public class PreviewSurface : Control
 {
+    /// <summary>The ring names of the desk's session (inherited: the main window sets it once for every preview in it).</summary>
+    public static readonly AttachedProperty<PreviewNames?> NamesProperty =
+        AvaloniaProperty.RegisterAttached<PreviewSurface, Control, PreviewNames?>("Names", inherits: true);
+
     public static readonly StyledProperty<string?> NodeIdProperty = AvaloniaProperty.Register<PreviewSurface, string?>(nameof(NodeId));
     public static readonly StyledProperty<string?> ViewIdProperty = AvaloniaProperty.Register<PreviewSurface, string?>(nameof(ViewId));
     public static readonly StyledProperty<string?> LabelProperty = AvaloniaProperty.Register<PreviewSurface, string?>(nameof(Label));
@@ -22,9 +28,11 @@ public class PreviewSurface : Control
     private static readonly IBrush Back = new SolidColorBrush(Color.Parse("#0C0E10")).ToImmutable();
     private static readonly IPen GridPen = new Pen(new SolidColorBrush(Color.Parse("#1B2025")).ToImmutable(), 1).ToImmutable();
     private static readonly IBrush LabelBrush = new SolidColorBrush(Color.Parse("#6F7882")).ToImmutable();
+    private static readonly IBrush WordsBrush = new SolidColorBrush(Color.Parse("#8A939C")).ToImmutable();
     private IPreviewSource? _source;
     private DispatcherTimer? _timer;
     private WriteableBitmap? _frame;
+    private string? _standInWords;
 
     static PreviewSurface()
     {
@@ -64,13 +72,32 @@ public class PreviewSurface : Control
         set => SetValue(AccentProperty, value);
     }
 
-    /// <summary>True once the engine has sent a picture for this view.</summary>
+    public static PreviewNames? GetNames(Control control)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        return control.GetValue(NamesProperty);
+    }
+
+    public static void SetNames(Control control, PreviewNames? names)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        control.SetValue(NamesProperty, names);
+    }
+
+    /// <summary>True while the engine's picture for this view is up.</summary>
     public bool HasFrame => _frame is not null;
+
+    /// <summary>The words the stand-in shows now (the node's, or why its ring does not open); null while a picture is up or no words
+    /// are due.</summary>
+    public string? StandInWords => _standInWords;
+
+    /// <summary>The source this view polls (null while it is off screen).</summary>
+    internal IPreviewSource? Source => _source;
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == NodeIdProperty || change.Property == ViewIdProperty)
+        if (change.Property == NodeIdProperty || change.Property == ViewIdProperty || change.Property == NamesProperty)
             Reopen();
     }
 
@@ -90,6 +117,7 @@ public class PreviewSurface : Control
         _source?.Dispose();
         _source = null;
         _frame = null;
+        _standInWords = null;
     }
 
     private void Reopen()
@@ -97,18 +125,38 @@ public class PreviewSurface : Control
         _source?.Dispose();
         _source = null;
         _frame = null;
+        _standInWords = null;
         if (VisualRoot is not null && NodeId is { Length: > 0 } node && ViewId is { Length: > 0 } view)
-            _source = PreviewFeeds.Resolve(node, view);
+            _source = PreviewFeeds.Resolve(node, view, GetNames(this));
         InvalidateVisual();
     }
 
-    private void PollFrame()
+    /// <summary>One tick of the view's timer. On screen: a new picture is drawn, and a source with nothing to read takes the picture
+    /// down for the stand-in and its words. Off screen (attached, hidden): nothing is read, but the source lets go of a ring the node no
+    /// longer names at once.</summary>
+    internal void PollFrame()
     {
-        if (!IsEffectivelyVisible || _source is null)
+        if (_source is null)
             return;
+        if (!IsEffectivelyVisible)
+        {
+            _source.Idle();
+            return;
+        }
         if (_source.Poll() is { } bitmap)
         {
             _frame = bitmap;
+            InvalidateVisual();
+        }
+        else if (_frame is not null && !_source.Live)
+        {
+            _frame = null;
+            InvalidateVisual();
+        }
+        var words = _frame is null ? _source.Words : null;
+        if (!string.Equals(words, _standInWords, StringComparison.Ordinal))
+        {
+            _standInWords = words;
             InvalidateVisual();
         }
     }
@@ -138,9 +186,11 @@ public class PreviewSurface : Control
         {
             context.DrawImage(frame, new Rect(0, 0, frame.PixelSize.Width, frame.PixelSize.Height), r);
         }
-        else if (DrawFallback(context, r) == false)
+        else
         {
-            DrawPlaceholder(context, r);
+            if (DrawFallback(context, r) == false)
+                DrawPlaceholder(context, r);
+            DrawWords(context, r);
         }
         if (Accent is { } accent)
             context.DrawRectangle(new Pen(LightBrushConverter.Brushes.For(accent), 1.5), r.Deflate(0.75), 0);
@@ -154,6 +204,20 @@ public class PreviewSurface : Control
     /// <summary>Overlays drawn on top of the picture.</summary>
     protected virtual void DrawOverlay(DrawingContext context, Rect picture)
     {
+    }
+
+    /// <summary>The stand-in's words, along the picture's foot.</summary>
+    private void DrawWords(DrawingContext context, Rect r)
+    {
+        if (_standInWords is not { Length: > 0 } words || r.Width < 40 || r.Height < 30)
+            return;
+        var text = new FormattedText(words, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, Math.Clamp(r.Height / 16, 9, 12), WordsBrush)
+        {
+            MaxTextWidth = Math.Max(1, r.Width - 16),
+            MaxLineCount = 2,
+            Trimming = TextTrimming.CharacterEllipsis,
+        };
+        context.DrawText(text, new Point(r.X + 8, r.Bottom - text.Height - 6));
     }
 
     private void DrawPlaceholder(DrawingContext context, Rect r)

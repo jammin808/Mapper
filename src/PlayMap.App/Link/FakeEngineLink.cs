@@ -25,6 +25,13 @@ public sealed partial class FakeEngineLink : IEngineLink
     private readonly Dictionary<string, FakeTransfer> _transfers = new(StringComparer.Ordinal);
     private readonly HashSet<string> _fetched = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _views = new(StringComparer.Ordinal);
+
+    /// <summary>The views shown now (VIEW … SHOW), by id, with what each shows ("output:op_1", "editor DRAFT"): STATE machine.views.</summary>
+    private readonly Dictionary<string, string> _shown = new(StringComparer.Ordinal);
+
+    /// <summary>The ring file this demo node names for a view (a test's ring); a view with none is named no ring: the demo draws no
+    /// pictures, so the desk draws its stand-in.</summary>
+    private readonly Dictionary<string, string> _rings = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
     private readonly CancellationTokenSource _life = new();
     private readonly Task _ticker = Task.CompletedTask;
@@ -182,6 +189,41 @@ public sealed partial class FakeEngineLink : IEngineLink
             lock (_gate)
                 return new Dictionary<string, string>(_views, StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>Names a ring file for a view, or none (null), as a node does when it makes a view's ring again (a new generation):
+    /// the SHOW reply names it from now on and STATE machine.views moves at once. For tests: the demo itself names none.</summary>
+    public void SetRing(string view, string? ring)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(view);
+        long stateRev;
+        lock (_gate)
+        {
+            if (ring is { Length: > 0 })
+                _rings[view] = ring;
+            else
+                _rings.Remove(view);
+            Publish(projectMoved: false);
+            stateRev = _stateSeq;
+        }
+        StateChanged?.Invoke(stateRev);
+    }
+
+    /// <summary>False: STATE carries no <c>machine.views</c>, as a node that names its rings in its SHOW replies only (for tests; set
+    /// before the desk attaches).</summary>
+    public bool ListsViews { get; set; } = true;
+
+    /// <summary>Lets every view go, as a node that started again or whose leases ran out: a KEEP of each is refused from now on. For tests.</summary>
+    public void LetViewsGo()
+    {
+        long stateRev;
+        lock (_gate)
+        {
+            _shown.Clear();
+            Publish(projectMoved: false);
+            stateRev = _stateSeq;
+        }
+        StateChanged?.Invoke(stateRev);
     }
 
     public event Action<LinkStatus>? StatusChanged;
@@ -789,15 +831,38 @@ public sealed partial class FakeEngineLink : IEngineLink
                 _views[view] = line.RestAfter(3);
                 return Ok();
             case "SHOW":
+            {
                 // A draft view shows this session's own blind draft; the node keeps it to the draft's owner.
-                if (line.Count > 4 && line.WordUpper(4) == "DRAFT" && _draft is null)
+                var draft = line.Count > 4 && line.WordUpper(4) == "DRAFT";
+                if (draft && _draft is null)
                     return Err("this session holds no blind draft — BLIND ON first");
-                _views[view] = line.Count > 4 && line.WordUpper(4) == "DRAFT" ? line.Word(3) + " DRAFT" : line.Word(3);
-                return Ok();
+                // The node's shape: what the view shows as STATE names it, and the reply naming the view's ring.
+                var what = draft ? line.Word(3) + " DRAFT" : line.Word(3);
+                _views[view] = what;
+                if (!_shown.TryGetValue(view, out var had) || had != what)
+                {
+                    _shown[view] = what;
+                    _extraMoved = true;
+                }
+                // The STATE seq from which STATE shows the view so: the one this line publishes when it moved the views.
+                return Ok(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["view"] = view,
+                    ["ring"] = _rings.GetValueOrDefault(view) ?? "",
+                    ["seq"] = _stateSeq + (_extraMoved ? 1 : 0),
+                }));
+            }
             case "KEEP":
-                return _views.ContainsKey(view) ? Ok() : Err($"no view {view} is shown");
+                return _shown.ContainsKey(view) ? Ok() : Err($"no view {view} is shown — VIEW {view} SHOW <what> first");
             case "HIDE":
-                return _views.Remove(view) ? Ok() : Err($"no view '{view}'");
+            {
+                var shown = _shown.Remove(view);
+                var had = _views.Remove(view);
+                if (!shown && !had)
+                    return Err($"no view '{view}'");
+                _extraMoved |= shown;
+                return Ok();
+            }
             default:
                 return Err("VIEW <view> SHOW <what> [<w>x<h>] | CAMERA <json> | KEEP | HIDE");
         }

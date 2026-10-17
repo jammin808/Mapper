@@ -93,7 +93,9 @@ it, as asking any path again with `PRESENT PATH` does. **`PRESENT PATH AUTO|DXGI
 ## Per-output latency
 
 `Output.LatencyMs` is the display's input lag (0–500 ms). The node's **air latency** is the largest of its enabled outputs' (raised
-to a sync group's through `IPresentBackend.SetGroupAirLatency`, never lowered; with none named, the configured display latency):
+to its sync group's through `IPresentBackend.SetGroupAirLatency`, never lowered — the group's leader sets it with `SYNC LATENCY`,
+AUTO the largest any output of the group reports, and carries it to every member: docs/SYNC.md; with none named, the configured
+display latency):
 every frame is drawn for the instant its light leaves the slowest display. Each faster output presents the picture drawn
 `d = round((L_air − L_o) / T_o)` frames ago, from a **delay ring** of `d + 1` pictures of its size (indices swapped; the pictures are
 made only when the delay changes, so a warm frame allocates nothing). Two outputs of 17 and 50 ms at 60 Hz: the first waits 2

@@ -36,11 +36,16 @@
       {
         "label": "Steps",
         "path": "steps"
+      },
+      {
+        "label": "Group air latency (ms)",
+        "path": "groupLatencyMs"
       }
     ],
     "actions": [
       "SYNC STATUS",
-      "SYNC LEAD $(group)"
+      "SYNC LEAD $(group)",
+      "SYNC LATENCY AUTO"
     ]
   },
   {

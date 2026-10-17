@@ -10,6 +10,38 @@ public sealed class NodeSettingsTests
     private static readonly string[] PackageKeys =
         ["show", "fleet", "sync", "present", "decode", "optimise", "videoIo", "control", "companion", "fx", "audio", "content", "led", "align", "phone", "wall"];
 
+    /// <summary>A read-only read never writes the file: no file reads as none and none is made; a file that does not read reads as none
+    /// and stays byte for byte as it was, with no damaged copy beside it; a file that reads gives what a load gives.</summary>
+    [Fact]
+    public void AReadOnlyReadNeverWritesTheFile()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-settings-");
+        try
+        {
+            var home = new NodeHome(dir.FullName);
+            Assert.Null(home.ReadSettings());
+            Assert.False(File.Exists(home.SettingsPath));
+
+            var damaged = "{ \"nodeId\": \"a1b2c3d4\", \"name\": \"Typo\", \"token\": \"t0k3n\", ";
+            File.WriteAllText(home.SettingsPath, damaged);
+            var written = File.GetLastWriteTimeUtc(home.SettingsPath);
+            Assert.Null(home.ReadSettings());
+            Assert.Equal(damaged, File.ReadAllText(home.SettingsPath));
+            Assert.Equal(written, File.GetLastWriteTimeUtc(home.SettingsPath));
+            Assert.False(File.Exists(home.SettingsPath + ".damaged"));
+            Assert.Equal(["playmap.node.json"], Directory.GetFiles(dir.FullName).Select(f => Path.GetFileName(f)).ToArray());
+
+            home.SaveSettings(NodeSettings.CreateDefault("Reads") with { Token = "kept" });
+            var read = home.ReadSettings()!;
+            Assert.Equal(System.Text.Json.JsonSerializer.Serialize(home.LoadSettings("unused")), System.Text.Json.JsonSerializer.Serialize(read));
+            Assert.Equal(("Reads", "kept"), (read.Name, read.Token));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void AnOlderFileReadsEveryPackagesDefaults()
     {

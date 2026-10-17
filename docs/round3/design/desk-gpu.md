@@ -55,8 +55,8 @@ OK VIEW v_stage SHOWN SHARED luid=0x00000000000123a4 epoch=3 size=1280x720 forma
 
 ## 3. The control block
 
-The ring file at `PreviewRing.PathFor(node, view)` keeps its header and gains a transport field; a shared view's file has no pixel
-slots, only this:
+The ring file the node names for the view (the `VIEW … SHOW` reply's `ring`, STATE `machine.views[].ring`) keeps its header and
+gains a transport field; a shared view's file has no pixel slots, only this:
 
 ```csharp
 namespace PlayMap.Core.Media;

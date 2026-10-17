@@ -129,10 +129,19 @@ public sealed class ArtNetEndpoint : IArtNetEndpoint
                 return null;
             }
             _socket = socket;
-            _thread = new Thread(() => ReceiveLoop(socket)) { IsBackground = true, Name = "PlayMap artnet" };
-            _thread.Start();
+            _thread = StartReceiving(socket);
             return socket;
         }
+    }
+
+    /// <summary>The receive thread for a socket just opened. Its own method: the thread's closure (it captures the socket) is made
+    /// only when a socket opens. Written in <see cref="Open"/>, an optimised build would allocate it at the method's entry, on every
+    /// send of every frame while the socket cannot open.</summary>
+    private Thread StartReceiving(Socket socket)
+    {
+        var thread = new Thread(() => ReceiveLoop(socket)) { IsBackground = true, Name = "PlayMap artnet" };
+        thread.Start();
+        return thread;
     }
 
     private void ReceiveLoop(Socket socket)

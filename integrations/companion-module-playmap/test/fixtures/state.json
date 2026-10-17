@@ -247,7 +247,8 @@
     "renderer": "none",
     "memMb": 0,
     "gcPauseMsTotal": 0,
-    "present": null
+    "present": null,
+    "views": []
   },
   "project": {
     "id": "pr00000006",

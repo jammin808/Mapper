@@ -98,7 +98,8 @@ third-party props (analyzers off). `PATCHES.md` lists every change: P1 no avahi 
 `OMTLogging`, P5 settings in memory (no file written next to the exe), P6 `Thread.Abort` replaced by a stop flag and a join, P7 a
 deadlock disposing a sender with receivers connected. `src/ThirdParty/libvmx` is the VMX codec's C++ source (MIT), unpatched; the
 native library is loaded at run time from `PLAYMAP_VMX_DIR`, the exe's folder, `runtimes/<rid>/native`, then the system, and the
-tests build it with clang from this source. OMT's storage path is the node home's `omt` folder.
+tests build it with clang++ from this source by the upstream command for the platform (on the Windows CI job, the runner's LLVM with
+the upstream export list), so the OMT tests run on Linux and Windows alike. OMT's storage path is the node home's `omt` folder.
 
 ## NDI
 
@@ -109,7 +110,10 @@ exports as unmanaged function pointers over blittable structs transcribed from N
 get one (https://ndi.video) and the variable to set. The Discovery Server and groups come from the node's settings
 (`VIDEOIO SET NDI-DISCOVERY`, `NDI-GROUPS`, applied at the next start) through the runtime's configuration file in the node home's
 `ndi` folder, written before the runtime is loaded; with a 6.3 runtime or later the send and receive advertisers are created. Colour info (BT.2020, PQ, HLG) is read from
-the frame's metadata. The tests run against `tests/native/fake_ndi.c`, PlayMap's own test double compiled in test setup.
+the frame's metadata. The tests run against `tests/native/fake_ndi.c`, PlayMap's own test double compiled in test setup into the
+runtime's own file name — with `cc` on Linux, with the runner's clang on Windows (its locks, timed waits and page checks behind a
+thin shim of each platform's own) — so the NDI tests run on both CI jobs; where `PLAYMAP_NATIVE_REQUIRED=1` (the CI jobs) a double
+that does not build fails its tests with the compiler's words instead of skipping them.
 
 NDI® is a registered trademark of Vizrt NDI AB.
 

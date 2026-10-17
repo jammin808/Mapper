@@ -1,0 +1,282 @@
+using System.Collections.Concurrent;
+using PlayMap.Core.Model;
+using PlayMap.Core.Time;
+using PlayMap.Engine.Presentation;
+using PlayMap.Engine.Sync;
+using PlayMap.Engine.Tests.Host;
+using PlayMap.Engine.Tests.Presentation;
+using PlayMap.Net.Sync;
+
+namespace PlayMap.Engine.Tests.Sync;
+
+/// <summary>The group's air latency (SYNC LATENCY): the leader carries it to every member on the feed (<c>ANCHOR &lt;group&gt; @latency
+/// {"ms":…}</c>) — AUTO the largest output latency of its own outputs and every member's report, else the stated one — and each node
+/// writes it through to its outputs (<see cref="IPresentBackend.SetGroupAirLatency"/>); STATE's <c>sync.groupLatencyMs</c> and the
+/// context's group item say it on both. A lead carries nothing before its members are heard; an output a member enables after it
+/// subscribed counts while it is heard; a quiet member keeps its place in AUTO, one that leaves drops out, and a member that leads its
+/// own group keeps the latency it had. A follower's latency is its leader's (refused with the way there), a value set already, a
+/// latency that is not a finite 0–500 ms is refused, a stated value below a display the group reports says that node lights late,
+/// and a record that is not one whole is never taken.</summary>
+public sealed class SyncLatencyTests
+{
+    private const long Second = SyncRig.Second;
+
+    private static double Latency(HostRig rig) => SyncRig.Sync(rig).GetProperty("groupLatencyMs").GetDouble();
+
+    private static string GroupWords(HostRig rig) => SyncRig.GroupItem(rig).GetProperty("state").GetString()!;
+
+    /// <summary>Holds a lead between the network part's lead and this part's taking it up for three of the watch's turns, so a watch
+    /// always runs in that moment.</summary>
+    private static async Task HoldWatches(SyncNode sync)
+    {
+        var turns = sync.Watches;
+        while (sync.Watches < turns + 3)
+            await Task.Delay(5);
+    }
+
+    /// <summary>A render host that draws nothing and keeps every group latency the node writes through to its outputs.</summary>
+    private sealed class LatencyOutputs : IRenderHost, IPresentBackend
+    {
+        private readonly ConcurrentQueue<double> _group = new();
+
+        /// <summary>The last group latency written through (null before any).</summary>
+        public double? Last => _group.IsEmpty ? null : _group.Last();
+
+        /// <summary>Every group latency written through, in order.</summary>
+        public double[] History => [.. _group];
+
+        public string RendererName => "latency (test)";
+
+        public IReadOnlyList<DisplayInfo> Displays() => [];
+
+        public IReadOnlyList<OutputHealth> Health() => [];
+
+        public Task<long> ShowAsync(string outputId, ReadOnlyMemory<byte> gray8, int width, int height, CancellationToken ct) =>
+            Task.FromException<long>(new NotSupportedException("this test's render host shows no scan frames"));
+
+        public void Release()
+        {
+            // Nothing was taken from the show.
+        }
+
+        public void Start(EngineCore engine)
+        {
+            // Nothing to draw.
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public IReadOnlyList<OutputPresentView> Present() => [];
+
+        public MachinePresentView Machine() => new("gl", "test", "offscreen", false, "", 0, 0, "core330", "glx") { AirLatencyMs = Last ?? 0 };
+
+        public Task<IReadOnlyList<OutputPresentView>> ResetAsync(IReadOnlyCollection<string>? outputIds, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<OutputPresentView>>([]);
+
+        public void SetGroupAirLatency(double ms) => _group.Enqueue(ms);
+    }
+
+    [Fact]
+    public async Task TheLeaderCarriesTheGroupsAirLatencyToEveryMembersOutputsAndSyncLatencySetsIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var leaderV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs + 3 * Second) with { AirLatencyUs = 17_000 });
+        var memberV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 50_000 });
+        var leaderOut = new LatencyOutputs();
+        var memberOut = new LatencyOutputs();
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, 3 * Second), SyncRig.Fast(leaderV), render: _ => leaderOut);
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, SyncRig.Fast(memberV), render: _ => memberOut);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(follower);
+        await SyncRig.GroupAsync(leader, follower);
+
+        // AUTO: the member's slower display (50 ms) is the group's, written through to the outputs of both nodes and said in STATE.
+        Assert.True(await Eventually.TrueAsync(() => leaderOut.Last == 50 && memberOut.Last == 50),
+            $"leader {leaderOut.Last}, member {memberOut.Last}\n{follower.Journal()}");
+        Assert.Equal((50.0, 50.0), (Latency(leader), Latency(follower)));
+        Assert.Equal(50, follower.Engine.Services.GroupSync!.GroupLatencyMs);
+        Assert.Equal(50, follower.State().GetProperty("machine").GetProperty("present").GetProperty("airLatencyMs").GetDouble());
+        Assert.EndsWith("; the group's air latency 50 ms", GroupWords(leader), StringComparison.Ordinal);
+        Assert.EndsWith("; the group's air latency 50 ms", GroupWords(follower), StringComparison.Ordinal);
+        Assert.Contains(follower.Engine.Journal.Recent(50), r => r.Text.StartsWith("the group's air latency is 50 ms (FOH", StringComparison.Ordinal));
+        // Nothing lower came first: the lead carried no AUTO before its member was heard (its own 17 would have moved both).
+        Assert.Equal((50.0, 50.0), (leaderOut.History[0], memberOut.History[0]));
+
+        // Stated: kept in the leader's project, carried to the member's outputs.
+        var set = await leader.RunAsync("SYNC LATENCY 80");
+        Assert.True(set.Ok, set.Payload);
+        Assert.Equal(80, leader.Engine.Store.Project.Settings.SyncLatencyMs);
+        Assert.True(await Eventually.TrueAsync(() => leaderOut.Last == 80 && memberOut.Last == 80), $"leader {leaderOut.Last}, member {memberOut.Last}");
+        Assert.Equal((80.0, 80.0), (Latency(leader), Latency(follower)));
+
+        // What is set already, a member's own word and a latency that is not 0 to 500 ms are refused with the reason; nothing changes.
+        var revision = leader.Engine.Store.Current.Revision;
+        var again = await leader.RunAsync("SYNC LATENCY 80");
+        Assert.Equal((false, "the group's air latency is 80 ms already"), (again.Ok, again.Payload));
+        var member = await follower.RunAsync("SYNC LATENCY 30");
+        Assert.False(member.Ok);
+        Assert.Equal($"this node follows {SyncRig.LeaderId} in show: the group's air latency is its leader's — SYNC LATENCY there", member.Payload);
+        Assert.Equal(-1, follower.Engine.Store.Project.Settings.SyncLatencyMs);
+        foreach (var bad in new[] { "501", "-2", "NaN", "Infinity", "-Infinity" })
+            Assert.False((await leader.RunAsync("SYNC LATENCY " + bad)).Ok, bad);
+        Assert.Equal(revision, leader.Engine.Store.Current.Revision);
+
+        // Below a display the group reports: set, and said — that node stays at its own and lights late.
+        var low = await leader.RunAsync("SYNC LATENCY 30");
+        Assert.True(low.Ok, low.Payload);
+        Assert.EndsWith($" — below the 50 ms display latency {SyncRig.FollowerId} reports: that node's outputs stay at their own and light later than the rest",
+            low.Effect, StringComparison.Ordinal);
+
+        // Back to AUTO: the largest reported again.
+        Assert.True((await leader.RunAsync("SYNC LATENCY AUTO")).Ok);
+        Assert.Equal(-1, leader.Engine.Store.Project.Settings.SyncLatencyMs);
+        Assert.True(await Eventually.TrueAsync(() => leaderOut.Last == 50 && memberOut.Last == 50), $"leader {leaderOut.Last}, member {memberOut.Last}");
+
+        // An output the member enables after it subscribed (an 80 ms LED wall it did not name) counts while it is heard, and goes
+        // once it is not.
+        var op1 = FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 50_000 };
+        memberV.Set(op1, FakeVblanks.At("op_2", 60, clock.NowNs) with { AirLatencyUs = 80_000 });
+        Assert.True(await Eventually.TrueAsync(() => leaderOut.Last == 80 && memberOut.Last == 80), $"leader {leaderOut.Last}, member {memberOut.Last}");
+        memberV.Set(op1);
+        Assert.True(await Eventually.TrueAsync(() =>
+        {
+            // A report read before the change may land after a step of the clock: the clock steps again until it is old.
+            if (leaderOut.Last != 50)
+                clock.Advance(6 * Second);
+            return leaderOut.Last == 50 && memberOut.Last == 50;
+        }), $"leader {leaderOut.Last}, member {memberOut.Last}");
+
+        // A member that goes quiet (no report heard for longer than the board's five seconds) keeps its place: nothing moves.
+        memberV.Set();
+        Assert.True(await Eventually.TrueAsync(() =>
+        {
+            var heard = SyncRig.Sync(leader).GetProperty("outputs").EnumerateArray()
+                .Any(o => o.GetProperty("node").GetString() == SyncRig.FollowerId && o.GetProperty("heard").GetBoolean());
+            if (heard)
+                clock.Advance(6 * Second);
+            return !heard;
+        }), SyncRig.Sync(leader).ToString());
+        var sync = leader.Engine.Services.GroupSync!;
+        var turns = sync.Watches;
+        Assert.True(await Eventually.TrueAsync(() => sync.Watches >= turns + 3));
+        Assert.Equal((50.0, 50.0), (leaderOut.Last!.Value, Latency(leader)));
+
+        // A member that leaves drops out: the leader's own display is the group's.
+        await follower.StopAsync();
+        Assert.True(await Eventually.TrueAsync(() => leaderOut.Last == 17), $"leader {leaderOut.Last}");
+        Assert.Equal(17, Latency(leader));
+    }
+
+    [Fact]
+    public async Task AMemberThatLeadsItsOwnGroupKeepsTheLatencyItHadUntilItsOwnLeadCarriesOne()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var leaderV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs + 3 * Second) with { AirLatencyUs = 50_000 });
+        var memberV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 17_000 });
+        var leaderOut = new LatencyOutputs();
+        var memberOut = new LatencyOutputs();
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, 3 * Second), SyncRig.Fast(leaderV), render: _ => leaderOut);
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, SyncRig.Fast(memberV) with { AfterNetworkLead = HoldWatches },
+            render: _ => memberOut);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(follower);
+        await SyncRig.GroupAsync(leader, follower);
+        Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 50), $"member {memberOut.Last}");
+
+        // Leading a group of its own (watches run while the lead is taken up): no member yet, so its lead carries nothing for the
+        // board's five seconds and its outputs stay at the 50 ms they had — never its own 17 at once, never 0 between the follow and
+        // the lead, which would move every picture twice.
+        var written = memberOut.History.Length;
+        await follower.OkAsync("SYNC LEAD stage");
+        var sync = follower.Engine.Services.GroupSync!;
+        var turns = sync.Watches;
+        Assert.True(await Eventually.TrueAsync(() => sync.Watches >= turns + 5));
+        Assert.All(memberOut.History[written..], ms => Assert.Equal(50, ms));
+        Assert.Equal(50, memberOut.Last);
+        Assert.Equal(50, Latency(follower));
+        // Once the wait is over, its own display (17 ms) is its group's.
+        clock.Advance(6 * Second);
+        Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 17), $"member {memberOut.Last}");
+        Assert.DoesNotContain(memberOut.History[written..], ms => ms < 17);
+
+        // Leading the group it leads already is refused and starts no wait again: a display that changes then is carried at once.
+        Assert.StartsWith("already leading stage", (await follower.RunAsync("SYNC LEAD stage")).Payload, StringComparison.Ordinal);
+        memberV.Set(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 30_000 });
+        Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 30), $"member {memberOut.Last}");
+    }
+
+    [Fact]
+    public async Task ALeaderRestartedCarriesNoAutoLatencyBeforeItHasMembers()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var leaderV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 17_000 });
+        var first = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(leaderV));
+        await using (first)
+        {
+            await first.OkAsync("SYNC LEAD show");
+            await first.StopAsync();
+
+            // Back from its settings, it leads "show" again before any member has come back (watches run while the lead is taken
+            // up): its own 17 ms is never carried as the feed's latest for members to take before they are heard.
+            var outputs = new LatencyOutputs();
+            await using var back = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(leaderV) with { AfterNetworkLead = HoldWatches },
+                dir: first.Dir, render: _ => outputs);
+            Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(back).GetProperty("role").GetString() == "leader"), back.Journal());
+            var sync = back.Engine.Services.GroupSync!;
+            var turns = sync.Watches;
+            Assert.True(await Eventually.TrueAsync(() => sync.Watches >= turns + 5));
+            Assert.Empty(outputs.History);
+            Assert.Equal(0, Latency(back));
+        }
+    }
+
+    [Fact]
+    public void ALatencyRecordReadsBackAsItselfAndAnythingElseIsRefused()
+    {
+        foreach (var ms in new[] { 0, 16.667, 33, 500 })
+        {
+            Assert.True(SyncNode.TryReadLatency(SyncNode.LatencyJson(ms), out var back));
+            Assert.Equal(ms, back);
+        }
+        Assert.Equal("{\"ms\":16.667}", SyncNode.LatencyJson(16.66666));
+        foreach (var bad in new[] { "", "[]", "{}", "{\"ms\":\"33\"}", "{\"ms\":-1}", "{\"ms\":500.5}", "{\"ms\":null}", "{\"latency\":33}", "{\"ms\":33" })
+            Assert.False(SyncNode.TryReadLatency(bad, out _), bad);
+    }
+
+    [Fact]
+    public void TheLeadersLatencyIsTheStatedOneElseTheLargestReportedOnceItsMembersAreHeard()
+    {
+        static AnchorMember Member(string node, params string[] outputs) => new("s-" + node, node, node, "127.0.0.1", [.. outputs]);
+        var a = Member("aaaa0001", "op_1", "op_2");
+        var b = Member("bbbb0002", "op_1");
+        var headless = Member("cccc0003");
+        SyncNode.ReportedLatency[] reported = [new("aaaa0001", "op_1", 33_000), new("aaaa0001", "op_2", 50_000)];
+
+        // Stated wins whatever is reported; 0 is a stated value.
+        Assert.Equal(80, SyncNode.GroupLatencyOf(80, 17, [a, b], reported));
+        Assert.Equal(0, SyncNode.GroupLatencyOf(0, 17, [a, b], reported));
+        Assert.Equal(SyncNode.MaxLatencyMs, SyncNode.GroupLatencyOf(900, 17, [a], reported));
+        // A lead's AUTO waits for members, and for every member's first report (b and the headless one have none yet).
+        Assert.Null(SyncNode.GroupLatencyOf(-1, 17, [], reported));
+        Assert.Null(SyncNode.GroupLatencyOf(-1, 17, [a, b], reported));
+        Assert.Null(SyncNode.GroupLatencyOf(-1, 17, [a, headless], reported));
+        Assert.Equal(50, SyncNode.GroupLatencyOf(-1, 17, [a], reported));
+        // Once the lead's wait is over, a member that never reports is carried without, unless it is still joining.
+        Assert.Equal(50, SyncNode.GroupLatencyOf(-1, 17, [a, b, headless], reported, leadGrace: false));
+        Assert.Null(SyncNode.GroupLatencyOf(-1, 17, [a, b], reported, leadGrace: false, joining: n => n == "bbbb0002"));
+        Assert.Equal(17, SyncNode.GroupLatencyOf(-1, 17, [], reported, leadGrace: false));
+        // Its own outputs count, and every report given for a member, whatever output it is (the caller keeps which count).
+        Assert.Equal(60, SyncNode.GroupLatencyOf(-1, 60, [a], reported));
+        Assert.Equal(50, SyncNode.GroupLatencyOf(-1, 17, [Member("aaaa0001", "op_1")], reported));
+    }
+
+    [Fact]
+    public async Task TheGroupsLatencyIsWrittenThroughToThisNodesOutputs()
+    {
+        var outputs = new ScriptedOutputs();
+        await using var rig = PresentRig.Start(PresentRig.With(PresentRig.Screen("op_a")), outputs, new RoleNetwork("follower", SyncRig.LeaderId));
+        rig.Engine.SetGroupAirLatency(50);
+        rig.Engine.SetGroupAirLatency(0);
+        Assert.Equal([50, 0], outputs.GroupLatencies);
+    }
+}

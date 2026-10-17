@@ -146,8 +146,8 @@ internal sealed class OpsRig : IAsyncDisposable
     /// the first).</summary>
     public PreviewFrameInfo? Picture(string viewId)
     {
-        var path = Engine.Previews.RingPath(viewId);
-        if (!File.Exists(path))
+        // Not shown (a lease that lapsed, a view being shown again): no picture yet.
+        if (Engine.Previews.RingOf(viewId) is not { } path || !File.Exists(path))
             return null;
         using var reader = new PreviewRingReader(path);
         var pixels = new byte[reader.MaxWidth * reader.MaxHeight * 4];

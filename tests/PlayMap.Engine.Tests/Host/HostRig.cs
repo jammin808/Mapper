@@ -207,7 +207,9 @@ internal sealed class LineClient : IAsyncDisposable
         while (true)
         {
             var line = await ReadAsync(Math.Max(1, timeoutMs - (int)sw.ElapsedMilliseconds));
-            if (line is not null && (line.StartsWith("STATE ", StringComparison.Ordinal) || line.StartsWith("CONTEXT ", StringComparison.Ordinal) || line.StartsWith("PROJECT ", StringComparison.Ordinal)))
+            // A push (a topic's line, never a reply: it has no id) is kept for PushAsync, whatever topic sent it.
+            if (line is not null && (line.StartsWith("STATE ", StringComparison.Ordinal) || line.StartsWith("CONTEXT ", StringComparison.Ordinal)
+                || line.StartsWith("PROJECT ", StringComparison.Ordinal) || line.StartsWith("ANCHOR ", StringComparison.Ordinal)))
             {
                 Pushes.Add(line);
                 continue;

@@ -17,7 +17,8 @@ namespace PlayMap.Media.Tests.Video;
 public sealed class NdiFakeRuntimeTests : IDisposable
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
-    private readonly FakeNdi.Control? _fake = FakeNdi.Dir is null ? null : new FakeNdi.Control(FakeNdi.Folder63);
+    // Where the fake must build (PLAYMAP_NATIVE_REQUIRED), a build that failed fails each test with the compiler's words.
+    private readonly FakeNdi.Control? _fake = FakeNdi.Dir is null && !NativeBuild.Required ? null : new FakeNdi.Control(FakeNdi.Folder63);
     private readonly string _config = Directory.CreateTempSubdirectory("playmap-ndi-config-").FullName;
 
     public NdiFakeRuntimeTests() => _fake?.Reset();
@@ -95,9 +96,13 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         Assert.Equal(new Version(6, 3, 0), NdiRuntime.ParseVersion("6.3"));
 
         // Nowhere it is told and none installed on this machine: absent, with the variable that points at it and where to get it.
+        // On Windows a library loaded already answers a load by its bare file name, so a process that loaded the fake never finds the
+        // runtime absent: there the search's last step is shown to end at the loaded fake, and the absent words are proven on Linux.
         var empty = Directory.CreateTempSubdirectory("playmap-no-ndi-").FullName;
-        if (Environment.GetEnvironmentVariable(NdiRuntime.DirVariable) is null && !NativeLibrary.TryLoad(NdiRuntime.FileName, out _)
-            && NdiRuntime.Candidates("").All(c => !File.Exists(c)))
+        var installed = Environment.GetEnvironmentVariable(NdiRuntime.DirVariable) is not null || NdiRuntime.Candidates("").Any(File.Exists);
+        if (OperatingSystem.IsWindows() && !installed)
+            Assert.True(NativeLibrary.TryLoad(NdiRuntime.FileName, out _), "a load by the bare name finds the fake this process loaded");
+        else if (!installed && !NativeLibrary.TryLoad(NdiRuntime.FileName, out _))
         {
             using var none = new NdiProvider(new NdiOptions(empty), MonoClock.Instance);
             var status = none.Status;
@@ -136,7 +141,9 @@ public sealed class NdiFakeRuntimeTests : IDisposable
     {
         using var ndi = Provider();
         Assert.True(_fake!.InjectSource("STUDIO (Cam 1)", "10.0.0.5:5961"));
-        using var source = ndi.Open("STUDIO (Cam 1)", byUrl: false, LiveSettings.Default with { Proxy = true }, "md_cam");
+        // Stale and lost far beyond the test's own pace: the frames come only when the test sends them, so a runner that pauses
+        // between the last frame and the last check never turns the state.
+        using var source = ndi.Open("STUDIO (Cam 1)", byUrl: false, LiveSettings.Default with { Proxy = true, StaleMs = 60_000, LostMs = 60_000 }, "md_cam");
         Assert.Equal(0, _fake.Stats().LastRecvBandwidth);
         Assert.Equal(100, _fake.Stats().LastRecvColorFormat);
         Assert.Equal("PlayMap md_cam", _fake.Strings(5));

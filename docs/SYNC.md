@@ -92,6 +92,8 @@ in order:
   leader applied the lock and leaves when it released it — never with its own frame lock off or once it has begun to stop, and not
   while it is armed and on air (it joins or leaves at the next blackout or once disarmed, as `SYNC APPLY` and `SYNC LEAVE` would).
   The record is taken on the member's lane, and a held one retried by the watch never acts after a newer record.
+- **`ANCHOR <group> @latency {"ms":…}`**: the group's air latency, carried whenever it moves (and handed to a member that joins as
+  the latest). See below.
 
 A member takes the feed's lines one at a time, in the order they came (a leader numbers and pushes each air line under one lock,
 in the order its lines ran), and none before its clock reads the leader's time line; a feed that comes faster than it takes it is
@@ -100,6 +102,39 @@ panic) first, so a member that comes back rejoins the show where it is; a member
 that restarted numbers its lines afresh under a new feed instance; a member remembers the lines it ran across follows, the
 oldest forgotten first, never the latest of a kind). A subscriber that names no
 node only reads (a desk watching the group) and is no member: it is never waited for.
+
+## The group's air latency
+
+Each node's **air latency** is the largest input lag of its enabled outputs (`Output.LatencyMs`, docs/OUTPUT.md "Per-output
+latency"): every frame is drawn for the instant its light leaves the slowest display. A group lines its nodes up the same way: the
+**group's air latency** is the leader's to set, and every node of the group raises its own air latency to it (never lowers it), so
+every lens in the group emits a show instant's light at the same moment.
+
+- **`SYNC LATENCY AUTO|<ms 0-500>`** sets it in the leader's project (`settings.syncLatencyMs`, −1 = AUTO; one undoable edit,
+  show class layout; in an armed show it is staged in the blind draft and carried when the draft lands). **AUTO** is the largest
+  of the leader's own outputs' air latency and each member output's report (PMVB's air latency). An output a member named when it
+  subscribed keeps its last report while the member stays subscribed — one that goes quiet keeps its place, so a network blip never
+  moves the group; any other output of a member (one it enabled since) counts while the board hears it; a member that leaves the
+  feed drops out. A lead (and a leader just restarted) carries no AUTO until it has members and every member has reported, and a
+  member that joins holds AUTO until its first report — each for at most the board's five seconds, after which a member that never
+  reports (one with no render host) is carried without. A stated value is the group's whatever the displays report.
+- The leader's watch carries the value on the feed whenever it moves, 0 included (`ANCHOR <group> @latency {"ms":50}`), and
+  writes it through `IPresentBackend.SetGroupAirLatency` on its own outputs; a member takes the record (fail closed: anything but
+  `{"ms":0…500}` is not taken) and writes it through on its outputs, and the journal says so ("the group's air latency is 50 ms
+  (FOH (0badc0de)'s): this node's outputs show each frame for that instant"). A node keeps the latency it was given until the
+  next feed it follows, or its own lead, carries one: a change of leader never drops the outputs' delay for the moment between,
+  which would move every picture twice.
+- A node raises its air to the group's latency and never lowers it below its own slowest display: a stated value below a display
+  latency the group reports is set, and the reply says which node stays at its own and lights later than the rest ("… — below the
+  50 ms display latency 0badc0de reports: that node's outputs stay at their own and light later than the rest").
+- Refused with the reason: a follower's `SYNC LATENCY` ("this node follows 0badc0de in show: the group's air latency is its
+  leader's — SYNC LATENCY there"), a value that is set already, anything but a finite 0–500 ms or AUTO ("NaN" and "Infinity"
+  included). A solo node keeps the value for when it leads.
+- STATE `sync.groupLatencyMs` is the group's air latency in force on this node (a follower's is its leader's; 0 before any group
+  carried one); `sync.latencyMs` is this node's own project's word on it — the stated `SYNC LATENCY`, or under AUTO the largest
+  latency of its own enabled outputs — so the two differ on a follower and on an AUTO leader whose members report slower displays.
+  `machine.present.airLatencyMs` is the node's own air latency once raised; the context's `sync:<group>` item adds "the group's
+  air latency 50 ms".
 
 ## Vblank reports and the leader's board
 
@@ -134,7 +169,7 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 - **STATE `sync`** gains SPINE §9's keys: `group`, `feed` (live|connecting|lost|off), `slewing`, `steps`, `freewheelS`,
   `outputs[]` (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`; `mixedRate` per pair),
-  `verdict`, `words` (`SYNC STATUS` answers the same object), and the fleet's `epoch` (docs/FLEET.md). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
+  `verdict`, `words`, `groupLatencyMs` (`SYNC STATUS` answers the same object), and the fleet's `epoch` (docs/FLEET.md). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
   not the clocks' raw difference.
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running
@@ -151,7 +186,7 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 ## Verified here, next
 
 - **Here**, on loopback with real nodes in one process on a manual clock and synthetic vblanks: anchors, the group's air and its
-  receipts, the role kept across a restart, free-wheel and the anchored switch, the step and the slew, the board and its
+  receipts, the group's air latency (AUTO and stated, carried to a member), the role kept across a restart, free-wheel and the anchored switch, the step and the slew, the board and its
   verdict, preflight by injected fault, LTC chased on a leader adopted by its follower.
 - **Lab**: real displays and boards (the `@lock` join acts through wp2-output's drivers).
 - **Not yet**: a switch such as `BLACKOUT` has no group lead, so each member takes it when the line runs there (the leader's instant
@@ -159,5 +194,4 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
   snapshot would pair them), and the frame-lock counter's anchor is not moved by a step; the verb row a fan-out reads is written
   after the lane ran the line, so two sessions' air lines within microseconds can reach members in the other order. Each needs a
   seam outside this package (the papers note lists them).
-- **Next round**: `SYNC LATENCY` and the group's air latency (`@latency`, with the per-output latency ring); succession lists;
-  the frame code and the sync certificate.
+- **Next round**: succession lists; the frame code and the sync certificate.

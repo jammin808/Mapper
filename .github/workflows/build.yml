@@ -16,6 +16,9 @@ jobs:
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}/.ffmpeg/lib
       DISPLAY: ":99"
+      # The Media suite's native test doubles (the fake NDI runtime, libvmx) are built with the runner's cc and clang++; one that
+      # does not build fails its tests here rather than skipping them.
+      PLAYMAP_NATIVE_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -139,6 +142,26 @@ jobs:
         # whatever the suites say.
         shell: pwsh
         run: ./tools/ci-stamp.ps1 -File src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll -Label Windows -Heading
+      - name: The native test doubles' compiler (the runner's LLVM clang)
+        shell: pwsh
+        run: |
+          # The Media suite builds the fake NDI runtime (tests/native/fake_ndi.c, as Processing.NDI.Lib.x64.dll) and libvmx
+          # (src/ThirdParty/libvmx, its upstream Windows clang command) with clang, which links through Visual Studio's linker
+          # against the Windows SDK. A runner without clang fails here, and a double that does not build fails its tests (never a
+          # suite that ran with them skipped).
+          $ErrorActionPreference = 'Stop'
+          $clang = (Get-Command clang.exe -ErrorAction SilentlyContinue).Source
+          if (-not $clang) {
+            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            if ($vs) { $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe' }
+          }
+          if (-not $clang -or -not (Test-Path $clang)) { throw "no clang on the runner (LLVM, or Visual Studio's C++ Clang tools)" }
+          $clangxx = Join-Path (Split-Path $clang) 'clang++.exe'
+          if (-not (Test-Path $clangxx)) { throw "no clang++ beside $clang" }
+          & $clang --version
+          "PLAYMAP_CLANG=$clang" >> $env:GITHUB_ENV
+          "PLAYMAP_CLANGXX=$clangxx" >> $env:GITHUB_ENV
+          "PLAYMAP_NATIVE_REQUIRED=1" >> $env:GITHUB_ENV
       - name: OpenGL beside the test hosts
         shell: pwsh
         run: |
