@@ -60,7 +60,7 @@ public sealed partial class EngineCore
     private static CommandReply? Admission(VerbSpec spec, SessionInfo session)
     {
         if ((spec.Mutates || spec.PairedOnly) && !session.Paired)
-            return CommandReply.Fail("not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web");
+            return CommandReply.Fail(PlayMap.Net.Commands.WireWords.NotPaired);
         if (spec.Internal && session.Transport is not ("fleet" or "system"))
             return CommandReply.Fail($"{spec.Name}: this line is node-to-node only");
         return null;

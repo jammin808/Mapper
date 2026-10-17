@@ -4,24 +4,35 @@
                     xmlns:ui="using:PlayMap.App.Controls">
   <!-- A DeskAction as a toolbar button: its icon, its tooltip (label, shortcut, the verb it sends). The same
        action is the object's right-click menu item, so the two never disagree. -->
+  <!-- Every action control: hidden when the node does not run its verb (as its menu entry is), its tooltip shown even
+       while it is disabled (the gate's words are the reason), and a padlock while the gate refuses it. -->
   <DataTemplate x:Key="ActionIcon" x:DataType="vm:DeskAction">
-    <Button Classes="tool" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
-            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" AutomationProperties.Name="{Binding Label}">
-      <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" />
+    <Button Classes="tool" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" IsVisible="{Binding IsAvailable}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{Binding Label}">
+      <Panel>
+        <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" />
+        <PathIcon Data="{StaticResource Icon.lock}" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-3,-3"
+                  IsVisible="{Binding Refusal, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </Panel>
     </Button>
   </DataTemplate>
 
   <DataTemplate x:Key="ActionSmall" x:DataType="vm:DeskAction">
-    <Button Classes="tool small" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
-            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" AutomationProperties.Name="{Binding Label}">
-      <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15" />
+    <Button Classes="tool small" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" IsVisible="{Binding IsAvailable}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{Binding Label}">
+      <Panel>
+        <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15" />
+        <PathIcon Data="{StaticResource Icon.lock}" Width="7" Height="7" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-3,-3"
+                  IsVisible="{Binding Refusal, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </Panel>
     </Button>
   </DataTemplate>
 
   <DataTemplate x:Key="ActionText" x:DataType="vm:DeskAction">
-    <Button Classes="secondary" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}"
-            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+    <Button Classes="secondary" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" IsVisible="{Binding IsAvailable}"
+            Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
       <StackPanel Orientation="Horizontal" Spacing="8">
+        <PathIcon Data="{StaticResource Icon.lock}" Width="13" Height="13" IsVisible="{Binding Refusal, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15"
                   IsVisible="{Binding Icon, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />

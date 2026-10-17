@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:show="using:PlayMap.App.ViewModels.Show"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.Show.ShowStripView"
+             x:DataType="show:ShowStripViewModel">
+  <!-- The show strip: the Ready light, ARM (no password) and PANIC (never a dialog). Each follows STATE.show; each
+       right-click is its menu (preflight runs; the Show menu; the panic outcomes). It never shrinks. -->
+  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding IsPresent}">
+    <Button x:Name="ReadyButton" Classes="pill" Command="{Binding Ready.Command}" ToolTip.Tip="{Binding ReadyTip}" ui:DeskMenu.Actions="{Binding ReadyMenu}">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Ellipse Classes="light" Fill="{Binding ReadyLight, Converter={StaticResource LightBrush}}" />
+        <TextBlock Text="{Binding ReadyText}" VerticalAlignment="Center" />
+      </StackPanel>
+    </Button>
+    <Button x:Name="ArmButton" Classes="pill" Classes.armed="{Binding IsArmed}" Command="{Binding Arm.Command}" ToolTip.Tip="{Binding ArmTip}"
+            ui:DeskMenu.Actions="{Binding ArmMenu}">
+      <TextBlock Text="{Binding Arm.Label}" FontWeight="SemiBold" />
+    </Button>
+    <Button x:Name="PanicButton" Classes="blackout panic" Classes.on="{Binding IsPanic}" Command="{Binding Panic.Command}" ToolTip.Tip="{Binding PanicTip}"
+            ui:DeskMenu.Actions="{Binding PanicMenu}">
+      <TextBlock Text="PANIC" FontWeight="Bold" />
+    </Button>
+  </StackPanel>
+</UserControl>

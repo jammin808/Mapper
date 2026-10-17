@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.State;
@@ -25,6 +26,10 @@ public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id, lo
     public bool HasVerb => Verb.Length > 0;
 }
 
+/// <summary>Why the gate would refuse a line now: the node's own words, and the short tag a menu item carries after its label
+/// ("armed", "locked", "mirror", "fenced", "not paired", "blind draft").</summary>
+public sealed record GateRefusal(string Words, string Tag);
+
 /// <summary>The desk's side of one engine: the link, the mirrored project and STATE (latest wins, rebuilt on
 /// the UI thread at most once per dispatcher turn however fast the engine pushes), and the one door every
 /// view model sends verbs through. A refusal comes back as ERR with the reason; the session turns it into a
@@ -51,12 +56,80 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
-        // refusal repeated by a drag folds into one toast).
-        Throttle = new ThrottledSender((line, ct) => SendAsync(line, ct));
+        // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
+        Throttle = new ThrottledSender((line, ct) =>
+        {
+            if (GateWords(line) is { } why)
+            {
+                _post(() => Notify(ToastKind.Refused, why, line));
+                return Task.CompletedTask;
+            }
+            return SendAsync(line, ct);
+        });
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
+
+    private FrozenSet<string> _verbs = FrozenSet<string>.Empty;
+    private Func<string, GateRefusal?>? _gateHook;
+    private string _role = "operator";
+    private string _sessionId = "";
+    private string _transport = "";
+    private bool _paired = true;
+    private long _gateStamp;
+
+    /// <summary>What Show Mode takes this desk for on the node (WHOAMI's role: "operator" for the desk on this machine or a
+    /// listed desk address, "remote" otherwise); the gate decides with it, as the engine does.</summary>
+    public string Role => _role;
+
+    /// <summary>This desk's session on the node as WHOAMI names it ("" until it answers): STATE.show.blind names its draft's owner
+    /// the same way.</summary>
+    public string SessionId => _sessionId;
+
+    /// <summary>The transport the node took this desk's session on (WHOAMI's), with <see cref="SessionId"/> the session's identity.</summary>
+    public string Transport => _transport;
+
+    /// <summary>Whether the node holds this desk's session as paired (WHOAMI's; true until it answers). An unpaired session's line
+    /// that would change something is refused at the node's door.</summary>
+    public bool Paired => _paired;
+
+    /// <summary>Moves whenever what the gate reads moved (the facts a module's gate reads from STATE, the project, the node's verbs,
+    /// the desk's identity on the node), so an action re-asks the gate only then: a push that moves only a playhead re-asks nothing.</summary>
+    public long GateStamp => Interlocked.Read(ref _gateStamp);
+
+    /// <summary>Marks the gate's facts as moved (a module whose facts change outside a push calls it).</summary>
+    public void GateMoved() => Interlocked.Increment(ref _gateStamp);
+
+    /// <summary>The verb names the node answered VERBS with at attach (empty until it answers: then every control
+    /// shows). A control whose verb the node lacks hides, so a node without a package shows none of its controls.</summary>
+    public IReadOnlySet<string> Verbs => _verbs;
+
+    /// <summary>Raised on the UI thread when the node's verb list arrived.</summary>
+    public event Action? VerbsUpdated;
+
+    /// <summary>True when the node runs the verb a line starts with (or the list is not known yet).</summary>
+    public bool Knows(string line)
+    {
+        if (_verbs.Count == 0 || string.IsNullOrWhiteSpace(line))
+            return true;
+        return WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && _verbs.Contains(m.Spec.Name);
+    }
+
+    /// <summary>The desk-wide refusal hook (the node's doors in its order: pairing, the fleet, the show's policy, the locks): why a
+    /// line would be refused now, or null. Every <see cref="ViewModels.DeskAction"/> asks it on refresh, so a control greys with the
+    /// gate's words before the press; the engine still decides.</summary>
+    public Func<string, GateRefusal?>? Gate
+    {
+        get => _gateHook;
+        set => _gateHook = value;
+    }
+
+    /// <summary>Why the gate would refuse this line now (its words and its tag), or null.</summary>
+    public GateRefusal? GateRefusalOf(string line) => _gateHook is { } g && !string.IsNullOrWhiteSpace(line) ? g(line) : null;
+
+    /// <summary>The words why the gate would refuse this line now, or null.</summary>
+    public string? GateWords(string line) => GateRefusalOf(line)?.Words;
 
     public IEngineLink? Link => _link;
 
@@ -70,6 +143,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     public LinkStatus Status => _status;
 
     public bool IsLive => _status == LinkStatus.Live;
+
+    /// <summary>The link would carry a line now: live, or stale (quiet, still open). The air's own controls (PANIC, BLACKOUT, the
+    /// master) stay live on a stale link; the reply, or its timeout, says what came of it.</summary>
+    public bool CanSend => _status is LinkStatus.Live or LinkStatus.Stale;
 
     /// <summary>"Demo node", "This machine", "10.0.0.7:9941".</summary>
     public string LinkLabel
@@ -107,11 +184,110 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         link.StateChanged += OnState;
         link.ProjectChanged += OnProject;
         _status = link.Status;
-        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(NodeId));
+        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(CanSend), nameof(NodeId));
         // Read what the link already holds at once, so a window opened on a live link is never empty.
         ApplyProject();
         ApplyState();
         StatusUpdated?.Invoke(_status);
+        _ = LoadVerbsAsync(link);
+    }
+
+    /// <summary>The node's verbs and the desk's role, asked at attach and again whenever the link comes back live.</summary>
+    private void Reload()
+    {
+        if (_link is { } link)
+            _ = LoadVerbsAsync(link);
+    }
+
+    /// <summary>Asks the node for its vocabulary (VERBS: a JSON list of rows, or names separated by spaces) and
+    /// keeps the names; a node that does not answer leaves every control showing.</summary>
+    private async Task LoadVerbsAsync(IEngineLink link)
+    {
+        var reply = await SendQuietAsync("VERBS");
+        var who = await SendQuietAsync("WHOAMI");
+        if (!ReferenceEquals(link, _link))
+            return;
+        var names = reply.Ok ? ParseVerbs(reply.Text) : FrozenSet<string>.Empty;
+        var me = who.Ok ? WhoAmI.Read(who.Text) : null;
+        _post(() =>
+        {
+            if (!ReferenceEquals(link, _link))
+                return;
+            if (reply.Ok)
+                _verbs = names;
+            if (me is not null)
+            {
+                _role = me.Role ?? _role;
+                _sessionId = me.Session;
+                _transport = me.Transport;
+                _paired = me.Paired;
+            }
+            GateMoved();
+            VerbsUpdated?.Invoke();
+        });
+    }
+
+    /// <summary>A WHOAMI reply as the gate reads it: the role (null when it names none), the session, its transport, paired.</summary>
+    private sealed record WhoAmI(string? Role, string Session, string Transport, bool Paired)
+    {
+        public static WhoAmI? Read(string text)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(text);
+                var r = doc.RootElement;
+                if (r.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return null;
+                string? Str(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+                var paired = !r.TryGetProperty("paired", out var p) || p.ValueKind != System.Text.Json.JsonValueKind.False;
+                return new WhoAmI(Str("role"), Str("session") ?? "", Str("transport") ?? "", paired);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>The names in a VERBS reply that the node answers now (a row with "available": false is left out).</summary>
+    public static FrozenSet<string> ParseVerbs(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var t = text.Trim();
+        if (t.StartsWith('['))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(t);
+                var names = new List<string>();
+                foreach (var row in doc.RootElement.EnumerateArray())
+                {
+                    if (row.ValueKind == System.Text.Json.JsonValueKind.String)
+                        names.Add(row.GetString() ?? "");
+                    else if (row.ValueKind == System.Text.Json.JsonValueKind.Object && row.TryGetProperty("name", out var n)
+                        && !(row.TryGetProperty("available", out var av) && av.ValueKind == System.Text.Json.JsonValueKind.False))
+                        names.Add(n.GetString() ?? "");
+                }
+                return names.Where(n => n.Length > 0).ToFrozenSet(StringComparer.Ordinal);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return FrozenSet<string>.Empty;
+            }
+        }
+        // The names joined by spaces are ambiguous for two-word verbs: a name is any catalogue name whose words appear in order.
+        var words = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < words.Length; i++)
+        {
+            foreach (var spec in VerbCatalog.All)
+            {
+                var parts = spec.Name.Split(' ');
+                if (i + parts.Length <= words.Length && parts.AsSpan().SequenceEqual(words.AsSpan(i, parts.Length)))
+                    known.Add(spec.Name);
+            }
+        }
+        return known.ToFrozenSet(StringComparer.Ordinal);
     }
 
     public void Detach()
@@ -123,7 +299,13 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _link.ProjectChanged -= OnProject;
         _link = null;
         _status = LinkStatus.Down;
-        Raise(nameof(Link), nameof(Status), nameof(IsLive));
+        _verbs = FrozenSet<string>.Empty;
+        _role = "operator";
+        _sessionId = "";
+        _transport = "";
+        _paired = true;
+        GateMoved();
+        Raise(nameof(Link), nameof(Status), nameof(IsLive), nameof(CanSend));
         StatusUpdated?.Invoke(_status);
     }
 
@@ -148,7 +330,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     private async Task<WireReply> SendCoreAsync(string line, CancellationToken ct)
     {
         var link = _link;
-        if (link is null || link.Status != LinkStatus.Live)
+        if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
             return new WireReply(false, "not connected to an engine — nothing was sent");
         try
         {
@@ -228,8 +410,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             if (s == _status)
                 return;
             _status = s;
-            Raise(nameof(Status), nameof(IsLive));
+            Raise(nameof(Status), nameof(IsLive), nameof(CanSend));
             StatusUpdated?.Invoke(s);
+            if (s == LinkStatus.Live)
+                Reload();
         });
     }
 
@@ -281,6 +465,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
             return;
         }
         _state = next;
+        GateMoved();
         Raise(nameof(State));
         StateUpdated?.Invoke(next);
     }

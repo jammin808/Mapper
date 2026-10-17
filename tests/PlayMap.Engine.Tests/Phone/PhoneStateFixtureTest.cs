@@ -98,8 +98,8 @@ public sealed partial class PhoneStateFixtureTest
     [GeneratedRegex(@"\b(ph|cm|sc)[0-9a-f]{8}\b")]
     private static partial Regex RandomIds();
 
-    /// <summary>The phone keys of STATE (phones, scan.pairing), ids random per run numbered in order of appearance and the clock's
-    /// and the link's measured numbers fixed.</summary>
+    /// <summary>The phone keys of STATE (phones, scan.pairing) and a multi-view scan's (its id, views, coverage, regions, suggestions),
+    /// ids random per run numbered in order of appearance and the clock's and the link's measured numbers fixed.</summary>
     private static string Fixture(JsonElement state, JsonElement multi)
     {
         var phones = JsonNode.Parse(state.GetProperty("phones").GetRawText())!.AsArray();
@@ -110,8 +110,13 @@ public sealed partial class PhoneStateFixtureTest
             foreach (var key in new[] { "rttMs", "offsetMs", "uncertaintyMs", "uploadMBps" })
                 p["link"]![key] = 0;
         }
-        var scan = new JsonObject { ["pairing"] = JsonNode.Parse(state.GetProperty("scan").GetProperty("pairing").GetRawText()) };
-        // The multi-view keys come from their own scenario: measured numbers and the reasons' words (they carry numbers) made stable.
+        // The scan's id (what a card's line names the scan by) and the multi-view keys come from their own scenario: measured numbers
+        // and the reasons' words (they carry numbers) made stable.
+        var scan = new JsonObject
+        {
+            ["id"] = multi.GetProperty("id").GetString(),
+            ["pairing"] = JsonNode.Parse(state.GetProperty("scan").GetProperty("pairing").GetRawText()),
+        };
         foreach (var key in new[] { "view", "views", "coverage", "regions", "suggestions" })
             scan[key] = Stable(JsonNode.Parse(multi.GetProperty(key).GetRawText()));
         var root = new JsonObject

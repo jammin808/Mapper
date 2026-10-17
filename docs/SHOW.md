@@ -81,7 +81,10 @@ or a waiting blind commit, and never reachable from a client's line.
 `LOCK <id> [<why>]` locks an entity; `LOCK AREA mapping|layout|content|playlists|media|devices|network [<why>]` an area. A lock is
 kept in the project (it travels with the show) but is **not an undo step**, and no undo or redo takes it back. One guard checks
 every edit, undo and redo before it is published (`ProjectStore.Guard`), so no verb, binding, assistant or undo changes what a lock
-holds: "Wall (surface) is locked by Desk ('show night', 20:12) — UNLOCK sf1a2b3c4d first". The areas:
+holds: "Wall (surface) is locked by Desk ('show night', 20:12) — UNLOCK sf1a2b3c4d first". An edit is judged by what it changes:
+an entity it replaced is compared by value and its lists by their items, so a `SET` that renames a masked surface is not a moved
+mapping. The network area, held at the gate, refuses in the same words ("network is locked by Desk ('doors open', 20:31) — UNLOCK
+AREA network first"). The areas:
 
 | Area | What it holds |
 |---|---|

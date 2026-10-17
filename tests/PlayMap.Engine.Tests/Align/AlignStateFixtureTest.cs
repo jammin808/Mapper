@@ -50,11 +50,14 @@ public sealed partial class AlignStateFixtureTest
         },
         new JsonObject
         {
-            ["title"] = "Projectors' own processing",
-            ["path"] = "align",
-            ["light"] = new JsonArray(new JsonObject { ["light"] = "grey" }),
-            ["words"] = "the double-correction guard: {devices}",
-            ["fields"] = new JsonArray(Field("Guarded devices", "devices")),
+            ["title"] = "Projector's own processing",
+            ["path"] = "align.devices",
+            ["each"] = true,
+            ["label"] = "id",
+            ["light"] = "light",
+            ["words"] = "words",
+            ["fields"] = new JsonArray(Field("Outputs", "outputs"), Field("Read", "read"), Field("Own geometry", "geometry"), Field("Own blend", "blend"),
+                Field("Fix", "fix")),
             ["actions"] = new JsonArray("DEVICE NATIVE $(id)"),
         },
     ];
@@ -134,8 +137,13 @@ public sealed partial class AlignStateFixtureTest
         {
             var at = At(root, card!["path"]!.GetValue<string>());
             Assert.NotNull(at);
-            foreach (var field in card["fields"]!.AsArray())
-                Assert.True(at.AsObject().ContainsKey(field!["path"]!.GetValue<string>()), $"{card["title"]}: {field["path"]}");
+            // A card per element (a guarded device) reads each element's fields; a block reads its own.
+            JsonObject[] blocks = card["each"]?.GetValue<bool>() == true ? [.. at.AsArray().Select(e => e!.AsObject())] : [at.AsObject()];
+            foreach (var block in blocks)
+            {
+                foreach (var field in card["fields"]!.AsArray())
+                    Assert.True(block.ContainsKey(field!["path"]!.GetValue<string>()), $"{card["title"]}: {field["path"]}");
+            }
             foreach (var action in card["actions"]!.AsArray())
             {
                 Assert.True(WireGrammar.TryParse(action!.GetValue<string>().Replace("$(id)", "al_fixture1", StringComparison.Ordinal), out var line, out _));

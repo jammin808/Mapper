@@ -9,8 +9,10 @@ namespace PlayMap.App.ViewModels;
 
 /// <summary>One playlist as a card: its items, its own transport, loop and sync, and one action list that
 /// is both the card's toolbar and its right-click menu.</summary>
-public sealed class PlaylistViewModel : ObservableObject
+public sealed class PlaylistViewModel : ObservableObject, IMenuTarget
 {
+    IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
+
     private readonly DeskSession _session;
     private readonly PlayViewModel _play;
     private PlaylistState? _state;
@@ -154,8 +156,10 @@ public sealed class PlaylistViewModel : ObservableObject
 }
 
 /// <summary>One item in a playlist card.</summary>
-public sealed class PlaylistItemViewModel : ObservableObject
+public sealed class PlaylistItemViewModel : ObservableObject, IMenuTarget
 {
+    IReadOnlyList<DeskAction> IMenuTarget.MenuActions => Actions;
+
     private string _label = "";
     private string _detail = "";
     private string _icon = "media";

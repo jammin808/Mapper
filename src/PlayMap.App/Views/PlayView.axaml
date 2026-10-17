@@ -34,7 +34,10 @@
                   <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15" Foreground="{StaticResource DeskTextDimBrush}" />
                 </Border>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                  <DockPanel>
+                    <ui:BadgeStrip DockPanel.Dock="Right" Margin="4,0,0,0" />
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
                   <TextBlock Classes="faint" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
                 <Ellipse Grid.Column="2" Classes="light" Fill="{Binding Availability, Converter={StaticResource LightBrush}}" ToolTip.Tip="{Binding AvailabilityTip}" />
@@ -83,7 +86,10 @@
                                      NodeId="{Binding $parent[UserControl].((vm:PlayViewModel)DataContext).NodeId}" />
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="2,0">
                     <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
-                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <DockPanel Grid.Column="1">
+                      <ui:BadgeStrip DockPanel.Dock="Right" Margin="4,0,0,0" />
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
                     <TextBlock Grid.Column="2" Classes="faint" Text="{Binding Detail}" VerticalAlignment="Center" />
                   </Grid>
                 </StackPanel>
@@ -103,7 +109,10 @@
                     <Grid ColumnDefinitions="*,Auto" Background="Transparent">
                       <Button Classes="tool" Padding="4,2" HorizontalContentAlignment="Left" Command="{Binding Inspect}" ToolTip.Tip="Playlist settings">
                         <StackPanel>
-                          <TextBlock Classes="h1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Classes="h1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <ui:BadgeStrip />
+                          </StackPanel>
                           <TextBlock Classes="faint" Text="{Binding Summary}" />
                         </StackPanel>
                       </Button>
@@ -137,7 +146,10 @@
                             <Border Width="4" CornerRadius="2" Background="{StaticResource DeskAccentBrush}" IsVisible="{Binding IsCurrent}" />
                             <PathIcon Grid.Column="1" Data="{Binding Icon, Converter={StaticResource Icon}}" Width="14" Height="14" Foreground="{StaticResource DeskTextDimBrush}" />
                             <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                              <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" FontWeight="{Binding IsCurrent, Converter={x:Static ui:Conv.BoldIf}}" />
+                              <DockPanel>
+                                <ui:BadgeStrip DockPanel.Dock="Right" Margin="4,0,0,0" />
+                                <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" FontWeight="{Binding IsCurrent, Converter={x:Static ui:Conv.BoldIf}}" />
+                              </DockPanel>
                               <TextBlock Classes="faint" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
                               <ProgressBar Value="{Binding Progress}" Maximum="1" Height="2" MinHeight="2" IsVisible="{Binding IsCurrent}" />
                             </StackPanel>

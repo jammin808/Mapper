@@ -138,19 +138,18 @@ public sealed partial class EngineCore : IShowDecisions
         if (!IsAvailable(spec))
             return null;
         // Another show opened under a draft would leave the draft and its commit for a show that is gone.
-        if (_blind is { } open && spec.Name is "PROJECT OPEN" or "PROJECT NEW")
-            return RefuseAtGate(spec, line, session,
-                $"a blind draft is open ({open.OwnerName}, {Changes(open)}) — BLIND COMMIT or BLIND DISCARD before opening another show");
+        if (_blind is { } open && BlindWords.OpensAnotherShow(spec))
+            return RefuseAtGate(spec, line, session, BlindWords.DraftOpen(open.OwnerName, open.Patch.Changes.Count));
         var d = DecideShow(spec, line, session);
         switch (d.Verdict)
         {
             case ShowVerdict.Allow:
                 if (ShowPolicy.ClassOf(spec, line) == ShowClass.Network && Store.Project.Show.Locks.FirstOrDefault(l => l.Kind == LockKind.Area && l.Target == LockAreas.Network) is { } held)
-                    return RefuseAtGate(spec, line, session, $"network is locked by {held.By} ({LockGuard.Clock(held.AtUnixMs)}) — UNLOCK AREA network first");
+                    return RefuseAtGate(spec, line, session, LockGuard.AreaWords(held));
                 return null;
             case ShowVerdict.BlindOnly:
                 if (_blind is { Commit: { } landing })
-                    return RefuseAtGate(spec, line, session, $"the blind draft lands {When(landing)} — no more edits to it; BLIND DISCARD cancels the commit");
+                    return RefuseAtGate(spec, line, session, BlindWords.Landing(When(landing)));
                 draft = DraftStoreFor(session);
                 return draft is null ? RefuseAtGate(spec, line, session, "this session holds no blind draft — BLIND ON first") : null;
             case ShowVerdict.Propose:

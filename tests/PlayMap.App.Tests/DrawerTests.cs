@@ -129,6 +129,36 @@ public class DrawerTests
     }
 
     [AvaloniaFact]
+    public void ARingTheEngineTookAwayIsLetGoAndTheNewRingAtItsPathIsRead()
+    {
+        var path = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-test{Environment.ProcessId}-replaced.preview");
+        var pixels = new byte[64 * 36 * 4];
+        using var source = new RingPreviewSource(path, TimeSpan.Zero);
+        using (var first = new PreviewRingWriter(path, 64, 36))
+        {
+            Assert.True(first.Write(pixels, 64, 36, 64 * 4, 1));
+            Assert.Equal(new PixelSize(64, 36), source.Poll()!.PixelSize);
+        }
+        // The engine took the view's ring away: the desk lets its mapping go, so nothing holds the file.
+        Assert.Null(source.Poll());
+        Assert.False(File.Exists(path));
+        // The view shown again gets a new ring at the same path: the desk reads it.
+        using (var second = new PreviewRingWriter(path, 32, 18))
+        {
+            Assert.True(second.Write(pixels, 32, 18, 32 * 4, 1));
+            Assert.Equal(new PixelSize(32, 18), source.Poll()!.PixelSize);
+            Assert.Null(source.Poll());
+        }
+        if (!OperatingSystem.IsWindows())
+        {
+            // Where a file can be made again at a path a reader still maps, a ring replaced between two polls is noticed too.
+            using var third = new PreviewRingWriter(path, 48, 27);
+            Assert.True(third.Write(pixels, 48, 27, 48 * 4, 1));
+            Assert.Equal(new PixelSize(48, 27), source.Poll()!.PixelSize);
+        }
+    }
+
+    [AvaloniaFact]
     public async Task TheConnectChoiceOpensWhenNothingIsConnectedAndTheDemoConnects()
     {
         var session = new PlayMap.App.Link.DeskSession(a => Avalonia.Threading.Dispatcher.UIThread.Post(a));

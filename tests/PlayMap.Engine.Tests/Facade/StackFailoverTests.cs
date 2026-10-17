@@ -113,6 +113,8 @@ public sealed class StackFailoverTests
         var item = ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001");
         Assert.Equal(Light.Red, item.Light);
         Assert.Contains("S1 lost P3 — matched: the building at 67 %", item.State, StringComparison.Ordinal);
+        // STATE lights the stack as the context does: red, with the light the building is at.
+        StackVerbTests.AsTheContext(engine, "sk00000001", "red");
         var journal = engine.Journal.Recent(20).Where(r => r.Kind == "stack").ToList();
         Assert.Contains(journal, r => r.Text.Contains("S1 lost P3 (OP00000003 is not open)", StringComparison.Ordinal) && r.Text.Contains("67 %", StringComparison.Ordinal));
         var rows = await new SitePreflight().RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None);
@@ -201,6 +203,7 @@ public sealed class StackFailoverTests
         Assert.Equal(1.0, stack.GetProperty("gain").GetDouble());
         Assert.Equal(1f, services.OutputGains!.GainOf("op00000004", engine.LeaderNowNs));
         Assert.Contains("held", ContextBuilder.Build(engine).Items.Single(i => i.Id == "stack:sk00000001").State, StringComparison.Ordinal);
+        StackVerbTests.AsTheContext(engine, "sk00000001", "red");
         var row = Assert.Single(await new SitePreflight().RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None),
             r => r.Id == "stack:sk00000001");
         Assert.Equal("STACK FAILOVER sk00000001 MATCH", row.Fix);

@@ -1097,9 +1097,20 @@ public sealed class OutputInspector : InspectorViewModel
         if (Settled("color.gainB"))
             GainB = c.GainB;
         Facts = s.FindOutput(Id) is { } st
-            ? string.Create(CultureInfo.InvariantCulture, $"{st.Width}×{st.Height} @ {st.RefreshHz:0.##} Hz · {(st.Open ? $"open · {st.Fps:0} fps · {st.Dropped} dropped · p95 {st.FrameMsP95:0.0} ms" : "closed")}")
+            ? OutputFacts(st)
             : "";
         return true;
+    }
+
+    /// <summary>An output's facts in words: its raster and refresh, then, open, its rate, its late presents past the budget in the last
+    /// 10 s, its frame time p95, and the display latency the node holds it to with the path its frames take.</summary>
+    public static string OutputFacts(OutputState st)
+    {
+        ArgumentNullException.ThrowIfNull(st);
+        var latency = st.LatencyMs >= 0 ? string.Create(CultureInfo.InvariantCulture, $" · display latency {st.LatencyMs:0} ms") : "";
+        var path = st.PresentPath.Length > 0 ? " · " + st.PresentPath : "";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{st.Width}×{st.Height} @ {st.RefreshHz:0.##} Hz · {(st.Open ? $"open · {st.Fps:0} fps · {st.Dropped} late in 10 s · frame p95 {st.FrameMsP95:0.0} ms" : "closed")}{latency}{path}");
     }
 }
 

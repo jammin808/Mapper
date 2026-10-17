@@ -13,10 +13,11 @@ using PlayMap.Engine.Tests.Sync;
 namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>STATE.fleet of a hot-backup pair as the desk reads it, written to tests/fixtures/state/backup.json from two real nodes: the
-/// backup mirroring (its mirror, the route it has by the mirror), the primary with its backup listed, and the backup after FAILOVER (its
-/// last takeover, its route switched on the Devices module's PJLink simulator and read back); and backup.cards.json, the cards the desk
-/// draws from those keys, each field and verb checked against the fixture. What moves between runs (times, ids, milliseconds, the other
-/// machines' health) is set to fixed values; the route's projector answers, so no word rides on how this platform refuses a connect.</summary>
+/// backup mirroring (its mirror, the route it has by the mirror), the primary with its backup listed, the backup after FAILOVER (its
+/// last takeover, its route switched on the Devices module's PJLink simulator and read back) and the old primary fenced; and
+/// backup.cards.json, the cards the desk draws from those keys, each field and verb checked against the fixture. Each node's door is
+/// the words it refuses a client's edit with. What moves between runs (times, ids, milliseconds, the other machines' health) is set to
+/// fixed values; the route's projector answers, so no word rides on how this platform refuses a connect.</summary>
 public sealed partial class BackupStateFixtureTests
 {
     /// <summary>The fixtures' own text (lines ended by "\n" on every platform), with the words' dashes and arrows written as they are.</summary>
@@ -102,6 +103,17 @@ public sealed partial class BackupStateFixtureTests
         return node;
     }
 
+    /// <summary>The node's STATE.fleet.door is the words its door refuses a client's edit with, and its queries still run.</summary>
+    private static async Task DoorRefusesAsync(HostRig rig)
+    {
+        var door = BackupRig.Fleet(rig).GetProperty("door").GetString();
+        Assert.False(string.IsNullOrEmpty(door));
+        var edit = await rig.RunAsync("SET op_1 name Elsewhere");
+        Assert.False(edit.Ok);
+        Assert.Equal(door, edit.Payload);
+        Assert.True((await rig.RunAsync("STATE")).Ok);
+    }
+
     [Fact]
     public async Task TheBackupPairsStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
@@ -119,6 +131,9 @@ public sealed partial class BackupStateFixtureTests
         Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(primary).GetProperty("backups").EnumerateArray()
             .Any(b => b.GetProperty("state").GetString() == "identical")), BackupRig.Fleet(primary).ToString());
 
+        // The door is the words a client's edit meets there: the backup's way out, none on the primary.
+        await DoorRefusesAsync(backup);
+        Assert.Equal(JsonValueKind.Null, BackupRig.Fleet(primary).GetProperty("door").ValueKind);
         var root = new JsonObject
         {
             ["backup"] = new JsonObject { ["fleet"] = Steady(BackupRig.Fleet(backup)) },
@@ -126,7 +141,11 @@ public sealed partial class BackupStateFixtureTests
         };
         Assert.True((await backup.RunAsync("FAILOVER")).Ok);
         Assert.Equal("32", projector.Input);
+        Assert.Equal(JsonValueKind.Null, BackupRig.Fleet(backup).GetProperty("door").ValueKind);
         root["takenOver"] = new JsonObject { ["fleet"] = Steady(BackupRig.Fleet(backup)) };
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary).ToString());
+        await DoorRefusesAsync(primary);
+        root["fenced"] = new JsonObject { ["fleet"] = Steady(BackupRig.Fleet(primary)) };
 
         var fixture = root.ToJsonString(Indented) + "\n";
         var cards = new JsonArray([.. Cards.Select(c => c.Card.DeepClone())]).ToJsonString(Indented) + "\n";
