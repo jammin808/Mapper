@@ -48,6 +48,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Prefs = prefs ?? DeskPrefs.InMemory();
         var clock = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
         Escape = new EscapeLadder(clock);
+        // A held action's menu entry waits for its second press on the desk's own clock.
+        session.Presses = new HeldPress(clock);
         _connections = new ConnectionManager(session);
         // The supervisor speaks from its own worker; the toast goes up on the UI thread.
         _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));

@@ -2,7 +2,11 @@
 
 The desk (`src/PlayMap.App`) keeps three workspaces (PLAY, MAP, SCAN) and adds a show strip, an attention bar, four
 drawers and generic parts, so most round-2 features add data, not panels. It sends verbs and reads STATE: every button,
-right-click entry and key names the catalogue line it sends, the same line the wire, MCP and Companion send.
+right-click entry and key names the catalogue line it sends, the same line the wire, MCP and Companion send. A line held to
+confirm (its catalogue row presses hold, as a Companion key holds it: FAILOVER, FLEET SOLO and FLEET BACKUP on Health ▸ Fleet, and
+every such line a card or a generated entry sends) is held on its button, and in a menu it is pressed twice: the first press arms
+the entry, which then reads "Press again to send <line>" and sends nothing; a second press of it within 3 s of the desk's clock sends
+the line once; another entry, the menu closing or made again, or the 3 s passing lets it go.
 
 ## Its parts
 
@@ -32,7 +36,10 @@ right-click entry and key names the catalogue line it sends, the same line the w
 Not built yet: a confirmation before closing while armed, PANIC's pulse, the master's level bar, the PLAY bin as a panel of its own;
 the blind panel's ON GO and AT boundaries (they run over the wire), its row selecting the entity, the commit's countdown and the
 violet frame; the fleet's alarm banner (STATE.fleet.alarm is always null); Check all and Re-solve moved on Health ▸ Calibration
-(the catalogue has no such rows); a hold in a right-click menu (a held action's menu entry runs on a click). The readiness light's
+(the catalogue has no such rows); a hold or a second press for the desk's own controls of lines a Companion key holds or
+presses twice (the transport's Stop and seek, the master, the panic banner's Clear, the blind panel's commits, a pattern), which
+send on one press as the desk's own buttons always have, and a second press for a card's or generated line pressed twice
+(`APPROVE`). The readiness light's
 sync part is the node's own light for the group, `sync.light` (a leader's from its board, a follower's from its feed and clock), in
 the node's words; only a node whose STATE.sync carries no `light` has it read from its keys. A Recall of a kept result the target already stands as exactly (just after
 it was recalled) is offered, and the node refuses it with its words. A drag the gate refuses still moves on screen; its steps are

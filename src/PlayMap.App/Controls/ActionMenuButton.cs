@@ -69,6 +69,7 @@ public class ActionMenuButton : HoldButton
         }
         var flyout = new MenuFlyout();
         DeskMenu.Fill(flyout.Items, a.Children);
+        flyout.Closed += (_, _) => DeskMenu.Disarm(flyout.Items);
         Opened = flyout;
         flyout.ShowAt(this);
     }

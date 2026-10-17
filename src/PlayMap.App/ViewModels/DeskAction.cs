@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.App.ViewModels;
 
@@ -8,7 +9,7 @@ namespace PlayMap.App.ViewModels;
 /// its right-click menu item and its keyboard shortcut, so the three never disagree. <see cref="Verb"/> is
 /// the line it sends right now (shown in every tooltip, so the operator — and anyone reading over their
 /// shoulder — learns the wire's words); a desk-only action (select, show info) says so instead.</summary>
-public sealed class DeskAction : ObservableObject
+public sealed partial class DeskAction : ObservableObject
 {
     private readonly Func<string?> _verb;
     private readonly Func<string>? _label;
@@ -92,9 +93,34 @@ public sealed class DeskAction : ObservableObject
     /// <summary>Shown in the object's menu only, not on its toolbar.</summary>
     public bool MenuOnly { get; private set; }
 
-    /// <summary>Its button acts only when held (hold-to-confirm): a high-risk line that changes who has the show, the same press a
-    /// Companion key makes for it (the catalogue row's press is hold). A short press sends nothing.</summary>
+    /// <summary>Held to confirm, as a Companion key presses its catalogue row (VerbParams.Press is hold): its button acts only when held
+    /// to the end of its ring (a short press sends nothing), and its menu entry only on a second press within the window
+    /// (<see cref="HeldPress"/>). The desk's own controls say so where they are made; an action built from the catalogue's data (a
+    /// card's line, a generated entry) takes it from its row.</summary>
     public bool IsHold { get; private set; }
+
+    /// <summary>Where this action's menu entry is armed: its session's, the desk's one armed entry; null for a desk-only action.</summary>
+    public HeldPress? Presses => _session?.Presses;
+
+    /// <summary>True when the catalogue row of <paramref name="line"/> presses hold (the table the Companion module's keys use). A
+    /// card's placeholders (<c>$(id)</c>, <c>{media}</c>) stand for one word each.</summary>
+    public static bool PressesHold(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+        var words = Placeholder().Replace(line, "x");
+        return WireGrammar.TryParse(words, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m && VerbParams.Press(m.Spec) == PressShapes.Hold;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\$\([^)]*\)|\{[^}]*\}")]
+    private static partial System.Text.RegularExpressions.Regex Placeholder();
+
+    /// <summary>Holds this action to confirm when the catalogue row of the line it is built from presses hold; returns it.</summary>
+    public DeskAction HeldAsItsRow(string? line)
+    {
+        IsHold |= PressesHold(line);
+        return this;
+    }
 
     /// <summary>Sets how the action looks (once, where it is made) and returns it.</summary>
     public DeskAction Look(string? icon = null, string? gesture = null, bool danger = false, bool separator = false, bool menuOnly = false, bool hold = false)
@@ -104,7 +130,7 @@ public sealed class DeskAction : ObservableObject
         IsDanger = danger;
         SeparatorBefore = separator;
         MenuOnly = menuOnly;
-        IsHold = hold;
+        IsHold |= hold;
         return this;
     }
 
