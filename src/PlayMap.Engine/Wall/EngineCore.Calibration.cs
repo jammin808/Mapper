@@ -850,8 +850,11 @@ public sealed partial class EngineCore
         words += unaligned;
         var blend = "";
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
+        // The re-solve has landed: a stop begun since leaves it as it is and only the blends are not made again.
         if (applied.Count > 0)
-            blend = await _lane.RunAsync(() => BlendAfter(EditsFor(c.Session), applied)).ConfigureAwait(false);
+            blend = await _lane.RunAsync(() => RefusedAsStopping(c.Session)
+                ? "the blends were not made again: " + StoppingWords
+                : BlendAfter(DraftOf(c.Session) ?? Store, applied)).ConfigureAwait(false);
         if (blend.Length > 0)
             words += "; " + blend;
         SetTask(task with { State = "done", Progress = 1, Words = words });
@@ -1005,7 +1008,7 @@ public sealed partial class EngineCore
             {
                 var (r, words, _) = engine.Accept(targetOrSnapshotId, session.ClientName);
                 return r ?? new EditResult(false, words, engine.Store.Current.Revision);
-            }));
+            }, engine.StoppedEdit));
         }
 
         public Task<EditResult> FallbackAsync(SessionInfo session, string targetId, CancellationToken ct)
@@ -1020,7 +1023,7 @@ public sealed partial class EngineCore
                     return new EditResult(false, $"{NameOf(p, targetId)} stands on its fallback already", engine.Store.Current.Revision);
                 return engine.Edits.Apply($"fall back {NameOf(p, targetId)}",
                     project => CalibrationLedger.Recall(project, s, project.NewId(Ids.Calibration), session.ClientName, engine.Services.Wall.UnixMs).Project);
-            }));
+            }, engine.StoppedEdit));
         }
 
         public QualityScore ScoreOf(Project project, string targetId)

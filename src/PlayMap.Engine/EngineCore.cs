@@ -157,7 +157,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         return _lane.RunAsync(() => RefusedAsStopping(session)
             ? EditResult.Refused(StoppingWords, Store.Current.Revision)
-            : EditsFor(session).Apply(label, edit, coalesceKey));
+            : (DraftOf(session) ?? Store).Apply(label, edit, coalesceKey));
     }
 
     /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).
@@ -165,6 +165,12 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// its edit waited for the lane, and it is refused with <see cref="StoppingWords"/> there.</summary>
     private ProjectStore EditsFor(SessionInfo session) =>
         RefusedAsStopping(session) ? throw new EditRefusedException(StoppingWords) : DraftOf(session) ?? Store;
+
+    /// <summary>An off-lane line's answer once the node has begun to stop.</summary>
+    private static CommandReply StoppedReply() => CommandReply.Fail(StoppingWords);
+
+    /// <summary>An off-lane edit's refusal once the node has begun to stop.</summary>
+    private EditResult StoppedEdit() => EditResult.Refused(StoppingWords, Store.Current.Revision);
 
     /// <summary>The blind draft a session's document edits go to, or null for the live store: the show's (wp2-blind), or a test's
     /// stand-in for it.</summary>
@@ -175,12 +181,13 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
 
     /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
-    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live); refused with
-    /// <see cref="StoppingWords"/>, as <see cref="EditsFor"/> is, once the node has begun to stop.</summary>
-    private T EditsInto<T>(SessionInfo session, Func<T> handler)
+    /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live). Once the node has begun to
+    /// stop it runs nothing for a line from outside the node and answers <paramref name="stopped"/>'s refusal with
+    /// <see cref="StoppingWords"/>.</summary>
+    private T EditsInto<T>(SessionInfo session, Func<T> handler, Func<T> stopped)
     {
         if (RefusedAsStopping(session))
-            throw new EditRefusedException(StoppingWords);
+            return stopped();
         _lineStore = DraftOf(session);
         try
         {
