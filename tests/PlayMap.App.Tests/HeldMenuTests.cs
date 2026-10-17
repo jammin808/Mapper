@@ -15,8 +15,9 @@ namespace PlayMap.App.Tests;
 
 /// <summary>A held action (<see cref="DeskAction.IsHold"/>: its catalogue row presses hold, as a Companion key holds it) is held in a
 /// menu too, in a menu's terms: its first press arms the entry, which then says what a second press sends, and sends nothing; a
-/// second press of the same entry within the window of the desk's clock sends exactly its line, once; the window passing, another
-/// entry pressed, the menu closing or made again disarms it. Every menu the desk builds from the catalogue's data — the cards' and
+/// second press of the same entry within the window of the desk's clock sends exactly the line its label names, once (a line a push
+/// moved in between arms it afresh); the window passing, another entry pressed, the menu closing or made again disarms it; an entry
+/// shows its words as they are, underscores and all. Every menu the desk builds from the catalogue's data — the cards' and
 /// the generated entries — holds every line whose row presses hold, on its buttons and in its menu.</summary>
 public class HeldMenuTests(ITestOutputHelper output)
 {
@@ -140,6 +141,97 @@ public class HeldMenuTests(ITestOutputHelper output)
         // FAILOVER pressed once more is a first press again: only FLEET went.
         Press(EntryOf(menu.Items, board.Failover));
         Assert.Equal(["FLEET"], desk.Verbs());
+    }
+
+    /// <summary>An entry is armed with the line its label names: a push that moves the line before the second press arms it afresh,
+    /// its label naming the new line, and sends nothing; the press after that sends exactly the new line, once.</summary>
+    [AvaloniaFact]
+    public async Task APushThatMovesAnArmedLineArmsItAfreshAndOnlyTheLineItsLabelNamesIsSent()
+    {
+        long now = 1_000;
+        await using var desk = new DeskHarness(nowMs: () => now);
+        StateFixtures.Load(desk.Link, "backup", "fenced");
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Drawers.Show("health", "fleet");
+        DeskHarness.Pump();
+        var board = desk.Main.Health.Fleet;
+        var card = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "MachineCard" && ReferenceEquals(b.DataContext, board.Self));
+        var menu = card.ContextMenu!;
+        menu.Open(card);
+        DeskHarness.Pump();
+        var mirror = EntryOf(menu.Items, board.Mirror);
+        var first = board.Mirror.Verb;
+        Assert.StartsWith("FLEET BACKUP ", first, StringComparison.Ordinal);
+        desk.Link.ClearSent();
+
+        Press(mirror);
+        Assert.Empty(desk.Verbs());
+        Assert.Equal("Press again to send " + first, mirror.Header);
+
+        // The node with the show moves before the second press: the line backs up another node now.
+        desk.Link.SetSection("fleet", """{"of":"1234abcd"}""");
+        DeskHarness.Pump();
+        Assert.Equal("FLEET BACKUP 1234abcd HOT", board.Mirror.Verb);
+        Assert.True(menu.IsOpen);
+        now += 10;
+        Press(mirror);
+        await board.Mirror.Command.Last;
+        DeskHarness.Pump();
+        Assert.Empty(desk.Verbs());
+        Assert.Equal("Press again to send FLEET BACKUP 1234abcd HOT", mirror.Header);
+        Assert.Same(board.Mirror, desk.Session.Presses.Armed);
+        Assert.True(menu.IsOpen);
+
+        now += 10;
+        Press(mirror);
+        await board.Mirror.Command.Last;
+        DeskHarness.Pump();
+        Assert.Equal(["FLEET BACKUP 1234abcd HOT"], desk.Verbs());
+        Assert.Null(desk.Session.Presses.Armed);
+        window.Close();
+    }
+
+    /// <summary>The text a menu entry's header shows, as it is laid out, and whether the header takes a key press for the entry (access
+    /// text, where an underscore marks the key).</summary>
+    private static (string Shown, bool TakesAKey) Shown(MenuItem item)
+    {
+        var presenter = item.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().Single(p => p.Name == "PART_HeaderPresenter");
+        var text = Assert.IsAssignableFrom<TextBlock>(presenter.Child);
+        var shown = string.Concat(text.TextLayout.TextLines.SelectMany(l => l.TextRuns).Select(r => r.Text.ToString()));
+        return (shown, text is Avalonia.Controls.Primitives.AccessText);
+    }
+
+    /// <summary>A menu entry shows its words as they are, underscores and all, armed or not: the node's ids carry underscores (op_1,
+    /// sf_…, in_…), and none of them is taken for an access key, so the armed entry shows the very line a second press sends.</summary>
+    [AvaloniaFact]
+    public async Task AnEntryShowsALineWithUnderscoresAsItIsArmedOrNot()
+    {
+        long now = 1_000;
+        await using var desk = new DeskHarness(nowMs: () => now);
+        desk.Link.SetSection("videoio", """{"inputs":[{"id":"in_arena","name":"in_arena feed"}]}""");
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = Workspace.Map;
+        DeskHarness.Pump();
+        var surface = DeskVerbRuleTests.Walk(desk.Main).Targets.First(t => t.Kind == "surface");
+        var use = Assert.Single(desk.Main.ExtrasFor(surface), a => a.Id == "gen.input");
+        var entry = Assert.Single(use.Children);
+        Assert.True(entry.IsHold);
+        var host = MainWindowTests.Find<Control>(window, "Viewport");
+        var menu = new ContextMenu();
+        DeskMenu.Fill(menu.Items, [use]);
+        menu.Open(host);
+        DeskHarness.Pump();
+        var parent = menu.Items.OfType<MenuItem>().Single();
+        parent.IsSubMenuOpen = true;
+        DeskHarness.Pump();
+        var item = EntryOf(menu.Items, entry);
+        Assert.Equal(("in_arena feed", false), Shown(item));
+
+        Press(item);
+        Assert.Empty(desk.Verbs());
+        Assert.Equal(("Press again to send SURFACE SOURCE " + surface.Id + " live:in_arena", false), Shown(item));
+        menu.Close();
+        window.Close();
     }
 
     /// <summary>Over every catalogue row that presses hold: each entry of a menu built from the catalogue's data that sends it — every

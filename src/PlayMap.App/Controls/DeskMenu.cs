@@ -113,6 +113,7 @@ public static class DeskMenu
         var item = new MenuItem
         {
             Header = a.MenuLabel,
+            HeaderTemplate = Words,
             Command = a.Children.Count > 0 || held ? null : a.Command,
             IsEnabled = a.IsEnabled,
             Tag = a,
@@ -144,6 +145,11 @@ public static class DeskMenu
         return item;
     }
 
+    /// <summary>An entry's header drawn as plain text: its words as they are. A menu draws a string header as access text, where an
+    /// underscore marks a key, and the node's ids carry underscores (op_1, sf_…, in_…); the desk's menus have no access keys, so an
+    /// entry shows the very line it names and no key press stands for it.</summary>
+    private static readonly Avalonia.Controls.Templates.FuncDataTemplate<string> Words = new((words, _) => new TextBlock { Text = words });
+
     /// <summary>Another entry pressed: the held entries of its menu are let go.</summary>
     private static void DisarmAround(MenuItem item)
     {
@@ -151,8 +157,9 @@ public static class DeskMenu
             Disarm(root.Items);
     }
 
-    /// <summary>A held action's entry: a first press arms it (the menu stays open, the entry saying what a second press sends), a
-    /// second press within the window sends its line once and closes the menu; a menu made again starts disarmed.</summary>
+    /// <summary>A held action's entry: a first press arms it with the line it sends now (the menu stays open, the entry saying that
+    /// line), a second press within the window sends that line once and closes the menu; a line moved in between arms it afresh with
+    /// the new line and sends nothing; a menu made again starts disarmed.</summary>
     private static void Hold(MenuItem item, DeskAction a)
     {
         var presses = a.Presses ?? new HeldPress(EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
@@ -163,9 +170,10 @@ public static class DeskMenu
             e.Handled = true;
             if (!a.IsEnabled)
                 return;
-            if (!presses.Press(a, () => item.Header = a.MenuLabel))
+            var line = a.Verb;
+            if (!presses.Press(a, line, () => item.Header = a.MenuLabel))
             {
-                item.Header = HeldPress.ArmedLabel(a);
+                item.Header = HeldPress.ArmedLabel(line);
                 // The window passing disarms it on the machine's time too, its label put back.
                 Avalonia.Threading.DispatcherTimer.RunOnce(() =>
                 {
