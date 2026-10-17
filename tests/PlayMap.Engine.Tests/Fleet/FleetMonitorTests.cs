@@ -63,9 +63,15 @@ public sealed class FleetMonitorTests
             Assert.Equal("live", node.GetProperty("heard").GetString());
             // Two machines, each with its one output (not measured on a node without a renderer: grey).
             Assert.Equal(4, state.GetProperty("eye").GetProperty("counts").GetProperty("things").GetInt32());
-            var context = ContextBuilder.Build(a.Engine);
-            var asPeer = context.Peers.Single(p => p.Id == b.Id);
-            Assert.Equal(peer.Health.Headline, asPeer.Headline);
+            // The context carries the headline of the record the monitor holds as it is built (B publishes a newer one whenever its
+            // own lights move, so the one read above may be gone by then).
+            string Held() => a.Engine.Services.FleetPeers!.Peers().Single(p => p.Id == b.Id).Health!.Headline;
+            Assert.True(await Eventually.TrueAsync(() =>
+            {
+                var before = Held();
+                var carried = ContextBuilder.Build(a.Engine).Peers.Single(p => p.Id == b.Id).Headline;
+                return carried == before && carried == Held();
+            }), $"the context's headline is not the monitor's: {Held()}");
 
             await b.StopAsync();
             timeA.Advance(TimeSpan.FromMilliseconds(2900));
