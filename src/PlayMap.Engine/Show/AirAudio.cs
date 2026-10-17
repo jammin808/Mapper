@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Playback;
@@ -8,11 +9,13 @@ using PlayMap.Media.Ffmpeg;
 namespace PlayMap.Engine.Show;
 
 /// <summary>Sound on the air: the on-air playlist's item (the focused playlist, the one the clip verbs drive) plays through one
-/// <see cref="AudioOut"/> slaved to the item's own anchor, so it follows GO, pause, seek, a rate and a panic's transport outcome as
-/// the picture does. Its gain is the air's sound gain (master × panic, <see cref="EngineCore.AirAudioGain"/>) × the item's volume,
-/// computed at each service step at the leader instant of the one instant that step reads (the output runs on the node's own
-/// clock, which the network clock maps to the leader's), so PANIC and MASTER fade sound on the same show clock as picture. The lane decides what plays; a decoder opens on a worker and is handed over once open; the output's thread only
-/// reads. Disposing it stops the sound and lets go of the output.</summary>
+/// <see cref="AudioOut"/> slaved to the item's own anchor, so it follows GO, pause, seek, a rate (within the range sound plays;
+/// beyond it the item is silent and <see cref="Problem"/> says why) and a panic's transport outcome as the picture does. Its gain
+/// is the air's sound gain (master × panic, <see cref="EngineCore.AirAudioGain"/>) × the item's volume, computed at each service
+/// step at the leader instant of the one instant that step reads (the output runs on the node's own clock, which the network
+/// clock maps to the leader's), so PANIC and MASTER fade sound on the same show clock as picture. The lane decides what plays; a
+/// decoder opens on a worker and is handed over once open; the output's thread only reads. Disposing it stops the sound and lets
+/// go of the output.</summary>
 public sealed class AirAudio : IAsyncDisposable
 {
     private readonly EngineCore _engine;
@@ -48,13 +51,24 @@ public sealed class AirAudio : IAsyncDisposable
         }
     }
 
-    /// <summary>Why the wanted item has no sound ("" when it plays or nothing is wanted).</summary>
+    /// <summary>Why the wanted item has no sound ("" when it plays or nothing is wanted): its file cannot sound, or its anchor runs
+    /// at a rate sound does not play (<see cref="AudioOut.Plays"/>).</summary>
     public string Problem
     {
         get
         {
+            (string PlaylistId, string ItemId, string MediaId) playing;
             lock (_gate)
-                return _problem;
+            {
+                if (_problem.Length > 0 || _playing is not { } item)
+                    return _problem;
+                playing = item;
+            }
+            var rate = AnchorOf(playing.PlaylistId, playing.ItemId).Rate;
+            return AudioOut.Plays(rate)
+                ? ""
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"sound plays at {AudioOut.MinRate:0.###}× to {AudioOut.MaxRate:0.###}×: the item runs at {rate:0.###}×, so it is silent");
         }
     }
 

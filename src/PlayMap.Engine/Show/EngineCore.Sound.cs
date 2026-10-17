@@ -14,14 +14,14 @@ public sealed partial class EngineCore
     public AirAudio? AirSound => Volatile.Read(ref _airAudio);
 
     /// <summary>Plays the on-air item's sound through <paramref name="output"/> (the caller disposes what this answers; that lets
-    /// the output go). A second start replaces the first, which stops following the show. The output runs on the node's own clock
-    /// (<see cref="EngineServices.Mono"/>, the one the network clock maps to the leader's): an output on any other is refused, since
-    /// its instants would name no leader instant.</summary>
+    /// the output go). A second start replaces the first, which stops following the show. The output runs on the local clock of
+    /// the node's network clock (<see cref="EngineServices.Clock"/>'s <see cref="Core.Time.NetworkClock.Local"/>, the one it maps
+    /// to the leader's): an output on any other is refused, since its instants would name no leader instant.</summary>
     public AirAudio StartAirAudio(AudioOut output)
     {
         ArgumentNullException.ThrowIfNull(output);
         if (!ReferenceEquals(output.Clock, Services.Clock.Local))
-            throw new ArgumentException("the air's sound runs on the node's own clock (EngineServices.Mono)", nameof(output));
+            throw new ArgumentException("the air's sound runs on the local clock of the node's network clock (EngineServices.Clock.Local)", nameof(output));
         var sound = new AirAudio(this, output);
         Volatile.Write(ref _airAudio, sound);
         FactsChanged();

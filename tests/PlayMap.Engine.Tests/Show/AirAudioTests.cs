@@ -174,6 +174,41 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         return Allocations.Since(before);
     });
 
+    /// <summary>Sound plays an item at 0.5× to 2×: at a rate beyond that range the item is silent and STATE.show.sound.problem says
+    /// why, with the item still the one on the air; back in range it sounds again from its place on the anchor.</summary>
+    [Fact]
+    public async Task AnItemAtARateSoundDoesNotPlayIsSilentAndSaysWhy()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable)))
+            Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
+        Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
+        await using var rig = new ShowRig(ToneShow());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback(rig.Clock));
+        var output = sound.Output;
+        var buffer = new float[Block * FfmpegAudioDecoder.Channels];
+        await rig.Ok("PLAYLIST GO pl_show");
+        Assert.True(await ShowRig.Eventually(() => sound.ItemId == "it_tone"), sound.Problem);
+        for (var i = 0; i < 20; i++)
+            Pull(rig, output, buffer);
+        Assert.InRange(Pull(rig, output, buffer), 0.35, 0.36);
+
+        await rig.Ok("VIDEO RATE 4 ON pl_show");
+        Pull(rig, output, buffer);
+        for (var i = 0; i < 4; i++)
+            Assert.True(Pull(rig, output, buffer) < 1e-4, "the item sounded at 4×");
+        var said = rig.Show().GetProperty("sound");
+        Assert.Equal("it_tone", said.GetProperty("item").GetString());
+        Assert.Contains("4×", said.GetProperty("problem").GetString(), StringComparison.Ordinal);
+        Assert.Equal(0, output.Resyncs);
+
+        await rig.Ok("VIDEO RATE 1 ON pl_show");
+        Pull(rig, output, buffer);
+        Assert.InRange(Pull(rig, output, buffer), 0.35, 0.36);
+        Assert.Equal(("it_tone", ""), (sound.ItemId, rig.Show().GetProperty("sound").GetProperty("problem").GetString()));
+        Assert.Equal(1, output.Resyncs);
+        Assert.InRange(Math.Abs(output.LastErrorMs), 0, 1);
+    }
+
     /// <summary>The air's sound runs on the node's own clock: an output on another clock names no leader instant, so it is refused
     /// and the node plays no sound.</summary>
     [Fact]
