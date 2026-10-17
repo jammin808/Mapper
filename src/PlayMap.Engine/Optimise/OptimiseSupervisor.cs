@@ -104,6 +104,8 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
             foreach (var a in options.Worker.Prefix)
                 info.ArgumentList.Add(a);
             info.ArgumentList.Add(OptimiseWorker.Word);
+            info.ArgumentList.Add(OptimiseWorker.PriorityWord);
+            info.ArgumentList.Add(options.WorkerPriority.ToString());
             var p = new Process { StartInfo = info, EnableRaisingEvents = true };
             try
             {

@@ -21,6 +21,27 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
 {
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 
+    /// <summary>On a node the worker takes a priority below the show's (the encode yields the CPU to the air): the node's default, and
+    /// what a worker started with it runs at.</summary>
+    [FfmpegFact]
+    public async Task TheWorkerRunsBelowTheShowsPriority()
+    {
+        Assert.Equal(ProcessPriorityClass.BelowNormal, new OptimiseOptions().WorkerPriority);
+        Assert.Equal(ProcessPriorityClass.BelowNormal, OptimiseWorker.PriorityOf([OptimiseWorker.Word]));
+        Assert.Equal(ProcessPriorityClass.Normal, OptimiseWorker.PriorityOf([OptimiseWorker.Word, OptimiseWorker.PriorityWord, "Normal"]));
+        await using var rig = OptimiseRig.Start(options: OptimiseRig.Options() with { WorkerPriority = new OptimiseOptions().WorkerPriority });
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10), "Clip");
+        using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
+        await rig.Until(() => rig.Service.View.Pid is not null, "the worker");
+        using var worker = Process.GetProcessById(rig.Service.View.Pid!.Value);
+        // Its first act is to lower itself.
+        await rig.Until(() =>
+        {
+            worker.Refresh();
+            return worker.PriorityClass == ProcessPriorityClass.BelowNormal;
+        }, "the worker below normal");
+    }
+
     [FfmpegFact]
     public async Task AnImportUnderAutoBecomesAVerifiedHapQVersionThatPlaysOnTheGpuWithTheSourcesAudio()
     {
@@ -202,7 +223,7 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
     public async Task AJobThatMayNotRunAgainFailsWithWordsWhenItsWorkerIsKilled()
     {
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Outputs = [Rendering.HostRig.Screen("op_1", SourceRef.None, 320, 180)] },
-            options: new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), MaxAttempts = 1 });
+            options: OptimiseRig.Options() with { MaxAttempts = 1 });
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;

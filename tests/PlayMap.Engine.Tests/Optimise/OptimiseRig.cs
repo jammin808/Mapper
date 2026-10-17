@@ -42,6 +42,12 @@ internal sealed class OptimiseRig : IAsyncDisposable
     public RenderHost? Host { get; }
     public NodeHome Home => new(Path.Combine(Dir.FullName, "node"));
 
+    /// <summary>The rig's optimise options. Its worker runs at the suite's own priority: on a node the worker yields the CPU to the
+    /// air (below normal), but here what it would yield to is the rest of the test suite, and a job that waits for every parallel test
+    /// measures the suite, not the job. TheWorkerRunsBelowTheShowsPriority holds the node's default.</summary>
+    public static OptimiseOptions Options() =>
+        new() { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100), WorkerPriority = System.Diagnostics.ProcessPriorityClass.Normal };
+
     public static OptimiseRig Start(Project? project = null, bool render = false, OptimiseOptions? options = null,
         Func<OptimiseNodeSettings, OptimiseNodeSettings>? settings = null, DirectoryInfo? dir = null, Core.Led.ILedOutput? led = null)
     {
@@ -54,7 +60,7 @@ internal sealed class OptimiseRig : IAsyncDisposable
         // (it asks for one through settings).
         var node = OptimiseNodeSettings.Default with { MinFreeGb = 0, PauseAfterDropS = 0 };
         var service = new OptimiseService(home, settings?.Invoke(node) ?? node, NullLogger.Instance,
-            options ?? new OptimiseOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Step = TimeSpan.FromMilliseconds(100) });
+            options ?? Options());
         RenderHost? host = null;
         if (render)
             host = RenderHost.TryCreate(RenderHostOptions.Default with { Windows = false }, out var why) ?? throw new InvalidOperationException("no render host: " + why);
