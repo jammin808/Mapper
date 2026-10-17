@@ -139,9 +139,9 @@ jobs:
           $clang = (Get-Command clang.exe -ErrorAction SilentlyContinue).Source
           if (-not $clang) {
             $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-            $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe'
+            if ($vs) { $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe' }
           }
-          if (-not (Test-Path $clang)) { throw "no clang on the runner (LLVM, or Visual Studio's C++ Clang tools)" }
+          if (-not $clang -or -not (Test-Path $clang)) { throw "no clang on the runner (LLVM, or Visual Studio's C++ Clang tools)" }
           $clangxx = Join-Path (Split-Path $clang) 'clang++.exe'
           if (-not (Test-Path $clangxx)) { throw "no clang++ beside $clang" }
           & $clang --version
