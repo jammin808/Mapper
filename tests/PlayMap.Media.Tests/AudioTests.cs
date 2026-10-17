@@ -381,6 +381,167 @@ public class AudioTests(ITestOutputHelper log)
         Assert.Equal((1.0, 0L), (output.Pitch, output.Resyncs));
     }
 
+    /// <summary>A pulled null output on a hand-moved clock, playing tone48.wav slaved to a timeline the test moves; started at 5 s.</summary>
+    private sealed class PulledRig : IDisposable
+    {
+        public const long Start = 5_000_000_000;
+        public readonly ManualClock Clock = new(Start);
+        public readonly FfmpegAudioDecoder Decoder;
+        public readonly AudioOut Out;
+        public TimelineAnchor Anchor = new(0, Start, 1, true);
+
+        public PulledRig()
+        {
+            TestMedia.Ensure();
+            Decoder = new FfmpegAudioDecoder(TestMedia.Clip("tone48.wav"));
+            Out = AudioOut.OpenNullPulled("tests have no sound card", Clock);
+            Out.Play(Decoder, new AnchorTimeline(() => Anchor));
+            Out.Service();
+        }
+
+        /// <summary>Moves the clock on, then one service step at that instant.</summary>
+        public void Step(long ns = BlockNs)
+        {
+            Clock.Advance(ns);
+            Out.Service();
+        }
+
+        public void Dispose()
+        {
+            Out.Dispose();
+            Decoder.Dispose();
+        }
+    }
+
+    /// <summary>A pause between two steps: the null output's playhead holds at the paused timeline's media time (it plays on to it,
+    /// consuming the whole frames before it), so the step that resumes finds the audio clock on the timeline, with nothing to steer.</summary>
+    [Fact]
+    public void APauseBetweenStepsHoldsTheNullPlayheadWhereTheTimelinePaused()
+    {
+        using var rig = new PulledRig();
+        rig.Step();
+        rig.Anchor = rig.Anchor.Pause(PulledRig.Start + 13_000_000);
+        rig.Step();
+        Assert.Equal((13_000_000L, 624L), (rig.Out.AudioClockNs, rig.Out.FramesFed));
+        rig.Step(80_000_000);
+        rig.Anchor = rig.Anchor.Resume(rig.Clock.NowNs);
+        rig.Out.Service();
+        Assert.Equal((13_000_000L, 0.0, 624L), (rig.Out.AudioClockNs, rig.Out.LastErrorMs, rig.Out.FramesFed));
+        for (var i = 0; i < 3; i++)
+            rig.Step();
+        Assert.Equal((43_000_000L, 0.0, 2_064L, 1.0, 0L), (rig.Out.AudioClockNs, rig.Out.LastErrorMs, rig.Out.FramesFed, rig.Out.Pitch, rig.Out.Resyncs));
+    }
+
+    /// <summary>A rate set at either end of the range sound plays at, between two steps: the playhead ran at the old rate until the
+    /// step that saw it, and the correction has its room beyond the end to win that back.</summary>
+    [Theory]
+    [InlineData(2.0)]
+    [InlineData(0.5)]
+    public void ARateAtEitherEndOfTheRangeIsSteeredBackOntoTheTimeline(double rate)
+    {
+        using var rig = new PulledRig();
+        rig.Step();
+        rig.Anchor = rig.Anchor.WithRate(rate, PulledRig.Start + 12_000_000);
+        for (var i = 0; i < 600; i++)
+            rig.Step();
+        Assert.True(Math.Abs(rig.Out.LastErrorMs) < 0.25, $"{rig.Out.LastErrorMs} ms off the timeline at pitch {rig.Out.Pitch}");
+        Assert.InRange(rig.Out.Pitch, rate * 0.9995, rate * 1.0005);
+        Assert.Equal(0, rig.Out.Resyncs);
+    }
+
+    /// <summary>A timeline at a rate the output does not play (beyond 0.5–2) holds the output silent, as a pause does: nothing is
+    /// consumed and nothing resyncs while it lasts; back in range, the output resyncs once onto the timeline.</summary>
+    [Fact]
+    public void ARateBeyondTheRangeHoldsTheOutputAndBackInRangeItResyncsOnce()
+    {
+        using var rig = new PulledRig();
+        rig.Step();
+        rig.Anchor = rig.Anchor.WithRate(4, rig.Clock.NowNs);
+        for (var i = 0; i < 20; i++)
+            rig.Step();
+        Assert.Equal((10_000_000L, 480L, 0L), (rig.Out.AudioClockNs, rig.Out.FramesFed, rig.Out.Resyncs));
+        rig.Anchor = rig.Anchor.WithRate(1, rig.Clock.NowNs);
+        rig.Step();
+        Assert.Equal((1L, 0.0, 1.0), (rig.Out.Resyncs, rig.Out.LastErrorMs, rig.Out.Pitch));
+        Assert.Equal(rig.Anchor.MediaAt(rig.Clock.NowNs), rig.Out.AudioClockNs);
+    }
+
+    /// <summary>A clock read before the null output's last step (a hand-moved clock; the machine's never runs back) leaves the playhead
+    /// where it is: it never runs back over the frames it consumed.</summary>
+    [Fact]
+    public void AClockReadBeforeTheLastStepLeavesThePlayheadOnItsFrames()
+    {
+        using var rig = new PulledRig();
+        rig.Step();
+        rig.Step(-5_000_000);
+        Assert.Equal((10_000_000L, 480L, 480L), (rig.Out.AudioClockNs, rig.Out.FramesFed, rig.Decoder.PositionSamples));
+    }
+
+    /// <summary>A step after a gap longer than the steering window (a thread that did not run for a second) passes the frames the gap
+    /// holds by a seek instead of decoding them all inside that one step.</summary>
+    [Fact]
+    public void AStepAfterAGapLongerThanTheWindowSeeksInsteadOfDecodingTheGap()
+    {
+        using var rig = new PulledRig();
+        rig.Step();
+        var decoded = rig.Decoder.FramesDecoded;
+        rig.Step(1_000_000_000);
+        Assert.True(rig.Decoder.FramesDecoded - decoded <= FfmpegAudioDecoder.NsToSample(rig.Out.HardResyncNs),
+            $"one step decoded {rig.Decoder.FramesDecoded - decoded} frames");
+        Assert.Equal((1_010_000_000L, 48_480L, 48_480L, 0L), (rig.Out.AudioClockNs, rig.Out.FramesFed, rig.Decoder.PositionSamples, rig.Out.Resyncs));
+        rig.Step();
+        Assert.Equal((1_020_000_000L, 48_960L, 48_960L), (rig.Out.AudioClockNs, rig.Out.FramesFed, rig.Decoder.PositionSamples));
+    }
+
+    /// <summary>A timeline whose lookup takes time, during which the loopback's device plays on (a slow lookup; a thread descheduled
+    /// inside a step).</summary>
+    private sealed class SlowTimeline(Func<TimelineAnchor> anchor, ManualClock clock) : IAudioTimeline
+    {
+        public AudioOut? Out { get; set; }
+
+        /// <summary>How long the next lookup takes.</summary>
+        public long NextNs { get; set; }
+
+        public TimelinePosition At(long localNs)
+        {
+            var position = AnchorTimeline.Position(anchor(), localNs);
+            if (NextNs > 0 && Out is not null)
+            {
+                Out.Pull(new float[FfmpegAudioDecoder.NsToSample(NextNs) * FfmpegAudioDecoder.Channels]);
+                clock.Advance(NextNs);
+                NextNs = 0;
+            }
+            return position;
+        }
+    }
+
+    /// <summary>A device's position and its step's instant are read together, before the step asks the timeline: a device that plays
+    /// on while the step asks is compared with the timeline at the instant its position was read, so the step sees no error the device
+    /// and the timeline do not have.</summary>
+    [Fact]
+    public void ADeviceThatPlaysOnWhileAStepAsksTheTimelineIsComparedAtItsOwnInstant()
+    {
+        TestMedia.Ensure();
+        var clock = new ManualClock(1_000_000_000);
+        using var output = AudioOut.OpenLoopback(clock);
+        using var decoder = new FfmpegAudioDecoder(TestMedia.Clip("tone48.wav"));
+        var anchor = new TimelineAnchor(0, clock.NowNs, 1, true);
+        var timeline = new SlowTimeline(() => anchor, clock) { Out = output };
+        output.Play(decoder, timeline);
+        var buffer = new float[Block * 2];
+        for (var i = 0; i < 10; i++)
+        {
+            output.Render(buffer);
+            clock.Advance(BlockNs);
+        }
+        // Between steps the audio clock is the media time of the frames the device has played.
+        Assert.Equal((100_000_000L, 0.0, 1.0, 0L), (output.AudioClockNs, output.LastErrorMs, output.Pitch, output.Resyncs));
+        timeline.NextNs = 20_000_000;
+        output.Render(buffer);
+        Assert.Equal((0.0, 1.0, 0L), (output.LastErrorMs, output.Pitch, output.Resyncs));
+        Assert.Equal(130_000_000L, output.AudioClockNs);
+    }
+
     /// <summary>The machine's output — a device where OpenAL Soft opens one (WASAPI on Windows, PulseAudio or ALSA on Linux), else
     /// the null one it falls back to — is serviced on its own thread through the same step: each step reads the output's clock once
     /// and asks the timeline about that instant, and no other.</summary>
@@ -396,6 +557,8 @@ public class AudioTests(ITestOutputHelper log)
         var anchor = new TimelineAnchor(0, clock.NowNs, 1, true);
         var before = clock.Reads;
         using var timeline = new WatchedTimeline(() => anchor, clock);
+        // Silent on a machine with speakers: the step is the same at any gain.
+        output.Volume = 0;
         output.Play(decoder, timeline);
         // Twenty steps of its thread; stopped under the output's gate, so no step is under way once Stop returns.
         Assert.True(timeline.AskedAt(anchor.LeaderNs + 100_000_000), $"the {output.Mode} output's thread did not step");

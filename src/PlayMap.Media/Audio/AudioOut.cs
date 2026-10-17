@@ -51,20 +51,30 @@ public enum AudioOutMode
     Null,
 }
 
-/// <summary>Audio slaved to a timeline. Each service step reads the output's clock once and compares, at that one instant, the
-/// audio clock (the media time of the sample at the output) with the timeline: within the hard-resync window the playback rate is
-/// nudged by at most ±0.5 % (the source's pitch, a resample) so the clock converges and stays within ±10 ms; beyond it (a seek, a
-/// jump, a resume elsewhere) the output resyncs hard: queue dropped, decoder seeked to the timeline, refilled. Every mode runs
-/// this one step: a device's thread (OpenAL Soft over WASAPI, PulseAudio, ALSA or CoreAudio), the loopback's pull, the null
-/// output's thread. The null output's playhead is a function of its clock — the media time at the step that last set its rate,
-/// plus the time since at that rate — so a step consumes the whole frames up to its instant and carries the part of a frame
-/// after them: no step loses or invents a frame, wherever the clock steps. The decoder is the caller's; this class only reads it,
-/// on the thread that services the output.</summary>
+/// <summary>Audio slaved to a timeline. Each service step reads the output's clock once — a device's position (the media time of
+/// the sample at its output) read together with it, before anything else the step does — and compares the audio clock with the
+/// timeline at that one instant: within the hard-resync window the playback rate is nudged by at most ±0.5 % (the source's pitch,
+/// a resample) so the clock converges and stays within ±10 ms; beyond it (a seek, a jump, a resume elsewhere) the output resyncs
+/// hard: queue dropped, decoder seeked to the timeline, refilled. Sound plays rates from <see cref="MinRate"/> to
+/// <see cref="MaxRate"/>, with the correction's room beyond either end; at any other rate, as while the timeline is paused, the
+/// output holds silent. Every mode runs this one step: a device's thread (OpenAL Soft over WASAPI, PulseAudio, ALSA or
+/// CoreAudio), the loopback's pull, the null output's thread. The null output's playhead is a function of its clock — the media
+/// time at the instant its rate was last set, plus the time since at that rate, never run back by a clock read before its last
+/// step — so a step consumes the whole frames up to its instant and carries the part of a frame after them: no step loses or
+/// invents a frame, wherever the clock steps. While the timeline is paused the playhead holds at the paused media time; a step
+/// whose frames span more than the hard-resync window passes them by a seek, so no step decodes more than the window. The
+/// decoder is the caller's; this class only reads it, on the thread that services the output.</summary>
 public sealed unsafe class AudioOut : IDisposable
 {
     public const int BlockFrames = 480;
     public const int QueueBlocks = 4;
     public const double MaxCorrection = 0.005;
+
+    /// <summary>The slowest rate sound plays (its pitch may go <see cref="MaxCorrection"/> below it to steer).</summary>
+    public const double MinRate = 0.5;
+
+    /// <summary>The fastest rate sound plays (its pitch may go <see cref="MaxCorrection"/> above it to steer).</summary>
+    public const double MaxRate = 2.0;
 
     private const int AlFormatStereoFloat32 = 0x10011;
     private const int AlcFormatChannelsSoft = 0x1990;
@@ -99,7 +109,8 @@ public sealed unsafe class AudioOut : IDisposable
     private long _nullPosition;   // null mode: the frames consumed (the sample at the output)
     private long _nullBaseNs;     // null mode: the instant the playhead's rate was last set
     private double _nullBaseMediaNs; // null mode: the playhead's media time at that instant
-    private double _nullHeadNs;   // null mode: the playhead's media time at the last step
+    private double _nullHeadNs;   // null mode: the playhead's media time at _nullAtNs
+    private long _nullAtNs;       // null mode: the latest instant a step put the playhead at
     private double _pitch = 1;
     private float _volume = 1;
     private bool _volumeDirty;
@@ -156,6 +167,9 @@ public sealed unsafe class AudioOut : IDisposable
                 return _pitch;
         }
     }
+
+    /// <summary>True when sound plays <paramref name="rate"/> (<see cref="MinRate"/> to <see cref="MaxRate"/>).</summary>
+    public static bool Plays(double rate) => rate is >= MinRate and <= MaxRate;
 
     /// <summary>Hard resyncs so far (jumps, seeks, resumes elsewhere).</summary>
     public long Resyncs => Interlocked.Read(ref _resyncs);
@@ -289,13 +303,21 @@ public sealed unsafe class AudioOut : IDisposable
         }
     }
 
-    /// <summary>The media time of the sample at the output now (or −1 when nothing plays).</summary>
+    /// <summary>The media time of the sample at the output now (or −1 when nothing plays): a device's read with its context current
+    /// on the calling thread.</summary>
     public long AudioClockNs
     {
         get
         {
             lock (_gate)
-                return _decoder is null || !_started ? -1 : ClockLocked();
+            {
+                if (_decoder is null || !_started)
+                    return -1;
+                if (Mode == AudioOutMode.Null)
+                    return ClockLocked();
+                using (Use())
+                    return ClockLocked();
+            }
         }
     }
 
@@ -313,6 +335,20 @@ public sealed unsafe class AudioOut : IDisposable
                 fixed (float* p = output)
                     _renderSamples(_device, p, output.Length / FfmpegAudioDecoder.Channels);
             }
+        }
+    }
+
+    /// <summary>Loopback only: the device plays <c>output.Length / 2</c> stereo frames of the mix with no service step (tests: a device
+    /// that plays on while a step runs).</summary>
+    internal void Pull(Span<float> output)
+    {
+        if (Mode != AudioOutMode.Loopback)
+            throw new InvalidOperationException("Pull mixes a loopback output only");
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            fixed (float* p = output)
+                _renderSamples(_device, p, output.Length / FfmpegAudioDecoder.Channels);
         }
     }
 
@@ -367,49 +403,68 @@ public sealed unsafe class AudioOut : IDisposable
             OpenAlLibrary.Al.SetSourceProperty(_source, SourceFloat.Gain, _volume);
             _volumeDirty = false;
         }
-        // The one instant of this step: the timeline is read at it, and the null output's playhead is there.
+        // The one instant of this step, read right after a device's position and before anything else: the timeline is asked about
+        // it, the device's position is compared there, and the null output's playhead is there.
+        var played = Mode == AudioOutMode.Null ? 0 : DevicePositionLocked();
         var at = _clock.NowNs;
         var now = timeline.At(at);
-        if (!now.Running)
+        if (!now.Running || !Plays(now.Rate))
         {
-            if (_started && !_paused)
-            {
-                _paused = true;
-                if (Mode != AudioOutMode.Null)
-                    OpenAlLibrary.Al.SourcePause(_source);
-            }
+            HoldLocked(decoder, now, at);
             return;
         }
-        var rate = now.Rate > 0 && double.IsFinite(now.Rate) ? now.Rate : 1;
         if (!_started)
         {
-            HardSyncLocked(decoder, now.MediaNs, rate, at, counted: false);
+            HardSyncLocked(decoder, now.MediaNs, now.Rate, at, counted: false);
             return;
         }
         if (_paused)
         {
-            // The playhead held while paused: it runs on from here.
+            // The playhead held while the output held: it runs on from here.
             _paused = false;
-            _nullBaseNs = at;
+            _nullAtNs = Math.Max(at, _nullAtNs);
+            _nullBaseNs = _nullAtNs;
             _nullBaseMediaNs = _nullHeadNs;
             if (Mode != AudioOutMode.Null)
                 OpenAlLibrary.Al.SourcePlay(_source);
         }
         if (Mode == AudioOutMode.Null)
-            AdvanceNullLocked(decoder, at);
-        else
-            ReclaimLocked();
-        var error = ClockLocked() - now.MediaNs;
+            played = AdvanceNullLocked(decoder, at);
+        var error = played - now.MediaNs;
         _lastErrorMs = error / 1e6;
         if (Math.Abs(error) > HardResyncNs)
         {
-            HardSyncLocked(decoder, now.MediaNs, rate, at, counted: true);
+            HardSyncLocked(decoder, now.MediaNs, now.Rate, at, counted: true);
             return;
         }
+        // The rate is in the range sound plays, so the pitch stays within its correction of that range.
         var correction = Math.Clamp(error / 1e9 * Gain, -MaxCorrection, MaxCorrection);
-        SetPitchLocked(rate * (1 - correction), at);
+        SetPitchLocked(now.Rate * (1 - correction));
         if (Mode != AudioOutMode.Null)
             RefillLocked(decoder);
+    }
+
+    // The timeline does not run, or runs at a rate sound does not play: the output holds silent. The null output's playhead holds
+    // at a paused timeline's media time: a step plays it on to there (consuming the whole frames before it) when that is ahead of
+    // it within the hard-resync window, so the step that resumes finds the audio clock on the timeline; it never runs back.
+    private void HoldLocked(FfmpegAudioDecoder decoder, TimelinePosition now, long at)
+    {
+        if (!_started)
+            return;
+        if (!_paused)
+        {
+            _paused = true;
+            if (Mode != AudioOutMode.Null)
+                OpenAlLibrary.Al.SourcePause(_source);
+        }
+        if (Mode != AudioOutMode.Null || now.Running)
+            return;
+        var ahead = now.MediaNs - _nullHeadNs;
+        if (ahead <= 0 || ahead > HardResyncNs)
+            return;
+        _nullHeadNs = now.MediaNs;
+        _nullAtNs = Math.Max(at, _nullAtNs);
+        ConsumeNullLocked(decoder);
     }
 
     private void HardSyncLocked(FfmpegAudioDecoder decoder, long mediaNs, double rate, long at, bool counted)
@@ -420,12 +475,13 @@ public sealed unsafe class AudioOut : IDisposable
         _headSample = decoder.PositionSamples;
         _nullPosition = _headSample;
         _nullHeadNs = _headSample * 1e9 / FfmpegAudioDecoder.SampleRate;
+        _nullAtNs = at;
         _nullBaseNs = at;
         _nullBaseMediaNs = _nullHeadNs;
         _started = true;
         _paused = false;
         _lastErrorMs = 0;
-        SetPitchLocked(rate, at);
+        SetPitchLocked(rate);
         if (Mode == AudioOutMode.Null)
             return;
         var al = OpenAlLibrary.Al;
@@ -438,21 +494,27 @@ public sealed unsafe class AudioOut : IDisposable
         al.SourcePlay(_source);
     }
 
-    // A new rate from instant at on: the null output's playhead runs on from where it is at that instant (its step has consumed up
-    // to it), so the part of a frame it holds carries over.
-    private void SetPitchLocked(double pitch, long at)
+    // A new rate from the null output's playhead on: it runs on from where it is at its instant (its step has consumed up to it),
+    // so the part of a frame it holds carries over.
+    private void SetPitchLocked(double pitch)
     {
-        var p = Math.Clamp(pitch, 0.5, 2.0);
-        if (Math.Abs(p - _pitch) < 1e-7)
+        if (Math.Abs(pitch - _pitch) < 1e-7)
             return;
-        _pitch = p;
+        _pitch = pitch;
         if (Mode != AudioOutMode.Null)
         {
-            OpenAlLibrary.Al.SetSourceProperty(_source, SourceFloat.Pitch, (float)p);
+            OpenAlLibrary.Al.SetSourceProperty(_source, SourceFloat.Pitch, (float)pitch);
             return;
         }
-        _nullBaseNs = at;
+        _nullBaseNs = _nullAtNs;
         _nullBaseMediaNs = _nullHeadNs;
+    }
+
+    // A device's position now: its played buffers unqueued, then the media time of the sample at its output.
+    private long DevicePositionLocked()
+    {
+        ReclaimLocked();
+        return ClockLocked();
     }
 
     // Unqueues played buffers; the queue's head moves on by their frames.
@@ -490,17 +552,38 @@ public sealed unsafe class AudioOut : IDisposable
             al.SourcePlay(_source);
     }
 
-    // The null output's consumption: its playhead at instant at (the media time at its base plus the time since at its rate), and
-    // the whole frames before it; what is less than a frame stays in the playhead for the next step.
-    private void AdvanceNullLocked(FfmpegAudioDecoder decoder, long at)
+    // The null output's playhead at instant at: the media time at its base plus the time since at its rate. A clock read at or
+    // before the playhead's instant leaves it where it is. Answers the audio clock.
+    private long AdvanceNullLocked(FfmpegAudioDecoder decoder, long at)
     {
-        if (at <= _nullBaseNs)
-            return;
-        _nullHeadNs = _nullBaseMediaNs + (at - _nullBaseNs) * _pitch;
+        if (at > _nullAtNs)
+        {
+            _nullAtNs = at;
+            _nullHeadNs = _nullBaseMediaNs + (at - _nullBaseNs) * _pitch;
+            ConsumeNullLocked(decoder);
+        }
+        return (long)Math.Round(_nullHeadNs);
+    }
+
+    // The whole frames before the null output's playhead are consumed; what is less than a frame stays in the playhead for the
+    // next step. Frames spanning more than the hard-resync window (a thread that did not step for that long) are passed by a seek,
+    // never decoded inside one step.
+    private void ConsumeNullLocked(FfmpegAudioDecoder decoder)
+    {
         var whole = (long)Math.Floor(_nullHeadNs * FfmpegAudioDecoder.SampleRate / 1e9);
-        if (whole <= _nullPosition)
+        var gap = whole - _nullPosition;
+        if (gap <= 0)
             return;
-        var done = decoder.Skip(whole - _nullPosition);
+        long done;
+        if (gap > FfmpegAudioDecoder.NsToSample(HardResyncNs))
+        {
+            decoder.Seek(FfmpegAudioDecoder.SampleToNs(whole));
+            done = decoder.DurationNs > 0 ? Math.Clamp(FfmpegAudioDecoder.NsToSample(decoder.DurationNs) - _nullPosition, 0, gap) : gap;
+        }
+        else
+        {
+            done = decoder.Skip(gap);
+        }
         _nullPosition = whole;
         Interlocked.Add(ref _framesFed, done);
     }

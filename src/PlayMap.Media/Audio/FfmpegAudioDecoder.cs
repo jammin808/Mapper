@@ -86,6 +86,10 @@ public sealed unsafe class FfmpegAudioDecoder : IDisposable
     /// <summary>True when every sample has been read.</summary>
     public bool EndOfStream => _flushed && _fifoCount == 0;
 
+    /// <summary>The frames decoded since open (resampled into the read queue): the work the reads and skips did; a seek decodes
+    /// nothing until the next read.</summary>
+    internal long FramesDecoded { get; private set; }
+
     public static long SampleToNs(long sample) => (long)Math.Round(sample * 1e9 / SampleRate);
 
     public static long NsToSample(long ns) => (long)Math.Round(ns * (SampleRate / 1e9));
@@ -209,7 +213,10 @@ public sealed unsafe class FfmpegAudioDecoder : IDisposable
         var dst = (byte*)(_fifo + (nint)(_fifoStart + _fifoCount) * Channels);
         var got = ffmpeg.swr_convert(_swr, &dst, outMax, frame->extended_data, frame->nb_samples);
         if (got > 0)
+        {
             _fifoCount += got;
+            FramesDecoded += got;
+        }
         TrimToTarget();
     }
 
@@ -242,7 +249,10 @@ public sealed unsafe class FfmpegAudioDecoder : IDisposable
         var dst = (byte*)(_fifo + (nint)(_fifoStart + _fifoCount) * Channels);
         var got = ffmpeg.swr_convert(_swr, &dst, outMax, null, 0);
         if (got > 0)
+        {
             _fifoCount += got;
+            FramesDecoded += got;
+        }
         TrimToTarget();
     }
 
