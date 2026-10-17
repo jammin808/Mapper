@@ -133,6 +133,9 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     private string? _runningScanId;
     private Task? _task;
     private volatile ScanView? _view;
+
+    /// <summary>The run started last (under the gate): only its ending is published.</summary>
+    private Track? _latest;
     private volatile ScanProgress? _current;
 
     /// <summary>Set under the gate once <see cref="StopAsync"/> has begun: no scan starts from then on.</summary>
@@ -258,6 +261,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             }
             var token = cts.Token;
             track = new Track(this, setup);
+            _latest = track;
             if (setup.Into is { } joining)
                 track.Joins(joining);
             // The scan's task is known with the scan (a stop that sees one sees the other); it starts once its first step is out.
@@ -319,15 +323,22 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         }
     }
 
-    private void Publish(ScanView view)
+    /// <summary>Publishes a scan's step; a run's ending (<paramref name="endOf"/>) only while that run is still the latest started —
+    /// the end of a run another SCAN START followed (in the moment between the slot's release and the ending) is never shown over the
+    /// newer scan.</summary>
+    private void Publish(ScanView view, Track? endOf = null)
     {
-        _view = view;
-        _current = new ScanProgress(view.State, view.ProjectorId, view.Pattern, view.Patterns, Math.Round(view.Quality * 100, 1),
-            view.Message.Length > 0 ? view.Message : view.Stage);
-        // The node's facts move first, so whoever hears of this step and reads STATE reads this step.
         EngineCore? engine;
         lock (_gate)
+        {
+            if (endOf is not null && !ReferenceEquals(endOf, _latest))
+                return;
+            _view = view;
+            _current = new ScanProgress(view.State, view.ProjectorId, view.Pattern, view.Patterns, Math.Round(view.Quality * 100, 1),
+                view.Message.Length > 0 ? view.Message : view.Stage);
             engine = _engine;
+        }
+        // The node's facts move first, so whoever hears of this step and reads STATE reads this step.
         engine?.FactsChanged();
         Progressed?.Invoke(view);
     }
@@ -512,10 +523,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                     return;
                 end = kept;
             }
-            Show(end.State, end.Message);
+            Show(end.State, end.Message, ending: true);
         }
 
-        private void Show(string state, string message)
+        private void Show(string state, string message, bool ending)
         {
             lock (_gate)
             {
@@ -537,10 +548,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 }
                 _projector = null;
             }
-            Publish(state);
+            Publish(state, ending);
         }
 
-        private void Publish(string state)
+        private void Publish(string state, bool ending = false)
         {
             ScanView view;
             lock (_gate)
@@ -549,7 +560,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                     [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
                     _regions, _projector) { Pairing = _pairing, ViewId = _viewId ?? setup.ViewId, Views = _views, Coverage = _coverage };
             }
-            runner.Publish(view);
+            runner.Publish(view, ending ? this : null);
         }
     }
 
