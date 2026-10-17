@@ -138,7 +138,9 @@ public sealed partial class ComputeTests
         Assert.Empty(missing);
     }
 
-    [GeneratedRegex(@"Task\.Run(<[^>]+>)?\(|Task\.Factory\.StartNew(<[^>]+>)?\(|ThreadPool\.(Unsafe)?QueueUserWorkItem(<[^>]+>)?\(")]
+    /// <summary>Work handed the shared pool: a run (any result type), a factory start, a work item, a continuation (on the pool unless
+    /// handed another scheduler), a task started on the default scheduler.</summary>
+    [GeneratedRegex(@"\bTask\.Run\b|\bTask\.Factory\.StartNew\b|\bThreadPool\.(Unsafe)?QueueUserWorkItem\b|\.ContinueWith\b|\.Start\(TaskScheduler\.Default\)")]
     private static partial Regex PoolJob();
 
     /// <summary>The work each product file hands the shared pool, read and found to be no CPU job: a loop that waits on sockets, timers
@@ -161,16 +163,20 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Companion/Announcer.cs"] = 1, // announce loop
         ["PlayMap.Engine/Companion/CompanionParts.cs"] = 2, // facts handed on
         ["PlayMap.Engine/Companion/ThumbnailService.cs"] = 1, // a source opened and waited for (its encode through Compute)
-        ["PlayMap.Engine/Control/ControlService.cs"] = 2, // input loop, ticker
+        ["PlayMap.Engine/Control/ControlService.cs"] = 3, // input loop, ticker, an LTC input opened or closed after the one before
         ["PlayMap.Engine/EngineCore.Audio.cs"] = 1, // listen loop
-        ["PlayMap.Engine/EngineCore.BlendSolve.cs"] = 1, // the solver's async run (its solve through Compute)
+        ["PlayMap.Engine/EngineCore.BlendSolve.cs"] = 3, // the solver's async run (its solve through Compute), its end posted to the lane, the wait for it
+        ["PlayMap.Engine/EngineCore.Content.cs"] = 3, // a scan's, an import's and a fetch's end journalled
         ["PlayMap.Engine/EngineCore.Mapping.cs"] = 1, // a mesh written
         ["PlayMap.Engine/EngineCore.Optimise.cs"] = 1, // probes read
-        ["PlayMap.Engine/Fleet/BackupNode.cs"] = 2, // takeover steps
+        ["PlayMap.Engine/EngineCore.Router.cs"] = 1, // a network verb's end journalled
+        ["PlayMap.Engine/EngineCore.Sync.cs"] = 1, // a clock step's fault journalled
+        ["PlayMap.Engine/Fleet/BackupNode.cs"] = 4, // takeover steps, a fault logged, the stop's wait for its work
         ["PlayMap.Engine/Fleet/FleetParts.cs"] = 1, // a health record handed on
         ["PlayMap.Engine/Host/EngineEntry.cs"] = 1, // a wait
         ["PlayMap.Engine/Host/EngineHost.cs"] = 1, // recovery loop
         ["PlayMap.Engine/Host/MediaBackend.cs"] = 2, // work queue, sweep loop
+        ["PlayMap.Engine/Host/NetworkHost.cs"] = 2, // a fault logged, the stop's wait for its work
         ["PlayMap.Engine/Journal.cs"] = 1, // write loop
         ["PlayMap.Engine/Optimise/OptimiseService.cs"] = 2, // service loop, a recording's I/O
         ["PlayMap.Engine/Optimise/OptimiseSupervisor.cs"] = 4, // the worker's pipes and its end
@@ -181,14 +187,14 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Rendering/TimerView.cs"] = 1, // poll loop
         ["PlayMap.Engine/Scanning/PhoneCamera.cs"] = 1, // picture pump
         ["PlayMap.Engine/Scanning/ScanRunner.Views.cs"] = 1, // archive written
-        ["PlayMap.Engine/Scanning/ScanRunner.cs"] = 2, // scan read, pictures collected
+        ["PlayMap.Engine/Scanning/ScanRunner.cs"] = 3, // scan read, pictures collected, the scan's async run (its decodes and solves through Compute)
         ["PlayMap.Engine/Scanning/ScanViews.cs"] = 1, // camera pump
         ["PlayMap.Engine/Show/AirAudio.cs"] = 1, // a sound opened
         ["PlayMap.Engine/Show/EngineCore.Panic.cs"] = 1, // a wait
         ["PlayMap.Engine/Show/PreflightChecks.cs"] = 1, // checks run (their own CPU through Compute)
         ["PlayMap.Engine/Site/EngineCore.Survey.cs"] = 1, // the import's own long-running thread
         ["PlayMap.Engine/Site/SiteParts.cs"] = 1, // watch loop
-        ["PlayMap.Engine/Sync/SyncNode.cs"] = 1, // settings written
+        ["PlayMap.Engine/Sync/SyncNode.cs"] = 3, // settings written, a fault logged, the stop's wait for its work
         ["PlayMap.Engine/Timecode/EngineCore.Timecode.cs"] = 1, // devices listed
         ["PlayMap.Media/Sources/ImageSource.cs"] = 1, // the still the air waits for
         ["PlayMap.Net/Bus/HelloService.cs"] = 3, // socket loops
@@ -200,10 +206,24 @@ public sealed partial class ComputeTests
         ["PlayMap.Net/Links/StagewatchLink.cs"] = 2, // socket loops
         ["PlayMap.Net/Links/WireClient.cs"] = 4, // socket loops
         ["PlayMap.Net/Media/MediaTransfer.cs"] = 1, // transfer workers
+        ["PlayMap.Net/Phone/PhoneSession.cs"] = 1, // an ack's failure logged
         ["PlayMap.Net/Sync/ClockSync.cs"] = 3, // socket loops
         ["PlayMap.Net/Wire/LineSessions.cs"] = 1, // push loop
         ["PlayMap.Net/Wire/WireServer.cs"] = 1, // accept loop
     };
+
+    /// <summary>The scan finds pool work in each form it takes: a run of any result type (a nested generic among them), a factory start,
+    /// a work item queued, a continuation (on the pool unless handed another scheduler) and a task started on the default scheduler.</summary>
+    [Theory]
+    [InlineData("_ = Task.Run(() => Work());")]
+    [InlineData("var t = Task.Run<List<int>>(() => Work());")]
+    [InlineData("return Task.Run<IReadOnlyList<PreflightRow>>(() => Rows(), ct);")]
+    [InlineData("_ = Task.Factory.StartNew<Dictionary<string, int>>(() => Work());")]
+    [InlineData("ThreadPool.UnsafeQueueUserWorkItem(static w => w(), a, preferLocal: false);")]
+    [InlineData("_ = x.ContinueWith(t => Work(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);")]
+    [InlineData("_ = x.ContinueWith(_ => Work());")]
+    [InlineData("start.Start(TaskScheduler.Default);")]
+    public void TheScanFindsPoolWorkInEachForm(string line) => Assert.Single(PoolJob().Matches(line));
 
     /// <summary>A CPU job handed to the shared pool is found: every product file's pool work is one reviewed as no CPU job
     /// (<see cref="ReviewedPoolJobs"/>); one more in any file, or a file not reviewed, fails with where it is.</summary>

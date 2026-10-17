@@ -29,7 +29,8 @@ internal sealed class SitePreflight : IPreflightCheck
         if (p.Stage.Controls.Length == 0)
             return Task.FromResult<IReadOnlyList<PreflightRow>>(
                 [new PreflightRow("site", node, Section, "Site", Light.Green, "no control points", "nothing to measure the model against", null), .. stacks]);
-        return Task.Run<IReadOnlyList<PreflightRow>>(() =>
+        // The check measures the model against every control point: CPU work, on the compute threads as SITE CHECK's is.
+        return Core.Threading.Compute.RunAsync<IReadOnlyList<PreflightRow>>(() =>
         {
             var (result, why) = engine.RunSiteCheck(p, null);
             if (result is null)
