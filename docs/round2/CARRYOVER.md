@@ -247,11 +247,15 @@ Round 2 W1 notes:
   The chain: the catalogue's `MEDIA OPTIMISE` row says a running job's pause or resume is accepted, pending, until its worker holds
   or goes on (VERBS, HELP, MCP's `list_verbs`, the assistant's prompt, the context's commands and the Companion module's `verbs.json`
   read it); docs/WIRE.md names it among the accepted receipts and docs/wire/optimise.md gives the reply and the keys; `optimise.json`
-  carries `held`, and `main.json` and `output.json` hold `"optimise": null` (their nodes run no optimise part). No surface shows a
-  job as paused: the desk shows a job through the generic card (`optimise.cards.json`: clip, target, state, frames, ETA, PSNR —
-  neither `paused` nor `held`), whose Pause, Resume and Cancel send their lines and show only a refusal; the context counts running
-  and queued jobs; the Companion module reads nothing of `media.optimise`. A surface that comes to show a pause reads `held`, and
-  shows a press as pending until the node says held, never the reply's words.
+  carries `held`, and `main.json` and `output.json` hold `"optimise": null` (their nodes run no optimise part). The desk shows a job
+  through the generic card (`optimise.cards.json`: clip, target, state, frames, ETA, PSNR — neither `paused` nor `held`), whose Pause,
+  Resume and Cancel send their lines and show only a refusal; the context counts running and queued jobs. A Companion key that sends
+  a running job's pause or resume (the generated `v_media_optimise` action or `raw`) stays pending until STATE says each job in the
+  reply's `pending` is held (a pause, or the job no longer encodes) or no longer held (a resume), never on `paused` or a progress
+  line alone (`test/optimise-pending.test.ts`; docs/COMPANION.md). A pause is applied at once only while the worker holds the job and
+  the knobs last sent hold it too, and is journalled at the frame the worker held at; one that comes while knobs that let the job go
+  are on their way, or a resume while knobs that hold are, waits for the worker's next held line; STATE shows a hold once the
+  journal has its row (`OptimiseHoldTests`).
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate run
   (not reproduced; its fan-out is the test's stand-in, which waits on no clock); `FleetMonitorTests`' 10 s wait for the peer to read

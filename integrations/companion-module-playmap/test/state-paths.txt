@@ -42,6 +42,10 @@ links.stagewatch.timer.text
 machine.renderer
 media.items
 media.missing
+media.optimise.jobs
+media.optimise.jobs.[].held
+media.optimise.jobs.[].id
+media.optimise.jobs.[].state
 media.ready
 media.transfers
 media.transfers.[].progress

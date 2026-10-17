@@ -20,7 +20,7 @@ import type { Ctx, SendOptions } from './context.ts'
 import { Encoders } from './encoders.ts'
 import { EVENT_RING, EventLog, eventWords, readEvent, type NodeEvent } from './events.ts'
 import { FEEDBACK_SLICES, feedbackDefinitions } from './feedbacks.ts'
-import { Confirms, GoGuard, Receipts, replyResult, unansweredResult, type PressResult } from './guards.ts'
+import { Confirms, GoGuard, Receipts, replyResult, unansweredResult, type PressResult, type Watch } from './guards.ts'
 import { LineError, NodeSession, type LinkState, type Reply, type SessionOptions } from './link/session.ts'
 import { LivePage } from './live.ts'
 import { compositeDefinitions, presetDefinitions, presetStructure, referencedPresets, withPresets } from './presets.ts'
@@ -87,6 +87,39 @@ function entriesOf(state: unknown, ids: readonly string[]): string {
 		if (wanted.has(id)) parts.push(JSON.stringify(entry))
 	})
 	return parts.join('\n')
+}
+
+/** The watch of an accepted MEDIA OPTIMISE PAUSE or RESUME of running jobs, whose reply names them in its payload's `pending`: a
+ * pause has shown once STATE says each of them held, or no longer encoding (queued again, verifying, over); a resume once none of
+ * them is held. The hold asked (`paused`) and a progress line are not the hold. Null for any other reply. */
+function holdWatch(receipt: string): Watch | null {
+	let payload: unknown
+	try {
+		const r = parseNode(receipt) as { payload?: unknown }
+		if (typeof r.payload !== 'string') return null
+		payload = parseNode(r.payload)
+	} catch {
+		return null
+	}
+	if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return null
+	const p = payload as { pending?: unknown; paused?: unknown; resumed?: unknown }
+	if (!Array.isArray(p.pending) || p.pending.length === 0 || !p.pending.every((j) => typeof j === 'string')) return null
+	const pause = Array.isArray(p.paused)
+	if (!pause && !Array.isArray(p.resumed)) return null
+	const jobs = p.pending
+	return {
+		ids: jobs,
+		before: '',
+		shown: (state) => {
+			const rows = list(state, P.optimiseJobs)
+			return jobs.every((id) => {
+				const job = rows.find((j) => str(field(j, P.ojId)) === id)
+				if (job === undefined) return true
+				const held = bool(field(job, P.ojHeld))
+				return pause ? held || str(field(job, P.ojState)) !== 'encoding' : !held
+			})
+		},
+	}
 }
 
 /** Every object in STATE with a string id, walked without recursion (STATE is bounded to 64 levels when taken). */
@@ -246,7 +279,9 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			if (this.#destroyed) return replyResult(reply)
 			const words = new Set(line.trim().split(/\s+/u).slice(1))
 			const ids = reply.accepted ? entitiesNamed(this.model.state, words) : []
-			const watch = reply.accepted ? { ids, before: entriesOf(this.model.state, ids) } : null
+			const watch = reply.accepted
+				? (holdWatch(reply.payload) ?? { ids, before: entriesOf(this.model.state, ids) })
+				: null
 			return this.receipts.replied(controlId, verb, reply, numOf(at(this.model.state, P.seq)), watch)
 		} catch (e) {
 			const why = e instanceof Error ? e.message : String(e)
@@ -620,7 +655,7 @@ export default class PlayMapInstance extends InstanceBase<PlayMapTypes> implemen
 			this.#eventsAwaitState = false
 			this.#eventsAfterDrop()
 		}
-		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids))
+		if (this.receipts.watching) this.receipts.stateMoved(numOf(at(s, P.seq)), (ids) => entriesOf(s, ids), s)
 		this.encoders.stateMoved(numOf(at(s, P.seq)))
 		const armed = bool(at(s, P.showArmed))
 		if (this.#armed && !armed) this.thumbs.disarmed()

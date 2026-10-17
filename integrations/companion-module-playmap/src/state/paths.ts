@@ -68,6 +68,10 @@ export const P = {
 	mediaItems: 'media.items',
 	transfers: 'media.transfers',
 	transferProgress: 'media.transfers.[].progress',
+	optimiseJobs: 'media.optimise.jobs',
+	ojId: 'media.optimise.jobs.[].id',
+	ojState: 'media.optimise.jobs.[].state',
+	ojHeld: 'media.optimise.jobs.[].held',
 
 	scan: 'scan',
 	scanState: 'scan.state',

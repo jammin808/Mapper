@@ -16,10 +16,13 @@ interface Receipt {
 }
 
 /** What an accepted line is watched by: the ids its line names that STATE holds, and STATE's entries for them when accepted. Its
- * effect has shown when those entries move; a line naming none of STATE's entities has, when any later STATE comes. */
+ * effect has shown when those entries move; a line naming none of STATE's entities has, when any later STATE comes. A reply that
+ * names what its effect waits on (an optimise job's pause or resume, the jobs in its `pending`) carries its own test instead: the
+ * effect has shown once a later STATE passes it, whatever else moved. */
 export interface Watch {
 	readonly ids: readonly string[]
 	readonly before: string
+	readonly shown?: (state: unknown) => boolean
 }
 
 /** What a press's action answers (an action result for `storeResult` and `internal:logicIf`): resolved on the node's first reply,
@@ -114,14 +117,18 @@ export class Receipts {
 		return { ok: false, stage: 'not-sent', effect: '', error: why, reply: '' }
 	}
 
-	/** A STATE push: every accepted line whose effect it now shows is cleared — the entries of the entities it names moved (`look`
-	 * gives STATE's entries for ids now), or, for a line naming none, STATE moved past the seq it was accepted under. Unrelated facts
-	 * moving clear nothing; 10 s clears it whatever STATE says. */
-	stateMoved(seq: number, look: (ids: readonly string[]) => string): void {
+	/** A STATE push: every accepted line whose effect it now shows is cleared — its watch's own test passes of a STATE past the seq it
+	 * was accepted under, the entries of the entities it names moved (`look` gives STATE's entries for ids now), or, for a line naming
+	 * none, STATE moved past that seq. Unrelated facts moving clear nothing; 10 s clears it whatever STATE says. */
+	stateMoved(seq: number, look: (ids: readonly string[]) => string, state?: unknown): void {
 		let moved = false
 		for (const [id, r] of this.#by) {
 			if (r.seq === null) continue
-			const shown = r.watch && r.watch.ids.length > 0 ? look(r.watch.ids) !== r.watch.before : seq > r.seq
+			const shown = r.watch?.shown
+				? seq > r.seq && r.watch.shown(state)
+				: r.watch && r.watch.ids.length > 0
+					? look(r.watch.ids) !== r.watch.before
+					: seq > r.seq
 			if (shown) {
 				this.#by.delete(id)
 				moved = true
