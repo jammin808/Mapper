@@ -7,6 +7,48 @@ namespace PlayMap.Core.Tests.Storage;
 /// in the same way, whole, and never over one that is there.</summary>
 public sealed class DurableFileTests
 {
+    /// <summary>A rename that landed but whose folder the disk then refused to flush is in place all the same, and says so: the call
+    /// throws <see cref="NotFlushedException"/> (an IOException) naming the file, and the file holds the new bytes with nothing left
+    /// beside it. Where the rename is written through (Windows) there is no folder to flush after it.</summary>
+    [Fact]
+    public void ARenameThatLandedButWhoseFolderWasNotFlushedSaysItIsInPlace()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        var path = Path.Combine(dir, "settings.json");
+        var asked = new List<string>();
+        void Refuse(string folder)
+        {
+            if (folder == dir)
+            {
+                asked.Add(folder);
+                throw new IOException("the disk refused the folder's flush");
+            }
+        }
+        DurableFile.FlushingFolder += Refuse;
+        try
+        {
+            File.WriteAllText(path, "old");
+            if (OperatingSystem.IsWindows())
+            {
+                DurableFile.WriteAllText(path, "new");
+                Assert.Empty(asked);
+            }
+            else
+            {
+                var notFlushed = Assert.Throws<NotFlushedException>(() => DurableFile.WriteAllText(path, "new"));
+                Assert.Equal(path, notFlushed.FilePath);
+                Assert.Equal([dir], asked);
+            }
+            Assert.Equal("new", File.ReadAllText(path));
+            Assert.False(File.Exists(path + ".saving"));
+        }
+        finally
+        {
+            DurableFile.FlushingFolder -= Refuse;
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void AFileIsFlushedWholeBeforeItIsRenamedOverTheOldOne()
     {

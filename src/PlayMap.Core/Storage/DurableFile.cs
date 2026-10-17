@@ -9,7 +9,8 @@ namespace PlayMap.Core.Storage;
 /// journalling file system may commit the rename before the data), and never the old file back once the call returned. On Unix the
 /// folder that holds the name is flushed after the rename; on Windows the rename is written through. Every file the node renames into
 /// place whose loss costs more than doing it again goes through <see cref="MoveIntoPlace"/>, every folder through
-/// <see cref="MoveFolderIntoPlace"/>.</summary>
+/// <see cref="MoveFolderIntoPlace"/>. A rename that landed but whose folder could not be flushed after throws
+/// <see cref="NotFlushedException"/>: the new file is in place, only its durability is in doubt.</summary>
 public static partial class DurableFile
 {
     private const uint MoveFileReplaceExisting = 0x1;
@@ -24,6 +25,10 @@ public static partial class DurableFile
     /// <summary>Raised after a file's (or a folder's files') bytes reached the disk and before it is renamed into place, with its final
     /// path (any thread).</summary>
     public static event Action<string>? Flushed;
+
+    /// <summary>Raised before a folder's names are flushed, with the folder (any thread): an <see cref="IOException"/> from a handler
+    /// stands for the disk refusing the flush (a test fails a folder's flush here).</summary>
+    internal static event Action<string>? FlushingFolder;
 
     /// <summary>Flushes <paramref name="temp"/> to the disk, then renames it to <paramref name="path"/> and flushes the rename.</summary>
     public static void MoveIntoPlace(string temp, string path, bool overwrite = true)
@@ -43,7 +48,21 @@ public static partial class DurableFile
             return;
         }
         File.Move(temp, path, overwrite);
-        SyncFolder(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        FlushLanded(path);
+    }
+
+    /// <summary>Flushes the folder of a file or folder just renamed into place: a failure here leaves the new one in place, and says so
+    /// (<see cref="NotFlushedException"/>).</summary>
+    private static void FlushLanded(string path)
+    {
+        try
+        {
+            SyncFolder(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        }
+        catch (IOException ex)
+        {
+            throw new NotFlushedException(path, ex);
+        }
     }
 
     /// <summary>Flushes every file in the folder <paramref name="temp"/> (written whole beside its place) and the folder's own entries,
@@ -67,7 +86,7 @@ public static partial class DurableFile
             return;
         }
         Directory.Move(temp, path);
-        SyncFolder(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        FlushLanded(path);
     }
 
     /// <summary>Writes <paramref name="text"/> (UTF-8) beside <paramref name="path"/> and moves it into place, flushed.</summary>
@@ -102,6 +121,7 @@ public static partial class DurableFile
     /// nothing to flush.</summary>
     private static void SyncFolder(string folder)
     {
+        FlushingFolder?.Invoke(folder);
         var fd = Open(folder, ReadFolder);
         if (fd < 0)
             throw new IOException($"the folder {folder} could not be opened to flush its names: {Marshal.GetLastPInvokeErrorMessage()}");
@@ -163,4 +183,14 @@ public static partial class DurableFile
     [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial int Close(int fd);
+}
+
+/// <summary>A file (or folder) renamed into place whose folder could not be flushed after the rename: the new one is in place — every
+/// reader sees it, and a later start reads it — but a power cut before the folder reaches the disk may still bring the old one back.
+/// An <see cref="IOException"/>, so a caller that only knows a write failed still hears it fail.</summary>
+public sealed class NotFlushedException(string path, Exception inner)
+    : IOException($"{path} is in place, but its folder could not be flushed to the disk: {inner.Message}", inner)
+{
+    /// <summary>The file (or folder) that is in place.</summary>
+    public string FilePath { get; } = path;
 }

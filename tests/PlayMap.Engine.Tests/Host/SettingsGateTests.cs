@@ -110,6 +110,38 @@ public sealed class SettingsGateTests
         }
     }
 
+    /// <summary>A settings write that landed (the file renamed into place) but whose folder the disk then refused to flush is the
+    /// file's content all the same: DECODE POLICY, PRESENT PATH and PAIRING NEW take their change — the reply, what the node runs and
+    /// the file agree — and the node says in its faults that a power cut may bring the earlier file back, until a write flushes whole.</summary>
+    [Fact]
+    public async Task AWriteThatLandedButWasNotFlushedIsKeptAndSaid()
+    {
+        await using var node = await HostRig.StartAsync("Settings flush", parts: new EngineParts { Extensions = [OutputParts.Factory, EngineParts.DecodeFactory] });
+        var tokenBefore = node.Network.Settings.Token;
+        node.Home.WriteFile = static (path, text) =>
+        {
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, text);
+            throw new PlayMap.Core.Storage.NotFlushedException(path, new IOException("the disk refused the folder's flush"));
+        };
+        var decode = await node.RunAsync("DECODE POLICY SOFTWARE");
+        var present = await node.RunAsync("PRESENT PATH GL");
+        var pairing = await node.RunAsync("PAIRING NEW");
+        Assert.Equal((true, true, true), (decode.Ok, present.Ok, pairing.Ok));
+        var kept = node.Home.ReadSettings()!;
+        Assert.Equal(("software", "gl"), (kept.Decode.Policy, kept.Present.Path));
+        Assert.Equal(("software", "gl"), (node.Network.Settings.Decode.Policy, node.Network.Settings.Present.Path));
+        Assert.Equal("gl", node.Engine.Services.PresentNode!.Saved.Path);
+        Assert.Equal(DecodePolicy.Software, node.Engine.DecodeFacts.Policy.Policy);
+        Assert.NotEqual(tokenBefore, kept.Token);
+        Assert.Equal(kept.Token, node.Network.Settings.Token);
+        Assert.Contains(node.State().GetProperty("faults").EnumerateArray(), f => f.GetProperty("part").GetString() == "settings-flush");
+
+        // A write that flushes whole makes every earlier one durable too: the fault goes.
+        node.Home.WriteFile = static (path, text) => PlayMap.Core.Storage.DurableFile.WriteAllText(path, text);
+        Assert.True((await node.RunAsync("DECODE POLICY AUTO")).Ok);
+        Assert.DoesNotContain(node.State().GetProperty("faults").EnumerateArray(), f => f.GetProperty("part").GetString() == "settings-flush");
+    }
+
     private static Task OnItsOwnThread(Action action) =>
         Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 

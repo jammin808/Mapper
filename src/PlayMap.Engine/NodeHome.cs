@@ -211,8 +211,12 @@ public sealed class NodeHome
     {
         var text = JsonSerializer.Serialize(settings, Json);
         lock (SettingsGate)
-            DurableFile.WriteAllText(SettingsPath, text);
+            WriteFile(SettingsPath, text);
     }
+
+    /// <summary>How the settings file's text is written: durably (<see cref="DurableFile.WriteAllText"/>). A test replaces it to stand
+    /// for a disk that takes the rename and refuses the folder's flush after.</summary>
+    internal Action<string, string> WriteFile { get; set; } = static (path, text) => DurableFile.WriteAllText(path, text);
 }
 
 /// <summary>What a restart puts back: the project (its path, or its whole JSON when unsaved), the air, and each
