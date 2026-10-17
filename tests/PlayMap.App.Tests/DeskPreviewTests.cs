@@ -260,6 +260,42 @@ public sealed class DeskPreviewTests
         window.Close();
     }
 
+    /// <summary>A SHOW reply carries the STATE seq from which STATE shows it: a STATE older than that (read before the SHOW ran, written
+    /// after its reply) changes nothing of that view — not listing it, or naming an earlier generation — while a STATE as new as the reply
+    /// names it as it stands from then on; a STATE counting below the last one read is a node that started again, and holds nothing back.</summary>
+    [Fact]
+    public void AStateOlderThanTheShowReplyChangesNothingOfItsView()
+    {
+        var ringA = PreviewRing.PathFor(DemoNode, View, 1);
+        var ringB = PreviewRing.PathFor(DemoNode, View, 2);
+        var ringC = PreviewRing.PathFor(DemoNode, View, 3);
+        var names = new PreviewNames();
+        names.Read(StateAt(40, (View, ringA)));
+        names.Shown(View, new WireReply(true, ShowReply(ringB, seq: 50)));
+
+        names.Read(StateAt(45, (View, ringA)));
+        var olderNamesEarlier = names.Of(View);
+        names.Read(StateAt(46));
+        var olderListsNone = names.Of(View);
+        names.Read(StateAt(50, (View, ringB)));
+        var asNew = names.Of(View);
+        names.Read(StateAt(51));
+        var newerListsNone = names.Of(View);
+        Assert.Equal(
+            (new PreviewRingName(ringB, null), new PreviewRingName(ringB, null), new PreviewRingName(ringB, null), new PreviewRingName(null, null)),
+            (olderNamesEarlier, olderListsNone, asNew, newerListsNone));
+
+        // A reply held back from a node that then started again: its first STATE counts from anew, and is taken.
+        names.Shown(View, new WireReply(true, ShowReply(ringB, seq: 90)));
+        names.Read(StateAt(3, (View, ringC)));
+        Assert.Equal(new PreviewRingName(ringC, null), names.Of(View));
+
+        // A reply that carries no seq holds nothing back: the later of the reply and STATE names the ring.
+        names.Shown(View, new WireReply(true, ShowReply(ringA)));
+        names.Read(StateAt(4, (View, ringC)));
+        Assert.Equal(new PreviewRingName(ringC, null), names.Of(View));
+    }
+
     /// <summary>A new link starts the views afresh: the new node is asked for every view at once (not on its first refused KEEP), and a
     /// SHOW reply from the link let go, arriving after the new link's names were cleared, is not taken.</summary>
     [AvaloniaFact]
@@ -329,12 +365,23 @@ public sealed class DeskPreviewTests
             File.Delete(path);
     }
 
-    private static string ShowReply(string ring) => JsonSerializer.Serialize(new Dictionary<string, string> { ["view"] = View, ["ring"] = ring });
+    /// <summary>A SHOW reply naming the ring (and the STATE seq from which STATE shows it, when given).</summary>
+    private static string ShowReply(string ring, long? seq = null)
+    {
+        var reply = new Dictionary<string, object> { ["view"] = View, ["ring"] = ring };
+        if (seq is { } s)
+            reply["seq"] = s;
+        return JsonSerializer.Serialize(reply);
+    }
 
     /// <summary>A STATE whose machine.views lists these views (output views, each with its ring).</summary>
-    private static StateSnapshot State(params (string Id, string Ring)[] views) =>
+    private static StateSnapshot State(params (string Id, string Ring)[] views) => StateAt(0, views);
+
+    /// <summary>A STATE of this seq whose machine.views lists these views.</summary>
+    private static StateSnapshot StateAt(long seq, params (string Id, string Ring)[] views) =>
         StateSnapshot.Parse(JsonSerializer.Serialize(new Dictionary<string, object>
         {
+            ["seq"] = seq,
             ["machine"] = new Dictionary<string, object>
             {
                 ["views"] = views.Select(v => new Dictionary<string, string> { ["id"] = v.Id, ["what"] = "output:op_1", ["ring"] = v.Ring }).ToArray(),

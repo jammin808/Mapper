@@ -9,8 +9,8 @@ using ProjectFile = PlayMap.Core.Model.ProjectJson;
 namespace PlayMap.Engine;
 
 /// <summary>The VIEW verb: the preview views the desk (or any paired peer on this machine) asks for. A view's
-/// pictures go to its shared-memory ring, whose file the SHOW reply names (<c>{"view","ring"}</c>; STATE
-/// <c>machine.views</c> lists every shown view's); the render host draws the
+/// pictures go to its shared-memory ring, whose file the SHOW reply names (<c>{"view","ring","seq"}</c>, <c>seq</c> the STATE seq
+/// from which STATE shows the view so; STATE <c>machine.views</c> lists every shown view's); the render host draws the
 /// editor, outputs and projectors, the scan side's feeds draw cameras and scans. Refusals are cheap and say
 /// why — the desk asks quietly and draws its own stand-in for a view the node cannot give.</summary>
 public sealed partial class EngineCore
@@ -85,6 +85,9 @@ public sealed partial class EngineCore
                         w.WriteStartObject();
                         w.WriteString("view", view);
                         w.WriteString("ring", Previews.RingOf(view) ?? "");
+                        // Read after the view moved: every STATE from this seq on shows it as it stands now, and every STATE
+                        // written before it moved counts below it.
+                        w.WriteNumber("seq", StateKey());
                         w.WriteEndObject();
                     }), $"{view} shows {request.What} at most {request.Width}×{request.Height}");
             }

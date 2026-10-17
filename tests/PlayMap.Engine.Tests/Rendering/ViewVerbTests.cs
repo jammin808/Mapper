@@ -144,6 +144,31 @@ public sealed class ViewVerbTests
         Assert.True((await Run(engine, "VIEW scan-camera HIDE")).Ok);
     }
 
+    /// <summary>The SHOW reply carries the STATE seq from which STATE shows the view: a STATE read before the SHOW counts below it and
+    /// does not list the view; STATE from then on counts at least as far and lists it with the reply's ring.</summary>
+    [Fact]
+    public async Task TheShowReplyCarriesTheStateSeqFromWhichStateShowsTheView()
+    {
+        await using var engine = Engine();
+        engine.Previews.Register("camera", new GreyCamera());
+        var before = StateSeq(engine);
+        Assert.Empty(StateViews(engine));
+        var shown = await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540");
+        Assert.True(shown.Ok, shown.Payload);
+        using var doc = JsonDocument.Parse(shown.Payload!);
+        var seq = doc.RootElement.GetProperty("seq").GetInt64();
+        Assert.True(before < seq, $"{before} < {seq}");
+        Assert.True(StateSeq(engine) >= seq);
+        Assert.Equal([("scan-camera", "camera:cm_1", Ring(shown))], StateViews(engine));
+        Assert.True((await Run(engine, "VIEW scan-camera HIDE")).Ok);
+    }
+
+    private static long StateSeq(EngineCore engine)
+    {
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        return doc.RootElement.GetProperty("seq").GetInt64();
+    }
+
     /// <summary>The ring a VIEW SHOW reply names.</summary>
     private static string Ring(CommandReply shown)
     {

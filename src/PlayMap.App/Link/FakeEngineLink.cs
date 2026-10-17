@@ -823,10 +823,12 @@ public sealed partial class FakeEngineLink : IEngineLink
                     _shown[view] = what;
                     _extraMoved = true;
                 }
-                return Ok(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+                // The STATE seq from which STATE shows the view so: the one this line publishes when it moved the views.
+                return Ok(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
                 {
                     ["view"] = view,
                     ["ring"] = _rings.GetValueOrDefault(view) ?? "",
+                    ["seq"] = _stateSeq + (_extraMoved ? 1 : 0),
                 }));
             }
             case "KEEP":
