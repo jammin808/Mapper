@@ -176,7 +176,7 @@ public sealed class DurableFileTests
     public void ARenameWindowsCannotMakeFallsBackToTheMoveThatCopies(int error, bool fallsBack) =>
         Assert.Equal(fallsBack, DurableFile.FallsBackToMove(error));
 
-    /// <summary>A reader that opened a durable file as every reader of one does (<see cref="DurableFile.OpenRead"/>) and holds it open
+    /// <summary>A reader that opened a durable file as every reader of the node's state does (<see cref="DurableFile.OpenRead"/>) and holds it open
     /// across a replace never makes the replace fail: the new bytes are in place when the write returns, nothing is left beside them,
     /// and the reader goes on reading the old bytes whole. On Windows this is the POSIX-semantics rename; elsewhere a rename always is.</summary>
     [Fact]

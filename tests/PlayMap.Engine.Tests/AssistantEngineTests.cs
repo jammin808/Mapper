@@ -71,7 +71,7 @@ public sealed class AssistantEngineTests
             Assert.True(WireGrammar.TryParse("ASSISTANT SET enabled on", out var enable, out _));
             Assert.True(WireGrammar.TryParse("ASSISTANT SET model x", out var name, out _));
             Assert.Equal((VerbRisk.High, VerbRisk.Review), (VerbCatalog.RiskOf(enable), VerbCatalog.RiskOf(name)));
-            Assert.DoesNotContain("sk-ant-test-key", rig.Engine.State().Json + await rig.Ok("ASSISTANT STATUS") + File.ReadAllText(AssistantSettingsFile.PathIn(rig.Home)), StringComparison.Ordinal);
+            Assert.DoesNotContain("sk-ant-test-key", rig.Engine.State().Json + await rig.Ok("ASSISTANT STATUS") + PlayMap.Core.Storage.DurableFile.ReadAllText(AssistantSettingsFile.PathIn(rig.Home)), StringComparison.Ordinal);
         }
         finally
         {
@@ -260,7 +260,7 @@ public sealed class AssistantEngineTests
             Assert.Contains("\"credential\":true", state, StringComparison.Ordinal);
             await rig.DisposeAsync();
             var file = rig.JournalText();
-            var stored = File.ReadAllBytes(Path.Combine(rig.Folder, "keys", NodeCredentialStore.FileName));
+            var stored = PlayMap.Core.Storage.DurableFile.ReadAllBytes(Path.Combine(rig.Folder, "keys", NodeCredentialStore.FileName));
             foreach (var secret in new[] { ApiKey, ProjectorSecret })
             {
                 Assert.DoesNotContain(secret, state, StringComparison.Ordinal);

@@ -82,13 +82,13 @@ public sealed class MainStateFixtureTests
         }
     }
 
-    /// <summary>A fixture is replaced whole, in writing mode too: every test that writes one under PLAYMAP_WRITE_FIXTURES writes it beside
-    /// its place and renames it in (DurableFile), and reads it as a reader that never stops that rename; a plain write would let a test
-    /// reading the same file meanwhile see it half written.</summary>
     /// <summary>A write of a whole file in place (System.IO.File's, not DurableFile's).</summary>
     private static readonly System.Text.RegularExpressions.Regex InPlace = new(@"(?<![\w.])File\.WriteAll(Text|Bytes|Lines)(Async)?\(",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
+    /// <summary>A fixture is replaced whole, in writing mode too: every test that writes one under PLAYMAP_WRITE_FIXTURES writes it beside
+    /// its place and renames it in (DurableFile), and reads it as a reader that never stops that rename; a plain write would let a test
+    /// reading the same file meanwhile see it half written.</summary>
     [Fact]
     public void EveryFixtureWriterReplacesItsFileWhole()
     {

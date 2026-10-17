@@ -38,7 +38,7 @@ public sealed class PhoneInviteTests
         Assert.Equal(16 << 20, welcome.GetProperty("limits").GetProperty("maxBinary").GetInt32());
         Assert.True(await Eventually.TrueAsync(() => node.Hub.Phones().Any(p => p.Id == id && p.Connected)));
 
-        var file = await File.ReadAllTextAsync(node.KeysPath);
+        var file = await PlayMap.Core.Storage.DurableFile.ReadAllTextAsync(node.KeysPath);
         Assert.DoesNotContain(key, file, StringComparison.Ordinal);
         Assert.DoesNotContain(ticket, file, StringComparison.Ordinal);
         using (var doc = JsonDocument.Parse(file))
@@ -333,7 +333,7 @@ public sealed class PhoneInviteTests
         Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
         Assert.Equal("was forgotten: its key no longer opens anything", words);
         Assert.Empty(node.Hub.Phones());
-        Assert.DoesNotContain(id, await File.ReadAllTextAsync(node.KeysPath), StringComparison.Ordinal);
+        Assert.DoesNotContain(id, await PlayMap.Core.Storage.DurableFile.ReadAllTextAsync(node.KeysPath), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -484,7 +484,7 @@ public sealed class PhoneInviteTests
         Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
         Assert.Contains("forgotten", words, StringComparison.Ordinal);
         Assert.Empty(node.Hub.Forget(id));
-        Assert.DoesNotContain(id, await File.ReadAllTextAsync(node.KeysPath), StringComparison.Ordinal);
+        Assert.DoesNotContain(id, await PlayMap.Core.Storage.DurableFile.ReadAllTextAsync(node.KeysPath), StringComparison.Ordinal);
     }
 
     [Fact]

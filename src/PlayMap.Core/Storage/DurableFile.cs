@@ -7,10 +7,12 @@ namespace PlayMap.Core.Storage;
 /// <summary>A file written beside its place and renamed over it reaches the disk before the rename, and the rename reaches it before
 /// the call returns: a power cut after the rename finds the new file whole, never a name pointing at blocks the disk never got (a
 /// journalling file system may commit the rename before the data), and never the old file back once the call returned. On Unix the
-/// folder that holds the name is flushed after the rename; on Windows the rename is written through. A reader never makes a replace
-/// fail: every reader of a durable file opens it through <see cref="OpenRead"/> (shared for write and delete), and on Windows the
-/// replace is a POSIX-semantics rename, which proceeds over a file such a reader holds open (the reader keeps the old file's bytes;
-/// the name is the new file's at once), as a rename does on Unix. Every file the node renames into
+/// folder that holds the name is flushed after the rename; on Windows the rename is written through. A reader of a file that holds the
+/// node's state never makes its replace fail: every such reader opens it through <see cref="OpenRead"/> (shared for write and delete),
+/// and on Windows the replace is a POSIX-semantics rename, which proceeds over a file such a reader holds open (the reader keeps the old
+/// file's bytes; the name is the new file's at once), as a rename does on Unix. The media, versions, models and meshes moved in through
+/// it are read shared for reading only: on Windows a reader holding one open can make its replace fail, which then says so. Every file
+/// the node renames into
 /// place whose loss costs more than doing it again goes through <see cref="MoveIntoPlace"/>, every folder through
 /// <see cref="MoveFolderIntoPlace"/>. A rename that landed but whose folder could not be flushed after throws
 /// <see cref="NotFlushedException"/>: the new file is in place, only its durability is in doubt.</summary>

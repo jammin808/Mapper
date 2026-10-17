@@ -26,7 +26,7 @@ public sealed class NodeSettingsTests
             File.WriteAllText(home.SettingsPath, damaged);
             var written = File.GetLastWriteTimeUtc(home.SettingsPath);
             Assert.Null(home.ReadSettings());
-            Assert.Equal(damaged, File.ReadAllText(home.SettingsPath));
+            Assert.Equal(damaged, PlayMap.Core.Storage.DurableFile.ReadAllText(home.SettingsPath));
             Assert.Equal(written, File.GetLastWriteTimeUtc(home.SettingsPath));
             Assert.False(File.Exists(home.SettingsPath + ".damaged"));
             Assert.Equal(["playmap.node.json"], Directory.GetFiles(dir.FullName).Select(f => Path.GetFileName(f)).ToArray());
@@ -50,7 +50,7 @@ public sealed class NodeSettingsTests
         {
             var home = new NodeHome(dir.FullName);
             home.SaveSettings(NodeSettings.CreateDefault("Old node") with { Token = "" });
-            var json = JsonNode.Parse(File.ReadAllText(home.SettingsPath))!.AsObject();
+            var json = JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(home.SettingsPath))!.AsObject();
             foreach (var key in PackageKeys)
                 Assert.True(json.Remove(key), $"{key} is written");
             File.WriteAllText(home.SettingsPath, json.ToJsonString());
@@ -80,7 +80,7 @@ public sealed class NodeSettingsTests
         {
             var home = new NodeHome(dir.FullName);
             home.SaveSettings(NodeSettings.CreateDefault("Hand edited") with { Control = ControlSettings.Default with { OscPort = 9000 } });
-            var json = JsonNode.Parse(File.ReadAllText(home.SettingsPath))!.AsObject();
+            var json = JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(home.SettingsPath))!.AsObject();
             json["show"] = null;
             json["led"] = null;
             json["control"]!["surfacePorts"] = null;
@@ -141,7 +141,7 @@ public sealed class NodeSettingsTests
             var home = new NodeHome(dir.FullName);
             var saved = NodeSettings.CreateDefault("Stage left") with { TrustedAddresses = ["10.0.0.5"] };
             home.SaveSettings(saved);
-            var json = JsonNode.Parse(File.ReadAllText(home.SettingsPath))!.AsObject();
+            var json = JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(home.SettingsPath))!.AsObject();
             json["trustedAddresses"] = null;
             File.WriteAllText(home.SettingsPath, json.ToJsonString());
 
@@ -167,7 +167,7 @@ public sealed class NodeSettingsTests
             var home = new NodeHome(dir.FullName);
             var saved = NodeSettings.CreateDefault("Stage left");
             home.SaveSettings(saved);
-            var text = File.ReadAllText(home.SettingsPath);
+            var text = PlayMap.Core.Storage.DurableFile.ReadAllText(home.SettingsPath);
             // Cut short, as a full disk or a stray edit leaves a file.
             File.WriteAllText(home.SettingsPath, text[..(text.Length / 2)]);
 
