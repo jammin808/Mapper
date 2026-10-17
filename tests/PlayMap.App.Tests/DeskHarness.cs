@@ -50,6 +50,20 @@ public sealed class DeskHarness : IAsyncDisposable
         Pump();
     }
 
+    /// <summary>Presses a held button with the headless mouse and keeps it down to the end of its ring (the hold completed at its own
+    /// time, as its timer completes it), then lets go.</summary>
+    public static void Hold(Avalonia.Controls.TopLevel window, PlayMap.App.Controls.HoldButton button)
+    {
+        var centre = button.TranslatePoint(new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)
+            ?? throw new InvalidOperationException("the button is not in the window");
+        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, centre, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        Pump();
+        if (!button.Complete(button.HoldMs))
+            throw new InvalidOperationException("the button is not held by the press");
+        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, centre, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        Pump();
+    }
+
     /// <summary>Waits for every command a press started, then lets the pushes land.</summary>
     public static async Task Drain(IEnumerable<ViewModels.DeskAction> actions)
     {

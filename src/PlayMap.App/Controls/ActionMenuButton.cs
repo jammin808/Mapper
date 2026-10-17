@@ -6,9 +6,10 @@ using PlayMap.App.ViewModels;
 namespace PlayMap.App.Controls;
 
 /// <summary>A toolbar button for one <see cref="DeskAction"/>: a press runs it, or, when it has sub-actions ("Add effect ▸"),
-/// opens them as a menu built by <see cref="DeskMenu"/> — the same items, words and gate as its right-click entry. Hidden
-/// when the node does not run its verb (or runs none of its sub-actions').</summary>
-public class ActionMenuButton : Button
+/// opens them as a menu built by <see cref="DeskMenu"/> — the same items, words and gate as its right-click entry; an action
+/// held to confirm (<see cref="DeskAction.IsHold"/>) runs only when its press is held to the end of its ring. Hidden when the
+/// node does not run its verb (or runs none of its sub-actions').</summary>
+public class ActionMenuButton : HoldButton
 {
     public static readonly StyledProperty<DeskAction?> ActionProperty = AvaloniaProperty.Register<ActionMenuButton, DeskAction?>(nameof(Action));
 
@@ -48,9 +49,17 @@ public class ActionMenuButton : Button
         IsEnabled = a.HasChildren || a.IsEnabled;
     }
 
+    protected override bool Holds => Action is { IsHold: true, HasChildren: false };
+
+    protected override void OnHeld()
+    {
+        if (Action is { } a && a.Command.CanExecute(null))
+            a.Command.Execute(null);
+    }
+
     protected override void OnClick()
     {
-        if (Action is not { } a)
+        if (Action is not { } a || Holds)
             return;
         if (!a.HasChildren)
         {
@@ -60,6 +69,7 @@ public class ActionMenuButton : Button
         }
         var flyout = new MenuFlyout();
         DeskMenu.Fill(flyout.Items, a.Children);
+        flyout.Closed += (_, _) => DeskMenu.Disarm(flyout.Items);
         Opened = flyout;
         flyout.ShowAt(this);
     }

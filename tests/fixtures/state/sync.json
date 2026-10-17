@@ -71,6 +71,7 @@
       "time": "clock",
       "refused": null
     },
-    "epoch": 0
+    "epoch": 0,
+    "light": "green"
   }
 }

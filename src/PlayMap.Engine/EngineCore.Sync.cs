@@ -199,7 +199,7 @@ public sealed partial class EngineCore
 
     partial void TickSync(long leaderNs) => Services.GroupSync?.Tick(this, leaderNs);
 
-    partial void SyncSync(Utf8JsonWriter w)
+    partial void SyncSync(Utf8JsonWriter w, ref string? light)
     {
         if (Services.GroupSync is not { } sync)
             return;
@@ -252,10 +252,12 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         }
         w.WriteEndArray();
-        var (verdict, _, words) = SyncVerdict(sync, picture);
+        var (verdict, lit, words) = SyncVerdict(sync, picture);
         w.WriteString("verdict", verdict);
         w.WriteString("words", words);
         w.WriteNumber("groupLatencyMs", Math.Round(sync.GroupLatencyMs, 3));
+        // The light read with this verdict: a leader's from its board, a follower's from its feed and clock, grey in no group.
+        light = ShowContext.LightWord(lit);
     }
 
     /// <summary>The group's air latency written through to this node's outputs: the render host raises the node's air latency to it,
@@ -334,6 +336,10 @@ public sealed partial class EngineCore
     {
         // The role is re-entered from the node's settings by the sync part at start.
     }
+
+    /// <summary>The group's light as this node tells it, read with its verdict: STATE.sync.light, the context's sync item and INDEX's
+    /// sync row are this one light.</summary>
+    internal Light SyncLight(Sync.SyncNode sync, Net.Sync.SyncPicture picture) => SyncVerdict(sync, picture).Light;
 
     /// <summary>The group's verdict as this node tells it: the board's on a leader; a follower's own link and clock (the verdict is
     /// the leader's); solo says how to join.</summary>

@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:show="using:PlayMap.App.ViewModels.Show"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.Show.BlindPanelView"
+             x:DataType="show:BlindChipViewModel">
+  <!-- The blind panel under the bar: whose draft and what it holds, its changes in field words (conflicts amber), and its lines —
+       Diff, Commit now, Commit at the next item (FORCE while conflicts are named), Discard — and the draft view in MAP. -->
+  <Border Classes="toast" Padding="12,8" Margin="0,0,0,2" x:Name="BlindPanel" ui:DeskMenu.Actions="{Binding Actions}">
+    <StackPanel Spacing="6">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+        <PathIcon Data="{StaticResource Icon.blind}" Width="16" Height="16" Foreground="{StaticResource DeskAccentBrush}" />
+        <TextBlock Grid.Column="1" Text="{Binding Words}" FontWeight="SemiBold" TextWrapping="Wrap" x:Name="BlindWords" />
+        <Button Grid.Column="2" Classes="tool small" Command="{Binding Toggle}" ToolTip.Tip="Close the panel (the draft stays)">
+          <PathIcon Data="{StaticResource Icon.close}" Width="12" Height="12" />
+        </Button>
+      </Grid>
+      <TextBlock Classes="faint" Text="{Binding DiffWords}" IsVisible="{Binding DiffWords, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Changes}" x:Name="BlindChanges">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="show:BlindChange">
+            <StackPanel Margin="0,2">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{StaticResource LightAmberBrush}" IsVisible="{Binding Conflict}" />
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" IsVisible="{Binding !Conflict}" />
+              <TextBlock Classes="dim" Text="{Binding Lines}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <ItemsControl ItemsSource="{Binding Toolbar}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Row}" x:Name="BlindActions" />
+        <ToggleButton x:Name="DraftViewToggle" Classes="tool" IsChecked="{Binding DraftView.IsChecked, Mode=OneWay}" Command="{Binding DraftView.Command}"
+                      IsEnabled="{Binding OwnsDraft}" ToolTip.Tip="MAP's 3D view draws this desk's draft instead of the air (VIEW editor-draft SHOW editor DRAFT)" ToolTip.ShowOnDisabled="True">
+          <TextBlock Text="Show the draft in MAP" />
+        </ToggleButton>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</UserControl>

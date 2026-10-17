@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
+using PlayMap.App.Infrastructure;
 using PlayMap.App.ViewModels;
 
 namespace PlayMap.App.Controls;
@@ -17,7 +19,9 @@ public interface IMenuExtras
 /// <see cref="IMenuTarget"/>, the modules' entries for it after a rule. Each item carries its shortcut and, in its
 /// tooltip, the verb it sends; an item the gate refuses is greyed with "· armed" and the gate's words. An action whose
 /// verb the node does not run is left out. The menu is rebuilt each time it opens, so its words follow the latest
-/// STATE (Play reads Pause while the clip plays).</summary>
+/// STATE (Play reads Pause while the clip plays). The entry of an action held to confirm (<see cref="DeskAction.IsHold"/>)
+/// sends on a second press within the window (<see cref="HeldPress"/>): its first press arms it, the menu staying open with
+/// the entry saying what a second press sends; another entry, the menu closing or the window passing disarms it.</summary>
 public static class DeskMenu
 {
     public static readonly AttachedProperty<IEnumerable<DeskAction>?> ActionsProperty =
@@ -46,7 +50,20 @@ public static class DeskMenu
             if (GetActions(control) is { } current)
                 Fill(menu.Items, current, ExtrasOf(control));
         };
+        menu.Closed += (_, _) => Disarm(menu.Items);
         control.ContextMenu = menu;
+    }
+
+    /// <summary>A menu closed: the held entries it armed are let go.</summary>
+    public static void Disarm(ItemCollection items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        foreach (var item in items.OfType<MenuItem>())
+        {
+            if (item.Tag is DeskAction { IsHold: true } a)
+                a.Presses?.Disarm(a);
+            Disarm(item.Items);
+        }
     }
 
     /// <summary>The modules' entries for the control's target (none when the control's data names no object or the
@@ -92,13 +109,19 @@ public static class DeskMenu
 
     private static MenuItem Build(DeskAction a)
     {
+        var held = a is { IsHold: true, HasChildren: false };
         var item = new MenuItem
         {
             Header = a.MenuLabel,
-            Command = a.Children.Count > 0 ? null : a.Command,
+            HeaderTemplate = Words,
+            Command = a.Children.Count > 0 || held ? null : a.Command,
             IsEnabled = a.IsEnabled,
             Tag = a,
         };
+        if (held)
+            Hold(item, a);
+        else if (a.Children.Count == 0)
+            item.AddHandler(MenuItem.ClickEvent, (_, _) => DisarmAround(item), Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         if (a.IsToggle)
         {
             item.ToggleType = MenuItemToggleType.CheckBox;
@@ -120,6 +143,49 @@ public static class DeskMenu
                 item.Items.Add(Build(child));
         }
         return item;
+    }
+
+    /// <summary>An entry's header drawn as plain text: its words as they are. A menu draws a string header as access text, where an
+    /// underscore marks a key, and the node's ids carry underscores (op_1, sf_…, in_…); the desk's menus have no access keys, so an
+    /// entry shows the very line it names and no key press stands for it.</summary>
+    private static readonly Avalonia.Controls.Templates.FuncDataTemplate<string> Words = new((words, _) => new TextBlock { Text = words });
+
+    /// <summary>Another entry pressed: the held entries of its menu are let go.</summary>
+    private static void DisarmAround(MenuItem item)
+    {
+        if (item.GetLogicalAncestors().OfType<MenuBase>().LastOrDefault() is { } root)
+            Disarm(root.Items);
+    }
+
+    /// <summary>A held action's entry: a first press arms it with the line it sends now (the menu stays open, the entry saying that
+    /// line), a second press within the window sends that line once and closes the menu; a line moved in between arms it afresh with
+    /// the new line and sends nothing; a menu made again starts disarmed.</summary>
+    private static void Hold(MenuItem item, DeskAction a)
+    {
+        var presses = a.Presses ?? new HeldPress(EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
+        presses.Disarm(a);
+        item.StaysOpenOnClick = true;
+        item.Click += (_, e) =>
+        {
+            e.Handled = true;
+            if (!a.IsEnabled)
+                return;
+            var line = a.Verb;
+            if (!presses.Press(a, line, () => item.Header = a.MenuLabel))
+            {
+                item.Header = HeldPress.ArmedLabel(line);
+                // The window passing disarms it on the machine's time too, its label put back.
+                Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+                {
+                    if (presses.Armed is null)
+                        presses.Disarm(a);
+                }, TimeSpan.FromMilliseconds(HeldPress.WindowMs + 100));
+                return;
+            }
+            item.GetLogicalAncestors().OfType<MenuBase>().LastOrDefault()?.Close();
+            if (a.Command.CanExecute(null))
+                a.Command.Execute(null);
+        };
     }
 
     /// <summary>"Ctrl+Z" → a gesture (the platform's spelling of keys).</summary>

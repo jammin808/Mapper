@@ -24,10 +24,31 @@ public sealed class DeskApp : Application
             var vm = new MainViewModel(session, Infrastructure.DeskPrefs.Load(Infrastructure.DeskPrefs.DefaultPath));
             var window = new MainWindow { DataContext = vm };
             desktop.MainWindow = window;
-            desktop.ShutdownRequested += (_, _) => vm.BeginShutdown();
+            var leaving = false;
+            desktop.ShutdownRequested += (sender, e) =>
+            {
+                // The overlay this desk put on a wall comes off before the desk goes: the shutdown waits for the node's answer
+                // (bounded), then goes on.
+                if (!leaving && vm.Map.HoldsOverlay)
+                {
+                    leaving = true;
+                    e.Cancel = true;
+                    _ = LeaveThenShutDownAsync(vm, desktop);
+                    return;
+                }
+                vm.BeginShutdown();
+            };
             vm.Start(options);
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task LeaveThenShutDownAsync(MainViewModel vm, IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        using (var within = new CancellationTokenSource(MainViewModel.LeaveWithin))
+            await vm.Map.LeaveMapAsync(within.Token);
+        vm.BeginShutdown();
+        desktop.Shutdown();
     }
 }
 

@@ -103,8 +103,17 @@ an out-of-range field is dropped and counted (`Refused` on the responder).
               "phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"missed60s":0,"frameCount":0,"heard":true}],
   "pairs":[{"a":"op_1","aNode":"0badc0de","b":"op_1","bNode":"9f8e7d6c","phaseUs":3.21,"uncertaintyUs":0,"nextSlipS":499.8,"mixedRate":false}],
   "verdict":"same vblank|free-running|mixed rate|unknown","words":"leading show with 1 member; …","groupLatencyMs":50,
-  …wp2-output's "latencyMs" and "lock"}
+  …wp2-output's "latencyMs" and "lock", the fleet's "epoch",
+  "light":"green|amber|red|grey"}
 ```
+
+`light` is STATE.sync's last key: the group's light read with the verdict, the same as the context item `sync:<group>` and the
+INDEX row. On a leader it is the board's: grey with nothing heard, red while a heard output fell out of the lock, amber for mixed
+rates, for outputs that report locked but measure apart (a locked pair off one vblank, among free-running outputs too), for an
+output joining the lock for over 5 s, and for a free-running pair that slips within 10 min while the show plays, green otherwise.
+On a follower (whose verdict is always `unknown`, the leader's to give) it is red while its clock free-wheels or the feed is lost,
+green while the feed is live, amber otherwise. A node in no group, or configured into one it has not joined, is grey. A reader
+lights the group from `light`; the other keys say why (SyncLightTests).
 
 The fixture is `tests/fixtures/state/sync.json` (SYNC STATUS on a leader), its cards `sync.cards.json`.
 

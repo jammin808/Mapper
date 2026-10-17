@@ -3,6 +3,7 @@
              xmlns:vm="using:PlayMap.App.ViewModels"
              xmlns:ui="using:PlayMap.App.Controls"
              xmlns:views="using:PlayMap.App.Views"
+             xmlns:mapvm="using:PlayMap.App.ViewModels.Map"
              x:Class="PlayMap.App.Views.MapView"
              x:DataType="vm:MapViewModel">
   <Grid ColumnDefinitions="290,*,360" Margin="10" ColumnSpacing="10">
@@ -65,13 +66,34 @@
       </ScrollViewer>
     </Border>
 
-    <!-- The editor: tools, the 3D view or the projector view, the pen's options. -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" RowSpacing="8">
-      <Border Classes="panel" Padding="6">
+    <!-- The editor: the first-light guide while the first map is not made, the tools, the 3D view or the projector view, the
+         pen's options. -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+      <Border Classes="panel" Padding="10,8" x:Name="Guide" DataContext="{Binding Guide}" IsVisible="{Binding IsVisible}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" x:DataType="mapvm:FirstLightGuide">
+          <PathIcon Data="{StaticResource Icon.guide}" Width="18" Height="18" Foreground="{StaticResource DeskAccentBrush}" VerticalAlignment="Top" />
+          <StackPanel Grid.Column="1" Spacing="6">
+            <TextBlock Classes="h2" Text="{Binding Title}" x:Name="GuideTitle" />
+            <TextBlock Classes="dim" Text="{Binding Words}" TextWrapping="Wrap" x:Name="GuideWords" />
+            <ItemsControl ItemsSource="{Binding Lights}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" IsVisible="{Binding IsLightStep}" x:Name="GuideLights" />
+            <ContentControl Content="{Binding LookAgain}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding CanLookAgain}" x:Name="GuideLookAgain" />
+            <ContentControl Content="{Binding DrawQuad}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding IsQuadStep}" x:Name="GuideQuad" />
+            <ContentControl Content="{Binding Clip}" ContentTemplate="{StaticResource ActionMenu}" IsVisible="{Binding IsClipStep}" x:Name="GuideClip" />
+          </StackPanel>
+          <Button Grid.Column="2" Classes="tool small" Command="{Binding Dismiss}" ToolTip.Tip="Close the guide (this desk)" VerticalAlignment="Top" x:Name="GuideClose">
+            <PathIcon Data="{StaticResource Icon.close}" Width="12" Height="12" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="panel" Padding="6">
         <Grid ColumnDefinitions="Auto,Auto,*,Auto">
           <StackPanel Orientation="Horizontal" Spacing="2">
-            <RadioButton GroupName="tool" x:Name="SelectToolButton" Classes="tool" IsChecked="{Binding IsSelectTool}" ToolTip.Tip="Select  (Q)">
+            <RadioButton GroupName="tool" x:Name="SelectToolButton" Classes="tool" IsChecked="{Binding IsSelectTool}" ToolTip.Tip="Select  (S)">
               <PathIcon Data="{StaticResource Icon.select}" />
+            </RadioButton>
+            <RadioButton GroupName="tool" x:Name="QuadToolButton" Classes="tool" IsChecked="{Binding IsQuadTool}" ToolTip.Tip="Quad  (Q) — click the four corners of the wall, on the wall; Enter draws it">
+              <PathIcon Data="{StaticResource Icon.surface}" />
             </RadioButton>
             <RadioButton GroupName="tool" x:Name="PinToolButton" Classes="tool" IsChecked="{Binding IsPinTool}" ToolTip.Tip="Pins  (P) — 3D point ↔ projector pixel">
               <PathIcon Data="{StaticResource Icon.pin}" />
@@ -93,17 +115,26 @@
             </StackPanel>
           </Border>
           <TextBlock Grid.Column="2" Classes="dim" Text="{Binding ToolHint}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Margin="4,0" />
+          <!-- On the wall: the edit overlay on the projector's output; greyed with the node's words while the show is armed. -->
+          <Button Grid.Column="3" x:Name="OnWallButton" Classes="tool" Classes.checked="{Binding OnWall.IsChecked}" Command="{Binding OnWall.Command}"
+                  ToolTip.Tip="{Binding OnWall.Tip}" ToolTip.ShowOnDisabled="True" IsVisible="{Binding OnWall.IsAvailable}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <PathIcon Data="{StaticResource Icon.projector}" Width="14" Height="14" />
+              <TextBlock Text="On the wall" VerticalAlignment="Center" />
+              <PathIcon Data="{StaticResource Icon.lock}" Width="11" Height="11" IsVisible="{Binding OnWall.Refusal, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+          </Button>
         </Grid>
       </Border>
 
-      <Border Grid.Row="1" Classes="panel" ClipToBounds="True">
+      <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
         <Panel>
-          <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="editor" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
+          <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="{Binding EditorViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
           <ui:ProjectorCanvas x:Name="ProjectorView" Map="{Binding}" ViewId="{Binding ViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding IsProjectorView}" Margin="12" />
         </Panel>
       </Border>
 
-      <Border Grid.Row="2" Classes="panel" Padding="10,6" IsVisible="{Binding IsPenTool}">
+      <Border Grid.Row="3" Classes="panel" Padding="10,6" IsVisible="{Binding IsPenTool}">
         <Grid ColumnDefinitions="Auto,160,Auto,140,*,Auto" ColumnSpacing="10">
           <TextBlock Classes="dim" Text="Feather" VerticalAlignment="Center" />
           <Slider Grid.Column="1" Minimum="0" Maximum="0.1" Value="{Binding Pen.Feather}" />

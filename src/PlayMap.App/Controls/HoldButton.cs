@@ -7,26 +7,23 @@ using Avalonia.Threading;
 namespace PlayMap.App.Controls;
 
 /// <summary>A button that acts only when held for <see cref="HoldMs"/> (600 ms by default), drawing a ring that fills
-/// while held: for the few high-risk lines that touch many machines (promote, retry a present path). A short press, or a
-/// release before the ring closes, sends nothing. GO, PANIC and BLACKOUT are never hold buttons.</summary>
+/// while held: for the few high-risk lines that touch many machines (promote, failover, retry a present path). A short press,
+/// a release before the ring closes, a press dragged off it, or the keyboard's Enter or Space sends nothing. GO, PANIC and
+/// BLACKOUT are never hold buttons. A subclass that holds only some presses says so with <see cref="Holds"/>; the rest are
+/// an ordinary button's.</summary>
 public class HoldButton : Button
 {
     public static readonly StyledProperty<int> HoldMsProperty = AvaloniaProperty.Register<HoldButton, int>(nameof(HoldMs), 600);
 
     public static readonly StyledProperty<double> ProgressProperty = AvaloniaProperty.Register<HoldButton, double>(nameof(Progress));
 
-    private readonly DispatcherTimer _timer;
+    private DispatcherTimer? _timer;
     private long _pressedAt;
     private bool _held;
 
     static HoldButton()
     {
         AffectsRender<HoldButton>(ProgressProperty);
-    }
-
-    public HoldButton()
-    {
-        _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(30), DispatcherPriority.Input, (_, _) => Step());
     }
 
     protected override Type StyleKeyOverride => typeof(Button);
@@ -47,15 +44,24 @@ public class HoldButton : Button
         private set => SetValue(ProgressProperty, value);
     }
 
+    /// <summary>True when a press must be held to act; false makes this an ordinary button.</summary>
+    protected virtual bool Holds => true;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
+        if (!Holds)
+        {
+            base.OnPointerPressed(e);
+            return;
+        }
         if (!IsEffectivelyEnabled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
         _held = true;
         _pressedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         Progress = 0;
         e.Pointer.Capture(this);
+        _timer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(30), DispatcherPriority.Input, (_, _) => Step());
         _timer.Start();
         e.Handled = true;
     }
@@ -72,6 +78,11 @@ public class HoldButton : Button
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
+        if (!Holds && !_held)
+        {
+            base.OnPointerReleased(e);
+            return;
+        }
         Release();
         e.Pointer.Capture(null);
         e.Handled = true;
@@ -83,16 +94,29 @@ public class HoldButton : Button
         base.OnPointerCaptureLost(e);
     }
 
-    /// <summary>The hold reached its time: the command runs once. Public so a keyboard path (Enter held) or a test can
-    /// complete it with the elapsed time it measured.</summary>
+    /// <summary>A click that is not a hold (the keyboard's Enter or Space, an access key) acts only on a button that does not hold.</summary>
+    protected override void OnClick()
+    {
+        if (!Holds)
+            base.OnClick();
+    }
+
+    /// <summary>The hold reached its time: it acts once. Public so a keyboard path (Enter held) or a test can complete it with the
+    /// elapsed time it measured.</summary>
     public bool Complete(double elapsedMs)
     {
         if (!_held || elapsedMs < HoldMs)
             return false;
         Release();
+        OnHeld();
+        return true;
+    }
+
+    /// <summary>What a completed hold does: the button's command.</summary>
+    protected virtual void OnHeld()
+    {
         if (Command is { } c && c.CanExecute(CommandParameter))
             c.Execute(CommandParameter);
-        return true;
     }
 
     private void Step()
@@ -105,7 +129,7 @@ public class HoldButton : Button
     private void Release()
     {
         _held = false;
-        _timer.Stop();
+        _timer?.Stop();
         Progress = 0;
     }
 

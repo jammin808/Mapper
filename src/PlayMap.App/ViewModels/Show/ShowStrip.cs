@@ -107,16 +107,19 @@ public sealed record ShowSection(bool Present, bool Armed, string By, long Since
     public ImmutableArray<ShowLock> ExplicitLocks => [.. Locks.Where(l => !l.Implicit).Select(l => l.AsCore())];
 }
 
-/// <summary>The top bar's show strip: the Ready light, ARM (no password), PANIC (never a dialog), each following
-/// STATE.show, never its own press. Its right-click menus are the Show menu, the panic outcomes and the preflight runs.</summary>
+/// <summary>The top bar's show strip: the Ready light, the blind chip while a draft is open, ARM (no password), PANIC (never a
+/// dialog), each following STATE.show, never its own press. Its right-click menus are the Show menu, the panic outcomes, the
+/// preflight runs and the blind panel's lines.</summary>
 public sealed class ShowStripViewModel : ObservableObject
 {
     private static readonly string[] Outcomes = ["BLACK", "RUN", "REWIND", "NEXT", "FREEZE", "SAFE", "SHUTTER", "FX-OFF", "HARD"];
     private ShowSection _show = ShowSection.Absent;
+    private Health.Readiness _readiness = Health.Readiness.Unknown;
 
-    public ShowStripViewModel(DeskSession session, DeskPrefs prefs, Action openHealth)
+    public ShowStripViewModel(DeskSession session, DeskPrefs prefs, Action openHealth, Func<bool>? draftShown = null, Action<bool>? showDraft = null)
     {
         ArgumentNullException.ThrowIfNull(session);
+        Blind = new BlindChipViewModel(session, draftShown ?? (() => false), showDraft ?? (_ => { }));
         Arm = DeskAction.Send(session, "show.arm", "Arm", () => _show.Armed ? "SHOW DISARM" : "SHOW ARM", ArmLabel,
             isChecked: () => _show.Armed, isEnabled: () => session.IsLive).Look("arm", "Ctrl+Shift+A");
         // PANIC sends every press at once (a second press within the fade is HARD, however slow the first one's reply), and on a
@@ -167,6 +170,9 @@ public sealed class ShowStripViewModel : ObservableObject
 
     public DeskAction Panic { get; }
 
+    /// <summary>The blind chip and its panel (shown while a blind draft is open).</summary>
+    public BlindChipViewModel Blind { get; }
+
     public DeskAction Ready { get; }
 
     /// <summary>ARM's right-click: the Show menu.</summary>
@@ -189,9 +195,13 @@ public sealed class ShowStripViewModel : ObservableObject
     /// <summary>"Ready 4/5", "Checking…" while a preflight runs, "Ready" before the first.</summary>
     public string ReadyText => _show.PreflightRunning ? "Checking…" : _show.Ready.Length > 0 ? "Ready " + _show.Ready : "Ready";
 
-    public string ReadyLight => _show.ReadyLight;
+    /// <summary>The worst of the show's last preflight, the fleet and the group's vblank picture (grey while none is known).</summary>
+    public string ReadyLight => _readiness.Light;
 
-    public string ReadyTip => _show.FirstOpen.Length > 0 ? "First open: " + _show.FirstOpen + "\nClick: Health · right-click: run preflight" : "Click: Health · right-click: run preflight";
+    /// <summary>The readiness light's parts as STATE words them.</summary>
+    public Health.Readiness Readiness => _readiness;
+
+    public string ReadyTip => (_readiness.Tip.Length > 0 ? _readiness.Tip + "\n" : "") + "Click: Health · right-click: run preflight";
 
     /// <summary>ARM's tooltip: who armed and since when, and what the gate refused in the last minute.</summary>
     public string ArmTip => Arm.Tip + (_show.RefusedLastMinute > 0
@@ -213,10 +223,13 @@ public sealed class ShowStripViewModel : ObservableObject
     public static string Clock(long unixMs, string format) =>
         DateTimeOffset.FromUnixTimeMilliseconds(unixMs).ToLocalTime().ToString(format, CultureInfo.InvariantCulture);
 
-    public void Update(ShowSection show)
+    public void Update(ShowSection show, Health.Readiness readiness)
     {
+        ArgumentNullException.ThrowIfNull(readiness);
+        if (Set(ref _readiness, readiness, nameof(Readiness)))
+            Raise(nameof(ReadyLight), nameof(ReadyTip));
         if (Set(ref _show, show, nameof(Show)))
-            Raise(nameof(IsPresent), nameof(IsArmed), nameof(IsPanic), nameof(ReadyText), nameof(ReadyLight), nameof(ReadyTip), nameof(ArmTip), nameof(PanicTip));
+            Raise(nameof(IsPresent), nameof(IsArmed), nameof(IsPanic), nameof(ReadyText), nameof(ReadyTip), nameof(ArmTip), nameof(PanicTip));
     }
 
     private (string Arm, string Panic) _tips = ("", "");
@@ -224,6 +237,7 @@ public sealed class ShowStripViewModel : ObservableObject
     /// <summary>Re-reads the strip's actions (after the gate's facts moved); ARM's and PANIC's tooltips carry their tips.</summary>
     public void RefreshActions()
     {
+        Blind.RefreshActions();
         ArmMenu.RefreshAll();
         PanicMenu.RefreshAll();
         ReadyMenu.RefreshAll();
@@ -262,12 +276,12 @@ public sealed class ShowStripModule : DeskModule
     /// <summary>The transport the desk's lines arrive on at the node: a client's, never one of the fleet's own parts.</summary>
     private const string DeskTransport = "desk";
 
-    public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth)
+    public ShowStripModule(DeskSession session, DeskPrefs prefs, Func<bool> inPlay, Action openHealth, Func<bool>? draftShown = null, Action<bool>? showDraft = null)
     {
         _session = session;
         _prefs = prefs;
         _inPlay = inPlay;
-        Strip = new ShowStripViewModel(session, prefs, openHealth);
+        Strip = new ShowStripViewModel(session, prefs, openHealth, draftShown, showDraft);
         _clear = DeskAction.Send(session, "panic.clear", "Clear", () => "PANIC CLEAR FADE 1000", isEnabled: () => session.CanSend, everyPress: true).Look("play");
         _clearMenu = DeskAction.Local("panic.clearFade", "Clear with a fade", () => { });
         foreach (var ms in new[] { 0, 1000, 2000, 5000 })
@@ -279,6 +293,8 @@ public sealed class ShowStripModule : DeskModule
         // panic fade leaves its buttons (and an open fade menu) where they are.
         _panicActions = [_clear, _clearMenu];
         _rehearsalActions = [_armNow];
+        // Which session is this desk's on a link is known once the node answers WHOAMI: whether the draft is the desk's is read then.
+        session.VerbsUpdated += () => Strip.Blind.Update(_show.Blind, OwnsDraft, DraftOwnerKnown);
     }
 
     public ShowStripViewModel Strip { get; }
@@ -291,7 +307,8 @@ public sealed class ShowStripModule : DeskModule
         _show = state.Section("show", ShowSection.Read);
         _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
-        Strip.Update(_show);
+        Strip.Update(_show, Health.Readiness.Of(state));
+        Strip.Blind.Update(_show.Blind, OwnsDraft, DraftOwnerKnown);
     }
 
     public override void RefreshActions()
@@ -384,6 +401,9 @@ public sealed class ShowStripModule : DeskModule
         }
         return LockWords(line, spec, draft) is { } words ? new GateRefusal(words, "locked") : null;
     }
+
+    /// <summary>True once the node has named this desk's session on the link (WHOAMI): until then no draft is known to be another's.</summary>
+    private bool DraftOwnerKnown => _session.SessionId.Length > 0;
 
     /// <summary>True when STATE.show.blind names this desk's own session as the draft's owner.</summary>
     private bool OwnsDraft => _show.Blind is { } b && _session.SessionId.Length > 0

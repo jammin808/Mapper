@@ -26,7 +26,8 @@ public sealed class SyncStateFixtureTests
         {
             ["title"] = "Sync",
             ["path"] = "sync",
-            ["light"] = new JsonArray(Rule("if", "freewheelS", "red"), new JsonObject { ["light"] = "grey" }),
+            // The node's own light for the group (read with its verdict); a node that publishes none is red while it free-wheels.
+            ["light"] = new JsonArray(new JsonObject { ["from"] = "light" }, Rule("if", "freewheelS", "red"), new JsonObject { ["light"] = "grey" }),
             ["words"] = "{role} · {group} · {verdict} — {words}",
             ["fields"] = new JsonArray(Field("Role", "role"), Field("Group", "group"), Field("Leader", "leader"), Field("Feed", "feed"),
                 Field("Verdict", "verdict"), Field("Steps", "steps"), Field("Group air latency (ms)", "groupLatencyMs")),
@@ -103,9 +104,10 @@ public sealed class SyncStateFixtureTests
         var sync = JsonNode.Parse(status)!.AsObject();
         Assert.Equal("leader", sync["role"]!.GetValue<string>());
         Assert.Equal("free-running", sync["verdict"]!.GetValue<string>());
-        // Today's keys, then only SPINE §9's sync keys in their order (wp2-sync's, then wp2-output's, then wp2-backup's epoch).
+        // The first round's keys, then SPINE §9's sync keys in their order (the group's, the outputs' latency and lock, the fleet's
+        // epoch), then the group's light, last.
         Assert.Equal(["role", "leader", "offsetMs", "rttMs", "driftPpm", "groups", "group", "feed", "slewing", "steps", "freewheelS", "outputs", "pairs",
-            "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch"], sync.Select(kv => kv.Key));
+            "verdict", "words", "groupLatencyMs", "latencyMs", "lock", "epoch", "light"], sync.Select(kv => kv.Key));
         var fixture = new JsonObject { ["sync"] = sync }.ToJsonString(Indented) + "\n";
         var cards = Cards().ToJsonString(Indented) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")

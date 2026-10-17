@@ -72,6 +72,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
     public ThrottledSender Throttle { get; }
 
+    /// <summary>The desk's one armed menu entry of a held action (its menu form of hold-to-confirm), on the desk's clock: the window
+    /// sets it with its own injected clock; the machine's until then.</summary>
+    public HeldPress Presses { get; set; } = new(EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
+
     /// <summary>The ring the node names for each preview view (from the VIEW … SHOW replies and STATE <c>machine.views</c>): the only
     /// files the desk's previews read. Emptied when the link changes.</summary>
     public PreviewNames Previews { get; } = new();

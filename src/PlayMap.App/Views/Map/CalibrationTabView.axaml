@@ -1,0 +1,15 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mapvm="using:PlayMap.App.ViewModels.Map"
+             x:Class="PlayMap.App.Views.Map.CalibrationTabView"
+             x:DataType="mapvm:CalibrationTabViewModel">
+  <!-- Health ▸ Calibration: the calibration task in the node's words, the projectors found moved, a score card per target. -->
+  <ScrollViewer Padding="12,6,12,12">
+    <StackPanel Spacing="6">
+      <TextBlock Classes="dim" Text="{Binding TaskWords}" TextWrapping="Wrap" IsVisible="{Binding TaskWords, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" x:Name="CalibrationTask" />
+      <TextBlock Text="{Binding Moved}" Foreground="{StaticResource LightRedBrush}" TextWrapping="Wrap" IsVisible="{Binding Moved, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <TextBlock Classes="faint" Text="{Binding EmptyWords}" IsVisible="{Binding IsEmpty}" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Cards}" x:Name="CalibrationCards" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -177,7 +177,7 @@ public sealed class ObjectMenusModule : DeskModule
         {
             var fx = Menu("gen.fx", "Add effect", "fx");
             foreach (var (fxKind, name) in _fxKinds)
-                fx.Children.Add(DeskAction.Send(_session, "gen.fx." + fxKind, name.Length > 0 ? name : fxKind, () => $"FX ADD {id} {fxKind}"));
+                fx.Children.Add(Entry("gen.fx." + fxKind, name.Length > 0 ? name : fxKind, () => $"FX ADD {id} {fxKind}"));
             list.Add(fx);
         }
         if (target.Kind == "generator" && _project?.FindGenerator(id) is { } gen && GeneratorCatalog.Find(gen.Kind) is { } kind
@@ -188,27 +188,27 @@ public sealed class ObjectMenusModule : DeskModule
             {
                 var param = Menu("gen.mod." + p.Name, Words(p.Name), "modulation");
                 foreach (var (source, words) in _sources)
-                    param.Children.Add(DeskAction.Send(_session, "gen.mod." + p.Name + "." + source, source + (words.Length > 0 ? " — " + words : ""),
+                    param.Children.Add(Entry("gen.mod." + p.Name + "." + source, source + (words.Length > 0 ? " — " + words : ""),
                         () => $"MOD BIND {id} {p.Name} {source}"));
                 mod.Children.Add(param);
             }
-            mod.Children.Add(DeskAction.Send(_session, "gen.mod.hold", "Hold its numbers", () => $"MOD BYPASS TOGGLE {id}").Look(separator: true));
-            mod.Children.Add(DeskAction.Send(_session, "gen.mod.none", "Unbind every number", () => $"MOD UNBIND {id} ALL"));
+            mod.Children.Add(Entry("gen.mod.hold", "Hold its numbers", () => $"MOD BYPASS TOGGLE {id}").Look(separator: true));
+            mod.Children.Add(Entry("gen.mod.none", "Unbind every number", () => $"MOD UNBIND {id} ALL"));
             list.Add(mod);
         }
         if (target.Kind == "media")
         {
             var opt = Menu("gen.optimise", "Optimise", "optimise");
             foreach (var (to, words) in OptimiseTargets)
-                opt.Children.Add(DeskAction.Send(_session, "gen.optimise." + to, words, () => $"MEDIA OPTIMISE {id} TO {to}"));
-            opt.Children.Add(DeskAction.Send(_session, "gen.optimise.versions", "Versions", () => $"MEDIA VERSIONS {id}").Look(separator: true));
+                opt.Children.Add(Entry("gen.optimise." + to, words, () => $"MEDIA OPTIMISE {id} TO {to}"));
+            opt.Children.Add(Entry("gen.optimise.versions", "Versions", () => $"MEDIA VERSIONS {id}").Look(separator: true));
             list.Add(opt);
         }
         if (target.Kind == "surface" && _inputs.Length > 0)
         {
             var use = Menu("gen.input", "Use input", "live");
             foreach (var (input, name) in _inputs)
-                use.Children.Add(DeskAction.Send(_session, "gen.input." + input, name, () => $"SURFACE SOURCE {id} live:{input}"));
+                use.Children.Add(Entry("gen.input." + input, name, () => $"SURFACE SOURCE {id} live:{input}"));
             list.Add(use);
         }
         var own = target.MenuActions.Where(a => !a.HasChildren && a.Verb.Length > 0 && !a.Verb.StartsWith("BIND ", StringComparison.Ordinal)).ToList();
@@ -216,8 +216,8 @@ public sealed class ObjectMenusModule : DeskModule
         {
             var bind = Menu("gen.bind", "Bind", "bind");
             foreach (var a in own)
-                bind.Children.Add(DeskAction.Send(_session, "gen.bind." + a.Id, a.Label, () => a.Verb.Length > 0 ? "BIND LEARN " + a.Verb : null));
-            bind.Children.Add(DeskAction.Send(_session, "gen.bind.off", "Stop learning", () => "BIND LEARN OFF").Look(separator: true));
+                bind.Children.Add(Entry("gen.bind." + a.Id, a.Label, () => a.Verb.Length > 0 ? "BIND LEARN " + a.Verb : null));
+            bind.Children.Add(Entry("gen.bind.off", "Stop learning", () => "BIND LEARN OFF").Look(separator: true));
             list.Add(bind);
         }
         return list;
@@ -236,6 +236,10 @@ public sealed class ObjectMenusModule : DeskModule
     public override int EscapeOrder => Infrastructure.EscapeLadder.Learn;
 
     private static DeskAction Menu(string id, string label, string icon) => DeskAction.Local(id, label, () => { }).Look(icon, menuOnly: true);
+
+    /// <summary>A generated entry sending its line (held to confirm, as every action is, when the line's row presses hold: Use input's
+    /// SURFACE SOURCE).</summary>
+    private DeskAction Entry(string id, string label, Func<string?> line) => DeskAction.Send(_session, id, label, line);
 
     private static string Words(string name) => ParamEditor.Words(name);
 }

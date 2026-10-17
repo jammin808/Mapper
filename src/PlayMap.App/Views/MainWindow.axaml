@@ -127,8 +127,10 @@
       </ui:TopBarPanel>
     </Border>
 
-    <!-- The attention bar: what needs a person now (rebuilt from STATE; empty most of the time). -->
+    <!-- The attention bar: what needs a person now (rebuilt from STATE; empty most of the time); the blind panel under it while the
+         blind chip has it open. -->
     <StackPanel Grid.Row="1" x:Name="AttentionPanel">
+    <ContentControl x:Name="BlindPanelHost" Content="{Binding ShowModule.Strip.Blind}" IsVisible="{Binding ShowModule.Strip.Blind.IsOpen}" />
     <ItemsControl x:Name="AttentionBar" ItemsSource="{Binding ShownBanners}">
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:Banner">

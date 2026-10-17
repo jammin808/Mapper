@@ -1,6 +1,8 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.App.ViewModels;
 
@@ -92,6 +94,44 @@ public sealed class DeskAction : ObservableObject
     /// <summary>Shown in the object's menu only, not on its toolbar.</summary>
     public bool MenuOnly { get; private set; }
 
+    /// <summary>Held to confirm, as a Companion key holds its line: its line's catalogue row presses hold (VerbParams.Press, the table
+    /// the Companion module's keys use) and is not one the desk sends at every press (<see cref="SentAtOnce"/>). Its button acts only when
+    /// held to the end of its ring (a short press sends nothing), and its menu entry only on a second press within the window
+    /// (<see cref="HeldPress"/>). Every action that sends a line takes it from the line it sends now, wherever it is made: the desk's own
+    /// controls, a card's line, a generated entry.</summary>
+    public bool IsHold
+    {
+        get
+        {
+            var line = Verb;
+            if (_holds is { } h && string.Equals(h.Line, line, StringComparison.Ordinal))
+                return h.Held;
+            var held = Holds(line);
+            _holds = (line, held);
+            return held;
+        }
+    }
+
+    private (string Line, bool Held)? _holds;
+
+    /// <summary>The rows the desk sends at every press though a Companion key holds them: the transport's Stop and the air's own
+    /// controls, the panic banner's Clear and the master, which stay live and instant with PANIC, Blackout, GO, Play and Pause (rows no
+    /// surface holds).</summary>
+    public static readonly FrozenSet<string> SentAtOnce =
+        new[] { "VIDEO STOP", "PANIC CLEAR", "MASTER" }.ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>True when the desk holds <paramref name="line"/> to confirm: its catalogue row presses hold and is not one the desk sends
+    /// at every press.</summary>
+    public static bool Holds(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line) || !WireGrammar.TryParse(line, out var parsed, out _) || VerbCatalog.Match(parsed) is not { } m)
+            return false;
+        return VerbParams.Press(m.Spec) == PressShapes.Hold && !SentAtOnce.Contains(m.Spec.Name);
+    }
+
+    /// <summary>Where this action's menu entry is armed: its session's, the desk's one armed entry; null for a desk-only action.</summary>
+    public HeldPress? Presses => _session?.Presses;
+
     /// <summary>Sets how the action looks (once, where it is made) and returns it.</summary>
     public DeskAction Look(string? icon = null, string? gesture = null, bool danger = false, bool separator = false, bool menuOnly = false)
     {
@@ -140,13 +180,13 @@ public sealed class DeskAction : ObservableObject
     /// <summary>The line this action sends now, or "" for a desk-only action.</summary>
     public string Verb => _verb() ?? "";
 
-    /// <summary>What the tooltip says: the label, the shortcut and the verb, and why it is greyed (the gate's words, or its own
-    /// condition's).</summary>
+    /// <summary>What the tooltip says: the label, the shortcut (and that it is held to confirm) and the verb, and why it is greyed
+    /// (the gate's words, or its own condition's).</summary>
     public string Tip
     {
         get
         {
-            var head = Gesture is null ? Label : $"{Label}  ({Gesture})";
+            var head = (Gesture is null ? Label : $"{Label}  ({Gesture})") + (IsHold ? " — hold to confirm" : "");
             var verb = Verb;
             var tip = verb.Length == 0 ? head : head + "\n" + verb;
             var why = Refusal ?? (_whyNot is { } w && _isEnabled?.Invoke() == false ? w() : null);

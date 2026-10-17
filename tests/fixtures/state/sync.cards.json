@@ -4,6 +4,9 @@
     "path": "sync",
     "light": [
       {
+        "from": "light"
+      },
+      {
         "if": "freewheelS",
         "light": "red"
       },

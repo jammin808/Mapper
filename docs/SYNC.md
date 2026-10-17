@@ -170,7 +170,10 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
 
 - **STATE `sync`** gains SPINE §9's keys: `group`, `feed` (live|connecting|lost|off), `slewing`, `steps`, `freewheelS`,
   `outputs[]` (the leader's board; a follower its own outputs), `pairs[]` (with `aNode`/`bNode`; `mixedRate` per pair),
-  `verdict`, `words`, `groupLatencyMs` (`SYNC STATUS` answers the same object), and the fleet's `epoch` (docs/FLEET.md). The group's light is the context item's and INDEX row's. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
+  `verdict`, `words`, `groupLatencyMs` (`SYNC STATUS` answers the same object), the fleet's `epoch` (docs/FLEET.md), and last
+  `light`: the group's light read with the verdict, the context item's and INDEX row's — a leader's the board's (every amber above
+  among them, a locked pair off one vblank and a join over 5 s included), a follower's red while its clock free-wheels or the feed
+  is lost, green while the feed is live, amber otherwise, grey in no group. `offsetMs` is the follower's leader-time **uncertainty** (half the best round trip),
   not the clocks' raw difference.
 - **Context**: each node publishes `sync:<group>` (kind `sync`; the leader's carries the verdict, a follower's its link); the
   follower's `machine` follows it and its group playlists follow it; the leader's group follows its `machine`; a free-running
@@ -181,8 +184,9 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
   line to run there — output ids repeat across nodes) and its members; a solo node grey. The reference's rate is the group's
   and the odd output is the first at another rate in the board's order, so a tie (one output at each rate) goes to the leader's
   first output in its project, and the same outputs give the same row and line whatever order their reports came in.
-- **INDEX** section `sync`: the group, lit by its verdict (or the follower's link), key `SYNC STATUS`; a node in no group lists the
-  section with no rows.
+- **INDEX** section `sync`: the group, lit as `sync.light` lights it (a leader's board, a follower's feed and clock, grey for a group
+  the node is configured into and has not joined), its state the leader's verdict or the follower's feed, key `SYNC STATUS`; a node
+  in no group lists the section with no rows.
 
 ## Verified here, next
 

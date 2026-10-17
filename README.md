@@ -113,12 +113,20 @@ context report it. The desk is one more client of those verbs: a show strip (the
 controls sending every press at once), every control greyed with the node's own words before a press any of its doors would
 refuse (pairing, the fleet, the show's gate with the desk's own blind draft, a lock), Lock for the show in every object's menu, a
 card for every package's STATE whose buttons take their values from that STATE, Add effect, Modulate, Bind, Optimise and Use
-input entries built from the node's own answers, and an Esc ladder that backs out before it panics (docs/DESK.md).
+input entries built from the node's own answers, and an Esc ladder that backs out before it panics. A line a Companion key holds
+to confirm is held on every desk button that sends it and pressed twice in a menu (the first press arms the entry, a second within
+3 s sends the line), except the transport's Stop, the panic banner's Clear and the master, which go at every press. Round 2 has desk views of its own: a readiness light (the worst of the show's preflight, the fleet and the sync
+group, each lit as the node lights it); the blind chip, whose panel shows the draft's diff and commits it now or at the next item,
+discards it or draws it in MAP's 3D view; Health ▸ Fleet with each machine's card and FAILOVER, held to confirm; Health ▸ Preflight with a Fix button on every row; Health ▸ Calibration with each target's
+score card, a Fix per term and the history strip's Recall; MAP's quad tool (Q, four clicks, Enter; the arrows nudge a corner in
+wall pixels) with the overlay on the wall (O); and a first-light guide from LIGHT WALL to the first clip (docs/DESK.md). The rest
+of round 2 is wire-only: the effects browser, modulation, tempo, bindings and learn, timecode, LED placement and patching,
+optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync tab, the present path chips, the
+per-output panic plans, Companion decks and the content library run over the wire, HTTP, MCP, Companion and the bindings, and
+show on the desk as generic cards and generated right-click entries.
 
 **In progress:** the lab runs of the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among
-them); and the desk's next round: the preflight board with Fix buttons, the quad tool and on-wall mode, the calibration score card
-and history strip, and the blind chip. The blind draft's diff and commit, the sync board and the fleet board have no desk view of
-their own: their STATE shows on the desk's cards and their verbs run from the cards and over the wire.
+them).
 
 **Round 3 (`docs/round3/`):** PlayMap will become a Windows-native installed application on Direct3D 12 — a signed per-machine
 installer, the engine supervised in the show user's session, each output proving its flip mode, hardware lock on RTX PRO Sync and

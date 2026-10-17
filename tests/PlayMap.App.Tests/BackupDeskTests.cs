@@ -60,6 +60,10 @@ public class BackupDeskTests
         Assert.True(desk.Main.ShowModule.Strip.Panic.IsEnabled);
         Assert.True(desk.Main.ShowModule.Strip.Arm.IsEnabled);
 
+        // The attention bar says whose show it is.
+        var banner = Assert.Single(desk.Main.Banners, b => b.Id == "fleet");
+        Assert.Equal(("amber", door), (banner.Light, banner.Words));
+
         // The mirror's card: green while identical, the mirror's words, FAILOVER live and sent as the line.
         var mirror = desk.Main.Cards.Shown.Single(c => c.Instance.Descriptor.Path == "fleet.mirror");
         Assert.Equal("green", mirror.Light);
@@ -71,9 +75,9 @@ public class BackupDeskTests
         DeskHarness.Pump();
         Assert.Equal("FAILOVER", desk.Verbs()[^1]);
 
-        // The attention bar says whose show it is.
-        var banner = Assert.Single(desk.Main.Banners, b => b.Id == "fleet");
-        Assert.Equal(("amber", door), (banner.Light, banner.Words));
+        // The node took the show: its door is gone, the banner with it, and the surface's edits run again.
+        Assert.DoesNotContain(desk.Main.Banners, b => b.Id == "fleet");
+        Assert.Null(remove.Refusal);
         window.Close();
     }
 

@@ -118,7 +118,7 @@
           <TextBlock Classes="label" Text="Opacity" />
           <TextBlock Grid.Column="1" Classes="label" Text="{Binding OpacityText}" />
         </Grid>
-        <Slider Minimum="0" Maximum="1" Value="{Binding Opacity}" />
+        <Slider Minimum="0" Maximum="1" Value="{Binding Opacity}" x:Name="SurfaceOpacity" />
         <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
           <StackPanel>
             <TextBlock Classes="label" Text="Editor colour" />

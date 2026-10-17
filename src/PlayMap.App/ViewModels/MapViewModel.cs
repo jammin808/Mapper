@@ -6,6 +6,7 @@ using PlayMap.App.Scene;
 using PlayMap.App.State;
 using PlayMap.Core.Content;
 using PlayMap.Core.Geometry;
+using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 
@@ -17,12 +18,18 @@ public enum MapTool
     Pin,
     Warp,
     Pen,
+    Quad,
 }
 
 /// <summary>MAP: the scene outliner, the editor view (the engine's picture of an orbit camera with the desk's
 /// overlays — frusta, pins, selection, gizmo) or the projector view (what one projector sees, with its warp
-/// handles, its pen masks and its pins), the tools, and the inspector. Every edit is a verb; drags go through
-/// the throttle and land as one undo step on the engine (it coalesces a key's edits).</summary>
+/// handles, its pen masks, its pins and its quads), the tools, the inspector, on-wall editing and the first-light guide.
+/// Every edit is a verb; drags go through the throttle and land as one undo step on the engine (it coalesces a key's
+/// edits). The quad tool's four clicks are wall points: Enter sends one SURFACE QUAD; a selected quad's corner moves by the
+/// arrows (SURFACE CORNER … BY … PX) and Tab picks the next corner (HANDLE SELECT), so the wall shows it; O puts the edit
+/// overlay on the wall (OVERLAY ON ON &lt;output&gt;), its lease renewed every 5 s of the desk's clock while this desk holds it, and off
+/// again when the desk leaves MAP, closes or leaves the node. A quad half drawn belongs to the projector it was begun on: it is
+/// dropped when the view shows another.</summary>
 public sealed class MapViewModel : ObservableObject, IDisposable
 {
     private readonly DeskSession _session;
@@ -35,12 +42,25 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     private string? _viewProjectorId;
     private int _maskCount;
     private string? _selectedMaskId;
+    private readonly Func<long> _nowMs;
 
-    public MapViewModel(DeskSession session)
+    /// <param name="nowMs">The desk's monotonic clock in milliseconds (the overlay's lease is renewed on it); the machine's when null.</param>
+    public MapViewModel(DeskSession session, Func<long>? nowMs = null)
     {
         _session = session;
+        _nowMs = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
         Inspector = new InspectorHost(session);
         Pen.Closed += path => LastPenCommit = CommitPenAsync(path);
+        Quad.Changed += () => SceneChanged?.Invoke();
+        QuadTool = new RelayCommand(() => Tool = MapTool.Quad);
+        FinishQuad = new RelayCommand(() => LastQuad = FinishQuadAsync(), () => Quad.IsReady);
+        NextCorner = new RelayCommand(() => StepCorner(+1), () => SelectedQuad is not null);
+        PrevCorner = new RelayCommand(() => StepCorner(-1), () => SelectedQuad is not null);
+        OnWall = DeskAction.Run(session, "map.onWall", "On the wall", ToggleWallAsync, OnWallLine, isChecked: () => WallOutput is { } o && OverlayCovers(o.Id),
+            isEnabled: () => session.IsLive && WallOutput is not null).Look("projector", "O");
+        QuadToolAction = DeskAction.Local("map.quadTool", "Quad tool", () => Tool = MapTool.Quad, isChecked: () => _tool == MapTool.Quad).Look("surface", "Q");
+        ViewActions = [QuadToolAction, OnWall];
+        Guide = new ViewModels.Map.FirstLightGuide(session, LitOn, () => ArmQuad(null));
         SelectTool = new RelayCommand(() => Tool = MapTool.Select);
         PinTool = new RelayCommand(() => Tool = MapTool.Pin);
         WarpTool = new RelayCommand(() => Tool = MapTool.Warp);
@@ -90,6 +110,37 @@ public sealed class MapViewModel : ObservableObject, IDisposable
 
     public RelayCommand SelectTool { get; }
 
+    /// <summary>Q: the quad tool (four clicks on the wall, Enter draws it).</summary>
+    public RelayCommand QuadTool { get; }
+
+    /// <summary>Enter with four corners: one SURFACE QUAD.</summary>
+    public RelayCommand FinishQuad { get; }
+
+    /// <summary>Tab / Shift+Tab: the selected quad's next or previous corner (HANDLE SELECT, so the wall shows it).</summary>
+    public RelayCommand NextCorner { get; }
+
+    public RelayCommand PrevCorner { get; }
+
+    /// <summary>The quad tool's corners and rubber band.</summary>
+    public ViewModels.Map.QuadTool Quad { get; } = new();
+
+    /// <summary>The send the last Enter started (awaitable by whoever needs to know it landed).</summary>
+    public Task LastQuad { get; private set; } = Task.CompletedTask;
+
+    /// <summary>O / "On the wall": the edit overlay on the output that shows this projector (OVERLAY ON|OFF ON &lt;output&gt;); greyed
+    /// with the node's words while the show is armed.</summary>
+    public DeskAction OnWall { get; }
+
+    /// <summary>Q as an entry: the quad tool (the projector view's right-click menu).</summary>
+    public DeskAction QuadToolAction { get; }
+
+    /// <summary>The projector view's own entries, its right-click menu where no quad or surface is under the pointer: the quad tool
+    /// and On the wall.</summary>
+    public IReadOnlyList<DeskAction> ViewActions { get; }
+
+    /// <summary>The first-light guide (Light a wall → the quad → a clip).</summary>
+    public ViewModels.Map.FirstLightGuide Guide { get; }
+
     public RelayCommand PinTool { get; }
 
     public RelayCommand WarpTool { get; }
@@ -115,11 +166,13 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         {
             if (!Set(ref _tool, value))
                 return;
-            Raise(nameof(IsSelectTool), nameof(IsPinTool), nameof(IsWarpTool), nameof(IsPenTool), nameof(ToolHint));
-            if (value is MapTool.Warp or MapTool.Pen or MapTool.Pin && !_isProjectorView)
+            Raise(nameof(IsSelectTool), nameof(IsPinTool), nameof(IsWarpTool), nameof(IsPenTool), nameof(IsQuadTool), nameof(ToolHint));
+            if (value is MapTool.Warp or MapTool.Pen or MapTool.Pin or MapTool.Quad && !_isProjectorView)
                 IsProjectorView = true;
             if (value != MapTool.Pen)
                 Pen.Cancel();
+            if (value != MapTool.Quad)
+                CancelQuad();
             SceneChanged?.Invoke();
         }
     }
@@ -164,12 +217,23 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         }
     }
 
+    public bool IsQuadTool
+    {
+        get => _tool == MapTool.Quad;
+        set
+        {
+            if (value)
+                Tool = MapTool.Quad;
+        }
+    }
+
     /// <summary>One sentence: what the tool does with a click.</summary>
     public string ToolHint => _tool switch
     {
         MapTool.Pin => ViewOutputHint ?? "Click a feature on a surface to pin it; drag a pin onto the real feature. Six spread pins solve the projector.",
         MapTool.Warp => ViewOutputHint ?? "Drag the corner handles to pin the picture's corners, the lattice nodes to bend it.",
         MapTool.Pen => ViewOutputHint ?? "Click for corners, drag for smooth nodes, Alt-click a node to toggle it, click the first node to close.",
+        MapTool.Quad => Quad.Hint,
         _ => _isProjectorView ? "Click a surface to select it." : "Click to select · drag empty space to orbit · Shift-drag to pan · wheel to zoom · drag an axis to move.",
     };
 
@@ -225,16 +289,42 @@ public sealed class MapViewModel : ObservableObject, IDisposable
 
     public string ViewTitle => _isProjectorView
         ? ViewProjector is { } pj ? $"Projector view · {pj.Name}{(ViewOutput is { } o ? " · " + o.Name : "")}" : "Projector view · no projector"
-        : "3D view";
+        : _showDraft ? "3D view · the blind draft" : "3D view";
 
     /// <summary>The engine's preview view id for what the centre shows.</summary>
-    public string ViewId => _isProjectorView && ViewProjector is { } pj ? "pj-" + pj.Id : "editor";
+    public string ViewId => _isProjectorView && ViewProjector is { } pj ? "pj-" + pj.Id : EditorViewId;
+
+    private bool _showDraft;
+
+    /// <summary>The 3D view draws this desk's blind draft instead of the air (VIEW editor-draft SHOW editor DRAFT): a view of its own,
+    /// as the node keeps a view that drew the air for the air.</summary>
+    public bool ShowDraft
+    {
+        get => _showDraft;
+        set
+        {
+            if (!Set(ref _showDraft, value))
+                return;
+            Raise(nameof(EditorViewId), nameof(ViewId), nameof(ViewTitle));
+            if (_editorPixels is { } px)
+                _session.Throttle.Post("view " + EditorViewId, $"VIEW {EditorViewId} CAMERA " + Camera.ToJson(px.W, px.H));
+            SceneChanged?.Invoke();
+        }
+    }
+
+    /// <summary>The 3D view's preview: "editor-draft" while it draws the draft, "editor" otherwise.</summary>
+    public string EditorViewId => _showDraft ? "editor-draft" : "editor";
+
+    private (double W, double H)? _editorPixels;
 
     public void Select(string kind, string? id)
     {
+        var viewed = ViewProjector?.Id;
+        _drawn = null;
         _selectedKind = id is null ? "" : kind;
         _selectedId = id;
         _selectedMaskId = null;
+        _selectedCorner = 0;
         if (kind == "projector" && id is not null)
             _viewProjectorId = id;
         else if (kind == "output" && id is not null && _project?.FindOutput(id)?.ProjectorId is { } pj)
@@ -251,7 +341,13 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             "camera" or "viewpoint" or "scan" when id is not null => new StageItemInspector(_session, id, kind),
             _ => null,
         });
-        Raise(nameof(SelectedId), nameof(SelectedKind), nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ViewId), nameof(ToolHint));
+        Raise(nameof(SelectedId), nameof(SelectedKind), nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ViewId), nameof(ToolHint),
+            nameof(SelectedQuad), nameof(SelectedCorner));
+        NextCorner.RaiseCanExecuteChanged();
+        PrevCorner.RaiseCanExecuteChanged();
+        if (ViewProjector?.Id != viewed)
+            CancelQuad();
+        OnWall.Refresh();
         SceneChanged?.Invoke();
     }
 
@@ -269,10 +365,25 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         Outliner[6].Nodes.SyncById(p.Outputs, x => x.Id, n => n.Id, x => new OutlinerNode(this, "output", x.Id), (n, x) => n.UpdateOutput(x, p));
         foreach (var g in Outliner)
             g.Refresh();
-        if (_selectedId is not null && !Outliner.Any(g => g.Nodes.Any(n => n.Id == _selectedId)))
+        if (_drawn is { } drawn && _selectedId == drawn && p.FindSurface(drawn) is not null)
+        {
+            // The quad this desk drew is in the project now: its inspector opens, its corner kept.
+            var corner = _selectedCorner;
+            Select("surface", drawn);
+            _selectedCorner = corner;
+            Raise(nameof(SelectedCorner));
+        }
+        else if (_selectedId is not null && _selectedId != _drawn && !Outliner.Any(g => g.Nodes.Any(n => n.Id == _selectedId)))
             Select("", null);
         Inspector.Refresh(p, _session.State);
-        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint), nameof(NodeId), nameof(ViewId));
+        Guide.OnProject(p);
+        HoldLitOverlay();
+        if (_quadProjector is { } begun && ViewProjector?.Id != begun)
+            CancelQuad();
+        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint), nameof(NodeId), nameof(ViewId), nameof(SelectedQuad));
+        NextCorner.RaiseCanExecuteChanged();
+        PrevCorner.RaiseCanExecuteChanged();
+        OnWall.Refresh();
         SceneChanged?.Invoke();
     }
 
@@ -284,6 +395,256 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             a.Refresh();
         if (_project is { } p)
             Inspector.Refresh(p, s);
+        var overlay = WallFacts.Read(s);
+        if (overlay != _overlay)
+        {
+            _overlay = overlay;
+            if (!overlay.On)
+                _overlayMine = null;
+            SceneChanged?.Invoke();
+        }
+        OnWall.Refresh();
+        Guide.OnState(s);
+        Guide.RefreshActions();
+    }
+
+    // ---- the quad on the wall ---------------------------------------------------------------------------------------------
+
+    private WallFacts _overlay = WallFacts.Off;
+    private string? _overlayMine;
+    private int _selectedCorner;
+    private long _keptAtMs;
+    private string? _quadProjector;
+
+    /// <summary>The quad this desk drew, selected before the project that names it arrived (a push may lag the reply).</summary>
+    private string? _drawn;
+
+    /// <summary>The time between two renewals of this desk's overlay lease, on the desk's clock (the node lets it lapse after 15 s).</summary>
+    public const long KeepOverlayEveryMs = 5000;
+
+    /// <summary>The output that puts the view's projector on the wall, as the node chooses it: the first enabled output in Projector
+    /// mode that shows it, else the first that shows it; null when none does (then only raster pixels mean anything).</summary>
+    public Output? WallOutput => ViewProjector is { } pj && _project is { } p
+        ? p.Outputs.FirstOrDefault(o => o.Mode == OutputMode.Projector && o.ProjectorId == pj.Id && o.Enabled)
+          ?? p.Outputs.FirstOrDefault(o => o.Mode == OutputMode.Projector && o.ProjectorId == pj.Id)
+        : null;
+
+    /// <summary>The air's edit overlay as STATE says it.</summary>
+    public WallFacts Overlay => _overlay;
+
+    private bool OverlayCovers(string output) => _overlay.On && (_overlay.Outputs.IsDefaultOrEmpty || _overlay.Outputs.Contains(output));
+
+    /// <summary>The selected surface when it is a quad drawn in a projector's picture, else null.</summary>
+    public Surface? SelectedQuad => _selectedKind == "surface" && _project?.FindSurface(_selectedId) is { Pixel: not null } s ? s : null;
+
+    /// <summary>The selected quad's corner the arrows move (0 TL, 1 TR, 2 BR, 3 BL).</summary>
+    public int SelectedCorner => _selectedCorner;
+
+    private string? OnWallLine() => WallOutput is { } o ? (OverlayCovers(o.Id) ? "OVERLAY OFF ON " : "OVERLAY ON ON ") + o.Id : null;
+
+    private async Task ToggleWallAsync(CancellationToken ct)
+    {
+        if (OnWallLine() is not { } line || WallOutput is not { } o)
+            return;
+        var on = line.StartsWith("OVERLAY ON", StringComparison.Ordinal);
+        var reply = await _session.SendAsync(line, ct);
+        if (!reply.Ok)
+            return;
+        _overlayMine = on ? o.Id : null;
+        _keptAtMs = _nowMs();
+    }
+
+    /// <summary>The window's tick: while this desk holds the overlay on the wall, its lease is renewed (quietly) once 5 s of the desk's
+    /// clock have passed since it was put on or last renewed, however late the ticks come.</summary>
+    public void TickWall()
+    {
+        var now = _nowMs();
+        if (_overlayMine is not { } op || !_overlay.On || !_session.IsLive)
+        {
+            _keptAtMs = now;
+            return;
+        }
+        if (now - _keptAtMs < KeepOverlayEveryMs)
+            return;
+        _keptAtMs = now;
+        _ = _session.SendQuietAsync("OVERLAY KEEP ON " + op);
+    }
+
+    /// <summary>True while the edit overlay this desk put on a wall is on it.</summary>
+    public bool HoldsOverlay => _overlayMine is { } op && OverlayCovers(op);
+
+    /// <summary>The desk shows MAP: the guide's first step reads the displays again.</summary>
+    public void EnterMap() => Guide.Shown();
+
+    /// <summary>The desk left MAP: the overlay it put on the wall comes off, and a quad in progress is dropped.</summary>
+    public void LeaveMap() => _ = LeaveMapAsync();
+
+    /// <summary>The desk leaves MAP, closes or leaves the node: the overlay it put on the wall comes off (OVERLAY OFF ON &lt;output&gt;,
+    /// the send awaited so a closing desk sends it before its link goes), and a quad in progress is dropped.</summary>
+    public Task LeaveMapAsync(CancellationToken ct = default)
+    {
+        CancelQuad();
+        var held = HoldsOverlay ? _overlayMine : null;
+        _overlayMine = null;
+        return held is not null && _session.CanSend ? _session.SendAsync("OVERLAY OFF ON " + held, ct) : Task.CompletedTask;
+    }
+
+    /// <summary>LIGHT WALL lit this projector (and put the overlay on its output for this desk): its view, with the quad tool armed.</summary>
+    private void LitOn(string projectorId)
+    {
+        ArmQuad(projectorId);
+        _litProjector = projectorId;
+        HoldLitOverlay();
+        Lit?.Invoke();
+    }
+
+    /// <summary>The projector LIGHT WALL lit, until the project that names it has arrived (its output's overlay is this desk's).</summary>
+    private string? _litProjector;
+
+    private void HoldLitOverlay()
+    {
+        if (_litProjector is not { } pj || _project?.FindProjector(pj) is null)
+            return;
+        _litProjector = null;
+        if (_selectedId != pj)
+            Select("projector", pj);
+        if (WallOutput is { } o)
+        {
+            _overlayMine = o.Id;
+            _keptAtMs = _nowMs();
+        }
+    }
+
+    /// <summary>Raised after LIGHT WALL lit a projector from the guide (the window shows MAP).</summary>
+    public event Action? Lit;
+
+    /// <summary>The quad tool on a projector's view (the lit one, or the one shown); a projector the mirrored project does not name
+    /// yet is the view's as soon as the project that names it arrives.</summary>
+    private void ArmQuad(string? projectorId)
+    {
+        if (projectorId is not null)
+        {
+            if (_project?.FindProjector(projectorId) is not null)
+                Select("projector", projectorId);
+            else
+                _viewProjectorId = projectorId;
+        }
+        IsProjectorView = true;
+        Tool = MapTool.Quad;
+        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ViewId), nameof(ToolHint));
+    }
+
+    private void CancelQuad()
+    {
+        _quadProjector = null;
+        if (!Quad.IsDrawing)
+            return;
+        Quad.Cancel();
+        if (_session.CanSend)
+            _ = _session.SendQuietAsync("CURSOR OFF");
+        Raise(nameof(ToolHint));
+    }
+
+    /// <summary>Esc's draft rung for the quad: the clicks so far are dropped.</summary>
+    public bool CancelQuadDraft()
+    {
+        if (!Quad.IsDrawing)
+            return false;
+        CancelQuad();
+        return true;
+    }
+
+    /// <summary>A click of the quad tool at a wall point: drawn at once, and the wall shows the same rubber band (CURSOR with its trail).</summary>
+    public void QuadClick(Vec2d wall)
+    {
+        var first = !Quad.IsDrawing;
+        if (!Quad.Click(wall))
+            return;
+        if (first)
+            _quadProjector = ViewProjector?.Id;
+        Raise(nameof(ToolHint));
+        FinishQuad.RaiseCanExecuteChanged();
+        if (WallOutput is { } o && _session.CanSend)
+        {
+            var clicks = Quad.Clicks;
+            var last = clicks[^1];
+            var trail = clicks.Count > 1 ? " TRAIL " + string.Join(' ', clicks.Take(clicks.Count - 1).Select(c => VerbText.Num(Math.Round(c.X, 4)) + " " + VerbText.Num(Math.Round(c.Y, 4)))) : "";
+            _session.Throttle.Post("cursor", $"CURSOR {o.Id} {VerbText.Num(Math.Round(last.X, 4))} {VerbText.Num(Math.Round(last.Y, 4))}{trail}");
+        }
+    }
+
+    /// <summary>The line the four corners make: wall pixels of the output that shows the projector, or raster pixels when none does.</summary>
+    public string? QuadLine(IReadOnlyList<Vec2d> corners)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+        if (corners.Count != 4 || ViewProjector is not { } pj)
+            return null;
+        var o = WallOutput;
+        var (w, h, units) = o is null ? (pj.Intrinsics.Width, pj.Intrinsics.Height, "RASTER") : (o.Width, o.Height, "PX");
+        var points = string.Join(' ', corners.Select(c => VerbText.Num(Math.Round(c.X * w, 2)) + " " + VerbText.Num(Math.Round(c.Y * h, 2))));
+        return $"SURFACE QUAD {pj.Id} {points} {units}";
+    }
+
+    private async Task FinishQuadAsync()
+    {
+        if (!Quad.IsReady || QuadLine(Quad.Clicks) is not { } line)
+            return;
+        Quad.Take();
+        _quadProjector = null;
+        FinishQuad.RaiseCanExecuteChanged();
+        Raise(nameof(ToolHint));
+        await _session.Throttle.CommitAsync();
+        _ = _session.SendQuietAsync("CURSOR OFF");
+        var reply = await _session.SendAsync(line);
+        if (!reply.Ok || ViewModels.Map.QuadTool.Field(reply.Text, "id") is not { Length: > 0 } id)
+            return;
+        // The quad is selected with its first corner, on the desk and on the wall, so the arrows move it at once.
+        if (_project?.FindSurface(id) is not null)
+            Select("surface", id);
+        else
+        {
+            _selectedKind = "surface";
+            _selectedId = id;
+            _drawn = id;
+        }
+        _selectedCorner = 0;
+        Raise(nameof(SelectedQuad), nameof(SelectedCorner));
+        SendGated($"HANDLE SELECT {id} {PixelQuadMath.CornerNames[0]}", quiet: true);
+    }
+
+    private void StepCorner(int step)
+    {
+        if (SelectedQuad is not { } q)
+            return;
+        _selectedCorner = (_selectedCorner + step + 4) % 4;
+        Raise(nameof(SelectedCorner));
+        SceneChanged?.Invoke();
+        SendGated($"HANDLE SELECT {q.Id} {PixelQuadMath.CornerNames[_selectedCorner]}", quiet: true);
+    }
+
+    /// <summary>An arrow on the selected quad's corner: its wall-pixel move (Shift ×10, Alt ×0.1), SURFACE CORNER … BY … PX.</summary>
+    public void Nudge(double dx, double dy)
+    {
+        if (SelectedQuad is not { } q)
+            return;
+        SendGated($"SURFACE CORNER {q.Id} {PixelQuadMath.CornerNames[_selectedCorner]} BY {VerbText.Num(dx)} {VerbText.Num(dy)} PX", quiet: false);
+    }
+
+    /// <summary>True when the arrows move a corner now (MAP, a quad selected).</summary>
+    public bool CanNudge => SelectedQuad is not null;
+
+    /// <summary>Sends a line the gate lets through; one it refuses is not sent and the toast gives the node's words.</summary>
+    private void SendGated(string line, bool quiet)
+    {
+        if (_session.GateWords(line) is { } why)
+        {
+            _session.Notify(ToastKind.Refused, why, line);
+            return;
+        }
+        if (quiet)
+            _ = _session.SendQuietAsync(line);
+        else
+            _session.Fire(line);
     }
 
     private string PatternTarget() => _isProjectorView && ViewOutput is { } o ? " ON " + o.Id : "";
@@ -376,7 +737,8 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             var w = Math.Min(1920, Math.Max(64, Math.Round(width / 32) * 32));
             var h = Math.Max(32, Math.Round(w * height / width / 2) * 2);
             EditorSize = string.Create(CultureInfo.InvariantCulture, $"{w:0}x{h:0}");
-            _session.Throttle.Post("view editor", "VIEW editor CAMERA " + Camera.ToJson(w, h));
+            _editorPixels = (w, h);
+            _session.Throttle.Post("view " + EditorViewId, $"VIEW {EditorViewId} CAMERA " + Camera.ToJson(w, h));
         }
         SceneChanged?.Invoke();
     }
@@ -597,7 +959,8 @@ public sealed class OutlinerNode : ObservableObject, IMenuTarget
         Visible = s.Visible;
         Locked = s.Locked;
         var mesh = p.FindMesh(s.MeshId);
-        Detail = $"{(mesh?.Name ?? "no mesh")} · {SourceWords(s.Content.Source, p)}";
+        var on = s.Pixel is { } q ? "quad on " + (p.FindProjector(q.ProjectorId)?.Name ?? q.ProjectorId) : mesh?.Name ?? "no mesh";
+        Detail = $"{on} · {SourceWords(s.Content.Source, p)}";
         if (_actions.Count == 0)
         {
             var session = Session;
@@ -747,4 +1110,22 @@ public sealed class OutlinerNode : ObservableObject, IMenuTarget
         SourceKind.Color => src.Id,
         _ => src.ToString(),
     };
+}
+
+/// <summary>The air's edit overlay as STATE.air.overlay says it: on, and the outputs it covers (none: every output).</summary>
+public sealed record WallFacts(bool On, System.Collections.Immutable.ImmutableArray<string> Outputs)
+{
+    public static readonly WallFacts Off = new(false, []);
+
+    public bool Equals(WallFacts? other) => other is not null && On == other.On && Outputs.AsSpan().SequenceEqual(other.Outputs.AsSpan());
+
+    public override int GetHashCode() => HashCode.Combine(On, Outputs.Length);
+
+    public static WallFacts Read(StateSnapshot s)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+        if (s.Root.ValueKind != System.Text.Json.JsonValueKind.Object || !s.Root.TryGetProperty("air", out var air) || air.Obj("overlay") is not { } o)
+            return Off;
+        return new WallFacts(o.Bool("on"), [.. o.Arr("outputs").Where(x => x.ValueKind == System.Text.Json.JsonValueKind.String).Select(x => x.GetString()!)]);
+    }
 }

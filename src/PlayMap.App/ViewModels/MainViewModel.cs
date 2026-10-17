@@ -46,7 +46,12 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         ArgumentNullException.ThrowIfNull(session);
         Session = session;
         Prefs = prefs ?? DeskPrefs.InMemory();
-        Escape = new EscapeLadder(nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp()));
+        var clock = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
+        _nowMs = clock;
+        _viewsKeptAtMs = clock();
+        Escape = new EscapeLadder(clock);
+        // A held action's menu entry waits for its second press on the desk's own clock.
+        session.Presses = new HeldPress(clock);
         _connections = new ConnectionManager(session);
         // The supervisor speaks from its own worker; the toast goes up on the UI thread.
         _connections.Note += text => session.OnUi(() => session.Notify(ToastKind.Info, text));
@@ -85,7 +90,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
                 session.Dismiss(toast);
         });
         Play = new PlayViewModel(session);
-        Map = new MapViewModel(session);
+        Map = new MapViewModel(session, clock);
+        _connections.Leaving = Map.LeaveMapAsync;
         Scan = new ScanWizardViewModel(session);
         Outputs = new OutputsDrawerViewModel(session);
         Network = new NetworkDrawerViewModel(session, _connections);
@@ -117,6 +123,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             if (m.EscapeOrder != int.MaxValue)
                 Escape.Add(new EscapeRung(m.EscapeOrder, m.GetType().Name, m.TryEscape));
         }
+        // Each drawer opens on its first tab by order, whichever module brought it first.
+        foreach (var d in Drawers.Drawers.Where(d => d.Tabs.Count > 0))
+            d.Selected = d.Tabs[0];
         Escape.Add(new EscapeRung(EscapeLadder.PatternTask, "pattern task", CancelPatternTask));
         Escape.Add(new EscapeRung(EscapeLadder.Selection, "selection", () =>
         {
@@ -127,7 +136,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         }));
         Escape.Add(new EscapeRung(EscapeLadder.Draft, "draft", () =>
         {
-            if (Workspace != Workspace.Map || !Map.Pen.IsDrawing)
+            if (Workspace != Workspace.Map)
+                return false;
+            if (Map.CancelQuadDraft())
+                return true;
+            if (!Map.Pen.IsDrawing)
                 return false;
             Map.Pen.Cancel();
             return true;
@@ -146,7 +159,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             host.Use(this);
         Map.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView) or nameof(MapViewModel.EditorSize))
+            if (e.PropertyName is nameof(MapViewModel.ViewId) or nameof(MapViewModel.IsProjectorView) or nameof(MapViewModel.EditorSize) or nameof(MapViewModel.EditorViewId))
                 UpdateViews();
         };
         session.StateUpdated += OnState;
@@ -559,27 +572,38 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Raise(nameof(IsConnected));
     }
 
-    /// <summary>The desk is closing: stop watching (the engine keeps playing).</summary>
+    /// <summary>The desk is closing: what it put on a wall comes off, then it stops watching (the engine keeps playing).</summary>
     public void BeginShutdown() => _ = DisposeAsync().AsTask();
 
-    /// <summary>Ticks between two renewals of the shown views' leases: 5 s at the window's 4 Hz (the node lets a view
-    /// go after 15 s without one).</summary>
-    public const int KeepViewsEveryTicks = 20;
+    /// <summary>How long a closing desk, or one leaving its node, waits for the node to take its overlay off the wall.</summary>
+    public static readonly TimeSpan LeaveWithin = TimeSpan.FromSeconds(1);
 
-    private int _ticksSinceKeep;
+    /// <summary>The time between two renewals of the shown views' leases, on the desk's clock (the node lets a view go after 15 s
+    /// without one).</summary>
+    public const long KeepViewsEveryMs = 5000;
 
-    /// <summary>Moves the counters between pushes (the window's 4 Hz tick) and keeps the shown views alive.</summary>
+    private readonly Func<long> _nowMs;
+    private long _viewsKeptAtMs;
+
+    /// <summary>Moves the counters between pushes (the window's 4 Hz tick) and keeps the shown views alive: their leases are renewed
+    /// once 5 s of the desk's clock have passed since the last renewal, however late the ticks come; while the desk is not live there is
+    /// nothing to renew, and the first renewal on a live link is 5 s after it came.</summary>
     public void Tick()
     {
         if (Master.IsRunning)
             Master.Advance();
         Play.Tick();
         TickModules();
-        if (++_ticksSinceKeep >= KeepViewsEveryTicks)
+        var now = _nowMs();
+        if (!Session.IsLive)
         {
-            _ticksSinceKeep = 0;
-            KeepViews();
+            _viewsKeptAtMs = now;
+            return;
         }
+        if (now - _viewsKeptAtMs < KeepViewsEveryMs)
+            return;
+        _viewsKeptAtMs = now;
+        KeepViews();
     }
 
     /// <summary>Renews the lease of every view the desk shows (VIEW &lt;view&gt; KEEP), quietly; a view the node let go
@@ -814,6 +838,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             case Workspace.Map when Map.IsProjectorView && Map.ViewProjector is { } pj:
                 want[Map.ViewId] = $"projector:{pj.Id} {pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture)}x{pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture)}";
                 break;
+            case Workspace.Map when Map.ShowDraft:
+                want[Map.EditorViewId] = "editor DRAFT";
+                break;
             case Workspace.Map:
                 want["editor"] = "editor " + Map.EditorSize;
                 break;
@@ -873,6 +900,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     public async ValueTask DisposeAsync()
     {
+        // The overlay this desk put on a wall comes off before the link goes (bounded: a node that does not answer keeps it only
+        // until its lease lapses).
+        using (var leaving = new CancellationTokenSource(LeaveWithin))
+            await Map.LeaveMapAsync(leaving.Token);
         Session.StateUpdated -= OnState;
         Session.ProjectUpdated -= OnProject;
         Session.StatusUpdated -= OnStatus;

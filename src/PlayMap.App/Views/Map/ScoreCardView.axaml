@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mapvm="using:PlayMap.App.ViewModels.Map"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.Map.ScoreCardView"
+             x:DataType="mapvm:ScoreCardViewModel">
+  <!-- A calibration target's score card: the grade in a ring of its light, the score and its words, the confidence and the verified
+       error, the target's lines (the staged result's Accept first while one waits), every term with its Fix, and the history strip
+       (each result's menu: Recall, Set as fallback, Forget, as the node allows them). -->
+  <Border Classes="card" Padding="10,8" Margin="0,0,0,6" ui:DeskMenu.Actions="{Binding Actions}" x:Name="ScoreCard">
+    <StackPanel Spacing="4">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+        <Border Width="34" Height="34" CornerRadius="17" BorderThickness="3" BorderBrush="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="ScoreRing">
+          <TextBlock Text="{Binding Grade}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="ScoreGrade" />
+        </Border>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="dim" Text="{Binding Words}" TextWrapping="Wrap" x:Name="ScoreWords" />
+        </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Score}" FontFeatures="+tnum" VerticalAlignment="Top" />
+      </Grid>
+      <TextBlock Classes="faint" Text="{Binding Detail}" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Toolbar}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Wrap}" x:Name="ScoreActions" />
+      <ItemsControl ItemsSource="{Binding Terms}" ItemTemplate="{StaticResource StatusRowTemplate}" x:Name="ScoreTerms" />
+      <TextBlock Classes="faint" Text="History" IsVisible="{Binding HasHistory}" />
+      <ItemsControl ItemsSource="{Binding History}" ItemsPanel="{StaticResource Wrap}" x:Name="HistoryStrip">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="mapvm:HistoryDotViewModel">
+            <Border ToolTip.Tip="{Binding Tip}" Margin="0,0,4,4">
+              <ui:ActionMenuButton Classes="secondary" Action="{Binding Dot}" ui:DeskMenu.Actions="{Binding Actions}" x:Name="HistoryDot" />
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

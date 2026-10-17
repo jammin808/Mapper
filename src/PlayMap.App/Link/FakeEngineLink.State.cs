@@ -175,6 +175,7 @@ public sealed partial class FakeEngineLink
                 w.WriteEndObject();
             }
             w.WriteBoolean("identify", _identifyUntilNs != 0);
+            WriteOverlay(w);
             w.WriteEndObject();
             WriteVideo(w, focused, fc, now);
             w.WriteStartArray("playlists");
@@ -311,6 +312,7 @@ public sealed partial class FakeEngineLink
             w.WriteBoolean("dirty", _store.Current.Revision != _savedRevision);
             w.WriteEndObject();
             WriteAi(w);
+            WriteOnboarding(w);
             w.WriteEndObject();
         }
         var json = Encoding.UTF8.GetString(buffer.WrittenSpan);

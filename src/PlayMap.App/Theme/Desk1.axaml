@@ -1,8 +1,12 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- Show and health: the show strip, the attention bar, the mode frame. -->
+  <!-- Show and health: the show strip (the armed pill, the blind chip, PANIC), the attention bar, the mode frame. -->
   <Style Selector="Button.pill.armed /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{StaticResource LightRedBrush}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.pill.blind /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#6E4FD8" />
     <Setter Property="Foreground" Value="White" />
   </Style>
   <Style Selector="Button.panic">
