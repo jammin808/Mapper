@@ -163,11 +163,11 @@ public sealed class ShowStateFixtureTest
         var write = Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1";
         if (write)
         {
-            await File.WriteAllTextAsync(FixturePath("show.json"), fixture);
-            await File.WriteAllTextAsync(FixturePath("show.cards.json"), cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("show.json"), fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("show.cards.json"), cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("show.json"))).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("show.cards.json"))).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("show.json"))).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("show.cards.json"))).ReplaceLineEndings("\n"), cards);
 
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())

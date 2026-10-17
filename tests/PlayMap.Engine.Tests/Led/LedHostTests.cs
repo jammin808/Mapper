@@ -232,11 +232,11 @@ public sealed class LedHostTests
         var cardsPath = Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", "led.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(statePath, fixture);
-            await File.WriteAllTextAsync(cardsPath, cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(statePath, fixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(cardsPath, cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(statePath)).ReplaceLineEndings("\n"), fixture);
-        Assert.Equal((await File.ReadAllTextAsync(cardsPath)).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(statePath)).ReplaceLineEndings("\n"), fixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(cardsPath)).ReplaceLineEndings("\n"), cards);
         var state = JsonNode.Parse(fixture)!;
         foreach (var card in Cards().Select(c => c!.AsObject()))
         {

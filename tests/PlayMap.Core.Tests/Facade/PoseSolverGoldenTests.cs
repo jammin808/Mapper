@@ -45,7 +45,7 @@ public sealed class PoseSolverGoldenTests
     {
         var now = All();
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            File.WriteAllText(GoldenPath(), now);
-        Assert.Equal(File.ReadAllText(GoldenPath()).ReplaceLineEndings("\n"), now);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(GoldenPath(), now);
+        Assert.Equal(PlayMap.Core.Storage.DurableFile.ReadAllText(GoldenPath()).ReplaceLineEndings("\n"), now);
     }
 }

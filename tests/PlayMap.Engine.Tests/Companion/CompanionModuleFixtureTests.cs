@@ -57,13 +57,13 @@ public sealed partial class CompanionModuleFixtureTests
 
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(FixturePath("state.json"), stateFixture);
-            await File.WriteAllTextAsync(FixturePath("index.json"), indexFixture);
-            await File.WriteAllTextAsync(FixturePath("state-pattern.json"), patternFixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("state.json"), stateFixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("index.json"), indexFixture);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(FixturePath("state-pattern.json"), patternFixture);
         }
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("state.json"))).ReplaceLineEndings("\n"), stateFixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("index.json"))).ReplaceLineEndings("\n"), indexFixture);
-        Assert.Equal((await File.ReadAllTextAsync(FixturePath("state-pattern.json"))).ReplaceLineEndings("\n"), patternFixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("state.json"))).ReplaceLineEndings("\n"), stateFixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("index.json"))).ReplaceLineEndings("\n"), indexFixture);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath("state-pattern.json"))).ReplaceLineEndings("\n"), patternFixture);
     }
 
     /// <summary>The document with every show id renamed in order of first appearance (shared across the two files) and the

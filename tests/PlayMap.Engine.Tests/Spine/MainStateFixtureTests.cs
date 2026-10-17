@@ -56,10 +56,10 @@ public sealed class MainStateFixtureTests
 
             var path = FixturePath("main.json");
             if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-                await File.WriteAllTextAsync(path, state);
+                PlayMap.Core.Storage.DurableFile.WriteAllText(path, state);
             Assert.True(File.Exists(path), "main.json is written by this test: run it once with PLAYMAP_WRITE_FIXTURES=1");
             // A checkout may turn the file's line ends; the content is what is compared.
-            Assert.Equal((await File.ReadAllTextAsync(path)).ReplaceLineEndings("\n"), state);
+            Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(path)).ReplaceLineEndings("\n"), state);
         }
         finally
         {
@@ -75,10 +75,35 @@ public sealed class MainStateFixtureTests
             "content", "led", "facade", "align", "phonescan", "wall"];
         foreach (var pkg in packages)
         {
-            using var state = JsonDocument.Parse(File.ReadAllText(FixturePath(pkg + ".json")));
+            using var state = JsonDocument.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath(pkg + ".json")));
             Assert.Equal(JsonValueKind.Object, state.RootElement.ValueKind);
-            using var cards = JsonDocument.Parse(File.ReadAllText(FixturePath(pkg + ".cards.json")));
+            using var cards = JsonDocument.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(FixturePath(pkg + ".cards.json")));
             Assert.Equal(JsonValueKind.Array, cards.RootElement.ValueKind);
+        }
+    }
+
+    /// <summary>A fixture is replaced whole, in writing mode too: every test that writes one under PLAYMAP_WRITE_FIXTURES writes it beside
+    /// its place and renames it in (DurableFile), and reads it as a reader that never stops that rename; a plain write would let a test
+    /// reading the same file meanwhile see it half written.</summary>
+    /// <summary>A write of a whole file in place (System.IO.File's, not DurableFile's).</summary>
+    private static readonly System.Text.RegularExpressions.Regex InPlace = new(@"(?<![\w.])File\.WriteAll(Text|Bytes|Lines)(Async)?\(",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    [Fact]
+    public void EveryFixtureWriterReplacesItsFileWhole()
+    {
+        var tests = Path.Combine(NodeExe.RepoRoot(), "tests");
+        var writers = Directory.EnumerateFiles(tests, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => File.ReadAllText(f).Contains("PLAYMAP_WRITE_FIXTURES\") == \"1\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(writers.Count >= 20, $"{writers.Count} fixture writers found");
+        foreach (var file in writers)
+        {
+            var text = File.ReadAllText(file);
+            foreach (var line in text.Split('\n').Where(l => InPlace.IsMatch(l)))
+                Assert.Fail($"{Path.GetRelativePath(tests, file)} writes a file in place: {line.Trim()}");
         }
     }
 }

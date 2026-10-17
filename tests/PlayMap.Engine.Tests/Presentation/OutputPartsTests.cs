@@ -332,10 +332,10 @@ public sealed partial class OutputFixtureTests
         var cardsPath = FixturePath("output.cards.json");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
-            await File.WriteAllTextAsync(statePath, state);
-            await File.WriteAllTextAsync(cardsPath, cards);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(statePath, state);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(cardsPath, cards);
         }
-        Assert.Equal((await File.ReadAllTextAsync(statePath)).ReplaceLineEndings("\n"), state);
-        Assert.Equal((await File.ReadAllTextAsync(cardsPath)).ReplaceLineEndings("\n"), cards);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(statePath)).ReplaceLineEndings("\n"), state);
+        Assert.Equal((PlayMap.Core.Storage.DurableFile.ReadAllText(cardsPath)).ReplaceLineEndings("\n"), cards);
     }
 }

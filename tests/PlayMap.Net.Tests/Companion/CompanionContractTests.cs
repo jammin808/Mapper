@@ -32,7 +32,7 @@ public sealed partial class CompanionContractTests
     private static string Module(params string[] parts) =>
         Path.Combine([RepoRoot(), "integrations", "companion-module-playmap", .. parts]);
 
-    private static string Read(string path) => File.ReadAllText(path).ReplaceLineEndings("\n");
+    private static string Read(string path) => PlayMap.Core.Storage.DurableFile.ReadAllText(path).ReplaceLineEndings("\n");
 
     [Fact]
     public async Task TheModulesVerbsAreTheCatalogue()
@@ -40,7 +40,7 @@ public sealed partial class CompanionContractTests
         var path = Module("src", "catalog", "verbs.json");
         var written = JsonNode.Parse(VerbJson.All)!.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n";
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            await File.WriteAllTextAsync(path, written);
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, written);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(VerbJson.All), JsonNode.Parse(Read(path))),
             "the module's verbs.json is VERBS as the catalogue writes it — PLAYMAP_WRITE_FIXTURES=1 dotnet test rewrites it");
     }
