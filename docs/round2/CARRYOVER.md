@@ -307,25 +307,29 @@ Round 2 W1 notes:
   it takes, even one taken back before its thread ran, closes it.
 - Open on Windows: the survey slice's measure there is not yet observed. Where the kernel is x64 and CPUID says the time-stamp
   counter is invariant, `ThreadTime` reads the lane thread's cycles (`QueryThreadCycleTime`) at the counter's rate, measured once as
-  the node starts, off the lane and the render thread: the fastest of 16 millisecond spins against the stopwatch, which a preemption
-  or an interrupt only lowers, so a slice reads at least its work. Each spin reads the count on every pass, and the rate stands only
-  where, in every spin of 100 passes or more, the count moves on at least half of them (a count brought up to date at a tick, a
-  switch or any interval moves on well under 1%, and its fastest spin can count more than the counter) and a quarter of the spins
-  agree with the fastest within 1% (`CycleRateTests`). Otherwise, and on an ARM64 kernel or a counter not said to be invariant, the
-  measure is the thread's kernel and user time in 15.625 ms ticks, and it says why (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the
-  survey view's `LaneResolutionMs`). Where the test's own reading of the platform says the cycles can be read, `ThreadTimeTests`
-  refuses a tick read by the measure's word (`AThreadsTimeCountsItsWorkNotItsWait`,
-  `OnWindowsTheThreadsCyclesAreReadWhereTheirRateIsConstant`), by the blocked thread's count and each 10 ms half
-  (`AThreadsTimeCountsItsWorkNotItsWait`) and by the finest step (`AReadMovesInTheStepItStates`), and refuses converted cycles that
-  read a 10 ms half short of nine tenths (a rate above the counter's). Where it says they cannot, a tick read passes
-  `ThreadTimeTests` at the tick it states, and the slice budget's tests refuse it by name (`SurveyImportTests`). The windows-latest
-  runner is a Hyper-V guest that sees the invariant bit (with CPUID 40000003h EAX bit 15 clear), and its thread cycle count is
-  current at each read at about 2.6 GHz (0.385 ns a cycle): reads straight after each other step about 260 cycles, and about 2% of
-  such pairs find the count unchanged, which the share of moving reads passes and a rule refusing one equal pair would refuse in
-  about one process in four (`CycleRateTests`). The item is settled when the Windows job reads the cycles there (`ThreadTimeTests`
-  and both slice tests log `Basis` into the trx). A Windows 11 24H2 show machine with Memory Integrity on (the default) runs Windows
-  as Hyper-V's root partition: whether it sees the invariant bit, so a shipped node reads the cycles, is a lab check
-  (docs/ROADMAP.md).
+  the node starts, off the lane and the render thread: the fastest of 16 millisecond spins against the stopwatch, which a
+  preemption, an interrupt or a stop only lowers (a spin stopped for most of its millisecond is not judged), so a slice reads at
+  least its work. Each spin reads the count on every pass; a spin that reads it 1000 times or more is judged, and the rate stands
+  only where the count moves on at least half of every judged spin's passes (a count brought up to date at a tick, a switch or any
+  interval moves on well under 1%, and its fastest spin can count more than the counter; one brought up to date at an interval short
+  enough to pass gives a rate at most 0.2% above the counter's) and a quarter of the spins are judged and agree with the fastest
+  within 1% (`CycleRateTests`). Otherwise, and on an ARM64 kernel or a counter not said to be invariant, the measure is the thread's
+  kernel and user time in 15.625 ms ticks, and it says why (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the survey view's
+  `LaneResolutionMs`). Where the test's own reading of the platform says the cycles can be read, `ThreadTimeTests` refuses a tick
+  read by the measure's word (`AThreadsTimeCountsItsWorkNotItsWait`, `OnWindowsTheThreadsCyclesAreReadWhereTheirRateIsConstant`), by
+  the blocked thread's count and each 10 ms half (`AThreadsTimeCountsItsWorkNotItsWait`) and by the finest step
+  (`AReadMovesInTheStepItStates`), and refuses converted cycles that read a 10 ms half short of nine tenths (a rate above the
+  counter's). Where it says they cannot, a tick read passes `ThreadTimeTests` at the tick it states, and the slice budget's tests
+  refuse it by name (`SurveyImportTests`). The windows-latest runner is a Hyper-V guest that sees the invariant bit (with CPUID
+  40000003h EAX bit 15 clear), and its thread cycle count is current at each read at about 2.6 GHz (0.385 ns a cycle): reads
+  straight after each other step about 260 cycles; of 2000 such pairs on each of four threads in each of three processes, 0 to 77
+  (up to about 4%) find the count unchanged on the test runner's thread, a new thread at normal priority and a pool thread, and none
+  on a new thread at the highest priority; and a loop that reads the count and the stopwatch on every pass sees the count change
+  4500 to 6100 times a millisecond. The share of moving reads passes that count; a rule that refuses it where a spin's first pair of
+  reads finds it unchanged refuses it in 1 − (1 − p)^16 of processes for a share p of equal pairs on the measuring thread (about a
+  quarter at 2%). The item is settled when the Windows job reads the cycles there (`ThreadTimeTests` and both slice tests log
+  `Basis` into the trx). A Windows 11 24H2 show machine with Memory Integrity on (the default) runs Windows as Hyper-V's root
+  partition: whether it sees the invariant bit, so a shipped node reads the cycles, is a lab check (docs/ROADMAP.md).
 - Open: `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued before `RunStep` writes the
   panic's journal row ("panic … cued A"), so a reader that sees Cued can read the journal without the row.
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the journal the moment it sees Cued, and failed one Engine run of

@@ -25,11 +25,13 @@ apply), each slice timed into the import's view by the work the lane thread did 
 clock. x64 Windows, where the processor says its time-stamp counter is invariant, reads the thread's cycles (`QueryThreadCycleTime`:
 the counter's ticks while the thread ran, user and kernel mode) at the counter's rate, measured once as the node starts, off the
 control lane and the render thread: the highest rate any of 16 spins of about a millisecond counts against the stopwatch around it.
-A preemption or an interrupt can only lower a spin's rate, so a slice reads at least its work, never less, as long as the count is
-brought up to date at each read: each spin reads the count on every pass, and the rate stands only where, in every spin of 100
-passes or more, the count moves on at least half of them (a count brought up to date at each read moves on nearly every one, now
-and then finding the count where the read before left it; one brought up to date at a tick or an interval, on well under 1%), and
-a quarter of the spins agree with the fastest within 1%. Both are precise, in the step the clock states (1 ns on Linux;
+A preemption, an interrupt or a stop can only lower a spin's rate, or leave a spin stopped for most of its millisecond unjudged, so
+a slice reads at least its work, never less, as long as the count is brought up to date at each read. Each spin reads the count on
+every pass; a spin that reads it 1000 times or more is judged, and the rate stands only where the count moves on at least half of
+every judged spin's passes (a count brought up to date at each read moves on nearly every one, now and then finding the count where
+the read before left it; one brought up to date at a tick or an interval, on well under 1%; one brought up to date at an interval
+short enough to pass gives a rate at most 0.2% above the counter's, the bound `Basis` states for the fewest passes judged), and a
+quarter of the spins are judged and agree with the fastest within 1%. Both are precise, in the step the clock states (1 ns on Linux;
 `clock_getres` on macOS; on x64 Windows a cycle rounded up to a whole nanosecond). Other Windows reads the thread's kernel and user
 time, which Windows charges in whole clock ticks (15.625 ms by default), and the view says why: an ARM64 kernel counts a thread's
 cycles of the core's own clock, whose rate moves with the core's speed, a counter the processor does not call invariant may change
