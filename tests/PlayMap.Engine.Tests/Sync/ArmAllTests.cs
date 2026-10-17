@@ -135,8 +135,10 @@ public sealed class ArmAllTests
     {
         var clock = new ManualClock(1_000 * Second);
         var air = TimeSpan.FromMilliseconds(500);
+        // The leader's deadlines run on this test's clock: an answer is never raced against them, and they pass when the test says.
+        var time = new Fleet.ManualTime();
         var held = new HeldCheck();
-        await using var leader = await StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), SyncRig.Fast() with { ReceiptWait = air });
+        await using var leader = await StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), SyncRig.Fast() with { ReceiptWait = air, Time = time });
         await using var stage = await StartAsync("Stage", StageId, clock, check: held);
         await using var wing = await StartAsync("Wing", WingId, clock);
         await GroupAsync(leader, stage, wing);
@@ -155,7 +157,7 @@ public sealed class ArmAllTests
         Assert.False(done.Task.IsCompleted);   // the group's preflight still waits for Stage's report
 
         // A member whose checks take longer than an air line's deadline still answers with its report.
-        await Task.Delay(air * 2);
+        time.Advance(air * 2);
         held.Release();
         var report = await done.Task.WaitAsync(TimeSpan.FromSeconds(60));
         var stageRow = report.Rows.Single(r => r.Id == "fleet:" + StageId);

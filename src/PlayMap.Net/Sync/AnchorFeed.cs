@@ -59,6 +59,10 @@ public sealed class AnchorFeed
     /// <summary>Raised (outside the feed's lock) when a member joins or leaves.</summary>
     public event Action? MembersChanged;
 
+    /// <summary>A member's receipt for an air line was taken (accepted, or its final stage), with the line's sequence number, on the
+    /// thread that heard it.</summary>
+    public event Action<long, AirReceipt>? Heard;
+
     /// <summary>A member's final receipt for a line whose send stopped waiting with it accepted (a line for a later instant): the line
     /// and the receipt.</summary>
     public event Action<string, AirReceipt>? LateReceipt;
@@ -117,7 +121,8 @@ public sealed class AnchorFeed
     /// final receipt; a member that only accepted reads "accepted", one that said nothing "silent". <paramref name="kind"/> keeps
     /// the line as that kind's latest for members that join later (null: not kept). The line is numbered and pushed before this
     /// returns its task (one lock for both), so lines sent one after another reach every member in that order.</summary>
-    public async Task<IReadOnlyList<AirReceipt>> SendAirAsync(string group, string? kind, string line, long leaderNs, TimeSpan wait, CancellationToken ct)
+    public async Task<IReadOnlyList<AirReceipt>> SendAirAsync(string group, string? kind, string line, long leaderNs, TimeSpan wait, CancellationToken ct,
+        TimeProvider? time = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(group);
         ArgumentException.ThrowIfNullOrWhiteSpace(line);
@@ -149,7 +154,7 @@ public sealed class AnchorFeed
             // One deadline for the whole group: every member has the same span to answer, however many there are.
             try
             {
-                await Task.WhenAll(waits.Select(w => w.Final.Task)).WaitAsync(wait, ct).ConfigureAwait(false);
+                await Task.WhenAll(waits.Select(w => w.Final.Task)).WaitAsync(wait, time ?? TimeProvider.System, ct).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
@@ -196,6 +201,7 @@ public sealed class AnchorFeed
         if (stage == "accepted")
         {
             w.Accepted = receipt;
+            Heard?.Invoke(seq, receipt);
             return true;
         }
         bool late;
@@ -206,6 +212,7 @@ public sealed class AnchorFeed
                 _waiting.Remove((seq, sessionId));
         }
         w.Final.TrySetResult(receipt);
+        Heard?.Invoke(seq, receipt);
         if (late)
             LateReceipt?.Invoke(w.Line, receipt);
         return true;

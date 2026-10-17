@@ -17,7 +17,9 @@ public sealed class GroupAirTests
     public async Task ShowArmAllArmsTheMemberAndALaterInstantIsAcceptedThenApplied()
     {
         var clock = new ManualClock(1_000 * Second);
-        var options = SyncRig.Fast() with { ReceiptWait = TimeSpan.FromMilliseconds(500) };
+        // The leader's receipt deadline (the node's 2 s) runs on this test's clock: a member's answer is never raced against it.
+        var time = new Fleet.ManualTime();
+        var options = SyncRig.Fast() with { Time = time };
         await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), options);
         await using var member = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
         await SyncRig.OpenShowAsync(leader);
@@ -41,7 +43,21 @@ public sealed class GroupAirTests
         var events = new ConcurrentQueue<ShowEvent>();
         member.Engine.EventRaised += events.Enqueue;
         var at = leader.Engine.LeaderNowNs + Second;
-        var receipt = Assert.Single(await fanout.SendAsync("BLACKOUT ON", at, CancellationToken.None));
+        var accepted = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Heard(long seq, PlayMap.Net.Sync.AirReceipt r)
+        {
+            if (r.Stage == "accepted")
+                accepted.TrySetResult(seq);
+        }
+        var feed = leader.Engine.Services.GroupSync!.Feed;
+        feed.Heard += Heard;
+        var sending = fanout.SendAsync("BLACKOUT ON", at, CancellationToken.None);
+        // The member's answer is in before the deadline passes: then the send stops waiting for the final one.
+        await accepted.Task.WaitAsync(TimeSpan.FromMinutes(1));
+        feed.Heard -= Heard;
+        Assert.False(sending.IsCompleted);
+        time.Advance(options.ReceiptWait);
+        var receipt = Assert.Single(await sending);
         Assert.Equal(("Stage", "accepted", at), (receipt.Name, receipt.Stage, receipt.AppliedLeaderNs));
         Assert.False(member.State().GetProperty("air").GetProperty("blackout").GetBoolean());
         clock.Advance(Second - 1_000_000);
