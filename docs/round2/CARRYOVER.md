@@ -130,4 +130,6 @@ Round 2 W1 notes:
 - Seen once each: `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce` (Net, local; code this batch did not touch; five
   reruns pass) and `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` (Windows CI run 259: the
   Patterns host read back from the settings file empty — most likely a read of the file beside the write's rename, which Windows
-  refuses; the settings gate above closes that race in the process). Watch both.
+  refuses; the settings gate above closes that race in the process), and
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` (Linux CI runs 252 and 265: the other follower stays
+  free-wheeling with the anchor feed lost; it passes in every other run and locally). Watch all three.

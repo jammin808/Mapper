@@ -69,7 +69,17 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"PRESENT PATH is already {word.ToUpperInvariant()} (from the render host's next start)");
         var cleared = false;
         if (current != word)
-            node.Save(saved with { Path = word });
+        {
+            try
+            {
+                node.Save(saved with { Path = word });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Nothing changed: the node keeps the path it had (another process reading the file can make Windows refuse a replace).
+                return CommandReply.Fail("the node's settings could not be written: " + ex.Message);
+            }
+        }
         // Any path asked lets a blown fuse go: DXGI tries again, GL and AUTO no longer need it.
         if (blown is not null)
         {

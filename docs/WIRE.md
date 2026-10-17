@@ -22,7 +22,8 @@ would queue a line for a person), OSC, a control binding, the assistant, an appr
 is stopping — it takes no more lines` and journalled as any refusal of its verb, and a line still waiting for the
 lane is refused the same way (a group's `SHOW ARM|DISARM ALL` then sends the group nothing), and so is an edit that a line
 answered off the lane still has waiting for it (a device's `ADD` or `REMOVE`, the calibration ledger's accept or fallback):
-nothing it would change lands, and a re-solve that landed before the stop says its blends were not made again. The node's own lines
+nothing it would change lands, and a re-solve that landed before the stop keeps its new pose and, when a re-solved projector blends
+automatically on the live stage, says its blend was not solved again. The node's own lines
 still run — a panic's shutters and effects, sent at the panic's instant while the projector links are open (they
 close last), since a panic put back after a restart takes its shutters as closed — and its last work (the recovery
 record, the journal) is not a line and still happens.

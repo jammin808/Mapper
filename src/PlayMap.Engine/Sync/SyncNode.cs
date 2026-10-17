@@ -36,6 +36,10 @@ public sealed record SyncNodeOptions
 
     /// <summary>Where this node's outputs' vblanks are read (null: the render host's numbers).</summary>
     public Func<EngineCore, IVblankSource>? Vblanks { get; init; }
+
+    /// <summary>Awaited once the network part leads and before this part has taken the lead up (a test holds that moment open with
+    /// it; null in a node).</summary>
+    public Func<SyncNode, Task>? AfterNetworkLead { get; init; }
 }
 
 /// <summary>The group's sync, network side: the role kept in the node's settings and re-entered at start; a leader's anchor feed
@@ -228,15 +232,13 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         try
         {
             string words;
+            if (Leads && string.Equals(_settings.Group, group, StringComparison.Ordinal))
+                return CommandReply.Fail(string.Create(CultureInfo.InvariantCulture,
+                    $"already leading {group} — followers take this node's clock on UDP {_network.SyncPort}"));
             // Stamped before the lead begins, so no watch of this lead runs without its wait.
             Volatile.Write(ref _ledSinceLocalNs, Clock.Local.NowNs);
             if (Leads)
-            {
-                if (string.Equals(_settings.Group, group, StringComparison.Ordinal))
-                    return CommandReply.Fail(string.Create(CultureInfo.InvariantCulture,
-                        $"already leading {group} — followers take this node's clock on UDP {_network.SyncPort}"));
                 words = $"leading {group} (was {(_settings.Group.Length > 0 ? _settings.Group : "no group")})";
-            }
             else
             {
                 try
@@ -247,6 +249,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                 {
                     return CommandReply.Fail(ex.Message);
                 }
+                if (_o.AfterNetworkLead is { } held)
+                    await held(this).ConfigureAwait(false);
             }
             await StopFollowingAsync().ConfigureAwait(false);
             _adopted.Clear();
@@ -1148,6 +1152,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
                     return;   // a verb that held the changes chose otherwise
                 Volatile.Write(ref _ledSinceLocalNs, Clock.Local.NowNs);
                 var words = await _network.LeadAsync(s.Group, ct).ConfigureAwait(false);
+                if (_o.AfterNetworkLead is { } held)
+                    await held(this).ConfigureAwait(false);
                 _words = $"leading {s.Group}";
                 _engine?.Journal.Add("sync", words + " (kept from before the restart)");
             }

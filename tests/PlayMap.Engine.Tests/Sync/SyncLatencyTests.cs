@@ -25,6 +25,15 @@ public sealed class SyncLatencyTests
 
     private static string GroupWords(HostRig rig) => SyncRig.GroupItem(rig).GetProperty("state").GetString()!;
 
+    /// <summary>Holds a lead between the network part's lead and this part's taking it up for three of the watch's turns, so a watch
+    /// always runs in that moment.</summary>
+    private static async Task HoldWatches(SyncNode sync)
+    {
+        var turns = sync.Watches;
+        while (sync.Watches < turns + 3)
+            await Task.Delay(5);
+    }
+
     /// <summary>A render host that draws nothing and keeps every group latency the node writes through to its outputs.</summary>
     private sealed class LatencyOutputs : IRenderHost, IPresentBackend
     {
@@ -167,25 +176,58 @@ public sealed class SyncLatencyTests
         var leaderOut = new LatencyOutputs();
         var memberOut = new LatencyOutputs();
         await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, 3 * Second), SyncRig.Fast(leaderV), render: _ => leaderOut);
-        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, SyncRig.Fast(memberV), render: _ => memberOut);
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock, SyncRig.Fast(memberV) with { AfterNetworkLead = HoldWatches },
+            render: _ => memberOut);
         await SyncRig.OpenShowAsync(leader);
         await SyncRig.OpenShowAsync(follower);
         await SyncRig.GroupAsync(leader, follower);
         Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 50), $"member {memberOut.Last}");
 
-        // Leading a group of its own: no member yet, so its lead carries nothing for the board's five seconds and its outputs stay at
-        // the 50 ms they had — never 0 between the follow and the lead, which would move every picture twice.
+        // Leading a group of its own (watches run while the lead is taken up): no member yet, so its lead carries nothing for the
+        // board's five seconds and its outputs stay at the 50 ms they had — never its own 17 at once, never 0 between the follow and
+        // the lead, which would move every picture twice.
         var written = memberOut.History.Length;
         await follower.OkAsync("SYNC LEAD stage");
         var sync = follower.Engine.Services.GroupSync!;
         var turns = sync.Watches;
         Assert.True(await Eventually.TrueAsync(() => sync.Watches >= turns + 5));
+        Assert.All(memberOut.History[written..], ms => Assert.Equal(50, ms));
         Assert.Equal(50, memberOut.Last);
         Assert.Equal(50, Latency(follower));
         // Once the wait is over, its own display (17 ms) is its group's.
         clock.Advance(6 * Second);
         Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 17), $"member {memberOut.Last}");
         Assert.DoesNotContain(memberOut.History[written..], ms => ms < 17);
+
+        // Leading the group it leads already is refused and starts no wait again: a display that changes then is carried at once.
+        Assert.StartsWith("already leading stage", (await follower.RunAsync("SYNC LEAD stage")).Payload, StringComparison.Ordinal);
+        memberV.Set(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 30_000 });
+        Assert.True(await Eventually.TrueAsync(() => memberOut.Last == 30), $"member {memberOut.Last}");
+    }
+
+    [Fact]
+    public async Task ALeaderRestartedCarriesNoAutoLatencyBeforeItHasMembers()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var leaderV = new FakeVblanks(FakeVblanks.At("op_1", 60, clock.NowNs) with { AirLatencyUs = 17_000 });
+        var first = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(leaderV));
+        await using (first)
+        {
+            await first.OkAsync("SYNC LEAD show");
+            await first.StopAsync();
+
+            // Back from its settings, it leads "show" again before any member has come back (watches run while the lead is taken
+            // up): its own 17 ms is never carried as the feed's latest for members to take before they are heard.
+            var outputs = new LatencyOutputs();
+            await using var back = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, clock, SyncRig.Fast(leaderV) with { AfterNetworkLead = HoldWatches },
+                dir: first.Dir, render: _ => outputs);
+            Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(back).GetProperty("role").GetString() == "leader"), back.Journal());
+            var sync = back.Engine.Services.GroupSync!;
+            var turns = sync.Watches;
+            Assert.True(await Eventually.TrueAsync(() => sync.Watches >= turns + 5));
+            Assert.Empty(outputs.History);
+            Assert.Equal(0, Latency(back));
+        }
     }
 
     [Fact]
