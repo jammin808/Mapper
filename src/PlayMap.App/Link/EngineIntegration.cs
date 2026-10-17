@@ -20,14 +20,13 @@ public static partial class EngineLinks
     static partial void HasNetworkLink(ref bool available) => available = true;
 
     /// <summary>The token of this machine's node, read from its settings file in the node's own folder (the one the
-    /// desk's engine runs with). Nothing is made when the node has never run, and the token is never logged.</summary>
+    /// desk's engine runs with), read only: nothing is made when the node has never run, a file that does not read is left as it is
+    /// (the node's one writer puts it right), and the token is never logged.</summary>
     static partial void ReadLocalPairingToken(ref string? token)
     {
         try
         {
-            var home = NodeHome.Default();
-            if (File.Exists(home.SettingsPath))
-                token = home.LoadSettings(Environment.MachineName).Token;
+            token = NodeHome.Default().ReadSettings()?.Token;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -30,7 +30,8 @@ internal sealed class OutputParts(ExtensionSetup? setup) : IEngineExtension
         // A composition with no node home (a test's) keeps no present settings: PRESENT PATH says so.
         if (setup is null)
             return services with { PreflightChecks = checks };
-        var node = new PresentNode(setup.Home.LoadSettings(setup.Settings.Name).Present, SavePresent,
+        // The node home's present settings as the file holds them (read only: the network host is the file's one writer), else this run's.
+        var node = new PresentNode((setup.Home.ReadSettings() ?? setup.Settings).Present, SavePresent,
             new PresentFuse(setup.Home.Folder, () => setup.Wall.UnixMs));
         return services with { PreflightChecks = checks, PresentNode = node };
     }

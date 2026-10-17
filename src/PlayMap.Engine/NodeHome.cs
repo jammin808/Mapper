@@ -47,9 +47,10 @@ public sealed class NodeHome
     public static NodeHome Default() => new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "PlayMap"));
 
-    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept. A read is one of a read-modify-write
-    /// only inside the settings file's one writer (the network host's <c>PersistSettings</c> and <c>KeepSettings</c>), which holds its
-    /// own lock from the read to the write.</summary>
+    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and put right when the file does not read (the
+    /// damaged one kept beside it): a load that may write the file, so only the node's start and the settings file's one writer (the
+    /// network host, inside its own lock from the read to the write) load it. Every other reader reads it as it is
+    /// (<see cref="ReadSettings"/>).</summary>
     public NodeSettings LoadSettings(string defaultName)
     {
         NodeSettings read;
@@ -57,6 +58,29 @@ public sealed class NodeHome
             read = LoadSettingsLocked(defaultName);
         SettingsRead?.Invoke();
         return read;
+    }
+
+    /// <summary>The node's settings as the file holds them now, read only: null when there is no file or it does not read as the node's
+    /// settings. Nothing is made, put right or kept beside it (a reader in another process — the desk's pairing-token read — or beside
+    /// the one writer never writes the file).</summary>
+    public NodeSettings? ReadSettings()
+    {
+        string text;
+        lock (SettingsGate)
+        {
+            if (!File.Exists(SettingsPath))
+                return null;
+            try
+            {
+                text = ReadText();
+            }
+            catch (FileNotFoundException)
+            {
+                // Gone between the look and the read: no settings to read.
+                return null;
+            }
+        }
+        return Parse(text);
     }
 
     /// <summary>Raised on the reader's thread after each read of the settings file, outside the file's own lock (a test holds an edit
@@ -73,30 +97,42 @@ public sealed class NodeHome
             SaveSettings(first);
             return first;
         }
-        string text;
-        // Shared for write and delete: a reader never refuses a writer's own open of the file. Within this process the gate keeps a
-        // read and a replace apart; a reader in another process (the desk's pairing-token read) can still make Windows refuse a
-        // replace, which the writer answers in words.
-        using (var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-        using (var reader = new StreamReader(file, Encoding.UTF8))
-            text = reader.ReadToEnd();
-        try
-        {
-            // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
-            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
-            if (loaded is not null && Ids.IsValid(loaded.NodeId))
-                return ProjectJson.Sanitize(loaded);
-        }
-        catch (JsonException)
-        {
-            // Falls through: the file is kept and the node keeps who it is.
-        }
+        var text = ReadText();
+        if (Parse(text) is { } loaded)
+            return loaded;
         // A file that does not read is kept beside the new one so nothing is lost silently, and the new one keeps the
         // node's id, name and pairing token whenever the old one still says them: a typo never unpairs the show.
         File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
         var fresh = KeepIdentity(NodeSettings.CreateDefault(defaultName), text);
         SaveSettings(fresh);
         return fresh;
+    }
+
+    /// <summary>The settings file's text. Under the file's gate.</summary>
+    private string ReadText()
+    {
+        // Shared for write and delete: a reader never refuses a writer's own open of the file. Within this process the gate keeps a
+        // read and a replace apart; a reader in another process (the desk's pairing-token read) can still make Windows refuse a
+        // replace, which the writer answers in words.
+        using var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(file, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>The settings a file's text holds, or null when it does not read as the node's settings (not JSON, or no valid node id).</summary>
+    private static NodeSettings? Parse(string text)
+    {
+        try
+        {
+            // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
+            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
+            return loaded is not null && Ids.IsValid(loaded.NodeId) ? ProjectJson.Sanitize(loaded) : null;
+        }
+        catch (JsonException)
+        {
+            // Not the node's settings as they stand: the caller decides (a load puts it right, a read takes none).
+            return null;
+        }
     }
 
     private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };

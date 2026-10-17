@@ -79,8 +79,9 @@ public sealed class SettingsGateTests
     }
 
     /// <summary>No code but the network host writes the settings file: its one write is the only call of
-    /// <see cref="NodeHome.SaveSettings"/> in the sources (the node home itself makes the file on a first run, or beside a damaged one),
-    /// and no other source names the file with a write.</summary>
+    /// <see cref="NodeHome.SaveSettings"/> in the sources; the only loads that may make the file (a first run) or put a damaged one right
+    /// (<see cref="NodeHome.LoadSettings"/>) are the node's start and the network host's, every other reader reads it as it is
+    /// (<see cref="NodeHome.ReadSettings"/>); and no other source names the file with a write.</summary>
     [Fact]
     public void NoCodeButTheNetworkHostWritesTheSettingsFile()
     {
@@ -94,6 +95,10 @@ public sealed class SettingsGateTests
 
         var saves = sources.SelectMany(kv => Regex.Matches(kv.Value, @"\.SaveSettings\(", RegexOptions.None, TimeSpan.FromSeconds(5)).Select(_ => kv.Key)).ToList();
         Assert.Equal(["src/PlayMap.Engine/Host/NetworkHost.cs"], saves);
+        var loads = sources.Where(kv => kv.Key != "src/PlayMap.Engine/NodeHome.cs")
+            .SelectMany(kv => Regex.Matches(kv.Value, @"\.LoadSettings\(", RegexOptions.None, TimeSpan.FromSeconds(5)).Select(_ => kv.Key))
+            .Distinct().Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(["src/PlayMap.Engine/Host/EngineHost.cs", "src/PlayMap.Engine/Host/NetworkHost.cs"], loads);
 
         var write = new Regex(@"Write|DurableFile|File\.(Move|Copy|Replace|Delete|Create|Open)|FileMode\.(Create|Truncate|OpenOrCreate|Append)|FileAccess\.(Write|ReadWrite)|AppendAll",
             RegexOptions.None, TimeSpan.FromSeconds(5));

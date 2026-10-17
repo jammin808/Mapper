@@ -248,8 +248,9 @@ public sealed partial class RenderHost : IRenderHost
     {
         ArgumentNullException.ThrowIfNull(request);
         var log = request.Logs.CreateLogger("PlayMap.Render");
-        // The node home's settings, not the run's: PRESENT PATH saved them for this start.
-        var saved = request.Home.LoadSettings(request.Settings.Name);
+        // The node home's settings, not the run's: PRESENT PATH saved them for this start. Read only (the network host is the file's
+        // one writer): a file that does not read now leaves this run's.
+        var saved = request.Home.ReadSettings() ?? request.Settings;
         var present = saved.Present;
         var fuse = new PresentFuse(request.Home.Folder, () => request.Wall.UnixMs);
         var (path, fuseWords) = PresentChoice.Decide(present.Path, fuse.Read());
