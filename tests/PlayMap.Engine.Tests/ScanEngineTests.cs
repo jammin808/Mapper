@@ -195,25 +195,30 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
     }
 
     /// <summary>A scan whose view reads ended has let go of the runner: the next SCAN START, sent the moment the end is heard (a desk
-    /// that starts the next view as soon as it reads the last one done), is never refused as "already running".</summary>
+    /// that starts the next view as soon as it reads the last one done), starts — it is not refused (a refusal is a faulted start at
+    /// once), and the runner's latest scan is that second one, running.</summary>
     [Fact]
     public async Task TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning()
     {
         var rig = new OpsRig(project: TwoProjectors());
         try
         {
-            var next = new TaskCompletionSource<Task<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var next = new TaskCompletionSource<(string First, Task<string> Second, Scanning.ScanView? Latest)>(TaskCreationOptions.RunContinuationsAsynchronously);
             rig.Scanner.Progressed += v =>
             {
                 // Heard on the scan's own thread, as the end is published: started at once, before anything else can run.
-                if (v.State == "done" && !next.Task.IsCompleted)
-                    next.TrySetResult(rig.Scanner.StartAsync(Scanning.SimulatedRig.CameraId, [.. rig.Engine.Store.Project.Stage.Projectors.Select(p => p.Id)], "fast", null,
-                        CancellationToken.None));
+                if (v.State != "done" || next.Task.IsCompleted)
+                    return;
+                var second = rig.Scanner.StartAsync(Scanning.SimulatedRig.CameraId, [.. rig.Engine.Store.Project.Stage.Projectors.Select(p => p.Id)], "fast", null,
+                    CancellationToken.None);
+                next.TrySetResult((v.Id, second, rig.Scanner.View));
             };
             Assert.True((await rig.Run("SCAN START sim MODE FAST")).Ok);
-            var second = await next.Task.WaitAsync(TimeSpan.FromMinutes(2));
-            var refused = second.IsFaulted ? second.Exception!.InnerException!.Message : "";
-            Assert.DoesNotContain("already running", refused, StringComparison.Ordinal);
+            var (first, second, latest) = await next.Task.WaitAsync(TimeSpan.FromMinutes(2));
+            Assert.False(second.IsFaulted, second.Exception?.InnerException?.Message);
+            Assert.NotNull(latest);
+            Assert.NotEqual(first, latest.Id);
+            Assert.True(latest.IsRunning, $"the latest scan reads {latest.State}");
             rig.Scanner.Cancel();
             await Task.WhenAny(second).WaitAsync(TimeSpan.FromMinutes(2));
         }

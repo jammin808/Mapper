@@ -117,8 +117,9 @@ public sealed class HostNetworkTests
         Assert.True(await Eventually.TrueAsync(() => !Air().GetProperty("blackout").GetBoolean()));
 
         // Kept for the next start, token and all — in the node's settings, and nowhere a peer reads. Every write of the file landed
-        // (one a reader could refuse would leave its fault in the journal and the link off the disk).
-        Assert.DoesNotContain("settings could not be written", rig.Journal(), StringComparison.Ordinal);
+        // (one a reader could refuse would leave a settings fault in STATE, a fault row in the journal and the link off the disk).
+        Assert.DoesNotContain(rig.State().GetProperty("faults").EnumerateArray(), f => f.GetProperty("part").GetString() == "settings");
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "fault");
         var kept = rig.Home.LoadSettings("unused");
         Assert.Equal($"127.0.0.1:{desk.Port}", kept.PatternsHost);
         Assert.Equal(deskToken, kept.PatternsToken);
