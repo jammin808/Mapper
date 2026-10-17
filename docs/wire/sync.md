@@ -49,8 +49,9 @@ ANCHOR show @latency {"ms":50}
 ```
 
 `@latency` is the group's air latency (ms, 0–500): the stated one, or AUTO the largest of the leader's own outputs' and each
-member output's last PMVB report (a quiet member keeps its place; one that leaves drops out; a lead waits up to five seconds for
-its members' first reports). It goes whenever it moves, 0 included, and to a member that joins as the latest; a member writes it
+member output's PMVB report (an output the member named keeps its place while quiet, one it enabled since counts while heard, a
+member that leaves drops out; a lead waits up to five seconds for members and their first reports, and a joining member's first
+report is waited for as long). It goes whenever it moves, 0 included, and to a member that joins as the latest; a member writes it
 through `IPresentBackend.SetGroupAirLatency` (anything else is not taken) and keeps it until the next feed it follows carries one.
 
 `feed` is new per leader process and `seq` counts within it: a member runs each (feed, seq) once. A member answers each `@air`

@@ -112,12 +112,12 @@ every lens in the group emits a show instant's light at the same moment.
 
 - **`SYNC LATENCY AUTO|<ms 0-500>`** sets it in the leader's project (`settings.syncLatencyMs`, −1 = AUTO; one undoable edit,
   show class layout; in an armed show it is staged in the blind draft and carried when the draft lands). **AUTO** is the largest
-  of the leader's own outputs' air latency and each member output's last report (PMVB's air latency). A member's report stays
-  while the member is subscribed and names that output — one that goes quiet keeps its place, so a network blip never moves the
-  group — and goes when the member leaves the feed or subscribes again without that output. A lead (and a leader just restarted)
-  waits for every member that names outputs to report before it carries AUTO, for at most the board's five seconds; after that a
-  member that never reports (one with no render host) is carried without. A stated value is the group's whatever the displays
-  report.
+  of the leader's own outputs' air latency and each member output's report (PMVB's air latency). An output a member named when it
+  subscribed keeps its last report while the member stays subscribed — one that goes quiet keeps its place, so a network blip never
+  moves the group; any other output of a member (one it enabled since) counts while the board hears it; a member that leaves the
+  feed drops out. A lead (and a leader just restarted) carries no AUTO until it has members and every member has reported, and a
+  member that joins holds AUTO until its first report — each for at most the board's five seconds, after which a member that never
+  reports (one with no render host) is carried without. A stated value is the group's whatever the displays report.
 - The leader's watch carries the value on the feed whenever it moves, 0 included (`ANCHOR <group> @latency {"ms":50}`), and
   writes it through `IPresentBackend.SetGroupAirLatency` on its own outputs; a member takes the record (fail closed: anything but
   `{"ms":0…500}` is not taken) and writes it through on its outputs, and the journal says so ("the group's air latency is 50 ms

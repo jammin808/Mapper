@@ -94,6 +94,8 @@ public sealed class SyncStateFixtureTests
         await SyncRig.OpenShowAsync(member);
         await SyncRig.GroupAsync(leader, member);
         Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("outputs").GetArrayLength() == 2), SyncRig.Sync(leader).ToString());
+        // AUTO is carried on the watch after the member is heard (a lead carries none before).
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(leader).GetProperty("groupLatencyMs").GetDouble() == 16), SyncRig.Sync(leader).ToString());
 
         var status = await leader.OkAsync("SYNC STATUS");
         var sync = JsonNode.Parse(status)!.AsObject();
