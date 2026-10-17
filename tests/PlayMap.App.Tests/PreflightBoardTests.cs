@@ -220,6 +220,9 @@ public class PreflightBoardTests(ITestOutputHelper output)
     // One framelocked output among free-running ones is not a fault; one joining the lock is not either until the board says so.
     [InlineData("leader", "live", 0, "free-running", """[{"state":"framelocked","heard":true},{"state":"free-measured","heard":true}]""", "green")]
     [InlineData("leader", "live", 0, "free-running", """[{"state":"joining","heard":true},{"state":"free-measured","heard":true}]""", "green")]
+    // A heard output that fell out of the lock is red; one the leader no longer hears is not.
+    [InlineData("leader", "live", 0, "free-running", """[{"state":"fell-out","heard":true}]""", "red")]
+    [InlineData("leader", "live", 0, "free-running", """[{"state":"free-measured","heard":true},{"state":"fell-out","heard":false}]""", "green")]
     // Nothing heard: grey, as the board's "unknown".
     [InlineData("leader", "live", 0, "unknown", """[{"state":"free-measured","heard":false}]""", "grey")]
     public void TheSyncPartIsLitAsTheNodeLightsItsRole(string role, string feed, double freewheelS, string verdict, string outputs, string light)
