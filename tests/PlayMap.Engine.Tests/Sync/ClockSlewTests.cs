@@ -129,6 +129,29 @@ public sealed class ClockSlewTests
         Assert.Equal(master, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-6);         // the master's fade too
     }
 
+    /// <summary>A leader's anchor and the group's record that its playlist is on the leader's time line are one action on the member's
+    /// lane: the anchor's own journal row, written in that action, already finds the playlist adopted — so a step the lane takes at any
+    /// point after the anchor leaves it where the leader put it.</summary>
+    [Fact]
+    public async Task ALeadersAnchorIsAdoptedInTheLaneActionThatAppliesIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new MovableClock(clock, 7 * Second));
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await SyncRig.GroupAsync(leader, node);
+        var seen = new ConcurrentQueue<bool>();
+        node.Engine.Journal.Written += row =>
+        {
+            if (row.Line?.StartsWith("PLAYLIST ANCHOR pl_show ", StringComparison.Ordinal) == true)
+                seen.Enqueue(node.Engine.Services.GroupSync!.Adopted.Contains("pl_show"));
+        };
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        Assert.True(await Eventually.TrueAsync(() => !seen.IsEmpty), node.Journal());
+        Assert.All(seen, Assert.True);
+    }
+
     [Fact]
     public async Task AFollowerThatLeadsAgainStepsBackAndItsSettledPanicStaysDark()
     {
