@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Engine.Show;
 using PlayMap.Media.Audio;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Show;
@@ -159,17 +160,17 @@ public sealed class AirAudioTests(ITestOutputHelper log)
     }
 
     /// <summary>The bytes 1000 of the lane's sound steps allocate on the lane's thread (warmed first), with the show's snapshot as the
-    /// lane reads it.</summary>
+    /// lane reads it, in a window begun as every allocation window of the suites is (Allocations.Start).</summary>
     private static Task<long> TickBytesAsync(ShowRig rig, AirAudio sound) => rig.Engine.Lane.RunAsync(() =>
     {
         var snap = rig.Engine.Snapshot;
         var now = rig.Now;
         for (var i = 0; i < 20; i++)
             sound.Follow(snap, now);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 1000; i++)
             sound.Follow(snap, now);
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     });
 
     [Fact]

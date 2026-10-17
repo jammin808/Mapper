@@ -145,9 +145,7 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         const long Period = 16_666_667;
         using var ndi = Provider(clock: clock);
         Assert.True(_fake!.InjectSource("STUDIO (Cam 1)", "10.0.0.5:5961"));
-        // Stale and lost far beyond the test's own pace: the frames come only when the test sends them, so a runner that pauses
-        // between the last frame and the last check never turns the state.
-        using var source = ndi.Open("STUDIO (Cam 1)", byUrl: false, LiveSettings.Default with { Proxy = true, StaleMs = 60_000, LostMs = 60_000 }, "md_cam");
+        using var source = ndi.Open("STUDIO (Cam 1)", byUrl: false, LiveSettings.Default with { Proxy = true }, "md_cam");
         Assert.Equal(0, _fake.Stats().LastRecvBandwidth);
         Assert.Equal(100, _fake.Stats().LastRecvColorFormat);
         Assert.Equal("PlayMap md_cam", _fake.Strings(5));
