@@ -82,6 +82,65 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         public void Dispose() => _gl.Dispose();
     }
 
+    /// <summary>A decoder on the shared device: it opens at once and has no picture to give, and its close takes the device lock (as
+    /// FFmpeg's begin–submit–end bracket does on the renderer's device), so it closes only once no other thread holds the lock.</summary>
+    private sealed class DeviceSource(IGpuShare share) : IVideoSource
+    {
+        private int _closed;
+
+        public string Key => "md_device";
+
+        public bool Closed => Volatile.Read(ref _closed) != 0;
+
+        public MediaInfo Info => MediaInfo.Unknown with { DurationNs = 2_000_000_000 };
+
+        public SourceHealth Health => new(true, "ok", 0, 0, 0, 0, "a fake decoder on the shared device", false);
+
+        public VideoFrameLease? Acquire(long mediaNs) => null;
+
+        public void Prepare(long mediaNs, bool playing, double rate)
+        {
+            // Nothing to decode.
+        }
+
+        public bool IsReadyAt(long mediaNs) => false;
+
+        public void Dispose()
+        {
+            share.Enter();
+            try
+            {
+                Volatile.Write(ref _closed, 1);
+            }
+            finally
+            {
+                share.Exit();
+            }
+        }
+    }
+
+    /// <summary>The media edge handing out <see cref="DeviceSource"/>s on the platform's share.</summary>
+    private sealed class DeviceMedia(Func<IGpuShare> share) : IMediaBackend
+    {
+        private DeviceSource? _opened;
+
+        public DeviceSource? Opened => Volatile.Read(ref _opened);
+
+        public Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct) =>
+            throw new NotSupportedException("tests import nothing");
+
+        public IVideoSource? Open(MediaItem item)
+        {
+            var source = new DeviceSource(share());
+            Volatile.Write(ref _opened, source);
+            return source;
+        }
+
+        public MediaReadiness Readiness(MediaItem item) => new(true, true, true, true, "ready");
+
+        public string? PathForHash(string contentHash) => null;
+    }
+
     /// <summary>Holds the share's lock on a thread of its own for <paramref name="hold"/>: the frames drawn meanwhile and the frame
     /// takes that timed out meanwhile.</summary>
     private static (long Frames, long TimedOut) HoldFor(IGpuShare share, GpuDeviceLock deviceLock, RenderHost host, TimeSpan hold)
@@ -169,5 +228,41 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         await rig.Host.FramesAsync(30).WaitAsync(HostRig.Patience);
         Assert.Equal(bytes, rig.Host.Stats.FramePathAllocatedBytes);
         log.WriteLine($"lock waits {deviceLock.Waits}, timed out {deviceLock.TimedOut}");
+    }
+
+    /// <summary>The stop lets go of the device lock before it waits for the sources to close: a decoder whose close takes the lock
+    /// closes within the stop, the stop returns once it has, and no source is journalled as still closing.</summary>
+    [Fact]
+    public async Task TheStopLetsGoOfTheDeviceBeforeItWaitsForADecoderWhoseCloseTakesIt()
+    {
+        SharedDevicePlatform? made = null;
+        var surfaceless = OperatingSystem.IsLinux();
+        var options = RenderHostOptions.Default with
+        {
+            Windows = false,
+            Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
+        };
+        var media = new DeviceMedia(() => made!.Share);
+        var clip = new MediaItem("md_device", "Device clip", MediaKind.Video, "/clips/device.mp4", "", 0, MediaInfo.Unknown, []);
+        var project = HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Media(clip.Id), 64, 36)) with { Media = [clip] };
+        var rig = HostRig.Start(project, media, options);
+        var hostStopped = false;
+        try
+        {
+            Assert.True(await Host.Eventually.TrueAsync(() => media.Opened is not null, (int)HostRig.Patience.TotalMilliseconds), "the decoder never opened");
+            await rig.Host.FramesAsync(2).WaitAsync(HostRig.Patience);
+
+            await rig.Host.DisposeAsync();
+            hostStopped = true;
+            Assert.True(media.Opened!.Closed, "the stop returned before the decoder closed");
+            Assert.DoesNotContain(rig.Engine.Journal.Recent(50), r => r.Kind == "fault");
+        }
+        finally
+        {
+            if (!hostStopped)
+                await rig.Host.DisposeAsync();
+            await rig.Engine.DisposeAsync();
+        }
     }
 }

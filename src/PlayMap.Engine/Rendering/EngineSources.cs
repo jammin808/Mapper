@@ -28,8 +28,10 @@ namespace PlayMap.Engine.Rendering;
 /// idle playlist is black. Acquire never blocks and answers null while a source opens or has nothing new: the renderer holds
 /// the picture it has. Called on the render thread only; nothing here allocates per frame once warm.</para>
 ///
-/// <para>Every open and close handed to a worker is counted until it ends: <see cref="Dispose"/> returns once every source has
-/// closed (it holds its file no more), or after <see cref="CloseWait"/> with the words naming the sources still closing.</para></summary>
+/// <para>Every open and close handed to a worker is counted until it ends: <see cref="CloseAll"/> hands every source to a worker to
+/// close and returns at once, and <see cref="Dispose"/> returns once every source has closed (it holds its file no more), or after
+/// <see cref="CloseWait"/> with the words naming the sources still closing. A close may take the renderer's device lock (a decoder on
+/// its device): the render thread closes the sources while it holds the lock and waits for them only once it has let go.</para></summary>
 internal sealed class EngineSources : ISourceProvider, IDisposable
 {
     public const int IdleFrames = 120;
@@ -79,6 +81,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
     private PlaybackSnapshot _playback = PlaybackSnapshot.Empty;
     private long _frame;
     private bool _air;
+    private bool _closed;
     private bool _disposed;
 
     /// <summary>Where a decoder's open and its dispose run: a worker of the thread pool, never the render thread (a test hands in a
@@ -414,7 +417,7 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
             Retire(slot);
             slots.Remove(key);
         }
-        if (_media is null || _disposed)
+        if (_media is null || _closed)
             return null;
         slot = new Slot { Item = item, Epoch = Interlocked.Increment(ref s_epochs), LastUsed = _frame, OpenedFrame = _frame };
         slots[key] = slot;
@@ -569,19 +572,28 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         _stale.Clear();
     }
 
-    /// <summary>Closes every source and returns once each has closed — an open still running closes what it opened first — or
-    /// after <see cref="CloseWait"/>, saying which are still closing.</summary>
-    public void Dispose()
+    /// <summary>Hands every source to a worker to close and returns at once; nothing opens after it. Render thread.</summary>
+    public void CloseAll()
     {
-        if (_disposed)
+        if (_closed)
             return;
-        _disposed = true;
+        _closed = true;
         foreach (var slots in new[] { _itemSlots, _mediaSlots, _liveSlots })
         {
             foreach (var slot in slots.Values)
                 Retire(slot);
             slots.Clear();
         }
+    }
+
+    /// <summary>Closes every source (<see cref="CloseAll"/>) and returns once each has closed — an open still running closes what it
+    /// opened first — or after <see cref="CloseWait"/>, saying which are still closing. Called with no lock a close takes.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        CloseAll();
         if (_settled.Wait(CloseWait))
         {
             _settled.Dispose();

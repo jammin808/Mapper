@@ -827,7 +827,8 @@ public sealed partial class RenderHost : IRenderHost
             // Every output leaves the lock before its window goes.
             _lock.Dispose();
             _windows?.Dispose();
-            _sources?.Dispose();
+            // Handed to their workers here; waited for once the device lock is let go (a decoder's close takes it).
+            _sources?.CloseAll();
             _timer?.Dispose();
             // The packages' GPU objects go before the renderer that made the context they live in.
             if (_renderer is not null)
@@ -836,6 +837,8 @@ public sealed partial class RenderHost : IRenderHost
             _renderer?.Dispose();
             DisposePreviews();
             deviceLock?.ExitAll();
+            // Every source has closed (or is said to be closing) before the device it decodes on goes.
+            _sources?.Dispose();
             if (_platform is not null)
                 _platform.Dispose();
             else
@@ -847,8 +850,10 @@ public sealed partial class RenderHost : IRenderHost
         }
         finally
         {
-            // A teardown that stopped part way still lets the sharers in (none is left holding on a thread that ends).
+            // A teardown that stopped part way still lets the sharers in (none is left holding on a thread that ends), then waits for
+            // the sources it handed to their workers.
             deviceLock?.ExitAll();
+            _sources?.Dispose();
         }
         lock (_waiterGate)
         {
