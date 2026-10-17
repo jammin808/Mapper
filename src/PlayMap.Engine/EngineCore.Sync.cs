@@ -337,6 +337,10 @@ public sealed partial class EngineCore
         // The role is re-entered from the node's settings by the sync part at start.
     }
 
+    /// <summary>The group's light as this node tells it, read with its verdict: STATE.sync.light, the context's sync item and INDEX's
+    /// sync row are this one light.</summary>
+    internal Light SyncLight(Sync.SyncNode sync, Net.Sync.SyncPicture picture) => SyncVerdict(sync, picture).Light;
+
     /// <summary>The group's verdict as this node tells it: the board's on a leader; a follower's own link and clock (the verdict is
     /// the leader's); solo says how to join.</summary>
     private (string Verdict, Light Light, string Words) SyncVerdict(Sync.SyncNode sync, Net.Sync.SyncPicture picture)

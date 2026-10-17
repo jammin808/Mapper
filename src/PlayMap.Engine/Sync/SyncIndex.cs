@@ -4,8 +4,9 @@ using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Sync;
 
-/// <summary>INDEX's sync section: the group this node is in, lit by its verdict (the leader's board) or by the follower's link, with
-/// a key that asks for the group's status; no rows on a node without the sync part or in no group.</summary>
+/// <summary>INDEX's sync section: the group this node is in, lit as STATE.sync.light lights it (the light read with the node's verdict:
+/// a leader's board, a follower's feed and clock, grey for a group it is configured into and has not joined), with a key that asks for
+/// the group's status; no rows on a node without the sync part or in no group.</summary>
 public sealed class SyncIndex(EngineCore engine) : IIndexContributor
 {
     private static readonly IndexPresetHint PresetHint = new("Sync", "sync",
@@ -31,7 +32,7 @@ public sealed class SyncIndex(EngineCore engine) : IIndexContributor
         {
             var picture = sync.Picture(engine.IsAnimating);
             var leads = sync.Role == "leader";
-            var light = leads ? picture.Light : sync.FeedWord == "live" ? Light.Green : sync.FeedWord == "lost" ? Light.Red : Light.Amber;
+            var light = engine.SyncLight(sync, picture);
             w.WriteStartObject();
             w.WriteString("id", "sync:" + group);
             w.WriteString("kind", "sync");
