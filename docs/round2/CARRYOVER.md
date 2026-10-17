@@ -142,10 +142,11 @@ Round 2 W1 notes:
 
 ## Integrator notes from the round-2 fix batch (fix-tests3)
 
-- Every `Parallel.For` and `Parallel.ForEach` under `src/` passes `Compute.Options` or `Compute.With`, and every long CPU job (a
-  solve, a decode, a simulator) runs through `Compute.RunAsync`: Core's compute threads, one fewer than the processors beside a
-  loop's calling thread, never the shared thread pool the lanes, sockets and timers need. `ComputeTests` scans `src/` and refuses a
-  loop on the pool, PLINQ and `Parallel.Invoke`; a package that adds a CPU loop or job uses them. Awaited I/O stays on the pool.
+- Every `Parallel.For` and `Parallel.ForEach` under `src/` passes `Compute.Options` or `Compute.With`, and the solves, scan
+  decodes and simulators of the scan, align, resolve, blend, mapping, site and stack work run through `Compute.RunAsync`: Core's
+  compute threads, one fewer than the processors beside a loop's calling thread, never the shared thread pool the lanes, sockets
+  and timers need. `ComputeTests` scans `src/` and refuses a loop on the pool, PLINQ and `Parallel.Invoke`; nothing scans for a
+  job, so a package that adds a CPU loop or job uses them by hand. Awaited I/O stays on the pool.
 - Every test that measures allocation does it through `tests/Shared/Allocations.cs` (`Start`/`Since` for the measuring thread's own
   window, `Begin` before reading a counter another thread keeps), linked into the Core, Render, Media, Net and Engine suites; the
   allocation tests run in Release as well as Debug, since a closure an optimised build makes at a method's entry shows only there.
@@ -159,11 +160,22 @@ Round 2 W1 notes:
   between two reads of one service step. A service step reads the output's clock once and asks the timeline about that instant
   (`IAudioTimeline.At`); the null output's playhead is a function of its clock and carries the part of a frame a step leaves, so
   no step loses or invents a frame (`AudioTests.AClockStepInsideAServiceStepLosesNoFrame`,
-  `AStepBetweenFramesCarriesThePartOfAFrame`; a device's thread runs the same step, `TheMachinesOutputReadsItsClockOncePerServiceStep`).
-  The air's sound runs on the node's own clock, which the network clock maps to the leader's; `StartAirAudio` refuses an output
-  on another.
+  `AStepBetweenFramesCarriesThePartOfAFrame`). A device's thread runs the same step and reads its position right before the step's
+  instant (`ADeviceThatPlaysOnWhileAStepAsksTheTimelineIsComparedAtItsOwnInstant`, on the loopback);
+  `TheMachinesOutputReadsItsClockOncePerServiceStep` runs on the machine's device where OpenAL Soft opens one and on the null
+  output elsewhere, as on both CI jobs. The air's sound runs on the local clock of the node's network clock; `StartAirAudio`
+  refuses an output on another.
+- The sound output's further rules, each held by a test: a device's audio clock is read with its context current; a paused null
+  output holds at the paused media time; a clock read before the last step never runs the null playhead back; a step whose frames
+  span more than the hard-resync window seeks past them; sound plays 0.5× to 2× with the correction's room beyond either end and
+  holds silent at any other rate, `STATE.show.sound.problem` saying so (`AudioTests`,
+  `AirAudioTests.AnItemAtARateSoundDoesNotPlayIsSilentAndSaysWhy`).
 - Still open, for the next fix batch (each passes alone and fails at times under the full Engine suite on a loaded machine; none
   is changed here): `GroupAirTests`' 500 ms real-time wait for a receipt; `RouteTests`' 2 s real-time wait for a route;
   `FleetMonitorTests`' 10 s real-time wait; the multi-view scan's "already running" and the phone camera's "no picture for 5 s"
   (align's, and the wall's `ResolveCameraTests.APhoneRigOpensThroughTheHubAndReachesTheResolve`) under the full suite; the 2 M-triangle
-  import's wall-time ceiling on the lane's slice; `ClockSlewTests`' 3 h 12 min slew, whose 597.5 s is not explained yet.
+  import's wall-time ceiling on the lane's slice; `ClockSlewTests`' 3 h 12 min step, whose 597.5 s is not explained yet.
+- Still on the shared thread pool, for the next fix batch (CPU work no test holds to the compute threads): the stage's table
+  builder (`StageResources`), the still decode (`ImageSource`, which the air waits for, so a queue behind a solve is the
+  question), thumbnails' decode and JPEG encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' simulated
+  still and scan pictures, and ONNX inference (`PlayMap.Vision`).

@@ -219,16 +219,22 @@ node's place in a hot-backup pair keeps what it puts out beside its outputs sile
 just started and listens for its backups (docs/FLEET.md) — and the node with the show sounds from its next step. A decoder opens on
 a worker and is handed over on the lane's tick; it reads the item's own file, or — when that does not resolve on this node and the
 optimised version the picture plays has sound — the version's file. An item that cannot sound says why in
-`STATE.show.sound.problem`. The exe's show part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's
+`STATE.show.sound.problem`: its file has no sound this node can play, or it runs at a rate sound does not play. Sound plays 0.5×
+to 2× (its pitch, with the ±0.5 % correction's room beyond either end); at any other rate the item stays on the air silent, as
+when paused, and from the first step back in range its sound resyncs onto the anchor. The exe's show part opens the machine's output (`show.airSound`: `default`, `off` or an OpenAL device's
 name) on the node's own clock — the one the network clock maps to the leader's, so an output on any other is refused; a node with
 no device plays the null output.
 
 Every output runs one service step — on a device's own thread (OpenAL Soft over WASAPI on Windows, PulseAudio or ALSA on Linux),
-on the loopback's pull, on the null output's thread — and each step reads the output's clock once: the item's position, the gain
-and the null output's playhead are all taken at that one instant (through the network clock, at its leader instant), so a clock
-that moves while a step runs changes nothing the step sees. The null output's playhead is a function of its clock: the media time
-where its rate was last set plus the time since at that rate. A step consumes the whole frames before the playhead and carries the
-part of a frame after them, so no step loses or invents a frame.
+on the loopback's pull, on the null output's thread — and each step reads the output's clock once, right after a device's position
+and before anything else it does: the item's position, the gain and the null output's playhead are all taken at that one instant
+(through the network clock, at its leader instant), and a device's position is compared with the item's there, so a step that
+takes time asking (a slow lookup, a thread descheduled inside it) sees no error the device and the item do not have. The null
+output's playhead is a function of its clock: the media time where its rate was last set plus the time since at that rate, never
+run back by a clock read before its last step. A step consumes the whole frames before the playhead and carries the part of a
+frame after them, so no step loses or invents a frame; while the item is paused the playhead holds at the paused media time, and a
+step whose frames span more than the 50 ms hard-resync window (a thread that did not run for that long) passes them by a seek
+rather than decoding them all at once.
 
 ## Transitions on a manual GO
 

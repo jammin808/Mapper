@@ -142,11 +142,13 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   same instant. A GO, NEXT or PREV taken by hand into such an item opens the window at the GO's instant and mixes the same
   way; a playlist in a sync group cuts at the GO, since the anchor its followers take carries no window.
 - The on-air item's sound (the focused playlist's) plays through one `AudioOut` slaved to the item's anchor: its rate nudged
-  by at most ±0.5 % to stay within 10 ms, resynced hard on a jump. Its gain is the air's sound gain (master × the darkest
-  panic, from the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Each step
-  reads the output's clock (the node's own) once and takes the item's position, the gain and the null output's playhead at that
-  one instant; the null output's playhead is a function of its clock, and a step consumes its whole frames and carries the part
-  of a frame after them (docs/SHOW.md). Sound comes in: one capture per input feeds the analyser and the LTC reader.
+  by at most ±0.5 % to stay within 10 ms, resynced hard on a jump; it plays rates 0.5× to 2× and is silent at any other, as
+  when paused, with `STATE.show.sound.problem` saying why. Its gain is the air's sound gain (master × the darkest panic, from
+  the same fades as the picture) × the playlist's volume, read at each service step's leader instant. Each step reads the
+  output's clock (the node's own) once, right after a device's position, and takes the item's position, the gain and the null
+  output's playhead at that one instant; the null output's playhead is a function of its clock, and a step consumes its whole
+  frames and carries the part of a frame after them (docs/SHOW.md). Sound comes in: one capture per input feeds the analyser and
+  the LTC reader.
 - `Media/Audio/AudioOut` plays through the OpenAL Soft that ships beside PlayMap, found in the app's own native folders before
   the system's (`OpenAlLibrary`); where no OpenAL loads, its device output is the null one and `AudioOut.Status` says why,
   which STATE carries as `show.sound.status`.
@@ -328,8 +330,11 @@ project, the optimise queue, the present fuse, keys and credentials, a run's or 
 reaches the disk, and is renamed into place with the rename flushed (`DurableFile`; a rename that landed but whose folder could not
 be flushed after says so, `NotFlushedException`: the file is in place, only its durability in doubt), while a record it only reports
 (the journal, preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
-CPU-bound loops (`Parallel.For`) and long CPU jobs (solves, decodes, simulators: `Compute.RunAsync`) on Core's compute threads
-(`Compute`), never the shared thread pool the lanes, sockets and timers need; pools and rings that skip rather than wait; no
+CPU-bound loops (`Parallel.For`, every one under `src/` held to it by a source scan) and the solves, scan decodes and simulators
+of the scan, align, resolve, blend, mapping, site and stack work (`Compute.RunAsync`) on Core's compute threads (`Compute`), never
+the shared thread pool the lanes, sockets and timers need (the stage's table builder, still and thumbnail decodes,
+`MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' pictures and ONNX inference still run on the pool); pools
+and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,
 in Debug and Release); a faulting
