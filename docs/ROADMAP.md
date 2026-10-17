@@ -44,7 +44,7 @@ on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental
 evidence yet marks as in Independent Flip. The NVAPI frame-lock tier reads a sync board and joins no output. A lost device stops the
 drawing after 30 faulting frames while the engine plays on. The engine claims nothing from Windows beyond above-normal thread
 priority. Previews reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or
-supervises, and the version is the hard-coded 0.1.0 until the `versioning` branch lands.
+supervises; every build carries its version, build number and commit from one source (`Version.props`; README, Versions).
 
 **Next** (the plan's fifteen packages will build these in four waves after a spine; GL will stay the reference backend through the
 round and retire once the pixel and timing evidence agrees; at the round's end the integration pass will update the statuses of

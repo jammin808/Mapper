@@ -14,8 +14,9 @@ describes.
 | The designs that go beyond the plan, each with its interfaces, threading, facts in STATE, verbs and tests | `design/` — `rhi.md` (the RHI and the GL backend behind it), `d3d12.md` (the Direct3D 12 device), `graph.md` (the render graph, pipelines at arm, bindless records), `shaders.md` (HLSL through DXC, the shader worker for user ISF, quarantine, user effects on the device), `present.md` (flip presenters, the predicted display time, the present barrier and the honest software lock), `platform.md` (the Windows platform seam, the node's identity and capabilities), `desk-gpu.md` (shared-texture previews), `stability.md` (the observer, the heartbeat, `LATENCY STEP`, the rebuild path), `installer.md` (the MSI, the supervisor, the version rules) |
 | The research: the direction note that the plan follows, the six notes it synthesises (graphics API, framelock and presentation, vendor features, the Windows platform and packaging, gaming and medical architecture, the desk's UI and UX) and the map of what the move touches in the tree | `research/` — `windows-gpu-direction.md`, `codebase-map.md` and the six notes |
 
-The round will build on `main` with the `versioning` branch merged (one version source, 0.2.x, stamped into the exe, shown by
-the desk and STATE, the CI artifact named with it); the plan adds the installer's version rules on top of it.
+The round will build on `main`, which carries one version source (`Version.props`, 0.2.x): every build is stamped with its
+version, build number and commit, named on the desk, in HEALTH and in the engine's log, and the CI artifact is named with it;
+the plan adds the installer's version rules on top of it.
 
 Lab results (the checklist of `PLAN.md` §7, each with its machine, driver and build) will be kept in `lab/` as they are measured.
 

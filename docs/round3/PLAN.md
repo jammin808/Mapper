@@ -1681,7 +1681,7 @@ missing is said in the round's papers as not run, never as passed.
 | "ultra-low latency" | present, d3d12-passes-2, stability | One queued frame, the waitable, just-in-time sampling, one predicted display time per frame, nothing compiled on the render thread, `LATENCY STEP` measuring it | `FrameBlockTests`, `JustInTimeTests`, `PipelineWarmTests`, `LatencyStepTests`; L1, L12 |
 | "reliability" | stability, stability-2, installer, d3d12-core, shaders-2 | The independent observer, the shown-frame heartbeat, the supervisor that knows a rebuild from a freeze, DRED, one rehearsed rebuild path, quarantine, the GPU-time guard | `ObserverLoopbackTests`, `DeviceLossRehearsalTests`, `SupervisorHeartbeatTests`, `SupervisorRebuildTests`, `GpuTimeGuardTests`; L9, L14 |
 | "flexibility" | rhi, platform | Two backends behind one interface; every vendor feature probed with a fallback that keeps the show correct | `RhiFenceTests`, `PixelParityTests` |
-| "Add version numbers to builds" | `versioning` (base), installer | One source; SemVer, file version and MSI version each in its reader's rules; every MSI build ordered | the branch's `BuildIdentityTests`, `MsiVersionTests` |
+| "Add version numbers to builds" | `versioning` (base), installer | One source; SemVer, file version and MSI version each in its reader's rules; every MSI build ordered | `BuildIdentityTests` and `BuildStampTests` (on `main`), `MsiVersionTests` |
 | "latest gaming code … for speed" | d3d12-passes, d3d12-passes-2, present, d3d12-core | A render graph compiled on show change, pipelines at arm keyed by driver, bindless records, zero allocation, copy queues and timeline fences, frames in flight per output | `GraphCompilerTests`, `BindlessTests`, `ZeroAllocTests` |
 | "medical code … for stability" | stability, stability-2, platform | A refresh index in the picture read by an independent observer; a heartbeat that is the shown-frame count; device loss rehearsed; driver sets locked like a SOUP list; the air hazard file as stretch | `ObserverVerdictTests`, `HeartbeatTests`, `IdentityTests` |
 | "UX design … user interface" | desk-ux, desk-gpu | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age, previews without a CPU copy | `GoGuardTests`, `BlindLookTests`, `StatusRuleTests`, `PreviewShareTests`; L3, L19 |
@@ -1709,9 +1709,10 @@ missing is said in the round's papers as not run, never as passed.
 8. **Realtime GPU priority** stays off until L10 measures it.
 9. **The air hazard file** (stability's stretch 7) as a standing rule for the air's code: each hazard traced to a fault-injection
    test, borrowing medical risk practice as a design tool, not as a claim of compliance.
-10. **`main` has moved** 36 commits past `23f162f`, the desk's merge among them; none touches the renderer, the render host, CI,
-    Media or Net, and the desk's `PreviewSource.cs` keeps the same copy path [map header]. The spine rebases at start; no conflict
-    is expected outside the desk's preview files, which desk-gpu owns in W3.
+10. **`main` has moved** past `23f162f`, the map's base, with the desk's merge and the version scheme among its commits. Neither
+    touches the renderer, the render host or Media; the version scheme adds the build to the web port's MCP server info and a
+    stamp check after each CI job's build (`tools/ci-stamp.ps1`), and the desk's `PreviewSource.cs` keeps the same copy path [map
+    header]. The spine rebases at start; no conflict is expected outside the desk's preview files, which desk-gpu owns in W3.
 11. **The lab.** The inventory of §7 and who operates it, confirmed before W1; a line without its machine is reported not run.
 12. **The platform's defaults.** As planned, `PROCESS HIGH`, HighQoS, MMCSS, CPU sets, EcoQoS and keep-awake are on by their
     documented causes, and the GPU scheduling class and the GC's show mode are off until L10 measures them. The owner may prefer every
