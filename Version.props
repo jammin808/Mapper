@@ -13,7 +13,9 @@
        The compiler writes each file's Windows version resource from these (FileVersion, and ProductVersion = the informational
        version); a Windows build copies the desk's resource into PlayMap.exe. A build number past 65535 fails the build with
        words: wrapped, it would read to an installer as an older build; clamped, as the same build. A raised PlayMapVersion keeps
-       the count; raised together with PlayMapRunBase set to the last run's number, it starts the count again at 1. PlayMap.Core's
+       the count; a raised MAJOR or MINOR together with PlayMapRunBase set to the last run's number starts it again at 1. A raised
+       PATCH never starts it again: Windows Installer reads three fields of a version, so an installer orders builds by
+       MAJOR.MINOR and the build number, and a count started again under one MAJOR.MINOR would read to it as older. PlayMap.Core's
        BuildInfo reads the stamp back; no other file of PlayMap's own source writes a version (the desk's app.manifest carries a
        fixed side-by-side identity, which is not one). -->
   <PropertyGroup>
@@ -52,7 +54,7 @@
     <Error Condition="$(_PlayMapNumbered) and $(_PlayMapBuildNumber) &lt; 1"
            Text="Run $(PlayMapRun.Trim()) is not past PlayMapRunBase $(PlayMapRunBase.Trim()) (Version.props), the run this version's build numbers count from; nothing was built." />
     <Error Condition="$(_PlayMapNumbered) and $(_PlayMapBuildNumber) &gt; 65535"
-           Text="Build number $(_PlayMapBuildNumber) (run $(PlayMapRun.Trim()) less PlayMapRunBase $(PlayMapRunBase.Trim())) is past 65535, the most the fourth part of a Windows file version holds; nothing was built. A wrapped or clamped number would read to an installer as an older build or the same one: raise PlayMapVersion and set PlayMapRunBase to the last run's number (Version.props), and the count starts again at 1." />
+           Text="Build number $(_PlayMapBuildNumber) (run $(PlayMapRun.Trim()) less PlayMapRunBase $(PlayMapRunBase.Trim())) is past 65535, the most the fourth part of a Windows file version holds; nothing was built. A wrapped or clamped number would read to an installer as an older build or the same one: raise PlayMapVersion's MAJOR or MINOR and set PlayMapRunBase to the last run's number (Version.props), and the count starts again at 1." />
     <Error Condition="'$(PlayMapRun)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(PlayMapCommit)', '^[0-9a-fA-F]{7,64}$'))"
            Text="A numbered build names the commit it built: PlayMapCommit '$(PlayMapCommit)' is not 7 to 64 hex digits." />
     <Error Condition="'$(PlayMapRun)' == '' and '$(PlayMapCommit)' != ''"

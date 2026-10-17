@@ -212,8 +212,10 @@ local build:
 The assembly version moves only with MAJOR.MINOR, so binding does not churn between builds. A part of a Windows file version
 holds at most 65535: a build number past it fails the build with words (wrapped, it would read to an installer as an older
 build; clamped, as the same one). CI's run numbers never start again (they count the workflow's runs), so a raised version
-alone keeps the count; raising `PlayMapVersion` and setting `PlayMapRunBase` to the last run's number in the same commit starts
-it again at 1. The vendored projects under `src/ThirdParty` keep their upstream's version, with PlayMap's patch level after it
+alone keeps the count; raising MAJOR or MINOR and setting `PlayMapRunBase` to the last run's number in the same commit starts
+it again at 1. A raised PATCH never starts it again: Windows Installer reads three fields of a version, so an installer of
+PlayMap orders builds by MAJOR.MINOR and the build number, and a count started again under the same MAJOR.MINOR would read to
+it as an older build. The vendored projects under `src/ThirdParty` keep their upstream's version, with PlayMap's patch level after it
 (libomtnet's `1.0.0.20+7d29031.playmap.1`): their file version does not move with PlayMap's builds, so whatever installs
 PlayMap replaces every file of a build, not only those whose version rose. Where to read a build: the exe's file properties
 (File version, Product version); the desk's title and the About line of its help (F1); the engine's log, where the first line
