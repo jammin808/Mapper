@@ -15,7 +15,8 @@ is JSON to the end of the line (so a word that starts so anywhere else is quoted
 every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
-transfer) answers `OK @a1 {"stage":"accepted","effect":"…"}`.
+transfer, a running optimise job's pause or resume) answers `OK @a1 {"stage":"accepted","effect":"…"}`, with the verb's own answer as a
+JSON string in `payload` when it has one; STATE says when it is a fact.
 
 A node that has begun to stop takes no more lines, from any source — every transport here (MCP's tools before they
 would queue a line for a person), OSC, a control binding, the assistant, an approval: each is answered `ERR the node

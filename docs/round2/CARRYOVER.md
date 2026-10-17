@@ -138,7 +138,8 @@ Round 2 W1 notes:
   Patterns host read back from the settings file empty — most likely a read of the file beside the write's rename, which Windows
   refuses; the settings gate above closes that race in the process), and
   `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` (Linux CI runs 252 and 265: the other follower stays
-  free-wheeling with the anchor feed lost; it passes in every other run and locally). Watch all three.
+  free-wheeling with the anchor feed lost; it passes in every other run and locally). The second and third are settled in
+  fix-tests4 (its notes, below); the first stays a watch.
 
 ## Integrator notes from the desk-2 merge (int-desk2)
 
@@ -202,12 +203,66 @@ Round 2 W1 notes:
   span more than the hard-resync window seeks past them; sound plays 0.5× to 2× with the correction's room beyond either end and
   holds silent at any other rate, `STATE.show.sound.problem` saying so (`AudioTests`,
   `AirAudioTests.AnItemAtARateSoundDoesNotPlayIsSilentAndSaysWhy`).
-- Still open, for the next fix batch (each passes alone and fails at times under the full Engine suite on a loaded machine; none
-  is changed here): `GroupAirTests`' 500 ms real-time wait for a receipt; `RouteTests`' 2 s real-time wait for a route;
-  `FleetMonitorTests`' 10 s real-time wait; the multi-view scan's "already running" and the phone camera's "no picture for 5 s"
-  (align's, and the wall's `ResolveCameraTests.APhoneRigOpensThroughTheHubAndReachesTheResolve`) under the full suite; the 2 M-triangle
-  import's wall-time ceiling on the lane's slice; `ClockSlewTests`' 3 h 12 min step, whose 597.5 s is not explained yet.
-- Still on the shared thread pool, for the next fix batch (CPU work no test holds to the compute threads): the stage's table
-  builder (`StageResources`), the still decode (`ImageSource`, which the air waits for, so a queue behind a solve is the
-  question), thumbnails' decode and JPEG encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' simulated
-  still and scan pictures, and ONNX inference (`PlayMap.Vision`).
+- Its open list and the CPU jobs it left on the shared pool are taken up in fix-tests4: what that batch closes and what stays
+  open are in its notes (below).
+
+## Integrator notes from the round-2 fix batch (fix-tests4)
+
+- Done: a reader never makes a durable replace fail. Every reader of a durable file opens it through `DurableFile.OpenRead`,
+  `ReadAllText` or `ReadAllBytes` (shared for write and delete), and the STATE fixtures' writers and readers do too
+  (`MainStateFixtureTests.EveryFixtureWriterReplacesItsFileWhole` finds a fixture writer that writes in place). Windows replaces with
+  a POSIX-semantics rename (`FileRenameInfoEx`) flushed through the same handle, the same rename without the read-only flag where the
+  system does not know it (before 1809), and `MoveFileEx` where the file system takes no POSIX rename (`DurableFileTests`,
+  `SettingsReaderTests.AReaderHoldingTheSettingsOpenNeverLosesTheWritersChange`, Category=Windows). That closes the read of the
+  settings beside their rename that the Patterns link's Windows failure (run 259) points at; `HostNetworkTests`' Patterns link
+  asserts that no settings write failed.
+- Done: stopping the render host waits, 5 s at most (`EngineSources.DefaultCloseWait`), for every source's open and close and
+  journals each that did not close (`EngineSourcesTests.WhenDisposeReturnsEverySourceHasClosed`,
+  `ACloseThatHangsIsSaidAndTheStopGoesOn`, `SourceReleaseTests`). A Spout read waits for its staging copy's event query, never a
+  count of tries (`SpoutReceiver.PendingCopied`). The stage's tables say which blend inputs their blend answers
+  (`StageResources.BlendInUseFor`; `ReseatTests` waits for the landed draft's). A line session joins the session table before it
+  runs, its registrations one at a time, and it reads whether it said hello under its register lock
+  (`LineWebSocketTests.ANewTokenReachesASessionStillInItsFirstStretch`). `PromoteTests` waits until each follower knows the other in
+  the group before it stops the leader (the follower left free-wheeling in Linux CI runs 252 and 265).
+- Done, off fix-tests3's open list: a leader's receipt and report waits run on the sync part's clock (`SyncNodeOptions.Time`;
+  `AnchorFeed.Heard` says when a member's receipt is taken), so `GroupAirTests` and `ArmAllTests` move a manual clock only once the
+  answer and its deadline exist; route deadlines run on the fleet's clock (`FleetTime`, `RouteTests`); a scan's end is published
+  once its runner has let go of its slot, and only while it is the latest run started
+  (`ScanEngineTests.TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning`); the phone camera's 5 s and 10 s waits run on the
+  hub's clock (`PhoneAlignTests`, `ResolveCameraTests`); the survey import's lane slice is the work the lane thread did in it, its
+  own processor time on Linux and macOS (`ThreadTime`, `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`).
+- Done, off the CPU jobs fix-tests3 left on the pool: the stage's table builder and automatic blend, thumbnails' conversion and
+  encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' still and scan pictures, a probe's first-frame
+  decode and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`; `await Compute.Hop()` moves an
+  async method's CPU part there). The still decode stays on the pool: the air waits for it, and a job queued on the compute threads
+  waits behind a solve that holds them all (`StillBesideComputeTests`). `ComputeTests.EveryJobHandedToThePoolWasReviewedAsNoCpuJob`
+  holds every product file's pool work to a reviewed count, so pool work a file adds fails it until it is reviewed.
+- Done: an optimise job's pause is a fact when its worker holds it. The worker says when it holds the running job between frames
+  and when it goes on (its `held` lines); STATE `media.optimise.jobs[].held` is that fact (`paused` is the hold asked), and the
+  journal says "paused at frame n" and "resumed at frame n" then. `MEDIA OPTIMISE PAUSE` of the running job, and `RESUME` of the job
+  its worker holds, answer accepted with the job in `pending` until the worker acts; a queued job's change, and a pause of a job its
+  worker holds already, is applied at once (`OptimiseJobTests.APauseIsAppliedOnlyOnceTheWorkerHolds`; the test seam
+  `OptimiseOptions.HoldFirstWorkerAt` holds the first worker mid-job). A job's partial file is gone before the job reads as over.
+  The chain: the catalogue's `MEDIA OPTIMISE` row says a running job's pause or resume is accepted, pending, until its worker holds
+  or goes on (VERBS, HELP, MCP's `list_verbs`, the assistant's prompt, the context's commands and the Companion module's `verbs.json`
+  read it); docs/WIRE.md names it among the accepted receipts and docs/wire/optimise.md gives the reply and the keys; `optimise.json`
+  carries `held`, and `main.json` and `output.json` hold `"optimise": null` (their nodes run no optimise part). No surface shows a
+  job as paused: the desk shows a job through the generic card (`optimise.cards.json`: clip, target, state, frames, ETA, PSNR —
+  neither `paused` nor `held`), whose Pause, Resume and Cancel send their lines and show only a refusal; the context counts running
+  and queued jobs; the Companion module reads nothing of `media.optimise`. A surface that comes to show a pause reads `held`, and
+  shows a press as pending until the node says held, never the reply's words.
+- Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
+  `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate run
+  (not reproduced; its fan-out is the test's stand-in, which waits on no clock); `FleetMonitorTests`' 10 s wait for the peer to read
+  live (the test now waits until the headline and the context match the record the monitor holds; the 10 s "peer not live" is not
+  reproduced); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's
+  first clip in STATE (one failure on the batch's baseline).
+- Open on Windows: the survey slice is timed by the stopwatch there (`ThreadTime.Precise` is false), so a loaded Windows machine
+  still counts the time other threads took into the slice; whether the Windows job's Spout test takes the real WARP round trip or
+  its fallback is not verified.
+- The desk-2 notes' open calls stand (the code settles none): the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at
+  every press and presses a card's `APPROVE` once; the throttle sends what it coalesced to the link it holds when it flushes, across
+  a link change; CALIBRATION HISTORY names no `standsAs` per row.
+- Commit 00477fa carries the line sessions' change (the table joined before the session runs, the registrations one at a time)
+  under the reseat test's subject; 085deb3, with the same subject, holds the reseat test alone and does not compile without 00477fa
+  (`StageResources.BlendInUseFor`), so a bisect skips it.
