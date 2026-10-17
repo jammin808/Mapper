@@ -38,6 +38,9 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     private string _focusedName = "";
     private readonly Dictionary<string, string> _views = new(StringComparer.Ordinal);
 
+    /// <summary>The link the shown views were asked of (<see cref="DeskSession.LinkEpoch"/>): another link is asked for every view afresh.</summary>
+    private long _viewsEpoch;
+
     public MainViewModel(DeskSession session, DeskPrefs? prefs = null, Func<long>? nowMs = null)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -591,17 +594,19 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     private async Task KeepAsync(string view, string what)
     {
+        var epoch = Session.LinkEpoch;
         var reply = await Session.SendQuietAsync($"VIEW {view} KEEP");
-        if (reply is { Ok: false } && _views.TryGetValue(view, out var still) && still == what)
+        if (reply is { Ok: false } && Session.LinkEpoch == epoch && _views.TryGetValue(view, out var still) && still == what)
             _ = ShowViewAsync(view, what);
     }
 
     /// <summary>Asks the node for a view (VIEW &lt;view&gt; SHOW &lt;what&gt;) and takes the ring its reply names, or its words why not,
-    /// while the view is still wanted as asked: a later SHOW or HIDE of it supersedes this reply.</summary>
+    /// while the view is still wanted as asked of the same link: a later SHOW or HIDE of it, or another link, supersedes this reply.</summary>
     private async Task ShowViewAsync(string view, string what)
     {
+        var epoch = Session.LinkEpoch;
         var reply = await Session.SendQuietAsync($"VIEW {view} SHOW {what}");
-        if (_views.TryGetValue(view, out var still) && still == what)
+        if (Session.LinkEpoch == epoch && _views.TryGetValue(view, out var still) && still == what)
             Session.Previews.Shown(view, reply);
     }
 
@@ -793,6 +798,12 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     {
         if (!Session.IsLive)
             return;
+        // Views asked of another link are not shown on this one: every view is asked of it afresh.
+        if (_viewsEpoch != Session.LinkEpoch)
+        {
+            _views.Clear();
+            _viewsEpoch = Session.LinkEpoch;
+        }
         var want = new Dictionary<string, string>(StringComparer.Ordinal);
         switch (_workspace)
         {

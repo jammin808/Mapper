@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using PlayMap.App.Controls;
+using PlayMap.App.Link;
 using PlayMap.App.State;
 using PlayMap.Core.Media;
 using PlayMap.Core.Wire;
@@ -257,6 +258,36 @@ public sealed class DeskPreviewTests
         Assert.False(surface.HasFrame);
         Assert.Equal([ringA, ringB], source.Opened);
         window.Close();
+    }
+
+    /// <summary>A new link starts the views afresh: the new node is asked for every view at once (not on its first refused KEEP), and a
+    /// SHOW reply from the link let go, arriving after the new link's names were cleared, is not taken.</summary>
+    [AvaloniaFact]
+    public async Task ANewLinkIsAskedForEveryViewAtOnceAndTheOldLinksLateReplyIsNotTaken()
+    {
+        var first = Environment.ProcessId * 1000L;
+        var ringA = PreviewRing.PathFor(DemoNode, View, first + 11);
+        var ringB = PreviewRing.PathFor(DemoNode, View, first + 12);
+        var held = new TaskCompletionSource();
+        await using var desk = new DeskHarness(l =>
+        {
+            l.SetRing(View, ringA);
+            l.ReplyAfter = line => line.StartsWith($"VIEW {View} SHOW ", StringComparison.Ordinal) ? held.Task : Task.CompletedTask;
+        });
+        await using var other = new FakeEngineLink(clock: desk.Clock);
+        other.SetRing(View, ringB);
+
+        desk.Main.Attach(other, "Demo node B");
+        DeskHarness.Pump();
+        var asked = other.SentLines.Any(l => l.StartsWith($"VIEW {View} SHOW output:op_1", StringComparison.Ordinal));
+        var named = desk.Session.Previews.Of(View);
+
+        // The first node's reply to its SHOW lands now, after the link it came on was let go: the new node's name stands.
+        held.SetResult();
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        var late = desk.Session.Previews.Of(View);
+        Assert.Equal((true, new PreviewRingName(ringB, null), new PreviewRingName(ringB, null)), (asked, named, late));
     }
 
     /// <summary>The demo node draws no pictures: it lists each view it shows in STATE with no ring, its SHOW reply names none, and the
