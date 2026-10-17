@@ -470,6 +470,9 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         _ = _session.SendQuietAsync("OVERLAY KEEP ON " + op);
     }
 
+    /// <summary>True while the edit overlay this desk put on a wall is on it.</summary>
+    public bool HoldsOverlay => _overlayMine is { } op && OverlayCovers(op);
+
     /// <summary>The desk shows MAP: the guide's first step reads the displays again.</summary>
     public void EnterMap() => Guide.Shown();
 
@@ -481,9 +484,9 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     public Task LeaveMapAsync(CancellationToken ct = default)
     {
         CancelQuad();
-        var op = _overlayMine;
+        var held = HoldsOverlay ? _overlayMine : null;
         _overlayMine = null;
-        return op is not null && OverlayCovers(op) && _session.CanSend ? _session.SendAsync("OVERLAY OFF ON " + op, ct) : Task.CompletedTask;
+        return held is not null && _session.CanSend ? _session.SendAsync("OVERLAY OFF ON " + held, ct) : Task.CompletedTask;
     }
 
     /// <summary>LIGHT WALL lit this projector (and put the overlay on its output for this desk): its view, with the quad tool armed.</summary>
