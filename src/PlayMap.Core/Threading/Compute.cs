@@ -72,6 +72,28 @@ public static class Compute
         }, ct);
     }
 
+    /// <summary>Moves the rest of an async method onto the compute threads (<c>await Compute.Hop();</c>): its CPU work after an awaited
+    /// read or run goes on there, not on the pool thread the await resumed on. Already on a compute thread, it goes on at once.</summary>
+    public static ComputeHop Hop() => default;
+
+    /// <summary>The awaitable <see cref="Hop"/> answers.</summary>
+    public readonly record struct ComputeHop : System.Runtime.CompilerServices.ICriticalNotifyCompletion
+    {
+        public ComputeHop GetAwaiter() => this;
+
+        public bool IsCompleted => ComputeScheduler.IsComputeThread;
+
+        public void GetResult()
+        {
+            // Nothing to hand back: the hop is where the method goes on.
+        }
+
+        public void OnCompleted(Action continuation) =>
+            _ = Task.Factory.StartNew(continuation, CancellationToken.None, TaskCreationOptions.DenyChildAttach, ComputeScheduler.Instance);
+
+        public void UnsafeOnCompleted(Action continuation) => OnCompleted(continuation);
+    }
+
     /// <summary>True on a compute thread.</summary>
     public static bool OnComputeThread => ComputeScheduler.IsComputeThread;
 

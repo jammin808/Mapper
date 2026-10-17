@@ -75,7 +75,7 @@ public sealed class ThumbnailService(EngineCore engine, string? folder, ILogger?
         var path = DiskPath(media.Hash16, w, h, jpeg);
         if (path is not null && File.Exists(path))
         {
-            var disk = await File.ReadAllBytesAsync(path, ct);
+            var disk = await DurableFile.ReadAllBytesAsync(path, ct);
             var size = SizeOf(disk, w, h);
             Remember(etag, disk, size.W, size.H, mime);
             return new ThumbResult(true, etag, mime, size.W, size.H, disk, false, null);
@@ -133,8 +133,9 @@ public sealed class ThumbnailService(EngineCore engine, string? folder, ILogger?
         if (!Posters.CanRead(frame.Layout))
             return (null, 0, 0, $"{item.Name}'s pictures ({frame.Layout}) make no poster on this node yet");
         var (fw, fh) = Posters.Fit(frame.Width, frame.Height, w, h);
-        var bgra = Posters.ToBgra(frame, fw, fh);
-        return (Posters.Encode(bgra, fw, fh, jpeg), fw, fh, null);
+        // The picture's conversion and its encode are CPU work: on the compute threads, never the pool the sockets answer on.
+        var bytes = await Core.Threading.Compute.RunAsync(() => Posters.Encode(Posters.ToBgra(frame, fw, fh), fw, fh, jpeg), ct).ConfigureAwait(false);
+        return (bytes, fw, fh, null);
     }
 
     private string? DiskPath(string hash16, int w, int h, bool jpeg) =>

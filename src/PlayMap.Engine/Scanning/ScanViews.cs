@@ -132,7 +132,7 @@ internal sealed class ScanViews
                 StartPump(id, rig!);
         }
         if (still)
-            _ = Task.Run(() => DrawStill(rig, sink), CancellationToken.None);
+            _ = Core.Threading.Compute.RunAsync(() => DrawStill(rig, sink));
         else if (problem is not null)
             DrawProblem(sink, rig?.Name ?? id, problem);
         return new Handle(this, watch);
@@ -391,7 +391,7 @@ internal sealed class ScanViews
             _watches.Add(watch);
         }
         if (outcome is not null)
-            _ = Task.Run(() => DrawScan(outcome, watch), CancellationToken.None);
+            _ = Core.Threading.Compute.RunAsync(() => DrawScan(outcome, watch));
         return new Handle(this, watch);
     }
 
