@@ -256,6 +256,7 @@ public sealed class EngineSourcesTests
         gate.Set();
         await disposing;
         work.CompleteAdding();
+        worker.Join();
         Assert.Equal(3, media.Made.Count);
         Assert.Equal(3, closedWhenDisposeReturned);
         Assert.Equal(0, sources.Closing);
@@ -264,9 +265,10 @@ public sealed class EngineSourcesTests
     /// <summary>A close that hangs (a read that never returns) does not hold the stop for ever: dispose returns after its wait with
     /// the words naming it.</summary>
     [Fact]
-    public void ACloseThatHangsIsSaidAndTheStopGoesOn()
+    public async Task ACloseThatHangsIsSaidAndTheStopGoesOn()
     {
-        using var hang = new ManualResetEventSlim(false);
+        // Never disposed here: the hung close waits on it on a pool thread until this test lets it go.
+        var hang = new ManualResetEventSlim(false);
         var media = new FakeMedia { OnDispose = hang.Wait };
         var project = Project.CreateDefault() with { Media = [Item("md_stuck")] };
         var said = new List<string>();
@@ -276,6 +278,8 @@ public sealed class EngineSourcesTests
         sources.Dispose();
         Assert.Equal(["render: md_stuck did not close within 0.1 s of the stop — the file stays open until it does"], said);
         hang.Set();
+        Assert.True(await Host.Eventually.TrueAsync(() => sources.Closing == 0), "the hung close never ended once let go");
+        hang.Dispose();
     }
 
     [Fact]
