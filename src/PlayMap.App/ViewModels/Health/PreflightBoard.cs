@@ -42,6 +42,7 @@ public sealed class PreflightBoardViewModel : ObservableObject
     private string _light = "grey";
     private string _lastRun = "";
     private bool _isShown;
+    private bool _failed;
     private PreflightReport? _report;
 
     public PreflightBoardViewModel(DeskSession session)
@@ -96,8 +97,14 @@ public sealed class PreflightBoardViewModel : ObservableObject
         get => _isShown;
         set
         {
-            if (Set(ref _isShown, value) && value)
-                FetchIfNew();
+            if (!Set(ref _isShown, value) || !value)
+                return;
+            if (_failed)
+            {
+                _failed = false;
+                _fetched = "";
+            }
+            FetchIfNew();
         }
     }
 
@@ -153,8 +160,9 @@ public sealed class PreflightBoardViewModel : ObservableObject
         var reply = await _session.SendQuietAsync("PREFLIGHT REPORT " + id);
         if (!reply.Ok)
         {
-            // Not readable now (the node restarted, the report aged out): the next push asks again.
-            _fetched = "";
+            // Not readable now (the node restarted, the report aged out): read again when the board is next shown or STATE names
+            // another report, not on every push.
+            _failed = true;
             Header = DeskSession.Plain(reply.Text);
             return;
         }

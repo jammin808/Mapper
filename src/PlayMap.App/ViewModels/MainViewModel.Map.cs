@@ -1,3 +1,7 @@
+using PlayMap.App.Infrastructure;
+using PlayMap.App.ViewModels.Map;
+using PlayMap.App.Views.Map;
+
 namespace PlayMap.App.ViewModels;
 
 public sealed partial class MainViewModel
@@ -5,9 +9,15 @@ public sealed partial class MainViewModel
     /// <summary>The map package's module: the wall's lease and the first light's hand-over to MAP.</summary>
     public MapModule MapDesk { get; private set; } = null!;
 
+    /// <summary>Health ▸ Calibration and the projectors' score cards.</summary>
+    public CalibrationModule Calibration { get; private set; } = null!;
+
     partial void ComposeMapDesk(List<DeskModule> modules)
     {
+        ModuleViews.Register<CalibrationTabViewModel>(() => new CalibrationTabView());
+        ModuleViews.Register<ScoreCardViewModel>(() => new ScoreCardView());
         MapDesk = new MapModule(Map);
+        Calibration = new CalibrationModule(Session, Drawers);
         Map.Lit += () => Workspace = Workspace.Map;
         PropertyChanged += (_, e) =>
         {
@@ -15,6 +25,7 @@ public sealed partial class MainViewModel
                 Map.LeaveMap();
         };
         modules.Add(MapDesk);
+        modules.Add(Calibration);
     }
 }
 
