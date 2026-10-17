@@ -315,9 +315,11 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
 ## 8. Reliability rules (inherited from Patterns, enforced by the analyzers and tests)
 
 Attempts are not facts (receipts say accepted/applied and the effect); fail closed on the wire; one writer per
-lane; immutable snapshots for readers; a file the node keeps is written beside its place, reaches the disk, and is renamed into
-place with the rename flushed (`DurableFile`; a resume's chunk map, a hint the file's hash checks, is not flushed); pools and rings
-that skip rather than wait; no allocation on a warm frame
+lane; immutable snapshots for readers; a file that holds state for the node's next start (its settings, the recovery record, the
+project, the optimise queue, the present fuse, keys and credentials, a run's or a scan's records) is written beside its place,
+reaches the disk, and is renamed into place with the rename flushed (`DurableFile`), while a record it only reports (the journal,
+preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
+pools and rings that skip rather than wait; no allocation on a warm frame
 (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh); a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

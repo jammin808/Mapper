@@ -4,16 +4,17 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Storage;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Optimise;
+using PlayMap.Engine.Presentation;
 
 namespace PlayMap.Engine.Tests.Host;
 
 /// <summary>The files the node renames into place reach the disk before the rename: the node's settings as the host persists them
-/// (a backup's takeover epoch rides there), the recovery record, the optimise queue and the saved project are each reported flushed
-/// under their final path, and hold what was written; an align run's folder is flushed whole beside its place before it moves in.</summary>
+/// (a backup's takeover epoch rides there), the recovery record, the optimise queue, the saved project and the present fuse (armed
+/// before a DXGI start that may hang the machine) are each reported flushed under their final path, and hold what was written; an align run's folder is flushed whole beside its place before it moves in.</summary>
 public sealed class DurableWriteTests
 {
     [Fact]
-    public async Task TheSettingsTheRecoveryRecordTheQueueAndTheProjectAreFlushedBeforeTheyAreRenamed()
+    public async Task TheSettingsTheRecoveryRecordTheQueueTheProjectAndTheFuseAreFlushedBeforeTheyAreRenamed()
     {
         var flushed = new ConcurrentQueue<string>();
         await using var node = await HostRig.StartAsync("Durable node");
@@ -41,6 +42,11 @@ public sealed class DurableWriteTests
             await node.OkAsync("PROJECT SAVE " + project);
             Assert.Contains(project, flushed);
             Assert.True(File.Exists(project));
+
+            var fuse = new PresentFuse(home, () => 1);
+            fuse.Arm("dxgi");
+            Assert.Contains(fuse.FilePath, flushed);
+            Assert.Equal(("dxgi", 1), (fuse.Read()!.Path, fuse.Read()!.Attempt));
         }
         finally
         {
