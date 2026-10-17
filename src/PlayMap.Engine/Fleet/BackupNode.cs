@@ -1001,7 +1001,7 @@ public sealed class BackupNode : IAsyncDisposable
         if (hash.Length == 0 || (_showHere.TryGetValue(path, out var known) && string.Equals(known, hash, StringComparison.Ordinal)))
             return true;
         string hex;
-        var stream = File.OpenRead(path);
+        var stream = PlayMap.Core.Storage.DurableFile.OpenRead(path, 1 << 16, FileOptions.Asynchronous);
         await using (stream.ConfigureAwait(false))
             hex = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct).ConfigureAwait(false));
         if (!ShowFiles.Matches(hex, hash))

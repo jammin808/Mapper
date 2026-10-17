@@ -139,6 +139,13 @@ public static partial class DurableFile
         return reader.ReadToEnd();
     }
 
+    /// <summary>A durable file's text (UTF-8, a byte-order mark skipped), read as <see cref="OpenRead"/> opens it, asynchronously.</summary>
+    public static async Task<string> ReadAllTextAsync(string path, CancellationToken ct = default)
+    {
+        using var reader = new StreamReader(OpenRead(path, options: FileOptions.Asynchronous), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+    }
+
     /// <summary>A durable file's bytes, read as <see cref="OpenRead"/> opens it, asynchronously.</summary>
     public static async Task<byte[]> ReadAllBytesAsync(string path, CancellationToken ct = default)
     {
@@ -200,7 +207,7 @@ public static partial class DurableFile
         }
     }
 
-    /// <summary>Renames <paramref name="from"/> over <paramref name="to"/> with POSIX semantics (Windows 10 1607 and later, on a file
+    /// <summary>Renames <paramref name="from"/> over <paramref name="to"/> with POSIX semantics (Windows 10 1709 and later, on a file
     /// system that keeps them): the name is replaced while other handles that share delete hold the old file open. The rename is flushed
     /// through the same handle before the call returns. False when the file system does not take a POSIX rename (FAT, an older system):
     /// the caller replaces it the classic way.</summary>
@@ -218,10 +225,13 @@ public static partial class DurableFile
         var nameAt = lengthAt + sizeof(uint);
         var nameBytes = name.Length * sizeof(char);
         var info = new byte[Math.Max(nameAt + nameBytes + sizeof(char), lengthAt + 2 * IntPtr.Size)];
-        BitConverter.TryWriteBytes(info.AsSpan(0), RenameReplaceIfExists | RenamePosixSemantics | RenameIgnoreReadOnly);
         BitConverter.TryWriteBytes(info.AsSpan(lengthAt), (uint)nameBytes);
         System.Runtime.InteropServices.MemoryMarshal.AsBytes(name.AsSpan()).CopyTo(info.AsSpan(nameAt));
-        if (!SetFileInformationByHandle(handle, FileRenameInfoEx, info, (uint)info.Length))
+        // Read-only targets are replaced too where the system knows the flag (Windows 10 1809 and later); before it, the same rename
+        // without it.
+        var renamed = Rename(handle, info, RenameReplaceIfExists | RenamePosixSemantics | RenameIgnoreReadOnly)
+            || (Marshal.GetLastPInvokeError() == ErrorInvalidParameter && Rename(handle, info, RenameReplaceIfExists | RenamePosixSemantics));
+        if (!renamed)
         {
             var error = Marshal.GetLastPInvokeError();
             // Not a file system or a system that takes a POSIX rename: nothing moved.
@@ -232,6 +242,13 @@ public static partial class DurableFile
         if (!FlushFileBuffers(handle))
             throw new NotFlushedException(to, new IOException(Marshal.GetLastPInvokeErrorMessage()));
         return true;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool Rename(Microsoft.Win32.SafeHandles.SafeFileHandle handle, byte[] info, uint flags)
+    {
+        BitConverter.TryWriteBytes(info.AsSpan(0), flags);
+        return SetFileInformationByHandle(handle, FileRenameInfoEx, info, (uint)info.Length);
     }
 
     private static Exception Refused(string from, string to, int error)

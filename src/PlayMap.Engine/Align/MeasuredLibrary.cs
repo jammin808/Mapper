@@ -170,7 +170,7 @@ public sealed class MeasuredLibrary
         }
         try
         {
-            var bytes = File.ReadAllBytes(path);
+            var bytes = PlayMap.Core.Storage.DurableFile.ReadAllBytes(path);
             if (!string.Equals(Pfm.Hash(bytes), hash, StringComparison.Ordinal))
             {
                 why = $"{file} changed since it was measured";

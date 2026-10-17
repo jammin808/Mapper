@@ -24,7 +24,7 @@ public sealed class DeskPrefs : ObservableObject
         var prefs = new DeskPrefs(path);
         try
         {
-            if (File.Exists(path) && JsonNode.Parse(File.ReadAllText(path)) is JsonObject o)
+            if (File.Exists(path) && JsonNode.Parse(PlayMap.Core.Storage.DurableFile.ReadAllText(path)) is JsonObject o)
             {
                 prefs._isPro = o["pro"]?.GetValueKind() == JsonValueKind.True;
                 prefs._escIsPanic = o["escIsPanic"]?.GetValueKind() == JsonValueKind.True;
