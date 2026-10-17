@@ -57,4 +57,9 @@
     <Compile Include="..\PlayMap.Media.Tests\Video\Spout\FakeSpout.cs" Link="VideoIo\FakeSpout.cs" />
   </ItemGroup>
 
+  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <ItemGroup Label="fix-tests3">
+    <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+  </ItemGroup>
+
 </Project>

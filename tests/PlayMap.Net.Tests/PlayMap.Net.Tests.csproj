@@ -24,4 +24,9 @@
     <ProjectReference Include="..\..\src\PlayMap.Net\PlayMap.Net.csproj" />
   </ItemGroup>
 
+  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <ItemGroup Label="fix-tests3">
+    <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+  </ItemGroup>
+
 </Project>

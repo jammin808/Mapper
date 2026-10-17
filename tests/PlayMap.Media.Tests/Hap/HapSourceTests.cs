@@ -3,6 +3,7 @@ using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
 using PlayMap.Media.Hap;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Hap;
 
@@ -162,6 +163,7 @@ public class HapSourceTests
         Assert.True(await source.Opened, source.Health.Status);
         for (var n = 0; n < 40; n++)
             At(source, Rate.TimeOf(n)).Dispose();
+        Allocations.Begin();
         var decode = source.DecodeThreadAllocatedBytes;
         var read = source.ReadThreadAllocatedBytes;
         Assert.True(decode > 0 && read > 0);

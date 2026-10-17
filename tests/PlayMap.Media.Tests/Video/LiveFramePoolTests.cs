@@ -1,5 +1,6 @@
 using PlayMap.Core.Media;
 using PlayMap.Media.Video;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Video;
 
@@ -160,7 +161,7 @@ public sealed unsafe class LiveFramePoolTests
             Write(pool, i);
             pool.Acquire()!.Dispose();
         }
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (byte i = 0; i < 200; i++)
         {
             Assert.True(pool.TryBeginWrite(PixelLayout.Uyvy, 64, 8, out _));
@@ -169,7 +170,7 @@ public sealed unsafe class LiveFramePoolTests
             _ = lease.Generation;
             lease.Dispose();
         }
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0, Allocations.Since(before));
     }
 
     [Fact]

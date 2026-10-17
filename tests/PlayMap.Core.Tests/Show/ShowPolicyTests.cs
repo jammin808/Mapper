@@ -1,5 +1,6 @@
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Show;
 
@@ -317,7 +318,7 @@ public sealed class ShowPolicyTests
         ShowPolicy.Decide(spec, line, ShowRole.Operator, in facts);
         ShowPolicy.Decide(setSpec, set, ShowRole.Peer, in facts);
         var allowed = 0;
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 1000; i++)
         {
             if (ShowPolicy.Decide(spec, line, ShowRole.Operator, in facts).Verdict == ShowVerdict.Allow)
@@ -325,7 +326,7 @@ public sealed class ShowPolicyTests
             if (ShowPolicy.Decide(setSpec, set, ShowRole.Peer, in facts).Verdict == ShowVerdict.Allow)
                 allowed++;
         }
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = Allocations.Since(before);
         Assert.Equal(2000, allowed);
         Assert.Equal(0, allocated);
     }

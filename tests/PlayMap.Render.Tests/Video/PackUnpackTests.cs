@@ -7,6 +7,7 @@ using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Passes;
 using PlayMap.Render.Video;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Video;
 
@@ -761,10 +762,10 @@ public sealed class PackUnpackTests(GlFixture gl)
             sink.Frames.Clear();
             // The test's sink copies into new arrays; with a sender that releases at once, only the stage itself could allocate.
             entry.Sink = new ReleasingSink();
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var i = 31; i <= 90; i++)
                 Frame(i);
-            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            var allocated = Allocations.Since(before);
             Assert.Equal(0, allocated);
             // Nobody watching: counted, no pack.
             var packed = entry.Packed;

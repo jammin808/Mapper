@@ -2,6 +2,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Engine.Rendering;
 using PlayMap.Render.Platform;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Rendering;
@@ -162,6 +163,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
 
         // Warm, contended or not, the frame path allocates nothing.
         await rig.Host.FramesAsync(10).WaitAsync(HostRig.Patience);
+        Allocations.Begin();
         var bytes = rig.Host.Stats.FramePathAllocatedBytes;
         _ = HoldFor(share, deviceLock, rig.Host, TimeSpan.FromMilliseconds(100));
         await rig.Host.FramesAsync(30).WaitAsync(HostRig.Patience);

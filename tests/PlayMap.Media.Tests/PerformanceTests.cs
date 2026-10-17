@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using PlayMap.Core.Time;
 using PlayMap.Media.Sources;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Media.Tests;
@@ -20,14 +21,14 @@ public class PerformanceTests(ITestOutputHelper output)
         var layout = PlayMap.Media.Frames.FrameLayout.For(plan.Layout, 1920, 1080);
         pool.Reserve(layout);
         var slots = new PlayMap.Media.Frames.FrameSlot?[pool.Capacity];
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < slots.Length; i++)
             slots[i] = pool.TryRent(layout);
-        var after = GC.GetAllocatedBytesForCurrentThread();
+        var allocated = Allocations.Since(before);
         foreach (var s in slots)
             s!.Release();
         Assert.All(slots, s => Assert.NotNull(s));
-        Assert.Equal(0, after - before);
+        Assert.Equal(0, allocated);
         Assert.Equal(0, pool.InUse);
     }
 
@@ -45,15 +46,14 @@ public class PerformanceTests(ITestOutputHelper output)
         {
             var t = rate.TimeOf(n) + 1;
             Assert.True(source.WaitUntilReady(t, TimeSpan.FromSeconds(10)));
+            var before = Allocations.Start();
             if (n % 120 == 0)
                 decodeAt[n / 120] = source.DecodeThreadAllocatedBytes;
-            var before = GC.GetAllocatedBytesForCurrentThread();
             source.Prepare(t, true, 1);
             var lease = source.Acquire(t);
             lease?.Dispose();
-            var after = GC.GetAllocatedBytesForCurrentThread();
             if (n >= 120)
-                consumer[n / 120 - 1] += after - before;
+                consumer[n / 120 - 1] += Allocations.Since(before);
             Assert.NotNull(lease);
         }
         var windows = new[] { decodeAt[2] - decodeAt[1], decodeAt[3] - decodeAt[2] };
@@ -77,10 +77,10 @@ public class PerformanceTests(ITestOutputHelper output)
                 {
                     if (prepareThread)
                         PlayMap.Media.Frames.LockWaits.PrepareThisThread();
-                    var before = GC.GetAllocatedBytesForCurrentThread();
+                    var before = Allocations.Start();
                     if (gate.TryEnter(5))
                         gate.Exit();
-                    allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                    allocated = Allocations.Since(before);
                 });
                 waiter.Start();
                 waiter.Join();
@@ -118,6 +118,7 @@ public class PerformanceTests(ITestOutputHelper output)
             }
         }
         Play(0, 120);
+        Allocations.Begin();
         var before = source.DecodeThreadAllocatedBytes;
         using (var never = new ManualResetEventSlim(false))
         {

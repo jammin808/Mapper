@@ -9,6 +9,7 @@ using PlayMap.Engine.Fx;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Engine.Tests.Spine;
 using PlayMap.Render.Effects;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Fx;
 
@@ -153,6 +154,7 @@ public sealed class FxHostTests
         foreach (var id in new[] { "fx00000001", "fx00000002", "fx00000003" })
             Assert.Equal("ok", (await Settled(rig, id)).GetProperty("state").GetString());
         await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
+        Allocations.Begin();
         var before = rig.Host.Stats;
         await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
         var after = rig.Host.Stats;
@@ -206,6 +208,7 @@ public sealed class FxHostTests
         Assert.Equal("idle", (await Settled(rig, "fx00000004", Says("not drawn: the layer is not visible"))).GetProperty("state").GetString());
         Assert.Equal("idle", (await Settled(rig, "fx00000005", Says("not drawn: its playlist is not showing it"))).GetProperty("state").GetString());
         await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
+        Allocations.Begin();
         var before = rig.Host.Stats;
         await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
         var after = rig.Host.Stats;

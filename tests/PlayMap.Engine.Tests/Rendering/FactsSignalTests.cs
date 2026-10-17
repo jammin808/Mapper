@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using PlayMap.Engine.Rendering;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Rendering;
 
@@ -24,10 +25,10 @@ public sealed class FactsSignalTests
                 // Warm: the semaphore's monitor exists before anything is counted.
                 for (var i = 1; i <= 20; i++)
                     RaiseAndWait(signal, ref runs, i);
-                var before = GC.GetAllocatedBytesForCurrentThread();
+                var before = Allocations.Start();
                 for (var i = 21; i <= 520; i++)
                     RaiseAndWait(signal, ref runs, i);
-                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                allocated = Allocations.Since(before);
             }
             catch (Exception ex)
             {

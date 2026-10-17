@@ -1,5 +1,6 @@
 using PlayMap.Core.Audio;
 using PlayMap.Core.Modulation;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Audio;
 
@@ -147,9 +148,9 @@ public sealed class ModulationBusTests
         }
         for (var i = 0; i < 10; i++)
             Frame();
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 25; i++)
             Frame();
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0, Allocations.Since(before));
     }
 }

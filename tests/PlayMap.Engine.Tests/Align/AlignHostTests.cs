@@ -3,6 +3,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Align;
@@ -103,6 +104,7 @@ public sealed class AlignHostTests(ITestOutputHelper log)
                 Assert.Equal("ok", JsonOf(engine).GetProperty("outputs")[0].GetProperty("measured").GetProperty("files").GetString());
 
                 // Warm frames with the correction up allocate nothing on the frame path.
+                Allocations.Begin();
                 var before = host.Stats;
                 await host.FramesAsync(60).WaitAsync(HostRig.Patience);
                 Assert.Equal(before.FramePathAllocatedBytes, host.Stats.FramePathAllocatedBytes);

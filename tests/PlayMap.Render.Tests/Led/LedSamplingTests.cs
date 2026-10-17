@@ -7,6 +7,7 @@ using PlayMap.Render.Generators;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Led;
 using PlayMap.Render.Platform;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Led;
 
@@ -393,10 +394,10 @@ public sealed class LedSamplingTests(GlFixture gl)
         }
         for (var k = 1; k <= 30; k++)
             Frame(k);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var k = 31; k <= 330; k++)
             Frame(k);
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0, Allocations.Since(before));
         Assert.True(pass.Frames >= 330);
     });
 

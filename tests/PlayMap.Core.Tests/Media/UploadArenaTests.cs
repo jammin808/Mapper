@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using PlayMap.Core.Media;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Media;
 
@@ -91,13 +92,10 @@ public sealed class UploadArenaTests
         Assert.Equal(0, a.Outstanding);
     }
 
-    // Each window starts with a gen0 collection: a background collection's end of mark voids this thread's allocation context, and
-    // its unused rest would otherwise read as allocated here.
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Cycle(ArenaAllocator a, UploadBlock[] blocks, int rounds)
     {
-        GC.Collect(0);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var r = 0; r < rounds; r++)
         {
             for (var i = 0; i < blocks.Length; i++)
@@ -107,7 +105,7 @@ public sealed class UploadArenaTests
             for (var i = blocks.Length - 2; i >= 0; i -= 2)
                 a.Return(blocks[i]);
         }
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     }
 
     [Fact]

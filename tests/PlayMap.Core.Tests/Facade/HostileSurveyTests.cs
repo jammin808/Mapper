@@ -3,6 +3,7 @@ using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Site;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Facade;
 
@@ -20,9 +21,9 @@ public sealed class HostileSurveyTests
     public void AnE57DeclaringMorePointsThanItsSectionHoldsIsRefusedBeforeItAllocates()
     {
         var bytes = E57TestWriter.Write([new E57TestScan("Station 1", Line(100)) { RecordCount = 1 << 24 }]);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         var e = Assert.Throws<FormatException>(() => Read(bytes));
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = Allocations.Since(before);
         Assert.Contains("Station 1", e.Message, StringComparison.Ordinal);
         Assert.True(allocated < 16L * 1024 * 1024, string.Create(CultureInfo.InvariantCulture, $"{allocated / 1048576.0:0.0} MB allocated for a {bytes.Length} byte file"));
     }
@@ -49,10 +50,10 @@ public sealed class HostileSurveyTests
     {
         // Two points at opposite corners of a 12 000 × 12 000 grid: 144 M cells (3.5 GB) for two points.
         var bytes = E57TestWriter.Write([new E57TestScan("Station 1", Line(2)) { Cells = [(0, 0), (11_999, 11_999)] }]);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         var e = Assert.Throws<FormatException>(() => Read(bytes));
         Assert.Contains("Station 1", e.Message, StringComparison.Ordinal);
-        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16L * 1024 * 1024);
+        Assert.True(Allocations.Since(before) < 16L * 1024 * 1024);
     }
 
     [Fact]
@@ -62,9 +63,9 @@ public sealed class HostileSurveyTests
         // The XML length in the header (logical bytes 32–39, inside page 0) set to 60 MB, and page 0's CRC made good again.
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(32), 60UL * 1024 * 1024);
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(1020), MeshIO.Crc32C(bytes.AsSpan(0, 1020)));
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         Assert.Throws<FormatException>(() => Read(bytes));
-        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16L * 1024 * 1024);
+        Assert.True(Allocations.Since(before) < 16L * 1024 * 1024);
     }
 
     private static byte[] Las(int n) =>
@@ -92,9 +93,9 @@ public sealed class HostileSurveyTests
     {
         var bytes = Las(20);
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(247), 1UL << 40);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         Assert.Throws<FormatException>(() => MeshIO.ReadLas(new MemoryStream(bytes)));
-        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16L * 1024 * 1024);
+        Assert.True(Allocations.Since(before) < 16L * 1024 * 1024);
         // The same file as written reads its 20 points.
         Assert.Equal(20, MeshIO.ReadLas(new MemoryStream(Las(20))).Count);
     }

@@ -29,4 +29,9 @@
     <PackageReference Include="Snappier" Version="1.3.1" />
   </ItemGroup>
 
+  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <ItemGroup Label="fix-tests3">
+    <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+  </ItemGroup>
+
 </Project>

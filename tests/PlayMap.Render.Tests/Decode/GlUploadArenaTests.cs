@@ -6,6 +6,7 @@ using PlayMap.Core.Numerics;
 using PlayMap.Render.Decode;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Video;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Decode;
 
@@ -157,12 +158,10 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
     });
 
-    // A gen0 collection first: a background collection ending its mark would otherwise count this thread's unused allocation context.
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Cycle(GlDevice device, GlUploadArena arena, UploadBlock[] blocks, int frames)
     {
-        GC.Collect(0);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var f = 0; f < frames; f++)
         {
             for (var i = 0; i < blocks.Length; i++)
@@ -173,6 +172,6 @@ public sealed class GlUploadArenaTests(GlFixture gl)
             if (f % 4 == 3)
                 device.Finish();
         }
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     }
 }

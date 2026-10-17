@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Media.Hw;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Hw;
 
@@ -151,12 +152,10 @@ public sealed class SurfaceLadderTests
         Assert.Empty(steps);
     }
 
-    // A gen0 collection first: a background collection's end of mark would otherwise count this thread's unused allocation context.
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Checks(SurfaceLadder ladder, GpuSurface surface, int rounds)
     {
-        GC.Collect(0);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         long t = 0;
         for (var i = 0; i < rounds; i++)
         {
@@ -166,6 +165,6 @@ public sealed class SurfaceLadderTests
             ladder.GotSlot(t + Frame);
             t += Frame;
         }
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     }
 }

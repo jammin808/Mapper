@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Hap;
 
@@ -421,9 +422,9 @@ public class HapParserTests
         var frame = Frame(HapCodec.HapQAlpha, 64, 32, 8, true, out _);
         var f = new HapFrame();
         Assert.True(f.TryParse(frame, 64, 32, HapCodec.HapQAlpha, out _));
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 100; i++)
             Assert.True(f.TryParse(frame, 64, 32, HapCodec.HapQAlpha, out _));
-        Assert.Equal(before, GC.GetAllocatedBytesForCurrentThread());
+        Assert.Equal(0, Allocations.Since(before));
     }
 }

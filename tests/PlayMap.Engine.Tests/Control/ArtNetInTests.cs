@@ -12,6 +12,7 @@ using System.Text.Json;
 using PlayMap.Core.Dmx;
 using PlayMap.Core.Time;
 using PlayMap.Net.Control;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Control;
 
@@ -26,25 +27,21 @@ public sealed class ArtNetInTests
     /// allocated and the methods the runtime compiled on it over each window, and answers the sends refused. Compiled fully
     /// optimised before it first runs, and never inlined: the windows are never where the runtime compiles the loop that counts
     /// them (a tier-0 loop is recompiled on stack, on this thread, and that compile can grow the runtime's cast cache or box a
-    /// static here). The windows start with the thread holding no allocation context: a background collection's end of mark voids
-    /// every thread's context and the unused rest of it (up to 8 KB) then reads as allocated by that thread, though nothing was;
-    /// a gen0 collection first hands the context back and counts its rest as unallocated, so a window that allocates nothing
-    /// reads 0 whenever a background collection ends its mark.</summary>
+    /// static here). Each window begins as every allocation window of the suites does (Allocations.Start).</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static int SendCounting(ArtNetEndpoint endpoint, ReadOnlySpan<byte> packet, SocketAddress to, long[] bytes, long[] compiled, int perWindow)
     {
         var refused = 0;
-        GC.Collect(0);
         for (var k = 0; k < bytes.Length; k++)
         {
             var jitted = JitInfo.GetCompiledMethodCount(currentThread: true);
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var i = 0; i < perWindow; i++)
             {
                 if (!endpoint.Send(packet, to))
                     refused++;
             }
-            bytes[k] = GC.GetAllocatedBytesForCurrentThread() - before;
+            bytes[k] = Allocations.Since(before);
             compiled[k] = JitInfo.GetCompiledMethodCount(currentThread: true) - jitted;
         }
         return refused;

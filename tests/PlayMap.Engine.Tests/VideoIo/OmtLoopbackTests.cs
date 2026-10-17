@@ -8,6 +8,7 @@ using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Media.Tests.Video;
 using PlayMap.Media.Video.Omt;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.VideoIo;
 
@@ -186,6 +187,7 @@ public sealed class LiveOnAirHostTests
             var row = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").GetProperty("inputs")[0];
             Assert.Equal("program", row.GetProperty("tally").GetString());
             Assert.Equal((true, false), provider.Opened.Single().Tally);
+            Allocations.Begin();
             var before = host.Stats;
             await host.FramesAsync(90).WaitAsync(HostRig.Patience);
             var after = host.Stats;

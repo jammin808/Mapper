@@ -6,6 +6,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Effects;
 
@@ -437,13 +438,13 @@ public sealed class FxAttachTests(GlFixture gl)
             Assert.Equal((FxSlotState.Idle, FxPass.ItemUnshownWords), Said(fx, "fx00000005"));
             Assert.Equal((FxSlotState.Idle, FxPass.LayerHiddenWords), Said(fx, "fx00000006"));
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000007"));
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var i = 0; i < 60; i++)
             {
                 inputs = inputs with { LeaderNs = inputs.LeaderNs + 16_666_667 };
                 engine.Render(inputs);
             }
-            Assert.Equal(before, GC.GetAllocatedBytesForCurrentThread());
+            Assert.Equal(0, Allocations.Since(before));
             foreach (var id in new[] { "fx00000001", "fx00000002", "fx00000003", "fx00000004" })
                 Assert.Equal(FxSlotState.Ok, Said(fx, id).State);
             Assert.Empty(c.Device.TakeErrors());

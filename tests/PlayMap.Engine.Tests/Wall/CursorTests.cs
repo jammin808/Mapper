@@ -3,6 +3,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Tests.Rendering;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Wall;
@@ -76,6 +77,7 @@ public sealed class CursorTests(ITestOutputHelper log)
         await Ok(rig, "CURSOR op_1 0.25 0.5 COLOR #FF00FF", Alice);
         await Ok(rig, "CURSOR op_1 0.75 0.5 COLOR #00FFFF", Bob);
         await rig.Host.FramesAsync(10).WaitAsync(HostRig.Patience);
+        Allocations.Begin();
         var before = rig.Host.Stats;
 
         // Moves faster than frames: three lines between frame waits, the two sessions in turn.
