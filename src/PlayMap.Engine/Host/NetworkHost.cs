@@ -511,14 +511,14 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// old one is unpaired at its next verb. The words say where the token is read, never the token.</summary>
     public string NewToken()
     {
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             var token = Pairing.NewToken();
             // Read fresh: another part's keys kept since this run began (a sync role, the fleet's epoch) are written back with it.
             var stored = Fresh() with { Token = token };
             try
             {
-                _o.Home.SaveSettings(stored);
+                WriteSettingsLocked(stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -539,13 +539,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     public string PersistSettings(Func<NodeSettings, NodeSettings> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             _running = edit(_running);
             try
             {
                 _stored = edit(Fresh());
-                _o.Home.SaveSettings(_stored);
+                WriteSettingsLocked(_stored);
                 return "";
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -554,6 +554,46 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             }
         }
     }
+
+    /// <summary>Keeps a change of the node's settings, all or nothing, as the one writer of its settings file: the file is read fresh
+    /// under the writer's lock, the edit made to it and written, and only then made to the stored and the running settings. A write
+    /// that fails throws its <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/> and nothing changes (a verb that
+    /// keeps a setting refuses with the words: PRESENT PATH, DECODE POLICY).</summary>
+    public void KeepSettings(Func<NodeSettings, NodeSettings> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        using (EnterSettings())
+        {
+            var next = edit(Fresh());
+            WriteSettingsLocked(next);
+            _stored = next;
+            _running = edit(_running);
+        }
+    }
+
+    /// <summary>Raised on the editor's thread when an edit of the settings file finds the writer's lock held by another edit and waits
+    /// for it (a test holds one edit inside the lock and sees the next one wait at it).</summary>
+    internal event Action? SettingsEditWaits;
+
+    /// <summary>The writer's lock: every read-modify-write of the settings file runs inside it, one at a time.</summary>
+    private SettingsScope EnterSettings()
+    {
+        if (!_settingsGate.TryEnter())
+        {
+            SettingsEditWaits?.Invoke();
+            _settingsGate.Enter();
+        }
+        return new SettingsScope(_settingsGate);
+    }
+
+    /// <summary>The writer's lock held, let go when disposed.</summary>
+    private readonly record struct SettingsScope(Lock Gate) : IDisposable
+    {
+        public void Dispose() => Gate.Exit();
+    }
+
+    /// <summary>The settings file's one write (durable: flushed before it is renamed into place). Inside <see cref="EnterSettings"/>.</summary>
+    private void WriteSettingsLocked(NodeSettings settings) => _o.Home.SaveSettings(settings);
 
     public bool Mcp => _web?.ServesMcp ?? false;
 
@@ -872,13 +912,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     private void Persist(Func<NodeSettings, NodeSettings> edit)
     {
-        lock (_settingsGate)
+        using (EnterSettings())
         {
             _running = edit(_running);
             try
             {
                 _stored = edit(Fresh());
-                _o.Home.SaveSettings(_stored);
+                WriteSettingsLocked(_stored);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

@@ -47,12 +47,21 @@ public sealed class NodeHome
     public static NodeHome Default() => new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "PlayMap"));
 
-    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept.</summary>
+    /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept. A read is one of a read-modify-write
+    /// only inside the settings file's one writer (the network host's <c>PersistSettings</c> and <c>KeepSettings</c>), which holds its
+    /// own lock from the read to the write.</summary>
     public NodeSettings LoadSettings(string defaultName)
     {
+        NodeSettings read;
         lock (SettingsGate)
-            return LoadSettingsLocked(defaultName);
+            read = LoadSettingsLocked(defaultName);
+        SettingsRead?.Invoke();
+        return read;
     }
+
+    /// <summary>Raised on the reader's thread after each read of the settings file, outside the file's own lock (a test holds an edit
+    /// here, between its read and its write).</summary>
+    internal event Action? SettingsRead;
 
     private Lock SettingsGate => SettingsGates.GetOrAdd(SettingsPath, _ => new Lock());
 

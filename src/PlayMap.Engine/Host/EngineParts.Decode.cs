@@ -8,8 +8,11 @@ public sealed partial record EngineParts
 {
     static partial void AddDecodeParts(List<EngineExtensionFactory> extensions)
     {
-        extensions.Add(setup => new DecodeExtension(setup));
+        extensions.Add(DecodeFactory);
     }
+
+    /// <summary>The decode parts' factory the exe's composition holds (one instance, so a test can compose a node with it).</summary>
+    internal static readonly EngineExtensionFactory DecodeFactory = setup => new DecodeExtension(setup);
 
     private sealed class DecodeExtension(ExtensionSetup setup) : IEngineExtension
     {
@@ -24,13 +27,14 @@ public sealed partial record EngineParts
             return Task.CompletedTask;
         }
 
-        /// <summary>Writes decode.policy into the node's settings file (read fresh, so nothing else in it is lost).</summary>
+        /// <summary>Keeps decode.policy through the network host, the settings file's one writer (the file read fresh under its lock,
+        /// so nothing else in it is lost, nor this change by another part's); null, or the words of a failure (nothing changed).</summary>
         private string? Persist(PlayMap.Core.Media.Decode.DecodePolicy policy)
         {
+            var word = PlayMap.Core.Media.Decode.DecodeLadder.Word(policy);
             try
             {
-                var current = setup.Home.LoadSettings(setup.Settings.Name);
-                setup.Home.SaveSettings(current with { Decode = current.Decode with { Policy = PlayMap.Core.Media.Decode.DecodeLadder.Word(policy) } });
+                setup.Network.KeepSettings(s => s with { Decode = s.Decode with { Policy = word } });
                 return null;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
