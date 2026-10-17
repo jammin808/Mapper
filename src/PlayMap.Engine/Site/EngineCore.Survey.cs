@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Geometry;
@@ -10,7 +9,8 @@ using PlayMap.Engine.Site;
 namespace PlayMap.Engine;
 
 /// <summary>A survey import as the node sees it while it runs and after: its id and name, the file, importing / ready / failed with
-/// the progress and words, and the longest the import held the control lane in one slice (ms, from its own instrumentation).</summary>
+/// the progress and words, and the most work the import did on the control lane in one slice (ms of the lane thread's own processor
+/// time, from its own instrumentation: a slice the machine preempted holds the lane no longer for it).</summary>
 public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, string Path, string State, double Progress, string Words,
     double LaneMaxMs, int LaneSlices);
 
@@ -63,7 +63,7 @@ public sealed partial class EngineCore
 
     private CommandReply SurveyImport(VerbCall call)
     {
-        var watch = Stopwatch.StartNew();
+        var held = Core.Time.ThreadTime.NowNs();
         const string Usage = "SURVEY IMPORT <path> [CRS <code>|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL <m>] [DECIMATE <triangles>|OFF] [NAME <name>]";
         var args = call.Args;
         if (args.Count < 1)
@@ -176,7 +176,7 @@ public sealed partial class EngineCore
             w.WriteString("effect", words);
             w.WriteEndObject();
         });
-        NoteSurveySlice(watch.Elapsed.TotalMilliseconds);
+        NoteSurveySlice((Core.Time.ThreadTime.NowNs() - held) / 1e6);
         return CommandReply.Success(payload, words) with { Applied = false };
     }
 
@@ -191,7 +191,7 @@ public sealed partial class EngineCore
         _surveyStop.Dispose();
     }
 
-    /// <summary>The longest single slice of the lane the import has taken, kept on its view.</summary>
+    /// <summary>The most work the import did on the lane in one slice (the lane thread's processor time), kept on its view.</summary>
     private void NoteSurveySlice(double ms)
     {
         lock (_surveyGate)
@@ -284,7 +284,7 @@ public sealed partial class EngineCore
     /// the reason it was not. The slice is timed into the job's view.</summary>
     private string ApplySurvey(SurveyRequest request, SurveyProduct product, SessionInfo session)
     {
-        var watch = Stopwatch.StartNew();
+        var held = Core.Time.ThreadTime.NowNs();
         try
         {
             var meshId = "";
@@ -340,7 +340,7 @@ public sealed partial class EngineCore
         }
         finally
         {
-            NoteSurveySlice(watch.Elapsed.TotalMilliseconds);
+            NoteSurveySlice((Core.Time.ThreadTime.NowNs() - held) / 1e6);
             SetSurvey(v => v with { LaneSlices = v.LaneSlices + 1 }, shown: true);
         }
     }
