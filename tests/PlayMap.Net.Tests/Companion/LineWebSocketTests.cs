@@ -404,6 +404,28 @@ public sealed class DeskIdentityTests
         await serve;
     }
 
+    /// <summary>A settings refresh that took the session from the door's table just before the session ended, and reaches it only after
+    /// it has told the client table it is gone, tells the table nothing: the session stays gone, never listed again until the node
+    /// restarts.</summary>
+    [Fact]
+    public async Task ARefreshThatReachesASessionAfterItHasGoneDoesNotListItAgain()
+    {
+        var endpoint = new RegistryEndpoint(new FakeEndpoint());
+        await using var sessions = new LineSessions(() => TestSettings.Make(trustLoopback: true), endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 },
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, "t");
+        await using var channel = new HeldChannel(["HELLO Companion:FOH"]);
+        channel.Release.Set();
+        channel.Abort();
+        var session = new WireSession(sessions, channel, "t1");
+        await session.RunAsync(CancellationToken.None);
+        await session.DisposeAsync();
+        Assert.Single(endpoint.Hellos);
+        Assert.Equal(["t1"], endpoint.Gone);
+
+        session.Refresh();
+        Assert.Single(endpoint.Hellos);
+    }
+
     /// <summary>A TCP line channel from this machine whose lines are in at once (each read completes as it is asked), then holds the
     /// reading thread where the next read is asked until released, and ends at an abort.</summary>
     private sealed class HeldChannel(IEnumerable<string> lines) : ILineChannel

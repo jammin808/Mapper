@@ -39,6 +39,9 @@ internal sealed class WireSession : IAsyncDisposable
     private bool _greetOnPairing;
     private volatile bool _registered;
     private readonly Lock _registerGate = new();
+
+    /// <summary>The client table has heard this session is gone (under the register lock): nothing registers it again.</summary>
+    private bool _gone;
     private string? _pairedToken;
     private int _wrong;
     private bool _close;
@@ -143,10 +146,11 @@ internal sealed class WireSession : IAsyncDisposable
         if (_server.Endpoint is not IClientRegistry registry)
             return;
         // The session's own thread and a settings refresh can register at once: one at a time, each reading the settings as they are
-        // when it tells the table, so the last told is the newest.
+        // when it tells the table, so the last told is the newest. A refresh that took the session from the door's table as it ended
+        // comes after its going, and tells the table nothing.
         lock (_registerGate)
         {
-            if (!_saidHello)
+            if (!_saidHello || _gone)
                 return;
             registry.Hello(Info(), _channel.Kind);
             _registered = true;
@@ -417,8 +421,13 @@ internal sealed class WireSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _topics.Dispose();
-        if (_registered && _server.Endpoint is IClientRegistry registry)
-            registry.Gone(_id);
+        // Under the register lock: a registration under way ends before the table hears the session is gone, and none comes after.
+        lock (_registerGate)
+        {
+            _gone = true;
+            if (_registered && _server.Endpoint is IClientRegistry registry)
+                registry.Gone(_id);
+        }
         await Writer.DisposeAsync();
     }
 }
