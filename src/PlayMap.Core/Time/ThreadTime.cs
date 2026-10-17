@@ -29,12 +29,12 @@ public enum ThreadClock
 /// <see cref="Basis"/> both in words. Linux and macOS read the thread's CPU clock. Windows on an x64 kernel whose processor says its
 /// time-stamp counter is invariant reads the thread's cycles (the counter's ticks while the thread ran, user and kernel mode) at the
 /// counter's rate, measured once against the stopwatch when the type is first touched (<see cref="Warm"/>), where the measuring's
-/// spins say the count is brought up to date at each read (it moves on at least half of a spin's reads). Both are
-/// <see cref="Precise"/>. Other Windows reads the thread's kernel and user time, which Windows charges in whole clock ticks: an ARM64
-/// kernel counts a thread's cycles of the core's own clock, whose rate moves with the core's speed, a counter the processor does not
-/// say is invariant may change rate with it, and a count the spins do not agree on is not converted. Elsewhere the reads are the
-/// stopwatch's. What a read converts with is fixed before the first read returns on any thread, so every read is thread-safe and no
-/// span two reads take holds the measuring.</summary>
+/// spins say the count is brought up to date at each read (it moves on at least half the reads of every spin that read it
+/// <see cref="MinRatePasses"/> times or more). Both are <see cref="Precise"/>. Other Windows reads the thread's kernel and user
+/// time, which Windows charges in whole clock ticks: an ARM64 kernel counts a thread's cycles of the core's own clock, whose rate
+/// moves with the core's speed, a counter the processor does not say is invariant may change rate with it, and a count the spins do
+/// not agree on is not converted. Elsewhere the reads are the stopwatch's. What a read converts with is fixed before the first read
+/// returns on any thread, so every read is thread-safe and no span two reads take holds the measuring.</summary>
 public static partial class ThreadTime
 {
     private const int LinuxThreadCpu = 3;
@@ -60,10 +60,12 @@ public static partial class ThreadTime
     /// <summary>The share of an agreeing spin's rate in the fastest spin's (within 1% of it); a quarter of the spins must agree.</summary>
     private const double RateAgreement = 0.99;
 
-    /// <summary>The fewest passes a spin of the measuring reads the cycle count on for its share of moving reads to be judged: a
-    /// spin of a millisecond makes thousands where a read costs a fraction of a microsecond, and a count brought up to date at an
-    /// interval moves on half of 100 passes only where the interval is about a fiftieth of the spin or shorter.</summary>
-    internal const int MinRatePasses = 100;
+    /// <summary>The fewest passes a spin of the measuring reads the cycle count on for it to be judged. A spin of a millisecond makes
+    /// thousands where a read costs a fraction of a microsecond (about 5000 on a Hyper-V guest); one of fewer was stopped for most of
+    /// its millisecond, or its reads are slow. A count brought up to date at an interval moves on half a spin's passes only where the
+    /// interval is under two passes' span, and the fastest spin it gives then counts at most 2/(passes − 2) above the counter's: 0.2%
+    /// at this floor.</summary>
+    internal const int MinRatePasses = 1000;
 
     /// <summary>The range an x64 time-stamp counter's rate lies in (cycles a nanosecond: 100 MHz to 10 GHz); a measured rate outside
     /// it is not the counter's.</summary>
@@ -84,7 +86,10 @@ public static partial class ThreadTime
     public static bool Counted => Chosen.Clock != ThreadClock.Stopwatch;
 
     /// <summary>The step a read moves in (ns), at most: a read tells nothing finer. A span read from the cycles
-    /// (<see cref="ThreadClock.Cycles"/>) also reads long by the measured rate's shortfall from the counter's, never short.</summary>
+    /// (<see cref="ThreadClock.Cycles"/>) also reads long by the measured rate's shortfall from the counter's; it reads short only
+    /// where the count is brought up to date at an interval the measuring cannot tell from each read, and then by at most the share
+    /// the rate can be above the counter's (<see cref="Basis"/> states it) and that interval, under two of the measuring's
+    /// passes.</summary>
     public static long ResolutionNs => Chosen.ResolutionNs;
 
     /// <summary>Nanoseconds a cycle where the cycles are read (<see cref="ThreadClock.Cycles"/>), else 0.</summary>
@@ -149,7 +154,7 @@ public static partial class ThreadTime
                 // A read is a whole nanosecond count of whole cycles: it moves in a cycle's span rounded up, and in 1 ns at least.
                 var step = Math.Max(1, (long)Math.Ceiling(cycleNs));
                 return new Choice(ThreadClock.Cycles, step, cycleNs, string.Create(CultureInfo.InvariantCulture,
-                    $"the thread's cycles of the invariant time-stamp counter, in steps of {step} ns, at {cycleNs:0.00000} ns a cycle measured against the stopwatch ({rate.Agreeing} of {RateSpins} spins within 1% of the fastest; the count moved on {rate.MovingShare * 100:0.##}% of a spin's reads at least, over {rate.FewestPasses} passes at least)"));
+                    $"the thread's cycles of the invariant time-stamp counter, in steps of {step} ns, at {cycleNs:0.00000} ns a cycle measured against the stopwatch ({rate.Agreeing} of {RateSpins} spins within 1% of the fastest; in the {rate.Judged} that read the count {MinRatePasses} times or more, it moved on {rate.MovingShare * 100:0.##}% of a spin's reads at least, over {rate.FewestPasses} passes at least, so the rate is at most {rate.MostAbove * 100:0.###}% above the counter's)"));
             }
             why = rate.Why;
         }
@@ -196,9 +201,9 @@ public static partial class ThreadTime
     }
 
     /// <summary>The calling thread's cycle rate, from <see cref="RateSpins"/> spins of about a millisecond at the highest thread
-    /// priority, so the machine's ordinary work rarely takes their processor (<see cref="RateFrom"/>). A spin reads the stopwatch and
-    /// the cycle count, then on every pass the stopwatch and, until it has moved a millisecond's ticks, the count: its cycle reads lie
-    /// inside its first and last stopwatch reads.</summary>
+    /// priority, so the machine's ordinary work rarely takes their processor (<see cref="RateFrom"/>). The count is read once before
+    /// the spins, so binding the call is no spin's. A spin reads the stopwatch and the cycle count, then on every pass the stopwatch
+    /// and, until it has moved a millisecond's ticks, the count: its cycle reads lie inside its first and last stopwatch reads.</summary>
     private static CycleRate MeasureCycleRate()
     {
         var thread = Thread.CurrentThread;
@@ -207,6 +212,8 @@ public static partial class ThreadTime
         try
         {
             var spin = Math.Max(1, Stopwatch.Frequency / 1000);
+            if (!QueryThreadCycleTime(CurrentThread, out _))
+                return Unread;
             var spins = new RateSpin[RateSpins];
             for (var i = 0; i < spins.Length; i++)
             {
@@ -237,65 +244,84 @@ public static partial class ThreadTime
         }
     }
 
-    private static CycleRate Unread => new(0, 0, 0, 0, "the thread's cycles could not be read");
+    private static CycleRate Unread => new(0, 0, 0, 0, 0, "the thread's cycles could not be read");
 
     /// <summary>One spin of the cycle rate's measuring: the cycles the thread counted in it (its last cycle read less its first, 0
     /// where the count did not move forward), the passes it read the count on and how many of them found the count moved on from the
     /// read before, and the stopwatch ticks between its first stopwatch read and its last.</summary>
     internal readonly record struct RateSpin(ulong Cycles, int Passes, int Moved, long Ticks);
 
-    /// <summary>A measured cycle rate (cycles a nanosecond), how many spins agreed on it, the least share of a spin's passes the count
-    /// moved on, the fewest passes a spin read it on, and, where the rate does not stand (0), why.</summary>
-    internal readonly record struct CycleRate(double CyclesPerNs, int Agreeing, double MovingShare, int FewestPasses, string Why);
+    /// <summary>A measured cycle rate (cycles a nanosecond), how many spins agreed on it, how many were judged (read the count on
+    /// <see cref="MinRatePasses"/> passes or more), the least share of a judged spin's passes the count moved on, the fewest passes a
+    /// judged spin read it on (each 0 where none was judged), and, where the rate does not stand (0), why.</summary>
+    internal readonly record struct CycleRate(double CyclesPerNs, int Agreeing, int Judged, double MovingShare, int FewestPasses, string Why)
+    {
+        /// <summary>How far above the counter's the rate can be, as a share of it: 2/(P − 2) for the fewest passes P a judged spin
+        /// made, where the count is brought up to date at an interval its share of moving reads does not tell from each read (none
+        /// where it is brought up to date at each read).</summary>
+        public double MostAbove => FewestPasses > 2 ? 2.0 / (FewestPasses - 2) : double.PositiveInfinity;
+    }
 
-    /// <summary>The counter's rate from spins timed in stopwatch ticks of <paramref name="tickNs"/>: the fastest spin's, its cycles over
-    /// its span taken one tick longer than read (a read is the tick it falls in). No spin whose cycle reads lie inside its stopwatch
-    /// reads counts more cycles than the counter's rate gives that span, and a preemption or an interrupt in a spin only lowers what it
-    /// counts, so the rate is never above the counter's and a span converted at it reads at least the work done in it. That holds only
-    /// for a count brought up to date at each read: one brought up to date at a clock tick, a switch or any interval lags the thread by
-    /// an amount that varies, and a spin's difference of two such reads can count more than the counter gave the spin. The rate stands
-    /// only where every spin read the count on <see cref="MinRatePasses"/> passes at least and found it moved on at least half of
-    /// them. Half lies far from both counts: one brought up to date at each read moves on nearly every pass (98 to 100% of reads
-    /// straight after each other on a Hyper-V guest, where now and then a read finds the count where the read before left it, and
-    /// such an equal pair is a read, not a stale count), and one brought up to date at an interval moves at most once an interval,
-    /// on well under 1% of passes a fraction of a microsecond apart where the interval is 0.3 ms and almost never at the 15.625 ms
-    /// tick. The rate stands, too, only where a quarter of the spins count within 1% of the fastest (an interrupt only lowers one
-    /// spin; spins that scatter say the rate is not established), and where it is an x64 counter's rate.</summary>
+    /// <summary>The counter's rate from spins timed in stopwatch ticks of <paramref name="tickNs"/>: the fastest judged spin's, its
+    /// cycles over its span taken one tick longer than read (a read is the tick it falls in). No spin whose cycle reads lie inside its
+    /// stopwatch reads counts more cycles than the counter's rate gives that span, and a preemption, an interrupt or a stop in a spin
+    /// only lowers what it counts, so the rate is never above the counter's and a span converted at it reads at least the work done in
+    /// it. That holds only for a count brought up to date at each read: one brought up to date at a clock tick, a switch or any
+    /// interval lags the thread by an amount that varies, and a spin's difference of two such reads can count more than the counter
+    /// gave the spin. A spin is judged where it read the count on <see cref="MinRatePasses"/> passes or more; one of fewer was stopped
+    /// for most of its millisecond (or its reads are slow), says nothing of the count, and neither sets nor agrees with the rate. The
+    /// rate stands only where every judged spin found the count moved on at least half of its passes. Half lies far from both counts:
+    /// one brought up to date at each read moves on nearly every pass (96 to 100% of reads straight after each other on a Hyper-V
+    /// guest, where now and then a read finds the count where the read before left it, and such an equal pair is a read, not a stale
+    /// count), and one brought up to date at an interval moves at most once an interval, on well under 1% of passes a fraction of a
+    /// microsecond apart where the interval is 0.3 ms and almost never at the 15.625 ms tick. A count brought up to date at an
+    /// interval moves on half a spin's passes only where the interval is under two passes' span; a spin's reads then lag the thread by
+    /// less than the interval, and one that moved on M passes counts at most 1/(M − 1) above the counter's, so the rate is at most
+    /// <see cref="CycleRate.MostAbove"/> above it. The rate stands, too, only where a quarter of the spins are judged and count within
+    /// 1% of the fastest (a stop or an interrupt only lowers one spin or leaves it unjudged; spins that scatter say the rate is not
+    /// established), and where it is an x64 counter's rate.</summary>
     internal static CycleRate RateFrom(ReadOnlySpan<RateSpin> spins, double tickNs)
     {
         if (spins.IsEmpty)
-            return new CycleRate(0, 0, 0, 0, "no spin measured the thread's cycle rate");
-        var fewest = int.MaxValue;
-        var least = spins[0];
+            return new CycleRate(0, 0, 0, 0, 0, "no spin measured the thread's cycle rate");
+        int judged = 0, fewest = 0;
+        var least = default(RateSpin);
         foreach (var s in spins)
         {
-            fewest = Math.Min(fewest, s.Passes);
-            if (ShareOf(s) < ShareOf(least))
+            if (s.Passes < MinRatePasses)
+                continue;
+            if (judged == 0 || s.Passes < fewest)
+                fewest = s.Passes;
+            if (judged == 0 || ShareOf(s) < ShareOf(least))
                 least = s;
+            judged++;
         }
-        var share = ShareOf(least);
-        if (fewest < MinRatePasses)
-            return new CycleRate(0, 0, share, fewest, string.Create(CultureInfo.InvariantCulture,
-                $"a spin measuring the thread's cycle rate read the count on {fewest} passes, fewer than the {MinRatePasses} its share of moving reads is judged over"));
-        if (least.Moved * 2L < least.Passes)
-            return new CycleRate(0, 0, share, fewest, string.Create(CultureInfo.InvariantCulture,
+        var share = judged > 0 ? ShareOf(least) : 0;
+        if (judged > 0 && least.Moved * 2L < least.Passes)
+            return new CycleRate(0, 0, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
                 $"the thread's cycle count moved on {least.Moved} of a spin's {least.Passes} reads ({share * 100:0.##}%), not half, so it is not brought up to date at each read"));
+        if (judged * 4 < spins.Length)
+            return new CycleRate(0, 0, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
+                $"only {judged} of {spins.Length} spins measuring the thread's cycle rate read the count on {MinRatePasses} passes or more, the fewest a spin is judged on, so the rate is not established"));
         var best = 0.0;
         foreach (var s in spins)
-            best = Math.Max(best, RateOf(s, tickNs));
+        {
+            if (s.Passes >= MinRatePasses)
+                best = Math.Max(best, RateOf(s, tickNs));
+        }
         var agreeing = 0;
         foreach (var s in spins)
         {
-            if (RateOf(s, tickNs) >= best * RateAgreement)
+            if (s.Passes >= MinRatePasses && RateOf(s, tickNs) >= best * RateAgreement)
                 agreeing++;
         }
         if (agreeing * 4 < spins.Length)
-            return new CycleRate(0, agreeing, share, fewest, string.Create(CultureInfo.InvariantCulture,
+            return new CycleRate(0, agreeing, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
                 $"only {agreeing} of {spins.Length} spins measuring the thread's cycle rate counted within 1% of the fastest, so the rate is not established"));
         if (best is < MinCyclesPerNs or > MaxCyclesPerNs)
-            return new CycleRate(0, agreeing, share, fewest, string.Create(CultureInfo.InvariantCulture,
+            return new CycleRate(0, agreeing, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
                 $"the measured cycle rate, {best:0.###} a nanosecond, is not an x64 time-stamp counter's"));
-        return new CycleRate(best, agreeing, share, fewest, "");
+        return new CycleRate(best, agreeing, judged, share, fewest, "");
     }
 
     /// <summary>The share of a spin's passes the count moved on (0 where it read the count on none).</summary>
