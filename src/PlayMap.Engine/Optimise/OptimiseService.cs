@@ -970,6 +970,8 @@ public sealed class OptimiseService : IAsyncDisposable
     {
         lock (_gate)
         {
+            // The partial file goes before the job reads as over: whoever sees it done or failed finds nothing of it in the work folder.
+            DeletePartial(jobId);
             // A job already over (cancelled while its file was being recorded) keeps its end.
             Replace(jobId, j => JobStates.IsOver(j.State) ? j : j with { State = state, Words = words, FinishedUnixMs = Now() });
             if (_running == jobId)
@@ -978,7 +980,6 @@ public sealed class OptimiseService : IAsyncDisposable
             _awaiting.Remove(jobId);
             _store.Save(_jobs);
         }
-        DeletePartial(jobId);
         if (state == JobStates.Failed)
             Said?.Invoke("optimise", $"{jobId} failed: {words}", false);
         Changed();
