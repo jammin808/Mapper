@@ -71,27 +71,62 @@ public class WorkspaceAndBlackoutTests
     }
 
     [AvaloniaFact]
-    public async Task TheDeskRenewsTheViewsItShowsEveryFiveSecondsAndAsksAgainForOneTheNodeLetGo()
+    public async Task TheDeskRenewsTheViewsItShowsEveryFiveSecondsOfItsClockAndAsksAgainForOneTheNodeLetGo()
     {
-        // No window: its own 4 Hz timer would tick too; the test is the clock here.
-        await using var desk = new DeskHarness();
+        // No window: its own 4 Hz timer would tick too; the test is the ticks and the desk's clock here.
+        long ms = 0;
+        await using var desk = new DeskHarness(nowMs: () => ms);
         desk.Link.ClearSent();
+        string[] Keeps() => [.. desk.Link.SentLines.Where(l => l == "VIEW op-op_1 KEEP")];
+        void Ticks(int n)
+        {
+            for (var i = 0; i < n; i++)
+                desk.Main.Tick();
+            DeskHarness.Pump();
+        }
 
-        for (var i = 1; i < MainViewModel.KeepViewsEveryTicks; i++)
-            desk.Main.Tick();
-        DeskHarness.Pump();
-        Assert.DoesNotContain(desk.Link.SentLines, l => l.EndsWith(" KEEP", StringComparison.Ordinal));
-        desk.Main.Tick();
-        DeskHarness.Pump();
-        Assert.Contains("VIEW op-op_1 KEEP", desk.Link.SentLines);
+        // However many ticks come, none renews the leases before 5 s of the desk's clock have passed.
+        Ticks(100);
+        Assert.Empty(Keeps());
+        ms = MainViewModel.KeepViewsEveryMs - 1;
+        Ticks(1);
+        Assert.Empty(Keeps());
+        ms = MainViewModel.KeepViewsEveryMs;
+        Ticks(3);
+        Assert.Equal(["VIEW op-op_1 KEEP"], Keeps());
+        // A tick that comes late (a busy window) renews at once, and the next renewal is 5 s after it.
+        ms += 12_000;
+        Ticks(2);
+        Assert.Equal(2, Keeps().Length);
+        ms += MainViewModel.KeepViewsEveryMs - 1;
+        Ticks(1);
+        Assert.Equal(2, Keeps().Length);
+        ms += 1;
+        Ticks(1);
+        Assert.Equal(3, Keeps().Length);
 
         // The node let the view go (its lease ran out, or it restarted): the next renewal is refused and the desk shows it again.
         await desk.Link.SendAsync("VIEW op-op_1 HIDE");
         desk.Link.ClearSent();
-        for (var i = 0; i < MainViewModel.KeepViewsEveryTicks; i++)
-            desk.Main.Tick();
-        DeskHarness.Pump();
+        ms += MainViewModel.KeepViewsEveryMs;
+        Ticks(1);
         Assert.Equal(["VIEW op-op_1 KEEP", "VIEW op-op_1 SHOW output:op_1 480x270"], desk.Link.SentLines.Where(l => l.StartsWith("VIEW op-op_1", StringComparison.Ordinal)).ToArray());
+
+        // A desk without a live link renews nothing; the first renewal on its next link is 5 s of its clock after that link came.
+        desk.Session.Detach();
+        desk.Link.ClearSent();
+        ms += 60_000;
+        Ticks(2);
+        Assert.Empty(Keeps());
+        desk.Main.Attach(desk.Link, "Demo node");
+        DeskHarness.Pump();
+        desk.Link.ClearSent();
+        ms += MainViewModel.KeepViewsEveryMs - 1;
+        Ticks(1);
+        Assert.Empty(Keeps());
+        ms += 1;
+        Ticks(1);
+        Assert.Equal(["VIEW op-op_1 KEEP"], Keeps());
     }
 
     [AvaloniaFact]

@@ -271,11 +271,12 @@ public sealed class DeskPreviewTests
         var ringB = PreviewRing.PathFor(DemoNode, View, first + 22);
         using var a = Ring(ringA, 64, 36);
         using var b = Ring(ringB, 32, 18);
+        long ms = 0;
         await using var desk = new DeskHarness(l =>
         {
             l.ListsViews = false;
             l.SetRing(View, ringA);
-        });
+        }, nowMs: () => ms);
         Assert.False(desk.Session.State.ListsViews);
         Assert.Equal(new PreviewRingName(ringA, null), desk.Session.Previews.Of(View));
 
@@ -293,8 +294,8 @@ public sealed class DeskPreviewTests
         DeskHarness.Pump();
         Assert.Equal(new PreviewRingName(ringA, null), desk.Session.Previews.Of(View));
         desk.Link.ClearSent();
-        for (var i = 0; i < ViewModels.MainViewModel.KeepViewsEveryTicks; i++)
-            desk.Main.Tick();
+        ms += ViewModels.MainViewModel.KeepViewsEveryMs;
+        desk.Main.Tick();
         DeskHarness.Pump();
         Assert.Contains($"VIEW {View} KEEP", desk.Link.SentLines);
         Assert.Contains(desk.Link.SentLines, l => l.StartsWith($"VIEW {View} SHOW output:op_1", StringComparison.Ordinal));

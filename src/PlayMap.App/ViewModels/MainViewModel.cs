@@ -47,6 +47,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         Session = session;
         Prefs = prefs ?? DeskPrefs.InMemory();
         var clock = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
+        _nowMs = clock;
+        _viewsKeptAtMs = clock();
         Escape = new EscapeLadder(clock);
         // A held action's menu entry waits for its second press on the desk's own clock.
         session.Presses = new HeldPress(clock);
@@ -576,24 +578,32 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     /// <summary>How long a closing desk, or one leaving its node, waits for the node to take its overlay off the wall.</summary>
     public static readonly TimeSpan LeaveWithin = TimeSpan.FromSeconds(1);
 
-    /// <summary>Ticks between two renewals of the shown views' leases: 5 s at the window's 4 Hz (the node lets a view
-    /// go after 15 s without one).</summary>
-    public const int KeepViewsEveryTicks = 20;
+    /// <summary>The time between two renewals of the shown views' leases, on the desk's clock (the node lets a view go after 15 s
+    /// without one).</summary>
+    public const long KeepViewsEveryMs = 5000;
 
-    private int _ticksSinceKeep;
+    private readonly Func<long> _nowMs;
+    private long _viewsKeptAtMs;
 
-    /// <summary>Moves the counters between pushes (the window's 4 Hz tick) and keeps the shown views alive.</summary>
+    /// <summary>Moves the counters between pushes (the window's 4 Hz tick) and keeps the shown views alive: their leases are renewed
+    /// once 5 s of the desk's clock have passed since the last renewal, however late the ticks come; while the desk is not live there is
+    /// nothing to renew, and the first renewal on a live link is 5 s after it came.</summary>
     public void Tick()
     {
         if (Master.IsRunning)
             Master.Advance();
         Play.Tick();
         TickModules();
-        if (++_ticksSinceKeep >= KeepViewsEveryTicks)
+        var now = _nowMs();
+        if (!Session.IsLive)
         {
-            _ticksSinceKeep = 0;
-            KeepViews();
+            _viewsKeptAtMs = now;
+            return;
         }
+        if (now - _viewsKeptAtMs < KeepViewsEveryMs)
+            return;
+        _viewsKeptAtMs = now;
+        KeepViews();
     }
 
     /// <summary>Renews the lease of every view the desk shows (VIEW &lt;view&gt; KEEP), quietly; a view the node let go
