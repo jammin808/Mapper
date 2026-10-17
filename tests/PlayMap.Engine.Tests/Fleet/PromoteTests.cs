@@ -50,6 +50,10 @@ public sealed class PromoteTests
             var go = leader.Engine.LeaderNowNs;
             clock.Advance(5 * Second);   // mid-item
 
+            // Each follower has known the other as a member of the group while it was whole (heard over its pinned certificate): only
+            // such a peer may lead it once its leader is gone.
+            Assert.True(await Eventually.TrueAsync(() => KnowsInGroup(two, one) && KnowsInGroup(one, two)), two.Journal());
+
             // The leader goes. Its followers keep reading its time line, free-wheeling once it has been silent for 3 s.
             await leader.StopAsync();
             clock.Advance(3 * Second + Second / 2);
@@ -115,4 +119,9 @@ public sealed class PromoteTests
             await leader.DisposeAsync();
         }
     }
+
+    /// <summary>The node knows the peer as a member of its group and heard it over its pinned certificate.</summary>
+    private static bool KnowsInGroup(HostRig node, HostRig peer) =>
+        node.Engine.Services.Backup!.KnowsInGroup(peer.Id)
+        && node.Engine.Services.FleetPeers!.Peers().Any(p => p.Id == peer.Id && p.Pin == "pinned");
 }

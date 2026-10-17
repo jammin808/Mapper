@@ -68,7 +68,7 @@ internal sealed class BackupPreflight : IPreflightCheck
             {
                 // Every projector asked at once (2 s each at most), within the section's budget.
                 var routes = project.Fleet.Routes;
-                var read = await Task.WhenAll(routes.Select(r => EngineCore.RouteReadAsync(devices, r, project.FindDevice(r.DeviceId)?.Name ?? r.DeviceId))).ConfigureAwait(false);
+                var read = await Task.WhenAll(routes.Select(r => EngineCore.RouteReadAsync(devices, r, project.FindDevice(r.DeviceId)?.Name ?? r.DeviceId, engine.Services.FleetTime))).ConfigureAwait(false);
                 for (var i = 0; i < routes.Length; i++)
                 {
                     var r = routes[i];

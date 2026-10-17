@@ -253,7 +253,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail("no routes — FLEET ROUTE <output> DEVICE <device> <input> <backup input> on the primary first");
         if (Services.Devices is not { } devices)
             return CommandReply.Fail("projector control is not on this node: its routes cannot be read");
-        var rows = await Task.WhenAll(routes.Select(r => RouteReadAsync(devices, r, p.FindDevice(r.DeviceId)?.Name ?? r.DeviceId))).ConfigureAwait(false);
+        var rows = await Task.WhenAll(routes.Select(r => RouteReadAsync(devices, r, p.FindDevice(r.DeviceId)?.Name ?? r.DeviceId, Services.FleetTime))).ConfigureAwait(false);
         var words = string.Join("; ", rows);
         _routeTest = new TakeoverRecord("route-test", "", Services.Wall.UnixMs, words);
         FactsChanged();
@@ -272,12 +272,12 @@ public sealed partial class EngineCore
         }), "route test: " + words);
     }
 
-    /// <summary>"P1 on 31 (primary) · reachable", or why it was not.</summary>
-    internal static async Task<string> RouteReadAsync(Devices.DeviceService devices, FleetRoute route, string name)
+    /// <summary>"P1 on 31 (primary) · reachable", or why it was not: 2 s on the fleet's clock <paramref name="time"/> at most.</summary>
+    internal static async Task<string> RouteReadAsync(Devices.DeviceService devices, FleetRoute route, string name, TimeProvider time)
     {
         if (route.DeviceId.Length == 0)
             return name + ": no route (switched by hand)";
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2), time);
         try
         {
             await devices.SyncLinksAsync().ConfigureAwait(false);
