@@ -14,7 +14,8 @@ public sealed partial record EngineParts
             var device = engine.Services.Settings.Show.AirSound;
             if (device.Equals("off", StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult<IAsyncDisposable?>(null);
-            var output = AudioOut.OpenDevice(device.Length == 0 || device.Equals("default", StringComparison.OrdinalIgnoreCase) ? null : device);
+            var output = AudioOut.OpenDevice(device.Length == 0 || device.Equals("default", StringComparison.OrdinalIgnoreCase) ? null : device,
+                engine.Services.Clock.Local);
             return Task.FromResult<IAsyncDisposable?>(engine.StartAirAudio(output));
         }));
     }

@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Time;
 using PlayMap.Engine.Show;
 using PlayMap.Media.Audio;
 using PlayMap.Tests;
@@ -89,7 +90,7 @@ public sealed class AirAudioTests(ITestOutputHelper log)
             Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
         Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
         await using var rig = new ShowRig(ToneShow());
-        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback(rig.Clock));
         var output = sound.Output;
         var buffer = new float[Block * FfmpegAudioDecoder.Channels];
         await rig.Ok("PLAYLIST GO pl_show");
@@ -150,7 +151,7 @@ public sealed class AirAudioTests(ITestOutputHelper log)
             Environment.SetEnvironmentVariable(Media.Ffmpeg.FfmpegLoader.EnvironmentVariable, "/opt/ffmpeg9/lib");
         Media.Ffmpeg.FfmpegLoader.EnsureLoaded();
         await using var rig = new ShowRig(ToneShow());
-        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback(rig.Clock));
         Assert.Equal(0, await TickBytesAsync(rig, sound));
 
         await rig.Ok("PLAYLIST GO pl_show");
@@ -173,6 +174,18 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         return Allocations.Since(before);
     });
 
+    /// <summary>The air's sound runs on the node's own clock: an output on another clock names no leader instant, so it is refused
+    /// and the node plays no sound.</summary>
+    [Fact]
+    public async Task AnOutputOnAnotherClockIsRefused()
+    {
+        await using var rig = new ShowRig();
+        using var stranger = AudioOut.OpenNull("on a clock of its own", new ManualClock(0));
+        Assert.Throws<ArgumentException>(() => rig.Engine.StartAirAudio(stranger));
+        Assert.Null(rig.Engine.AirSound);
+        Assert.Equal(JsonValueKind.Null, rig.Show().GetProperty("sound").ValueKind);
+    }
+
     [Fact]
     public async Task TheItemsVolumeScalesTheSoundAndAFileWithNoSoundSaysWhy()
     {
@@ -191,7 +204,7 @@ public sealed class AirAudioTests(ITestOutputHelper log)
             Playlists = [list with { Items = [list.Items[0] with { Volume = 0.5 }, PlaylistItem.For("it_bad", SourceRef.Media("md_bad"), "Broken")] }],
         };
         await using var rig = new ShowRig(p);
-        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback(rig.Clock));
         var output = sound.Output;
         var buffer = new float[Block * FfmpegAudioDecoder.Channels];
 
@@ -232,7 +245,7 @@ public sealed class AirAudioTests(ITestOutputHelper log)
         var p = ToneShow();
         var source = p.Media[0] with { Location = "/nowhere/unmounted/tone.mov", ContentHash = sourceHash, Versions = [version] };
         await using var rig = new ShowRig(p with { Media = [source] }, s => s with { Media = new StoreOnly(versionHash, Tone.Value) });
-        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback());
+        await using var sound = rig.Engine.StartAirAudio(AudioOut.OpenLoopback(rig.Clock));
         var buffer = new float[Block * FfmpegAudioDecoder.Channels];
         await rig.Ok("PLAYLIST GO pl_show");
         Assert.True(await ShowRig.Eventually(() => sound.ItemId == "it_tone"), sound.Problem);

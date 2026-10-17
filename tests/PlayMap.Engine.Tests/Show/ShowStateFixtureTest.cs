@@ -135,7 +135,7 @@ public sealed class ShowStateFixtureTest
     public async Task TheShowsStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
         await using var rig = new ShowRig();
-        await using var sound = rig.Engine.StartAirAudio(PlayMap.Media.Audio.AudioOut.OpenNull("the fixture's silent output"));
+        await using var sound = rig.Engine.StartAirAudio(PlayMap.Media.Audio.AudioOut.OpenNull("the fixture's silent output", rig.Clock));
         await rig.Ok("SHOW SET EXPECT-ARMED ON");
         await rig.Ok("PANIC SET op_1 SAFE FADE 2000 SAFE color:#000000");
         await rig.Ok("LOCK AREA content show night");

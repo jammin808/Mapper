@@ -10,8 +10,8 @@ namespace PlayMap.Engine.Show;
 /// <summary>Sound on the air: the on-air playlist's item (the focused playlist, the one the clip verbs drive) plays through one
 /// <see cref="AudioOut"/> slaved to the item's own anchor, so it follows GO, pause, seek, a rate and a panic's transport outcome as
 /// the picture does. Its gain is the air's sound gain (master × panic, <see cref="EngineCore.AirAudioGain"/>) × the item's volume,
-/// computed at each service step from the leader instant that step reads, so PANIC and MASTER fade sound on the same show clock
-/// as picture. The lane decides what plays; a decoder opens on a worker and is handed over once open; the output's thread only
+/// computed at each service step at the leader instant of the one instant that step reads (the output runs on the node's own
+/// clock, which the network clock maps to the leader's), so PANIC and MASTER fade sound on the same show clock as picture. The lane decides what plays; a decoder opens on a worker and is handed over once open; the output's thread only
 /// reads. Disposing it stops the sound and lets go of the output.</summary>
 public sealed class AirAudio : IAsyncDisposable
 {
@@ -181,10 +181,9 @@ public sealed class AirAudio : IAsyncDisposable
     /// <summary>The opened decoder plays, slaved to its item's anchor; the one before is let go once the output holds the new one.</summary>
     private void Hand(FfmpegAudioDecoder decoder, (string PlaylistId, string ItemId, string MediaId) item)
     {
-        var anchor = new AnchorTimeline(() => AnchorOf(item.PlaylistId, item.ItemId), () => _engine.LeaderNowNs);
         // The first service step plays at the air's gain now, never at what the output last had (a panic or MASTER 0 while idle).
-        Output.Volume = GainNow(item.PlaylistId);
-        Output.Play(decoder, new AirTimeline(this, anchor, item.PlaylistId));
+        Output.Volume = GainAt(item.PlaylistId, _engine.LeaderNowNs);
+        Output.Play(decoder, new AirTimeline(this, item.PlaylistId, item.ItemId));
         _decoder?.Dispose();
         _decoder = decoder;
         _playing = item;
@@ -208,21 +207,22 @@ public sealed class AirAudio : IAsyncDisposable
         return clip?.Anchor ?? TimelineAnchor.Zero;
     }
 
-    /// <summary>The air's gain × the playlist's volume at the leader's now.</summary>
-    private float GainNow(string playlistId)
+    /// <summary>The air's gain × the playlist's volume at a leader instant.</summary>
+    private float GainAt(string playlistId, long leaderNs)
     {
         var volume = _engine.Snapshot.Playback.Playlists.TryGetValue(playlistId, out var lane) ? lane.Volume : 1;
-        return (float)(_engine.AirAudioGain(_engine.LeaderNowNs) * Math.Clamp(volume, 0, 4));
+        return (float)(_engine.AirAudioGain(leaderNs) * Math.Clamp(volume, 0, 4));
     }
 
-    /// <summary>The item's timeline as the output's service step reads it: the anchor's position, and — read at that same step's
-    /// leader instant — the air's gain × the playlist's volume, which the output applies from its next step.</summary>
-    private sealed class AirTimeline(AirAudio owner, AnchorTimeline anchor, string playlistId) : IAudioTimeline
+    /// <summary>The item's timeline as the output's service step reads it, at the leader instant of the step's one instant: the
+    /// anchor's position there, and the air's gain × the playlist's volume there, which the output applies from its next step.</summary>
+    private sealed class AirTimeline(AirAudio owner, string playlistId, string itemId) : IAudioTimeline
     {
-        public TimelinePosition Now()
+        public TimelinePosition At(long localNs)
         {
-            owner.Output.Volume = owner.GainNow(playlistId);
-            return anchor.Now();
+            var leaderNs = owner._engine.Services.Clock.ToLeader(localNs);
+            owner.Output.Volume = owner.GainAt(playlistId, leaderNs);
+            return AnchorTimeline.Position(owner.AnchorOf(playlistId, itemId), leaderNs);
         }
     }
 
