@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlayMap.Core.Bus;
@@ -19,6 +21,11 @@ public sealed class NodeHome
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
+
+    /// <summary>One read or write of a home's settings file at a time in this process: Windows refuses to replace a file another handle
+    /// has open, so a read beside a write's rename would fail the write.</summary>
+    private static readonly ConcurrentDictionary<string, Lock> SettingsGates =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     public NodeHome(string folder)
     {
@@ -43,13 +50,25 @@ public sealed class NodeHome
     /// <summary>The node's settings, made on first run (a fresh id and pairing token) and kept.</summary>
     public NodeSettings LoadSettings(string defaultName)
     {
+        lock (SettingsGate)
+            return LoadSettingsLocked(defaultName);
+    }
+
+    private Lock SettingsGate => SettingsGates.GetOrAdd(SettingsPath, _ => new Lock());
+
+    private NodeSettings LoadSettingsLocked(string defaultName)
+    {
         if (!File.Exists(SettingsPath))
         {
             var first = NodeSettings.CreateDefault(defaultName);
             SaveSettings(first);
             return first;
         }
-        var text = File.ReadAllText(SettingsPath);
+        string text;
+        // Shared for delete too: a process that reads it never stops another from replacing it.
+        using (var file = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(file, Encoding.UTF8))
+            text = reader.ReadToEnd();
         try
         {
             // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
@@ -143,7 +162,9 @@ public sealed class NodeHome
 
     public void SaveSettings(NodeSettings settings)
     {
-        DurableFile.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, Json));
+        var text = JsonSerializer.Serialize(settings, Json);
+        lock (SettingsGate)
+            DurableFile.WriteAllText(SettingsPath, text);
     }
 }
 

@@ -3,12 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Model;
+using PlayMap.Core.Storage;
 
 namespace PlayMap.Engine.Align;
 
 /// <summary>
 /// A run's folder beside the project ("align/&lt;run&gt;"): run.json (the record) and each output's warp-&lt;op&gt;.pfm and
-/// blend-&lt;op&gt;.pfm. A folder is written beside under a hidden name and moved into place whole; one that exists is never written
+/// blend-&lt;op&gt;.pfm. A folder is written beside under a hidden name, flushed to the disk and moved into place whole; one that exists is never written
 /// again, so undo, REVERT and the ledger's history always find the files they name. Paths come only from a valid run id, and a file
 /// a project names is opened only inside the project's folder.
 /// </summary>
@@ -41,7 +42,7 @@ public static partial class AlignArchive
         foreach (var (name, bytes) in files)
             File.WriteAllBytes(Path.Combine(temp, Path.GetFileName(name)), bytes);
         File.WriteAllText(Path.Combine(temp, "run.json"), Json(record), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        Directory.Move(temp, final);
+        DurableFile.MoveFolderIntoPlace(temp, final);
     }
 
     /// <summary>A run read back from its folder, or null when there is none (or it is not a run's).</summary>

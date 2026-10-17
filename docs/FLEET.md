@@ -156,8 +156,9 @@ picture stays the primary's to the byte: both read the output's final pixels, an
 **Taking over.** `FAILOVER` on the backup:
 
 1. commits the next **epoch** (one past every epoch it holds or hears) and keeps it, with the role, in the node's settings before it
-   serves (`NetworkHost.PersistSettings`, the settings file's one writer; the file reaches the disk before it is renamed into place,
-   as every file the node renames does — `DurableFile`, so a power cut just after the takeover keeps the epoch);
+   serves (`NetworkHost.PersistSettings`, the settings file's one writer; the file reaches the disk before it is renamed into place
+   and the rename before the call returns — `DurableFile`, as for every file the node keeps — so a power cut just after the
+   takeover keeps the epoch);
 2. freezes its clock's mapping into its own time line (`NetworkClock.Promote`) and leads the group: show time continues with no step;
 3. switches every **route** (`FLEET ROUTE <output> DEVICE <device> <input> <backup input>`, kept in the show) through its own
    `DEVICE INPUT`, each with the projector's receipt — observed when the projector reads its new input back; a projector that does not

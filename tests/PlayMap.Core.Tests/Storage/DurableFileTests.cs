@@ -3,7 +3,8 @@ using PlayMap.Core.Storage;
 namespace PlayMap.Core.Tests.Storage;
 
 /// <summary>A file renamed into place reaches the disk first: the flush is reported with the file's final path while the bytes are
-/// whole beside it and the old file is still in place, then the rename lands them; the temporary name is gone after.</summary>
+/// whole beside it and the old file is still in place, then the rename lands them; the temporary name is gone after. A folder moves
+/// in the same way, whole, and never over one that is there.</summary>
 public sealed class DurableFileTests
 {
     [Fact]
@@ -69,6 +70,48 @@ public sealed class DurableFileTests
             Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(dir, "a.bin")));
             Assert.Equal("b", File.ReadAllText(Path.Combine(dir, "b.txt")));
             Assert.True(File.Exists(Path.Combine(dir, "c.part")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AFolderIsFlushedWholeBesideItsPlaceThenMovedInAndNeverOverOneThatIsThere()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        try
+        {
+            var temp = Path.Combine(dir, ".run.partial");
+            var final = Path.Combine(dir, "run");
+            Directory.CreateDirectory(Path.Combine(temp, "inner"));
+            File.WriteAllText(Path.Combine(temp, "a.txt"), "a");
+            File.WriteAllText(Path.Combine(temp, "inner", "b.txt"), "b");
+            var seen = new List<(string Path, bool InPlace, string Beside)>();
+            void Flushed(string p)
+            {
+                if (p.StartsWith(dir, StringComparison.Ordinal))
+                    seen.Add((p, Directory.Exists(final), File.ReadAllText(Path.Combine(temp, "inner", "b.txt"))));
+            }
+            DurableFile.Flushed += Flushed;
+            try
+            {
+                DurableFile.MoveFolderIntoPlace(temp, final);
+            }
+            finally
+            {
+                DurableFile.Flushed -= Flushed;
+            }
+            Assert.Equal([(final, false, "b")], seen);
+            Assert.False(Directory.Exists(temp));
+            Assert.Equal(("a", "b"), (File.ReadAllText(Path.Combine(final, "a.txt")), File.ReadAllText(Path.Combine(final, "inner", "b.txt"))));
+
+            Directory.CreateDirectory(temp);
+            File.WriteAllText(Path.Combine(temp, "c.txt"), "c");
+            Assert.Throws<IOException>(() => DurableFile.MoveFolderIntoPlace(temp, final));
+            Assert.True(File.Exists(Path.Combine(temp, "c.txt")));
+            Assert.False(File.Exists(Path.Combine(final, "c.txt")));
         }
         finally
         {

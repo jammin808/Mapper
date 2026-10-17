@@ -333,7 +333,9 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                 bytes[header.Length + i / 8] |= (byte)(1 << (i % 8));
         var temp = mapPath + ".new";
         File.WriteAllBytes(temp, bytes);
-        DurableFile.MoveIntoPlace(temp, mapPath);
+        // Not flushed: the map is a hint for the resume. The chunks it names are not flushed either, and the whole file's hash is
+        // checked before it is kept, so a map that outlived its chunks costs a pull again, never a wrong file.
+        File.Move(temp, mapPath, overwrite: true);
     }
 
     private static byte[] Header(string hash, long size, int chunkBytes) =>
