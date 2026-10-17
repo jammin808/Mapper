@@ -56,7 +56,13 @@ export class RecordingHost implements ModuleHostContext<PlayMapConfig, PlayMapSe
 			}
 	}
 
-	/** Resolves when `test` holds (checked now and after every host call). Event driven: no clock is read. */
+	/** The module took what the node said (its model moved) with no host call of its own: the waits look again. */
+	modelMoved(): void {
+		this.#changed()
+	}
+
+	/** Resolves when `test` holds (checked now, after every host call and whenever the module takes what the node says). Event
+	 * driven: no clock is read. */
 	async until(test: () => boolean, what = 'the condition'): Promise<void> {
 		if (test()) return
 		return new Promise((resolve, reject) => {
@@ -167,11 +173,37 @@ export async function boot(
 	const wrapper = new InstanceWrapper(`playmap-${++counter}`, host, Captured, UpgradeScripts, '2.2.1')
 	await wrapper.init({ label, isFirstInit: false, config, secrets, lastUpgradeIndex: -1 })
 	if (!instance) throw new Error('the wrapper made no instance')
+	const made: PlayMapInstance = instance
+	// What the node says moves the module's model, and a wait may read the model with no host call following (a STATE field no
+	// variable or feedback shows): each of the model's writers lets the waits look again.
+	const model = made.model
+	const setState = model.setState.bind(model)
+	const setIndex = model.setIndex.bind(model)
+	const setWhoami = model.setWhoami.bind(model)
+	const clear = model.clear.bind(model)
+	model.setState = (json) => {
+		setState(json)
+		host.modelMoved()
+	}
+	model.setIndex = (json) => {
+		const doc = setIndex(json)
+		host.modelMoved()
+		return doc
+	}
+	model.setWhoami = (json) => {
+		const who = setWhoami(json)
+		host.modelMoved()
+		return who
+	}
+	model.clear = () => {
+		clear()
+		host.modelMoved()
+	}
 	const placed = new Map<string, { controlId: string; feedbackId: string; options: CompanionOptionValues }>()
 	return {
 		host,
 		wrapper,
-		instance,
+		instance: made,
 		async place(id, feedbackId, options, controlId = `c-${id}`) {
 			placed.set(id, { controlId, feedbackId, options })
 			await wrapper.updateFeedbacks({ [id]: { id, controlId, feedbackId, options } })
