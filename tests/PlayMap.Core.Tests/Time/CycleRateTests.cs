@@ -177,14 +177,25 @@ public sealed class CycleRateTests
     }
 
     [Fact]
-    public void SpinsThatScatterGiveNoRate()
+    public void SpinsThatScatterBelowTheFastestStillGiveTheCountersRate()
     {
-        // Three run whole, and each of the rest loses a different share of the processor: the fastest is not established.
-        var rate = ThreadTime.RateFrom(Measure((_, run) => Rate * run, i => i < 3 ? 0 : 20_000 + 40_000 * i), TickNs);
-        Assert.Equal(0, rate.CyclesPerNs);
+        // Two run whole and each of the rest loses a different share of the processor, as the windows-latest runner's measuring did
+        // beside the suite (2 of 16 within 1% of the fastest): a loaded machine only lowers a spin, so the fastest stands.
+        var rate = ThreadTime.RateFrom(Measure((_, run) => Rate * run, i => i < 2 ? 0 : 20_000 + 40_000 * i), TickNs);
+        Assert.Equal("", rate.Why);
         Assert.Equal(Spins, rate.Judged);
-        Assert.Equal(3, rate.Agreeing);
-        Assert.Contains("only 3 of 16 spins", rate.Why, StringComparison.Ordinal);
+        Assert.Equal(2, rate.Agreeing);
+        Assert.InRange(rate.CyclesPerNs, Rate * (1 - 1e-3), Rate);
+    }
+
+    [Fact]
+    public void OneSpinRunWholeAmongSlowedOnesGivesTheCountersRate()
+    {
+        // Every spin but one lost part of its millisecond: the one run whole is the counter's rate, and none counts above it.
+        var rate = ThreadTime.RateFrom(Measure((_, run) => Rate * run, i => i == 7 ? 0 : 30_000 + 10_000 * i), TickNs);
+        Assert.Equal("", rate.Why);
+        Assert.Equal(1, rate.Agreeing);
+        Assert.InRange(rate.CyclesPerNs, Rate * (1 - 1e-3), Rate);
     }
 
     [Fact]

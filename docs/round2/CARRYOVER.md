@@ -312,8 +312,8 @@ Round 2 W1 notes:
   least its work. Each spin reads the count on every pass; a spin that reads it 1000 times or more is judged, and the rate stands
   only where the count moves on at least half of every judged spin's passes (a count brought up to date at a tick, a switch or any
   interval moves on well under 1%, and its fastest spin can count more than the counter; one brought up to date at an interval short
-  enough to pass gives a rate at most 0.2% above the counter's) and a quarter of the spins are judged and agree with the fastest
-  within 1% (`CycleRateTests`). Otherwise, and on an ARM64 kernel or a counter not said to be invariant, the measure is the thread's
+  enough to pass gives a rate at most 0.2% above the counter's) and a quarter of the spins are judged; the rate is the fastest
+  judged spin's, which spins slowed beside the suite (2 of 16 within 1% on the runner, CI run 310) leave standing (`CycleRateTests`). Otherwise, and on an ARM64 kernel or a counter not said to be invariant, the measure is the thread's
   kernel and user time in 15.625 ms ticks, and it says why (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the survey view's
   `LaneResolutionMs`). Where the test's own reading of the platform says the cycles can be read, `ThreadTimeTests` refuses a tick
   read by the measure's word (`AThreadsTimeCountsItsWorkNotItsWait`, `OnWindowsTheThreadsCyclesAreReadWhereTheirRateIsConstant`), by

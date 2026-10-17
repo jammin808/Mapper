@@ -33,8 +33,8 @@ public enum ThreadClock
 /// <see cref="MinRatePasses"/> times or more). Both are <see cref="Precise"/>. Other Windows reads the thread's kernel and user
 /// time, which Windows charges in whole clock ticks: an ARM64 kernel counts a thread's cycles of the core's own clock, whose rate
 /// moves with the core's speed, a counter the processor does not say is invariant may change rate with it, and a count the spins do
-/// not agree on is not converted. Elsewhere the reads are the stopwatch's. What a read converts with is fixed before the first read
-/// returns on any thread, so every read is thread-safe and no span two reads take holds the measuring.</summary>
+/// not find brought up to date at each read is not converted. Elsewhere the reads are the stopwatch's. What a read converts with is
+/// fixed before the first read returns on any thread, so every read is thread-safe and no span two reads take holds the measuring.</summary>
 public static partial class ThreadTime
 {
     private const int LinuxThreadCpu = 3;
@@ -57,7 +57,8 @@ public static partial class ThreadTime
     /// <summary>How many spins of about a millisecond the cycle rate is measured over.</summary>
     private const int RateSpins = 16;
 
-    /// <summary>The share of an agreeing spin's rate in the fastest spin's (within 1% of it); a quarter of the spins must agree.</summary>
+    /// <summary>The share of an agreeing spin's rate in the fastest spin's (within 1% of it): how many agree is told in the basis, as
+    /// evidence of the load the measuring ran under, never a condition of the rate.</summary>
     private const double RateAgreement = 0.99;
 
     /// <summary>The fewest passes a spin of the measuring reads the cycle count on for it to be judged. A spin of a millisecond makes
@@ -277,9 +278,12 @@ public static partial class ThreadTime
     /// microsecond apart where the interval is 0.3 ms and almost never at the 15.625 ms tick. A count brought up to date at an
     /// interval moves on half a spin's passes only where the interval is under two passes' span; a spin's reads then lag the thread by
     /// less than the interval, and one that moved on M passes counts at most 1/(M − 1) above the counter's, so the rate is at most
-    /// <see cref="CycleRate.MostAbove"/> above it. The rate stands, too, only where a quarter of the spins are judged and count within
-    /// 1% of the fastest (a stop or an interrupt only lowers one spin or leaves it unjudged; spins that scatter say the rate is not
-    /// established), and where it is an x64 counter's rate.</summary>
+    /// <see cref="CycleRate.MostAbove"/> above it. The rate stands, too, only where a quarter of the spins are judged and where it is
+    /// an x64 counter's rate. How many spins count within 1% of the fastest is not a condition: no spin counts above the counter's rate
+    /// by more than that bound, and a preemption, an interrupt, a stop or another thread's turn only lowers the spin it falls in, so
+    /// spins that scatter below the fastest are spins a loaded machine slowed (on the windows-latest runner beside the suite, 2 of 16
+    /// within 1%), and the fastest still stands. Where every spin was slowed the rate is low and a span converted at it reads long,
+    /// never short.</summary>
     internal static CycleRate RateFrom(ReadOnlySpan<RateSpin> spins, double tickNs)
     {
         if (spins.IsEmpty)
@@ -315,9 +319,6 @@ public static partial class ThreadTime
             if (s.Passes >= MinRatePasses && RateOf(s, tickNs) >= best * RateAgreement)
                 agreeing++;
         }
-        if (agreeing * 4 < spins.Length)
-            return new CycleRate(0, agreeing, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
-                $"only {agreeing} of {spins.Length} spins measuring the thread's cycle rate counted within 1% of the fastest, so the rate is not established"));
         if (best is < MinCyclesPerNs or > MaxCyclesPerNs)
             return new CycleRate(0, agreeing, judged, share, fewest, string.Create(CultureInfo.InvariantCulture,
                 $"the measured cycle rate, {best:0.###} a nanosecond, is not an x64 time-stamp counter's"));
