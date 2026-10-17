@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Projection;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests;
@@ -149,10 +150,10 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
             for (var f = 0; f < 20; f++)
                 engine.Render(Scene.Inputs(project, 10 + f / 60.0));
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var f = 20; f < 80; f++)
                 engine.Render(Scene.Inputs(project, 10 + f / 60.0));
-            var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var bytes = Allocations.Since(before);
             Assert.Empty(c.Device.TakeErrors());
             return bytes;
         });

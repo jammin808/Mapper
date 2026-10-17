@@ -121,6 +121,42 @@ public sealed class StreamingViewsTests(ITestOutputHelper output)
             SourceRef.None, new RectD(0, 0, MultiViewScanKit.ProjectorWidth, MultiViewScanKit.ProjectorHeight), OutputWarp.None, BlendSettings.Default,
             ColorTrim.Neutral, [], new RectD(0, 0, 1, 1), 0, true);
 
+    /// <summary>A flash stays on the glass until the camera has sent the pictures that measure it: with no hold at all (a camera far
+    /// slower than the node's hold, as on a loaded machine) every projector's latency is still measured from its flashes, never the
+    /// fallback.</summary>
+    [Fact]
+    public async Task AFlashStaysUpUntilTheCameraHasSentThePicturesThatMeasureIt()
+    {
+        var p = MultiViewScanKit.Project();
+        p = p with { Outputs = [ProjectorOutput("op00000001", MultiViewScanKit.Pj1), ProjectorOutput("op00000002", MultiViewScanKit.Pj2)] };
+        p = p.WithStage(s => s with { Cameras = s.Cameras.Update(MultiViewScanKit.Camera, c => c with { SourceKind = CameraSourceKind.Device, Source = "lit" }) });
+        var priors = p.Stage.Projectors.Select(x => x.Intrinsics).ToList();
+        var glass = new LitGlass();
+        var rig = new OpsRig(project: p, display: glass, scan: new ScanRunnerOptions
+        {
+            OpenCamera = _ => new LitCamera(glass, 0, [("op00000001", priors[0]), ("op00000002", priors[1])]),
+            LatencyFlashes = 2,
+            FlashHold = TimeSpan.Zero,
+        });
+        try
+        {
+            var id = await MultiViewScanKit.ScanAsync(rig, $"SCAN START {MultiViewScanKit.Camera} {MultiViewScanKit.Pj1} {MultiViewScanKit.Pj2} MODE FAST");
+            var view = Assert.Single(rig.Scanner.Find(id)!.Captured);
+            Assert.Equal([MultiViewScanKit.Pj1, MultiViewScanKit.Pj2], view.Latencies.Select(l => l.ProjectorId));
+            Assert.All(view.Latencies, l =>
+            {
+                output.WriteLine($"{l.ProjectorId}: {l.Latency.Words}");
+                Assert.True(l.Latency.Transitions > 0, l.Latency.Words);
+                Assert.InRange(l.Latency.LatencyMs, 0, 500);
+            });
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
     [Fact]
     public async Task EachViewKeepsTheLatencyItsFlashesMeasuredThroughTheSolveAndARestart()
     {

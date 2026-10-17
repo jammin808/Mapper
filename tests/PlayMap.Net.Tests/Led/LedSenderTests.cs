@@ -8,6 +8,7 @@ using PlayMap.Core.Numerics;
 using PlayMap.Core.Time;
 using PlayMap.Net.Control;
 using PlayMap.Net.Led;
+using PlayMap.Tests;
 
 namespace PlayMap.Net.Tests.Led;
 
@@ -298,10 +299,10 @@ public sealed class LedSenderTests
         }
         for (var k = 1; k <= 200; k++)
             Cycle(k);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var k = 201; k <= 2200; k++)
             Cycle(k);
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0, Allocations.Since(before));
         Assert.Equal(2200, sender.View().Nodes[0].Frames);
         Assert.NotEmpty(node.Take());
     }

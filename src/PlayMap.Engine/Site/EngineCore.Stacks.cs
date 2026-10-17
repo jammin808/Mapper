@@ -10,6 +10,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Stacks;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Scanning;
 using PlayMap.Engine.Wall;
@@ -324,7 +325,7 @@ public sealed partial class EngineCore
         foreach (var (pj, output, _) in source.Members)
             if (AlignWarped(output, pj) is { } twice)
                 return CommandReply.Fail(twice);
-        var fits = await Task.Run(() => FitStack(source, options, c.Ct), c.Ct).ConfigureAwait(false);
+        var fits = await Compute.RunAsync(() => FitStack(source, options, c.Ct), c.Ct).ConfigureAwait(false);
         if (fits.Why is { } refused)
             return CommandReply.Fail(refused);
         if (Stopping)
@@ -548,7 +549,7 @@ public sealed partial class EngineCore
         foreach (var (pj, output, _) in source.Members)
             if (ForeignLattice(pj, output, source.Stack) is { } other)
                 return CommandReply.Fail(ForeignLatticeWords(pj, other, source.Stack, source.Scan));
-        var (match, words0) = await Task.Run(() => MatchStack(source), c.Ct).ConfigureAwait(false);
+        var (match, words0) = await Compute.RunAsync(() => MatchStack(source), c.Ct).ConfigureAwait(false);
         if (match is null)
             return CommandReply.Fail(words0);
         if (Stopping)

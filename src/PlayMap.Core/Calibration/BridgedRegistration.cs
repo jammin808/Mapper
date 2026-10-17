@@ -3,6 +3,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Calibration;
 
@@ -54,7 +55,7 @@ public static class BridgedRegistration
         var pick = Ransac.Subset(cameraPixels.Count, Math.Max(1, options.MaxPairs), options.Seed);
         var hits = new Correspondence?[pick.Length];
         var minCos = Math.Cos(Math.Clamp(options.MaxIncidenceDegrees, 0, 90) * Math.PI / 180);
-        Parallel.For(0, pick.Length, k =>
+        Parallel.For(0, pick.Length, Compute.Options, k =>
         {
             var i = pick[k];
             var ray = camera.Ray(cameraPixels[i]);

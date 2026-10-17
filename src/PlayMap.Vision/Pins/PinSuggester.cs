@@ -1,6 +1,7 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Vision;
 
 namespace PlayMap.Vision.Pins;
@@ -59,7 +60,7 @@ public sealed class PinSuggester
         ArgumentNullException.ThrowIfNull(lens);
         ArgumentNullException.ThrowIfNull(approximatePose);
         var features = await _features.SuggestAsync(image, _options.FeatureCandidates, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => Pair(features, image.Width, image.Height, mesh, intrinsics, lens, approximatePose, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return await Compute.RunAsync(() => Pair(features, image.Width, image.Height, mesh, intrinsics, lens, approximatePose, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     private sealed record Projected(Vec2d Pixel, Vec3d World, int Vertex, PinFeatureKind Kind);

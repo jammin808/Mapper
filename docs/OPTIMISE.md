@@ -46,7 +46,8 @@ wp2-zerocopy's decode-path ladder), so long-GOP at 1080p and larger becomes HAP 
 runs at a time, oldest first, through the worker:
 
 - **The worker** is the same exe in a third role, `PlayMap optimise-worker` (the node host's `PlayMap.Node optimise-worker` in
-  tests). It lowers its own CPU priority, makes its GL context through the platform seam (hidden, or EGL surfaceless on Linux with no
+  tests). It lowers its own CPU priority (below normal, `OptimiseOptions.WorkerPriority`, so the encode yields the CPU to the air; the
+  test rig runs it at the suite's own priority), makes its GL context through the platform seam (hidden, or EGL surfaceless on Linux with no
   display), and speaks one JSON object a line on its standard input and output (run, knobs, cancel, stop; hello, progress, done,
   failed). It ends when its input closes, and after `IdleExitS` (120 s) with nothing to do.
 - **A worker that will not end.** Asked to end, a worker has `StopGrace` (5 s) and is then killed; a killed worker has

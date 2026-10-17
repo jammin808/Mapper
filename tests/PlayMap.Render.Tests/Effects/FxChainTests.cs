@@ -6,6 +6,7 @@ using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Gpu;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Effects;
 
@@ -237,13 +238,13 @@ public sealed class FxChainTests(GlFixture gl)
                 engine.Render(inputs);
             }
             Assert.All(chain.Slots, s => Assert.Equal(FxSlotState.Ok, FxRig.Live(engine, fx, s.Id).State));
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var i = 0; i < 60; i++)
             {
                 inputs = inputs with { LeaderNs = inputs.LeaderNs + 16_666_667 };
                 engine.Render(inputs);
             }
-            Assert.Equal(before, GC.GetAllocatedBytesForCurrentThread());
+            Assert.Equal(0, Allocations.Since(before));
             Assert.True(FxRig.Live(engine, fx, "fx00000001").GpuMs > 0, "the slot's GPU time is measured");
             Assert.Empty(c.Device.TakeErrors());
         });

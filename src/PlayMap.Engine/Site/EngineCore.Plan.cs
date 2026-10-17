@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine;
@@ -42,7 +43,7 @@ public sealed partial class EngineCore
         }
         if (p.Stage.Projectors.IsEmpty)
             return CommandReply.Fail("no projector on the stage to plan light from");
-        var report = await Task.Run(() =>
+        var report = await Compute.RunAsync(() =>
         {
             var scene = StageScene.Build(p.Stage, Meshes.For(p.Stage), includeHidden: only is not null);
             return LightPlan.Analyse(scene, p.Stage, only, options, c.Ct);

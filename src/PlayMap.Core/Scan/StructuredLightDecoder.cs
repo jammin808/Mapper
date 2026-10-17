@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Scan;
 
@@ -143,7 +144,7 @@ public sealed class StructuredLightDecoder
         // Pixels whose decode stands or falls with one near-even call (the XOR base's) must be confirmed by
         // their neighbours, not merely not contradicted.
         var mustConfirm = new bool[map.Width * map.Height];
-        Parallel.For(0, map.Height, y => DecodeRow(frames, map, y, noise, uncertain, decided, mustConfirm));
+        Parallel.For(0, map.Height, Compute.Options, y => DecodeRow(frames, map, y, noise, uncertain, decided, mustConfirm));
         if (Options.CleanJumps)
             CleanJumps(map, mustConfirm);
         map.Recount(uncertain.Sum(), decided.Sum(), noise);
@@ -277,7 +278,7 @@ public sealed class StructuredLightDecoder
         var snapY = (float[])map.ProjectorY.Clone();
         var snapFlags = (DecodeStatus[])map.Flags.Clone();
         const DecodeStatus suspect = DecodeStatus.Valid | DecodeStatus.Uncertain;
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, Compute.Options, y =>
         {
             Span<float> values = stackalloc float[24];
             Span<float> spread = stackalloc float[24];

@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Align;
 
@@ -54,7 +55,7 @@ public static class MeasuredBlend2D
         var ch = input.CanvasHeight;
         var cells = cw * ch;
         var inverses = new CanvasInverse[n];
-        Parallel.For(0, n, k => inverses[k] = CanvasInverse.Build(input.Grids[k], cw, ch));
+        Parallel.For(0, n, Compute.Options, k => inverses[k] = CanvasInverse.Build(input.Grids[k], cw, ch));
         ct.ThrowIfCancellationRequested();
 
         // Fades in light, per output, per cell (0 where it does not reach).
@@ -101,7 +102,7 @@ public static class MeasuredBlend2D
         var white = new double[cells];
         var black = new double[cells];
         var covered = new bool[cells];
-        Parallel.For(0, ch, y =>
+        Parallel.For(0, ch, Compute.Options, y =>
         {
             for (var x = 0; x < cw; x++)
             {
@@ -145,7 +146,7 @@ public static class MeasuredBlend2D
         ct.ThrowIfCancellationRequested();
 
         var maps = new OutputBlend[n];
-        Parallel.For(0, n, j =>
+        Parallel.For(0, n, Compute.Options, j =>
         {
             var grid = input.Grids[j];
             var mw = (grid.RasterWidth + 3) / 4;
@@ -393,7 +394,7 @@ public static class MeasuredBlend2D
             kernel[i + radius] = Math.Exp(-i * i / (2 * sigma * sigma));
         var num = new double[w * h];
         var den = new double[w * h];
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, Compute.Options, y =>
         {
             for (var x = 0; x < w; x++)
             {
@@ -411,7 +412,7 @@ public static class MeasuredBlend2D
             }
         });
         var o = new double[w * h];
-        Parallel.For(0, w, x =>
+        Parallel.For(0, w, Compute.Options, x =>
         {
             for (var y = 0; y < h; y++)
             {

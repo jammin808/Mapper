@@ -23,13 +23,25 @@ public static class OptimiseWorker
 {
     public const string Word = "optimise-worker";
 
+    /// <summary>"--priority &lt;class&gt;" after the word: the CPU priority the worker takes (below normal when absent).</summary>
+    public const string PriorityWord = "--priority";
+
+    /// <summary>The priority the worker's arguments name, below normal when they name none (or one it does not know).</summary>
+    public static ProcessPriorityClass PriorityOf(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        var at = Array.IndexOf(args, PriorityWord);
+        return at >= 0 && at + 1 < args.Length && Enum.TryParse<ProcessPriorityClass>(args[at + 1], ignoreCase: true, out var p) && Enum.IsDefined(p)
+            ? p : ProcessPriorityClass.BelowNormal;
+    }
+
     public static int Run(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
         try
         {
             using var self = Process.GetCurrentProcess();
-            self.PriorityClass = ProcessPriorityClass.BelowNormal;
+            self.PriorityClass = PriorityOf(args);
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or PlatformNotSupportedException or InvalidOperationException)
         {

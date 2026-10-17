@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -79,7 +80,7 @@ public static class LightPlan
             var depthAt = new int[mine.Length];
             var reached = new ulong[mine.Length];
             var projectorCount = Math.Min(64, projectors.Length);
-            Parallel.For(0, mine.Length, new ParallelOptions { CancellationToken = ct }, () => new int[2 * projectorCount], (i, _, counts) =>
+            Parallel.For(0, mine.Length, Compute.With(ct), () => new int[2 * projectorCount], (i, _, counts) =>
             {
                 var s = mine[i];
                 if (s.Reach == 0)

@@ -1,5 +1,6 @@
 using System.Globalization;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Align;
 
@@ -45,7 +46,7 @@ public static class CanvasTarget
         var h = Math.Max(1, (int)Math.Ceiling((max.Y - min.Y) / cell));
         var grid = new bool[w * h];
         long sx = 0, sy = 0, count = 0;
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, Compute.Options, y =>
         {
             for (var x = 0; x < w; x++)
                 grid[y * w + x] = covered(new Vec2d(min.X + (x + 0.5) * cell, min.Y + (y + 0.5) * cell));

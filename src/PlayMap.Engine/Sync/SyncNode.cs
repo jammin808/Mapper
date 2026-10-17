@@ -206,6 +206,13 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     /// time line already: a step that brings the clock onto that line leaves them as they are).</summary>
     public IReadOnlyCollection<string> Adopted => [.. _adopted.Keys];
 
+    /// <summary>A playlist takes its leader's anchor: called on the engine's lane in the action that applies it, before the anchor
+    /// lands (so its journal row and every later action see it adopted); answers whether it had taken one before.</summary>
+    internal bool TookLeaderAnchor(string playlistId) => !_adopted.TryAdd(playlistId, 0);
+
+    /// <summary>The anchor marked by <see cref="TookLeaderAnchor"/> was refused, and the playlist had taken none before.</summary>
+    internal void ForgetLeaderAnchor(string playlistId) => _adopted.TryRemove(playlistId, out _);
+
     /// <summary>Attaches to the running engine: the board hears its clock's responder, the watch starts, and the role kept in the
     /// settings is entered again (a lead at once, a follow once its leader is heard on the show network).</summary>
     public void Attach(EngineCore engine)
@@ -728,9 +735,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             _leaderLists.Add((group, playlistId));
             oneOnLeader = _leaderLists.Count(k => string.Equals(k.Group, group, StringComparison.Ordinal)) == 1;
         }
-        var (adopted, unmatched) = await engine.AdoptLeaderAnchorAsync(group, playlistId, json, oneOnLeader, LeaderSession).ConfigureAwait(false);
-        foreach (var id in adopted)
-            _adopted.TryAdd(id, 0);
+        var (_, unmatched) = await engine.AdoptLeaderAnchorAsync(group, playlistId, json, oneOnLeader, LeaderSession).ConfigureAwait(false);
         // Said once per playlist of the leader's: its anchors keep coming.
         if (unmatched.Length > 0 && _unmatched.TryAdd((group, playlistId), 0))
             engine.Journal.Add("sync", $"{LeaderLabel}'s {playlistId} for {group} is not taken here: {unmatched}", ok: false);

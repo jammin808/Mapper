@@ -20,6 +20,9 @@ namespace PlayMap.Engine.Optimise;
 public sealed record OptimiseOptions
 {
     public WorkerLaunch Worker { get; init; } = WorkerLaunch.ThisProcess();
+
+    /// <summary>The CPU priority the worker takes: below the show's own (normal) on a node, so the encode yields the CPU to the air.</summary>
+    public ProcessPriorityClass WorkerPriority { get; init; } = ProcessPriorityClass.BelowNormal;
     public TimeSpan Step { get; init; } = TimeSpan.FromSeconds(1);
     public int MaxAttempts { get; init; } = 3;
     public TimeSpan FirstBackoff { get; init; } = TimeSpan.FromSeconds(1);

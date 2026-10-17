@@ -4,6 +4,7 @@ using System.Text.Json;
 using PlayMap.Assistant;
 using PlayMap.Core.Model;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -143,7 +144,7 @@ public sealed partial class ScanRunner
             notes.Add(MultiViewScan.CarriedWords + ".");
         if (MultiViewScan.UnreadWords(views) is { } unread)
             notes.Add(unread + ".");
-        var (multi, placed) = await Task.Run(() => MultiViewScan.Solve(views, project, [], into.Solution.Metric, null, ct), ct).ConfigureAwait(false);
+        var (multi, placed) = await Compute.RunAsync(() => MultiViewScan.Solve(views, project, [], into.Solution.Metric, null, ct), ct).ConfigureAwait(false);
         var outcome = Combined(into, multi, placed, project, into.Solution.Metric || multi.Result.Metric);
         track.Regions(outcome.Regions);
         if (outcome.Simulated)
@@ -277,7 +278,7 @@ public sealed partial class ScanRunner
             if (hold.FirstOrDefault(h => !known.Contains(h)) is { } stranger)
                 throw new InvalidOperationException($"{stranger} is not a projector of {scan.Name}: HOLD names projectors its views saw");
             var project = engine.Store.Project;
-            var (multi, placed) = await Task.Run(() => MultiViewScan.Solve(scan.Captured, project, hold, scan.Solution.Metric, null, token), token).ConfigureAwait(false);
+            var (multi, placed) = await Compute.RunAsync(() => MultiViewScan.Solve(scan.Captured, project, hold, scan.Solution.Metric, null, token), token).ConfigureAwait(false);
             var metric = hold.Count > 0 ? multi.Result.Metric : scan.Solution.Metric || multi.Result.Metric;
             return Combined(scan, multi, placed, project, metric);
         }, ct);
@@ -311,7 +312,7 @@ public sealed partial class ScanRunner
             var warm = scan.Multi is { } m && m.ViewIds.Contains(view.Id) ? (m, view.Id) : ((MultiViewOutcome, string)?)null;
             var held = scan.Multi?.Held ?? [];
             var views = warm is null ? [.. scan.Captured.Select(v => v.Id == view.Id ? v with { State = "dropped", Words = "dropped by SCAN DROP" } : v)] : scan.Captured;
-            var (multi, placed) = await Task.Run(() => MultiViewScan.Solve(views, project, held, scan.Solution.Metric, warm, token), token).ConfigureAwait(false);
+            var (multi, placed) = await Compute.RunAsync(() => MultiViewScan.Solve(views, project, held, scan.Solution.Metric, warm, token), token).ConfigureAwait(false);
             return Combined(scan, multi, placed, project, scan.Solution.Metric);
         }, ct);
     }

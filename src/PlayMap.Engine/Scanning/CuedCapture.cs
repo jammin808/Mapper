@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Phone;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -84,8 +85,8 @@ public sealed partial class ScanRunner
         {
             camera.Arm();
             var present = await show(ct).ConfigureAwait(false);
-            using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            wait.CancelAfter(camera.Patience ?? _options.PatternTimeout);
+            using var patience = new CancellationTokenSource(camera.Patience ?? _options.PatternTimeout, _options.Time);
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct, patience.Token);
             lock (_cueGate)
             {
                 _cueNext = wait.CancelAsync;
@@ -148,9 +149,9 @@ public sealed partial class ScanRunner
         var probeIndex = FirstCoded(plan);
         track.Step("running", "preparing", $"{pj.Name}: {camera.Name} is settling its exposure", j, "preparing");
         await Show(plan.Render(probeIndex), ct).ConfigureAwait(false);
-        using (var prepareWait = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        using (var prepareTimeout = new CancellationTokenSource(_options.PatternTimeout + _options.PatternTimeout, _options.Time))
+        using (var prepareWait = CancellationTokenSource.CreateLinkedTokenSource(ct, prepareTimeout.Token))
         {
-            prepareWait.CancelAfter(_options.PatternTimeout + _options.PatternTimeout);
             CuedPrepared prepared;
             try
             {
@@ -220,7 +221,7 @@ public sealed partial class ScanRunner
             locate[k] = frame.Gray;
             views?.CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
         }
-        var located = await Task.Run(() => CellLocate.Decode(w, h, locate, candidates, _options.MaxTagSites), ct).ConfigureAwait(false);
+        var located = await Compute.RunAsync(() => CellLocate.Decode(w, h, locate, candidates, _options.MaxTagSites), ct).ConfigureAwait(false);
         notes.Add($"{pj.Name}: {located.Words}.");
         await camera.SetSitesAsync(pj.Id, located, ct).ConfigureAwait(false);
         var tagged = located.Chosen.Length > 0;
@@ -369,7 +370,7 @@ public sealed partial class ScanRunner
                 if (seen.CaptureNs > 0 && seen.CaptureNs < present - framePeriodNs)
                     facts.TimingDisagrees++;
                 var timeout = _options.PatternTimeout;
-                return seen with { Pixels = seen.Pixels!.WaitAsync(timeout + timeout, ct) };
+                return seen with { Pixels = seen.Pixels!.WaitAsync(timeout + timeout, _options.Time, ct) };
             }
             facts.Rolling += picture?.RollingRejects ?? 0;
             why = picture?.Why ?? string.Create(CultureInfo.InvariantCulture, $"it said nothing for {_options.PatternTimeout.TotalSeconds:0.#} s");

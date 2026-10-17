@@ -6,6 +6,7 @@ using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Site;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine;
@@ -245,7 +246,7 @@ public sealed partial class EngineCore
         var word = call.Args.Count == 1 ? call.Args[0] : null;
         if (snap.Project.Stage.Controls.Length == 0)
             return CommandReply.Fail("the project has no control points — SITE POINTS <path> imports them");
-        var outcome = await Task.Run(() => RunSiteCheck(snap.Project, word), call.Ct).ConfigureAwait(false);
+        var outcome = await Compute.RunAsync(() => RunSiteCheck(snap.Project, word), call.Ct).ConfigureAwait(false);
         if (outcome.Why is { } why)
             return CommandReply.Fail(why);
         var result = outcome.Result!;

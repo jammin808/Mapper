@@ -16,6 +16,16 @@ public sealed class ClockSlewTests
     private static long Position(HostRig rig, string playlist) =>
         rig.Engine.Snapshot.Playback.Playlists[playlist].Clip.PositionAt(rig.Engine.LeaderNowNs);
 
+    /// <summary>What a playlist that moved across a step would be named by: each lane's item and clip anchor, the clock's steps and the
+    /// last Δ, the count STATE gives and the journal.</summary>
+    private static string Why(HostRig rig)
+    {
+        var lanes = string.Join("; ", rig.Engine.Snapshot.Playback.Playlists.Select(kv =>
+            $"{kv.Key} index {kv.Value.Index} item {kv.Value.ItemId} {kv.Value.Clip.State} media {kv.Value.Clip.Anchor.MediaNs} leader {kv.Value.Clip.Anchor.LeaderNs} seq {kv.Value.Clip.Seq} switch {kv.Value.SwitchAtLeaderNs}"));
+        var clock = rig.Engine.Services.Clock;
+        return $"now {rig.Engine.LeaderNowNs}; {lanes}; clock steps {clock.Steps}, last {clock.LastStepNs}, STATE steps {SyncRig.Sync(rig).GetProperty("steps").GetInt64()}; journal: {rig.Journal()}";
+    }
+
     [Fact]
     public async Task FollowingALeaderThreeHoursTwelveMinutesAheadKeepsEveryPlaylistInPlace()
     {
@@ -35,8 +45,8 @@ public sealed class ClockSlewTests
         await SyncRig.GroupAsync(leader, node);
         Assert.Equal(1, SyncRig.Sync(node).GetProperty("steps").GetInt64());
         Assert.Equal(Ahead, node.Engine.Services.Clock.LastStepNs);
-        Assert.True(Math.Abs(Position(node, "pl_local") - local) <= 1_000_000, $"{Position(node, "pl_local") - local} ns");
-        Assert.True(Math.Abs(Position(node, "pl_show") - show) <= 1_000_000, $"{Position(node, "pl_show") - show} ns");
+        Assert.True(Math.Abs(Position(node, "pl_local") - local) <= 1_000_000, $"{Position(node, "pl_local") - local} ns; {Why(node)}");
+        Assert.True(Math.Abs(Position(node, "pl_show") - show) <= 1_000_000, $"{Position(node, "pl_show") - show} ns; {Why(node)}");
         Assert.True(await Eventually.TrueAsync(() => node.Journal().Contains("followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place",
             StringComparison.Ordinal)), node.Journal());
         clock.AdvanceMs(1_000);
@@ -127,6 +137,29 @@ public sealed class ClockSlewTests
         Assert.Equal(leader.Engine.AnchorJson("pl_show"), node.Engine.AnchorJson("pl_show"));   // already on the leader's line
         Assert.Equal(local, Position(node, "pl_local"));                                         // moved with the step
         Assert.Equal(master, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-6);         // the master's fade too
+    }
+
+    /// <summary>A leader's anchor and the group's record that its playlist is on the leader's time line are one action on the member's
+    /// lane: the anchor's own journal row, written in that action, already finds the playlist adopted — so a step the lane takes at any
+    /// point after the anchor leaves it where the leader put it.</summary>
+    [Fact]
+    public async Task ALeadersAnchorIsAdoptedInTheLaneActionThatAppliesIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new MovableClock(clock, 7 * Second));
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(node);
+        await SyncRig.GroupAsync(leader, node);
+        var seen = new ConcurrentQueue<bool>();
+        node.Engine.Journal.Written += row =>
+        {
+            if (row.Line?.StartsWith("PLAYLIST ANCHOR pl_show ", StringComparison.Ordinal) == true)
+                seen.Enqueue(node.Engine.Services.GroupSync!.Adopted.Contains("pl_show"));
+        };
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        Assert.True(await Eventually.TrueAsync(() => !seen.IsEmpty), node.Journal());
+        Assert.All(seen, Assert.True);
     }
 
     [Fact]

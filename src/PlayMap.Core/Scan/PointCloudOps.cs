@@ -1,5 +1,6 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Scan;
 
@@ -176,7 +177,7 @@ public static class PointCloudOps
             var w = cloud.GridWidth;
             var h = cloud.GridHeight;
             var r = Math.Max(1, options.GridRadius);
-            Parallel.For(0, h, y =>
+            Parallel.For(0, h, Compute.Options, y =>
             {
                 var window = new int[(2 * r + 1) * (2 * r + 1)];
                 for (var x = 0; x < w; x++)
@@ -208,7 +209,7 @@ public static class PointCloudOps
         else
         {
             var tree = new KdTree3(points);
-            Parallel.For(0, points.Length, k =>
+            Parallel.For(0, points.Length, Compute.Options, k =>
             {
                 if (!PointCloud.IsValid(points[k]))
                     return;
@@ -245,7 +246,7 @@ public static class PointCloudOps
         var h = organised.GridHeight;
         var points = organised.Points;
         var spacing = new float[points.Length];
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, Compute.Options, y =>
         {
             Span<float> d = stackalloc float[8];
             for (var x = 0; x < w; x++)
@@ -334,7 +335,7 @@ public static class PointCloudOps
         var tree = new KdTree3(points);
         var meanDistance = new double[points.Length];
         Array.Fill(meanDistance, double.NaN);
-        Parallel.For(0, points.Length, i =>
+        Parallel.For(0, points.Length, Compute.Options, i =>
         {
             if (!PointCloud.IsValid(points[i]))
                 return;

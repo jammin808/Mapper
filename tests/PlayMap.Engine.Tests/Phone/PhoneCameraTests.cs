@@ -82,6 +82,34 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         Assert.Contains("paired by tag", rig.Runner.View!.Pairing!.Words, StringComparison.Ordinal);
     }
 
+    /// <summary>The scan's patience runs on its own clock: with a patience of one millisecond, which every answer of the phone outlasts
+    /// on the wall, no pattern is shown again while that clock stands — a cue the phone leaves unanswered is waited for however long the
+    /// machine takes — and its pattern goes up again once the clock passes the pattern timeout: once, a retake.</summary>
+    [Fact]
+    public async Task AnUnansweredCueIsWaitedForUntilTheScansClockPassesThePatternTimeout()
+    {
+        var time = new Fleet.ManualTime();
+        var patience = TimeSpan.FromMilliseconds(1);
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = patience, Time = time });
+        await using var phone = await rig.JoinAsync();
+        phone.Unanswered.Add(4);
+        Assert.True((await rig.Run($"SCAN START {phone.Rig} pj00000001 MODE FAST")).Ok);
+
+        // The phone has had pattern 5's cue and said nothing: the scan waits on it.
+        Assert.True(await OpsRig.Eventually(() => phone.Unanswered.Count == 0 && rig.Runner.WaitingForPicture));
+        time.Advance(patience - TimeSpan.FromTicks(1));
+        Assert.Equal(0, rig.Display.ShownAgain);
+        Assert.True(rig.Runner.WaitingForPicture);
+        time.Advance(TimeSpan.FromTicks(1));
+        Assert.True(await OpsRig.Eventually(() => rig.Display.ShownAgain == 1));
+
+        var view = await rig.EndedAsync();
+        Assert.True(view.State == "done", view.Message);
+        Assert.Equal(1, rig.Display.ShownAgain);
+        var pairing = rig.State().GetProperty("scan").GetProperty("pairing");
+        Assert.Equal((1, 0), (pairing.GetProperty("retakes").GetInt32(), pairing.GetProperty("caught").GetInt32()));
+    }
+
     [Fact]
     public async Task APhoneWhoseCaptureTimesComeBeforeTheirPatternsIsCountedAndTheTagsStillPair()
     {

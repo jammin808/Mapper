@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using PlayMap.Core.Media;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Media;
 
@@ -168,13 +169,10 @@ public sealed class GpuDeviceLockTests
             Assert.Equal(0, TimedOut(l, 20));
     }
 
-    // Each window starts with a gen0 collection: a background collection's end of mark voids this thread's allocation context, and
-    // its unused rest would otherwise read as allocated here.
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Cycle(GpuDeviceLock l, int rounds)
     {
-        GC.Collect(0);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < rounds; i++)
         {
             l.Enter();
@@ -184,16 +182,15 @@ public sealed class GpuDeviceLockTests
             l.Exit();
             l.Exit();
         }
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long TimedOut(GpuDeviceLock l, int rounds)
     {
-        GC.Collect(0);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < rounds; i++)
             Assert.False(l.TryEnter(1));
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return Allocations.Since(before);
     }
 }

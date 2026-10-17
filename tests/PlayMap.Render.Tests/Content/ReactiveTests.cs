@@ -2,6 +2,7 @@ using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Content;
 
@@ -148,14 +149,14 @@ public class ReactiveTests(GlFixture gl)
                 content.SetItemTime("gn_box", f * 16_666_667L);
                 engine.Render(Inputs(f));
             }
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var f = 30; f < 90; f++)
             {
                 content.BeginItems();
                 content.SetItemTime("gn_box", f * 16_666_667L);
                 engine.Render(Inputs(f));
             }
-            var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var bytes = Allocations.Since(before);
             Assert.Empty(c.Device.TakeErrors());
             Assert.Empty(engine.GeneratorFaults());
             return bytes;

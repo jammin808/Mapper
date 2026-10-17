@@ -1,5 +1,6 @@
 using PlayMap.Core.Audio;
 using PlayMap.Core.Numerics;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Audio;
 
@@ -228,12 +229,12 @@ public sealed class AnalyserTests
         var sink = new Last();
         var block = Sine(220, 0.4, 480);
         analyser.Push(block, sink);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 5000; i++)
             analyser.Push(block, sink);
-        var after = GC.GetAllocatedBytesForCurrentThread();
+        var allocated = Allocations.Since(before);
         Assert.Equal(10_002, sink.Count);
-        Assert.Equal(0, after - before);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Wall;
@@ -47,7 +48,7 @@ public sealed partial class EngineCore
         routes.Lane("ALIGN NEW", AlignGuarded(AlignNew));
         routes.Lane("ALIGN RUN", AlignGuarded(AlignRun));
         routes.Lane("ALIGN STATUS", _ => CommandReply.Success(JsonOut(w => WriteAlignRun(w, AlignBackend.View))));
-        routes.OffLane("ALIGN SCORE", c => Task.Run(() => AlignScore(c), c.Ct));
+        routes.OffLane("ALIGN SCORE", c => Compute.RunAsync(() => AlignScore(c), c.Ct));
         routes.OffLane("DEVICE NATIVE", DeviceNativeAsync);
         routes.Lane("ALIGN CANCEL", AlignCancel);
         routes.OffLane("ALIGN ACCEPT", c => AlignGate(c) is { } refused ? Task.FromResult(refused) : AlignAcceptAsync(c));

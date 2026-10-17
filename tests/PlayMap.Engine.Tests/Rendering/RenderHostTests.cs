@@ -6,6 +6,7 @@ using PlayMap.Core.Numerics;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Rendering;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Rendering;
@@ -364,6 +365,7 @@ public sealed class RenderHostTests(ITestOutputHelper log)
     {
         await using var rig = HostRig.Start(Project.CreateDefault("Static"));
         await rig.Host.FramesAsync(40).WaitAsync(HostRig.Patience);
+        Allocations.Begin();
         var before = rig.Host.Stats;
         await rig.Host.FramesAsync(90).WaitAsync(HostRig.Patience);
         var after = rig.Host.Stats;

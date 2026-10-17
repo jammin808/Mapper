@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
@@ -162,7 +163,7 @@ public sealed class OutputPartsTests
 /// with a scripted sync board, the lock applied and observed — with the numbers that move from run to run set to fixed values; and the
 /// desk's card descriptors for every block this package adds. Written with PLAYMAP_WRITE_FIXTURES=1, otherwise checked.</summary>
 [Collection("render host")]
-public sealed class OutputFixtureTests
+public sealed partial class OutputFixtureTests
 {
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 
@@ -183,6 +184,7 @@ public sealed class OutputFixtureTests
             if ((string?)machine["context"] == HostRig.NativeContext)
                 machine["context"] = "glx";
         }
+        SteadyWatchdog(root);
         foreach (var o in root["outputs"]!.AsArray().OfType<JsonObject>())
         {
             o["fps"] = 60.0;
@@ -203,6 +205,37 @@ public sealed class OutputFixtureTests
             }
         }
         return root.ToJsonString(FixtureJson.Indented) + "\n";
+    }
+
+    [GeneratedRegex(@"^(?<node>.+): \k<node> · 1 (?<light>amber|red): watchdog — frame p95 [0-9.]+ ms$")]
+    private static partial Regex FrameP95Only();
+
+    /// <summary>The node's watchdog reads the render loop's frame p95, a time measured on the real clock that this fixture sets to a
+    /// steady 60 Hz: when that measurement alone made the machine amber or red (the eye's one problem, its words the watchdog's frame
+    /// p95 and nothing else), the node, fleet and eye read as at 60 Hz. The machine's words name only its worst light's categories, so
+    /// with the watchdog red an amber elsewhere in the machine is not seen here; everything else the fixture holds (outputs, media,
+    /// sync, faults) is compared in its own block.</summary>
+    private static void SteadyWatchdog(JsonObject root)
+    {
+        if (root["eye"] is not JsonObject eye || root["fleet"] is not JsonObject fleet || eye["problems"] is not JsonArray { Count: 1 } problems
+            || (string?)problems[0] is not { } problem || !problem.StartsWith("machine:", StringComparison.Ordinal)
+            || (string?)eye["worstWords"] is not { } words || FrameP95Only().Match(words) is not { Success: true } match)
+            return;
+        const string headline = "1 machine · 0 outputs · all green";
+        root["light"] = "green";
+        fleet["light"] = "green";
+        fleet["headline"] = headline;
+        eye["headline"] = headline;
+        eye["worst"] = "";
+        eye["worstLight"] = "green";
+        eye["worstWords"] = "";
+        eye["problems"] = new JsonArray();
+        if (eye["counts"] is JsonObject counts)
+        {
+            var light = match.Groups["light"].Value;
+            counts["green"] = counts["green"]!.GetValue<int>() + 1;
+            counts[light] = counts[light]!.GetValue<int>() - 1;
+        }
     }
 
     /// <summary>The desk's cards for this package's STATE blocks: title, STATE path, light, words, up to six fields, actions as lines.</summary>

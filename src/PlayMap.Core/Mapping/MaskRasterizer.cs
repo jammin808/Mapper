@@ -1,6 +1,7 @@
 using System.Numerics;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Mapping;
 
@@ -64,7 +65,7 @@ public static class MaskRasterizer
             return;
         }
         var maxEdges = shapes.Max(s => s.EdgeCount);
-        Parallel.For(0, height, () => new RowScratch(width, maxEdges), (y, _, scratch) =>
+        Parallel.For(0, height, Compute.Options, () => new RowScratch(width, maxEdges), (y, _, scratch) =>
         {
             var row = coverage.AsSpan(y * width, width);
             row.Fill(start);

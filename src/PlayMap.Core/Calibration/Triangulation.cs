@@ -1,6 +1,7 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Calibration;
 
@@ -102,7 +103,7 @@ public static class Triangulation
         var fa = Frame.Of(camera);
         var fb = Frame.Of(projector);
         var result = new TriangulatedPoint[cameraPixels.Count];
-        Parallel.For(0, result.Length, new ParallelOptions { MaxDegreeOfParallelism = result.Length > 4096 ? -1 : 1 },
+        Parallel.For(0, result.Length, Compute.With(CancellationToken.None, result.Length > 4096 ? -1 : 1),
             i => result[i] = Solve(fa, cameraPixels[i], fb, projectorPixels[i], refine));
         return result;
     }
@@ -121,7 +122,7 @@ public static class Triangulation
         var points = new Vec3d[map.Length];
         var residuals = new float[map.Length];
         var valid = 0;
-        Parallel.For(0, map.Height, () => 0, (y, _, local) =>
+        Parallel.For(0, map.Height, Compute.Options, () => 0, (y, _, local) =>
         {
             for (var x = 0; x < map.Width; x++)
             {

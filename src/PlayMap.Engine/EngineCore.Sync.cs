@@ -661,9 +661,29 @@ public sealed partial class EngineCore
         {
             if (!WireGrammar.TryParse($"PLAYLIST ANCHOR {list.Id} {json}", out var line, out _))
                 continue;
-            var reply = await HandleAsync(line, session, CancellationToken.None).ConfigureAwait(false);
+            var id = list.Id;
+            CommandReply reply;
+            try
+            {
+                // The anchor and the group's record that this playlist is on the leader's time line land in one lane action: a clock
+                // step the lane takes next finds the playlist among the adopted (and leaves its anchor), never between the two.
+                reply = await _lane.RunAsync(() =>
+                {
+                    var sync = Services.GroupSync;
+                    var before = sync?.TookLeaderAnchor(id) ?? false;
+                    var (r, _) = RunAirLineOnLane(line, LeaderNowNs, session);
+                    if (!(r.Ok || r.Payload == "already at that anchor") && !before)
+                        sync?.ForgetLeaderAnchor(id);
+                    return r;
+                }).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The lane has stopped: the node is going, and takes no anchor.
+                continue;
+            }
             if (reply.Ok || reply.Payload == "already at that anchor")
-                adopted.Add(list.Id);
+                adopted.Add(id);
         }
         return (adopted, "");
     }

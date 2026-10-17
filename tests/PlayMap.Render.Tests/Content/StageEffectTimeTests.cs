@@ -3,6 +3,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Content;
 
@@ -209,10 +210,10 @@ public class StageEffectTimeTests(GlFixture gl)
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
             for (var n = 0; n < 20; n++)
                 engine.Render(At(project, Tick(n), stage, content));
-            var before = GC.GetAllocatedBytesForCurrentThread();
+            var before = Allocations.Start();
             for (var n = 20; n < 80; n++)
                 engine.Render(At(project, Tick(n), stage, content));
-            var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var bytes = Allocations.Since(before);
             Assert.Empty(c.Device.TakeErrors());
             return bytes;
         });

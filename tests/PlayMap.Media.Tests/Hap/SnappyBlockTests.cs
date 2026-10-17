@@ -1,4 +1,5 @@
 using PlayMap.Media.Hap;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Hap;
 
@@ -106,9 +107,9 @@ public class SnappyBlockTests
         var z = Snappier.Snappy.CompressToArray(data);
         var output = new byte[data.Length];
         Assert.True(SnappyBlock.TryDecompress(z, output, out _));
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var before = Allocations.Start();
         for (var i = 0; i < 20; i++)
             Assert.True(SnappyBlock.TryDecompress(z, output, out _));
-        Assert.Equal(before, GC.GetAllocatedBytesForCurrentThread());
+        Assert.Equal(0, Allocations.Since(before));
     }
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Align;
 
@@ -98,7 +99,7 @@ public static class AlignSequence
                 Step("scan", j, $"{o.Name}: pattern {i + 1} of {plan.Count}");
             }
             ct.ThrowIfCancellationRequested();
-            var map = await Task.Run(() => new StructuredLightDecoder(plan, new DecodeOptions { CameraGamma = Photometry.CameraGamma }).Decode(cw, ch, frames), ct)
+            var map = await Compute.RunAsync(() => new StructuredLightDecoder(plan, new DecodeOptions { CameraGamma = Photometry.CameraGamma }).Decode(cw, ch, frames), ct)
                 .ConfigureAwait(false);
             captures[j] = new AlignCapture(o.Id, o.Width, o.Height, map, footprints[j], whites[j], photometry, o.Prior);
         }

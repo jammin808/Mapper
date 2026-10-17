@@ -1,5 +1,6 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Scan;
 
@@ -45,7 +46,7 @@ public sealed class StageSimulator
         }
         for (var i = 0; i < 256; i++)
             _projectorLut[i] = (float)Math.Pow(i / 255.0, _options.ProjectorGamma);
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             for (var x = 0; x < CameraWidth; x++)
             {
@@ -98,7 +99,7 @@ public sealed class StageSimulator
         var seed = _options.Seed * 0x9E3779B97F4A7C15UL + (ulong)shot;
         var sigma = _options.NoiseSigma;
         var exposure = _options.Exposure;
-        Parallel.For(0, CameraHeight, y =>
+        Parallel.For(0, CameraHeight, Compute.Options, y =>
         {
             var rng = new Pcg32(seed, (ulong)y);
             for (var x = 0; x < CameraWidth; x++)

@@ -8,6 +8,7 @@ using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Media.Tests.Video;
 using PlayMap.Media.Video.Omt;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.VideoIo;
 
@@ -37,7 +38,9 @@ public sealed class OmtLoopbackTests
     [OmtFact]
     public async Task AnOutputTapSentOverOmtIsReceivedAsAnInputAndShownOnAnotherOutput()
     {
-        using var omt = new OmtProvider(new OmtOptions(Path.Combine(Path.GetTempPath(), "playmap-omt-engine-tests")), MonoClock.Instance);
+        // The input's state is a function of its own clock (its frames' arrivals), held still here: read after the frames, it is the
+        // state of a source that is receiving, however long the machine took between (LiveSource's rule is Media's tests').
+        using var omt = new OmtProvider(new OmtOptions(Path.Combine(Path.GetTempPath(), "playmap-omt-engine-tests")), new ManualClock(1_000_000_000));
         static Layer Block(string id, string colour, double x, double y) =>
             new(id, id, SourceRef.Solid(colour), new RectD(x, y, 960, 540), 1, LayerBlend.Normal, true);
         var chart = new Canvas("cv_chart", "Chart", 1920, 1080, "#000000",
@@ -94,14 +97,19 @@ public sealed class OmtLoopbackTests
                 Assert.True(Math.Abs(Luma(a) - Luma(b)) <= 1.0, $"block at {x},{y}: sent {a}, shown {b}");
             }
 
-            // In order: each frame the input holds is stamped later than the one before (the sender's stamp is the leader instant).
+            // In order: each frame the input holds is stamped later than the one before (the sender's stamp is the leader instant). The
+            // frames are counted as the receiver delivers them, each render frame asking once, until two new ones have come.
             using (var reader = engine.VideoIo.Open(engine.Store.Project.FindMedia(input)!)!)
             {
                 var last = long.MinValue;
                 var changes = 0;
-                for (var k = 0; k < 20; k++)
+                var asked = 0;
+                var counting = Stopwatch.StartNew();
+                while (changes < 2)
                 {
+                    Assert.True(counting.Elapsed < HostRig.Patience, $"{changes} new frames in {asked} render frames");
                     await host.FramesAsync(1).WaitAsync(HostRig.Patience);
+                    asked++;
                     using var lease = reader.Acquire(0);
                     if (lease is null || lease.SenderTimestampNs == last)
                         continue;
@@ -109,19 +117,26 @@ public sealed class OmtLoopbackTests
                     last = lease.SenderTimestampNs;
                     changes++;
                 }
-                Assert.True(changes >= 2, $"{changes} new frames in 20 render frames");
             }
 
-            engine.VideoIo.Tick();
-            engine.FactsChanged();
-            var state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio");
-            var row = state.GetProperty("inputs").EnumerateArray().Single(i => i.GetProperty("id").GetString() == input);
+            // The tally is the hub's window over the air's draws (a quarter second on the node's clock): it reads program at a tick
+            // that finds the input drawn into the air within it, which a tick just after a drawn frame does on any machine but one
+            // that holds this thread longer than the window between them.
+            JsonElement state = default;
+            JsonElement row = default;
+            Assert.True(await Host.Eventually.TrueAsync(() =>
+            {
+                engine.VideoIo.Tick();
+                engine.FactsChanged();
+                state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").Clone();
+                row = state.GetProperty("inputs").EnumerateArray().Single(i => i.GetProperty("id").GetString() == input);
+                return row.GetProperty("tally").GetString() == "program";
+            }), $"the input's tally reads {row.GetProperty("tally").GetString()}");
             Assert.Equal("ok", row.GetProperty("state").GetString());
             Assert.Equal(1920, row.GetProperty("w").GetInt32());
             Assert.Equal(1080, row.GetProperty("h").GetInt32());
             Assert.Equal("uyvy", row.GetProperty("format").GetString());
             Assert.True(row.GetProperty("received").GetInt64() > 0);
-            Assert.Equal("program", row.GetProperty("tally").GetString());
             var sendRow = state.GetProperty("sends").EnumerateArray().Single(s => s.GetProperty("id").GetString() == send);
             Assert.Equal("sending", sendRow.GetProperty("state").GetString());
             Assert.True(sendRow.GetProperty("connections").GetInt32() >= 1);
@@ -180,6 +195,7 @@ public sealed class LiveOnAirHostTests
             var row = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("videoio").GetProperty("inputs")[0];
             Assert.Equal("program", row.GetProperty("tally").GetString());
             Assert.Equal((true, false), provider.Opened.Single().Tally);
+            Allocations.Begin();
             var before = host.Stats;
             await host.FramesAsync(90).WaitAsync(HostRig.Patience);
             var after = host.Stats;

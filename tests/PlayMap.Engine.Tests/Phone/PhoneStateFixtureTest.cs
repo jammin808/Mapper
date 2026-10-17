@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Scanning;
 using PlayMap.Engine.Tests.Spine;
 
 namespace PlayMap.Engine.Tests.Phone;
@@ -197,7 +198,9 @@ public sealed partial class PhoneStateFixtureTest
     [Fact]
     public async Task ThePhonesStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
-        await using var rig = await PhoneScanRig.StartAsync();
+        // The scan's patience runs on a clock this test owns and never moves: a phone slow on a loaded machine is waited for, never
+        // shown its pattern again, so the retakes are the scenario's own (the false picture caught), one value on every run.
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2), Time = new Fleet.ManualTime() });
         await using var phone = await rig.JoinAsync();
         phone.Half.Add(6);
         phone.Lie.Add(9);

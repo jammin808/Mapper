@@ -4,6 +4,7 @@ using PlayMap.Core.Align;
 using PlayMap.Core.Calibration.Scoring;
 using PlayMap.Core.Model;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 using PlayMap.Engine.Scanning;
 
 namespace PlayMap.Engine.Align;
@@ -256,7 +257,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
             {
                 var rasters = outputs.Select(o => (o.Width, o.Height)).ToList();
                 var (cw, ch) = setup.Rig is { Intrinsics: { Width: > 0, Height: > 0 } k } ? (k.Width, k.Height) : (_options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
-                var sim = await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch), ct).ConfigureAwait(false);
+                var sim = await Compute.RunAsync(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch), ct).ConfigureAwait(false);
                 shooter = new CountingShooter(new SimShooter(sim));
             }
             else
@@ -322,7 +323,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 Reference = basis,
                 Rescanned = only?.ToHashSet(),
             };
-            var result = await Task.Run(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
+            var result = await Compute.RunAsync(() => AlignSolve.Solve(input, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             AlignVerifyResult? verify = null;
             if (result.Ok)
@@ -334,7 +335,7 @@ public sealed class AlignRunner : IAlignBackend, IAsyncDisposable
                 {
                     var rasters = outputs.Select(o => (o.Width, o.Height)).ToList();
                     var (cw, ch) = setup.Rig is { Intrinsics: { Width: > 0, Height: > 0 } k } ? (k.Width, k.Height) : (_options.SimulatedCameraWidth, _options.SimulatedCameraHeight);
-                    verifier = new CountingShooter(new SimShooter(await Task.Run(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch, drifted: true), ct).ConfigureAwait(false)), (CountingShooter)shooter);
+                    verifier = new CountingShooter(new SimShooter(await Compute.RunAsync(() => MultiProjectorSim.FromSource(setup.Rig?.Source ?? "", rasters, cw, ch, drifted: true), ct).ConfigureAwait(false)), (CountingShooter)shooter);
                 }
                 verify = await AlignVerify.RunAsync(verifier, specs, result, black, captures,
                     p => Step(setup, p.Step, p.Output, 0.95, -1, p.Words, outputs.Count), ct, only?.ToHashSet()).ConfigureAwait(false);
