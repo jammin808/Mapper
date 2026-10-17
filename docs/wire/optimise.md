@@ -7,7 +7,7 @@ the project); a `<version>` is an `mv…` id (in the project, on its item).
 
 | Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
-| `MEDIA OPTIMISE` | `MEDIA OPTIMISE <media>…\|ALL [TO hap\|hap-alpha\|hap-q\|hap-q-alpha] [QUALITY FAST\|SHOW] \| MEDIA OPTIMISE CANCEL\|PAUSE\|RESUME [<job>\|ALL]` | `{"stage":"accepted","jobs":[…],"skipped":[…]}`, off the control lane; CANCEL/PAUSE/RESUME `{"cancelled"\|"paused"\|"resumed":[…]}` (PAUSE adds `"pending":[…]`, the running job it only asked, the reply then accepted) | review (CANCEL, PAUSE, RESUME low) | yes (jobs; the version when one is made) |
+| `MEDIA OPTIMISE` | `MEDIA OPTIMISE <media>…\|ALL [TO hap\|hap-alpha\|hap-q\|hap-q-alpha] [QUALITY FAST\|SHOW] \| MEDIA OPTIMISE CANCEL\|PAUSE\|RESUME [<job>\|ALL]` | `{"stage":"accepted","jobs":[…],"skipped":[…]}`, off the control lane; CANCEL/PAUSE/RESUME `{"cancelled"\|"paused"\|"resumed":[…]}` (PAUSE and RESUME add `"pending":[…]`, the running job they only asked, the reply then accepted) | review (CANCEL, PAUSE, RESUME low) | yes (jobs; the version when one is made) |
 | `MEDIA JOBS` | `MEDIA JOBS` | the STATE shape below with every job | low | no |
 | `MEDIA VERSIONS` | `MEDIA VERSIONS <media>` | `{"media","use","playsHere","why","versions":[…]}` | low | no |
 | `MEDIA USE` | `MEDIA USE <media> AUTO\|SOURCE\|<version>` | `{"stage":"applied","media","use","effect"}` | review | yes (project) |
@@ -46,7 +46,9 @@ At the end of `media`, `null` on a node without the optimise part:
 ```
 
 `paused` is the hold asked; `held` is the fact: the worker says it holds the running job between frames (a pause, or the
-governor's wait). A PAUSE of the running job is accepted (`pending`, "pause asked of oj…: it holds at its next frame") until then.
+governor's wait). A PAUSE of the running job is accepted (`pending`, "pause asked of oj…: it holds at its next frame") until then, and a
+RESUME of the job the worker holds is accepted ("resume asked of oj…: it goes on when its worker does") until it goes on; the journal
+says "paused at frame n" and "resumed at frame n" when they are facts.
 `jobs` holds at most 16 rows: the running ones, the queue in order, then the latest finished. `MEDIA JOBS` has them all. A done
 job's `version` is its `mv…` and its `words` say the audio's fate and the quality ("aac copied; 44.1 dB average, 43.9 dB lowest").
 
