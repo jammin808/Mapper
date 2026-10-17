@@ -143,21 +143,27 @@ Round 2 W1 notes:
 ## Integrator notes from the desk-2 merge (int-desk2)
 
 - Done: the blind chip's draft view (`VIEW editor-draft SHOW editor DRAFT`) is asked through the views' SHOW path, its reply's ring
-  and seq taken as every view's; hidden, its ring is let go; a new link is asked for it with every other view, the draft view kept
-  while the node has not yet said which session is the desk's (before WHOAMI) and let go once it says the draft is another's or
-  there is none (`DeskPreviewTests`). The demo engine shows a draft view as a node that draws does — with no draft (the air), the
+  and seq taken as every view's; hidden, its ring is let go. MAP draws it only while the node names the draft as this desk's: on a
+  new link, until WHOAMI says which session is the desk's, MAP draws the air's view and the desk keeps its wish; the draft view is
+  asked once the node names the draft the desk's, and the wish goes once it says the draft is another's or there is none
+  (`DeskPreviewTests`). The demo engine shows a draft view as a node that draws does — with no draft (the air), the
   desk's or another session's — and refuses one on a view id that has drawn the air in the node's words (`BlindChipTests`).
 - Done: STATE.sync carries `light`, its last key: the light the node reads with its verdict (the context item's); the readiness
   light's sync part is it, so the board's two ambers its other keys do not carry (a locked pair off one vblank among free-running
-  outputs, a join over 5 s) light the strip too; a node with no `sync.light` is still read from its keys (`SyncLightTests`,
-  `PreflightBoardTests`). sync.json and sync.cards.json moved; main.json and the Companion module's fixtures and lines did not (their
+  outputs, a join over 5 s) light the strip too; INDEX's sync row reads the same light; a node with no `sync.light` is still read
+  from its keys (`SyncLightTests`, `PreflightBoardTests`). sync.json and sync.cards.json moved; main.json and the Companion module's fixtures and lines did not (their
   nodes run no sync part).
-- Done: a held action's menu entry is pressed twice (3 s of the desk's clock, `HeldPress`); every card line and generated entry whose
-  catalogue row presses hold is held, on its button and in its menu (`HeldMenuTests`, over every such row the fixtures show).
+- Done: a held action's menu entry is pressed twice (3 s of the desk's clock, `HeldPress`), armed with the line its label names (a
+  line a push moved in between arms it afresh); every line whose catalogue row presses hold is held wherever the desk sends it from a
+  button or a menu — its own controls, a card's line, a generated entry — except `VIDEO STOP`, `PANIC CLEAR` and `MASTER`, which the
+  desk sends at every press with the air's controls (`DeskAction.SentAtOnce`; `HeldMenuTests`, over every action the desk offers);
+  a menu entry shows its words as they are (no access keys).
 - Done: the views' leases (`VIEW <view> KEEP`) are renewed on the desk's clock, as the overlay's are (`KeepViewsEveryMs`).
-- Open (owner's call): the desk's own controls of lines a Companion key holds or presses twice — the transport's Stop and seek, the
-  master, the panic banner's Clear and fade menu, the blind panel's commits, a pattern — send on one press; a card's `APPROVE`
-  (pressed twice on a key) is pressed once.
+- Open (owner's call): the transport's Stop, the panic banner's Clear and fade menu and the master are sent at every press though a
+  Companion key holds them; a card's `APPROVE` (pressed twice on a key) is pressed once.
+- Open: the throttle (drags, fields, a view's camera) sends what it coalesced in its last 16 ms to the link the desk holds when it
+  flushes, so a line queued just before the desk attaches to another node goes to that node (seen as a `VIEW editor-draft CAMERA` in
+  `DeskPreviewTests`); it should let go of what it held for the link it was queued on.
 - Open (next round): CALIBRATION HISTORY marks a row `current` by its id, while RECALL and FALLBACK refuse by the target's geometry
   ("<target> stands as <name> (<cs>) already", `CalibrationLedger.Matches`): just after a Recall the target stands as the kept result
   it came from too, and the desk offers Recall on that row and the node refuses it. The history should name the rows the target

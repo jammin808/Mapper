@@ -114,8 +114,8 @@ controls sending every press at once), every control greyed with the node's own 
 refuse (pairing, the fleet, the show's gate with the desk's own blind draft, a lock), Lock for the show in every object's menu, a
 card for every package's STATE whose buttons take their values from that STATE, Add effect, Modulate, Bind, Optimise and Use
 input entries built from the node's own answers, and an Esc ladder that backs out before it panics. A line a Companion key holds
-to confirm is held on the desk's button that sends it, and pressed twice in a menu: the first press arms the entry, a second within
-3 s sends the line. Round 2 has desk views of its own: a readiness light (the worst of the show's preflight, the fleet and the sync
+to confirm is held on every desk button that sends it and pressed twice in a menu (the first press arms the entry, a second within
+3 s sends the line), except the transport's Stop, the panic banner's Clear and the master, which go at every press. Round 2 has desk views of its own: a readiness light (the worst of the show's preflight, the fleet and the sync
 group, each lit as the node lights it); the blind chip, whose panel shows the draft's diff and commits it now or at the next item,
 discards it or draws it in MAP's 3D view; Health ▸ Fleet with each machine's card and FAILOVER, held to confirm; Health ▸ Preflight with a Fix button on every row; Health ▸ Calibration with each target's
 score card, a Fix per term and the history strip's Recall; MAP's quad tool (Q, four clicks, Enter; the arrows nudge a corner in
