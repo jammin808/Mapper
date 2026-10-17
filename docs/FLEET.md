@@ -206,7 +206,10 @@ on a follower (red while its leader is silent), and a key per backup of a primar
 The node's settings file has one writer, the network host (`NetworkHost.PersistSettings`, and `KeepSettings` for a change that is
 refused when it cannot be written): the sync role, the fleet's role and epoch, the links and the pairing token, the LED, control,
 video and audio settings, the present path and the decode policy each go through it, read fresh from the file and written under its
-one lock, so none loses another's.
+one lock, so none loses another's. Only the node's start and the network host load the file (a load makes it on a first run and puts
+a damaged one right); every other reader — the desk's pairing-token read, the render host's and the outputs' present settings —
+reads it as it is (`NodeHome.ReadSettings`) and never writes it. A write whose rename landed but whose folder the disk did not flush
+is the file's content and is kept, the change taken; the node shows a `settings-flush` fault until a later write flushes whole.
 
 The sampler, the light watch and the HEALTH clock run on timers of their own; the backup's watch (its fence, its group's new leader,
 its mirror's state) on a task of its own; the mirror's lines are taken one at a time beside the lane and run through the engine's own

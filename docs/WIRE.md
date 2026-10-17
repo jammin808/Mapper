@@ -162,7 +162,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
   next fetch of that file); a verified pull leaves the list and its item turns ready.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
   `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
-  `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings, the Patterns or
+  `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings (`settings`; `settings-flush`
+  while the settings file holds a change whose folder the disk did not flush, until a later write flushes whole), the Patterns or
   Stagewatch link, the project or the recovery record. Each is also a red item in the context. A node starts while at least one of the wire and the web
   port listens.
 - `ai` is the assistant's door: `mcp` (served at `/mcp`), `clients` (MCP clients heard in the last minute and open
@@ -294,17 +295,23 @@ draft is open), on a view id of its own (docs/SHOW.md). A shown view is leased: 
 view not renewed for 15 s is hidden and its ring let go (journalled), so a viewer that vanished without HIDE costs the
 node nothing for long. KEEP of a view that is not shown is refused with the reason — the viewer then shows it again. The desk renews
 every view it shows every 5 s.
-Pictures are BGRA in a shared-memory ring whose file the SHOW reply names — `{"view":"editor","ring":"<path>"}` — and STATE
-`machine.views[]` lists for every view shown (`id`, `what`, `ring`), fitted inside the size asked
+Pictures are BGRA in a shared-memory ring whose file the SHOW reply names — `{"view":"editor","ring":"<path>","seq":<n>}`, `seq`
+the STATE seq from which STATE shows the view as the reply names it (every STATE written before the SHOW ran counts below it) — and
+STATE `machine.views[]` lists for every view shown (`id`, `what`, `ring`), fitted inside the size asked
 (and 1920×1200) at the picture's own aspect: an output at most 10 times a second, the editor and a projector
 at most 30. A view keeps its ring while it lives (a reader opens it once). Each ring the node makes is a new file, one generation
 of the view's (`playmap-<node>-<view>~<generation>.preview`): a view shown again after its ring went, or a draft view shown again
 while its last ring retires, writes a ring no reader has mapped, so a reader that still maps the old one keeps its last picture and
 never holds the new one up; generations count up from the engine's start (its wall-clock milliseconds × 1000), so a ring made after a
 restart never takes a name a reader opened before it. `ring` is empty for a view the node writes no ring for. A reader opens the
-file the reply or STATE names, and opens it again when that name changes. The desk reads that file and no other, taking each
-view's ring from whichever of the reply and STATE came last; a new name closes and disposes the reader of the old ring before the
-new one opens, and a view STATE lists no more is let go. View ids are file names: letters,
+file the reply or STATE names, and opens it again when that name changes. The desk reads that file only when it is one of the
+linked node's rings for that view in its own preview folder (`playmap-<node>-<view>~<digits>.preview`, directly in the folder,
+decided from the words before the disk is touched), and no other file: any other name opens nothing, and a named file that is not a
+whole ring (empty, short, a pipe or a device) is not mapped; the stand-in says why. It takes each view's ring from the newer of the
+reply and STATE: a STATE whose `seq` is below the reply's changes nothing of that view, a STATE as new names it as it stands, and a
+STATE counting below the last one is a node that started again. A new name closes and disposes the reader of the old ring before the
+new one opens, also while the view is off screen, and a view STATE lists no more is let go. A reply that comes back on a link the
+desk has let go names nothing, and a new link is asked for every view at once. View ids are file names: letters,
 digits, `-`, `_`, `.`, at most 64. VIEW is a query (never journalled) taken from this machine or a paired peer;
 a view the node cannot draw (no GPU, no camera feed) is refused with the reason, and the desk draws its own
 stand-in with those words — as it does while no ring is named, and with the words why while the named ring does not open. The
