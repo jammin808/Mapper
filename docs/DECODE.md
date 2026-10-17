@@ -27,7 +27,8 @@ the blocks. All seven codecs play, including the two FFmpeg has no decoder for.
   the loop reads across its end, every HAP frame is a keyframe so a seek reads from the frame at or before the target. A refused
   or corrupt frame is counted with its words and the last good frame holds; ten in a row put the words in the status.
   `SnappyBlock` is the second stage. `HapProbe` proves a clip decodable the way it plays; `HapInspect` reads a clip for MEDIA
-  INSPECT; `HapThroughput` measures the second stage on a synthetic 4K HAP Q frame.
+  INSPECT; `HapThroughput` measures the second stage on a synthetic 4K HAP Q frame, and the 4K60 layer count it records is
+  worked from the decode time it records (to 0.01 ms), so the published time always gives the published count.
 - **Render**: `GlDevice.Decode.cs` makes and fills compressed textures (from client memory or a ring of pixel-unpack buffers) and
   refuses a family the context lacks with words; what the context samples comes from `GlCaps` (its version and extensions), never
   from the driver's compressed-format list. `VideoTextureSet` uploads HAP planes at the coded size (whole blocks) and runs the

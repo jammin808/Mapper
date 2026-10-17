@@ -27,6 +27,17 @@ public sealed class HapPreflightTests
         new HapLayersCheck().RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None);
 
     [Fact]
+    public void TheMeasuredLayerCountIsTheOneItsRecordedDecodeTimeGives()
+    {
+        // 2.0834 ms is kept as 2.08 ms: 4 × 16.67 ms ÷ 2.08 ms is 32.05, so the count is 32 (31.999's 31 would contradict the
+        // time the record publishes).
+        var measured = DecodeFacts.Measure(4, 2.0834, 0);
+        Assert.Equal(2.08, measured.DecodeMs);
+        Assert.Equal((int)Math.Floor(measured.Cores * (1000.0 / 60) / measured.DecodeMs), measured.Value);
+        Assert.Equal((32, "cores"), (measured.Value, measured.Limit));
+    }
+
+    [Fact]
     public async Task MoreLayersThanTheNodeSustainsIsAmberWithTheLineThatShowsWhy()
     {
         await using var engine = new EngineCore(EngineServices.ForTests(), Show(Hap("md_a", "hap_q"), Hap("md_b", "hap_q"), Hap("md_c", "hap", 1920, 1080, "30")));
