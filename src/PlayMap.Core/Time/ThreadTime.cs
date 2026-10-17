@@ -28,11 +28,12 @@ public enum ThreadClock
 /// brought in). <see cref="Clock"/> says what a read is here, <see cref="ResolutionNs"/> the finest step it moves in and
 /// <see cref="Basis"/> both in words. Linux and macOS read the thread's CPU clock. Windows on an x64 kernel whose processor says its
 /// time-stamp counter is invariant reads the thread's cycles (the counter's ticks while the thread ran, user and kernel mode) at the
-/// counter's rate, measured once against the stopwatch when the type is first touched (<see cref="Warm"/>). Both are
-/// <see cref="Precise"/>. Other Windows reads the thread's kernel and user time, which Windows charges in whole clock ticks: an ARM64
-/// kernel counts a thread's cycles of the core's own clock, whose rate moves with the core's speed, and a counter the processor does
-/// not say is invariant may change rate with it. Elsewhere the reads are the stopwatch's. What a read converts with is fixed before
-/// the first read returns on any thread, so every read is thread-safe and no span two reads take holds the measuring.</summary>
+/// counter's rate, measured once against the stopwatch when the type is first touched (<see cref="Warm"/>), where the measuring's
+/// spins say the count follows the thread as it runs. Both are <see cref="Precise"/>. Other Windows reads the thread's kernel and user
+/// time, which Windows charges in whole clock ticks: an ARM64 kernel counts a thread's cycles of the core's own clock, whose rate
+/// moves with the core's speed, a counter the processor does not say is invariant may change rate with it, and a count the spins do
+/// not agree on is not converted. Elsewhere the reads are the stopwatch's. What a read converts with is fixed before the first read
+/// returns on any thread, so every read is thread-safe and no span two reads take holds the measuring.</summary>
 public static partial class ThreadTime
 {
     private const int LinuxThreadCpu = 3;
@@ -55,6 +56,9 @@ public static partial class ThreadTime
     /// <summary>How many spins of about a millisecond the cycle rate is measured over.</summary>
     private const int RateSpins = 16;
 
+    /// <summary>The share of an agreeing spin's rate in the fastest spin's (within 1% of it); a quarter of the spins must agree.</summary>
+    private const double RateAgreement = 0.99;
+
     /// <summary>The range an x64 time-stamp counter's rate lies in (cycles a nanosecond: 100 MHz to 10 GHz); a measured rate outside
     /// it is not the counter's.</summary>
     private const double MinCyclesPerNs = 0.1;
@@ -73,7 +77,8 @@ public static partial class ThreadTime
     /// <summary>True when a read is the thread's own processor time at all (precisely, or in Windows' ticks), not the stopwatch.</summary>
     public static bool Counted => Chosen.Clock != ThreadClock.Stopwatch;
 
-    /// <summary>The finest step a read moves in (ns): a span read here is within one of these of the work done in it.</summary>
+    /// <summary>The step a read moves in (ns), at most: a read tells nothing finer. A span read from the cycles
+    /// (<see cref="ThreadClock.Cycles"/>) also reads long by the measured rate's shortfall from the counter's, never short.</summary>
     public static long ResolutionNs => Chosen.ResolutionNs;
 
     /// <summary>Nanoseconds a cycle where the cycles are read (<see cref="ThreadClock.Cycles"/>), else 0.</summary>
@@ -131,11 +136,16 @@ public static partial class ThreadTime
         var why = WhyCyclesAreNotConverted();
         if (why.Length == 0)
         {
-            var cycleNs = MeasureCycleNs();
-            if (cycleNs > 0)
-                return new Choice(ThreadClock.Cycles, 1, cycleNs, string.Create(CultureInfo.InvariantCulture,
-                    $"the thread's cycles of the invariant time-stamp counter, at {cycleNs:0.00000} ns a cycle measured against the stopwatch"));
-            why = "the thread's cycles could not be measured against the stopwatch";
+            var rate = MeasureCycleRate();
+            if (rate.CyclesPerNs > 0)
+            {
+                var cycleNs = 1 / rate.CyclesPerNs;
+                // A read is a whole nanosecond count of whole cycles: it moves in a cycle's span rounded up, and in 1 ns at least.
+                var step = Math.Max(1, (long)Math.Ceiling(cycleNs));
+                return new Choice(ThreadClock.Cycles, step, cycleNs, string.Create(CultureInfo.InvariantCulture,
+                    $"the thread's cycles of the invariant time-stamp counter, in steps of {step} ns, at {cycleNs:0.00000} ns a cycle measured against the stopwatch ({rate.Agreeing} of {RateSpins} spins within 1% of the fastest)"));
+            }
+            why = rate.Why;
         }
         if (!ReadTicks(out _))
             return StopwatchChoice("the thread's times could not be read: " + why);
@@ -161,9 +171,8 @@ public static partial class ThreadTime
         return "";
     }
 
-    /// <summary>Whether the Windows kernel is x64, the kernel that counts a thread's cycles from the time-stamp counter. The process's
-    /// own view cannot say: an x64 process emulated on ARM64 Windows is told the machine is x64; the kernel's machine types say which
-    /// it runs.</summary>
+    /// <summary>Whether the Windows kernel is x64, the kernel that counts a thread's cycles from the time-stamp counter. The runtime
+    /// reports the native machine, an emulating process's included; the kernel's machine types confirm the kernel runs x64 code.</summary>
     private static bool KernelRunsX64()
     {
         if (RuntimeInformation.OSArchitecture != Architecture.X64)
@@ -180,14 +189,10 @@ public static partial class ThreadTime
         }
     }
 
-    /// <summary>Nanoseconds a cycle of the calling thread, from the highest rate any of 16 spins of about a millisecond counts: its
-    /// cycles over the stopwatch's span around it. Each spin's two cycle reads lie inside its two stopwatch reads, and the span is taken one stopwatch
-    /// tick longer than read (a read is the tick it falls in), so no spin counts more cycles than the counter's rate gives its span; a
-    /// preemption or an interrupt in a spin only lowers what it counts. The rate taken is therefore never above the counter's, and a
-    /// span converted at it reads at least the work done in it: a measuring spin the machine interrupted makes reads long, never
-    /// short. The spins run at the highest thread priority, so the machine's ordinary work rarely takes their processor. 0 when the
-    /// cycles cannot be read or the rate is not an x64 counter's.</summary>
-    private static double MeasureCycleNs()
+    /// <summary>The calling thread's cycle rate, from <see cref="RateSpins"/> spins of about a millisecond at the highest thread
+    /// priority, so the machine's ordinary work rarely takes their processor (<see cref="RateFrom"/>). Each spin's cycle reads (two at
+    /// its start, one at its end) lie inside its two stopwatch reads.</summary>
+    private static CycleRate MeasureCycleRate()
     {
         var thread = Thread.CurrentThread;
         var priority = thread.Priority;
@@ -195,29 +200,75 @@ public static partial class ThreadTime
         try
         {
             var spin = Math.Max(1, Stopwatch.Frequency / 1000);
-            var tickNs = 1e9 / Stopwatch.Frequency;
-            var best = 0.0;
-            for (var i = 0; i < RateSpins; i++)
+            var spins = new RateSpin[RateSpins];
+            for (var i = 0; i < spins.Length; i++)
             {
                 var t0 = Stopwatch.GetTimestamp();
-                if (!QueryThreadCycleTime(CurrentThread, out var c0))
-                    return 0;
+                if (!QueryThreadCycleTime(CurrentThread, out var c0) || !QueryThreadCycleTime(CurrentThread, out var next))
+                    return new CycleRate(0, 0, "the thread's cycles could not be read");
                 while (Stopwatch.GetTimestamp() - t0 < spin)
                 {
                     // Spinning: the thread runs the whole span unless the machine takes it away.
                 }
                 if (!QueryThreadCycleTime(CurrentThread, out var c1))
-                    return 0;
+                    return new CycleRate(0, 0, "the thread's cycles could not be read");
                 var t1 = Stopwatch.GetTimestamp();
-                best = Math.Max(best, (c1 - c0) / ((t1 - t0 + 1) * tickNs));
+                spins[i] = new RateSpin(c1 > c0 ? c1 - c0 : 0, next > c0 ? next - c0 : 0, t1 - t0);
             }
-            return best is >= MinCyclesPerNs and <= MaxCyclesPerNs ? 1 / best : 0;
+            return RateFrom(spins, 1e9 / Stopwatch.Frequency);
         }
         finally
         {
             thread.Priority = priority;
         }
     }
+
+    /// <summary>One spin of the cycle rate's measuring: the cycles the thread counted in it, the cycles a read straight after its
+    /// first counted beyond that first (each 0 where the count did not move forward), and the stopwatch ticks between the two stopwatch
+    /// reads around its cycle reads.</summary>
+    internal readonly record struct RateSpin(ulong Cycles, ulong ReadStep, long Ticks);
+
+    /// <summary>A measured cycle rate (cycles a nanosecond), how many spins agreed on it, and, where it does not stand (0), why.</summary>
+    internal readonly record struct CycleRate(double CyclesPerNs, int Agreeing, string Why);
+
+    /// <summary>The counter's rate from spins timed in stopwatch ticks of <paramref name="tickNs"/>: the fastest spin's, its cycles over
+    /// its span taken one tick longer than read (a read is the tick it falls in). No spin whose cycle reads lie inside its stopwatch
+    /// reads counts more cycles than the counter's rate gives that span, and a preemption or an interrupt in a spin only lowers what it
+    /// counts, so the rate is never above the counter's and a span converted at it reads at least the work done in it. That holds only
+    /// for a count brought up to date at each read: one brought up to date at a clock tick, a switch or any interval lags the thread by
+    /// an amount that varies, and a spin's difference of two such reads can count more than the counter gave the spin. The rate stands
+    /// only where, in every spin, the count moved forward between two reads straight after each other (a read's own work is the
+    /// thread's; a count brought up to date at an interval stands still between them) and across the spin; where a quarter of the
+    /// spins count within 1% of the fastest (an interrupt only lowers one spin; spins that scatter say the rate is not established);
+    /// and where it is an x64 counter's rate.</summary>
+    internal static CycleRate RateFrom(ReadOnlySpan<RateSpin> spins, double tickNs)
+    {
+        if (spins.IsEmpty)
+            return new CycleRate(0, 0, "no spin measured the thread's cycle rate");
+        var best = 0.0;
+        foreach (var s in spins)
+        {
+            if (s.Cycles == 0 || s.ReadStep == 0)
+                return new CycleRate(0, 0,
+                    "the thread's cycle count did not move forward between two reads, so it is not brought up to date as the thread runs");
+            best = Math.Max(best, RateOf(s, tickNs));
+        }
+        var agreeing = 0;
+        foreach (var s in spins)
+        {
+            if (RateOf(s, tickNs) >= best * RateAgreement)
+                agreeing++;
+        }
+        if (agreeing * 4 < spins.Length)
+            return new CycleRate(0, agreeing, string.Create(CultureInfo.InvariantCulture,
+                $"only {agreeing} of {spins.Length} spins measuring the thread's cycle rate counted within 1% of the fastest, so the rate is not established"));
+        if (best is < MinCyclesPerNs or > MaxCyclesPerNs)
+            return new CycleRate(0, agreeing, string.Create(CultureInfo.InvariantCulture,
+                $"the measured cycle rate, {best:0.###} a nanosecond, is not an x64 time-stamp counter's"));
+        return new CycleRate(best, agreeing, "");
+    }
+
+    private static double RateOf(RateSpin s, double tickNs) => s.Cycles / ((s.Ticks + 1) * tickNs);
 
     private static long StopwatchNs() => (long)(Stopwatch.GetTimestamp() * (1e9 / Stopwatch.Frequency));
 
