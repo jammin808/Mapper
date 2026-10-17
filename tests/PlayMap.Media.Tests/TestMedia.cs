@@ -16,7 +16,7 @@ namespace PlayMap.Media.Tests;
 /// the frame-exact acquire, seek and preroll are proven on reordered streams), HAP, ProRes, MJPEG, VP9, AV1, PCM and AAC by FFmpeg's
 /// own or BSD libraries. No LGPL-compatible encoder here writes H.264 with B-frames, CABAC or the High profile. The one exception is
 /// <c>hevc10.mp4</c>: no 10-bit HEVC encoder here is LGPL-compatible (Kvazaar is built 8-bit), so it is made by libx265 (GPL) at
-/// test time and never committed.</para></summary>
+/// test time and never committed, as the owner decided.</para></summary>
 public static class TestMedia
 {
     public const string DefaultLibraryFolder = "/opt/ffmpeg9/lib";
