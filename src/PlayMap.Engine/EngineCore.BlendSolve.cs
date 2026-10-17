@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
 
@@ -103,7 +104,7 @@ public sealed partial class EngineCore
     }
 
     private Task<BlendSolution> DefaultBlendSolver(BlendInputs inputs, IProgress<double> progress, CancellationToken ct) =>
-        Task.FromResult(inputs.Solve(Meshes, progress, ct));
+        Compute.RunAsync(() => inputs.Solve(Meshes, progress, ct), ct);
 
     /// <summary>On the lane: the worker's result applied as one step while the stage is still the one solved, else
     /// dropped with the reason; the journal and STATE.solve say which.</summary>

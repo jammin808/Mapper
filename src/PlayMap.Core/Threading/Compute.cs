@@ -1,23 +1,23 @@
 using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
 
 namespace PlayMap.Core.Threading;
 
 /// <summary>
-/// Where the node's CPU-bound loops run: its own threads, never the shared thread pool. A data-parallel loop given the thread pool
-/// takes every worker until it ends (its replicas never yield between iterations), so the work the node's lanes, sockets and timers
-/// queue there waits behind it — a scan decode or a simulated camera held a sync group's GO for a second. Every <c>Parallel.For</c>
-/// and <c>Parallel.ForEach</c> passes <see cref="Options"/> or <see cref="With"/>: its bodies run on the calling thread and on these
-/// threads (one fewer than the processors, at least one), so the pool always has its own workers for the rest. A loop called while
-/// these threads are busy with another is never stalled by it: its calling thread runs its iterations itself.
+/// Where the node's CPU-bound work runs: its own threads, never the shared thread pool. A data-parallel loop handed the thread pool
+/// keeps every worker it takes busy until the loop ends, and a solve or decode run on a pool thread holds that thread for its whole
+/// length; the work the node's lanes, sockets and timers queue on the pool then waits behind them. Every <c>Parallel.For</c> and
+/// <c>Parallel.ForEach</c> passes <see cref="Options"/> or <see cref="With"/>: a loop runs as wide as the processors, on its calling
+/// thread and these threads (one fewer than the processors, at least one). A long CPU job is handed to <see cref="RunAsync{T}"/>: it
+/// runs on these threads, its caller awaits it without holding a pool thread and resumes on the pool. A loop called while every
+/// compute thread is busy is never stalled by them: its calling thread runs its iterations itself.
 /// </summary>
 public static class Compute
 {
     /// <summary>The scheduler of the compute threads.</summary>
     public static TaskScheduler Scheduler => ComputeScheduler.Instance;
 
-    /// <summary>A loop's options on the compute threads, without cancellation (never written: shared by every caller).</summary>
-    public static ParallelOptions Options { get; } = new() { TaskScheduler = ComputeScheduler.Instance };
+    /// <summary>A loop's options on the compute threads, without cancellation (a fresh set each time: a caller may change its own).</summary>
+    public static ParallelOptions Options => new() { TaskScheduler = ComputeScheduler.Instance };
 
     /// <summary>A loop's options on the compute threads, cancelled by <paramref name="ct"/>, at most <paramref name="maxDegree"/> bodies
     /// at once (−1: as many as the threads allow).</summary>
@@ -25,7 +25,52 @@ public static class Compute
         new() { TaskScheduler = ComputeScheduler.Instance, CancellationToken = ct, MaxDegreeOfParallelism = maxDegree };
 
     /// <summary>The compute threads (the calling thread of a loop works beside them).</summary>
-    public static int Threads => ComputeScheduler.Instance.MaximumConcurrencyLevel;
+    public static int Threads => ComputeScheduler.Instance.Threads;
+
+    /// <summary>A CPU-bound job on the compute threads: its caller awaits it without holding a thread of the pool and resumes on the
+    /// pool, never on a compute thread. Cancelled before it starts, it never runs; its exception is the awaiter's.</summary>
+    public static Task<T> RunAsync<T>(Func<T> work, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (ct.IsCancellationRequested)
+        {
+            done.SetCanceled(ct);
+            return done.Task;
+        }
+        _ = Task.Factory.StartNew(() =>
+        {
+            if (ct.IsCancellationRequested)
+            {
+                done.TrySetCanceled(ct);
+                return;
+            }
+            try
+            {
+                done.TrySetResult(work());
+            }
+            catch (OperationCanceledException ex)
+            {
+                done.TrySetCanceled(ex.CancellationToken);
+            }
+            catch (Exception ex)
+            {
+                done.TrySetException(ex);
+            }
+        }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, ComputeScheduler.Instance);
+        return done.Task;
+    }
+
+    /// <summary>A CPU-bound job with no result on the compute threads (<see cref="RunAsync{T}"/>).</summary>
+    public static Task RunAsync(Action work, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        return RunAsync(() =>
+        {
+            work();
+            return true;
+        }, ct);
+    }
 
     /// <summary>True on a compute thread.</summary>
     public static bool OnComputeThread => ComputeScheduler.IsComputeThread;
@@ -52,7 +97,10 @@ public static class Compute
 
         public static bool IsComputeThread => t_compute;
 
-        public override int MaximumConcurrencyLevel => _threads;
+        public int Threads => _threads;
+
+        // A loop's width counts its calling thread beside these.
+        public override int MaximumConcurrencyLevel => _threads + 1;
 
         private void Work()
         {
@@ -67,7 +115,6 @@ public static class Compute
         // A loop's own replica runs on the thread that asked for it, so a loop progresses while every compute thread is busy.
         protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => TryExecuteTask(task);
 
-        [ExcludeFromCodeCoverage]
         protected override IEnumerable<Task> GetScheduledTasks() => _queue.ToArray();
     }
 }

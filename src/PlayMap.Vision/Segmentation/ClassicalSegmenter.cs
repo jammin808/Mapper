@@ -1,6 +1,7 @@
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Vision;
 
 namespace PlayMap.Vision.Segmentation;
@@ -50,7 +51,7 @@ public sealed class ClassicalSegmenter : ISegmenter
     public SegmenterCapabilities Capabilities => SegmenterCapabilities.Points | SegmenterCapabilities.Box;
 
     public Task<SegmentationResult> SegmentAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken) =>
-        Task.Run(() => Segment(frame, prompt, cancellationToken), cancellationToken);
+        Compute.RunAsync(() => Segment(frame, prompt, cancellationToken), cancellationToken);
 
     /// <summary>The same work on the caller's thread (for a worker that is already off the desk's thread).</summary>
     public SegmentationResult Segment(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)

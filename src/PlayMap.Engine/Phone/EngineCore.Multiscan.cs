@@ -4,6 +4,7 @@ using PlayMap.Assistant;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Calibration;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Vision;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Assistant;
@@ -110,7 +111,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail("SCAN VIEWS <scan>");
         if (Store.Project.Stage.Scans.Find(call.Args[0]) is not { } record)
             return CommandReply.Fail($"no scan {call.Args[0]}");
-        var outcome = await Task.Run(() => OutcomeOf(record), call.Ct).ConfigureAwait(false);
+        var outcome = await Compute.RunAsync(() => OutcomeOf(record), call.Ct).ConfigureAwait(false);
         if (outcome is null)
             return CommandReply.Fail(NoData(record));
         if (outcome.Captured.IsDefaultOrEmpty)
@@ -198,11 +199,11 @@ public sealed partial class EngineCore
     private async Task<CommandReply> SuggestAsync(VerbCall call, ScanRunner runner, AssistantService assistant, ScanRecord record, bool ask,
         List<string> queued, CancellationToken ct)
     {
-        var outcome = await Task.Run(() => OutcomeOf(record), ct).ConfigureAwait(false);
+        var outcome = await Compute.RunAsync(() => OutcomeOf(record), ct).ConfigureAwait(false);
         if (outcome is null)
             return CommandReply.Fail(NoData(record));
         var project = Store.Project;
-        var candidates = await Task.Run(() => ScanSuggestions.Candidates(outcome, project), ct).ConfigureAwait(false);
+        var candidates = await Compute.RunAsync(() => ScanSuggestions.Candidates(outcome, project), ct).ConfigureAwait(false);
         if (candidates.Count == 0)
             return CommandReply.Fail($"{record.Name} measured no region worth a surface — add a view (SCAN START <camera> INTO {record.Id}) or click on its smart scan (SCAN SURFACE)");
 
@@ -302,7 +303,7 @@ public sealed partial class EngineCore
         }
         if (args.Count < 3 || Store.Project.Stage.Scans.Find(args[0]) is not { } record)
             return null;
-        var outcome = await Task.Run(() => OutcomeOf(record), ct).ConfigureAwait(false);
+        var outcome = await Compute.RunAsync(() => OutcomeOf(record), ct).ConfigureAwait(false);
         if (outcome is null || (outcome.Multi is null && on is null))
             return null;
         var call = new VerbCall(VerbCatalog.Find("SCAN SURFACE")!, args, line, session, ct);

@@ -3,6 +3,7 @@ using PlayMap.Core.Calibration;
 using PlayMap.Core.Calibration.Scoring;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
 
@@ -28,7 +29,7 @@ public sealed partial class EngineCore
         var (pj, locks, retest, refused) = await _lane.RunAsync(() => SolveInputs(EditsFor(c.Session).Project, args)).ConfigureAwait(false);
         if (refused is not null || pj is null)
             return CommandReply.Fail(refused ?? Usage);
-        var longThrow = await Task.Run(() => LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retest),
+        var longThrow = await Compute.RunAsync(() => LongThrowSolve.Solve(pj with { Locks = locks }, PoseSolveOptions.Default with { Locks = locks, InitialPose = pj.Pose }, retest),
             c.Ct).ConfigureAwait(false);
         var solution = longThrow.Solution;
         if (solution.Inliers.Count(x => x) < 4 || double.IsNaN(solution.RmsPx))
@@ -347,7 +348,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"no scan {args[0]}");
         if (ProjectFolderForFiles is not { } folder)
             return CommandReply.Fail("the project has no folder yet — PROJECT SAVE it first: the scan's mesh is written beside it");
-        var outcome = await Task.Run(() => OutcomeOf(scan), ct).ConfigureAwait(false);
+        var outcome = await Compute.RunAsync(() => OutcomeOf(scan), ct).ConfigureAwait(false);
         if (outcome is null)
             return CommandReply.Fail(NoData(scan));
         if (outcome.Geometry is not { } g)

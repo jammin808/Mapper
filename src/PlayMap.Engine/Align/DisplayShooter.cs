@@ -95,7 +95,7 @@ internal sealed class DisplayShooter(IScanDisplay display, IScanCamera camera, I
     }
 
     /// <summary>Black on every output, then white and black a few times on the first, each change stamped at its present; every
-    /// camera picture's mean brightness collected meanwhile.</summary>
+    /// camera picture's mean brightness collected meanwhile, each phase held as <see cref="FlashPhases"/> holds it.</summary>
     private async Task<double> MeasureLatencyAsync(CancellationToken ct)
     {
         if (options.LatencyFlashes <= 0 || outputs.Count == 0)
@@ -106,6 +106,7 @@ internal sealed class DisplayShooter(IScanDisplay display, IScanCamera camera, I
         var black = new byte[first.Width * first.Height];
         var estimator = new LatencyEstimator();
         var gate = new Lock();
+        using var phases = new FlashPhases(options.FlashHold, options.FrameTimeout);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var collect = Task.Run(async () =>
         {
@@ -127,25 +128,30 @@ internal sealed class DisplayShooter(IScanDisplay display, IScanCamera camera, I
                 var mean = LatencyEstimator.MeanBrightness(f.Gray);
                 lock (gate)
                     estimator.AddFrame(f.ArrivalNs / 1e6, mean);
+                phases.Frame(f.ArrivalNs);
             }
             return generation;
         }, CancellationToken.None);
         try
         {
+            var at = 0L;
             for (var k = 0; k < outputs.Count; k++)
             {
                 var o = outputs[k];
                 _blackFrames[k] ??= new byte[o.Width * o.Height];
-                await display.ShowAsync(o.Id, _blackFrames[k]!, o.Width, o.Height, ct).ConfigureAwait(false);
+                at = Math.Max(at, await display.ShowAsync(o.Id, _blackFrames[k]!, o.Width, o.Height, ct).ConfigureAwait(false));
                 _black[k] = true;
             }
-            await Task.Delay(options.FlashHold, ct).ConfigureAwait(false);
-            for (var k = 0; k < 2 * options.LatencyFlashes; k++)
+            if (await phases.HoldAsync(at, ct).ConfigureAwait(false))
             {
-                var at = await display.ShowAsync(first.Id, k % 2 == 0 ? white : black, first.Width, first.Height, ct).ConfigureAwait(false);
-                lock (gate)
-                    estimator.AddChange(at / 1e6);
-                await Task.Delay(options.FlashHold, ct).ConfigureAwait(false);
+                for (var k = 0; k < 2 * options.LatencyFlashes; k++)
+                {
+                    at = await display.ShowAsync(first.Id, k % 2 == 0 ? white : black, first.Width, first.Height, ct).ConfigureAwait(false);
+                    lock (gate)
+                        estimator.AddChange(at / 1e6);
+                    if (!await phases.HoldAsync(at, ct).ConfigureAwait(false))
+                        break;
+                }
             }
         }
         finally

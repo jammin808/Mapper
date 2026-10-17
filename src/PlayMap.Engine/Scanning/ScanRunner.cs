@@ -4,6 +4,7 @@ using System.Text.Json;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Vision;
 using PlayMap.Engine.Devices;
 using PlayMap.Vision.Segmentation;
@@ -554,7 +555,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             await HoldCameraAsync(setup).ConfigureAwait(false);
             try
             {
-                captures = CaptureSimulated(rig, setup, track, views, out truth, ct);
+                (captures, truth) = await Compute.RunAsync(() => (CaptureSimulated(rig, setup, track, views, out var t, ct), t), ct).ConfigureAwait(false);
             }
             finally
             {
@@ -573,7 +574,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
 
         track.Step("running", "calibrating", $"solving {setup.Names}", overall: 0.88);
         var options = new ScanSolveOptions { KnownDistance = known, Model = StageModel(setup) };
-        var solution = await Task.Run(() => ScanSolver.Solve(setup.Camera, captures, options, ct), ct).ConfigureAwait(false);
+        var solution = await Compute.RunAsync(() => ScanSolver.Solve(setup.Camera, captures, options, ct), ct).ConfigureAwait(false);
         if (!solution.Projectors.Any(p => p.Solved))
             throw new InvalidOperationException("no projector could be solved — " + string.Join("; ", solution.Projectors.Select(p => p.Name + ": " + p.Words)));
 
@@ -583,7 +584,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             : [new SimulatedDevice("camera", rig.Camera.Intrinsics, rig.Camera.Pose), .. setup.Parts.Select((p, j) => new SimulatedDevice(p.Projector.Id, rig.Projector(j).Intrinsics, rig.Projector(j).Pose))];
         var outcome = new ScanOutcome(setup.Id, name, setup.Rig?.Id ?? SimulatedRig.CameraId, setup.Simulated, rig?.SceneName ?? "", solution, views, truthDevices);
         var geometry = ScanArchive.GeometryOf(outcome, ScanSurfaces.CameraImage(captures[0].Map));
-        var regions = geometry is null ? [] : await Task.Run(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
+        var regions = geometry is null ? [] : await Compute.RunAsync(() => ScanSurfaces.Regions(geometry), ct).ConfigureAwait(false);
         regions = ScanSurfaces.LitBy(regions, geometry, solution);
         outcome = outcome with { Geometry = geometry, Regions = regions, Latencies = latencies, Captured = [Placed(view, solution, setup.Project.Stage.Site)] };
         track.Regions(regions);
@@ -796,12 +797,12 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                     var (cuedFrames, cw, ch, located, pairing) = await CaptureCuedAsync(display, cued, setup.CameraId,
                         (rig.Intrinsics.Width, rig.Intrinsics.Height), cuedScan, j, part, track, notes, ct).ConfigureAwait(false);
                     track.Pairing(pairing);
-                    captures.Add(Decode(j, part, cw, ch, cuedFrames, null, views, track, map =>
+                    captures.Add(await Compute.RunAsync(() => Decode(j, part, cw, ch, cuedFrames, null, views, track, map =>
                     {
                         // The tags are not the pattern: their footprint and anything decoded beside their places is left out.
                         map.Exclude(located.Shadow);
                         map.ExcludeProjectorRects([.. located.Sites.Select(site => site.Rect)], 2);
-                    }));
+                    }), ct).ConfigureAwait(false));
                     continue;
                 }
                 track.Step("running", "latency", $"{part.Projector.Name}: measuring the camera's latency with white flashes", j, "latency");
@@ -811,7 +812,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 var (frames, w, h, unsettled) = await ShowAndCaptureAsync(display, camera, setup.CameraId, j, part, latency.LatencyMs, track, ct).ConfigureAwait(false);
                 if (unsettled > 0)
                     notes.Add(string.Create(CultureInfo.InvariantCulture, $"{part.Projector.Name}: {unsettled} of {part.Plan.Count} patterns were taken without the camera settling."));
-                captures.Add(Decode(j, part, w, h, frames, null, views, track));
+                captures.Add(await Compute.RunAsync(() => Decode(j, part, w, h, frames, null, views, track), ct).ConfigureAwait(false));
             }
             return captures;
         }
@@ -846,14 +847,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         return ScanCameras.Open(engine, rig);
     }
 
-    /// <summary>Pictures a latency phase (the black before the flashes, each flash, each black between) waits for, stamped after its
-    /// change, beyond its hold: the estimator measures a change from the frames after it.</summary>
-    internal const int LatencyFramesPerPhase = LatencyEstimator.FramesAfterChange;
-
     /// <summary>The camera's latency: black, then white and black a few times, each change stamped at its present; every frame's mean
-    /// brightness collected meanwhile. Each phase stays on the glass for its hold and until the camera has sent the pictures the
-    /// estimator needs from after its change (a slow camera, or a node under load, still measures); a camera that sends none for the
-    /// frame timeout ends the measurement with what it has.</summary>
+    /// brightness collected meanwhile, each phase held as <see cref="FlashPhases"/> holds it.</summary>
     private async Task<LatencyEstimate> MeasureLatencyAsync(IScanDisplay display, IScanCamera camera, string cameraId, Output output, CancellationToken ct)
     {
         var views = ViewsOf();
@@ -862,10 +857,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         var white = new byte[output.Width * output.Height];
         Array.Fill(white, (byte)255);
         var black = new byte[output.Width * output.Height];
-        // The present of the phase on the glass now, and the pictures stamped after it; a picture's arrival is signalled.
-        var phaseAtNs = long.MaxValue;
-        var phaseFrames = 0;
-        using var arrived = new SemaphoreSlim(0);
+        using var phases = new FlashPhases(_options.FlashHold, _options.FrameTimeout);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var collect = Task.Run(async () =>
         {
@@ -887,43 +879,21 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 views?.CameraFrame(cameraId, f.Gray, f.Width, f.Height, f.ArrivalNs);
                 var mean = LatencyEstimator.MeanBrightness(f.Gray);
                 lock (gate)
-                {
                     estimator.AddFrame(f.ArrivalNs / 1e6, mean);
-                    if (f.ArrivalNs > phaseAtNs)
-                        phaseFrames++;
-                }
-                arrived.Release();
+                phases.Frame(f.ArrivalNs);
             }
         }, CancellationToken.None);
-        async Task<bool> PhaseAsync(byte[] picture, bool change)
-        {
-            var at = await display.ShowAsync(output.Id, picture, output.Width, output.Height, ct).ConfigureAwait(false);
-            lock (gate)
-            {
-                if (change)
-                    estimator.AddChange(at / 1e6);
-                phaseAtNs = at;
-                phaseFrames = 0;
-            }
-            await Task.Delay(_options.FlashHold, ct).ConfigureAwait(false);
-            while (true)
-            {
-                lock (gate)
-                {
-                    if (phaseFrames >= LatencyFramesPerPhase)
-                        return true;
-                }
-                if (!await arrived.WaitAsync(_options.FrameTimeout, ct).ConfigureAwait(false))
-                    return false;
-            }
-        }
         try
         {
-            if (await PhaseAsync(black, change: false).ConfigureAwait(false))
+            var at = await display.ShowAsync(output.Id, black, output.Width, output.Height, ct).ConfigureAwait(false);
+            if (await phases.HoldAsync(at, ct).ConfigureAwait(false))
             {
                 for (var k = 0; k < 2 * Math.Max(1, _options.LatencyFlashes); k++)
                 {
-                    if (!await PhaseAsync(k % 2 == 0 ? white : black, change: true).ConfigureAwait(false))
+                    at = await display.ShowAsync(output.Id, k % 2 == 0 ? white : black, output.Width, output.Height, ct).ConfigureAwait(false);
+                    lock (gate)
+                        estimator.AddChange(at / 1e6);
+                    if (!await phases.HoldAsync(at, ct).ConfigureAwait(false))
                         break;
                 }
             }

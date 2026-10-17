@@ -7,6 +7,7 @@ namespace PlayMap.Core.Tests.Threading;
 /// <summary>The node's CPU-bound loops run on the compute threads and the calling thread, never on the shared thread pool (whose
 /// workers the lanes, sockets and timers need); a loop called while every compute thread is busy runs on its calling thread; and every
 /// data-parallel loop in the product passes the compute options.</summary>
+[Collection(ComputeCollection.Name)]
 public sealed partial class ComputeTests
 {
     [Fact]
@@ -71,10 +72,45 @@ public sealed partial class ComputeTests
         }
     }
 
-    [GeneratedRegex(@"Parallel\.(For|ForEach)\(")]
+    /// <summary>A loop runs as wide as the compute threads and its caller together: every one of them holds a body at once.</summary>
+    [Fact]
+    public void ALoopRunsOnItsCallerAndEveryComputeThreadAtOnce()
+    {
+        var width = Compute.Threads + 1;
+        using var all = new Barrier(width);
+        var met = 0;
+        var thread = new Thread(() => Parallel.For(0, width, Compute.Options, _ =>
+        {
+            // A hang guard: the barrier opens as soon as the width's bodies stand at it together.
+            if (all.SignalAndWait(TimeSpan.FromSeconds(60)))
+                Interlocked.Increment(ref met);
+        }));
+        thread.Start();
+        thread.Join();
+        Assert.Equal(width, met);
+    }
+
+    /// <summary>A CPU job runs on a compute thread, its caller resumes on the pool; its exception and its cancellation are the
+    /// awaiter's.</summary>
+    [Fact]
+    public async Task AJobRunsOnTheComputeThreadsAndItsCallerResumesOnThePool()
+    {
+        var (on, pool) = await Compute.RunAsync(() => (Compute.OnComputeThread, Thread.CurrentThread.IsThreadPoolThread));
+        Assert.Equal((true, false), (on, pool));
+        Assert.False(Compute.OnComputeThread);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Compute.RunAsync(() => throw new InvalidOperationException("no")));
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var ran = false;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Compute.RunAsync(() => ran = true, cancelled.Token));
+        Assert.False(ran);
+    }
+
+    [GeneratedRegex(@"Parallel\.(For|ForEach|Invoke)\(|\.AsParallel\(")]
     private static partial Regex Loop();
 
-    /// <summary>Every <c>Parallel.For</c> and <c>Parallel.ForEach</c> under src/ passes the compute options (third argument).</summary>
+    /// <summary>Every <c>Parallel.For</c> and <c>Parallel.ForEach</c> under src/ passes the compute options; none uses <c>Parallel.Invoke</c>
+    /// or PLINQ, which take the pool (<c>Parallel.ForEachAsync</c>, for awaited I/O, is not a CPU loop).</summary>
     [Fact]
     public void EveryLoopInTheProductPassesTheComputeOptions()
     {
@@ -91,13 +127,21 @@ public sealed partial class ComputeTests
             {
                 seen++;
                 var call = text.AsSpan(m.Index, Math.Min(240, text.Length - m.Index)).ToString();
-                // BlendSolver3D hands its loops one set of options, made by Compute.With.
-                var given = call.Contains(", po,", StringComparison.Ordinal) && text.Contains("var po = Compute.With(", StringComparison.Ordinal);
-                if (!call.Contains("Compute.", StringComparison.Ordinal) && !given)
+                // The options are the loop's own argument, before its body; BlendSolver3D hands its loops one set made by Compute.With.
+                var head = call.Split("=>")[0];
+                var given = head.Contains(", po,", StringComparison.Ordinal) && text.Contains("var po = Compute.With(", StringComparison.Ordinal);
+                if (m.Value.StartsWith(".AsParallel", StringComparison.Ordinal) || (!head.Contains("Compute.", StringComparison.Ordinal) && !given))
                     missing.Add($"{rel}: {call.Split('\n')[0].Trim()}");
             }
         }
         Assert.True(seen > 30, $"{seen} loops found");
         Assert.Empty(missing);
     }
+}
+
+/// <summary>The compute tests hold the compute threads (and measure a loop's width): they run alone, after the parallel tests.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ComputeCollection
+{
+    public const string Name = "Compute threads";
 }

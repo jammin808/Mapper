@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Vision;
 using PlayMap.Vision.Segmentation;
 
@@ -35,7 +36,7 @@ public sealed class CornerDetector : IFeatureSuggester
     public string Id => "shi-tomasi";
 
     public Task<IReadOnlyList<FeaturePoint>> SuggestAsync(ImageGray8 image, int maxCount, CancellationToken cancellationToken) =>
-        Task.Run(() => Detect(image, maxCount, cancellationToken), cancellationToken);
+        Compute.RunAsync(() => Detect(image, maxCount, cancellationToken), cancellationToken);
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public IReadOnlyList<FeaturePoint> Detect(ImageGray8 image, int maxCount, CancellationToken cancellationToken)

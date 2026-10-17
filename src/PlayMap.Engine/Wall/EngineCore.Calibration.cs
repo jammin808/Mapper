@@ -5,6 +5,7 @@ using PlayMap.Core.Calibration;
 using PlayMap.Core.Calibration.Scoring;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Wall;
@@ -692,7 +693,7 @@ public sealed partial class EngineCore
                 var pj = named[i];
                 // The same solve as PROJECTOR SOLVE's with no LOCK word: the projector's priors as rows, and a focal the lens locked
                 // asked again.
-                var longThrow = await Task.Run(() => LongThrowSolve.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose },
+                var longThrow = await Compute.RunAsync(() => LongThrowSolve.Solve(pj, PoseSolveOptions.Default with { Locks = pj.Locks, InitialPose = pj.Pose },
                     retestLock: true), cts.Token).ConfigureAwait(false);
                 cts.Token.ThrowIfCancellationRequested();
                 var solution = longThrow.Solution;

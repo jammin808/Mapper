@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Phone;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Engine.Scanning;
 
@@ -220,7 +221,7 @@ public sealed partial class ScanRunner
             locate[k] = frame.Gray;
             views?.CameraFrame(cameraId, frame.Gray, frame.Width, frame.Height, frame.ArrivalNs);
         }
-        var located = await Task.Run(() => CellLocate.Decode(w, h, locate, candidates, _options.MaxTagSites), ct).ConfigureAwait(false);
+        var located = await Compute.RunAsync(() => CellLocate.Decode(w, h, locate, candidates, _options.MaxTagSites), ct).ConfigureAwait(false);
         notes.Add($"{pj.Name}: {located.Words}.");
         await camera.SetSitesAsync(pj.Id, located, ct).ConfigureAwait(false);
         var tagged = located.Chosen.Length > 0;

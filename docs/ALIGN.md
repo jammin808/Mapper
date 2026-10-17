@@ -28,7 +28,8 @@ pixel. Grouping outputs whose footprints do not touch into one pass is next roun
 The same sequence runs against the simulator (`MultiProjectorSim`, deterministic through `Pcg32`: a camera rig of kind
 `Simulated` whose source names a layout such as `flat-screen:tile3x1:o20`, `bulged-screen:…`, `curved-screen:…` or `…:stack2`)
 and against a real display and camera (`DisplayShooter`: the render host's scan display and any `IScanCamera`, the latency
-measured with flashes first and each picture taken only once the camera has settled). The camera is opened through
+measured with flashes first, each held as a scan holds its flashes — for its hold and until four camera pictures stamped after
+it have come, docs/SCAN-MULTIVIEW.md — and each picture taken only once the camera has settled). The camera is opened through
 `AlignRunnerOptions.OpenCamera`, so a phone camera plugs in as a seam.
 
 ## The flat fit (`PlanarFit`, `PlaneRectify`)

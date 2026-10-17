@@ -9,6 +9,7 @@ using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Scanning;
@@ -108,7 +109,7 @@ public sealed partial class EngineCore
     private async Task<CommandReply> LookAsync(VerbCall c, Project p, List<Projector> requested, List<Projector> named, CameraRig rig, bool simulated,
         List<Output> outputs, List<Output> shown, bool stage)
     {
-        var world = await Task.Run(() => StageWorld.Of(p, Meshes), c.Ct).ConfigureAwait(false);
+        var world = await Compute.RunAsync(() => StageWorld.Of(p, Meshes), c.Ct).ConfigureAwait(false);
         if (world is null)
             return CommandReply.Fail("the stage has no surface the dots could land on — a camera re-solve measures against the stage's surfaces");
 
@@ -129,7 +130,7 @@ public sealed partial class EngineCore
             if (simulated)
             {
                 var truth = named.Select(SimulatedStage.TruthOf).ToList();
-                var sim = await Task.Run(() => new StageSimulator(world, SimulatedStage.TruthOf(rig), truth), cts.Token).ConfigureAwait(false);
+                var sim = await Compute.RunAsync(() => new StageSimulator(world, SimulatedStage.TruthOf(rig), truth), cts.Token).ConfigureAwait(false);
                 shooter = new StageShooter(sim);
             }
             else
@@ -155,7 +156,7 @@ public sealed partial class EngineCore
                 task = task with { Projector = named[j].Id, Progress = 0.5 * (j + 1) / named.Count, Words = $"{named[j].Name}: dots seen" };
                 SetTask(task);
                 var pj = named[j];
-                check.Add(await Task.Run(() => Look(pj, raster, black, shot, cameraView, world), cts.Token).ConfigureAwait(false));
+                check.Add(await Compute.RunAsync(() => Look(pj, raster, black, shot, cameraView, world), cts.Token).ConfigureAwait(false));
             }
             task = task with { State = "matching", Words = "judging who moved" };
             SetTask(task);
@@ -188,7 +189,7 @@ public sealed partial class EngineCore
                 // The optics are held, so the lens prior has nothing to weigh; a position prior joins the dots as rows, weighed
                 // against the dots' own noise.
                 var priors = PosePriors.From(pj.Priors, pj.Intrinsics, pj.Priors.Position, PosePriors.DensePixelSigma).WithoutFocal;
-                var solution = await Task.Run(() => PoseSolver.Solve(pairs, pj.Intrinsics, pj.Lens, PoseSolveOptions.Default with
+                var solution = await Compute.RunAsync(() => PoseSolver.Solve(pairs, pj.Intrinsics, pj.Lens, PoseSolveOptions.Default with
                 {
                     Locks = SolveLocks.Focal | SolveLocks.Shift | SolveLocks.Distortion,
                     InitialPose = pj.Pose,
@@ -205,7 +206,7 @@ public sealed partial class EngineCore
                 SetTask(task);
                 var again = await shooter.ShootAsync(j, patterns[j].Frame, cts.Token).ConfigureAwait(false);
                 frames++;
-                var verify = await Task.Run(() => Look(after, patterns[j].Raster, black, again, cameraView, world), cts.Token).ConfigureAwait(false);
+                var verify = await Compute.RunAsync(() => Look(after, patterns[j].Raster, black, again, cameraView, world), cts.Token).ConfigureAwait(false);
                 var verifyPairs = MotionAttribution.Pairs(verify, cameraView, world);
                 var (p50, p95, _) = MotionAttribution.WallError(verifyPairs, DeviceView.Of(after));
                 var (score, uncertainty) = DotScore(pj, rig, pairs, solution);
