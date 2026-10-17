@@ -8,8 +8,9 @@ using PlayMap.Core;
 namespace PlayMap.App.Tests;
 
 /// <summary>The desk shows the build it is: its title starts "PlayMap 0.2.0" and the help's About line names the whole build; the
-/// desk's assembly and, on Windows, PlayMap.exe carry the same stamp as their file and product versions.</summary>
-public class VersionTests
+/// desk's assembly and, on Windows, PlayMap.exe carry the same stamp as their file and product versions, and so does every assembly
+/// of PlayMap's own source the desk ships with; vendored code keeps its upstream's version.</summary>
+public partial class VersionTests
 {
     [AvaloniaFact]
     public async Task TheTitleAndTheHelpsAboutNameThisBuild()
@@ -53,4 +54,38 @@ public class VersionTests
             Assert.Equal(current.FileVersion, string.Join('.', exe.FileMajorPart, exe.FileMinorPart, exe.FileBuildPart, exe.FilePrivatePart));
         }
     }
+
+    [Fact]
+    public void EveryAssemblyOfPlayMapsOwnSourceCarriesTheStampAndVendoredCodeItsUpstreamsVersion()
+    {
+        var current = BuildInfo.Current;
+        var folder = Path.GetDirectoryName(typeof(DeskAbout).Assembly.Location)!;
+        var all = Directory.GetFiles(folder, "PlayMap*.dll");
+        var vendored = all.Where(f => Path.GetFileName(f).StartsWith("PlayMap.ThirdParty.", StringComparison.Ordinal)).ToArray();
+        var own = all.Except(vendored).ToArray();
+        // The desk's folder holds what the exe ships: the desk, the engine, every edge and Core.
+        foreach (var name in new[] { "PlayMap.dll", "PlayMap.Engine.dll", "PlayMap.Core.dll", "PlayMap.Net.dll", "PlayMap.Media.dll", "PlayMap.Render.dll" })
+            Assert.Contains(own, f => Path.GetFileName(f) == name);
+        foreach (var file in own)
+        {
+            var info = FileVersionInfo.GetVersionInfo(file);
+            Assert.True(current.FileVersion == info.FileVersion, $"{Path.GetFileName(file)}'s file version is {info.FileVersion}, not {current.FileVersion}");
+            Assert.True(current.Informational == info.ProductVersion,
+                $"{Path.GetFileName(file)}'s product version is {info.ProductVersion}, not {current.Informational}");
+            Assert.Equal("PlayMap", info.ProductName);
+        }
+
+        // Vendored source (src/ThirdParty) keeps its upstream's four-part version, with the upstream commit and PlayMap's patch level
+        // in its product version (the SDK adds the commit built): its file version does not move with PlayMap's builds.
+        Assert.NotEmpty(vendored);
+        foreach (var file in vendored)
+        {
+            var info = FileVersionInfo.GetVersionInfo(file);
+            Assert.Matches(VendoredProduct(), info.ProductVersion ?? "");
+            Assert.StartsWith(info.FileVersion + "+", info.ProductVersion, StringComparison.Ordinal);
+        }
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+\+[0-9a-f]{7}\.playmap\.\d+(\.[0-9a-f]{40,64})?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex VendoredProduct();
 }

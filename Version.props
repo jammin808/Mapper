@@ -5,7 +5,8 @@
        number from 1), and PlayMapCommit, the commit built (hex). The build number is the run number less PlayMapRunBase, the run
        this version's numbering counts from, and is 1-65535. A build given neither property is a local build: build number 0 and
        the "-dev" mark, with the commit the SDK's source control reading finds in the checkout (none outside a git checkout, which
-       is no failure). Every PlayMap assembly carries the same stamp:
+       is no failure). Every project of PlayMap's own source carries the same stamp; the vendored projects under src/ThirdParty
+       import nothing from the root and keep their upstream's version:
          AssemblyVersion       MAJOR.MINOR.0.0 (binding moves only with the release line)
          FileVersion           MAJOR.MINOR.PATCH.BUILD (Windows' four parts: 0.2.0.17 from CI, 0.2.0.0 local)
          InformationalVersion  MAJOR.MINOR.PATCH+BUILD.SHORTSHA from CI (0.2.0+17.abc1234), MAJOR.MINOR.PATCH-dev+SHORTSHA local
@@ -13,7 +14,8 @@
        version); a Windows build copies the desk's resource into PlayMap.exe. A build number past 65535 fails the build with
        words: wrapped, it would read to an installer as an older build; clamped, as the same build. A raised PlayMapVersion keeps
        the count; raised together with PlayMapRunBase set to the last run's number, it starts the count again at 1. PlayMap.Core's
-       BuildInfo reads the stamp back; no other file in the tree writes a version. -->
+       BuildInfo reads the stamp back; no other file of PlayMap's own source writes a version (the desk's app.manifest carries a
+       fixed side-by-side identity, which is not one). -->
   <PropertyGroup>
     <PlayMapVersion>0.2.0</PlayMapVersion>
     <!-- The CI run this version's build numbers count from: build number = PlayMapRun - PlayMapRunBase. -->
