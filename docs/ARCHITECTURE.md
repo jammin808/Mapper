@@ -333,12 +333,12 @@ opens it shared for write and delete (`DurableFile.OpenRead`) and Windows replac
 makes a replace fail (a program that opens it sharing no delete still can, and the writer says so), while a record it only reports
 (the journal, preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
 CPU-bound loops (`Parallel.For`, every one under `src/` held to it by a source scan) and the solves, scan decodes and simulators
-of the scan, align, resolve, blend, mapping, site and stack work, the stage's table builder and automatic blend, thumbnails'
+of the scan, align, resolve, blend, mapping, site and stack work, the stage's automatic blend, thumbnails'
 conversion and encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' pictures and ONNX inference with its
 pixel work (`Compute.RunAsync`, and `Compute.Hop` for an async method's CPU part) on Core's compute threads (`Compute`), never the
 shared thread pool the lanes, sockets and timers need — every product file's pool work is held to a reviewed count by a source scan
-(`ComputeTests`); a still's decode stays on the pool, for the air waits for it and a job queued on the compute threads waits behind
-a solve that holds them all; pools
+(`ComputeTests`); what the air waits for is never queued behind a solve that holds every compute thread: a still's decode stays on
+the pool, and the stage's table builder runs on a thread of its own, its loops on it and the compute threads that are free; pools
 and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,

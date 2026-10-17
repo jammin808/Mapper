@@ -183,7 +183,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Phone/EngineCore.Multiscan.cs"] = 1, // a mesh written
         ["PlayMap.Engine/Rendering/EngineSources.cs"] = 1, // decoders opened and closed
         ["PlayMap.Engine/Rendering/RenderHost.Output.cs"] = 1, // a fact handed on
-        ["PlayMap.Engine/Rendering/StageResources.cs"] = 2, // build and blend loops (their work through Compute)
+        ["PlayMap.Engine/Rendering/StageResources.cs"] = 2, // the builder's own thread (its loops through Compute), the blend loop (its solve through Compute)
         ["PlayMap.Engine/Rendering/TimerView.cs"] = 1, // poll loop
         ["PlayMap.Engine/Scanning/PhoneCamera.cs"] = 1, // picture pump
         ["PlayMap.Engine/Scanning/ScanRunner.Views.cs"] = 1, // archive written

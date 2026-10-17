@@ -231,11 +231,12 @@ Round 2 W1 notes:
   (`ScanEngineTests.TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning`); the phone camera's 5 s and 10 s waits run on the
   hub's clock (`PhoneAlignTests`, `ResolveCameraTests`); the survey import's lane slice is the work the lane thread did in it, its
   own processor time on Linux and macOS (`ThreadTime`, `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`).
-- Done, off the CPU jobs fix-tests3 left on the pool: the stage's table builder and automatic blend, thumbnails' conversion and
+- Done, off the CPU jobs fix-tests3 left on the pool: the stage's automatic blend, thumbnails' conversion and
   encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' still and scan pictures, a probe's first-frame
-  decode and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`; `await Compute.Hop()` moves an
-  async method's CPU part there). The still decode stays on the pool: the air waits for it, and a job queued on the compute threads
-  waits behind a solve that holds them all (`StillBesideComputeTests`). `ComputeTests.EveryJobHandedToThePoolWasReviewedAsNoCpuJob`
+  decode, the site preflight check and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`;
+  `await Compute.Hop()` moves an async method's CPU part there). What the air waits for is never queued there, behind a solve that
+  holds every compute thread: the still decode stays on the pool (`StillBesideComputeTests`), and the stage's table builder runs on a
+  thread of its own, its loops on it and the compute threads that are free (`StageTablesBesideComputeTests`). `ComputeTests.EveryJobHandedToThePoolWasReviewedAsNoCpuJob`
   holds every product file's pool work to a reviewed count, so pool work a file adds fails it until it is reviewed.
 - Done: an optimise job's pause is a fact when its worker holds it. The worker says when it holds the running job between frames
   and when it goes on (its `held` lines); STATE `media.optimise.jobs[].held` is that fact (`paused` is the hold asked), and the

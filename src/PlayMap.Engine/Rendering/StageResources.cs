@@ -28,7 +28,8 @@ public sealed record StageResourceOptions
     public double LensMapScale { get; init; } = 0.25;
 }
 
-/// <summary>The stage's geometry and maps for the renderer, over the project snapshot (built and solved on the compute threads): meshes from
+/// <summary>The stage's geometry and maps for the renderer, over the project snapshot (built on the builder's own thread, the automatic
+/// blend solved on the compute threads): meshes from
 /// <see cref="StageMeshes"/>, warps from <see cref="WarpMeshBuilder"/>, manual blends from
 /// <see cref="BlendMath.EdgeBlendMap"/>, automatic blends from <see cref="BlendSolver3D"/>, masks from
 /// <see cref="MaskRasterizer"/>, lens lookups from <see cref="LensPrewarp"/>.
@@ -118,7 +119,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(meshes);
         _meshes = meshes;
         _options = options ?? StageResourceOptions.Default;
-        _builder = Task.Run(() => BuildLoopAsync(_stop.Token), CancellationToken.None);
+        _builder = Task.Factory.StartNew(() => BuildLoop(_stop.Token), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         _blender = Task.Run(() => BlendLoopAsync(_stop.Token), CancellationToken.None);
     }
 
@@ -215,13 +216,16 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
             wake.Release();
     }
 
-    private async Task BuildLoopAsync(CancellationToken ct)
+    /// <summary>The builder, on a thread of its own: a warp or mask edit reaches the air without waiting for the compute threads, which
+    /// a solve's loop can hold every one of (a job queued there waits behind it). Its own loops pass the compute options, so they run
+    /// on this thread and whichever compute threads are free.</summary>
+    private void BuildLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                await _buildWake.WaitAsync(ct).ConfigureAwait(false);
+                _buildWake.Wait(ct);
             }
             catch (OperationCanceledException)
             {
@@ -233,8 +237,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 continue;
             try
             {
-                // The tables are CPU work (tessellation, masks, lens lookups): built on the compute threads, the loop only waits.
-                await Core.Threading.Compute.RunAsync(() => Build(snap), CancellationToken.None).ConfigureAwait(false);
+                Build(snap);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

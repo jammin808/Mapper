@@ -33,7 +33,7 @@ public sealed class StageResourcesTests
         }
     }
 
-    private static Project WithWarps(Project p) => p with
+    internal static Project WithWarps(Project p) => p with
     {
         Outputs = p.Outputs.Select(o => o with { Warp = new OutputWarp(true, CornerPin.None with { TopLeft = new Vec2d(0.05, 0.02) }, WarpLattice.AtRest(4, 4)) }).ToImmutableArray(),
     };
@@ -160,4 +160,42 @@ public sealed class StageResourcesTests
         Assert.Null(resources.Mesh("ms_scan"));
         Assert.Contains("is missing", meshes.Problem("ms_scan"), StringComparison.Ordinal);
     }
+}
+
+/// <summary>A warp or mask edit reaches the air while a solve holds every compute thread: the stage's tables are built on a thread of
+/// their own, never queued behind the compute threads (where a job waits for every one of them), and the builder's loops run on it.</summary>
+[Collection(ComputeHeldCollection.Name)]
+public sealed class StageTablesBesideComputeTests
+{
+    [Fact]
+    public async Task TheTablesAreBuiltWhileEveryComputeThreadIsHeldByASolve()
+    {
+        var store = new ProjectStore(StageResourcesTests.WithWarps(BlendSolveTests.TwoProjectorsOnAWall()));
+        await using var resources = new StageResources(new StageMeshes(() => null));
+        using var held = new ManualResetEventSlim(false);
+        var holding = Enumerable.Range(0, Core.Threading.Compute.Threads).Select(_ => Core.Threading.Compute.RunAsync(() => held.Wait())).ToList();
+        try
+        {
+            var queued = Core.Threading.Compute.RunAsync(() => 1);
+            resources.Observe(store.Current);
+            await resources.WhenSettledAsync(store.Current.Revision).WaitAsync(TimeSpan.FromMinutes(1));
+            resources.Observe(store.Current);
+            Assert.Equal(store.Current.Revision, resources.Revision);
+            Assert.NotNull(resources.Warp("op_left"));
+            Assert.NotNull(resources.Warp("op_right"));
+            Assert.False(queued.IsCompleted, "a job queued on the held compute threads ran");
+        }
+        finally
+        {
+            held.Set();
+            await Task.WhenAll(holding);
+        }
+    }
+}
+
+/// <summary>Tests that hold the compute threads run alone.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ComputeHeldCollection
+{
+    public const string Name = "Compute threads held";
 }
