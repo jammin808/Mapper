@@ -123,7 +123,7 @@ public sealed class HashCache : IDisposable
             return;
         try
         {
-            var doc = JsonSerializer.Deserialize<Document>(System.IO.File.ReadAllText(file), Json);
+            var doc = JsonSerializer.Deserialize<Document>(DurableFile.ReadAllText(file), Json);
             if (doc?.Entries is null)
                 return;
             foreach (var e in doc.Entries)

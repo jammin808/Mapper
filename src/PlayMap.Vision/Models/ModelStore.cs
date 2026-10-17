@@ -157,7 +157,7 @@ public sealed class ModelStore : IDisposable
             return [];
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllBytes(path));
             var list = new List<LicenceAcceptance>();
             foreach (var e in doc.RootElement.GetProperty("accepted").EnumerateArray())
             {
@@ -236,7 +236,7 @@ public sealed class ModelStore : IDisposable
             return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllBytes(path));
             var r = doc.RootElement;
             var files = ImmutableArray.CreateBuilder<InstalledFile>();
             foreach (var f in r.GetProperty("files").EnumerateArray())

@@ -691,7 +691,7 @@ public sealed partial class EngineCore
         Project project;
         try
         {
-            project = ProjectFile.Deserialize(File.ReadAllText(path));
+            project = ProjectFile.Deserialize(DurableFile.ReadAllText(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or ArgumentException)
         {

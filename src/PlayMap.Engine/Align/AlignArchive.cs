@@ -55,7 +55,7 @@ public static partial class AlignArchive
             return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllText(path));
             return Read(doc.RootElement);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException or IOException)
@@ -72,7 +72,7 @@ public static partial class AlignArchive
         var path = Path.Combine(projectFolder, Folder, runId, $"capture-{outputId}.bin");
         try
         {
-            return File.Exists(path) ? Core.Align.AlignCaptureFile.Read(File.ReadAllBytes(path), prior) : null;
+            return File.Exists(path) ? Core.Align.AlignCaptureFile.Read(DurableFile.ReadAllBytes(path), prior) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -88,7 +88,7 @@ public static partial class AlignArchive
         var path = Path.Combine(projectFolder, Folder, runId, name);
         try
         {
-            return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+            return File.Exists(path) ? DurableFile.ReadAllText(path).Trim() : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -160,4 +160,71 @@ public sealed class DurableFileTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    /// <summary>A reader that opened a durable file as every reader of one does (<see cref="DurableFile.OpenRead"/>) and holds it open
+    /// across a replace never makes the replace fail: the new bytes are in place when the write returns, nothing is left beside them,
+    /// and the reader goes on reading the old bytes whole. On Windows this is the POSIX-semantics rename; elsewhere a rename always is.</summary>
+    [Fact]
+    [Trait("Category", "Windows")]
+    public void AReaderHeldOpenAcrossAReplaceNeitherFailsItNorSeesItHalfDone()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "settings.json");
+            DurableFile.WriteAllText(path, "old settings");
+            for (var i = 0; i < 3; i++)
+            {
+                var before = DurableFile.ReadAllText(path);
+                using var held = DurableFile.OpenRead(path);
+                Assert.Equal((byte)before[0], held.ReadByte());
+                DurableFile.WriteAllText(path, $"new settings {i}");
+                File.WriteAllText(Path.Combine(dir, "b.part"), $"moved {i}");
+                using var heldMoved = File.Exists(Path.Combine(dir, "b.txt")) ? DurableFile.OpenRead(Path.Combine(dir, "b.txt")) : null;
+                DurableFile.MoveIntoPlace(Path.Combine(dir, "b.part"), Path.Combine(dir, "b.txt"));
+
+                Assert.Equal($"new settings {i}", DurableFile.ReadAllText(path));
+                Assert.Equal($"moved {i}", DurableFile.ReadAllText(Path.Combine(dir, "b.txt")));
+                Assert.False(File.Exists(path + ".saving"));
+                using var rest = new StreamReader(held);
+                Assert.Equal(before[1..], rest.ReadToEnd());
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A reader in another program that opened the file without sharing delete (Windows only: Unix never refuses a rename
+    /// over an open file) makes the replace fail, and the writer hears it fail: the call throws, the old bytes are still in place.</summary>
+    [Fact]
+    [Trait("Category", "Windows")]
+    public void AReaderThatSharesNoDeleteMakesTheReplaceFailAloudOnWindows()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "settings.json");
+            DurableFile.WriteAllText(path, "old");
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    var refused = Record.Exception(() => DurableFile.WriteAllText(path, "new"));
+                    Assert.True(refused is IOException or UnauthorizedAccessException, $"{refused}");
+                    Assert.Equal("old", DurableFile.ReadAllText(path));
+                }
+                else
+                {
+                    DurableFile.WriteAllText(path, "new");
+                    Assert.Equal("new", DurableFile.ReadAllText(path));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

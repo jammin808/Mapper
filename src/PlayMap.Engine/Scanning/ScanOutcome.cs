@@ -183,7 +183,7 @@ public static class ScanArchive
         try
         {
             ArchiveFile? file;
-            using (var stream = File.OpenRead(json))
+            using (var stream = DurableFile.OpenRead(json))
                 file = JsonSerializer.Deserialize<ArchiveFile>(stream, ProjectJson.Options);
             if (file is null)
                 return null;
@@ -248,7 +248,7 @@ public static class ScanArchive
     {
         if (!File.Exists(path))
             return null;
-        using var r = new BinaryReader(File.OpenRead(path));
+        using var r = new BinaryReader(DurableFile.OpenRead(path));
         var w = r.ReadInt32();
         var h = r.ReadInt32();
         if (w < 1 || h < 1 || (long)w * h * 24 + 8 != r.BaseStream.Length)
@@ -271,7 +271,7 @@ public static class ScanArchive
     {
         if (!File.Exists(path))
             return null;
-        using var r = new BinaryReader(File.OpenRead(path));
+        using var r = new BinaryReader(DurableFile.OpenRead(path));
         var n = r.ReadInt32();
         if (n < 0 || (long)n * 4 + 4 != r.BaseStream.Length)
             return null;
@@ -293,7 +293,7 @@ public static class ScanArchive
     {
         if (!File.Exists(path))
             return null;
-        var bytes = File.ReadAllBytes(path);
+        var bytes = DurableFile.ReadAllBytes(path);
         var fields = new List<string>();
         var at = 0;
         while (fields.Count < 4 && at < bytes.Length)

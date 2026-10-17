@@ -93,7 +93,7 @@ public static class ScanViewArchive
         try
         {
             MultiViewFile? file;
-            using (var s = File.OpenRead(multiPath))
+            using (var s = DurableFile.OpenRead(multiPath))
                 file = JsonSerializer.Deserialize<MultiViewFile>(s, ProjectJson.Options);
             if (file?.Result is not { Solved: true } result)
                 return loaded;
@@ -104,7 +104,7 @@ public static class ScanViewArchive
                 var path = Path.Combine(scanFolder, "depth", p.Id + ".bin");
                 if (!File.Exists(path))
                     continue;
-                using var s = File.OpenRead(path);
+                using var s = DurableFile.OpenRead(path);
                 depth.Add(ReadDepth(s));
             }
             var coverage = new List<CoverageMap>();
@@ -142,7 +142,7 @@ public static class ScanViewArchive
         ScanViewData? view;
         try
         {
-            using var s = File.OpenRead(json);
+            using var s = DurableFile.OpenRead(json);
             view = JsonSerializer.Deserialize<ScanViewData>(s, ProjectJson.Options);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
@@ -158,7 +158,7 @@ public static class ScanViewArchive
             var path = Path.Combine(folder, projector + ".pmcm");
             try
             {
-                using var s = File.OpenRead(path);
+                using var s = DurableFile.OpenRead(path);
                 maps[projector] = CorrespondenceArchive.Read(s);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)

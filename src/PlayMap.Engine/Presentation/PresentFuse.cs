@@ -25,7 +25,7 @@ public sealed class PresentFuse(string folder, Func<long> unixMs)
             return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(FilePath));
+            using var doc = JsonDocument.Parse(DurableFile.ReadAllText(FilePath));
             var r = doc.RootElement;
             return new FuseState(r.TryGetProperty("path", out var p) ? p.GetString() ?? "dxgi" : "dxgi",
                 r.TryGetProperty("attempt", out var a) && a.TryGetInt32(out var n) ? Math.Max(1, n) : 1,
