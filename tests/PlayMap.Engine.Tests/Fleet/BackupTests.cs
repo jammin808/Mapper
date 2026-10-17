@@ -100,10 +100,13 @@ public sealed class BackupTests
         Assert.True((await backup.RunAsync("STATE")).Ok);
 
         // FAILOVER: the backup leads on the same time line under a higher epoch; the old primary hears it and fences itself.
+        // Both nodes' clocks are the test's manual one, standing still: the show time read across the takeover is a fact, not a time
+        // measured, and continuing the old leader's line it moves not at all.
         var before = backup.Engine.LeaderNowNs;
         var takeover = await backup.RunAsync("FAILOVER");
         Assert.True(takeover.Ok, takeover.Payload);
-        Assert.InRange(backup.Engine.LeaderNowNs - before, 0, 16_666_667);
+        Assert.Equal(before, backup.Engine.LeaderNowNs);
+        Assert.Contains("show clock continuous (0 ms read across the change)", takeover.Effect, StringComparison.Ordinal);
         Assert.Equal(("primary", 1L), (BackupRig.Role(backup), BackupRig.Fleet(backup).GetProperty("epoch").GetInt64()));
         Assert.Equal("leader", backup.State().GetProperty("sync").GetProperty("role").GetString());
         Assert.Equal(1, backup.State().GetProperty("sync").GetProperty("epoch").GetInt64());
