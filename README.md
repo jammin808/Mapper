@@ -114,6 +114,10 @@ context report it.
 **In progress:** the Direct3D 11 path, Spout and hardware decode on real GPUs (the direct-sampling proof among them); and the
 desk's controls for show safety, locks, blind edit, the sync board, effects and the rest, which today run over the wire.
 
+**Next round:** PlayMap will become a Windows-native installed application on Direct3D 12 — a signed per-machine installer, the
+engine supervised in the show user's session, each output proving its flip mode, hardware lock on RTX PRO Sync and measured phase
+everywhere else (`docs/round3/PLAN.md`).
+
 ## What it is made of
 
 | Module | What it does |

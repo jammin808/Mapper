@@ -32,6 +32,40 @@ That work spans items from Rounds 1–4 and the mid term; a **Built** note on an
 | ★★ | Expected by pros |
 | ★ | Nice to have |
 
+## Round 3 — Windows-native
+
+*The third build round (`docs/round3/`), numbered apart from this roadmap's Rounds 0–4 below, whose own Round 3 is "Plays with
+others". Its plan of record is `docs/round3/PLAN.md`.*
+
+**Today.** PlayMap is one portable exe. It renders through OpenGL 3.3 core or ES 3.00 on GLFW windows, EGL or a surfaceless context;
+on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no
+evidence yet marks as in Independent Flip. The NVAPI frame-lock tier reads a sync board and joins no output. A lost device stops the
+drawing after 30 faulting frames while the engine plays on. The engine claims nothing from Windows beyond above-normal thread
+priority. Previews reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or
+supervises, and the version is the hard-coded 0.1.0 until the `versioning` branch lands.
+
+**Next** (the plan's packages will build these in four waves after a spine; GL will stay the reference backend through the round
+and retire once the pixel and timing evidence agrees):
+
+| Item | Package | Moves |
+|---|---|---|
+| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels | wp3-rhi | — |
+| Direct3D 12 behind it: the device, queues, fences, memory, DRED and Aftermath, every pixel scene on WARP in CI | wp3-d3d12-core | — |
+| The render graph compiled on show change; pipelines compiled at arm and keyed by driver; bindless records; zero allocation on a warm frame, modulated layers included | wp3-d3d12-passes, -2 | R2.8 |
+| One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |
+| Flip-model presenters on Direct3D 12, Independent Flip proven per output, one queued frame, the frame drawn for its predicted display instant, HDR10 and 10-bit | wp3-present | R2.1, R2.5, M21 |
+| The present barrier on RTX PRO with RTX PRO Sync; free outputs reporting measured phase, never "locked" | wp3-framelock | R4.2 |
+| D3D12VA decode sampled in place, the copy-queue upload arena, Spout through a D3D11 side device | wp3-video | R2.2 |
+| The Windows platform seam: QoS, timers, MMCSS, process and GPU priority, keep-awake, the GC's latency mode while armed; the node's identity and drivers in STATE; machine preflight with driver drift | wp3-platform | R2.8, R2.9 |
+| A watermark read back by an independent observer; the shown-frame heartbeat; `LATENCY STEP`; one rebuild path for a lost device, rehearsed in CI | wp3-stability, -2 | R1.11 |
+| Shared-texture previews into the desk | wp3-desk-gpu | — |
+| The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age | wp3-desk-ux | M20 (the night theme) |
+| A signed per-machine MSI with a supervising service, the engine in an auto-logged-on show user's session, the MSI's version rules, an install refused while the show is armed | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (versions; never updating an armed node) |
+
+What only real hardware can show — Direct3D 12 against GL on the present ledger, Independent Flip with PresentMon beside STATE, a
+Sync wall, real TDRs — is the plan's lab checklist (`docs/round3/PLAN.md` §7); AUTO will become Direct3D 12 on a GPU tier only with
+that tier's parity record.
+
 ## 1. How we chose the order
 
 1. **First light, then smoothness, then interop, then show-floor discipline.** Nothing else matters if the wall stutters.
